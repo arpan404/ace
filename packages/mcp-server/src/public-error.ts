@@ -49,6 +49,7 @@ export const PublicToolCode = z.enum([
   "covered",
   "unsaved_changes",
   "evaluate_approval_required",
+  "storage_restricted",
   "evaluate_failed",
   "page_unreachable",
   "browser_restarted",
@@ -275,6 +276,10 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   evaluate_approval_required: {
     message: "Browser evaluate was refused by the host policy",
     hint: "Read the page with a snapshot or find_text instead.",
+  },
+  storage_restricted: {
+    message: "Agents can't read cookies or site storage in the person's own browser",
+    hint: "In Use my Chrome, evaluate runs without document.cookie, localStorage, sessionStorage, indexedDB or cookieStore. Read the page's DOM instead, or ask the person to allow it in Settings › Computer use › Use my Chrome.",
   },
   evaluate_failed: {
     message: "The script threw, timed out or was refused",

@@ -140,7 +140,7 @@ const actions = {
   dialog: {
     riskClass: "external-effect",
     description:
-      "Answer a pending dialog by dialogId: accept or dismiss, with optional promptText.",
+      "Answer a pending dialog by dialogId: accept or dismiss, with optional promptText. Accepting a leave-page (beforeunload) prompt on a page the person used fails with unsaved_changes; dismiss it to stay.",
   },
   hover: { riskClass: "external-effect", description: "Move the pointer over a snapshot ref." },
   drag: { riskClass: "external-effect", description: "Drag a snapshot ref to toRef." },

@@ -146,7 +146,9 @@ Phase 3 revisits this with measured per-viewer frame sizes.
 A thread's browser holds ordered tabs on whichever backend serves it.
 
 - **TabRuntime** per tab (`tab-runtime.ts`): its own page surface, command queue (32 pending,
-  128 across a thread), element refs, annotate mode, privacy ("Keep agents out") and lifecycle.
+  128 across a thread), the person's lane (their input and annotate commands, ADR 0082), the
+  agent-input lane (agent input waiting for the person, ADR 0067), element refs, annotate mode,
+  privacy ("Keep agents out") and lifecycle.
   People and agents share it (ADR 0067, Collaboration, amended for H4). Commands on different tabs run concurrently; a dialog holds only its own
   tab. Logs and downloads stay thread-wide and carry the tab id.
 - **Routing** (`session-tabs.ts`): an explicit `tabId`, else the calling agent's own tab (its
@@ -155,8 +157,9 @@ A thread's browser holds ordered tabs on whichever backend serves it.
   tab of its own. Only open, close and select take a short per-thread lock.
 - **The person's view** is the backend's active tab. Agent commands, screenshots included, never
   move it. An agent's opened or selected tab takes the view only while the person has neither
-  picked a tab nor used the viewed one in the last 30 seconds. Live capture and recording follow the viewed tab;
-  frames carry `tabId`.
+  picked a tab nor used the viewed one in the last 30 seconds. Live capture follows the viewed
+  tab; frames carry `tabId`. A recording follows the one tab it was started on (ADR 0067,
+  "Privacy in captures").
 - **Tabs** report `openedBy`, `drivenBy`, `label`, `inUse` (the agent working there), `pointer`
   (where it last pointed), `private`, `lifecycle` and `loading`. A backend
   may report who opened a tab (the person's shared tabs in their own Chrome, ADR 0084).
@@ -172,7 +175,8 @@ A thread's browser holds ordered tabs on whichever backend serves it.
   finished agent never pushes the next one into an extra tab. A tab stays when the agent kept
   it (`ace_browser_tabs` `keep`, or `keep` on open: a deliverable or handoff), when the person
   opened it, views it, used it in the last 10 minutes or keeps agents out, and while it is
-  busy, holds a dialog or is downloading. `kept` is restored after a restart.
+  busy, holds a dialog or is downloading; the thread's last tab never closes this way. `kept`
+  is restored after a restart.
 - **Lifecycle** (`tab-lifecycle.ts`, pure, injected clock): an unviewed, idle, unpinned tab
   freezes after 15 minutes (`Page.setWebLifecycleState`) and wakes before its next command.
   Amended for #953: after 2 hours idle it is discarded (its target closed, its budget place

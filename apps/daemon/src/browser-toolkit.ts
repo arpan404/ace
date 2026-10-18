@@ -92,7 +92,7 @@ export function browserToolkit(
       registry.registerContent({
         name: "ace_browser_open",
         description:
-          "Open this thread's ace browser, which the person can watch and take over in ace, at an optional HTTP(S) url (localhost included). Returns tabId. newTab opens your own tab (give it a label); parallel agents must each open a labelled tab and pass its tabId to every ace_browser_* call. The best pick when the person should see the page, or you need console and network evidence (ace_browser_logs). Then ace_browser_snapshot for element refs. browser \"user\" works in the person's own Chrome instead, signed in as them; pass the same browser to every later call for that page. More: ace_guide ace-browser.",
+          "Open this thread's ace browser, which the person watches and uses alongside you in ace, at an optional HTTP(S) url (localhost included). Returns tabId. newTab opens your own tab (give it a label); parallel agents must each open a labelled tab and pass its tabId to every ace_browser_* call. The best pick when the person should see the page, or you need console and network evidence (ace_browser_logs). Then ace_browser_snapshot for element refs. browser \"user\" works in the person's own Chrome instead, signed in as them; pass the same browser to every later call for that page. More: ace_guide ace-browser.",
         input: z.strictObject({
           url: z.string().max(8192).optional(),
           newTab: z.boolean().default(false),
@@ -183,7 +183,7 @@ export function browserToolkit(
       registry.registerContent({
         name: "ace_browser_close",
         description:
-          "Close one tab with tabId (close the tabs you opened when done), or without tabId the whole browser and every tab in it.",
+          "Close one tab with tabId now (tabs you opened also close by themselves when your turn ends unless kept), or without tabId the whole browser and every tab in it.",
         input: z.strictObject({
           tabId: z.string().min(1).max(256).optional(),
           ...browserMachineInput,

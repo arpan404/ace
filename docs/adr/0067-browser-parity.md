@@ -61,9 +61,10 @@ Failed browser startup removes its unpublished session directory. Successful
 session directories retain their artifacts after close. Concurrent headless
 opens share the service's verified Chromium acquisition.
 
-`ace_browser_tabs` lists, opens, switches and closes tabs. `ace_browser_open`
-accepts `newTab`. Commands can select `tabId`; selection and input remain serialized
-within a thread. Another thread can work while one thread waits for approval.
+`ace_browser_tabs` lists, opens, selects, keeps and closes tabs (operations `list`, `open`,
+`select`, `close`, `keep`; the old `switch` is gone, ADR 0083 "Tabs"). `ace_browser_open`
+accepts `newTab`. Commands can select `tabId`; each tab serializes its own commands, and
+commands on different tabs run concurrently (ADR 0083, "Tabs"). Another thread can work while one thread waits for approval.
 Closing the last tab requires closing the browser. Switching capture stops the old
 screencast before starting the new one and retains increasing frame sequences.
 
@@ -160,13 +161,14 @@ The owner tested take over / hand back and rejected it: "we must have proper hum
 together, no need of taking over or handing back." The rules now are:
 
 - **The person's input always lands at once**, in any tab, whoever else works there. It never
-  queues behind agent commands (it has its own ordered lane per tab) and is never refused for
-  agent activity. Annotate mode belongs to whichever of the person's connections started it; a
+  queues behind agent commands (it runs on the tab's ordered person's lane, which the person's
+  annotate commands share; ADR 0082) and is never refused for agent activity. Annotate mode belongs to whichever of the person's connections started it; a
   second one starting replaces it (`ended` with reason `lease`).
 - **An agent marks the tab it uses.** A tab carries `inUse` (the agent, by `agentId`) while one
   of its commands runs and for `inUseMs` (8 s) after, and `pointer`: where it last clicked,
-  hovered or dropped, in the tab's CSS pixels. Clients draw the agent cursor on the tab and over
-  the page. The backend hears about it (`agentUse`) so the desktop intercepts file choosers and
+  hovered or dropped, in the tab's CSS pixels. Clients mark the tab; the daemon draws the agent
+  cursor in the page (ADR 0082, "Agent cursor"), and clients draw it over the frames only
+  without the `page-cursor` feature or while a recording keeps it out of the page. The backend hears about it (`agentUse`) so the desktop intercepts file choosers and
   keeps an unseen view rendering for the agent.
 - **Agent input politely waits for the person.** An agent's page input (click, type, press,
   scroll, drag, hover, select, check, uncheck, focus, fill_form, upload, navigate and history
@@ -289,12 +291,14 @@ click. Now, in the element's own document and in every engine (`hit-target.ts`):
 - **Recording is visible and stoppable.** `BrowserState.recording` carries who started a
   recording (`by`, an agent with its id, or the person). The browser panel shows it with Stop
   recording (`browser.recording.stop`), and the sidebar's computer-use indicator lists the
-  browser while it records. While a recording runs every tab's secret fields are masked and
-  agents' cursors are hidden, so neither is in its frames.
+  browser while it records. A recording follows one tab (the agent's current tab or `tabId`),
+  whichever tab the person views: the live frames while it is shown, screenshots of it
+  otherwise; a private tab adds none. While a recording runs every tab's secret fields are
+  masked and agents' cursors are hidden in every tab, so neither is in its frames.
 - **Evaluate** is restricted in the person's own Chrome (ADR 0084, "Evaluate restriction").
   Consistent with the 2026-10-14 decision, the restriction is a removed capability, not a prompt.
 
-## Private takeover and recording (superseded by Collaboration above)
+## Private takeover (superseded by Collaboration above) and recording
 
 Takeover has shared and private modes. Shared takeover retains the existing
 agent-read behavior. Private takeover rejects every agent command and inline

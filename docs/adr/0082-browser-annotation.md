@@ -125,9 +125,10 @@ reports `ready` again with a new `documentId`, and the client restores its marke
 `restore` command.
 
 **The person's lane.** A person's annotate commands (start, page commands, captures, stop)
-run in order on a lane of their own in the tab, never behind agent commands, which may be
-waiting for the person to pause (ADR 0067, Collaboration). Stop always runs, whatever the tab's
-state. Commands without a `tabId` go to the tab the connection is annotating.
+run on the tab's person's lane, in order with the person's own input there, never behind agent
+commands, which may be waiting for the person to pause in the agent-input lane (ADR 0067,
+Collaboration). Stop always runs, whatever the tab's state. Commands without a `tabId` go to
+the tab the connection is annotating.
 
 **Send.** The bar's Send leaves annotate mode. The client sends the message at once: the draft
 counts a page screenshot from the moment it is asked for, so one still being taken travels with
@@ -185,7 +186,8 @@ events) never takes input. The world has no binding: it only draws.
   annotate overlay's. Captures for agents (screenshots, the person's annotation captures) hide it
   and wait two frames first; during a recording it stays hidden, so recordings never show it,
   and clients draw their own cursor over the live frames meanwhile. `BrowserState.features`
-  contains `page-cursor` when the daemon draws cursors; clients then draw none over frames.
+  contains `page-cursor` when the daemon draws cursors; clients then draw none over frames
+  unless a recording runs (`BrowserState.recording`). Without the feature, clients draw it.
 
 The screencast the person watches shows the in-page cursor; that is the person's own view and
 not a capture for an agent.

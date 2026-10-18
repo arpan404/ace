@@ -86,9 +86,8 @@ other answer, including an older desktop's "unknown method" error, counts as ali
 tab is placed in the panel or takes the person's input; the others render, unseen, in the
 parking window while an agent drives them (`backgroundThrottling: false`, ADR 0069's 30-second
 rule), and are hidden and throttled otherwise. Only the selected tab's screencast is relayed.
-The `cdp` operation's tab methods, for the daemon's tab runtime:
-
-This is the one tab contract the desktop and the daemon's tab runtime (ADR 0083) both keep:
+The `cdp` operation's tab methods are the one tab contract the desktop and the daemon's tab
+runtime (ADR 0083) both keep:
 
 | Method            | Params                                    | Result                                 |
 | ----------------- | ----------------------------------------- | -------------------------------------- |

@@ -22,9 +22,16 @@ that calls them applies its own permissions, so every call ace receives proceeds
    the levels read. Output over 10000 nodes or 512 KB is cut with
    `truncated: true` and a `hint`; a page over 50000 DOM nodes returns an
    outline of its landmarks and headings to scope with `ref`.
-3. `ace_browser_click({ref: "e1-42"})` clicks the element's centre.
+3. `ace_browser_click({ref: "e1-42"})` waits for the element to hold still,
+   then presses the first point of it that takes the click itself (centre
+   first). Something on top everywhere fails with `covered`; an element out of
+   the viewport or still moving after 1 s fails with `not_hittable`. Nothing is
+   clicked in either case. Hover, check, uncheck and drag do the same; a click
+   at `x`, `y` is not checked.
    `ace_browser_type({ref: "e1-43", text: "Ada"})` replaces the editable
-   element's contents. `ace_browser_press({ref: "e1-43", key: "Enter"})`
+   element's contents; while the person works in the tab it adds the text after
+   theirs, leaves their focus and caret alone and returns `kept_text: true`
+   (`fill_form` does the same per field). `ace_browser_press({ref: "e1-43", key: "Enter"})`
    focuses it and sends a key. Omitting `ref` uses the focused element.
 4. After submitting, use `ace_browser_wait_for({url: "http://localhost:3000/results"})`
    for a destination through DOMContentLoaded (exact, or a glob where `*` matches
@@ -63,7 +70,7 @@ backend replacement require a fresh snapshot. A ref is not a CSS selector.
 | `ace_browser_logs`     | optional kind, level, url substring, status, limit; returns bounded redacted inline entries                                                                       |
 | `ace_browser_resize`   | `width`, `height`, 100–4096 CSS pixels                                                                                                                            |
 | `ace_browser_emulate`  | `width`, `height`, optional `deviceScaleFactor`, `mobile`, `touch`, `colorScheme`                                                                                 |
-| `ace_browser_close`    | `{}`; closes the thread browser after agent control is restored                                                                                                   |
+| `ace_browser_close`    | optional `tabId` closes that tab; without it, the whole thread browser                                                                                            |
 
 ## Sites and control
 
@@ -82,11 +89,16 @@ once agents are let back in. Refresh the snapshot before continuing.
 
 ## Tabs, files and inspection
 
-`ace_browser_tabs({operation:"list"})` returns stable IDs and the active tab.
-Use operation open with optional url, or switch/close with tabId. The last tab
-requires ace_browser_close. Each thread has at most eight tabs; the daemon has
-at most 32. Popups are background tabs. Commands accept optional
-tabId to select their target; snapshot again after switching.
+`ace_browser_tabs({operation:"list"})` returns stable IDs; `current` marks yours.
+Use operation open with optional url and label, select or close with tabId, and
+keep with tabId (`keep:false` makes a kept tab temporary again). Tabs you open are
+temporary: they close when your turn ends, unless you kept them (`keep` on open or
+operation keep, for a deliverable or handoff) or the person opened, views, recently
+used or keeps agents out of them; a busy tab, one holding a dialog or a download,
+and the last tab stay too. The last tab requires ace_browser_close. Each thread has
+at most 16 tabs, each agent 8 open, the daemon 48. Popups are background tabs.
+Commands accept optional tabId to select their target; snapshot again after
+selecting.
 
 `ace_browser_find({role:"button",name:"Save"})` returns matching snapshot nodes;
 exact defaults true. Hover/focus/check/uncheck take ref, drag takes ref and toRef,
@@ -101,18 +113,29 @@ MIME and executable/archive flags. Never execute or open a flagged file by defau
 A tab may carry pending_dialog with dialogId, tabId, type and message. Answer with
 `ace_browser_dialog({dialogId,accept:true,promptText:"text"})`, or accept:false to
 dismiss. A beforeunload on a page only you used is accepted automatically; on a page the
-person used it waits for them, and accepting it fails with `unsaved_changes`. Native permission
+person used it waits for them, and accepting it fails with `unsaved_changes` (dismiss it to
+stay, ask the person, or use another tab). On the desktop's view your navigation off such a
+page fails with `unsaved_changes` at once. Native permission
 prompts and file chooser windows do not grant capabilities.
 
 Evaluate defaults to unrestricted. Use mode read-only to read DOM in an isolated
 world with side-effect checking. It refuses mutation, navigation and network calls;
-it cannot read page-world variables and may refuse harmless operations.
+it cannot read page-world variables and may refuse harmless operations. With
+`browser: "user"` (the person's own Chrome, ADR 0084) evaluate runs apart from page
+scripts and cannot reach cookies or site storage unless the person allows it in Settings;
+a refused read fails with `storage_restricted`.
 
 `ace_browser_network_body({requestId})` reads one completed bounded text response
 from a request ID in logs. Binary, incomplete, evicted or oversized bodies fail.
 Known secrets are redacted; arbitrary page text can still be sensitive.
 `ace_browser_record_start({})` and record_stop reuse the recording/artifact pipeline.
-Recording captures the active view; private frames are excluded. Recording is not replay.
+A recording follows one tab (your current tab, or tabId), whichever tab the person
+views; a private tab adds no frames. The person sees every recording and can stop it.
+While it runs, secret fields are masked and agent cursors hidden in every tab.
+Recording is not replay.
+
+Password fields, one-time codes and card fields never reach agents: snapshots show
+their values as `••••••••` and screenshots render them blank.
 
 The [UI wire handoff](browser-parity-ui.md) defines tab/download/dialog state
 and private reconnect.
@@ -201,8 +224,10 @@ Execution failures return MCP `isError: true` and text containing bounded JSON
 Only ace-authored public failure types expose fixed messages and remedies. Arbitrary
 backend messages, hints, stacks, strings and code-shaped objects become a fixed
 `execution_failed` response. Schema errors expose no private issue literals.
-Examples include `stale_ref`, `human_active`, `delegation_required`,
-`lease_required`, `denied`, and `invalid_arguments`. Malformed backend
+Examples include `stale_ref`, `human_active`, `covered`, `not_hittable`,
+`unsaved_changes`, `page_unreachable` (with `detail` naming the network error),
+`browser_restarted`, `delegation_required`, `lease_required`, `denied`, and
+`invalid_arguments`; each carries a `hint` that says what to do next. Malformed backend
 results return `invalid_data` so the agent is not told to change valid arguments. Allowlisted native screen
 error codes, including `target_gone` and `permission_denied`, are retained with
 fixed guidance. Unknown native codes use a generic failure.

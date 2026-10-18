@@ -64,8 +64,9 @@ with `browser: "user"` on browser tool calls (see "Integration" below).
    a controlled tab, from ace's first command there, to reach its out-of-process iframes; it relays
    only `iframe` child sessions and accepts commands only for those, under the same allowlist.
    ace has no cookie, password, storage or history tool for this backend. Page script an
-   agent evaluates can still read what the page itself can (for example non-HttpOnly cookies) on a
-   tab the person shared; HttpOnly cookies, saved passwords and other sites' data are never
+   agent evaluates could still read what the page itself can (for example non-HttpOnly cookies) on a
+   tab the person shared, until "Evaluate restriction" below took that away unless the person
+   allows it; HttpOnly cookies, saved passwords and other sites' data are never
    reachable.
 
 ### ADR 0002
@@ -130,7 +131,8 @@ existing `BrowserBackend` interface with `kind: "user"`:
 
 Each session is built from the tab's relayed CDP with the same building blocks as ace's Chrome:
 CDP navigation, agent input chords, model screenshots, page status and console/network logs, so
-snapshot, refs, click, type, wait, evaluate and the rest of `BrowserSession` work unchanged.
+snapshot, refs, click, type, wait, evaluate (restricted; see "Evaluate restriction") and the
+rest of `BrowserSession` work unchanged.
 Differences: no request interception (the person's own browsing is not policed, and a paused
 document must never hang their tab when the daemon is slow); the extension enforces the scheme
 policy instead. `resize` emulates a viewport only on agent tabs; a shared tab keeps the person's
@@ -197,7 +199,8 @@ Chrome):
   `opener`, `frames` and the frame-content accessors with non-configurable accessors that throw,
   in this document and in every same-origin frame reachable now. Creating frame elements or
   inserting markup that holds one throws too, so no fresh frame realm with the original APIs can
-  be reached. A refused read fails with a message that names the setting.
+  be reached. A refused read fails with the public code `storage_restricted`, whose hint
+  names the setting.
 - `read-only` keeps its V8 side-effect check on top.
 
 This is a capability restriction, not an approval prompt: ace adds no prompts of its own for its

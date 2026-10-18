@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { BrowserCdp } from "./backend.ts";
 import { CallResult } from "./cdp.ts";
+import { BrowserActionError } from "./action-error.ts";
 import { decodeEvaluationValue, serializeEvaluationValue } from "./evaluation-value.ts";
 
 /**
@@ -158,7 +159,8 @@ export async function evaluateWithoutStorage(
       .object({ exception: z.object({ description: z.string() }).optional() })
       .safeParse(response.exceptionDetails);
     const description = details.success ? (details.data.exception?.description ?? "") : "";
-    if (description.includes(storageRefusal)) throw new Error(storageRefusal);
+    // A public failure, so the agent learns why and that the person can allow it.
+    if (description.includes(storageRefusal)) throw new BrowserActionError("storage_restricted");
     throw new Error(
       mode === "read-only"
         ? "Read-only evaluation refused side effects or failed"
