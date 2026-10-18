@@ -14,14 +14,12 @@ import {
   agentName,
   approvalByKey,
   approvalCopy,
-  privateBrowserGate,
   displayCommand,
   questionTitle,
   requestIdentity,
 } from "@ace/ui-core";
 import { CheckIcon } from "@phosphor-icons/react";
 import { ApprovalHeading, ApprovalRequest } from "@/components/approval-request.tsx";
-import { PrivateBrowserNotice } from "@/components/private-browser-notice.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
@@ -259,7 +257,7 @@ function OpenRequest(props: {
   const kind = {
     approval: "Approval",
     question: "Question",
-    plan_review: privateBrowserGate(interaction) ? "Browser" : "Plan review",
+    plan_review: "Plan review",
     elicitation: request.kind === "elicitation" ? request.server : "Request",
   }[request.kind];
   const decisions = copy?.decisions;
@@ -341,10 +339,7 @@ function OpenRequest(props: {
       {request.kind === "question" && (
         <QuestionForm questions={request.questions} disabled={sending} onAnswer={answer} />
       )}
-      {request.kind === "plan_review" && privateBrowserGate(interaction) && (
-        <PrivateBrowserNotice />
-      )}
-      {request.kind === "plan_review" && !privateBrowserGate(interaction) && (
+      {request.kind === "plan_review" && (
         <PlanReview disabled={sending} onAnswer={answer}>
           <Prose text={request.markdown} className="text-ui leading-[1.55]" />
         </PlanReview>
