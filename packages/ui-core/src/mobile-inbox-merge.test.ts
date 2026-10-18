@@ -84,8 +84,8 @@ test("the same thread id on two machines keeps two rows with their own status", 
   expect(inboxStatus(theirs).label).toBe("Done");
 });
 
-test("an offline machine's copy reads Syncing without hiding or settling the other machine", () => {
-  // linux is offline: its rows are what this phone last saw, unconfirmed by the daemon.
+test("an unconfirmed copy from an unreachable machine reads Syncing; the other machine is untouched", () => {
+  // linux is unreachable since launch: its rows were restored from disk, unconfirmed by the daemon.
   const offline = linux.map((thread) => on("linux", thread.entry, true));
   offline.push(on("linux", entry("asks", { state: "needs_you", interactions: 1 }, now), true));
   const merged = merge([inboxSections(mac, [], now), inboxSections(offline, [], now)]);

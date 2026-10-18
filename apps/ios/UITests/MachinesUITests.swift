@@ -35,8 +35,10 @@ import XCTest
         app.descendants(matching: .any)["machines.row.ios-spike-host-9852"].firstMatch.tap()
         XCTAssertTrue(app.descendants(matching: .any)["provider.codex"].firstMatch.waitForExistence(timeout: 20))
         screenshot("machines-detail")
-        app.swipeDown(velocity: .fast)
+        app.navigationBars["studio-9852"].buttons.firstMatch.tap()
+        XCTAssertTrue(app.buttons["Done"].firstMatch.waitForExistence(timeout: 5))
         app.buttons["Done"].firstMatch.tap()
+        XCTAssertTrue(first.waitForExistence(timeout: 10))
 
         // One machine drops: its banner appears, the other machine's rows stay and stay live.
         try await control(9863, online: false)

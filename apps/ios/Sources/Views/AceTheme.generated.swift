@@ -3,8 +3,10 @@ import SwiftUI
 import UIKit
 
 @MainActor enum AceTheme {
-    private static func adaptive(_ light: UInt32, _ dark: UInt32) -> Color {
-        Color(uiColor: UIColor { traits in
+    /// UIKit resolves dynamic colours on SwiftUI's render threads too (sheets with detents),
+    /// so the provider must not assume the main actor.
+    nonisolated private static func adaptive(_ light: UInt32, _ dark: UInt32) -> Color {
+        Color(uiColor: UIColor { @Sendable traits in
             let value = traits.userInterfaceStyle == .dark ? dark : light
             return UIColor(red: CGFloat((value >> 16) & 255) / 255, green: CGFloat((value >> 8) & 255) / 255, blue: CGFloat(value & 255) / 255, alpha: 1)
         })

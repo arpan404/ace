@@ -121,8 +121,8 @@ group and rows by rank in UTF-16 order, so the merged inbox matches grouping eve
 machine together; the TS tests in `mobile-inbox-merge.test.ts` hold it to that.
 `MachineInbox` keys rows by machine and thread id, routes actions and opened threads to
 the row's machine, and names machines on rows only when more than one is paired. A
-machine that drops gets its own banner; its rows read Syncing and the others are
-untouched. Each machine's runtime adds about 48 MiB in the simulator (see the PR).
+machine that drops gets its own banner and keeps the rows this phone last saw (a copy
+restored from disk and not yet confirmed reads Syncing); the other machines are untouched. Each machine's runtime adds about 48 MiB in the simulator (see the PR).
 
 The header chip opens the Machines sheet: connection word and last seen
 (`bridge/machine-info.ts`, `machineConnection`), access, address, ace version, and the
