@@ -135,7 +135,7 @@ Persist `token` in the client's secure credential storage. The helper checks the
 
 ## Performance and runtime boundaries
 
-Run `bun run --filter @ace/daemon bench:remote` for an informational benchmark through real HTTP, SQLite and cryptographic credential generation. It requests successive batches of 1,000, 3,000 and 6,000 tickets across 314 devices, leaving 10,000 pending without bypassing the per-device limits. No timing threshold gates tests. Results and the comparison against the previous ticket scan are in [remote-verification.md](./remote-verification.md).
+Run `bun run --filter @ace/daemon bench:remote` for an informational benchmark through real HTTP, SQLite and cryptographic credential generation. It requests successive batches of 1,000, 3,000 and 6,000 tickets across 314 devices, leaving 10,000 pending without bypassing the per-device limits. No timing threshold gates tests.
 
 The allocation policy receives time and hashed identities from the I/O layer. Credential entropy and IDs, TLS certificate signing and temporary IDs, network-interface/status discovery, and client certificate clocks are injected at their boundaries. Default adapters use the host's crypto, OpenSSL, Tailscale and clock. Complete device records and lifecycle timestamps are validated before SQLite changes, so rejected public store operations preserve existing rows.
 
