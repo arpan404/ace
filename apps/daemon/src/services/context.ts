@@ -1,4 +1,5 @@
 import { retainsHtml } from "../html-publication.ts";
+import { retainsImage } from "../image-publication.ts";
 import { observeNativeImages, imageReference } from "../native-images.ts";
 import { logError } from "@ace/diagnostics";
 import { warmup } from "./warmup.ts";
@@ -28,6 +29,7 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
         owner !== undefined &&
         owner.deletedAt === undefined &&
         (retainsHtml(store, thread, hash) ||
+          retainsImage(store, thread, hash) ||
           store.nativeImages.retains(thread, hash) ||
           store.toolResults.retains(thread, hash) ||
           store.measurements.retains(thread, hash) ||

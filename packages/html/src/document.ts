@@ -2,6 +2,7 @@ import { parse, parseFragment, serialize, type DefaultTreeAdapterMap } from "par
 import type { HtmlMode } from "@ace/protocol";
 import { validateHtml } from "./validation.ts";
 import { withoutScripts } from "./mode.ts";
+import { baseStyles } from "./base-styles.ts";
 import { frameBridge, pageBridge, pageBridgeHash, themeProperties } from "./scripts.ts";
 
 /**
@@ -74,7 +75,7 @@ function themedDocument(html: string, theme: HtmlTheme, mode: HtmlMode): string 
     .map(([key, value]) => `--${key}:${value}`)
     .join(";");
   const prefix = parseFragment(
-    `${dnsOptOut}<meta http-equiv="Content-Security-Policy" content="${attribute(policy)}"><meta name="referrer" content="no-referrer">${schemeMeta(theme)}<style>:root{${tokens}}html{color:var(--foreground);font-family:var(--font-sans,system-ui);background:transparent}body{margin:0;display:flow-root}*{box-sizing:border-box}</style><script>${pageBridge}</script>`,
+    `${dnsOptOut}<meta http-equiv="Content-Security-Policy" content="${attribute(policy)}"><meta name="referrer" content="no-referrer">${schemeMeta(theme)}<style>${baseStyles}</style><style>:root{${tokens}}html{background:transparent}body{margin:0;display:flow-root}*{box-sizing:border-box}</style><script>${pageBridge}</script>`,
   );
   head.childNodes.unshift(...prefix.childNodes);
   return serialize(document);

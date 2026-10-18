@@ -19,9 +19,11 @@ test("preview accepts inline interactive pages and rejects network and navigatio
     expect(validateHtml(markup).valid).toBe(false);
 });
 test("size diagnostics count UTF-8 bytes before parsing", () => {
-  const result = validateHtml("é".repeat(140000));
+  // Under the cap in characters, over it in bytes: "é" is two UTF-8 bytes.
+  const characters = 9 * 1024 * 1024;
+  const result = validateHtml("é".repeat(characters));
   expect(result.valid).toBe(false);
-  expect(result.bytes).toBe(280000);
+  expect(result.bytes).toBe(characters * 2);
   expect(result.diagnostics.some((entry) => entry.code === "size")).toBe(true);
 });
 

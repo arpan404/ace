@@ -220,6 +220,8 @@ const projectSpecs: Record<string, AceToolSpec> = {
   }),
   // Its markup and title are private input, redacted before they reach the transcript.
   html_render: fixed("ace", say(["Rendered", "Rendering", "Render"], " a page")),
+  // Its bytes, alt and caption are redacted too; the posted image item shows them.
+  image_show: fixed("ace", say(["Showed", "Showing", "Show"], " an image")),
 };
 
 const aceSpecs: Readonly<Record<string, AceToolSpec>> = {

@@ -35,7 +35,7 @@ export function aceGuidance(groups?: readonly string[]): string {
     has("browser")
       ? "- you changed a UI or a localhost page: browser_open, then browser_snapshot to check it; the person watches, and console and network logs are there; parallel agents each work in their own tab;"
       : "",
-    "- a chart, diagram or mockup explains it better: html_render;",
+    "- visuals or images: guide visualize first;",
     "- you opened or found the PR for this work: thread_link_pr;",
     has("screen", "devices")
       ? "- the person names a native app or simulator: screen_open_app;"

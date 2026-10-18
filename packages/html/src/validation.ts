@@ -1,7 +1,7 @@
 import { parse, type DefaultTreeAdapterMap } from "parse5";
-import type { HtmlDiagnostics } from "@ace/protocol";
+import { maxHtmlDocumentBytes, type HtmlDiagnostics } from "@ace/protocol";
 
-export const maxHtmlBytes = 256 * 1024;
+export const maxHtmlBytes = maxHtmlDocumentBytes;
 const forbidden = new Set([
   "base",
   "embed",
@@ -21,7 +21,7 @@ export function validateHtml(html: string): HtmlDiagnostics {
     if (diagnostics.length < 32 && !diagnostics.some((entry) => entry.code === code))
       diagnostics.push({ code, message });
   };
-  if (bytes > maxHtmlBytes) report("size", "HTML exceeds the 256 KiB UTF-8 limit.");
+  if (bytes > maxHtmlBytes) report("size", "HTML exceeds the 16 MiB UTF-8 limit.");
   if (!html.trim()) report("empty", "Provide a complete HTML document.");
   if (diagnostics.length) return { valid: false, bytes, maxBytes: maxHtmlBytes, diagnostics };
   const document = parse(html);

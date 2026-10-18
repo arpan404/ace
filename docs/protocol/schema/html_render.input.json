@@ -9,7 +9,7 @@
     },
     "html": {
       "description": "A complete self-contained HTML document: inline CSS, JS, SVG and data: images, no network.",
-      "maxLength": 262144,
+      "maxLength": 16777216,
       "minLength": 1,
       "type": "string"
     },

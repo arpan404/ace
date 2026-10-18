@@ -25,6 +25,7 @@ import { fileTabId } from "./files/tab-id.ts";
 import { logsKind } from "./logs/logs-kind.tsx";
 import { PullRequestTabData } from "./pull-request-tab.ts";
 import { shellKind, terminalKind } from "./terminal/terminal-kinds.tsx";
+import { visualizationKind } from "@/features/visualization/index.ts";
 
 export { logsKind, shellKind, terminalKind };
 
@@ -222,6 +223,7 @@ export const threadKinds: readonly TabKind[] = [
   logsKind,
   shellKind,
   pullRequestKind,
+  visualizationKind,
   launcherKind,
 ];
 

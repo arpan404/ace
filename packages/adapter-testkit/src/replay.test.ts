@@ -74,6 +74,7 @@ describe("recorded replay", () => {
     expect(result.final.items).toEqual({
       artifact: 0,
       html: 0,
+      image: 0,
       message: 1,
       notice: 1,
       reasoning: 0,

@@ -1,5 +1,6 @@
 import { createTextRedactor } from "@ace/redaction";
 import { htmlPublication } from "../html-publication.ts";
+import { imagePublication } from "../image-publication.ts";
 import { logError } from "@ace/diagnostics";
 import { toolResultObserver } from "../tool-result-mcp.ts";
 import { providerMcpSources } from "../provider-mcp-sources.ts";
@@ -118,6 +119,13 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         now: context.now,
         id: context.id,
         redactTitle: createTextRedactor({ env: process.env }),
+      }),
+      imagePublication({
+        store,
+        context: () => services.context,
+        now: context.now,
+        id: context.id,
+        redactText: createTextRedactor({ env: process.env }),
       }),
       handoffToolkit(store),
       // The shipped skills, on demand, for every provider (Claude and Codex also get them natively).

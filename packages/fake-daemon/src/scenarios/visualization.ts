@@ -1,4 +1,5 @@
 import type { Scenario } from "../scenario.ts";
+import { fixtureImage } from "../attachment-fixture.ts";
 import { explainerHtml } from "./explainer-page.ts";
 import { endTurn, message, rootAgent, tool, toolDone, turn } from "./facts.ts";
 
@@ -106,4 +107,55 @@ export function visualization(): Scenario {
 
 export function explainer(): Scenario {
   return published(fixtureExplainer);
+}
+
+/** The thread whose agent posts an image; the fake attachment store serves its bytes. */
+export const postedImageThreadId = "thread-posted-image";
+
+/** An agent rendered a chart with a script and posted the PNG (image_show) into its reply. */
+export function postedImage(): Scenario {
+  return {
+    thread: {
+      id: postedImageThreadId,
+      workspaceId: "acme",
+      title: "Plot request latency",
+      provider: "claude",
+    },
+    steps: [
+      {
+        kind: "facts",
+        facts: [
+          rootAgent("claude"),
+          turn("root"),
+          message("root", "ask", "user", "Plot last week's p95 request latency."),
+          ...aceCall("show", "image_show", { path: "latency.png", alt: "[redacted]" }),
+          {
+            type: "item.upsert",
+            agent: "root",
+            item: "image",
+            draft: {
+              type: "image",
+              complete: true,
+              image: {
+                alt: "p95 request latency by day, last week",
+                caption: "p95 latency, Monday to Sunday",
+                attachment: {
+                  sha256: fixtureImage.sha256,
+                  bytes: atob(fixtureImage.data).length,
+                  name: "latency.png",
+                  mimeType: "image/png",
+                  kind: "image",
+                  width: 120,
+                  height: 80,
+                  thumbnailAvailable: true,
+                },
+              },
+            },
+          },
+          message("root", "done", "assistant", "Latency peaks on Thursday, during the deploy."),
+          endTurn("root"),
+        ],
+      },
+    ],
+  };
 }

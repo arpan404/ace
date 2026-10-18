@@ -26,10 +26,12 @@ Example:
 ```json
 {
   "actor": "example",
-  "at": "example",
+  "actorAvatarUrl": "example",
+  "at": null,
   "event": "example",
   "id": "example",
-  "raw": null
+  "raw": null,
+  "subject": "example"
 }
 ```
 
@@ -69,8 +71,8 @@ Example:
     "pr": {
       "number": 5,
       "repository": {
-        "forge": "github",
-        "host": "0.TkMlZAIbC",
+        "forge": "gitlab",
+        "host": "kMlZAIbC",
         "name": "GtXd7G_lBI5",
         "owner": "kkfzHYTff"
       }

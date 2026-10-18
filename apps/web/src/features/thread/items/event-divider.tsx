@@ -33,8 +33,9 @@ import {
   WarningIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
-import { lazy, Suspense, useCallback, useState } from "react";
+import { Suspense, useCallback, useState } from "react";
 import { ArtifactLine } from "@/components/attachment-artifact.tsx";
+import { PostedImage } from "@/components/attachment-tiles.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { cn } from "@/lib/cn.ts";
 import { DelegationCard } from "./delegation-card.tsx";
@@ -46,10 +47,7 @@ import { SystemRow } from "./system-row.tsx";
 import { TaskCard } from "./task-card.tsx";
 import { MergedForkNotice } from "../transitions/merged-fork-notice.tsx";
 import { UserMessage } from "./user-message.tsx";
-
-const HtmlView = lazy(() =>
-  import("./html-visualization.tsx").then((module) => ({ default: module.HtmlVisualizationView })),
-);
+import { VisualizationItem } from "@/features/visualization/index.ts";
 
 const icons: Record<EventIcon, PhosphorIcon> = {
   restart: ArrowClockwiseIcon,
@@ -262,8 +260,17 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
         <Suspense
           fallback={<div role="status" aria-label="Loading visualization" className="h-40" />}
         >
-          <HtmlView threadId={props.threadId} visualization={item.visualization} />
+          <VisualizationItem threadId={props.threadId} visualization={item.visualization} />
         </Suspense>
+      );
+    case "image":
+      return (
+        <PostedImage
+          threadId={props.threadId}
+          attachment={item.image.attachment}
+          alt={item.image.alt}
+          caption={item.image.caption}
+        />
       );
     case "artifact":
       return (
