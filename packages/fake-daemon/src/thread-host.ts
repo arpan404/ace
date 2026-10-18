@@ -47,6 +47,8 @@ export class ThreadHost {
   /** The queue changed since the last `queue.updated` was published. */
   queueDirty = false;
   nextSelection: { model?: string; options?: TurnOptions } | undefined;
+  /** A selection split off a steer, published as the thread's pending switch after the change. */
+  steerSwitch: import("@ace/protocol").ExecutionSelection | undefined;
   runOrdinal = 0;
   /** The clock reading of the last folded fact: "now" for readiness rules between commands. */
   foldedAt = 0;

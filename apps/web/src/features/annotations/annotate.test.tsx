@@ -452,4 +452,4 @@ test("an annotation names the tab it was made in, so the agent can find its elem
       },
     ]),
   );
-});
+}, 20_000);

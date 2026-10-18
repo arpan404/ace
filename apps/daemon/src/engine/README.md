@@ -56,9 +56,14 @@ keeps the thread working. A person's queued message waits only for the root agen
 wake the provider announced, a request the root waits on, or the provider's own queue. Background
 commands, monitors, subagents and delegated children never hold it: once the root's turn has
 ended the next message starts a new turn while that work keeps running and keeps the thread from
-reading done (ADR 0053, 2026-10-17 amendment). A message that changes the model or options still
-waits for the whole tree, because switching may reopen the session. A steer never waits for a
-turn: it joins the running one or starts the next. Closing a host gate (private browser, screen
+reading done (ADR 0053, 2026-10-17 amendment). A queued message that changes the model or
+options still waits for the whole tree, because switching may reopen the session. A steer never
+waits for a turn: it joins the running one or starts the next. That holds when it changes the
+model or options too, and for a queued message changed to steer: while the tree works its text
+steers now and the change becomes the thread's pending `thread.switch`, ordered right behind it
+and applied at the next whole-tree boundary (`admitSteer`, ADR 0053, 2026-10-18 amendment). With
+nothing running the message keeps its selection for the turn it starts. A provider that can't
+steer queues it with its selection. Closing a host gate (private browser, screen
 or browser approval) wakes the queue. When a delegated child waits on the person, the parent's
 live hints name that child (`live.askingThreads`), so clients show its request first in the
 parent's strip and answer it there.

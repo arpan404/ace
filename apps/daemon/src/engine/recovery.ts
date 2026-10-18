@@ -1,4 +1,4 @@
-import { hasNextTurnSelection } from "./input-delivery.ts";
+import { restatesSelection } from "./input-delivery.ts";
 import { handleQueue } from "./queue-commands.ts";
 import { lostWork } from "./lost-work.ts";
 import { z } from "zod";
@@ -95,17 +95,32 @@ export class Recovery {
       Buffer.byteLength(JSON.stringify(command)) > maxMessageBytes
     )
       return undefined;
-    const p = command.payload;
-    return p.type === "thread.send" && (p.delivery === undefined || hasNextTurnSelection(p))
+    const sent = this.withoutRestatedSelection(command, id);
+    const p = sent.payload;
+    // A steer that also changes the model or options is split by `admitSteer`.
+    return p.type === "thread.send" && p.delivery === undefined
       ? Command.parse({
-          ...command,
-          payload: {
-            ...p,
-            // A selection belongs to the next turn, never a steer into the active run.
-            delivery: hasNextTurnSelection(p) ? "queue" : this.preferences(id).followUpBehavior,
-          },
+          ...sent,
+          payload: { ...p, delivery: this.preferences(id).followUpBehavior },
         })
-      : command;
+      : sent;
+  }
+  /**
+   * Drops a send's model and options when they only repeat what the thread runs on, so it can
+   * steer or start the next turn while background work runs. Kept when a queued switch or
+   * selecting send would change what the thread runs on before this one is delivered.
+   */
+  private withoutRestatedSelection(command: Command, id: ThreadId): Command {
+    const p = command.payload;
+    if (
+      p.type !== "thread.send" ||
+      !restatesSelection(this.repo.transitions.get(id).selection, p) ||
+      this.repo.transitions.guarded(id) ||
+      this.repo.pending.selectionAhead(id)
+    )
+      return command;
+    const { model: _model, options: _options, ...rest } = p;
+    return Command.parse({ ...command, payload: rest });
   }
   sync(id: ThreadId): void {
     const queue = this.repo.queue.shown(id);
@@ -320,6 +335,8 @@ export class Recovery {
             this.clock.now(),
           );
       })
+      // The notice itself is a write; a store that refuses it is reported, never unhandled.
+      .catch((error: unknown) => (this.ports.onError ?? console.error)(error))
       .finally(() => this.pendingPolicy.delete(id));
     this.pendingPolicy.set(id, task);
   }

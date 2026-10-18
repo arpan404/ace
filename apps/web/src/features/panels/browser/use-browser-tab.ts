@@ -4,7 +4,7 @@ import {
   type AddressSuggestion,
   type BrowserFailure,
 } from "@ace/ui-core";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import {
   findTab,
   useWorkspaceActions,
@@ -128,22 +128,6 @@ export function useBrowserTab(
   const own =
     state.phase === "idle" || state.tabId === undefined || state.tabId === shownId ? state : idle;
   const liveUrl = shown?.url;
-  const [history, setHistory] = useState<{ key: string; back: boolean; forward: boolean }>();
-  const historyKey = `${threadId}|${shownId ?? ""}|${liveUrl ?? ""}`;
-  useEffect(() => {
-    let current = true;
-    if (shownId && source.navigationHistory)
-      void source
-        .navigationHistory(threadId, shownId)
-        .then((value) => {
-          if (current) setHistory({ ...value, key: historyKey });
-        })
-        .catch(() => {});
-    return () => {
-      current = false;
-    };
-  }, [source, threadId, shownId, historyKey]);
-  const canStep = history?.key === historyKey ? history : { back: false, forward: false };
 
   // The thread remembers the web pages it showed, for the address bar's suggestions.
   useEffect(() => {
@@ -265,8 +249,9 @@ export function useBrowserTab(
     shownUrl: own.phase === "idle" ? liveUrl : own.url,
     suggestions,
     download: source.download(),
-    canBack: uncommitted || canStep.back,
-    canForward: canStep.forward,
+    // The daemon keeps these current through every navigation, in-page ones included.
+    canBack: uncommitted || shown?.canGoBack === true,
+    canForward: shown?.canGoForward === true,
     go,
     back: () => (uncommitted ? setState(idle) : step("back")),
     forward: () => step("forward"),

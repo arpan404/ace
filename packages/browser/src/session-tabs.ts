@@ -166,6 +166,9 @@ export class SessionTabs {
       if (this.keptIds.has(tab.tabId)) entry.kept = true;
       if (this.lostIds.has(tab.tabId)) entry.pageStateLost = true;
       if (runtime.identity.playing) entry.playing = true;
+      const { canGoBack, canGoForward } = runtime.history;
+      if (canGoBack !== undefined) entry.canGoBack = canGoBack;
+      if (canGoForward !== undefined) entry.canGoForward = canGoForward;
       const status = this.statusOf(tab.tabId);
       if (status) entry.loading = status.loading;
       if (cursor === tab.tabId) entry.current = true;

@@ -1,4 +1,4 @@
-import { hasNextTurnSelection } from "./input-delivery.ts";
+import { admitSteer, queueSteerSelection } from "./steer-selection.ts";
 import { Command, maxMessageBytes, type CommandResult, type ThreadId } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 import type { EngineClock } from "./actor.ts";
@@ -39,13 +39,18 @@ export function handleQueue(
         ...rest,
         input: p.input,
         ...(p.context ? { context: p.context } : {}),
-        ...(old.type === "thread.send"
-          ? { delivery: hasNextTurnSelection(old) ? "queue" : (p.delivery ?? old.delivery) }
-          : {}),
+        ...(old.type === "thread.send" ? { delivery: p.delivery ?? old.delivery } : {}),
       };
-      const edited = Command.parse({ ...entry.command, payload });
+      // A message changed to steer goes in like a fresh steer, its selection split off the same way.
+      const steer = admitSteer(
+        dependencies.repo,
+        Command.parse({ ...entry.command, payload }),
+        p.threadId,
+      );
+      const edited = steer.send;
       dependencies.repo.queue.edit(entry.id, edited);
       dependencies.repo.reviseInput(edited, p.threadId, dependencies.clock.now());
+      queueSteerSelection(dependencies.repo, p.threadId, steer, dependencies.clock.now());
     } else if (p.type === "queue.remove" && entry) {
       dependencies.repo.queue.remove(entry.id);
       dependencies.repo.removeInput(p.threadId, entry.command.id, dependencies.clock.now());

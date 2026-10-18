@@ -38,11 +38,19 @@ export const ExecutionSource = z.object({
   selection: ExecutionSelection,
 });
 export type ExecutionSource = z.infer<typeof ExecutionSource>;
+/** Switches stored before the rename still carry "delegate_task"; they read as "delegate". */
+const SwitchRecommendation = z
+  .enum(["delegate", "delegate_task"])
+  .transform((): "delegate" => "delegate")
+  .meta({
+    "x-ace-json-input": z.enum(["delegate", "delegate_task"]),
+    "x-ace-constraint": 'The stored legacy value "delegate_task" decodes as "delegate".',
+  });
 export const ThreadSwitch = z.object({
   selection: ExecutionSelection,
   state: z.enum(["queued", "applied", "failed"]),
   lossy: z.boolean(),
-  recommendation: z.literal("delegate").optional(),
+  recommendation: SwitchRecommendation.optional(),
   error: z.string().max(2048).optional(),
   at: Timestamp,
 });

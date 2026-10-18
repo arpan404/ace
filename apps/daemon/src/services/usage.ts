@@ -1,4 +1,4 @@
-import { logError } from "@ace/diagnostics";
+import { logError, logFields } from "@ace/diagnostics";
 import { warmup } from "./warmup.ts";
 import { createDaemonUsage, loadUsageSettings } from "../usage.ts";
 import type { ServiceContext } from "./types.ts";
@@ -10,10 +10,19 @@ export async function startUsage(context: ServiceContext): Promise<void> {
     store,
     await loadUsageSettings(config.dataDir),
     (error, failure) =>
-      log.log("error", "Usage analytics failure", {
-        ...logError(error),
-        ...(failure ? { attempt: failure.attempt, retryInMs: failure.retryInMs } : {}),
-      }),
+      log.log(
+        "error",
+        "Usage analytics failure",
+        logFields([
+          ["error", logError(error)],
+          ...(failure
+            ? ([
+                ["attempt", failure.attempt],
+                ["retryInMs", failure.retryInMs],
+              ] as const)
+            : []),
+        ]),
+      ),
     undefined,
     context.now,
     services.accounts,

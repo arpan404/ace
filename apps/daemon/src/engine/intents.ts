@@ -204,6 +204,20 @@ export class IntentStore {
     ).get(id);
     return row ? header(row) : undefined;
   }
+  /** A switch, merge or selecting send not yet done: later sends inherit what it selects. */
+  selectionAhead(id: ThreadId): boolean {
+    return Boolean(
+      this.sql(
+        "SELECT 1 FROM intents WHERE thread_id=? AND status IN ('pending','queued','running') AND (kind IN ('thread.switch','thread.merge') OR (kind='thread.send' AND (json_type(payload,'$.payload.model') IS NOT NULL OR json_type(payload,'$.payload.options') IS NOT NULL))) LIMIT 1",
+      ).get(id),
+    );
+  }
+  /** Orders an intent directly after `leader`, ahead of anything queued after the leader. */
+  placeAfter(id: ThreadId, commandId: string, leader: string): void {
+    this.sql(
+      "UPDATE intents SET position=COALESCE((SELECT position FROM intents WHERE thread_id=? AND command_id=?),position) WHERE thread_id=? AND command_id=?",
+    ).run(id, leader, id, commandId);
+  }
   transition(id: ThreadId): IntentHeader | undefined {
     const row = this.sql(
       `SELECT ${columns} FROM intents WHERE thread_id=? AND kind IN ('thread.switch','thread.merge') AND status IN ('pending','queued') ORDER BY CASE kind WHEN 'thread.switch' THEN 0 ELSE 1 END,position,id LIMIT 1`,
@@ -234,6 +248,14 @@ export class IntentStore {
   running(id: ThreadId): boolean {
     return Boolean(
       this.sql("SELECT 1 FROM intents WHERE thread_id=? AND status='running' LIMIT 1").get(id),
+    );
+  }
+  /** Another intent of the thread is running; `except` (the one asking) does not count. */
+  runningBesides(id: ThreadId, except: number): boolean {
+    return Boolean(
+      this.sql(
+        "SELECT 1 FROM intents WHERE thread_id=? AND status='running' AND id<>? LIMIT 1",
+      ).get(id, except),
     );
   }
   resolvingInteractions(id: ThreadId): ReadonlySet<InteractionId> {

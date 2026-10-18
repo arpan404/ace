@@ -8,6 +8,7 @@
     "./policy": "./src/policy.ts",
     "./policy-events": "./src/policy-events.ts",
     "./zoom": "./src/zoom.ts",
+    "./history": "./src/page-history.ts",
     "./testing": "./src/backend-test-support.ts",
     "./conformance": "./src/conformance/index.ts"
   },

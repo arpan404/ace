@@ -647,15 +647,10 @@ test.each([17, 33, 257])(
   },
 );
 
-test("an explicit effort change disables promotion while an ordinary queued follow-up stays steerable", async () => {
-  const { app, message } = await openBusy();
+test("a queued follow-up with a new effort steers into the running turn; the effort waits for the next turn", async () => {
+  const { app, feed, message } = await openBusy();
   await userEvent.type(message, "Ordinary follow-up{Enter}");
   const ordinary = await screen.findByRole("list", { name: "Queued messages" });
-  await waitFor(() =>
-    expect(
-      within(ordinary).getByRole("button", { name: "Steer" }).getAttribute("aria-disabled"),
-    ).toBe("false"),
-  );
   const effort = await openEffortControl();
   await chooseEffort(effort, "{End}");
   await closeModelControl();
@@ -665,13 +660,25 @@ test("an explicit effort change disables promotion while an ordinary queued foll
     .getAllByRole("listitem")
     .find((entry) => entry.textContent?.includes("High effort next turn"));
   if (!row) throw new Error("Missing selected follow-up");
-  await waitFor(() =>
-    expect(
-      within(row).getByRole("button", { name: "Steer" }).getAttribute("aria-description"),
-    ).toBe("This message changes model or turn options and must wait for the next turn."),
-  );
-  await userEvent.click(within(row).getByRole("button", { name: "Steer" }));
-  expect(await daemonQueue(app)).toEqual(["Ordinary follow-up", "High effort next turn"]);
+  const steer = within(row).getByRole("button", { name: "Steer" });
+  await waitFor(() => expect(steer.getAttribute("aria-disabled")).toBe("false"));
+  await userEvent.click(steer);
+  expect(await within(feed).findByText("High effort next turn")).toBeTruthy();
+  expect(await daemonQueue(app)).toEqual(["Ordinary follow-up"]);
+  const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(threadId) });
+  expect(view && "thread" in view ? view.thread.switch?.state : undefined).toBe("queued");
+});
+
+test("with steering as the default, a changed effort still steers into the running turn", async () => {
+  const { app, feed, message } = await openBusy({ followUp: "steer" });
+  const effort = await openEffortControl();
+  await chooseEffort(effort, "{End}");
+  await closeModelControl();
+  await userEvent.type(message, "Think harder now");
+  expect(await screen.findByRole("button", { name: "Steer message" })).toBeTruthy();
+  await userEvent.keyboard("{Enter}");
+  expect(await within(feed).findByText("Think harder now")).toBeTruthy();
+  expect(await daemonQueue(app)).toEqual([]);
 });
 
 test.each(["steer", "queue"] as const)(
