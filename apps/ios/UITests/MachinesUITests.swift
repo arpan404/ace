@@ -28,11 +28,12 @@ import XCTest
         XCTAssertTrue(first.waitForExistence(timeout: 10))
 
         app.buttons["inbox.machines"].tap()
-        XCTAssertTrue(app.buttons["machines.row.ios-spike-host-9852"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["machines.row.ios-spike-host-9863"].exists)
+        screenshot("machines-sheet-opening")
+        XCTAssertTrue(app.descendants(matching: .any)["machines.row.ios-spike-host-9852"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["machines.row.ios-spike-host-9863"].firstMatch.exists)
         screenshot("machines-sheet")
-        app.buttons["machines.row.ios-spike-host-9852"].tap()
-        XCTAssertTrue(app.descendants(matching: .any)["provider.codex"].waitForExistence(timeout: 20))
+        app.descendants(matching: .any)["machines.row.ios-spike-host-9852"].firstMatch.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["provider.codex"].firstMatch.waitForExistence(timeout: 20))
         screenshot("machines-detail")
         app.swipeDown(velocity: .fast)
         app.buttons["Done"].firstMatch.tap()
@@ -40,10 +41,10 @@ import XCTest
         // One machine drops: its banner appears, the other machine's rows stay and stay live.
         try await control(9863, online: false)
         defer { Task { try? await self.control(9863, online: true) } }
-        let banner = app.descendants(matching: .any)["inbox.connection.studio-9863"]
+        let banner = app.descendants(matching: .any)["inbox.connection.studio-9863"].firstMatch
         XCTAssertTrue(banner.waitForExistence(timeout: 20))
         XCTAssertTrue(first.exists)
-        XCTAssertFalse(app.descendants(matching: .any)["inbox.connection.studio-9852"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["inbox.connection.studio-9852"].firstMatch.exists)
         screenshot("machines-one-offline")
         try await control(9863, online: true)
         let back = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: banner)
