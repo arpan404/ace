@@ -21,7 +21,7 @@ function textAfterComposer(): string {
   return after.trim();
 }
 
-test("nothing renders below the New thread composer, even its save warning", async () => {
+test("without open work nothing renders below the New thread composer, even its save warning", async () => {
   const backing = memoryKeyValue();
   const storage = {
     ...backing,
@@ -86,7 +86,7 @@ test("where the thread runs is one row in the strip above the composer; a notice
   expect(textAfterComposer()).toBe("");
 });
 
-test("the page is the composer and its strip: no wordmark or heading, the project a strip control", async () => {
+test("the page has no wordmark or heading; the project is a control above the composer", async () => {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/new?project=relay");

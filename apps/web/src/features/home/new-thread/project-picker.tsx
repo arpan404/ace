@@ -7,7 +7,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
-import { composerStrip } from "@/features/thread/index.ts";
 
 import type { Choice } from "./project-choices.tsx";
 
@@ -17,9 +16,8 @@ const DeferredChoices = deferredComponent(() =>
 const warm = () => void DeferredChoices.preload();
 
 /**
- * The project a new thread starts in: the first control of the composer's top strip. Enter or
- * Space opens a searchable list; arrows move, Enter picks, Escape hands focus back to the
- * message.
+ * The project a new thread starts in, as the page's title above the composer. Enter or Space
+ * opens a searchable list; arrows move, Enter picks, Escape hands focus back to the message.
  */
 export function ProjectPicker(props: {
   projects: readonly string[];
@@ -49,21 +47,21 @@ export function ProjectPicker(props: {
           onPointerEnter={warm}
           onFocus={warm}
           aria-label={`Project: ${value}`}
-          className={`${composerStrip} max-w-48 shrink-0 text-foreground`}
+          className="-ml-1.5 inline-flex max-w-full min-w-0 items-center gap-2.5 rounded-lg px-1.5 py-1 text-xl font-medium tracking-title text-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-foreground/5 data-popup-open:bg-foreground/5"
         >
           {selected ? (
-            <ProjectMark id={selected.id} badge={projectBadge(selected)} />
+            <ProjectMark id={selected.id} badge={projectBadge(selected)} size="title" />
           ) : (
-            <FolderSimpleIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
+            <FolderSimpleIcon aria-hidden size={20} className="shrink-0 text-muted-foreground" />
           )}
           <span className="min-w-0 truncate">{value}</span>
-          <CaretDownIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
+          <CaretDownIcon aria-hidden size={14} className="shrink-0 text-subtle-foreground" />
         </PopoverTrigger>
       </Tip>
       <PopoverContent
-        side="top"
+        side="bottom"
         align="start"
-        sideOffset={10}
+        sideOffset={6}
         aria-label="Choose project"
         className="flex w-[320px] min-w-0 flex-col p-0"
         initialFocus
