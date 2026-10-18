@@ -106,9 +106,30 @@ simulator screenshots.
 the inbox sections (Needs you, Working, Syncing, Unsent, Done, Snoozed) in order. Both
 come from `@ace/ui-core/mobile`, which Android also uses. Swift filters by search text,
 maps token keys to theme colours and draws the rows. Archive, unarchive (Undo), snooze
-presets and wake go through the SDK's durable outbox. Rows carry a machine id so a
-later multi-machine inbox can merge daemons. `InboxContractTests` and
+presets and wake go through the SDK's durable outbox. `InboxContractTests` and
 `InboxUITests` exercise the inbox against the fixture.
+
+## Several machines
+
+Every paired machine connects at once, each on its own runtime (VM, socket, outbox
+database, Keychain key), as the web's `MachinePool` gives each machine its own worker.
+Each runtime groups its own threads with `@ace/ui-core/mobile`, which also gives every
+row a rank (`inboxRank`) that depends only on that row. `MergedInbox` orders sections by
+group and rows by rank in UTF-16 order, so the merged inbox matches grouping every
+machine together; the TS tests in `mobile-inbox-merge.test.ts` hold it to that.
+`MachineInbox` keys rows by machine and thread id, routes actions and opened threads to
+the row's machine, and names machines on rows only when more than one is paired. A
+machine that drops gets its own banner; its rows read Syncing and the others are
+untouched. An idle runtime costs about 25–30 MiB (measured in the PR).
+
+The header chip opens the Machines sheet: connection word and last seen
+(`bridge/machine-info.ts`, `machineConnection`), access, address, ace version, and the
+coding tools the machine reports (`providers.request` readiness and `accounts.list`,
+worded by `machineProviders`). Rename is local to this phone (`MachineDirectory.rename`);
+remove stops only that machine's runtime, then deletes its credential and database.
+
+`--spike-machines 9852,9863` connects one fixture runtime per port; start each fixture
+with `ACE_SPIKE_PORT=<port> bun run spike:daemon`. `MachinesUITests` uses those two ports.
 
 ## Pairing with a real daemon
 
@@ -128,12 +149,13 @@ leave the link; the code goes in the `/v1/pair` POST body.
 - Device tokens live only in the Keychain (`AfterFirstUnlockThisDeviceOnly`).
   A connection runtime may read only its own key. `machines.json` holds non-secret
   directory metadata; each outbox database is named by host and device identity.
-- Switching machines awaits the old runtime's shutdown, and the old runtime's
-  callbacks are discarded. Removing a machine deletes its credential, then its database.
+- Removing a machine awaits its runtime's shutdown and discards its callbacks, then
+  deletes its credential, then its database. Other machines keep running.
 - Face ID or the passcode unlocks the app at launch, and again after 60 seconds in the
   background. Nothing is read or connected before unlock.
-- The machine bar shows the SDK's connection problem: unreachable (still retrying),
-  offline, revoked, pin mismatch, or another host. It also marks view-only grants.
+- Each machine's banner and Machines sheet entry show the SDK's connection problem:
+  unreachable (still retrying), offline, revoked, pin mismatch, or another host. The
+  sheet also marks view-only grants.
   `NWPathMonitor` reports network changes to the SDK, which owns reconnect.
 
 `bun run e2e:pairing` starts a real daemon with its LAN TLS listener advertised on
@@ -145,8 +167,8 @@ expire in five minutes. These tests skip when the config is absent.
 ## Scope
 
 `--spike` (Debug only) keeps the unpinned loopback fixture. Release builds require WSS
-and an exact pin. A real device over Tailscale, the full multi-machine inbox,
-questions, Agents and Changes are still to come.
+and an exact pin. A real device over Tailscale, questions, Agents and Changes
+are still to come.
 
 Connection replacement now awaits old-runtime shutdown, clears host-specific views
 and rejects its late updates/errors. Concurrent replacements select the newest
