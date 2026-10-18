@@ -1,7 +1,4 @@
 import { Suspense, useState } from "react";
-import { CaretDownIcon, FolderSimpleIcon } from "@phosphor-icons/react";
-import { projectBadge } from "@ace/ui-core";
-import { ProjectMark } from "../row-parts.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
@@ -16,8 +13,9 @@ const DeferredChoices = deferredComponent(() =>
 const warm = () => void DeferredChoices.preload();
 
 /**
- * The project a new thread starts in, as the page's title above the composer. Enter or Space
- * opens a searchable list; arrows move, Enter picks, Escape hands focus back to the message.
+ * The project a new thread starts in: its name, inline in the page's question above the
+ * composer. Enter or Space opens a searchable list; arrows move, Enter picks, Escape hands focus
+ * back to the message.
  */
 export function ProjectPicker(props: {
   projects: readonly string[];
@@ -42,26 +40,20 @@ export function ProjectPicker(props: {
   const value = selected?.name ?? "Choose a project";
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <Tip label="The project it works in" side="top">
+      <Tip label="Change project" side="top">
         <PopoverTrigger
           onPointerEnter={warm}
           onFocus={warm}
           aria-label={`Project: ${value}`}
-          className="-ml-1.5 inline-flex max-w-full min-w-0 items-center gap-2.5 rounded-lg px-1.5 py-1 text-xl font-medium tracking-title text-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-foreground/5 data-popup-open:bg-foreground/5"
+          className="inline max-w-full rounded-sm text-foreground underline decoration-muted-foreground/60 decoration-dotted decoration-2 underline-offset-[0.2em] transition-colors duration-(--motion-fast) focus-ring hover:decoration-foreground data-popup-open:decoration-foreground"
         >
-          {selected ? (
-            <ProjectMark id={selected.id} badge={projectBadge(selected)} size="title" />
-          ) : (
-            <FolderSimpleIcon aria-hidden size={20} className="shrink-0 text-muted-foreground" />
-          )}
-          <span className="min-w-0 truncate">{value}</span>
-          <CaretDownIcon aria-hidden size={14} className="shrink-0 text-subtle-foreground" />
+          {value}
         </PopoverTrigger>
       </Tip>
       <PopoverContent
         side="bottom"
-        align="start"
-        sideOffset={6}
+        align="center"
+        sideOffset={8}
         aria-label="Choose project"
         className="flex w-[320px] min-w-0 flex-col p-0"
         initialFocus

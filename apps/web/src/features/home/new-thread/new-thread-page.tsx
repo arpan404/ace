@@ -719,10 +719,11 @@ function PreparationPage(props: {
         ref={page}
         className="flex h-full min-h-0 flex-col overflow-y-auto pt-6 pb-[max(1rem,env(safe-area-inset-bottom))] [scrollbar-gutter:stable]"
       >
-        {/* The thread's reading column: the project as the title, the composer high on the
-            page, and the project's open work to start from below it. */}
+        {/* The thread's reading column: a question naming the project (its name picks another),
+            the composer high on the page, and the project's open work to start from below it. */}
         <div className={cn(readingColumn, "flex flex-col pt-[clamp(1rem,22vh,12rem)]")}>
-          <div className="mb-3 flex min-w-0 px-1">
+          <h2 className="mb-6 px-1 text-center text-[1.75rem] leading-tight font-normal tracking-title text-balance break-words text-muted-foreground">
+            What should we build in{" "}
             <ProjectPicker
               projects={projects}
               projectName={name}
@@ -730,7 +731,8 @@ function PreparationPage(props: {
               onProject={chooseProject}
               returnFocus={messageField}
             />
-          </div>
+            ?
+          </h2>
           <div className="shrink-0">
             <Composer
               ref={composer}

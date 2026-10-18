@@ -16,7 +16,6 @@ export interface ProjectLook {
 
 const sizes = {
   row: { tile: "h-4 w-5 rounded-xs text-2xs", glyph: 11 },
-  title: { tile: "h-6 w-7 rounded-sm text-xs", glyph: 15 },
   large: { tile: "h-10 w-12 rounded-md text-base", glyph: 24 },
 } as const;
 
@@ -34,8 +33,6 @@ export function ProjectMarkView(props: {
 }) {
   const { look } = props;
   const size = sizes[props.size ?? "row"];
-  // Row marks recede to grey; a title or preview mark keeps its colour.
-  const vivid = props.size === "large" || props.size === "title";
   const chosen = look?.badge;
   const Glyph = chosen?.glyph ? projectGlyph(chosen.glyph)?.icon : undefined;
   const tint = chosen?.color ? accountColors[chosen.color] : `var(--project-${props.badge.tint})`;
@@ -47,7 +44,7 @@ export function ProjectMarkView(props: {
       className={cn(
         size.tile,
         "shrink-0 object-contain",
-        (props.quiet || !vivid) && "grayscale",
+        (props.quiet || props.size !== "large") && "grayscale",
         props.quiet && "opacity-50",
       )}
       fallback={
@@ -60,7 +57,7 @@ export function ProjectMarkView(props: {
             size.tile,
             props.quiet
               ? "bg-secondary text-faint-foreground"
-              : vivid
+              : props.size === "large"
                 ? "bg-(--tint)/12 text-(--tint)"
                 : "bg-secondary text-muted-foreground",
           )}
@@ -77,10 +74,7 @@ export function ProjectMark(props: {
   id: string;
   badge: ProjectBadge;
   quiet?: boolean | undefined;
-  size?: keyof typeof sizes | undefined;
 }) {
   const project = useProjectMetadata()(props.id);
-  return (
-    <ProjectMarkView badge={props.badge} look={project} quiet={props.quiet} size={props.size} />
-  );
+  return <ProjectMarkView badge={props.badge} look={project} quiet={props.quiet} />;
 }
