@@ -14,6 +14,7 @@ import { controlCommandId } from "./delegations.ts";
 import { childTaskView } from "./task-view.ts";
 import { settleThread, unsettleThread } from "./thread-settle.ts";
 import { findProjects } from "./projects.ts";
+import { queueControl } from "./queue-control.ts";
 import { resolveSelection, type OpenSelection } from "./selection-defaults.ts";
 import { conversationTool, type ConversationStartPort } from "./conversation-tools.ts";
 import { AgentControlError } from "./failure.ts";
@@ -30,8 +31,6 @@ export type ExtensionOperation = Extract<
     op:
       | "thread.fork"
       | "thread.merge"
-      | "queue.edit"
-      | "queue.reorder"
       | "automation.manage"
       | "thread.handoff"
       | "preview.list"
@@ -158,6 +157,7 @@ export function createAgentControlPort(
           "thread.read",
           "thread.read_output",
           "thread.search",
+          "queue.list",
           "preview.list",
           "agent.status",
           "agent.result",
@@ -460,10 +460,14 @@ export function createAgentControlPort(
             return { ok: !!row, data: row };
           });
         }
+        case "queue.list":
+        case "queue.edit":
+        case "queue.cancel":
+        case "queue.steer":
+        case "queue.reorder":
+          return queueControl(service, caller, operation);
         case "thread.fork":
         case "thread.merge":
-        case "queue.edit":
-        case "queue.reorder":
         case "automation.manage":
         case "thread.handoff":
         case "preview.list":

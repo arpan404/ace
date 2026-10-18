@@ -141,12 +141,27 @@ export class DelegationService {
     if (!thread) return false;
     // A conversation the caller started is its own, in whichever project it was opened.
     if (this.ownsConversationTree(caller, target)) return true;
+    // Full access acts for the person: it reads every thread and changes any top-level one,
+    // never another agent's delegated child.
+    if (this.actsForPerson(caller) && (!write || !this.journal.get(target))) return true;
     return (
       (thread.workspaceId === source.workspaceId ||
         (this.journal.get(target)?.rootId ?? target) ===
           (this.journal.get(caller.threadId)?.rootId ?? caller.threadId)) &&
       (!write || target === caller.threadId || this.journal.isDescendant(target, caller.threadId))
     );
+  }
+  /**
+   * A top-level thread with full access may act on the person's threads as the person would.
+   * A delegated child works on its task and never gains that reach, whatever its access.
+   */
+  actsForPerson(caller: McpAttribution): boolean {
+    const source = this.deps.store.getThread(caller.threadId);
+    return source?.permission?.effective === "full-access" && !this.journal.get(caller.threadId);
+  }
+  /** A thread's queued messages, oldest first, with the revision edits must name. */
+  queue(threadId: ThreadId) {
+    return this.deps.engine.queue(threadId);
   }
   private ownsConversationTree(caller: McpAttribution, target: ThreadId): boolean {
     let thread = target;

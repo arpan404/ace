@@ -16,6 +16,12 @@
       "minimum": 1,
       "type": "integer"
     },
+    "project": {
+      "description": "Another project's name, folder path or id, from projects_find. Default: this one.",
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
     "query": {
       "default": "",
       "description": "Words to match; empty lists recent threads.",
