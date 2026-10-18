@@ -5,16 +5,18 @@ import Security
 /// All mutable dictionaries live on ClientRuntime's thread. Disk work has its own serial queue.
 final class NativeHost: @unchecked Sendable {
     private weak var runtime: ClientRuntime?
-    private let target: ConnectionTarget
-    private let storageURL: URL
+    private let target: ConnectionTarget?
+    private let storageURL: URL?
+    private let services: HostServices
     private let receive: @Sendable (Data) -> Void
     private let storageQueue = DispatchQueue(label: "ace.client.storage", qos: .utility)
     private var store: DurableStore?
     private var sockets: [String: PinnedSocket] = [:]
     private var timers: [String: Timer] = [:]
 
-    init(runtime: ClientRuntime, target: ConnectionTarget, storageURL: URL, receive: @escaping @Sendable (Data) -> Void) {
-        self.runtime = runtime; self.target = target; self.storageURL = storageURL; self.receive = receive
+    init(runtime: ClientRuntime, target: ConnectionTarget?, storageURL: URL?, services: HostServices,
+         receive: @escaping @Sendable (Data) -> Void) {
+        self.runtime = runtime; self.target = target; self.storageURL = storageURL; self.services = services; self.receive = receive
     }
     func install(in context: JSContext) {
         let call: @convention(block) (String, String, JSValue) -> Void = { [weak self] operation, json, value in
@@ -66,11 +68,18 @@ final class NativeHost: @unchecked Sendable {
         context.setObject(functions, forKeyedSubscript: "aceHost" as NSString)
     }
     private func call(_ operation: String, json: String, callback: Callback) {
+        if operation == "http" { http(json, callback: callback); return }
         storageQueue.async { [self] in
             let result: Result<String, Error> = Result {
-                if operation == "credential" { return try target.credential() }
+                guard let data = json.data(using: .utf8), data.count <= 9 * 1024 * 1024 else { throw HostError.storage }
+                if operation == "credential" {
+                    guard let target, target.isLoopbackFixture else { throw HostError.unsupported }
+                    return try target.credential()
+                }
+                if let value = try services.perform(operation, input: data) { return value }
+                guard let storageURL else { throw HostError.unsupported }
                 if store == nil { store = try DurableStore(url: storageURL) }
-                guard let store, let data = json.data(using: .utf8), data.count <= 9 * 1024 * 1024 else { throw HostError.storage }
+                guard let store else { throw HostError.storage }
                 return try store.perform(operation, input: data)
             }
             runtime?.execute { _ in
@@ -81,11 +90,35 @@ final class NativeHost: @unchecked Sendable {
             }
         }
     }
+    /// Pinned HTTPS to this runtime's own daemon. Refusals reach the bridge as their reason.
+    private func http(_ json: String, callback: Callback) {
+        let runtime = runtime
+        let reply: @Sendable (Result<PinnedHTTPResponse, PinnedHTTPError>) -> Void = { result in
+            let encoded = result.flatMap { response in
+                (try? JSONEncoder().encode(response)).map { Result.success(String(decoding: $0, as: UTF8.self)) } ?? .failure(.invalid)
+            }
+            runtime?.execute { _ in
+                switch encoded {
+                case .success(let text): callback.value.call(withArguments: [NSNull(), text])
+                case .failure(let reason): callback.value.call(withArguments: [reason.rawValue, ""])
+                }
+            }
+        }
+        guard let target, let origin = target.httpsOrigin,
+              let request = try? JSONDecoder().decode(PinnedHTTPRequest.self, from: Data(json.utf8)) else {
+            reply(.failure(.invalid)); return
+        }
+        PinnedHTTP.send(origin: origin, pin: target.pin, request: request, now: services.now, completion: reply)
+    }
     private func socket(_ id: String, action: String, text: String) {
         switch action {
         case "open":
             let runtime = runtime
-            let socket = PinnedSocket(target: target) { type, value in
+            guard let target else {
+                runtime?.execute { context in context.objectForKeyedSubscript("aceSocket")?.call(withArguments: [id, "close", "4003"]) }
+                return
+            }
+            let socket = PinnedSocket(target: target, now: services.now) { type, value in
                 runtime?.execute { context in
                     context.objectForKeyedSubscript("aceSocket")?.call(withArguments: [id, type, value])
                 }

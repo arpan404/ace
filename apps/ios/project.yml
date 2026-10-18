@@ -29,6 +29,7 @@ targets:
         CADisableMinimumFrameDurationOnPhone: true
         NSLocalNetworkUsageDescription: Connect to your own ace daemon.
         NSFaceIDUsageDescription: Unlock your paired machines.
+        NSCameraUsageDescription: Scan the pairing code shown by ace on your computer.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
     settings:

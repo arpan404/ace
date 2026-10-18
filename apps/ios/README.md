@@ -100,14 +100,43 @@ simulator screenshots.
   Additional URL/crypto APIs for future service and encrypted-relay flows need contracts
   before those flows ship.
 
+## Pairing with a real daemon
+
+Without `--spike` the app pairs with a real daemon. Scan the QR from `ace pair` (or
+Settings > Remote devices), or paste its link. The confirm screen shows the address,
+grant and fingerprint, and asks for this phone's name. Only scheme, host and port
+leave the link; the code goes in the `/v1/pair` POST body.
+
+- `Sources/Host/PinnedHTTP.swift` and `PinnedSocket.swift` share `PinnedTrust`. It
+  checks the exact SHA-256 DER SPKI pin and the certificate's validity window, with
+  no CA or hostname fallback. Redirects and 3xx responses are refused. Requests are
+  limited to fixed `/v1/` paths with a 1 MiB response cap.
+- The bridge (`bridge/access.ts`, `pairing.ts`, `access-entry.ts`) uses the SDK's
+  `ticketCredential`, `accessResponseError`, protocol schemas and `MachineDirectory`.
+  Every socket attempt exchanges the Keychain token for a fresh `/v1/tickets` ticket.
+  A short-lived pinned connection reads `host.identity` before the machine is stored.
+- Device tokens live only in the Keychain (`AfterFirstUnlockThisDeviceOnly`).
+  A connection runtime may read only its own key. `machines.json` holds non-secret
+  directory metadata; each outbox database is named by host and device identity.
+- Switching machines awaits the old runtime's shutdown, and the old runtime's
+  callbacks are discarded. Removing a machine deletes its credential, then its database.
+- Face ID or the passcode unlocks the app at launch, and again after 60 seconds in the
+  background. Nothing is read or connected before unlock.
+- The machine bar shows the SDK's connection problem: unreachable (still retrying),
+  offline, revoked, pin mismatch, or another host. It also marks view-only grants.
+  `NWPathMonitor` reports network changes to the SDK, which owns reconnect.
+
+`bun run e2e:pairing` starts a real daemon with its LAN TLS listener advertised on
+loopback, plus a redirect trap that holds the daemon's own key. It writes
+`/tmp/ace-ios-pairing-e2e/config.json`. With the script running, run
+`-only-testing:AceTests/RealDaemonPairingTests` with `test-without-building`; codes
+expire in five minutes. These tests skip when the config is absent.
+
 ## Scope
 
-The app currently connects through an explicit debug launch argument. Release builds
-cannot use the unpinned loopback fixture. Production targets require WSS and an exact
-QR-confirmed SHA-256 DER SPKI pin; redirects are refused. Actual paired TLS, ticket
-exchange, QR onboarding, Keychain, Face ID, multi-machine UI, questions, Agents and
-Changes remain Phase 1 work. SPKI adapter implementation is present; it has not been
-validated against a real paired daemon in this spike.
+`--spike` (Debug only) keeps the unpinned loopback fixture. Release builds require WSS
+and an exact pin. A real device over Tailscale, the full multi-machine inbox,
+questions, Agents and Changes are still to come.
 
 Connection replacement now awaits old-runtime shutdown, clears host-specific views
 and rejects its late updates/errors. Concurrent replacements select the newest

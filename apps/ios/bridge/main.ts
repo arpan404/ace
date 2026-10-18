@@ -1,16 +1,21 @@
 import { host } from "./polyfills.ts";
-import { ClientCore, type TransportEvents, type Lease, type ThreadSource } from "@ace/client";
+import { ClientCore, type Lease, type ThreadSource } from "@ace/client";
 import { z } from "zod";
 import { DeviceId, HostId } from "@ace/protocol";
 import { call, scheduler } from "./host.ts";
 import { PatchPump, followInbox, followThread } from "./patches.ts";
 import { preview } from "./presentation.ts";
 import { dispatchCommand } from "./commands.ts";
+import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
+import { aceAccess, nativeHttp } from "./access-entry.ts";
+import { nativeTransport, socketEvent } from "./socket.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
   hostId: HostId,
   itemLimit: z.number().int().min(200).max(2200),
+  /** A paired machine: each socket attempt exchanges the Keychain token for a fresh ticket. */
+  paired: z.strictObject({ secretKey: z.string().min(1).max(1024) }).optional(),
 });
 const Action = z.discriminatedUnion("type", [
   z.object({ type: z.literal("open"), threadId: z.string().min(1) }),
@@ -30,7 +35,7 @@ let epoch = 0;
 let itemLimit = 200;
 let historyAbort: AbortController | undefined;
 const pump = new PatchPump();
-const sockets = new Map<string, TransportEvents>();
+const trust = new TrustMonitor();
 function error(): void {
   pump.put("error", () => ({
     type: "error",
@@ -40,30 +45,18 @@ function error(): void {
 async function start(json: string): Promise<void> {
   const config = Config.parse(JSON.parse(json));
   itemLimit = config.itemLimit;
+  const paired = config.paired;
   client = new ClientCore({
     deviceId: config.deviceId,
     expectedHostId: config.hostId,
     limits: { items: config.itemLimit, text: 8192 },
-    transport: () => {
-      const id = host.uuid();
-      return {
-        open(events) {
-          sockets.set(id, events);
-          host.socket(id, "open", "");
-        },
-        send(text) {
-          host.socket(id, "send", text);
-        },
-        close() {
-          sockets.delete(id);
-          host.socket(id, "close", "");
-        },
-      };
-    },
-    credential: async () =>
-      z
-        .union([z.strictObject({ token: z.string() }), z.strictObject({ ticket: z.string() })])
-        .parse(JSON.parse(await call("credential"))),
+    transport: () => nativeTransport(trust),
+    credential: paired
+      ? pairedCredential(nativeHttp, () => call("secret.get", paired.secretKey), trust)
+      : async () =>
+          z
+            .union([z.strictObject({ token: z.string() }), z.strictObject({ ticket: z.string() })])
+            .parse(JSON.parse(await call("credential"))),
     storage: {
       load: async () => (await call("storage.load")) || null,
       save: async (value) => {
@@ -88,11 +81,16 @@ async function start(json: string): Promise<void> {
     now: () => host.now(),
   });
   const connection = client.connectionState();
-  connection.subscribe(() =>
-    pump.put("connection", () => ({ type: "connection", state: connection.getSnapshot() })),
-  );
-  followInbox(client.threads().store, pump);
   const owner = client;
+  connection.subscribe(() => {
+    if (connection.getSnapshot() === "ready") trust.clear();
+    pump.put("connection", () => ({ type: "connection", state: connection.getSnapshot() }));
+    pump.put("connection.problem", () => ({
+      type: "connection.problem",
+      problem: connectionProblem(connection.getSnapshot(), owner.error, trust),
+    }));
+  });
+  followInbox(client.threads().store, pump);
   owner.observePendingSends((id) =>
     pump.put(`pending:${id}`, () => {
       const pending = owner.pendingSend(id);
@@ -215,14 +213,6 @@ Object.assign(globalThis, {
   },
   aceAction: action,
   aceAck: (accepted: boolean) => pump.ack(accepted),
-  aceSocket: (id: string, type: string, value: string) => {
-    const socket = sockets.get(id);
-    if (!socket) return;
-    if (type === "open") socket.open();
-    else if (type === "message") socket.message(value);
-    else if (type === "close") {
-      sockets.delete(id);
-      socket.close(Number(value));
-    }
-  },
+  aceSocket: socketEvent,
+  aceAccess,
 });
