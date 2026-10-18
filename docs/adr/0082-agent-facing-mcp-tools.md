@@ -62,8 +62,10 @@ own data.
 - ADR 0071's client-brokered `ace_device_*` tools are gone; `machines` and `delegate` with
   `machine` cover delegation elsewhere. Publishing files back from another machine has no
   replacement yet.
-- The browser, screen and device toolkits keep their own definitions. The browser toolkit still
-  registers `ace_browser_*` until it adopts bare names; the registry already resolves both.
+- The browser, screen and in-app simulator toolkits follow the same convention: `browser_*` (11
+  tools), `screen_*` (7) and `sim_*` (7, keyed by `simId` so a simulator is never confused with a
+  paired machine). Their family defaults by prefix, and transcripts recognise only their own
+  bare names, so another server's `browser_click` stays that server's.
 - Tests through a real MCP client check the catalogue, merged-tool behaviour, default provider,
   annotations, core-mode inline schemas, and that every tool name in the instructions and the
   agents and threads guides exists in the served catalogue.

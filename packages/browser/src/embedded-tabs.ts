@@ -69,7 +69,7 @@ export class EmbeddedTabs {
       this.request.log({
         kind: "console",
         type: "file.chooser",
-        text: "The page needs a file. Use ace_browser_upload with the file input's snapshot ref.",
+        text: 'The page needs a file. Use browser_act with action "upload" and the file input\'s snapshot ref.',
       });
     }
     if (method === "ace.viewport") {

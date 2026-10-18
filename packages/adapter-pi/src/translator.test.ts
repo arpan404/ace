@@ -317,7 +317,7 @@ test("Pi API upstream usage prices inclusive cache tokens under the qualified mo
 });
 
 test.each([
-  ["ace_screen_click", "screen_click"],
+  ["ace_screen_input", "screen_input"],
   ["ace_thread_control", "thread_control"],
 ])("Pi's %s extension tool reads as ace's %s and fails on an MCP error detail", (piName, tool) => {
   const h = replay();

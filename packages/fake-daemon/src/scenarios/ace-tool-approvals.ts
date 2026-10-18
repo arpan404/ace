@@ -13,7 +13,7 @@ import { message, rootAgent, turn } from "./facts.ts";
 const originRequest = (url: string): InteractionRequest => ({
   kind: "approval",
   title: `open ${url} in the thread browser`,
-  target: { tool: "browser_navigate", access: "execute", input: { url } },
+  target: { tool: "browser_open", access: "execute", input: { url } },
   options: [
     { id: "allow_once", label: "Allow once", kind: "allow_once" },
     { id: "allow_thread", label: "Allow for this thread", kind: "allow_session" },
@@ -62,11 +62,11 @@ export function aceToolApprovals(): Scenario {
           aceCall(
             "root",
             "visit",
-            "browser_navigate",
+            "browser_open",
             { url: "https://arpan.sh" },
             page("https://arpan.sh"),
           ),
-          aceCall("root", "go", "browser_navigate", { url }, page(url)),
+          aceCall("root", "go", "browser_open", { url }, page(url)),
           asked("origin-1", url, "go"),
           allowed("origin-1"),
           asked("origin-2", url),

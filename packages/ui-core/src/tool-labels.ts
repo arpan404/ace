@@ -49,7 +49,6 @@ const approvalTools: Record<string, string> = {
   multiedit: "File change",
   notebookedit: "File change",
   "codex-permissions-escalation": "Permission escalation",
-  screen_request_foreground: "Foreground control",
   "browser.evaluate": "Page script",
   "browser.downloads": "Download",
   "browser.upload": "File upload",
@@ -177,7 +176,7 @@ export function mcpToolLabel(server: string, tool: string, args?: unknown): Tool
 
 /** A tool the adapter knows only by name (browser, image, notebook, custom), as "Used …". */
 export function namedToolLabel(kind: string, title: string): ToolLabel {
-  if (/›|mcp__|^(?:ace_|screen_|device_)/.test(title))
+  if (/›|mcp__|^(?:ace_|browser_|screen_|sim_)/.test(title))
     return label("tool", "Used a tool", "Using a tool", "Use a tool");
   const clean = oneLine(title, 72) ?? humanize(kind);
   if (kind === "browser") return label("web", "Browsed", "Browsing", "Browse", clean);

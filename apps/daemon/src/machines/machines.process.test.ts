@@ -138,7 +138,7 @@ it("an agent opens a new site in the other machine's browser with nobody asked",
   const connection = { url: pair.source.daemon.mcp.url, bearer: lease.bearer };
   const result = ToolResult.parse(
     await (
-      await invoke(connection, "ace_browser_open", {
+      await invoke(connection, "browser_open", {
         url: "https://docs.example.test/start",
         machine: "studio",
       })

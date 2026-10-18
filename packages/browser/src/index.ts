@@ -15,7 +15,12 @@ export type { NavigationClock } from "./navigation.ts";
 
 export type { ContextLauncher, ProcessSpawner } from "./io.ts";
 
-export { browserToolkit, browserMachineInput, type BrowserMachineRoute } from "./mcp.ts";
+export {
+  browserToolkit,
+  browserMachineInput,
+  type BrowserMachineRoute,
+  type BrowserToolPort,
+} from "./mcp.ts";
 
 export { Recording as BrowserRecording } from "./recording.ts";
 export { HeadlessBackend } from "./headless.ts";

@@ -186,8 +186,9 @@ export class ToolRegistry {
     const { name, capability, timeoutMs } = metadata;
     if (
       !toolNamePattern.test(name) ||
+      (name.startsWith("browser_") && capability !== "browser") ||
       (name.startsWith("screen_") && capability !== "screen") ||
-      (name.startsWith("device_") && capability !== "devices") ||
+      (name.startsWith("sim_") && capability !== "devices") ||
       this.bare.has(bareToolName(name))
     )
       throw new Error("Invalid or duplicate tool name");

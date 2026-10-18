@@ -12,7 +12,7 @@ for (const provider of ["claude", "opencode", "pi", "cursor", "codex", "acp"] as
       expect(item.call.detail).toMatchObject({
         kind: "mcp",
         server: "ace",
-        tool: "screen_measure_interaction",
+        tool: "screen_measure",
       });
       expect(item.call.result).toMatchObject({
         isError: false,
@@ -45,7 +45,7 @@ for (const provider of ["claude", "opencode", "pi", "cursor", "codex", "acp"] as
           {
             data: {
               toolCallId: item.id,
-              action: "screen_measure_interaction",
+              action: "screen_measure",
               outcome: "completed",
             },
           },
@@ -57,7 +57,10 @@ for (const provider of ["claude", "opencode", "pi", "cursor", "codex", "acp"] as
   });
 
 it("screen notices identify the calling step and target after the action", async () => {
-  const f = await toolFixture("claude", { tool: "screen_click", input: { x: 1, y: 1 } });
+  const f = await toolFixture("claude", {
+    tool: "screen_input",
+    input: { action: "click", x: 1, y: 1 },
+  });
   try {
     const items = Object.values(f.daemon.store.snapshotThread(f.thread.id).items);
     const item = items.find((entry) => entry.type === "tool_call");
@@ -92,8 +95,8 @@ it("screen notices identify the calling step and target after the action", async
 for (const provider of ["claude", "opencode", "pi", "acp"] as const)
   it(`${provider} redacts secure-field text in arguments, results and raw evidence`, async () => {
     const f = await toolFixture(provider, {
-      tool: "screen_type",
-      input: { text: "unique-secret-123" },
+      tool: "screen_input",
+      input: { action: "type", text: "unique-secret-123" },
       helperEnv: { SECURE_TEXT: "1" },
       error: true,
     });
@@ -112,7 +115,7 @@ for (const provider of ["claude", "opencode", "pi", "acp"] as const)
           detail: {
             kind: "mcp",
             server: "ace",
-            tool: "screen_type",
+            tool: "screen_input",
             arguments: { text: "[redacted]" },
           },
           result: { isError: true },
@@ -160,8 +163,8 @@ it.each([
   "helper error details retain only reviewed safe messages ($message)",
   async ({ message, detail }) => {
     const f = await toolFixture("claude", {
-      tool: "screen_click",
-      input: { x: 1, y: 1 },
+      tool: "screen_input",
+      input: { action: "click", x: 1, y: 1 },
       helperEnv: { RESULT_ERROR_CODE: "focus_changed", RESULT_ERROR_MESSAGE: message },
       error: true,
     });
@@ -190,11 +193,11 @@ it.each([
 it.each([
   { tool: "screen_screenshot", input: {} },
   { tool: "screen_ui_tree", input: {} },
-  { tool: "screen_ui_find", input: { query: { name: "Click" } } },
+  { tool: "screen_ui_tree", input: { name: "Click" } },
   { tool: "screen_open_app", input: { bundleId: "dev.ace.test" } },
-  { tool: "screen_request_foreground", input: {} },
+  { tool: "screen_open_app", input: { bundleId: "dev.ace.test", mode: "foreground" } },
 ])(
-  "$tool records a linked result notice, including reads and foreground switches",
+  "$tool $input records a linked result notice, including reads and foreground switches",
   async ({ tool, input }) => {
     const f = await toolFixture("claude", { tool, input });
     try {
@@ -205,7 +208,7 @@ it.each([
         isError: false,
         target: { bundleId: "dev.ace.test" },
       });
-      if (tool === "screen_request_foreground") expect(item.call.result?.mode).toBe("foreground");
+      if ("mode" in input) expect(item.call.result?.mode).toBe("foreground");
       if (tool === "screen_screenshot")
         expect(item.call.result).toMatchObject({
           scale: 1,
@@ -231,8 +234,8 @@ it.each([
 
 it("pre-dispatch permission failure retains the missing permission and a linked warning notice", async () => {
   const f = await toolFixture("claude", {
-    tool: "screen_click",
-    input: { x: 1, y: 1 },
+    tool: "screen_input",
+    input: { action: "click", x: 1, y: 1 },
     helperEnv: { REVOKE_ACCESS: "1" },
     error: true,
   });
@@ -291,8 +294,8 @@ it("context captures its structured result despite using the discovery registry"
 
 it("consented secure-field input succeeds without retaining its text or post-input snapshots", async () => {
   const f = await toolFixture("pi", {
-    tool: "screen_type",
-    input: { text: "secure-success-secret" },
+    tool: "screen_input",
+    input: { action: "type", text: "secure-success-secret" },
     helperEnv: { SECURE_TEXT: "1" },
     secureConsent: true,
   });

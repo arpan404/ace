@@ -2,7 +2,7 @@ import type { ToolCall } from "@ace/protocol";
 import { bareToolName } from "@ace/provider-kit/ace-tool-names";
 
 /** ace's own smoothness tools, by bare name. */
-const tools = new Set(["screen_measure_interaction", "browser_measure_interaction"]);
+const tools = new Set(["screen_measure", "browser_measure"]);
 
 /**
  * Whether a step is one of ace's interaction measurements, which the work log shows as a

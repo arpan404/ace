@@ -140,9 +140,9 @@ const browserCheck: EvalTask = {
   needsBrowser: true,
   async run(world) {
     const { agent } = await world.agent({});
-    await agent.turn(() => agent.call("ace_browser_open", { url: world.devServerUrl }));
-    await agent.turn(() => agent.call("ace_browser_wait_for", { text: "Sign in" }));
-    const logs = await agent.turn(() => agent.call("ace_browser_logs", {}));
+    await agent.turn(() => agent.call("browser_open", { url: world.devServerUrl }));
+    await agent.turn(() => agent.call("browser_wait_for", { text: "Sign in" }));
+    const logs = await agent.turn(() => agent.call("browser_logs", {}));
     const consoleError = logs.text.includes(seededConsoleError);
     const failedRequest = /\b500\b/.test(logs.text);
     return {

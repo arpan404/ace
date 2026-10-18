@@ -64,8 +64,8 @@ it("an agent opens, types into and foregrounds any app, a web browser included, 
     registry.call(name, args, lease.principal, new AbortController().signal);
   for (const [name, args] of [
     ["screen_open_app", { bundleId: "com.apple.Safari" }],
-    ["screen_type", { text: "release notes" }],
-    ["screen_request_foreground", {}],
+    ["screen_input", { action: "type", text: "release notes" }],
+    ["screen_open_app", { bundleId: "com.apple.Safari", mode: "foreground" }],
   ] as const) {
     const result = await call(name, args);
     expect(result.isError, `${name}: ${JSON.stringify(result.content)}`).not.toBe(true);
@@ -80,7 +80,7 @@ it("an agent opens, types into and foregrounds any app, a web browser included, 
   ]);
 });
 
-it("MCP window selection returns the replacement session and keeps it usable", async () => {
+it("reopening an app with another window returns the replacement session and keeps it usable", async () => {
   const h = await manager(
     { LEGACY_HELPER: "1" },
     { args: [new URL("./testing/fake-helper-behavior.ts", import.meta.url).pathname] },
@@ -103,8 +103,8 @@ it("MCP window selection returns the replacement session and keeps it usable", a
     new AbortController().signal,
   );
   const result = await registry.call(
-    "screen_select_window",
-    { sessionId: state.sessionId, windowId: 2 },
+    "screen_open_app",
+    { bundleId: target.bundleId, windowId: 2 },
     lease.principal,
     new AbortController().signal,
   );
@@ -114,8 +114,8 @@ it("MCP window selection returns the replacement session and keeps it usable", a
   });
   expect(h.screen.agentSession(caller)).not.toBe(state.sessionId);
   const typed = await registry.call(
-    "screen_type",
-    { sessionId: h.screen.agentSession(caller), text: "replacement works" },
+    "screen_input",
+    { action: "type", sessionId: h.screen.agentSession(caller), text: "replacement works" },
     lease.principal,
     new AbortController().signal,
   );

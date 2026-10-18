@@ -8,7 +8,7 @@ const scopeKeys = new Set([
   "model",
   "role",
   "streamId",
-  "deviceId",
+  "simId",
   "appId",
   "url",
   "ref",
@@ -29,16 +29,16 @@ export function describeAceAction(
   // Measurement reads are safe to approve as view operations; a nested input is an effect.
   const bare = bareToolName(tool);
   if (
-    (bare === "screen_measure_interaction" || bare === "browser_measure_interaction") &&
+    (bare === "screen_measure" || bare === "browser_measure") &&
     input &&
     typeof input === "object"
   ) {
-    const field = bare === "screen_measure_interaction" ? "action" : "interaction";
-    const selectsTab =
-      bare === "browser_measure_interaction" && Reflect.get(input, "tabId") !== undefined;
-    riskClass =
-      Reflect.get(input, field) === undefined && !selectsTab ? "read-only" : "external-effect";
+    const field = bare === "screen_measure" ? "action" : "interaction";
+    riskClass = Reflect.get(input, field) === undefined ? "read-only" : "external-effect";
   }
+  // Listing history reads; moving through it navigates.
+  if (bare === "browser_history" && input && typeof input === "object")
+    riskClass = Reflect.get(input, "direction") === undefined ? "read-only" : "external-effect";
   const scope =
     input && typeof input === "object"
       ? Object.entries(input).filter(([key]) => scopeKeys.has(key))

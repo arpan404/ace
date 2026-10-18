@@ -16,7 +16,6 @@ import { ScreenStreamSettings } from "@ace/protocol";
 import { HelperCommandError } from "./helper.ts";
 import type { ScreenAccess } from "./access.ts";
 import { captureModelImage } from "./model-capture.ts";
-import { legacyModelAction } from "./model-coordinates.ts";
 import { dispatchLegacyAction } from "./legacy-input.ts";
 import { ScreenAgentScope } from "@ace/protocol";
 import { agentOwner, agentScope } from "./agent-binding.ts";
@@ -620,21 +619,6 @@ export class ScreenManager {
       () => this.captureScreenshot(id),
       signal,
       this.options.modelImageRuntime,
-    );
-  }
-  async modelAction(id: string, owner: string, input: ScreenAction, beforeDispatch: () => void) {
-    const action = ScreenAction.parse(input);
-    return this.execute(
-      id,
-      "agent",
-      owner,
-      (session, validate) =>
-        dispatchLegacyAction(session, legacyModelAction(session, owner, action), () => {
-          validate();
-          beforeDispatch();
-          validate();
-        }),
-      action.kind,
     );
   }
   /** Observation needs a live target, not an input controller or Accessibility grant. */

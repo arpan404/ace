@@ -50,7 +50,7 @@ it.each(["codex", "opencode", "cursor", "antigravity", "acp"] as const)(
     if (!connection) throw new Error("Missing MCP connection");
     const result = Result.parse(
       await (
-        await invoke(connection, "ace_browser_open", { url: "http://localhost:3000/agent" })
+        await invoke(connection, "browser_open", { url: "http://localhost:3000/agent" })
       ).json(),
     );
     expect(result.result.isError).not.toBe(true);
@@ -60,11 +60,11 @@ it.each(["codex", "opencode", "cursor", "antigravity", "acp"] as const)(
     });
     f.browser.takeover(f.thread.id, "human");
     const rejected = Result.parse(
-      await (await invoke(connection, "ace_browser_scroll", { x: 0, y: 1 })).json(),
+      await (await invoke(connection, "browser_act", { action: "scroll", x: 0, y: 1 })).json(),
     );
     expect(rejected.result.isError).toBe(true);
     await session.close("shutdown");
-    expect((await invoke(connection, "ace_browser_open", {})).status).toBe(401);
+    expect((await invoke(connection, "browser_open", {})).status).toBe(401);
   },
 );
 it("browser MCP capability filtering denies ungranted callers", async () => {
@@ -79,7 +79,7 @@ it("browser MCP capability filtering denies ungranted callers", async () => {
     new AbortController().signal,
   );
   const result = Result.parse(
-    await (await invoke({ url: f.mcp.url, bearer: lease.bearer }, "ace_browser_open", {})).json(),
+    await (await invoke({ url: f.mcp.url, bearer: lease.bearer }, "browser_open", {})).json(),
   );
   expect(result.result.isError).toBe(true);
   expect(() => f.browser.state(f.thread.id)).toThrow("not open");
@@ -100,7 +100,7 @@ it("browser MCP lazily opens a selected backend and returns its screenshot inlin
   try {
     const response = await invoke(
       { url: f.mcp.url, bearer: lease.bearer },
-      "ace_browser_screenshot",
+      "browser_screenshot",
       {},
     );
     const result = z

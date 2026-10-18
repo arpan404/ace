@@ -3,6 +3,10 @@ import { InteractionMeasurement, McpScope } from "@ace/protocol";
 import { CredentialRegistry, ToolRegistry, nodeScheduler } from "@ace/mcp-server";
 import { z } from "zod";
 import { browserToolkit } from "./index.ts";
+
+const unused = async () => {
+  throw new Error("not called");
+};
 import { executablePath, fixture, ref } from "./test-support.ts";
 
 if (!executablePath)
@@ -112,8 +116,10 @@ it("measurement MCP validates bounded inputs and returns numbers plus an image",
     },
   });
   browserToolkit({
+    open: unused,
     execute: async () => model,
     screenshot: async () => Buffer.from("unused"),
+    close: unused,
   }).register(registry);
   const credentials = new CredentialRegistry(() => "a".repeat(64));
   const lease = credentials.issue(
@@ -127,29 +133,21 @@ it("measurement MCP validates bounded inputs and returns numbers plus an image",
   );
   try {
     const call = (args: unknown) =>
-      registry.call(
-        "ace_browser_measure_interaction",
-        args,
-        lease.principal,
-        new AbortController().signal,
-      );
+      registry.call("browser_measure", args, lease.principal, new AbortController().signal);
     const response = z
       .object({ content: z.array(z.looseObject({ type: z.string() })) })
       .parse(await call({ observeMs: 300 }));
     expect(response.content.map((part) => part.type)).toEqual(["text", "image"]);
     for (const args of [{ observeMs: 10_001 }, { repeat: 6 }, { observeMs: 10_000, repeat: 3 }])
       expect(await call(args)).toHaveProperty("isError", true);
-    expect(registry.action("ace_browser_measure_interaction", { observeMs: 300 })).toMatchObject({
+    expect(registry.action("browser_measure", { observeMs: 300 })).toMatchObject({
       riskClass: "read-only",
       access: "read",
     });
     expect(
-      registry.action("ace_browser_measure_interaction", {
+      registry.action("browser_measure", {
         interaction: { action: "scroll", x: 0, y: 10 },
       }),
-    ).toMatchObject({ riskClass: "external-effect", access: "write" });
-    expect(
-      registry.action("ace_browser_measure_interaction", { tabId: "selected-tab" }),
     ).toMatchObject({ riskClass: "external-effect", access: "write" });
   } finally {
     credentials.close();

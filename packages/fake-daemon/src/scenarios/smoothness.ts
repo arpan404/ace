@@ -17,7 +17,7 @@ export const filmstripJpeg =
   "jdWrZX1REAikEAtK6tXyvqrxw7vV0RARLIJhaN1atlfVIpBALSurV8r6oiAvHDu9XUSyCYWjdWrZX1REB//Z";
 
 /**
- * A finished `screen_measure_interaction` (window targets) or `browser_measure_interaction`
+ * A finished `screen_measure` (window targets) or `browser_measure`
  * (tab targets) step as Codex stores it: the MCP result's JSON text part, then the filmstrip's
  * image part unless `filmstrip` is false.
  */
@@ -27,10 +27,7 @@ export function measurementCall(
   measurement: InteractionMeasurement,
   options: { filmstrip?: boolean } = {},
 ): Fact {
-  const tool =
-    measurement.target.kind === "window"
-      ? "screen_measure_interaction"
-      : "browser_measure_interaction";
+  const tool = measurement.target.kind === "window" ? "screen_measure" : "browser_measure";
   const content = [
     { type: "text", text: JSON.stringify(measurement) },
     ...(options.filmstrip === false

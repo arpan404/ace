@@ -178,13 +178,13 @@ export class DevicesService {
       throw new DeviceError(
         "lease_required",
         "A person is controlling this device",
-        "Wait until the person hands it back, then call device_start again.",
+        "Wait until the person hands it back, then call sim_start again.",
       );
     if (current && current.owner !== actor.owner)
       throw new DeviceError(
         "busy",
         "Another agent is using this device",
-        "Use another device, or retry after that agent finishes.",
+        "Use another simulator, or retry after that agent finishes.",
       );
     if (current && session.threadId === threadId) return;
     this.assertEnabled(session);
@@ -276,7 +276,7 @@ export class DevicesService {
       throw new DeviceError(
         "lease_required",
         "Device is not taken for this thread",
-        "Call device_start or device_boot to take this device first.",
+        "Call sim_start to take this simulator first.",
       );
   }
   private enqueue<T>(
@@ -312,7 +312,7 @@ export class DevicesService {
       throw new DeviceError(
         "permission_denied",
         "Only a person can do this",
-        "Use the device tools; device_start takes the device for this thread.",
+        "Use the sim_* tools; sim_start takes the simulator for this thread.",
       );
     if (operation.op === "enable") {
       if (this.disabling)

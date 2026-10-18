@@ -6,13 +6,13 @@ import { CredentialRegistry, ToolRegistry, nodeScheduler, startMcpServer } from 
 import { scope } from "./test-support.ts";
 
 test.each(["codex", "claude", "opencode", "cursor", "pi", "acp"])(
-  "%s cannot discover or execute disabled screen and device tools",
+  "%s cannot discover or execute disabled screen and simulator tools",
   async (provider) => {
     const registry = new ToolRegistry({ scheduler: nodeScheduler });
     let effects = 0;
     for (const [name, capability] of [
       ["screen_open_app", "screen"],
-      ["device_list", "devices"],
+      ["sim_list", "devices"],
     ] as const)
       registry.register({
         name,
@@ -54,7 +54,7 @@ test.each(["codex", "claude", "opencode", "cursor", "pi", "acp"])(
     expect(await client.callTool({ name: "screen_open_app", arguments: {} })).toMatchObject({
       isError: true,
     });
-    expect(await client.callTool({ name: "device_list", arguments: {} })).toMatchObject({
+    expect(await client.callTool({ name: "sim_list", arguments: {} })).toMatchObject({
       isError: true,
     });
     expect(effects).toBe(0);
@@ -84,10 +84,10 @@ test.each([
       readOnly = false,
       effects = 0;
     const registry = new ToolRegistry({ scheduler: nodeScheduler });
-    for (const name of ["screen_open_app", "device_list"])
+    for (const name of ["screen_open_app", "sim_list"])
       registry.register({
         name,
-        capability: name === "device_list" ? "devices" : "screen",
+        capability: name === "sim_list" ? "devices" : "screen",
         description: "Operate a native app",
         input: z.object({}),
         output: z.object({}),
@@ -158,7 +158,7 @@ test.each([
       await change(() => {
         enabled = true;
       }),
-    ).toEqual(["context", "screen_open_app", "device_list"]);
+    ).toEqual(["context", "screen_open_app", "sim_list"]);
     for (const tool of await listed())
       expect(tool.description).not.toContain("ace tools add ace-specific actions");
     expect(await client.callTool({ name: "screen_open_app", arguments: {} })).not.toMatchObject({
@@ -169,8 +169,8 @@ test.each([
       await change(() => {
         readOnly = true;
       }),
-    ).toEqual(["context", "screen_open_app", "device_list"]);
-    expect(await client.callTool({ name: "device_list", arguments: {} })).not.toMatchObject({
+    ).toEqual(["context", "screen_open_app", "sim_list"]);
+    expect(await client.callTool({ name: "sim_list", arguments: {} })).not.toMatchObject({
       isError: true,
     });
     expect(effects).toBe(2);

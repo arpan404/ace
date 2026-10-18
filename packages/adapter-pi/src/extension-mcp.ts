@@ -17,7 +17,7 @@ const AceToolName = z
 
 /**
  * Pi has no MCP namespace of its own, so ace namespaces its extension tools the way OpenCode
- * does: `ace_<bare name>` (`ace_guide`, `ace_screen_click`). Pi's transcript maps them back.
+ * does: `ace_<bare name>` (`ace_guide`, `ace_screen_input`). Pi's transcript maps them back.
  */
 export function piToolName(mcpName: string): string {
   return `ace_${bareToolName(mcpName)}`;

@@ -27,8 +27,8 @@ import { MeasurementTimeline } from "./measurement-timeline.tsx";
 import type { useStepDisplay } from "./use-step-display.ts";
 
 /*
- * A smoothness measurement in the work log (`screen_measure_interaction`,
- * `browser_measure_interaction`): one quiet row with the verdict and its key number, which
+ * A smoothness measurement in the work log (`screen_measure`,
+ * `browser_measure`): one quiet row with the verdict and its key number, which
  * opens to the card. Loaded only when a log holding one opens; until then, and for a run still
  * going or a result the payloads no longer hold, the step reads as an ordinary row (`plain`).
  */

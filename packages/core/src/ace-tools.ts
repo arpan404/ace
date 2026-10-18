@@ -12,34 +12,54 @@ type CallInput = {
 
 const record = z.record(z.string(), z.unknown());
 const screen = new Set([
-  "screenshot",
-  "click",
-  "type",
-  "paste",
-  "key",
-  "scroll",
-  "ui_tree",
-  "ui_find",
-  "ui_act",
-  "measure_interaction",
   "open_app",
-  "request_foreground",
+  "windows",
+  "ui_tree",
+  "ui_act",
+  "input",
+  "screenshot",
+  "measure",
 ]);
+
+const browser = new Set([
+  "open",
+  "snapshot",
+  "act",
+  "wait_for",
+  "find",
+  "screenshot",
+  "logs",
+  "evaluate",
+  "history",
+  "settings",
+  "measure",
+]);
+const sim = new Set(["list", "start", "stop", "ui", "act", "screenshot", "logs"]);
+/** Families some providers report without ace's namespace; only ace's own names count. */
+const bareFamilies: readonly (readonly [string, ReadonlySet<string>])[] = [
+  ["browser_", browser],
+  ["screen_", screen],
+  ["sim_", sim],
+];
 
 const namespaced = /^(?:mcp__ace__|ace_)/;
 const toolName = /^[a-z][a-z0-9_]{0,100}$/;
 
 /**
  * The bare name of an un-namespaced call (a provider `custom` call or a title) when it is one of
- * ace's: it carries ace's namespace (`mcp__ace__`, `ace_`) or is a computer-use or device tool,
- * which some providers report bare. Any other bare name belongs to someone else.
+ * ace's: it carries ace's namespace (`mcp__ace__`, `ace_`) or is a browser, computer-use or sim tool,
+ * which some providers report bare. Any other bare name (another server's `browser_click`)
+ * belongs to someone else.
  */
 export function aceToolName(name: string): string | undefined {
   const bare = bareToolName(name);
   if (!toolName.test(bare)) return undefined;
   if (namespaced.test(name)) return bare;
-  if (bare.startsWith("screen_") && screen.has(bare.slice(7))) return bare;
-  return bare.startsWith("device_") ? bare : undefined;
+  return bareFamilies.some(
+    ([prefix, names]) => bare.startsWith(prefix) && names.has(bare.slice(prefix.length)),
+  )
+    ? bare
+    : undefined;
 }
 
 /** The tool an MCP detail names, when the server is ace's or the provider did not report one. */
@@ -118,19 +138,15 @@ export function privateAceInput(tool: string, input?: unknown): boolean {
   const name = bareToolName(tool);
   const payload = record.safeParse(input).data;
   const action = record.safeParse(payload?.action ?? payload?.interaction).data;
-  if (name.endsWith("measure_interaction") && action && ("text" in action || "value" in action))
-    return true;
-  return [
-    "html_render",
-    "screen_type",
-    "screen_paste",
-    "screen_ui_act",
-    "device_type",
-    "device_ui_act",
-    "device_act",
-    "browser_type",
-    "browser_fill",
-  ].includes(name);
+  if (name.endsWith("_measure") && action && ("text" in action || "value" in action)) return true;
+  if (name === "html_render") return true;
+  // Merged input tools carry text only for typing, pasting or setting a value; a click or key
+  // press stays visible, error and all.
+  return (
+    ["screen_input", "screen_ui_act", "sim_act", "browser_act"].includes(name) &&
+    payload !== undefined &&
+    ["text", "value", "promptText"].some((key) => payload[key] !== undefined)
+  );
 }
 export function redactAceArguments(name: string, value: unknown): unknown {
   if (!privateAceInput(name, value)) return value;
@@ -139,7 +155,7 @@ export function redactAceArguments(name: string, value: unknown): unknown {
   const redacted = Object.fromEntries(
     Object.entries(parsed.data).map(([key, child]) => [
       key,
-      ["text", "value", "html", "title"].includes(key) ? "[redacted]" : child,
+      ["text", "value", "html", "title", "promptText"].includes(key) ? "[redacted]" : child,
     ]),
   );
   for (const field of ["action", "interaction"]) {
@@ -148,7 +164,7 @@ export function redactAceArguments(name: string, value: unknown): unknown {
       redacted[field] = Object.fromEntries(
         Object.entries(action.data).map(([key, child]) => [
           key,
-          ["text", "value", "html", "title"].includes(key) ? "[redacted]" : child,
+          ["text", "value", "html", "title", "promptText"].includes(key) ? "[redacted]" : child,
         ]),
       );
   }

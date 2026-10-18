@@ -50,7 +50,23 @@ export const BrowserCommand = z.discriminatedUnion("action", [
     action: z.literal("measure_interaction"),
     ...BrowserMeasurementOptions.shape,
   }),
-  commandBase.extend({ action: z.literal("snapshot") }),
+  commandBase.extend({
+    action: z.literal("snapshot"),
+    ref: short
+      .optional()
+      .describe("Ref of a container from the latest snapshot: return only its subtree."),
+    interactiveOnly: z
+      .boolean()
+      .default(false)
+      .describe("Only actionable elements (buttons, links, fields), as a flat list."),
+    maxNodes: z
+      .number()
+      .int()
+      .min(1)
+      .max(2000)
+      .default(120)
+      .describe("Most lines to return; the result says when more exist."),
+  }),
   commandBase.extend({ action: z.literal("screenshot") }),
   commandBase.extend({
     action: z.literal("evaluate"),
@@ -99,8 +115,7 @@ export const BrowserCommand = z.discriminatedUnion("action", [
   }),
   commandBase.extend({
     action: z.literal("tabs"),
-    operation: z.enum(["list", "open", "switch", "close"]).default("list"),
-    url: z.string().max(8192).optional(),
+    operation: z.enum(["list", "switch"]).default("list"),
   }),
   commandBase.extend({
     action: z.literal("upload"),
@@ -124,9 +139,14 @@ export const BrowserCommand = z.discriminatedUnion("action", [
   commandBase.extend({ action: z.literal("focus"), ref: short }),
   commandBase.extend({
     action: z.literal("find"),
-    role: short,
-    name: z.string().max(1024),
-    exact: z.boolean().default(true),
+    role: short.optional().describe("Accessible role, e.g. button, link, textbox, heading."),
+    name: z
+      .string()
+      .min(1)
+      .max(1024)
+      .optional()
+      .describe("Accessible name; a case-insensitive substring unless exact is true."),
+    exact: z.boolean().default(false).describe("Match the whole name exactly."),
   }),
   commandBase.extend({ action: z.literal("network_body"), requestId: short }),
   commandBase.extend({ action: z.literal("record_start") }),

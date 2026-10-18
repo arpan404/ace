@@ -47,27 +47,15 @@ export interface AceLog {
 }
 
 /** Tools whose actions the daemon audits, and so whose audit notice can be folded in. */
-const audited = new Set([
-  "screen_click",
-  "screen_type",
-  "screen_paste",
-  "screen_key",
-  "screen_scroll",
-  "screen_ui_act",
-  "screen_measure_interaction",
-]);
+const audited = new Set(["screen_input", "screen_ui_act", "screen_measure"]);
 /** Tools whose answers name elements by ref. */
 const readsRefs = new Set([
   "screen_ui_tree",
-  "screen_ui_find",
   "screen_ui_act",
-  "screen_click",
-  "screen_type",
-  "screen_key",
+  "screen_input",
   "browser_snapshot",
   "browser_find",
-  "device_ui_tree",
-  "device_find",
+  "sim_ui",
 ]);
 const unsettled = new Set(["pending", "running", "awaiting_approval"]);
 const maxNodes = 8192;
@@ -81,25 +69,38 @@ interface AgentState {
   pending: { id: string; tool: string }[];
 }
 
-/** JSON text parts, parsed; anything else is skipped. */
-function* jsonParts(raw: readonly RawPayload[], result: unknown): Generator<unknown> {
+/** Text parts: JSON parsed, anything else as its text. */
+function* resultParts(raw: readonly RawPayload[], result: unknown): Generator<unknown> {
   const payloads = result === undefined ? raw : [{ type: "result", data: result }, ...raw];
   for (const text of mcpResultParts(payloads, 0).texts) {
     const trimmed = text.trimStart();
-    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) continue;
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+      yield text;
+      continue;
+    }
     try {
       yield JSON.parse(trimmed);
     } catch {
-      // Not JSON after all.
+      yield text;
     }
   }
 }
+
+/** A text snapshot's lines: `- button "Save" [ref=e3-41]`. */
+const snapshotRef = /"((?:[^"\\\n]|\\.){1,256})"[^\n]*?\[ref=([^\]\s]{1,128})\]/g;
 
 /** Every object in `value` with string `key` and `name` fields, bounded. */
 function collect(value: unknown, key: string, into: Map<string, string>, test?: RegExp) {
   let visited = 0;
   const visit = (node: unknown, depth: number) => {
-    if (++visited > maxNodes || depth > 24 || typeof node !== "object" || node === null) return;
+    if (++visited > maxNodes || depth > 24) return;
+    if (typeof node === "string") {
+      if (key === "ref")
+        for (const match of node.slice(0, 512 * 1024).matchAll(snapshotRef))
+          if (match[1]?.trim() && match[2]) into.set(match[2], match[1].trim());
+      return;
+    }
+    if (typeof node !== "object" || node === null) return;
     if (Array.isArray(node)) {
       for (const entry of node) visit(entry, depth + 1);
       return;
@@ -188,15 +189,17 @@ function readContexts(ids: readonly string[], items: readonly (Item | undefined)
       if (state.site && !host) context.site = state.site;
       if (host) state.site = host;
     } else if (spec.family === "device") {
-      const device = devices.get(str(args, "deviceId") ?? "");
+      const device = devices.get(str(args, "simId") ?? "");
       if (device) context.device = device;
     }
     if (Object.keys(context).length) contexts[id] = { ...contexts[id], ...context };
     // What the answer names, for the steps after it.
-    if (readsRefs.has(call.tool) || call.tool === "device_list")
-      for (const part of jsonParts(call.raw, call.result)) {
-        if (call.tool === "device_list") collect(part, "id", devices, /^(ios|android):/);
-        else collect(part, "ref", refs);
+    if (readsRefs.has(call.tool) || call.tool === "sim_list")
+      for (const part of resultParts(call.raw, call.result)) {
+        if (call.tool === "sim_list") {
+          collect(part, "simId", devices, /^(ios|android):/);
+          collect(part, "id", devices, /^(ios|android):/);
+        } else collect(part, "ref", refs);
       }
   }
   return { contexts, absorbed };

@@ -172,7 +172,7 @@ test("a request from another machine shown during an ace tool call reads on that
         frames: [
           frames.frame(
             start,
-            ...codexGate("ace_browser_navigate", {
+            ...codexGate("browser_open", {
               url: "https://a.test",
               machine: "studio",
             }).slice(0, 1),
@@ -190,7 +190,7 @@ test("a request from another machine shown during an ace tool call reads on that
       {
         kind: "approval",
         title: "studio: run a command",
-        target: { tool: "ace_browser_navigate", access: "execute" },
+        target: { tool: "browser_open", access: "execute" },
         options: [{ id: "allow_once", label: "Allow once", kind: "allow_once" }],
       },
       [],

@@ -141,7 +141,7 @@ it("agents discover ace through initialize, resources and status even when compu
         .parse((await request("tools/list")).tools);
       // Every computer use tool is offered at once: there is no app grant to wait for.
       expect(enabledTools.map((tool) => tool.name)).toEqual(
-        expect.arrayContaining(["screen_open_app", "screen_ui_tree", "screen_type"]),
+        expect.arrayContaining(["screen_open_app", "screen_ui_tree", "screen_input"]),
       );
     } finally {
       await client.close();

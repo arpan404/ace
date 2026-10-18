@@ -213,7 +213,9 @@ it("daemon composition applies a fork's patch through git and supplies browser M
   try {
     const result = Result.parse(
       await (
-        await invoke({ url: daemon.mcp.url, bearer: lease.bearer }, "ace_browser_close", {})
+        await invoke({ url: daemon.mcp.url, bearer: lease.bearer }, "browser_settings", {
+          action: "close",
+        })
       ).json(),
     );
     expect(result.result.isError).not.toBe(true);

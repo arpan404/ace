@@ -84,21 +84,21 @@ it("daemon MCP exposes bounded measurement and enforces capability and controlle
     const disabled = z
       .object({ tools: z.array(z.object({ name: z.string() })) })
       .parse(await request(lease.bearer, "tools/list"));
-    expect(disabled.tools.map((tool) => tool.name)).not.toContain("screen_measure_interaction");
-    expect(
-      await request(lease.bearer, "tools/call", "screen_measure_interaction", {}),
-    ).toMatchObject({ isError: true });
+    expect(disabled.tools.map((tool) => tool.name)).not.toContain("screen_measure");
+    expect(await request(lease.bearer, "tools/call", "screen_measure", {})).toMatchObject({
+      isError: true,
+    });
     for (const args of [{ observeMs: 10001 }, { repeat: 6 }, { observeMs: 5000, repeat: 5 }])
-      expect(
-        await request(lease.bearer, "tools/call", "screen_measure_interaction", args),
-      ).toMatchObject({ isError: true });
+      expect(await request(lease.bearer, "tools/call", "screen_measure", args)).toMatchObject({
+        isError: true,
+      });
     await screen.enable(true);
     const tools = z
       .object({ tools: z.array(z.looseObject({ name: z.string(), inputSchema: z.unknown() })) })
       .parse(await request(lease.bearer, "tools/list"));
-    expect(
-      tools.tools.find((tool) => tool.name === "screen_measure_interaction")?.inputSchema,
-    ).toMatchObject({ properties: { observeMs: { maximum: 10000 }, repeat: { maximum: 5 } } });
+    expect(tools.tools.find((tool) => tool.name === "screen_measure")?.inputSchema).toMatchObject({
+      properties: { observeMs: { maximum: 10000 }, repeat: { maximum: 5 } },
+    });
     const session = await screen.start({ kind: "window", bundleId: "dev.ace.test", windowId: 1 });
     const response = z
       .object({
@@ -112,7 +112,7 @@ it("daemon MCP exposes bounded measurement and enforces capability and controlle
         ),
       })
       .parse(
-        await request(lease.bearer, "tools/call", "screen_measure_interaction", {
+        await request(lease.bearer, "tools/call", "screen_measure", {
           sessionId: session.sessionId,
         }),
       );
@@ -125,7 +125,7 @@ it("daemon MCP exposes bounded measurement and enforces capability and controlle
     expect(response.content.map((part) => part.type).slice(0, 2)).toEqual(["text", "image"]);
     screen.controller(session.sessionId, "human", "person");
     expect(
-      await request(lease.bearer, "tools/call", "screen_measure_interaction", {
+      await request(lease.bearer, "tools/call", "screen_measure", {
         sessionId: session.sessionId,
         action: { kind: "text.type", text: "unsafe" },
       }),
@@ -133,7 +133,7 @@ it("daemon MCP exposes bounded measurement and enforces capability and controlle
     expect(screen.state(session.sessionId).controller).toBe("human");
     screen.controller(session.sessionId, "agent", "another-agent");
     expect(
-      await request(lease.bearer, "tools/call", "screen_measure_interaction", {
+      await request(lease.bearer, "tools/call", "screen_measure", {
         sessionId: session.sessionId,
       }),
     ).toMatchObject({ isError: true });
@@ -142,7 +142,7 @@ it("daemon MCP exposes bounded measurement and enforces capability and controlle
       new AbortController().signal,
     );
     expect(
-      await request(denied.bearer, "tools/call", "screen_measure_interaction", {
+      await request(denied.bearer, "tools/call", "screen_measure", {
         sessionId: session.sessionId,
       }),
     ).toMatchObject({ isError: true });

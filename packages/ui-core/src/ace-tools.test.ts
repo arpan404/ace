@@ -49,24 +49,64 @@ function audit(text: string, data: Record<string, unknown> = {}): Item {
 
 const failure = (code: string) => [{ type: "text", text: JSON.stringify({ code, message: "x" }) }];
 
-test("key presses read as the keys a Mac shows, from any of the three ways agents name them", () => {
+test("key presses read as the keys a Mac shows, from either way agents name them", () => {
   const app = { app: { bundleId: "com.apple.Safari" } };
-  expect(aceStep(mcp("screen_key", { key: "l", modifiers: ["command"] }), app)?.words.past).toBe(
-    "Pressed ⌘L in Safari",
-  );
-  expect(aceStep(mcp("screen_key", { keyCode: 36, modifiers: [] }), app)?.words.past).toBe(
-    "Pressed Return in Safari",
-  );
-  expect(aceStep(mcp("ace_browser_press", { key: "Meta+Shift+T" }))?.words.past).toBe(
+  expect(
+    aceStep(mcp("screen_input", { action: "key", key: "l", modifiers: ["command"] }), app)?.words
+      .past,
+  ).toBe("Pressed ⌘L in Safari");
+  expect(aceStep(mcp("browser_act", { action: "press", key: "Meta+Shift+T" }))?.words.past).toBe(
     "Pressed ⇧⌘T",
   );
+});
+
+const past = (tool: string, args: Record<string, unknown>) => aceStep(mcp(tool, args))?.words.past;
+test("a merged browser, screen or simulator tool reads by the action it was asked for", () => {
+  expect(past("browser_act", { action: "type", text: "Ada" })).toBe("Typed “Ada”");
+  expect(past("browser_act", { action: "uncheck", ref: "e1-2" })).toBe("Unchecked a box");
+  expect(past("browser_act", { action: "dialog", dialogId: "d", accept: false })).toBe(
+    "Dismissed a dialog",
+  );
+  expect(past("browser_history", {})).toBe("Checked the page history");
+  expect(past("browser_history", { direction: "back" })).toBe("Went back");
+  expect(past("browser_settings", { action: "resize", width: 390, height: 844 })).toBe(
+    "Resized the browser to 390×844",
+  );
+  expect(past("browser_logs", { requestId: "r1" })).toBe("Read a network response");
+  expect(past("browser_find", { text: "Sign in" })).toBe("Searched the page for “Sign in”");
+  expect(past("screen_input", { action: "paste", text: "hello" })).toBe("Pasted “hello”");
+  expect(past("screen_ui_act", { menu: ["File", "New Window"] })).toBe(
+    "Clicked “File › New Window”",
+  );
+  expect(past("screen_ui_tree", { name: "Save" })).toBe("Looked for “Save”");
+  expect(past("sim_act", { action: "swipe", x: 1, y: 2, toX: 3, toY: 4 })).toBe(
+    "Swiped on the simulator",
+  );
+  expect(past("sim_act", { action: "key", key: "home" })).toBe("Pressed Home on the simulator");
+});
+
+test("a later browser action names the element a text snapshot listed for its ref", () => {
+  const snapshot = mcp(
+    "browser_snapshot",
+    {},
+    {
+      content: [{ type: "text", text: '- document "Drafts"\n  - button "Save draft" [ref=e3-41]' }],
+    },
+  );
+  const click = mcp("browser_act", { action: "click", ref: "e3-41" });
+  const items = [snapshot, click];
+  const log = aceToolLog(
+    items.map((item) => item.id),
+    items,
+  );
+  expect(aceStep(click, log.contexts[click.id])?.words.past).toBe("Clicked “Save draft”");
 });
 
 test("the daemon's audit names the app and the code a call's failure reads by", () => {
   const items = [
     mcp(
-      "screen_type",
-      { text: "gmail.com" },
+      "screen_input",
+      { action: "type", text: "gmail.com" },
       { status: "failed", content: failure("execution_failed") },
     ),
     audit("text.type · com.apple.Safari · background · focus_changed"),
@@ -86,8 +126,8 @@ test("the daemon's audit names the app and the code a call's failure reads by", 
 });
 
 test("a newer daemon's audit links its call and names the app in its data", () => {
-  const call = mcp("screen_key", { key: "k" }, { status: "failed" });
-  const other = mcp("screen_key", { key: "j" });
+  const call = mcp("screen_input", { action: "key", key: "k" }, { status: "failed" });
+  const other = mcp("screen_input", { action: "key", key: "j" });
   const linked = audit("key.press · display · foreground · not_supported", {
     toolCallId: call.id,
     bundleId: "com.apple.TextEdit",
@@ -109,7 +149,7 @@ test("an audit with no call reads as its own row, and an app's steps group", () 
     mcp("screen_open_app", { bundleId: "com.apple.Notes" }),
     mcp("screen_screenshot", {}),
     lone,
-    mcp("ace_browser_navigate", { url: "https://example.com/a" }),
+    mcp("browser_open", { url: "https://example.com/a" }),
   ];
   const log = aceToolLog(
     items.map((item) => item.id),
@@ -142,14 +182,16 @@ test("ace tools a provider reports as custom, with prefixed names, read the same
 });
 
 test("a typed error result counts as a failure even when the provider said it succeeded", () => {
-  const item = mcp("device_boot", { deviceId: "ios:8A1F3C2E-4B5D-4E6F-9A0B-1C2D3E4F5A6B" });
+  const item = mcp("sim_start", { simId: "ios:8A1F3C2E-4B5D-4E6F-9A0B-1C2D3E4F5A6B" });
   if (item.type === "tool_call")
     Object.assign(item.call, { result: { isError: true, content: failure("sdk_missing") } });
   expect(aceStep(item)?.problem?.title).toBe("Xcode or the Android SDK isn't set up");
 });
 
 test("other servers' tools are not ace's, and unknown ace tools fall back to their name", () => {
-  expect(aceStep(mcp("device_list", {}, { server: "github" }))).toBeUndefined();
+  expect(aceStep(mcp("sim_list", {}, { server: "github" }))).toBeUndefined();
+  // Playwright's MCP also names its tools browser_*; only ace's server makes them ace's.
+  expect(aceStep(mcp("browser_snapshot", {}, { server: "playwright" }))).toBeUndefined();
   expect(aceStep(mcp("ace_frobnicate", {}))?.words).toMatchObject({
     past: "Used ace",
     target: "frobnicate",
@@ -158,7 +200,7 @@ test("other servers' tools are not ace's, and unknown ace tools fall back to the
 
 test("a call made on another paired machine names that machine on its row", () => {
   const opened = aceStep(
-    mcp("ace_browser_open", { url: "https://docs.example.test/start", machine: "studio" }),
+    mcp("browser_open", { url: "https://docs.example.test/start", machine: "studio" }),
   )?.words;
   expect(opened?.past).toMatch(/^On studio, /);
   expect(opened?.target).toContain("docs.example.test");
@@ -171,7 +213,7 @@ test("a call made on another paired machine names that machine on its row", () =
       }),
     )?.words.past,
   ).toBe("Delegated “Review the release notes” on studio");
-  expect(aceStep(mcp("ace_browser_snapshot", {}))?.words.past).not.toContain("studio");
+  expect(aceStep(mcp("browser_snapshot", {}))?.words.past).not.toContain("studio");
 });
 
 const controlWords = (args: Record<string, unknown>) =>

@@ -54,7 +54,7 @@ export const DelegationRequest = z.strictObject({
   waitMs: z.number().int().min(1).max(600000).optional(),
   workspace: AgentWorkspace.optional(),
   estimatedLoad: z.number().min(0).max(100).default(0),
-  /** Run on another paired machine from `ace_machines`, in one of its projects (ADR 0078). */
+  /** Run on another paired machine from `machines`, in one of its projects (ADR 0078). */
   machine: MachineName.optional(),
   project: z.string().min(1).max(256).optional(),
 });

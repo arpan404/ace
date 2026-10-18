@@ -151,7 +151,7 @@
           "type": "string"
         },
         "tool": {
-          "pattern": "^ace_browser_[a-z_]{1,64}$",
+          "pattern": "^browser_[a-z_]{1,64}$",
           "type": "string"
         }
       },

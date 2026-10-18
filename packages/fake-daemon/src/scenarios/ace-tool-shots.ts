@@ -14,7 +14,7 @@ export const safariShot =
   "wAhYwAJGwAIWsIARsIAFDAgYEDAIGBAwIGAQsFsAAgYEDAgYBAwIGBAwIGAQMCBgQMAgYEDAgIABAYOAAQEDAgYEDAIGBAwI" +
   "GAQMCBgQMCBgEDAgYEDAgIBBwICAAQGDgAEBAwIGBAwCBgQMCBgEDAgYEDCw3AersomZxBmpEQAAAABJRU5ErkJggg==";
 
-/** A phone app's sign-in screen, as `device_screenshot` returns it. */
+/** A phone app's sign-in screen, as `sim_screenshot` returns it. */
 export const phoneShot =
   "iVBORw0KGgoAAAANSUhEUgAAAHgAAADwCAIAAABE5TcwAAABhklEQVR42u3aORXAIBBAQURECmWERUQk0mAiBU3SRAPHMv+t" +
   "gqlYIB3qUkIAGrRAgwYt0KAFelropi6BBg1aoEGDRgAatECDBi3QoAUaNGiBBi3QoEELNGiBBg1aoEELdDzo9z53G9CgQYMG" +

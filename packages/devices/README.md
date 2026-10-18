@@ -23,14 +23,14 @@ There is no provider login or credential handling here.
 ## Authorization and transport
 
 An authenticated admin turns devices on. A device belongs to the thread whose agent or
-person took it last: `device_boot` and `device_start` take it for the agent's thread and
+person took it last: `sim_start` takes it for the agent's thread (booting it if needed) and
 give that agent the controller lease with no prompt, unless a person controls it or another
 agent holds an unexpired lease. A person can also hand it to one of a thread's agents.
 Moving a device to another thread starts fresh logs and recordings. Input uses target
 points, with `frame.scale` converting display pixels to those points. Control
 expires after 30 seconds without an action. Queued actions retain their ticket until
 completion. Agents can resume their expired lease on the next action; explicit
-release and takeover invalidate it, and the agent takes it again with `device_start`. Human takeover invalidates pending
+release and takeover invalidate it, and the agent takes it again with `sim_start`. Human takeover invalidates pending
 agent commands, including commands awaiting SDK lookup or permission checks.
 An already dispatched native command can finish; the next command must pass the
 new ownership checks. Disconnect and credential revocation release control.
@@ -45,12 +45,12 @@ packets so multiple streams cannot interleave. Reconnect requires fresh viewing 
 it never replays input or grants control.
 
 The daemon composes browser, screen and devices toolkits before provider sessions
-start. Every adapter receives the same session-scoped MCP connection. Device
-tools are `device_list`, `device_boot`, `device_open_app`, `device_open_url`,
-`device_screenshot`, `device_ui_tree`, `device_find`, `device_act`, `device_tap`,
-`device_swipe`, `device_type`, `device_key`, `device_logs`, `device_record_start`,
-`device_record_stop` and `device_install`. A tap with `durationMs` is a long press.
-Logs start on the first authorized `device_logs` request and return a bounded
+start. Every adapter receives the same session-scoped MCP connection. Simulator
+tools are named `sim_*` so they cannot be confused with paired machines: `sim_list`,
+`sim_start`, `sim_stop`, `sim_ui` (tree or find), `sim_act` (ui, tap, long_press,
+swipe, type, key, open_app, open_url, install, record_start, record_stop),
+`sim_screenshot` and `sim_logs`. Each takes a `simId`.
+Logs start on the first authorized `sim_logs` request and return a bounded
 tail. Tools take no thread or agent override. Agent screenshots require the
 device stream to be live.
 

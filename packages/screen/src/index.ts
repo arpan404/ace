@@ -16,6 +16,8 @@ export { windowsEndpoint } from "./transport.ts";
 export { HelperCommandError } from "./helper.ts";
 
 export { screenToolkit } from "./mcp.ts";
+/** Shared with the simulator tools: one accessibility read is a tree or a find. */
+export { uiReadShape, uiReadRequest, perAction } from "./tool-schemas.ts";
 export type { Scheduler } from "./runtime.ts";
 
 export { linuxBackend, installedLinuxHelper, type LinuxBackend } from "./linux.ts";

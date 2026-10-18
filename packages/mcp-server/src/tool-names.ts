@@ -18,7 +18,7 @@ export const toolNamePattern = /^[a-z][a-z0-9_]{0,100}$/;
 export function defaultToolset(name: string): string | undefined {
   const bare = bareToolName(name);
   if (bare.startsWith("browser_")) return "ace-browser";
-  if (bare.startsWith("screen_") || bare.startsWith("device_")) return "ace-computer-use";
+  if (bare.startsWith("screen_") || bare.startsWith("sim_")) return "ace-computer-use";
   return undefined;
 }
 

@@ -1,7 +1,5 @@
 import { z } from "zod";
-import { deviceInstallTimeoutMs } from "./action-budget.ts";
-import { DeviceOperation, AppDeviceId } from "@ace/protocol/devices";
-import { ScreenUITreeOptions, ScreenUIFindOptions, ScreenUIActOptions } from "@ace/protocol";
+import { DeviceOperation, AppDevice } from "@ace/protocol/devices";
 import {
   modelImage,
   ModelImageError,
@@ -10,158 +8,176 @@ import {
   type ModelImageRuntime,
   type Toolkit,
 } from "@ace/mcp-server";
-import type { ApprovalTarget } from "@ace/protocol";
+import { uiReadRequest } from "@ace/screen";
 import { DevicesService, agentOwner, deviceFailure } from "./service.ts";
+import { simSchemas, simToolMetadata, type SimToolName } from "./sim-schemas.ts";
 
-const target = z.strictObject({ deviceId: AppDeviceId });
-const schemas = {
-  device_list: z.strictObject({}),
-  device_boot: target,
-  device_start: target,
-  device_stop: target,
-  device_open_app: target.extend({ appId: z.string().min(1).max(256) }),
-  device_open_url: target.extend({ url: z.string().min(1).max(4096) }),
-  device_screenshot: target,
-  device_ui_tree: target.extend(ScreenUITreeOptions.shape),
-  device_find: target.extend(ScreenUIFindOptions.shape),
-  device_act: target.extend(ScreenUIActOptions.shape),
-  device_tap: target.extend({
-    x: z.number().int().nonnegative(),
-    y: z.number().int().nonnegative(),
-    durationMs: z.number().int().min(1).max(10000).optional(),
-  }),
-  device_swipe: target.extend({
-    x: z.number().int().nonnegative(),
-    y: z.number().int().nonnegative(),
-    toX: z.number().int().nonnegative(),
-    toY: z.number().int().nonnegative(),
-    durationMs: z.number().int().min(1).max(10000).default(500),
-  }),
-  device_type: target.extend({ text: z.string().max(4096) }),
-  device_key: target.extend({ key: z.enum(["home", "back", "rotate", "enter", "power"]) }),
-  device_logs: target.extend({ limit: z.number().int().min(1).max(256).default(100) }),
-  device_record_start: target,
-  device_record_stop: target,
-  device_install: target.extend({ path: z.string().min(1).max(4096) }),
-};
-const operations: Record<string, string> = {
-  device_list: "list",
-  device_boot: "boot",
-  device_start: "start",
-  device_stop: "stop",
-  device_open_app: "open_app",
-  device_open_url: "open_url",
-  device_ui_tree: "ui.tree",
-  device_find: "ui.find",
-  device_act: "ui.act",
-  device_logs: "logs",
-  device_record_start: "record.start",
-  device_record_stop: "record.stop",
-  device_install: "install",
-};
-const actions = new Map(
-  Object.entries({
-    device_list: {
-      riskClass: "read-only",
-      description: "List available in-app devices and their current status.",
-    },
-    device_start: {
-      riskClass: "external-effect",
-      description:
-        "Take the device for this thread and start capture. Call before device_screenshot and input. Refused while a person or another agent controls it. Requires installed capture tools and OS permission.",
-    },
-    device_stop: {
-      riskClass: "external-effect",
-      description: "Stop device capture. Requires the agent controller lease.",
-    },
-    device_boot: {
-      riskClass: "external-effect",
-      description:
-        "Take the device for this thread and boot the emulator or simulator. Refused while a person or another agent controls it.",
-    },
-    device_open_app: {
-      riskClass: "external-effect",
-      description: "Launch the selected app on the device.",
-    },
-    device_open_url: {
-      riskClass: "external-effect",
-      description: "Open a URL on the device.",
-    },
-    device_screenshot: {
-      riskClass: "read-only",
-      description: "Read a screenshot of the device.",
-    },
-    device_ui_tree: {
-      riskClass: "read-only",
-      description: "Read the device's bounded accessibility tree and semantic refs.",
-    },
-    device_find: {
-      riskClass: "read-only",
-      description: "Find accessible elements on the device without changing them.",
-    },
-    device_act: {
-      riskClass: "external-effect",
-      description: "Perform an accessibility action on the device element.",
-    },
-    device_tap: {
-      riskClass: "external-effect",
-      description: "Tap or long-press the selected point on the device.",
-    },
-    device_swipe: {
-      riskClass: "external-effect",
-      description: "Swipe between selected points on the device.",
-    },
-    device_type: {
-      riskClass: "external-effect",
-      description: "Type text into the device's focused control.",
-    },
-    device_key: {
-      riskClass: "external-effect",
-      description: "Send a navigation, rotation or power key to the device.",
-    },
-    device_logs: {
-      riskClass: "read-only",
-      description: "Read a bounded tail of the device's logs.",
-    },
-    device_record_start: {
-      riskClass: "external-effect",
-      description: "Start recording the device's screen.",
-    },
-    device_record_stop: {
-      riskClass: "external-effect",
-      description: "Stop the device recording and publish its artifact.",
-    },
-    device_install: {
-      riskClass: "external-effect",
-      description: "Install the selected application package on the device.",
-    },
-  } satisfies Record<
-    keyof typeof schemas,
-    { riskClass: NonNullable<ApprovalTarget["riskClass"]>; description: string }
-  >),
-);
+type Actor = Parameters<DevicesService["request"]>[1];
+type SimAct = z.output<typeof simSchemas.sim_act>;
+const text = (value: unknown) => ({
+  content: [{ type: "text" as const, text: JSON.stringify(value) }],
+});
+const Listed = z.object({ devices: z.array(z.looseObject({ id: z.string(), state: z.string() })) });
+
+/** The device operation one sim_act call performs. */
+function actOperation(args: SimAct): unknown {
+  const deviceId = args.simId;
+  switch (args.action) {
+    case "ui":
+      return {
+        op: "ui.act",
+        deviceId,
+        ref: args.ref,
+        action: args.uiAction ?? "press",
+        ...(args.value !== undefined ? { value: args.value } : {}),
+        ...(args.name !== undefined ? { name: args.name } : {}),
+      };
+    case "tap":
+      return { op: "input", deviceId, input: { kind: "tap", x: args.x, y: args.y } };
+    case "long_press":
+      return {
+        op: "input",
+        deviceId,
+        input: { kind: "longPress", x: args.x, y: args.y, durationMs: args.durationMs },
+      };
+    case "swipe":
+      return {
+        op: "input",
+        deviceId,
+        input: {
+          kind: "swipe",
+          x: args.x,
+          y: args.y,
+          toX: args.toX,
+          toY: args.toY,
+          durationMs: args.durationMs,
+        },
+      };
+    case "type":
+      return { op: "input", deviceId, input: { kind: "type", text: args.text } };
+    case "key":
+      return { op: "input", deviceId, input: { kind: "key", key: args.key } };
+    case "open_app":
+      return { op: "open_app", deviceId, appId: args.appId };
+    case "open_url":
+      return { op: "open_url", deviceId, url: args.url };
+    case "install":
+      return { op: "install", deviceId, path: args.path };
+    case "record_start":
+      return { op: "record.start", deviceId };
+    case "record_stop":
+      return { op: "record.stop", deviceId };
+  }
+}
+
+/** What an agent needs after taking or releasing a simulator, not the full device state. */
+function summary(raw: unknown) {
+  const state = z
+    .looseObject({ device: AppDevice, lifecycle: z.string(), controller: z.string() })
+    .safeParse(raw);
+  if (!state.success) return raw;
+  const { device, lifecycle, controller } = state.data;
+  return { simId: device.id, name: device.name, state: device.state, lifecycle, controller };
+}
+
+async function run(
+  service: DevicesService,
+  name: SimToolName,
+  args: Record<string, unknown>,
+  actor: Actor & { kind: "agent" },
+  signal: AbortSignal,
+  imageRuntime: ModelImageRuntime | undefined,
+) {
+  switch (name) {
+    case "sim_list":
+      return text(await service.request(DeviceOperation.parse({ op: "list" }), actor));
+    case "sim_start": {
+      const { simId, boot } = simSchemas.sim_start.parse(args);
+      // Taking a simulator needs no prompt; the provider's permission mode governs the call.
+      await service.claimForAgent(simId, { ...actor, guard: () => signal.throwIfAborted() });
+      if (boot) {
+        const listed = Listed.parse(await service.request({ op: "list" }, actor));
+        if (listed.devices.find((device) => device.id === simId)?.state !== "booted")
+          await service.request(DeviceOperation.parse({ op: "boot", deviceId: simId }), actor);
+      }
+      const state = await service.request(
+        DeviceOperation.parse({ op: "start", deviceId: simId }),
+        actor,
+      );
+      return text(summary(state));
+    }
+    case "sim_stop": {
+      const { simId } = simSchemas.sim_stop.parse(args);
+      return text(
+        summary(
+          await service.request(DeviceOperation.parse({ op: "stop", deviceId: simId }), actor),
+        ),
+      );
+    }
+    case "sim_ui": {
+      const { simId, ...read } = simSchemas.sim_ui.parse(args);
+      const request = uiReadRequest(read);
+      const operation =
+        request.kind === "find"
+          ? { op: "ui.find", deviceId: simId, ...request.options }
+          : { op: "ui.tree", deviceId: simId, ...request.options };
+      return text(await service.request(DeviceOperation.parse(operation), actor));
+    }
+    case "sim_act":
+      return text(
+        await service.request(
+          DeviceOperation.parse(actOperation(simSchemas.sim_act.parse(args))),
+          actor,
+        ),
+      );
+    case "sim_logs": {
+      const { simId, limit } = simSchemas.sim_logs.parse(args);
+      return text(
+        await service.request(DeviceOperation.parse({ op: "logs", deviceId: simId, limit }), actor),
+      );
+    }
+    case "sim_screenshot": {
+      const { simId } = simSchemas.sim_screenshot.parse(args);
+      const frame = await service.screenshot(simId, actor);
+      const image = await modelImage(
+        { payload: frame.payload, ...frame.header },
+        signal,
+        imageRuntime,
+      );
+      signal.throwIfAborted();
+      return {
+        content: [
+          {
+            type: "image" as const,
+            data: image.payload.toString("base64"),
+            mimeType: "image/jpeg",
+          },
+          {
+            type: "text" as const,
+            text: `${simId} frame ${frame.header.sequence}, ${image.width}x${image.height}. Divide image pixels by scale ${image.scale} for sim_act points; prefer sim_ui refs.`,
+          },
+        ],
+      };
+    }
+  }
+}
+
 export function devicesToolkit(service: DevicesService, imageRuntime?: ModelImageRuntime): Toolkit {
   return {
     register(registry) {
-      for (const [name, input] of Object.entries(schemas)) {
-        const action = actions.get(name);
-        if (!action) throw new Error("Device action metadata missing");
+      for (const [key, input] of Object.entries(simSchemas)) {
+        const name = key as SimToolName;
+        const metadata = simToolMetadata[name];
         registry.registerContent({
           name,
           input,
+          title: metadata.title,
+          description: metadata.description,
+          riskClass: metadata.riskClass,
+          // Simulators run on this machine; nothing here reaches outside systems.
+          openWorld: false,
           capability: "devices",
-          timeoutMs:
-            name === "device_record_stop"
-              ? 180000
-              : name === "device_boot"
-                ? 250000
-                : name === "device_install"
-                  ? deviceInstallTimeoutMs + 30_000
-                  : name === "device_type"
-                    ? 4096 * 100 + 35_000
-                    : 120000,
-          description: action.description,
-          riskClass: action.riskClass,
+          timeoutMs: metadata.timeoutMs,
           async run(args, { caller, signal }) {
             const owner = agentOwner(caller.threadId, caller.agentId);
             const actor = {
@@ -174,57 +190,18 @@ export function devicesToolkit(service: DevicesService, imageRuntime?: ModelImag
             const abort = () => service.disconnect(owner);
             signal.addEventListener("abort", abort, { once: true });
             try {
-              // Taking a device needs no prompt; the provider's permission mode governs the call.
-              if (name === "device_boot" || name === "device_start")
-                await service.claimForAgent(target.parse(args).deviceId, {
-                  ...actor,
-                  guard: () => signal.throwIfAborted(),
-                });
-              if (name === "device_screenshot") {
-                const { deviceId } = target.parse(args);
-                const frame = await service.screenshot(deviceId, actor);
-                const image = await modelImage(
-                  { payload: frame.payload, ...frame.header },
-                  signal,
-                  imageRuntime,
-                );
-                signal.throwIfAborted();
-                return {
-                  content: [
-                    {
-                      type: "image" as const,
-                      data: image.payload.toString("base64"),
-                      mimeType: "image/jpeg",
-                    },
-                    {
-                      type: "text" as const,
-                      text: `Frame ${frame.header.sequence}, ${image.width}x${image.height}. Input uses target points; frame scale ${image.scale}. Prefer device_find and device_act.`,
-                    },
-                  ],
-                };
-              }
-              const kind =
-                name === "device_tap"
-                  ? "durationMs" in args && args.durationMs
-                    ? "longPress"
-                    : "tap"
-                  : name === "device_swipe"
-                    ? "swipe"
-                    : name === "device_type"
-                      ? "type"
-                      : name === "device_key"
-                        ? "key"
-                        : undefined;
-              const operation = DeviceOperation.parse(
-                kind
-                  ? { op: "input", ...args, input: { kind, ...args } }
-                  : { op: operations[name], ...args },
+              const result = await run(
+                service,
+                name,
+                z.record(z.string(), z.unknown()).parse(args),
+                actor,
+                signal,
+                imageRuntime,
               );
-              const data = await service.request(operation, actor);
               signal.throwIfAborted();
-              return { content: [{ type: "text" as const, text: JSON.stringify(data) }] };
+              return result;
             } catch (error) {
-              if (error instanceof ModelImageError) throw error;
+              if (error instanceof ModelImageError || error instanceof PublicToolError) throw error;
               const failure = deviceFailure(error);
               const code = PublicToolCode.safeParse(failure.code);
               throw new PublicToolError(

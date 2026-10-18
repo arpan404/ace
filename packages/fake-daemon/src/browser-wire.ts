@@ -169,13 +169,8 @@ export function fakeBrowserSession(
           if (command.tabId && command.action !== "tabs" && command.action !== "dialog")
             browser.tabSwitch(id, command.tabId);
           if (command.action === "tabs") {
-            if (command.operation === "open") {
-              browser.tabOpen(id);
-              if (command.url) browser.navigate(id, command.url);
-            } else if (command.operation === "switch" && command.tabId)
+            if (command.operation === "switch" && command.tabId)
               browser.tabSwitch(id, command.tabId);
-            else if (command.operation === "close" && command.tabId)
-              browser.tabClose(id, command.tabId);
             result = { activeTabId: browser.view(id)?.activeTabId, tabs: browser.tabsList(id) };
           } else if (command.action === "dialog") {
             browser.dialogAnswer(id, command.dialogId);

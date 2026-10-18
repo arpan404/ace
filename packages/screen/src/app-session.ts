@@ -38,7 +38,6 @@ export async function selectSessionWindow(
   validate();
   session.epoch++;
   session.state.target = { kind: "window", bundleId: target.bundleId, windowId };
-  session.modelCoordinates = undefined;
   session.latest = undefined;
   session.hub.clear();
   session.pixels.invalidateImage();

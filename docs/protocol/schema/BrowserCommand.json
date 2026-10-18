@@ -296,6 +296,24 @@
           "const": "snapshot",
           "type": "string"
         },
+        "interactiveOnly": {
+          "default": false,
+          "description": "Only actionable elements (buttons, links, fields), as a flat list.",
+          "type": "boolean"
+        },
+        "maxNodes": {
+          "default": 120,
+          "description": "Most lines to return; the result says when more exist.",
+          "maximum": 2000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "ref": {
+          "description": "Ref of a container from the latest snapshot: return only its subtree.",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
         "tabId": {
           "maxLength": 256,
           "minLength": 1,
@@ -538,19 +556,13 @@
           "default": "list",
           "enum": [
             "list",
-            "open",
-            "switch",
-            "close"
+            "switch"
           ],
           "type": "string"
         },
         "tabId": {
           "maxLength": 256,
           "minLength": 1,
-          "type": "string"
-        },
-        "url": {
-          "maxLength": 8192,
           "type": "string"
         }
       },
@@ -756,14 +768,18 @@
           "type": "string"
         },
         "exact": {
-          "default": true,
+          "default": false,
+          "description": "Match the whole name exactly.",
           "type": "boolean"
         },
         "name": {
+          "description": "Accessible name; a case-insensitive substring unless exact is true.",
           "maxLength": 1024,
+          "minLength": 1,
           "type": "string"
         },
         "role": {
+          "description": "Accessible role, e.g. button, link, textbox, heading.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -775,9 +791,7 @@
         }
       },
       "required": [
-        "action",
-        "role",
-        "name"
+        "action"
       ],
       "type": "object"
     },

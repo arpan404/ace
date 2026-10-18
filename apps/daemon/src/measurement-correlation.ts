@@ -6,9 +6,7 @@ import { bareToolName } from "@ace/provider-kit/ace-tool-names";
 /** The bare name of a measuring tool, from any spelling of ace's tool name. */
 export function measurementTool(name: string): string | undefined {
   const tool = bareToolName(name);
-  return tool === "screen_measure_interaction" || tool === "browser_measure_interaction"
-    ? tool
-    : undefined;
+  return tool === "screen_measure" || tool === "browser_measure" ? tool : undefined;
 }
 
 function canonical(input: unknown): unknown {

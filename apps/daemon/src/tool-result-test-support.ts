@@ -17,7 +17,7 @@ import { startDaemonMcp } from "./mcp.ts";
 import { measurementObserver } from "./measurement-mcp.ts";
 import { ScreenManager } from "@ace/screen";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
-import { McpScope, type ProviderKind } from "@ace/protocol";
+import { BrowserState, McpScope, type ProviderKind } from "@ace/protocol";
 import { startDaemon, readConfig, createDevThread } from "./index.ts";
 import { measurementFrames } from "./testing/measurement-frames.ts";
 
@@ -123,6 +123,15 @@ export async function toolFixture(
       daemon.store,
       [
         browserToolkit({
+          async open() {
+            return BrowserState.parse({
+              threadId: thread.id,
+              controller: "agent",
+              url: "about:blank",
+              closed: false,
+            });
+          },
+          async close() {},
           async execute() {
             return {
               source: "browser-trace",
@@ -159,9 +168,7 @@ export async function toolFixture(
     }),
     lifetime.signal,
   );
-  const tool =
-    options.tool ??
-    (options.browser ? "ace_browser_measure_interaction" : "screen_measure_interaction");
+  const tool = options.tool ?? (options.browser ? "browser_measure" : "screen_measure");
   const args = options.browser
     ? { observeMs: 2000 }
     : options.tool && (!options.tool.startsWith("screen_") || options.tool === "screen_open_app")

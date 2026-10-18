@@ -3,11 +3,14 @@ import { z } from "zod";
 import { ProviderKind, WaitStatus, WatchedState } from "@ace/protocol";
 import {
   PublicToolCode,
+  ToolRegistry,
   aceInstructions,
   bareToolName,
   developerInstructions,
   guideTopics,
+  nodeScheduler,
 } from "@ace/mcp-server";
+import { DevicesService, devicesToolkit } from "@ace/devices";
 import { builtinGuides } from "@ace/plugins";
 import { computerUseTools } from "@ace/screen";
 import type { ListedTool } from "./evals/agent.ts";
@@ -19,15 +22,29 @@ afterEach(async () => {
   world = undefined;
 });
 
-/** Every tool the daemon serves to a full-access thread, plus the fixed computer-use catalogue. */
+/** The simulator tools, which register only when the devices service runs on a Mac. */
+function simTools(): string[] {
+  const registry = new ToolRegistry({ scheduler: nodeScheduler });
+  // Registration only reads definitions; the service is never called.
+  const service: DevicesService = Object.create(DevicesService.prototype);
+  devicesToolkit(service).register(registry);
+  return registry.names();
+}
+
+/**
+ * Every tool the daemon serves to a full-access thread, plus the fixed computer-use and
+ * simulator catalogues.
+ */
 async function served() {
   world = await evalWorld({ browser: true });
   const { agent } = await world.agent({});
   const tools: ListedTool[] = agent.tools;
   const names = new Set(
-    [...tools.map((tool) => tool.name), ...computerUseTools.map((tool) => tool.name)].map(
-      bareToolName,
-    ),
+    [
+      ...tools.map((tool) => tool.name),
+      ...computerUseTools.map((tool) => tool.name),
+      ...simTools(),
+    ].map(bareToolName),
   );
   return { tools, names };
 }
@@ -109,6 +126,22 @@ it("the agents and threads guides quote only served tools, their fields and valu
     expect(quoted.length, topic).toBeGreaterThan(10);
     const unknown = quoted.filter((name) => !known.has(name));
     expect(unknown, topic).toEqual([]);
+  }
+});
+
+it("every guide names only tools the server serves, in any family", async () => {
+  const { names } = await served();
+  const known = new Set<string>([...names, ...PublicToolCode.options]);
+  // Family-prefixed words and ace_-namespaced words read as tool names; a retired name such as
+  // ace_machines, delegate_task or device_start must not survive in any guide or skill.
+  const toolShaped = /\b(?:(?:browser|screen|sim|device|ace)_[a-z0-9_]+|delegate_task)\b/g;
+  const guides = await builtinGuides();
+  expect(guides.length).toBeGreaterThan(5);
+  for (const guide of guides) {
+    const unknown = [...guide.body.matchAll(toolShaped)]
+      .map(([name]) => name)
+      .filter((name) => !known.has(name) && !known.has(bareToolName(name)));
+    expect(unknown, guide.name).toEqual([]);
   }
 });
 

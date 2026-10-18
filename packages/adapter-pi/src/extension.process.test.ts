@@ -123,9 +123,9 @@ test("Pi executes authorized browser, screen and device tools and projects their
   const credentials = new CredentialRegistry(() => randomBytes(32).toString("hex"));
   const effects: string[] = [];
   for (const [name, capability] of [
-    ["ace_browser_click", "browser"],
+    ["browser_act", "browser"],
     ["screen_ui_act", "screen"],
-    ["device_tap", "devices"],
+    ["sim_act", "devices"],
   ] as const)
     registry.register({
       name,
@@ -166,9 +166,9 @@ test("Pi executes authorized browser, screen and device tools and projects their
     await openFamilies(
       tools,
       ["ace-browser", "ace-computer-use"],
-      ["ace_browser_click", "ace_screen_ui_act", "ace_device_tap"],
+      ["ace_browser_act", "ace_screen_ui_act", "ace_sim_act"],
     );
-    for (const name of ["ace_browser_click", "ace_screen_ui_act", "ace_device_tap"]) {
+    for (const name of ["ace_browser_act", "ace_screen_ui_act", "ace_sim_act"]) {
       const tool = tools.get(name);
       if (!tool) throw new Error(`Missing authorized feature tool: ${name}`);
       const result = await tool.execute("native", { value: "input" }, undefined);
@@ -176,9 +176,9 @@ test("Pi executes authorized browser, screen and device tools and projects their
         isError: true,
       });
     }
-    expect(effects).toEqual(["ace_browser_click:input", "screen_ui_act:input", "device_tap:input"]);
+    expect(effects).toEqual(["browser_act:input", "screen_ui_act:input", "sim_act:input"]);
     lease.end();
-    const tap = tools.get("ace_device_tap");
+    const tap = tools.get("ace_sim_act");
     if (!tap) throw new Error("No device tool");
     await expect(tap.execute("revoked", { value: "blocked" }, undefined)).rejects.toThrow();
     expect(effects).toHaveLength(3);
@@ -192,7 +192,7 @@ test("Pi executes authorized browser, screen and device tools and projects their
 test("Pi adds computer use when it turns on, its other tools once used, and withdraws them when it turns off, without hiding native tools", async () => {
   let enabled = false;
   const registry = new ToolRegistry({ scheduler: nodeScheduler });
-  for (const name of ["screen_open_app", "screen_type"])
+  for (const name of ["screen_open_app", "screen_input"])
     registry.register({
       name,
       capability: "screen",
@@ -264,7 +264,7 @@ test("Pi adds computer use when it turns on, its other tools once used, and with
     "bash",
     "ace_context",
     "ace_screen_open_app",
-    "ace_screen_type",
+    "ace_screen_input",
   ]);
   await refresh(() => {
     enabled = false;
