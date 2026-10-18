@@ -1,0 +1,11 @@
+{
+  "$id": "https://ace.local/protocol/v1/SharedImageType.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/gif"
+  ],
+  "type": "string"
+}

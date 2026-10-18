@@ -31,7 +31,7 @@ Use prose for a single fact, a one-step action, or a short list that is already 
 
 ## How
 
-1. Write one complete HTML document with inline `<style>`, plus inline `<script>` for an interactive page. Keep it at or below 256 KiB of UTF-8. Draw with HTML, inline SVG or `<canvas>`. Embed raster images as base64 `data:` PNG, JPEG, GIF or WebP.
+1. Write one complete HTML document with inline `<style>`, plus inline `<script>` for an interactive page. Keep it at or below 16 MiB of UTF-8. Draw with HTML, inline SVG or `<canvas>`. Put every raster image in the page as a base64 `data:` URL (`<img src="data:image/png;base64,…" alt="…">`), PNG, JPEG, GIF or WebP; a page can't load a file path or a URL. Images count toward the 16 MiB cap; downscale a large screenshot (for example to 1600 px wide JPEG) before embedding it.
 2. Call `html_render` with `{ title, html, mode, height? }`. Claude Code exposes it as `mcp__ace__html_render`, OpenCode and Pi as `ace_html_render`. The title is short and descriptive. `height` is an optional maximum (80–2000 CSS px); a taller page scrolls inside it.
 3. If it returns `invalid_html`, nothing was published: fix every problem listed in `issues` and call it again.
 4. In the reply, say only what the page doesn't already show.
@@ -50,24 +50,65 @@ The page can be unloaded while it is scrolled far out of view and rebuilt when i
 
 ## Look like ace
 
-Every page receives the app theme as CSS variables. They update live when the person changes theme or light/dark mode:
+Every page starts with ace's own style kit, so plain markup already looks like the app: write semantic HTML first and add your own CSS only where the kit doesn't cover it. Headings, paragraphs, lists, links, `code`/`pre`/`kbd`, `<button>`, text inputs, `<select>`, `<textarea>`, checkboxes, `<input type="range">`, `<progress>`, `<meter>`, `<table>` and `<details>` are styled with the app's type, hairlines, corners and accent. Your own CSS always wins over the kit; it never needs `!important` or extra specificity.
 
-- **Surfaces and text:** `--background`, `--foreground`, `--muted`, `--muted-foreground`, `--card`, `--card-foreground`, `--border`.
-- **Emphasis:** `--primary`, `--primary-foreground`, `--accent`, `--accent-foreground`.
+Classes for what pages often need:
+
+| Class                                                                 | What it is                                                      |
+| --------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `card` (`card raised`, `card plain`)                                  | A bordered panel for one group of content.                      |
+| `stack` (`tight`, `loose`), `row` (`between`, `end`)                  | Vertical and wrapping horizontal layouts with gaps.             |
+| `grid` (`grid two`)                                                   | Responsive columns; set `--min` on it for the narrowest column. |
+| `stat` with `.label`, `.value`, `.delta`                              | A metric tile. `up` / `down` colour a change.                   |
+| `badge` (`success`, `warning`, `danger`, `info`, `accent`, `dot`)     | A small status pill.                                            |
+| `callout` (`info`, `success`, `warning`, `danger`)                    | A tinted note.                                                  |
+| `tabs` with `<button aria-selected="true">` (or any `role="tablist"`) | A segmented control; your script moves `aria-selected`.         |
+| `button.primary`, `button.ghost`, `button.small`, `button.icon`       | Button variants; a plain `<button>` is the secondary style.     |
+| `bar` with a `<span>` and `--value: 40%`                              | A thin horizontal bar; `--c` sets its colour.                   |
+| `muted`, `subtle`, `mono`, `num`, `eyebrow`, `lead`, `swatch` (`--c`) | Text tiers and helpers.                                         |
+
+The app theme arrives as CSS variables and updates live when the person changes theme or light/dark mode:
+
+- **Surfaces and text:** `--background`, `--foreground`, `--muted-foreground`, `--subtle-foreground`, `--card`, `--surface-2`, `--hover`, `--border`, `--input` (control edges), `--field`.
+- **Emphasis:** `--accent` (the person's accent colour), `--accent-foreground` (text on it), `--accent-text` (accent-coloured text), `--primary`, `--primary-foreground`.
 - **Status:** `--success`, `--warning`, `--info`, `--destructive`.
 - **Data series:** `--chart-1` to `--chart-6`.
 - **Shape and type:** `--radius`, `--font-sans`, `--font-mono`.
 
-Style with `var(--…)` instead of fixed colours. A `<canvas>` reads the variables with `getComputedStyle(document.documentElement)` and redraws on the `ace:theme` window event.
+Use `var(--…)` instead of fixed colours. A `<canvas>` reads the variables with `getComputedStyle(document.documentElement)` and redraws on the `ace:theme` window event. In SVG, set `fill`/`stroke` to `var(--chart-1)`, `currentColor` and so on.
 
-Leave the page background transparent and don't wrap the whole page in a card or add a title bar; it sits in the conversation like a message. Give individual panels padding and `--border` outlines where structure needs them. Match the chat's density, around 13–14px body text.
+Make it feel like part of ace, not a web page dropped into the chat:
+
+- Leave the page background transparent. Don't wrap the whole page in a card, add a page title bar or repeat the `title` as a big heading; it sits in the conversation like a message.
+- Use one accent. Colour means state or data series, never decoration: no gradients, glows or emoji headings.
+- Match the chat's density: 13–14px text, 8–16px gaps, hairline borders. Separate with hairlines and space before adding boxes.
+- Prefer a few well-made controls over many; put the thing that changes right next to the control that changes it.
+
+## Before you publish
+
+Check the page against this list; fix anything that fails:
+
+- It answers the question better than prose would, with one clear idea.
+- It is mostly the style kit's markup and classes; your own CSS is short.
+- Every control does something visible right away, and its result sits beside it.
+- Nothing decorative: no gradients, glows, shadows on content, emoji, stock icons or filler text.
+- It reads in light and dark, at 360 px and at 1200 px.
 
 ## Layout and access
 
-- **Fluid width.** Use fluid widths that work from 360 px to about 760 px.
+- **Responsive.** The same page shows inline (about 360–760 px wide, phone to desktop) and full screen in the side panel (up to about 1200 px). Build with `grid`/`row`, `minmax()` and `clamp()`, never fixed pixel widths; let multi-column layouts collapse to one column below about 520 px, and cap prose at about 70 characters. No horizontal scrolling except inside a wide table or code block.
 - **Height.** Let content set the height. Avoid `100vh` and percentage heights on `html`/`body`; they create resize loops.
 - **Controls.** Use real `<button>`, `<input type="range">` and `<label>` elements. Support the keyboard and keep focus outlines visible.
 - **Readable values.** Give essential values as text or a table, not only as colour or position. Add labels or patterns when colour separates categories.
 - **Motion.** Honour `prefers-reduced-motion`.
 
-The reader can open the page in a window, view it full screen, copy its source or download it.
+The reader can view the page full screen (it opens at full size in the side panel), copy its source or download it. A page in the side panel fills the panel's height, so let it scroll naturally rather than fixing its height.
+
+## Posting an image
+
+For real pixels, such as a screenshot you took, a plot a script rendered or a generated picture, call `image_show` (`mcp__ace__image_show` in Claude Code, `ace_image_show` in OpenCode and Pi) instead of building a page. Anything you would draw with HTML or SVG still belongs in `html_render`.
+
+- Pass the image as base64 in `data`: the raw base64 of a PNG, JPEG, WebP or GIF, with no `data:image/...;base64,` prefix, up to 16 MiB of image. For example, `base64 -i shot.png` on macOS or `base64 -w0 shot.png` on Linux gives you the string.
+- Only for an image over 16 MiB, pass `path` instead (up to 128 MiB, relative to your working directory or absolute). The file itself must not be a symbolic link.
+- `alt` says what the image shows. `caption` is an optional short line shown under it.
+- `invalid_image` means the bytes are not one of those formats, so nothing was posted. Convert the image to PNG and call `image_show` again.

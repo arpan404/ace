@@ -35,6 +35,7 @@ export function itemRow(item: Item, index?: number, sourceTruncated = false) {
       .join("");
     role = item.role;
   } else if (item.type === "html") text = item.visualization.title;
+  else if (item.type === "image") text = item.image.caption || item.image.alt;
   else if (item.type === "tool_call") text = item.call.title;
   else if (item.type === "reasoning" || item.type === "notice") text = item.text;
   else if (item.type === "delegation.started") text = item.title;

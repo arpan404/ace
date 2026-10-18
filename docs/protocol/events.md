@@ -450,11 +450,15 @@ Example:
 {
   "item": {
     "agentId": "example",
+    "commandId": "example",
     "complete": false,
     "createdAt": 9,
+    "detail": "example",
     "id": "example",
-    "tokensAfter": 3,
-    "type": "compaction"
+    "interactionId": "example",
+    "level": "error",
+    "text": "example",
+    "type": "notice"
   },
   "type": "item.created"
 }
@@ -476,7 +480,7 @@ Example:
 {
   "agentId": "example",
   "append": "example",
-  "field": "output",
+  "field": "reasoning",
   "itemId": "example",
   "type": "item.delta"
 }
@@ -496,17 +500,10 @@ Example:
   "item": {
     "agentId": "example",
     "complete": false,
-    "createdAt": 3,
+    "createdAt": 0,
     "id": "example",
-    "level": "error",
-    "source": {
-      "bytes": 8,
-      "encoding": "utf-16le",
-      "streamId": "example"
-    },
-    "text": "example",
-    "title": "example",
-    "type": "notice"
+    "tokensAfter": 8,
+    "type": "compaction"
   },
   "type": "item.updated"
 }
@@ -542,14 +539,15 @@ Example:
   "interaction": {
     "agentId": "example",
     "blocking": true,
-    "createdAt": 8,
+    "createdAt": 5,
+    "expirationReason": "provider_disconnected",
     "id": "example",
     "request": {
-      "kind": "elicitation",
-      "message": "example",
-      "server": "example"
+      "kind": "approval",
+      "options": [],
+      "title": "example"
     },
-    "state": "pending",
+    "state": "resolved",
     "threadId": "example"
   },
   "type": "interaction.opened"
@@ -573,10 +571,9 @@ Example:
 
 ```json
 {
-  "autoReviewed": false,
-  "closedAt": 7,
+  "autoReviewed": true,
+  "closedAt": 9,
   "interactionId": "example",
-  "resolvedBy": "example",
   "state": "cancelled",
   "type": "interaction.closed"
 }
@@ -596,11 +593,11 @@ Example:
   "task": {
     "agentId": "example",
     "ambient": true,
-    "childAgentId": "example",
+    "endedAt": 6,
     "id": "example",
     "kind": "shell",
-    "owner": "ace",
-    "startedAt": 0,
+    "outputPath": "example",
+    "startedAt": 3,
     "status": "running",
     "stoppable": true,
     "title": "example"

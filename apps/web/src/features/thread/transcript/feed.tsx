@@ -18,7 +18,7 @@ import { useTopFade } from "@/lib/edge-fade.ts";
 import { frameThrottle } from "@/lib/frame-throttle.ts";
 import { useListMotion, usePresence } from "@/lib/motion.ts";
 import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
-import { LiveFrames, LiveFramesContext } from "../items/live-frames.ts";
+import { LiveFrames, LiveFramesContext } from "@/features/visualization/index.ts";
 import { usePlaceBeforePaint } from "@/lib/virtual-paint.ts";
 import {
   DeferredGapRow,
