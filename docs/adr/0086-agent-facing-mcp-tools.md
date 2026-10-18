@@ -92,8 +92,8 @@ restore, and gave agents tab tools. The consolidated surface keeps them in two p
 ## Addendum: `tools_find` and `tools_call` (2026-10-17)
 
 Listing every tool to Cursor, ACP and Antigravity made their first request carry the whole
-catalogue (44 tools and about 11k tokens with the browser and computer use on), and a model
-choosing among 44 tools picks worse than one choosing among a dozen.
+catalogue (45 tools with the browser and computer use on, 12 of them browser tools since ADR 0083), and a model
+choosing among 45 tools picks worse than one choosing among a dozen.
 
 **`tools_find {query, limit?, family?}`** is listed to every client and loads upfront in Claude
 Code. It ranks only the tools this session could call (capabilities, groups that are off and
@@ -113,7 +113,7 @@ it returned, the way reading a guide does.
   annotations. `tools_call` is not offered, because it would replace each tool's accurate
   annotations with its own destructive one.
 - `static` (Cursor's SDK, ACP over HTTP and the stdio bridge, Antigravity): the core tools,
-  `tools_find` and `tools_call`, about a dozen tools, and the list never grows.
+  `tools_find` and `tools_call` (11 tools with the browser and computer use on), and the list never grows.
 
 **`tools_call {name, arguments}`** runs the named tool through the server's direct call path:
 the same registry lookup, capability and group checks, schema validation and error text,
