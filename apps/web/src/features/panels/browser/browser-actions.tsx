@@ -41,6 +41,7 @@ import { useAlwaysShowDevices } from "./device-settings.ts";
 import type { PageActions } from "./use-page-actions.ts";
 import type { PageTools } from "./use-page-tools.ts";
 import { ZoomRow } from "./zoom-controls.tsx";
+import { AskAgentItem } from "./ask-agent-item.tsx";
 
 const icon = (glyph: typeof CopyIcon) => <Icon icon={glyph} />;
 
@@ -243,6 +244,7 @@ export function BrowserActions(props: {
         <MenuItem icon={icon(ArrowSquareOutIcon)} disabled={!external} onClick={openOutside}>
           Open in your browser
         </MenuItem>
+        <AskAgentItem threadId={props.threadId} tab={tab} />
         {hidden && (
           <MenuItem icon={icon(PuzzlePieceIcon)} onClick={() => extensionsHidden.set(() => false)}>
             Show extensions in the toolbar

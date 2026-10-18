@@ -34,6 +34,7 @@ export function AnnotateButton(props: {
     threadId,
     driver: source.annotate,
     url: props.page?.url,
+    tabId: props.page?.tabId,
     unavailable,
   });
   const on = annotate.mode !== "off";

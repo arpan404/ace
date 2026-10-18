@@ -118,6 +118,13 @@ stay, ask the person, or use another tab). On the desktop's view your navigation
 page fails with `unsaved_changes` at once. Native permission
 prompts and file chooser windows do not grant capabilities.
 
+`ace_browser_request_help({tabId,reason:"login",message:"Sign in with your work account"})`
+hands a tab to the person for what only they should do (login, captcha, two_factor, dialog,
+other). The thread needs the person until they press Done or Skip in the composer strip; the
+call returns `done`, `skipped`, or `pending` after `timeoutSeconds` (their answer then arrives
+as their next message). A new turn withdraws an unanswered request. Agents never type
+credentials.
+
 Evaluate defaults to unrestricted. Use mode read-only to read DOM in an isolated
 world with side-effect checking. It refuses mutation, navigation and network calls;
 it cannot read page-world variables and may refuse harmless operations. With

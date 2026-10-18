@@ -117,6 +117,17 @@ export class FakeBrowser {
     this.watchers.add(listener);
     return () => this.watchers.delete(listener);
   }
+  /** Threads whose browser an agent is working in now (`browser.browsing`). */
+  browsingThreads(): string[] {
+    return [...this.entries]
+      .filter(
+        ([, entry]) =>
+          entry.view &&
+          !entry.view.closed &&
+          (entry.view.tabs ?? []).some((tab) => tab.inUse?.kind === "agent"),
+      )
+      .map(([threadId]) => threadId);
+  }
   generation(threadId: string): number {
     return this.entries.get(threadId)?.generation ?? 0;
   }

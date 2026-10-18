@@ -1,5 +1,15 @@
-import { boundedAnnotations, formatBrowserAnnotations, type DraftAnnotations } from "@ace/ui-core";
-import { browserAnnotationLimit, type BrowserAnnotation, type ContentPart } from "@ace/protocol";
+import {
+  annotationContextItems,
+  boundedAnnotations,
+  formatBrowserAnnotations,
+  type DraftAnnotations,
+} from "@ace/ui-core";
+import {
+  browserAnnotationLimit,
+  type BrowserAnnotation,
+  type BrowserAnnotationsContextItem,
+  type ContentPart,
+} from "@ace/protocol";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { composerPorts, type ComposerAnnotationPort } from "./store.ts";
 
@@ -39,6 +49,8 @@ export interface AnnotationHandOff {
   files: (File | undefined)[];
   /** Each image still being captured, in `local`'s order: its file once it is taken. */
   later: (Promise<File | undefined> | undefined)[];
+  /** The annotated tabs, so the agent gets each marker's element as a ref in its tab. */
+  items: BrowserAnnotationsContextItem[];
   /** The annotations as a draft keeps them, for a message that comes back. */
   returned: DraftAnnotations;
   /** Put them back after a refused send. */
@@ -288,6 +300,7 @@ export function useDraftAnnotations(options: {
       ),
       files: images.map((image) => image.file),
       later: images.map((image) => (image.file ? undefined : image.capture)),
+      items: annotationContextItems(taken.items.map((item) => item.annotation)),
       returned: draftOf(taken),
       restore: () =>
         update((now) => ({

@@ -126,6 +126,7 @@ export function RequestStack(props: {
           interactionId={id}
           frame="attached"
           aside={pager}
+          targeted={targeted === id}
           onControlsChange={onControlsChange}
         />
       </Suspense>

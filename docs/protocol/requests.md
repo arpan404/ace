@@ -2729,6 +2729,22 @@ Example:
 }
 ```
 
+### browser.browsing.watch
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"browser.browsing.watch"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "browser.browsing.watch"
+}
+```
+
 ### models.list
 
 | Field | Required | Type | Constraints |

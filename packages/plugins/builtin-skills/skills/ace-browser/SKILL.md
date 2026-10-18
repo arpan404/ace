@@ -30,6 +30,10 @@ Every page tool takes an optional `tabId`. Without one, a tool acts in your curr
 
 **Parallel agents and subagents** share one browser. Each must open its own labelled tab (`ace_browser_open` with `newTab` and `label`) and pass that `tabId` to every browser tool, so no two agents drive the same page. Subagents of one provider can share an identity, so do not rely on the current tab there.
 
+## Tabs the person points at
+
+A message can carry a `<browser_tab tabId=… url=… title=…>` block: the person mentioned that tab. It holds a snapshot excerpt taken when the message arrived, and the tab's screenshot is attached. Pass its `tabId` to act there; its refs work until the page changes. `<browser_annotation_refs tabId=…>` names the elements the person annotated by ref, in the tab they annotated.
+
 ## Evidence
 
 - `ace_browser_logs`: console and network entries, filtered by kind, level, URL or status. `ace_browser_network_body` reads one response body by its `requestId` from the logs.
@@ -61,6 +65,16 @@ Every failure has a `code` and a `hint` that says what to do next. The common on
 - `browser_restarted`: the browser or the daemon restarted and the tab reopened at its last address. Form input and refs are gone: snapshot again and redo the lost steps.
 - A result with `pending_dialog` means a dialog holds the tab. Answer it with `ace_browser_dialog`, then retry.
 - `evaluate_failed`: the script threw, ran over 10 seconds, or (in `read-only` mode) tried a side effect.
+
+## When only the person can do it
+
+Some steps belong to the person: signing in, a CAPTCHA, a two-factor code, a dialog you should not answer for them. Never type a password, code or other credential yourself, even one you can see in the thread or a file, and never try to get past a CAPTCHA.
+
+1. Snapshot first to be sure the page really waits on them.
+2. Call `ace_browser_request_help` with the `tabId`, a `reason` (`login`, `captcha`, `two_factor`, `dialog` or `other`) and a one-sentence `message` saying what to do there ("Sign in with your work account"). ace notifies them and shows the tab.
+3. `done`: snapshot that tab again and carry on. `skipped`: they won't, so work around it or say what you could not finish. `pending`: end your turn; their answer arrives as their next message.
+
+Ask once per blocker. Don't ask for anything you could do yourself.
 
 ## Another machine
 

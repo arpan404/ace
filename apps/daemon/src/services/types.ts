@@ -67,6 +67,10 @@ export interface Services {
   screen?: ScreenManager;
   /** `ace_ask` questions waiting on the person. */
   asks?: import("../asks.ts").Asks;
+  /** Threads whose browser an agent works in now (the task list's indicator). */
+  browsing?: import("../browsing.ts").BrowsingThreads;
+  /** `ace_browser_request_help` requests waiting on the person. */
+  browserHelp?: import("../browser-help.ts").BrowserHelp;
   devices?: DevicesService;
   accounts?: AccountService;
   accountManagement?: import("../account-management.ts").AccountManagement;

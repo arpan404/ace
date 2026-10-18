@@ -7,6 +7,7 @@ import {
   SourceControlPreferences,
   BrowserClientMessage,
   ServerMessage,
+  ThreadId,
   type ClientMessage,
   type ServerMessage as Message,
   type CommandPayload,
@@ -154,6 +155,18 @@ export class FakeServicesWire {
       emit,
       `fake-browser-${++this.connectionSequence}`,
     );
+    let stopBrowsing: (() => void) | undefined;
+    let browsing = "";
+    const reportBrowsing = (force: boolean) => {
+      const threads = this.browser
+        .browsingThreads()
+        .filter((id) => this.host.thread(id))
+        .map((id) => ThreadId.parse(id));
+      const key = threads.join("\u0000");
+      if (!force && key === browsing) return;
+      browsing = key;
+      emit({ type: "browser.browsing", threads });
+    };
     return {
       authenticated: (device) => {
         owner = device;
@@ -161,6 +174,7 @@ export class FakeServicesWire {
       },
       close: () => {
         closed = true;
+        stopBrowsing?.();
         catalog.close();
         picker?.abort();
         stopProjects();
@@ -172,6 +186,11 @@ export class FakeServicesWire {
         terminalStreams.clear();
       },
       handle: async (message, device) => {
+        if (message.type === "browser.browsing.watch") {
+          stopBrowsing ??= this.browser.subscribe(() => reportBrowsing(false));
+          reportBrowsing(true);
+          return;
+        }
         if (message.type === "storage.request") {
           emit(this.storage.handle(device, message));
           return;

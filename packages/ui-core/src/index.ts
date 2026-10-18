@@ -80,6 +80,7 @@ export * from "./work-log.ts";
 export * from "./step-groups.ts";
 export * from "./explore-command.ts";
 export * from "./browser-address.ts";
+export * from "./browser-help.ts";
 export * from "./checkout-files.ts";
 export * from "./projects.ts";
 export * from "./folder-search.ts";

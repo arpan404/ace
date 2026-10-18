@@ -11,12 +11,13 @@ import {
   RobotIcon,
   TargetIcon,
   ChatCircleIcon,
+  GlobeSimpleIcon,
   WrenchIcon,
   FlowArrowIcon,
 } from "@phosphor-icons/react";
 import { Icon } from "./icon.tsx";
 
-export type MentionKind = CatalogKind | "file" | "thread";
+export type MentionKind = CatalogKind | "file" | "thread" | "tab";
 const icons = {
   skill: BookOpenIcon,
   command: SlashIcon,
@@ -27,6 +28,7 @@ const icons = {
   builtin: CommandIcon,
   file: FileIcon,
   thread: ChatCircleIcon,
+  tab: GlobeSimpleIcon,
 };
 export const addIcons = {
   attach: PaperclipIcon,

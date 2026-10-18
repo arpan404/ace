@@ -68,14 +68,38 @@ export async function setup(provider: ProviderKind) {
     createdAt: 1,
   });
   store.appendEvents(thread.id, [{ type: "agent.created", agent }], 1);
+  const backend = fakeHeadlessBackend();
+  const browser = new BrowserService({ dataDir: home, headlessBackend: backend });
+  const mcp = await startDaemonMcp(store, [browserToolkit(browser, store)]);
+  cleanups.push(async () => {
+    await mcp.close();
+    await browser.close();
+    store.close();
+    await rm(home, { recursive: true, force: true });
+  });
+  return { home, thread, browser, mcp, store };
+}
+
+/**
+ * A headless backend with no Chromium: pages navigate in memory and screenshot one byte. With
+ * `page`, every page's accessibility tree is those CDP nodes, so snapshots read them.
+ */
+export function fakeHeadlessBackend(page?: readonly Record<string, unknown>[]): BrowserBackend {
   let url = "about:blank";
   const events = new EventEmitter();
-  const backend: BrowserBackend = {
+  return {
     kind: "headless",
     async open(request: BackendOpen) {
       return {
         cdp: {
-          send: async (method) => (method === "Page.captureScreenshot" ? { data: "AA==" } : {}),
+          send: async (method) =>
+            method === "Page.captureScreenshot"
+              ? { data: "AA==" }
+              : page && method === "Memory.getDOMCounters"
+                ? { nodes: page.length }
+                : page && method === "Accessibility.getFullAXTree"
+                  ? { nodes: page }
+                  : {},
           on: (method, listener) => events.on(method, listener),
           off: (method, listener) => events.off(method, listener),
         },
@@ -97,13 +121,4 @@ export async function setup(provider: ProviderKind) {
       };
     },
   };
-  const browser = new BrowserService({ dataDir: home, headlessBackend: backend });
-  const mcp = await startDaemonMcp(store, [browserToolkit(browser, store)]);
-  cleanups.push(async () => {
-    await mcp.close();
-    await browser.close();
-    store.close();
-    await rm(home, { recursive: true, force: true });
-  });
-  return { home, thread, browser, mcp, store };
 }

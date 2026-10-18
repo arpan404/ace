@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserBrowsing.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "threads": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+      },
+      "maxItems": 512,
+      "type": "array"
+    },
+    "type": {
+      "const": "browser.browsing",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "threads"
+  ],
+  "type": "object"
+}

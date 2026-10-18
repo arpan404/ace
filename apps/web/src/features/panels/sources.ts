@@ -271,6 +271,8 @@ export interface PreviewSource {
   openTab(threadId: string, url?: string): Promise<string>;
   /** Show this tab to the person (on every device); agents keep working where they are. */
   selectTab(threadId: string, tabId: string): Promise<void>;
+  /** The thread's open tabs, read once (empty while it has no browser). */
+  listTabs?(threadId: string): Promise<readonly BrowserTabView[]>;
   /** Close a tab; closing the last one closes the browser. */
   closeTab(threadId: string, tabId: string): Promise<void>;
   /** "Keep agents out of this tab", or let them back in. */

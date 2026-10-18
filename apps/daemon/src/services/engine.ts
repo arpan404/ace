@@ -347,7 +347,9 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   await recoverSkillRoots(engine.ready(), (error) =>
     log.log("warn", "Abandoned skill projection cleanup failed", logError(error)),
   );
-  engine.bindHostInteractions((command) => services.asks?.resolve(command));
+  engine.bindHostInteractions(
+    (command) => services.asks?.resolve(command) ?? services.browserHelp?.resolve(command),
+  );
   services.engine = engine;
   if (accountRegistry)
     resources.own(

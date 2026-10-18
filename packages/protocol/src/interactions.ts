@@ -24,6 +24,10 @@ export const Question = z.object({
 });
 export type Question = z.infer<typeof Question>;
 
+/** Why an agent hands a browser tab to the person (`ace_browser_request_help`). */
+export const BrowserHelpReason = z.enum(["login", "captcha", "two_factor", "dialog", "other"]);
+export type BrowserHelpReason = z.infer<typeof BrowserHelpReason>;
+
 export const InteractionRequest = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("approval"),
@@ -56,6 +60,18 @@ export const InteractionRequest = z.discriminatedUnion("kind", [
     title: z.string().optional(),
     description: z.string().optional(),
   }),
+  /**
+   * An agent needs the person in one of the thread's browser tabs: to sign in, solve a check,
+   * enter a code or answer a dialog. The person does it in that tab, then says it is done.
+   */
+  z.object({
+    kind: z.literal("browser_help"),
+    tabId: z.string().min(1).max(256),
+    reason: BrowserHelpReason,
+    message: z.string().max(1000),
+    url: z.string().max(8192).optional(),
+    title: z.string().max(1024).optional(),
+  }),
 ]);
 export type InteractionRequest = z.infer<typeof InteractionRequest>;
 
@@ -80,6 +96,8 @@ export const InteractionResolution = z.discriminatedUnion("kind", [
     action: z.enum(["accept", "decline", "cancel"]),
     content: z.unknown().optional(),
   }),
+  /** The person finished in the tab, or chose not to. */
+  z.object({ kind: z.literal("browser_help"), outcome: z.enum(["done", "skipped"]) }),
 ]);
 export type InteractionResolution = z.infer<typeof InteractionResolution>;
 

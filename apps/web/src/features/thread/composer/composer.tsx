@@ -1,6 +1,10 @@
 import { FloatingContents } from "@/components/ui/floating-material.tsx";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
-import { receiveComposerMentions } from "@/lib/composer-insert.ts";
+import {
+  receiveComposerMentions,
+  receiveComposerTabs,
+  type ComposerTab,
+} from "@/lib/composer-insert.ts";
 import { ThreadId, type CatalogMention } from "@ace/protocol";
 import { useClient } from "@ace/client-react";
 import { useNavigate } from "@tanstack/react-router";
@@ -408,7 +412,7 @@ function ComposerBody({
     at: Trigger,
     values?: NonNullable<CatalogMention["values"]>,
   ) => {
-    const label = item.entry || item.threadId ? item.label : `@${item.label}`;
+    const label = item.entry || item.threadId || item.tab ? item.label : `@${item.label}`;
     const next = accept(text, at, label);
     const catalog: CatalogMention | undefined = item.entry
       ? {
@@ -437,6 +441,16 @@ function ComposerBody({
             },
           }
         : {}),
+      ...(item.tab
+        ? {
+            browserTab: {
+              type: "browser_tab",
+              tabId: item.tab.tabId,
+              url: item.tab.url,
+              title: item.tab.title,
+            },
+          }
+        : {}),
     };
     if (item.path) rememberMention(item.path);
     edit(next);
@@ -450,7 +464,8 @@ function ComposerBody({
     if (!trigger) return;
     if (
       tokens.length >= 64 ||
-      (item.threadId && tokens.filter((token) => token.thread).length >= 8)
+      (item.threadId && tokens.filter((token) => token.thread).length >= 8) ||
+      (item.tab && tokens.filter((token) => token.browserTab).length >= 4)
     ) {
       setNotice("This message has enough references. Remove one before adding another.");
       return;
@@ -527,9 +542,37 @@ function ComposerBody({
     );
     rememberMention(file.path);
   });
+  // "Ask agent about this page" from the Browser: the tab, mentioned where the caret is.
+  const insertTab = useEffectEvent((tab: ComposerTab) => {
+    if (tokens.length >= 64 || tokens.filter((token) => token.browserTab).length >= 4) {
+      setNotice("This message has enough references. Remove one before adding another.");
+      return;
+    }
+    const label = tab.title || tab.url;
+    const next = insertAt(text, caret, `${label} `);
+    const start = next.caret - label.length - 1;
+    edit(next);
+    setTokens(
+      [
+        ...editComposerTokens(text, next.text, tokens),
+        {
+          start,
+          end: start + label.length,
+          label,
+          browserTab: { type: "browser_tab" as const, ...tab },
+        },
+      ].toSorted((a, b) => a.start - b.start),
+    );
+  });
   useEffect(() => {
     if (props.thread.draft) return;
-    return receiveComposerMentions(props.thread.id, (file) => insertMention(file));
+    const stops = [
+      receiveComposerMentions(props.thread.id, (file) => insertMention(file)),
+      receiveComposerTabs(props.thread.id, (tab) => insertTab(tab)),
+    ];
+    return () => {
+      for (const stop of stops) stop();
+    };
   }, [props.thread.id, props.thread.draft]);
   const off = props.unavailable?.reason;
   const failedUpload = attachments.items.some((item) => item.state === "failed");
@@ -558,6 +601,7 @@ function ComposerBody({
     const draft: Draft = {
       text,
       ...content,
+      threadRefs: [...content.threadRefs, ...(annotated?.items ?? [])],
       input: message.input,
       files: {
         ...message.files,

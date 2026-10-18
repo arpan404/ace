@@ -2427,6 +2427,22 @@ Example:
 }
 ```
 
+### browser.browsing
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"browser.browsing"` |  |
+| threads | yes | array | {"maxItems":512,"items":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}} |
+
+Example:
+
+```json
+{
+  "threads": [],
+  "type": "browser.browsing"
+}
+```
+
 ### models.result
 
 | Field | Required | Type | Constraints |
