@@ -21,7 +21,11 @@ struct ChangesSheet: View {
                     } else if summary.files.isEmpty {
                         ContentUnavailableView("No uncommitted changes", systemImage: "checkmark.circle")
                     } else {
-                        Section { ForEach(summary.files) { file in NavigationLink(value: file.path) { ChangedFileRow(file: file) } } }
+                        Section {
+                            ForEach(summary.files) { file in
+                                NavigationLink(value: file.path) { ChangedFileRow(file: file) }.accessibilityIdentifier("changes.file.\(file.path)")
+                            }
+                        }
                         footer(summary)
                     }
                 } else {
@@ -83,6 +87,5 @@ struct ChangedFileRow: View {
         }
         .aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
         .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("changes.file.\(file.path)")
     }
 }

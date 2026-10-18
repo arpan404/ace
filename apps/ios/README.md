@@ -110,6 +110,31 @@ presets and wake go through the SDK's durable outbox. Rows carry a machine id so
 later multi-machine inbox can merge daemons. `InboxContractTests` and
 `InboxUITests` exercise the inbox against the fixture.
 
+## Agents and Changes sheets
+
+The thread header opens two detent sheets (`Views/Agents`, `Views/Changes`). The bridge
+follows each only while its sheet is shown (`bridge/sheets.ts`), and navigation releases both.
+
+- Agents: `agentSheet` in `@ace/ui-core/mobile` shapes the tree depth-first with each
+  agent's tree-aware status (`agentTreeWork`), so a finished root with a working child never
+  reads done. It also carries usage, the root's context meter and background tasks. Trees cap
+  at 100 agents and 30 tasks. Unsettled agents and their ancestors win the cap, and every
+  hidden agent and task is counted. Only entity changes reshape the tree; transcript deltas
+  don't. Stop all, and stopping an agent with subagents, ask first. Stops go through the
+  durable outbox (`thread.interrupt`, cascading), as does `background_task.stop`.
+- Changes: the bridge reads `git.status` (≤500 files), `git.diff` (≤256 KiB) and, for a
+  linked PR, `pr.status`. It keeps these reads only while the sheet is open. It sends at most
+  200 file rows and one file's diff at a time, within 1,500 lines, 1,000 UTF-16 units per
+  line and 96,000 in total. Past that, the view points to the computer. The next step
+  (commit & push, push, create PR, merge) follows the web's `nextGitStep` and `mergeGate`. It
+  runs through the daemon's guarded git and forge commands. A view-only grant
+  (`ClientModel.canOperate`) shows both sheets without their actions.
+
+`scripts/sheet-scenario.ts` seeds the fixture's `ios-tree` thread with a nested subagent
+tree, a running background command, usage, and a three-file diff. The diff includes a
+3,000-line file and a long line. Set `ACE_IOS_SPIKE_PORT` and launch with
+`--spike-port N` to run a fixture beside another agent's.
+
 ## Pairing with a real daemon
 
 Without `--spike` the app pairs with a real daemon. Scan the QR from `ace pair` (or
@@ -146,7 +171,7 @@ expire in five minutes. These tests skip when the config is absent.
 
 `--spike` (Debug only) keeps the unpinned loopback fixture. Release builds require WSS
 and an exact pin. A real device over Tailscale, the full multi-machine inbox,
-questions, Agents and Changes are still to come.
+and questions are still to come.
 
 Connection replacement now awaits old-runtime shutdown, clears host-specific views
 and rejects its late updates/errors. Concurrent replacements select the newest
