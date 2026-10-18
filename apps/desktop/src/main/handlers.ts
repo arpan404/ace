@@ -1,3 +1,4 @@
+import { writableFolder } from "./browser/download-folder.ts";
 import {
   app,
   BrowserWindow,
@@ -174,7 +175,11 @@ export function createHandlers(options: {
       return undefined;
     },
     "settings.get": () => settings.get(),
-    "settings.update": (patch) => settings.update(patch),
+    "settings.update": async (patch) => {
+      // A downloads folder must be one this app can save in, now.
+      if (patch.browserDownloads) await writableFolder(patch.browserDownloads);
+      return settings.update(patch);
+    },
     "permissions.status": () => permissions(),
     "permissions.open": (pane) => openPermissionPane(pane),
     "browser.place": (placement, sender) => {

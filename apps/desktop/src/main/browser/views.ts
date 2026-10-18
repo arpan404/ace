@@ -43,6 +43,8 @@ export interface ViewHostOptions {
   partitionsDir: string;
   platform: NodeJS.Platform;
   log(message: string): void;
+  /** The folder the person chose for this app's browser downloads, if any. */
+  downloadFolder?(): string | undefined;
   /** The number of threads with native pages changed (they keep the app running). */
   onPages?(count: number): void;
 }
@@ -150,6 +152,7 @@ export class EmbeddedViews implements ViewHost {
             ? join(dirname(this.options.preload), "browser-auth-preload.cjs")
             : undefined,
           downloadDir: request.downloadDir,
+          downloadFolder: () => this.options.downloadFolder?.(),
           session: partitionSession,
           released: undefined,
           window,

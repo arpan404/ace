@@ -232,6 +232,12 @@ export const DesktopSettings = z.object({
   globalShortcut: z.string().max(64).nullable().default(null),
   /** Keep the machine awake while agents work. */
   preventSleep: z.boolean().default(false),
+  /**
+   * Where this app's own browser saves downloads; null uses the system's Downloads folder
+   * (`app.getPath("downloads")`, ~/Downloads on macOS). ace's Chrome on the daemon has its own
+   * setting.
+   */
+  browserDownloads: z.string().min(1).max(4096).nullable().default(null),
 });
 export type DesktopSettings = z.infer<typeof DesktopSettings>;
 /**
@@ -252,6 +258,7 @@ export const DesktopSettingsPatch = z.object({
   attention: z.boolean().optional(),
   globalShortcut: z.string().max(64).nullable().optional(),
   preventSleep: z.boolean().optional(),
+  browserDownloads: z.string().min(1).max(4096).nullable().optional(),
 });
 export type DesktopSettingsPatch = z.infer<typeof DesktopSettingsPatch>;
 

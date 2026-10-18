@@ -34,6 +34,8 @@ export interface BackendOpen {
   maxTabs?: number;
   changed?(): void;
   downloadDir?: string;
+  /** The folder ace's Chrome saves finished downloads in, when the person chose one. */
+  saveFolder?(): Promise<string | undefined>;
   maxDownloadBytes?: number;
   downloadAllowed?(url: string): Promise<boolean>;
   artifact?(artifact: import("@ace/protocol").BrowserArtifact): void | Promise<void>;

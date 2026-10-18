@@ -1,5 +1,6 @@
 import { mkdir, rm } from "node:fs/promises";
 import { createWriteStream } from "node:fs";
+import { saveInFolder } from "./download-folder.ts";
 import { basename, join } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -69,7 +70,14 @@ export class HeadlessDownloads {
     if (this.mime.size >= 256) this.mime.delete(this.mime.keys().next().value ?? "");
     this.mime.set(url, mime.split(";")[0]?.slice(0, 256) || "application/octet-stream");
   }
-  async accept(download: Download, tabId: string): Promise<void> {
+  /**
+   * `folder`: the downloads folder for this engine (the person's choice, else the machine's
+   * Downloads folder). The quarantined copy stays with the thread's browser session as the
+   * thread's artifact; the finished file is also saved in `folder` under its own name (numbered
+   * when taken), and the download lists that real path. Without a folder, or if it can't be
+   * written, the download lists the session copy.
+   */
+  async accept(download: Download, tabId: string, folder?: string): Promise<void> {
     const directory = this.request.downloadDir;
     if (this.privateMode || this.entries.length >= 128 || !directory) {
       await download.cancel().catch(() => {});
@@ -146,8 +154,11 @@ export class HeadlessDownloads {
               published = true;
             }
             signal.throwIfAborted();
+            const saved = folder
+              ? await saveInFolder(path, folder, filename).catch(() => undefined)
+              : undefined;
             entry.state = "complete";
-            entry.path = path;
+            entry.path = saved ?? path;
           } finally {
             // PolicyGate can return on cancellation before this work settles.
             // The publisher owns these bytes until it acknowledges or rejects.

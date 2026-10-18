@@ -40,6 +40,8 @@ export const defaults: SettingsValues = {
   "browser.backend": "auto",
   "browser.backendLoss": "pause",
   "browser.profile": "persistent",
+  "browser.downloadDir": "",
+  "browser.downloadDefault": "",
   "access.defaultMode": "auto-review",
   "access.nativeModes": {},
   "threads.useWorktree": true,

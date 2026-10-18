@@ -91,8 +91,9 @@ export class ChromeDownloads {
       this.waiting.set(guid, { resolve, reject }),
     );
     void done.catch(() => {});
-    void this.transfers
-      .accept(
+    void (async () => {
+      const folder = await this.request.saveFolder?.().catch(() => undefined);
+      await this.transfers.accept(
         {
           suggestedFilename: () => suggestedFilename,
           url: () => url,
@@ -113,7 +114,8 @@ export class ChromeDownloads {
           },
         },
         tabId,
-      )
-      .catch(() => {});
+        folder,
+      );
+    })().catch(() => {});
   }
 }

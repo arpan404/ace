@@ -10,6 +10,7 @@ import {
   BrowserBackendLossPolicy,
 } from "@ace/protocol";
 import { desktopCredential } from "../browser-desktop.ts";
+import { daemonDownloadFolder, downloadsHost } from "../download-folder.ts";
 import { BrowserForget } from "../browser-forget.ts";
 import { SqliteBrowserTabStore } from "../browser-tab-store.ts";
 import type { ServiceContext } from "./types.ts";
@@ -88,6 +89,15 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
             )
           )?.value ?? "persistent",
         )),
+    // ace's Chrome saves downloads in the folder chosen for this daemon, else this machine's
+    // Downloads folder; read per download, so a change applies to the next one. Global only:
+    // a project's settings file must not send downloads into another folder.
+    downloadFolder:
+      options.browser?.downloadFolder ??
+      (async () => {
+        const chosen = (await services.settings?.get("browser.downloadDir", {}))?.value;
+        return daemonDownloadFolder(typeof chosen === "string" ? chosen : "", downloadsHost());
+      }),
     onEmbeddedRegistered: () => {
       void forget?.flush().catch((error: unknown) => context.log.log("warn", String(error)));
       options.browser?.onEmbeddedRegistered?.();

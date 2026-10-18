@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { rm } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import type { BackendOpen, BrowserCdp } from "./backend.ts";
@@ -9,6 +9,8 @@ const Start = z.object({
   url: z.string().max(8192),
   filename: z.string().max(256),
   mimeType: z.string().max(256),
+  /** The desktop app's downloads folder (the person's choice or the system's Downloads). */
+  folder: z.string().min(1).max(4096).refine(isAbsolute).optional(),
 });
 const Progress = z.object({
   guid: Start.shape.guid,
@@ -49,7 +51,7 @@ export class EmbeddedDownloads {
     if (method !== "ace.download.started" || !this.request.downloadDir) return;
     const start = Start.safeParse(raw);
     if (!start.success) return;
-    const { guid, url, filename, mimeType } = start.data;
+    const { guid, url, filename, mimeType, folder } = start.data;
     const path = join(this.request.downloadDir, guid);
     const call = (command: string) =>
       this.cdp.send("ace.tabs.cdp", { tabId, method: command, params: { guid } });
@@ -81,6 +83,7 @@ export class EmbeddedDownloads {
           },
         },
         tabId,
+        folder,
       )
       .catch(() => {});
   }

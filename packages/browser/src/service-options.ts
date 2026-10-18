@@ -72,6 +72,12 @@ export interface BrowserServiceOptions {
   profilePreference?: (
     options: BrowserOpen,
   ) => "persistent" | "ephemeral" | Promise<"persistent" | "ephemeral">;
+  /**
+   * Where ace's own Chrome saves what a thread downloads (the daemon's `browser.downloadDir`):
+   * an existing, writable folder on this machine. Undefined keeps downloads with the thread's
+   * browser session. Read for each download, so a change applies to the next one.
+   */
+  downloadFolder?: (options: BrowserOpen) => Promise<string | undefined>;
   /** A desktop backend registered; called after the registration reply is on its way. */
   onEmbeddedRegistered?: () => void;
   acquisition?: Omit<ChromiumAcquisitionOptions, "dataDir" | "signal" | "progress">;

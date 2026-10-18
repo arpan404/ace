@@ -45,6 +45,18 @@ export const SettingsValues = z.object({
   /** A thread's browser keeps its own cookies and storage, or opens privately in memory. */
   "browser.profile": z.enum(["persistent", "ephemeral"]),
   /**
+   * Where ace's own Chrome on this daemon's machine saves downloads: an existing, writable
+   * folder there, global only. Empty uses `browser.downloadDefault`. The desktop app's own
+   * browser has its own setting; the person's Chrome decides for itself.
+   */
+  "browser.downloadDir": z.string().max(4096),
+  /**
+   * Read-only, reported by the daemon: its machine's Downloads folder (macOS and Windows
+   * `~/Downloads`, Linux `XDG_DOWNLOAD_DIR`) when it exists and can be written. Empty when it
+   * can't: then downloads without a chosen folder stay with each thread's browser data.
+   */
+  "browser.downloadDefault": z.string().max(4096),
+  /**
    * This daemon's access for new threads: the mode the person last chose or set in Settings.
    * A thread's own choice and its project's default come first.
    */

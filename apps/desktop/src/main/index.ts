@@ -172,6 +172,7 @@ function main(target: DaemonTarget): void {
     userData: app.getPath("userData"),
     trayIcon: paths.trayIcon,
     browserPreload: join(dirname(paths.preload), "browser-preload.cjs"),
+    downloads: app.getPath("downloads"),
     runtime,
     settings: () => settings.get(),
     window: () => window,

@@ -271,3 +271,15 @@ test("an external document change emits only the selected changed keys in one no
     },
   ]);
 });
+
+test("a project or thread can't choose where the daemon saves downloads", async () => {
+  const f = await setup();
+  await expect(
+    f.service.set("browser.downloadDir", "/tmp", { kind: "workspace", workspace: f.workspace }),
+  ).rejects.toThrow(/global daemon setting/);
+  await expect(
+    f.service.set("browser.downloadDir", "/tmp", { kind: "thread", thread: "thread-1" }),
+  ).rejects.toThrow(/global daemon setting/);
+  await f.service.set("browser.downloadDir", "/tmp", { kind: "global" });
+  expect((await f.service.get("browser.downloadDir", {})).value).toBe("/tmp");
+});

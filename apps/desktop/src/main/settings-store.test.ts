@@ -88,6 +88,7 @@ const customised: DesktopSettings = {
   preventSleep: true,
   attention: false,
   globalShortcut: "CommandOrControl+J",
+  browserDownloads: "/Users/me/Downloads",
   notifications: {
     enabled: false,
     categories: { finished: false, failed: true },
@@ -104,6 +105,7 @@ const changes: [string, DesktopSettingsPatch][] = [
   ["Quick-thread global shortcut", { globalShortcut: "CommandOrControl+Shift+K" }],
   ["Quick-thread global shortcut cleared", { globalShortcut: null }],
   ["notifications on", { notifications: { enabled: true } }],
+  ["Browser downloads folder reset", { browserDownloads: null }],
 ];
 
 /** A fake OS: what is registered right now, and every login-item change (each shows a macOS banner). */

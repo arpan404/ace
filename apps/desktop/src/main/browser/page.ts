@@ -29,6 +29,8 @@ const blockServiceWorkers = `Object.defineProperty(Navigator.prototype, "service
 export interface PageOptions {
   view: WebContentsView;
   downloadDir?: string | undefined;
+  /** The folder the person chose for this app's browser downloads, read per download. */
+  downloadFolder?(): string | undefined;
   session: Session;
   /** Ephemeral sessions: the partition was cleared (or not) and may go back to its pool. */
   released: ((cleared: boolean) => void) | undefined;
@@ -108,8 +110,10 @@ export class EmbeddedPage implements ViewPage {
       },
       () => this.detached("The browser page could not restart. Reopen it to continue."),
     );
-    this.downloads = new NativeDownloads(options.downloadDir, (method, params) =>
-      this.emit(method, params),
+    this.downloads = new NativeDownloads(
+      options.downloadDir,
+      (method, params) => this.emit(method, params),
+      () => options.downloadFolder?.(),
     );
     this.contents = options.view.webContents;
     this.home = options.window;
