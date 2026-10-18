@@ -19,13 +19,13 @@ import {
   HammerIcon,
   ListChecksIcon,
   MagnifyingGlassIcon,
-  MonitorIcon,
   NotePencilIcon,
   PlugIcon,
   RobotIcon,
   TerminalIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
+import { BrowserUseIcon, ComputerUseIcon } from "@/components/ace-icons.tsx";
 import { memo, useId, useMemo, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -182,8 +182,8 @@ const groupIcons: Record<GroupIcon, PhosphorIcon> = {
   mixed: HammerIcon,
   edit: NotePencilIcon,
   command: TerminalIcon,
-  computer: MonitorIcon,
-  browser: GlobeIcon,
+  computer: ComputerUseIcon,
+  browser: BrowserUseIcon,
   fetch: GlobeIcon,
   websearch: GlobeIcon,
   read: FileTextIcon,

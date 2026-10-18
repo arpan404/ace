@@ -6,6 +6,7 @@
   "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
+    "./glyphs": "./src/glyphs.ts",
     "./tokens.json": "./tokens.json"
   },
   "scripts": {

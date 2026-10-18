@@ -1,7 +1,6 @@
 import { fileTabData } from "./files/files-state.ts";
 import {
   BrowserIcon,
-  CursorClickIcon,
   DeviceMobileIcon,
   FilesIcon,
   GitDiffIcon,
@@ -10,6 +9,7 @@ import {
   PlusIcon,
   ClipboardTextIcon,
 } from "@phosphor-icons/react";
+import { ComputerUseIcon } from "@/components/ace-icons.tsx";
 import { ChangesSkeleton, FilesSkeleton } from "./tab-skeletons.tsx";
 import { defineTabKind, type TabKind } from "@/lib/workspace/index.ts";
 import { addressHost } from "@ace/ui-core";
@@ -154,7 +154,7 @@ export const devicesKind = defineTabKind({
 export const computerUseKind = defineTabKind({
   kind: "computer-use",
   label: "Computer use",
-  icon: CursorClickIcon,
+  icon: ComputerUseIcon,
   singleton: true,
   launcher: 65,
   // Its own chunk: the screen channel, frame decoding and session cards load only when it shows.

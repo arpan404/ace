@@ -3,13 +3,13 @@ import { addressHost, agentName } from "@ace/ui-core";
 import {
   CaretDownIcon,
   CheckIcon,
-  CursorIcon,
   EyeSlashIcon,
   GlobeSimpleIcon,
   PlusIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { AgentCursorIcon } from "@/components/ace-icons.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
@@ -33,7 +33,7 @@ function useWorker(threadId: string, tab: BrowserTabView): string | undefined {
 }
 
 /**
- * What leads a tab: the agent cursor while an agent works in it (the one colour, `working`),
+ * What leads a tab: the agent cursor (in the person's accent) while an agent works in it,
  * a spinner while it loads, else its favicon or a globe.
  */
 function TabMark(props: { tab: BrowserTabView; worker: string | undefined }) {
@@ -43,9 +43,9 @@ function TabMark(props: { tab: BrowserTabView; worker: string | undefined }) {
       <span
         role="img"
         aria-label={`${props.worker} is using this tab`}
-        className="grid size-4 shrink-0 place-items-center text-status-working"
+        className="grid size-4 shrink-0 place-items-center"
       >
-        <CursorIcon aria-hidden size={14} weight="fill" />
+        <AgentCursorIcon aria-hidden size={16} />
       </span>
     );
   if (tab.loading) return <Spinner className="size-3.5 shrink-0" />;

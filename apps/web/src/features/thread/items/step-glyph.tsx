@@ -13,7 +13,6 @@ import {
   ImageIcon,
   ListChecksIcon,
   MagnifyingGlassIcon,
-  MonitorIcon,
   NoteIcon,
   NotePencilIcon,
   PlugIcon,
@@ -22,6 +21,7 @@ import {
   WrenchIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
+import { BrowserUseIcon, ComputerUseIcon } from "@/components/ace-icons.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useToolIcon } from "@/lib/tool-icons.ts";
@@ -33,8 +33,8 @@ import { useToolIcon } from "@/lib/tool-icons.ts";
  */
 
 const markGlyphs: Record<Extract<ToolMark, { kind: "glyph" }>["glyph"], PhosphorIcon> = {
-  screen: MonitorIcon,
-  browser: GlobeIcon,
+  screen: ComputerUseIcon,
+  browser: BrowserUseIcon,
   agent: RobotIcon,
   thread: ChatsCircleIcon,
   pr: GitPullRequestIcon,
@@ -72,8 +72,9 @@ export function stepGlyph(item: Item | undefined, mark?: ToolMark): PhosphorIcon
       return NotePencilIcon;
     case "web.search":
     case "web.fetch":
-    case "browser":
       return GlobeIcon;
+    case "browser":
+      return BrowserUseIcon;
     case "todo":
     case "plan":
       return ListChecksIcon;
@@ -104,7 +105,9 @@ function SurfaceIcon(props: {
     return (
       <Icon
         icon={
-          props.surface.kind === "computer" && !props.surface.icon ? MonitorIcon : props.fallback
+          props.surface.kind === "computer" && !props.surface.icon
+            ? ComputerUseIcon
+            : props.fallback
         }
         size={16}
         className={props.failed ? "text-status-failed" : "text-subtle-foreground"}
