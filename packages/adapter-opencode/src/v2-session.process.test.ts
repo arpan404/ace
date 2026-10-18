@@ -506,7 +506,7 @@ it("a stored image file reaches OpenCode as a file URI for it to read and resize
   expect(object(prompt?.body).files).toEqual([{ uri: "file:///tmp/extensionless" }]);
 });
 
-it("the fake OpenCode V2 server receives PDF and binary paths as prompt text", async () => {
+it("the fake OpenCode V2 server receives text and PDF files as file URIs and other binaries as path text", async () => {
   const h = await setup();
   await h.session.send(
     [
@@ -519,9 +519,28 @@ it("the fake OpenCode V2 server receives PDF and binary paths as prompt text", a
   const requests = array(await h.control("/test/requests")).map(object);
   const prompt = requests.find((entry) => String(entry.path).endsWith("/prompt"));
   expect(prompt?.body).toMatchObject({
-    text: 'File (text/plain): "/files/code.ts"\nFile (application/pdf): "/files/report.pdf"\nFile (application/zip): "/files/archive.zip"',
+    text: 'File (application/zip): "/files/archive.zip"',
+    files: [{ uri: "file:///files/code.ts" }, { uri: "file:///files/report.pdf" }],
   });
-  expect(object(prompt?.body).files).toBeUndefined();
+});
+
+it("a mentioned workspace file is anchored to its @path in the prompt text", async () => {
+  const h = await setup();
+  await h.session.send(
+    [
+      { type: "text", text: "compare @src/a.tsx with @src/a.ts." },
+      { type: "file", path: "/one/src/a.ts", mimeType: "text/plain" },
+      { type: "file", path: "/one/src/a.tsx", mimeType: "text/plain" },
+    ],
+    "queue",
+  );
+  const prompt = array(await h.control("/test/requests"))
+    .map(object)
+    .find((entry) => String(entry.path).endsWith("/prompt"));
+  expect(object(prompt?.body).files).toEqual([
+    { uri: "file:///one/src/a.ts", mention: { start: 24, end: 33, text: "@src/a.ts" } },
+    { uri: "file:///one/src/a.tsx", mention: { start: 8, end: 18, text: "@src/a.tsx" } },
+  ]);
 });
 
 it("variant switches preserve native history and restore the provider default on the same session", async () => {

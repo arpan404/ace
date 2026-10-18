@@ -98,7 +98,7 @@ test("Codex keeps native skill and app identities between surrounding text and i
         path: "/scratch/project/.agents/skills/review/SKILL.md",
       },
     },
-    { text: " with " },
+    { text: " with $drive" },
     { type: "mention", invocation: { type: "mention", path: "app://scratch-drive" } },
   ]);
   expect(input[1]).toMatchObject({ name: "forged", invocation: { path: "/credentials" } });

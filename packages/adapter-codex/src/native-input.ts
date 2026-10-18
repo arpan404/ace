@@ -14,6 +14,12 @@ export function nativeInput(parts: ContentPart[]): TurnStartParams["input"] {
         ? { type: "image", url: part.url }
         : part.mimeType?.startsWith("image/")
           ? { type: "localImage", path: part.path }
-          : { type: "mention", name: part.path.split("/").at(-1) ?? part.path, path: part.path };
+          : // Codex documents mention items only for app:// connectors and does not show them
+            // to the model as text, so a local file reference travels as its path (and text).
+            {
+              type: "text",
+              text: `File: ${part.path}${part.content?.encoding === "text" ? `\n${part.content.data}` : ""}`,
+              text_elements: [],
+            };
   });
 }

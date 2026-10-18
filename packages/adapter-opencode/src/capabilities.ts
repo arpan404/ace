@@ -29,7 +29,8 @@ export function capabilities(cli: DiscoveryResult): Capabilities {
     imageInput: supported,
     attachmentInput: {
       format: "opencode",
-      documents: [],
+      // OpenCode 2 sends a file:// PDF to the model as media (`toLLMMessage` attachmentContent).
+      documents: ["application/pdf"],
       embeddedContext: false,
       maxInlineBytes: 4 * 1024 * 1024,
     },

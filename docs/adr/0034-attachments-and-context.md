@@ -10,7 +10,7 @@ The competitor inventories supplied for this work describe file context, screens
 
 `@ace/context` owns mention resolution, path completion, upload storage, and pure provider projection. The protocol package adds schemas only. The daemon mounts a small authenticated request handler. Clients send workspace-relative mentions or attachment hashes, never daemon paths. The package accepts injected clocks, identifiers, roots, workspace lookup and authorization. A narrow `WorkspaceFiles` interface uses Git for ignore semantics. Workspace PR #26 has landed; the migration assessment below records why this merge keeps the current implementation. Git must be installed; non-Git folders must be initialized before using this implementation.
 
-File and folder mentions expand to bounded text with relative names and explicit truncation markers. Line ranges are inclusive and one-based. Binary files produce a diagnostic and path reference rather than text. Resolution refuses absolute paths, parent traversal and every symlink component. This stricter symlink policy avoids races through redirected directory components. Git ignored paths are refused even if tracked. Reads use no-follow file descriptors and verify the opened inode against its resolved path. Folders use the shared cached index rather than walking the tree on every request.
+File mentions expand to bounded text with relative names and explicit truncation markers. Folder mentions send the folder path plus a bounded listing of its indexed files and sizes (at most 200 entries and 16 KiB, git-ignored files excluded), never file contents; agents read what they need. Line ranges are inclusive and one-based. Non-text file mentions take the attached-file route: images (validated like uploads) and PDFs reach each provider in its native form, other binaries as a path reference. Resolution refuses absolute paths, parent traversal and every symlink component. This stricter symlink policy avoids races through redirected directory components. Git ignored paths are refused even if tracked. Reads use no-follow file descriptors and verify the opened inode against its resolved path. Folders use the shared cached index rather than walking the tree on every request.
 
 The path index has capped entries and path lengths. It stores lowercase paths and character postings for fuzzy subsequence queries. Updates remove and insert only changed paths. Filesystem notifications feed incremental updates; an overflow or ignore-file change invalidates the index for a bounded rebuild. Initial listing streams Git's NUL-separated output. Queries keep only a bounded set of highest scoring results. An empty query returns a bounded prefix. Workspace indexes are evicted by an LRU cap.
 
@@ -193,12 +193,20 @@ base64 document blocks using the installed Agent SDK's typed user-message contra
 its native budget is 4 MiB. Codex keeps local images and file-path fallbacks. Pi and
 Cursor use a 128 KiB native budget and path fallbacks for documents/binaries. ACP
 negotiates `embeddedContext` and then accepts bounded text/blob resources; without
-it, paths and ordinary text remain usable. The engine preserves native document
+it, uninlined files are sent as `resource_link` blocks, which every ACP agent must
+accept. Cursor's local SDK takes inline `{data, mimeType}` images only (it rejects
+URL images for local agents). The engine preserves native document
 and resource content through additive `ContentPart.file.content` fields.
 
-OpenCode V2 uses native images but **does not expose PDF or arbitrary binary file
-parts to the model**. They must be named in prompt text with a readable path,
-rather than sent through `files` and silently omitted. See the primary
+OpenCode V2 reads `file://` attachments itself. In the pinned 2.0.22 source, text
+files are inlined with their name, images and PDFs become media (PDFs only for
+models whose capabilities include PDF input; otherwise OpenCode substitutes an
+error note), and other binaries are dropped from the model request
+(`session/runner/to-llm-message.ts`, `session/model-request.ts`). The attachments
+page below still says PDFs are omitted; the source at the minimum supported tag is
+treated as authoritative. Arbitrary binaries must therefore be named in prompt text
+with a readable path rather than sent through `files`. Whole mentioned workspace
+files are sent as `file://` parts anchored to the composer's `@path` text. See the primary
 [OpenCode V2 attachment contract](https://dev.opencode.ai/v2/docs/attachments/) and
 [ACP v1 content contract](https://agentclientprotocol.com/protocol/v1/content).
 Claude's source format follows the installed SDK declaration and
