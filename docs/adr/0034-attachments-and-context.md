@@ -266,3 +266,28 @@ Assistant markdown resolves local references through the thread's owning client.
 Captured images render inline and open the existing lightbox. File links inside
 the thread checkout open its file panel. Uncaptured files outside that checkout
 remain unavailable. No link reads the viewing device's local filesystem.
+
+## Idle context indexes and batched reconciliation, 2026-10-17
+
+Context completion indexes no longer stay resident, watched and busy until LRU
+eviction or shutdown. A cache entry retires after two minutes without use: its
+recursive watcher closes, retry and coalescing timers are cancelled and its index
+is dropped. The next request rebuilds from current filesystem and ignore state.
+Requests run through `WorkspaceCache.use`, which holds the entry so neither idle
+expiry nor memory pressure retires it mid-request. Shutdown waits for any drain
+still running on a retired entry.
+
+Watcher hints coalesce for 200 ms. Each batch is reconciled with one
+`git check-ignore --no-index --stdin -z` process, whatever its size, and changed
+folders share one set of three `ls-files` listings using literal pathspecs.
+Containment and symlink checks still run per path, before Git sees it, with
+ancestor `lstat` results shared within the batch. `--no-index` keeps tracked files
+that match an ignore pattern out of context, as before.
+
+The path index replaces per-character posting sets with two character-class
+bitmasks per entry, cutting retained heap for an 80,000-file index from about
+90 MiB to about 26 MiB. Each index maintains a conservative byte estimate. The
+cache keeps the estimated total across roots under 128 MiB by retiring the least
+recently used unheld roots. The most recently used root is always kept whole, so
+a repository larger than the budget still completes in full; the existing
+100,000-entry cap still fails explicitly rather than truncating.
