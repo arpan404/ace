@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { existsSync } from "node:fs";
+import { existsSync, renameSync, rmSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { IncompatibleDataError } from "@ace/provider-kit/incompatible-data";
 
@@ -214,7 +214,11 @@ function backupBeforeUpgrade(db: DatabaseSync): void {
   if (!path || version < UPGRADE_FLOOR || version >= migrations.length) return;
   const target = `${path}.schema-${version}.backup`;
   if (existsSync(target)) return;
-  db.prepare("VACUUM INTO ?").run(target);
+  // Written under a temporary name, so an interrupted copy is never mistaken for a backup.
+  const partial = `${target}.partial`;
+  rmSync(partial, { force: true });
+  db.prepare("VACUUM INTO ?").run(partial);
+  renameSync(partial, target);
 }
 
 const threadMetadataColumns = ["acp", "transitions", "provider_metadata"];
