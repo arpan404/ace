@@ -34,6 +34,9 @@ import CryptoKit
     var approvalSubmissions: [String: ApprovalSubmission] = [:]
     /// False for a view-only grant: the phone reads threads but submits no commands.
     var canOperate = true
+    /// A thread a tapped notification asked to open.
+    var deepLink: String?
+    @ObservationIgnored var notificationSink: ((NotificationPatch) -> Void)?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var runtime: (any ClientSession)?
     @ObservationIgnored private let makeRuntime: ClientSessionFactory
@@ -98,6 +101,7 @@ import CryptoKit
             case .problem(let notice): problem = notice
             case .pending(let id, let row): pending[id] = row
             case .error(let message): error = message
+            case .notification(let patch): notificationSink?(patch)
             case .receipt(let id, let ok, let message):
                 if let interactionId = approvalRequests[id], approvalSubmissions[interactionId]?.requestId == id {
                     if ok { approvalSubmissions[interactionId]?.phase = .waiting }
@@ -185,6 +189,8 @@ import CryptoKit
     }
     /// Inbox reads that admit nothing durable, such as loading older threads.
     func inboxRequest(_ value: [String: Any]) { action(["type": "inbox", "action": value, "requestId": admissions.nextId()]) }
+    /// `notifications.*` bridge actions (Sources/Notifications).
+    @discardableResult func notificationAction(_ value: [String: Any]) -> Bool { action(value) }
     @discardableResult private func command(_ payload: [String: Any], requestId: String? = nil) -> Bool {
         let dispatched = action(["type": "command", "payload": payload, "requestId": requestId ?? admissions.nextId()])
         if !dispatched { error = "Could not submit the request. Your draft is still available." }

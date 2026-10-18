@@ -27,8 +27,10 @@ Example:
 
 ```json
 {
+  "height": 85,
   "html": "example",
-  "title": "M"
+  "mode": "interactive",
+  "title": "&"
 }
 ```
 
@@ -67,7 +69,6 @@ Example:
 
 ```json
 {
-  "level": "info",
   "text": "example"
 }
 ```
@@ -112,10 +113,11 @@ Example:
 {
   "tasks": [
     {
-      "access": "inherit",
+      "access": "read-only",
+      "effort": "example",
       "model": "example",
       "project": "example",
-      "requestId": "_",
+      "requestId": "dUr3jAfcGK",
       "role": "example",
       "task": "example"
     }
@@ -138,11 +140,9 @@ Example:
 
 ```json
 {
-  "code": "invalid",
-  "data": {
-    "threadIds": []
-  },
-  "ok": true
+  "code": "not_ready",
+  "hint": "example",
+  "ok": false
 }
 ```
 
@@ -187,7 +187,6 @@ Example:
 
 ```json
 {
-  "hint": "example",
   "ok": false
 }
 ```
@@ -227,10 +226,7 @@ Example:
 
 ```json
 {
-  "data": {
-    "state": "example",
-    "threadId": "example"
-  },
+  "hint": "example",
   "ok": true
 }
 ```
@@ -256,7 +252,7 @@ Example:
 
 ```json
 {
-  "requestId": "RROFJmxa5",
+  "requestId": "zs-L4U_L",
   "text": "example",
   "threadId": "example"
 }
@@ -276,8 +272,7 @@ Example:
 
 ```json
 {
-  "code": "forbidden",
-  "hint": "example",
+  "code": "unavailable",
   "ok": true
 }
 ```
@@ -301,7 +296,7 @@ Example:
 
 ```json
 {
-  "requestId": "WLWnkoEq",
+  "requestId": "W9QgPzA62",
   "threadId": "example"
 }
 ```
@@ -320,7 +315,7 @@ Example:
 
 ```json
 {
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -357,8 +352,7 @@ Example:
 
 ```json
 {
-  "code": "limit",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -381,7 +375,7 @@ Example:
 
 ```json
 {
-  "provider": "antigravity"
+  "offset": 4
 }
 ```
 
@@ -400,8 +394,6 @@ Example:
 
 ```json
 {
-  "data": null,
-  "hint": "example",
   "ok": false
 }
 ```
@@ -429,9 +421,7 @@ Example:
 
 ```json
 {
-  "cursor": "example",
-  "limit": 9,
-  "query": "example"
+  "limit": 10
 }
 ```
 
@@ -450,8 +440,7 @@ Example:
 
 ```json
 {
-  "hint": "example",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -478,8 +467,10 @@ Example:
 
 ```json
 {
-  "limit": 5,
-  "streamId": "example"
+  "before": 9,
+  "limit": 3,
+  "maxBytes": 1,
+  "threadId": "example"
 }
 ```
 
@@ -498,7 +489,7 @@ Example:
 
 ```json
 {
-  "hint": "example",
+  "code": "invalid",
   "ok": true
 }
 ```
@@ -528,15 +519,9 @@ Example:
 
 ```json
 {
-  "access": "full-access",
-  "provider": "acp",
-  "requestId": "XWhi_jpSeb",
+  "requestId": "qOgL",
   "text": "example",
-  "title": "example",
-  "workspace": {
-    "kind": "existing_worktree",
-    "path": "example"
-  }
+  "title": "example"
 }
 ```
 
@@ -555,6 +540,7 @@ Example:
 
 ```json
 {
+  "code": "not_ready",
   "hint": "example",
   "ok": true
 }
@@ -579,7 +565,7 @@ Example:
 
 ```json
 {
-  "requestId": "GXd1joJ",
+  "requestId": "0yLFCAfprv",
   "threadId": "example"
 }
 ```
@@ -599,7 +585,7 @@ Example:
 
 ```json
 {
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -627,9 +613,10 @@ Example:
 
 ```json
 {
-  "entryId": "example",
-  "requestId": "3yKYn8dOwK",
-  "text": "example",
+  "order": [
+    "example"
+  ],
+  "requestId": "X",
   "threadId": "example"
 }
 ```
@@ -648,7 +635,9 @@ Example:
 
 ```json
 {
-  "ok": false
+  "code": "not_ready",
+  "hint": "example",
+  "ok": true
 }
 ```
 
@@ -676,8 +665,9 @@ Example:
 ```json
 {
   "answers": {},
+  "dismissed": true,
   "interactionId": "example",
-  "requestId": "qOZIJGa",
+  "requestId": "jTfrig",
   "threadId": "example"
 }
 ```
@@ -696,8 +686,6 @@ Example:
 
 ```json
 {
-  "code": "limit",
-  "hint": "example",
   "ok": false
 }
 ```
@@ -726,9 +714,8 @@ Example:
 
 ```json
 {
-  "repo": "example",
-  "unlink": true,
-  "url": "https://example.invalid/"
+  "number": 7,
+  "unlink": false
 }
 ```
 
@@ -747,9 +734,8 @@ Example:
 
 ```json
 {
-  "data": null,
   "hint": "example",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -786,12 +772,11 @@ Example:
 ```json
 {
   "action": "interrupt",
-  "branch": "example",
-  "model": "example",
-  "name": "example",
-  "requestId": "PUM-7GeTgz",
-  "runId": "example",
-  "threadId": "example"
+  "effort": "example",
+  "onlyIfProvisional": false,
+  "requestId": "v2-Cn",
+  "serviceTier": "flex",
+  "until": null
 }
 ```
 
@@ -810,9 +795,7 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
   "data": null,
-  "hint": "example",
   "ok": true
 }
 ```
@@ -857,7 +840,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "data": null,
+  "ok": false
 }
 ```
 
@@ -888,6 +872,7 @@ Example:
 ```json
 {
   "id": "example",
+  "missedRun": "run_once",
   "prompt": "example",
   "schedule": {
     "expression": "example",
@@ -914,7 +899,8 @@ Example:
 
 ```json
 {
-  "ok": false
+  "code": "not_ready",
+  "ok": true
 }
 ```
 
@@ -939,7 +925,7 @@ Example:
 ```json
 {
   "id": "example",
-  "requestId": "cDA2WeP",
+  "requestId": "kInXxAw37qA",
   "variables": {}
 }
 ```
@@ -959,7 +945,7 @@ Example:
 
 ```json
 {
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -999,6 +985,7 @@ Example:
 
 ```json
 {
+  "hint": "example",
   "ok": true
 }
 ```
@@ -1026,7 +1013,8 @@ Example:
 
 ```json
 {
-  "limit": 9,
+  "maxBytes": 9,
+  "offset": 0,
   "sourceThreadId": "example"
 }
 ```
@@ -1049,7 +1037,9 @@ Example:
 
 ```json
 {
-  "encoding": "utf-16le"
+  "bytes": "example",
+  "itemsBefore": null,
+  "nextOffset": 5
 }
 ```
 
@@ -1070,11 +1060,7 @@ Required capability: none beyond session authentication. Timeout: 30000 ms.
 Example:
 
 ```json
-{
-  "topics": [
-    "recent"
-  ]
-}
+{}
 ```
 
 ## context.output
@@ -1094,13 +1080,19 @@ Example:
 
 ```json
 {
-  "changes": null,
-  "diagnostics": {
-    "blocking": [],
-    "failures": []
+  "changes": {
+    "ahead": 4,
+    "behind": 8,
+    "branch": "example",
+    "files": [],
+    "staged": 4,
+    "unstaged": 1,
+    "untracked": 3,
+    "upstream": "example"
   },
+  "recent": [],
   "status": {
-    "access": "auto-review",
+    "access": null,
     "agentId": "example",
     "groups": [],
     "threadId": "example"
@@ -1144,7 +1136,7 @@ Example:
 ```json
 {
   "noteId": "example",
-  "notes": 6
+  "notes": 1
 }
 ```
 
@@ -1228,7 +1220,7 @@ Example:
 {
   "answer": [],
   "askId": "example",
-  "status": "declined"
+  "status": "pending"
 }
 ```
 

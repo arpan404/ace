@@ -3,6 +3,41 @@ import { CommandPayload } from "@ace/protocol";
 import type { ClientCore } from "@ace/client";
 import type { PatchPump } from "./patches.ts";
 
+type Receipt = { ok: boolean; error?: string | undefined };
+
+/**
+ * Durable admission through the SDK outbox: `onSaved` once the command is saved on this device,
+ * then exactly one receipt callback. Rejects when the device can't save it.
+ */
+export async function submitCommand(
+  owner: ClientCore,
+  payload: CommandPayload,
+  onSaved: () => void,
+  onReceipt: (result: Receipt) => void,
+): Promise<void> {
+  const id = owner.commandId();
+  const intent = owner.intent(id);
+  let settled = false;
+  let stop: (() => void) | undefined;
+  const receipt = () => {
+    if (settled) return;
+    const result = intent.getSnapshot()?.result;
+    if (!result) return;
+    settled = true;
+    stop?.();
+    onReceipt(result);
+  };
+  stop = intent.subscribe(receipt);
+  try {
+    await owner.enqueue(payload, id);
+  } catch (error) {
+    stop();
+    throw error;
+  }
+  onSaved();
+  receipt();
+}
+
 /** Admission resolves at the SDK's persistence boundary; receipts stay SDK-owned. */
 export async function dispatchCommand(
   owner: ClientCore,
@@ -10,36 +45,26 @@ export async function dispatchCommand(
   requestId: string,
   pump: PatchPump,
 ): Promise<void> {
-  let stop: (() => void) | undefined;
   try {
-    const payload = CommandPayload.parse(raw);
-    const id = owner.commandId();
-    const intent = owner.intent(id);
-    let settled = false;
-    const receipt = () => {
-      if (settled) return;
-      const result = intent.getSnapshot()?.result;
-      if (!result) return;
-      settled = true;
-      stop?.();
-      pump.put(`receipt:${requestId}`, () => ({
-        type: "receipt",
-        id: requestId,
-        ok: result.ok,
-        message: result.ok ? "" : preview(result.error ?? "Request refused", 2048),
-      }));
-    };
-    stop = intent.subscribe(receipt);
-    await owner.enqueue(payload, id);
-    pump.put(`admission:${requestId}`, () => ({
-      type: "admission",
-      id: requestId,
-      ok: true,
-      message: "",
-    }));
-    receipt();
+    await submitCommand(
+      owner,
+      CommandPayload.parse(raw),
+      () =>
+        pump.put(`admission:${requestId}`, () => ({
+          type: "admission",
+          id: requestId,
+          ok: true,
+          message: "",
+        })),
+      (result) =>
+        pump.put(`receipt:${requestId}`, () => ({
+          type: "receipt",
+          id: requestId,
+          ok: result.ok,
+          message: result.ok ? "" : preview(result.error ?? "Request refused", 2048),
+        })),
+    );
   } catch {
-    stop?.();
     pump.put(`admission:${requestId}`, () => ({
       type: "admission",
       id: requestId,

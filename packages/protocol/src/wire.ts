@@ -160,6 +160,8 @@ import {
   NotificationSettings,
   NotificationSnooze,
   NotificationMessage,
+  NotificationFeedRequest,
+  NotificationFeedResult,
 } from "./notifications.ts";
 
 import {
@@ -253,6 +255,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   NotificationConfigRequest,
   NotificationSettings,
   NotificationSnooze,
+  NotificationFeedRequest,
 
   ...CoreClientMessage.options,
 ]);
@@ -334,6 +337,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ModelsChanged,
   NotificationConfigResult,
   NotificationMessage,
+  NotificationFeedResult,
   NotificationRegisterResult,
   ...CoreServerMessage.options,
 ]);

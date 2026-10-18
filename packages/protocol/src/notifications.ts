@@ -72,10 +72,14 @@ export const NotificationPreferences = z.object({
   agentSays: z.boolean().optional(),
 });
 export type NotificationPreferences = z.infer<typeof NotificationPreferences>;
+/** A phone app reports `background` when it leaves the foreground; its socket may stay open while suspended. */
+export const AppState = z.enum(["foreground", "background"]);
+export type AppState = z.infer<typeof AppState>;
 export const PresenceUpdate = z.object({
   type: z.literal("presence.update"),
   threadId: ThreadId.and(boundedId).nullable(),
   inputAgeMs: z.number().int().nonnegative().max(86_400_000),
+  appState: AppState.optional(),
 });
 export type PresenceUpdate = z.infer<typeof PresenceUpdate>;
 export const NotificationConfigRequest = z.object({
@@ -119,3 +123,25 @@ export const NotificationDevice = z.object({
   preferences: NotificationPreferences,
 });
 export type NotificationDevice = z.infer<typeof NotificationDevice>;
+const feedCursor = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+/** Catch-up for alerts a suspended client missed: this device's recent alerts after its cursor. */
+export const NotificationFeedRequest = z.object({
+  type: z.literal("notification.feed"),
+  requestId: boundedId,
+  afterCursor: feedCursor,
+});
+export const NotificationFeedEntry = z.object({ cursor: feedCursor, notification: Notification });
+export type NotificationFeedEntry = z.infer<typeof NotificationFeedEntry>;
+export const NotificationFeed = z.object({
+  /** The highest cursor the daemon holds for this device; the client stores it. */
+  cursor: feedCursor,
+  /** Alerts after the cursor that still match canonical state, oldest first. */
+  entries: z.array(NotificationFeedEntry).max(100),
+  /** Recent alert ids that no longer match canonical state; clients withdraw them. */
+  retracted: z.array(boundedId).max(100),
+});
+export type NotificationFeed = z.infer<typeof NotificationFeed>;
+export const NotificationFeedResult = NotificationFeed.extend({
+  type: z.literal("notification.feed.result"),
+  requestId: boundedId,
+});

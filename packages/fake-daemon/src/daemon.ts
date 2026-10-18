@@ -373,11 +373,16 @@ export class FakeDaemon implements Host {
    * Seed what a long-running daemon's services hold: decks, automations and their runs,
    * installed plugins and the forge's pull requests. Threads a seed links to must exist.
    */
-  /** Push an accepted notification over the same service channel as the production server. */
+  /** Push an accepted notification and keep it in the catch-up feed (`notification.feed`). */
   notify(notification: Notification): void {
     const message = NotificationMessage.parse({ type: "notification", notification });
+    this.servicesWire.notificationFeed.record(message.notification);
     for (const connection of this.connections)
       if (connection.authenticated) connection.push(message);
+  }
+  /** Stands in for the daemon's recheck: a retracted alert leaves catch-up. */
+  retractNotification(id: string): void {
+    this.servicesWire.notificationFeed.retract(id);
   }
   /** Fault injection: a restart lost proof that a queued message reached its provider. */
   uncertainQueuedMessage(threadId: string, messageId: string): void {

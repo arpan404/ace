@@ -74,6 +74,24 @@ export function createNotificationsSession({
         }
         return true;
       }
+      if (message.type === "notification.feed") {
+        const correlation = { requestId: message.requestId };
+        if (!authorize("read")) {
+          fail("forbidden", "Read scope required", false, correlation);
+          return true;
+        }
+        if (!options.notifications?.feed) {
+          fail("notifications_unavailable", "Notifications unavailable", false, correlation);
+          return true;
+        }
+        try {
+          const feed = await options.notifications.feed(device, message.afterCursor);
+          send({ type: "notification.feed.result", requestId: message.requestId, ...feed });
+        } catch {
+          fail("notification_rejected", "Could not read missed notifications", false, correlation);
+        }
+        return true;
+      }
       switch (message.type) {
         case "presence.update":
         case "notification.register":
@@ -99,7 +117,7 @@ export function createNotificationsSession({
           }
           try {
             if (message.type === "presence.update") {
-              onPresence();
+              onPresence(message);
               await options.notifications.updatePresence(sessionId, device, message);
             } else if (message.type === "notification.register") {
               await options.notifications.register(device, message.device);

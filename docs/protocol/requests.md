@@ -2624,6 +2624,7 @@ Example:
 | type | yes | `"presence.update"` |  |
 | threadId | yes | union | {"anyOf":[{"allOf":[{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},{"type":"string","minLength":1,"maxLength":200}]},{"type":"null"}]} |
 | inputAgeMs | yes | integer | {"minimum":0,"maximum":86400000} |
+| appState | no | [AppState.json](schema/AppState.json) |  |
 
 Example:
 
@@ -2648,9 +2649,13 @@ Example:
 ```json
 {
   "device": {
-    "channel": "fcm",
+    "channel": "webpush",
     "platform": "phone",
-    "token": "example"
+    "subscription": {
+      "auth": "IEZNPYq7K3DS2pfBXUGLZ4",
+      "endpoint": "https://example.invalid/",
+      "p256dh": "bzm75mfZyZpFG9o2m6Eefmvd2OyNC4-70NdcL-ECmnq0xh1Gu0kO64fd0bG55iZoSm1vL-ZgIOSIgpo90-4y9dH"
+    }
   },
   "type": "notification.register"
 }
@@ -2684,7 +2689,8 @@ Example:
 ```json
 {
   "preferences": {
-    "quietHours": null
+    "agentSays": false,
+    "includePreview": false
   },
   "type": "notification.preferences"
 }
@@ -2704,7 +2710,25 @@ Example:
 {
   "threadId": "example",
   "type": "notification.snooze",
-  "until": 8
+  "until": 6
+}
+```
+
+### notification.feed
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"notification.feed"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":200} |
+| afterCursor | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "afterCursor": 0,
+  "requestId": "example",
+  "type": "notification.feed"
 }
 ```
 
@@ -2727,7 +2751,7 @@ Example:
 {
   "deviceId": "example",
   "protocolVersion": 1,
-  "token": "example",
+  "ticket": "example",
   "type": "hello"
 }
 ```
@@ -2746,13 +2770,9 @@ Example:
 
 ```json
 {
+  "paced": false,
   "scope": {
-    "kind": "threads",
-    "window": {
-      "archived": false,
-      "limit": 10,
-      "project": "example"
-    }
+    "kind": "threads"
   },
   "subscriptionId": "example",
   "type": "subscribe"
@@ -2790,9 +2810,12 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
+      "commentIds": [
+        "example"
+      ],
       "sessionId": "example",
       "threadId": "example",
-      "type": "review.askReviewer"
+      "type": "review.sendToAgent"
     }
   },
   "type": "command"
@@ -2813,8 +2836,8 @@ Example:
 
 ```json
 {
-  "limit": 6,
-  "offset": 7,
+  "limit": 5,
+  "offset": 2,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -2835,8 +2858,8 @@ Example:
 
 ```json
 {
-  "before": 9,
-  "limit": 1,
+  "before": 2,
+  "limit": 4,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"
@@ -2858,8 +2881,8 @@ Example:
 
 ```json
 {
-  "before": 9,
-  "collection": "interactions",
+  "before": 2,
+  "collection": "runs",
   "limit": 6,
   "requestId": "example",
   "threadId": "example",
@@ -2881,7 +2904,7 @@ Example:
 ```json
 {
   "before": {
-    "at": 2,
+    "at": 7,
     "id": "example"
   },
   "requestId": "example",

@@ -145,6 +145,8 @@ export async function startServer(options: ServerOptions): Promise<{
   const cleanups = new Map<WebSocket, () => void>();
   let disconnects = Promise.resolve();
   const receivers = new Map<DeviceId, Map<WebSocket, (message: ServerMessage) => void>>();
+  // A suspended phone can keep its socket open, so a frame sent there is not a delivery.
+  const backgrounded = new WeakSet<WebSocket>();
   const encoder = new WireEncoder();
   const ticks = new Map<WebSocket, () => void>();
   wss.on("connection", (socket, isLocal: boolean) => {
@@ -200,7 +202,9 @@ export async function startServer(options: ServerOptions): Promise<{
       sessionId,
       local: isLocal,
       canSubmitSecret: () => isLocal && authenticated.get(socket)?.revocable === false,
-      onPresence: () => {
+      onPresence: (update) => {
+        if (update.appState === "background") backgrounded.add(socket);
+        else backgrounded.delete(socket);
         hasPresence = true;
       },
       subscriptions,
@@ -480,7 +484,7 @@ export async function startServer(options: ServerOptions): Promise<{
     notify(device, notification) {
       let delivered = false;
       for (const [socket, send] of receivers.get(device) ?? []) {
-        if (socket.readyState === WebSocket.OPEN) {
+        if (socket.readyState === WebSocket.OPEN && !backgrounded.has(socket)) {
           send({ type: "notification", notification });
           delivered = true;
         }
