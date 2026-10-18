@@ -2,7 +2,8 @@
 const composerInput = '[data-slot="composer"] [role="combobox"][contenteditable="true"]';
 /** A sheet or modal still on screen (closing included): it hands focus back as it goes. A toast
  * (a non-modal dialog, such as an archive's Undo) never holds the caret back. */
-const overlay = '[role="dialog"]:not([aria-modal="false"]), [role="alertdialog"]:not([aria-modal="false"])';
+const overlay =
+  '[role="dialog"]:not([aria-modal="false"]), [role="alertdialog"]:not([aria-modal="false"])';
 
 /** The thread composer's message box on screen now, if it can take the caret. */
 export function findComposerInput(doc: Document = document): HTMLElement | null {
