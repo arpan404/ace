@@ -31,6 +31,7 @@ import {
   agentControlToolCatalog,
   handoffToolCatalog,
   contextToolCatalog,
+  metaToolCatalog,
 } from "@ace/mcp-server";
 import { z } from "zod";
 import type { SchemaEntry, ToolEntry } from "./model.ts";
@@ -86,6 +87,7 @@ export function protocolCatalog(): { entries: SchemaEntry[]; tools: ToolEntry[] 
     ...handoffToolCatalog,
     ...contextToolCatalog,
     ...knowledgeToolCatalog,
+    ...metaToolCatalog,
   ].map((tool): ToolEntry => {
     const input = `${tool.name}.input`;
     const output = `${tool.name}.output`;

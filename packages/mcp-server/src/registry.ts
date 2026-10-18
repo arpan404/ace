@@ -10,17 +10,46 @@ import type { CallToolResult, Tool } from "@modelcontextprotocol/server";
 import { withinJsonBudget, ResultBudgetExceeded } from "./json-budget.ts";
 import { advertisedInputSchema } from "./advertised-schema.ts";
 import type { Principal } from "./credentials.ts";
-import { bareToolName, defaultToolTitle, defaultToolset, toolNamePattern } from "./tool-names.ts";
+import {
+  bareToolName,
+  defaultToolTitle,
+  defaultToolset,
+  dispatchedAceCall,
+  toolNamePattern,
+} from "./tool-names.ts";
+import type { ToolListing } from "./toolsets.ts";
+
+/** A tool this session could call, with the guide topic of its family. */
+export interface CatalogTool {
+  readonly tool: Tool;
+  readonly family: string | undefined;
+}
+/** What the server lends the meta tools (`tools_find`, `tools_call`) about the calling session. */
+export interface SessionTools {
+  /** How this client lists tools. */
+  readonly listing: ToolListing;
+  /** Every tool this session could call directly, meta tools excluded. */
+  catalog(): readonly CatalogTool[];
+  /**
+   * Runs a tool exactly as this session calling it directly would. Present only where the
+   * client never reloads its list, the one place `tools_call` is offered.
+   */
+  readonly dispatch?:
+    | ((name: string, input: unknown, signal: AbortSignal) => Promise<CallToolResult>)
+    | undefined;
+}
 
 export interface ToolContext {
   readonly caller: McpAttribution;
   readonly capabilities: readonly McpCapability[];
   readonly signal: AbortSignal;
   /**
-   * The client lists only the core tools (`X-Ace-Tools: core`) and grows its list on
-   * `tools/list_changed`. A guide then also returns its family's schemas inline.
+   * How the client lists tools (`toolsets.ts`). Where it does not list every tool, a guide also
+   * returns its family's schemas inline.
    */
-  readonly core?: boolean;
+  readonly listing?: ToolListing;
+  /** Set by the server for the meta tools only. */
+  readonly session?: SessionTools;
 }
 export type CallObserver = (
   name: string,
@@ -72,7 +101,7 @@ const JsonObjectSchema = z.object({ type: z.literal("object") }).passthrough();
 /**
  * Claude Code defers MCP tools behind tool search; these stay loaded because the instructions
  * name them as entry points: project context, the guides, delegation and its wait, a page in
- * ace's browser and a visual inline. Every upfront tool costs context on every request, so keep
+ * ace's browser, a visual inline and the search for the rest. Every upfront tool costs context on every request, so keep
  * this short. Other clients ignore the key. Compared by bare name.
  */
 const alwaysLoadedTools: ReadonlySet<string> = new Set([
@@ -82,6 +111,7 @@ const alwaysLoadedTools: ReadonlySet<string> = new Set([
   "wait",
   "browser_open",
   "html_render",
+  "tools_find",
 ]);
 function noop(): void {}
 interface Entry {
@@ -247,8 +277,10 @@ export class ToolRegistry {
     const registered = this.bare.get(bareToolName(name));
     return registered === undefined ? undefined : this.entries.get(registered);
   }
+  /** The approval target of a call; a `tools_call` reads as the call it runs. */
   action(name: string, input: unknown) {
-    return this.entry(name)?.action(input);
+    const call = dispatchedAceCall(name, input);
+    return this.entry(call.name)?.action(call.input);
   }
   capability(name: string): McpCapability | null | undefined {
     return this.entry(name)?.capability;
@@ -315,7 +347,7 @@ export class ToolRegistry {
     input: unknown,
     principal: Principal,
     requestSignal: AbortSignal,
-    options: { core?: boolean } = {},
+    options: { listing?: ToolListing; session?: SessionTools } = {},
   ): Promise<CallToolResult> {
     if (principal.signal.aborted) return failure("Session ended");
     const { sessionId, threadId, agentId } = principal.scope;
@@ -325,7 +357,8 @@ export class ToolRegistry {
       caller: { sessionId, threadId, agentId },
       capabilities: principal.scope.capabilities,
       signal,
-      ...(options.core ? { core: true } : {}),
+      ...(options.listing ? { listing: options.listing } : {}),
+      ...(options.session ? { session: options.session } : {}),
     };
     const observe = this.observeCall?.(name, input, context);
     const finish = async (result: CallToolResult) => {

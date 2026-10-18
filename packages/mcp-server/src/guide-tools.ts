@@ -23,8 +23,10 @@ const GuideResult = z.strictObject({
   guide: z.string().min(1).max(65_536),
   /** The topic's tools beyond the core ones, by the names to call. */
   tools: z.array(z.string().min(1).max(128)).max(128),
-  /** Core-mode clients: the same tools' schemas, so the next call needs no second lookup. */
+  /** Clients that do not list every tool: their schemas, so the next call needs no lookup. */
   schemas: z.array(InlineTool).max(128).optional(),
+  /** How to call them, where that is not by name. */
+  how: z.string().max(256).optional(),
 });
 
 /**
@@ -62,7 +64,10 @@ export function guideToolkit(guides: readonly AceGuide[]): Toolkit {
             topic,
             guide: guide.body,
             tools: family.map((tool) => tool.name),
-            ...(context.core
+            ...(context.listing === "static"
+              ? { how: "Call these with tools_call {name, arguments}." }
+              : {}),
+            ...(context.listing && context.listing !== "all"
               ? {
                   schemas: family.map(({ name, description, inputSchema }) =>
                     description === undefined

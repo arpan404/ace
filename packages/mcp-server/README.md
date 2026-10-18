@@ -102,18 +102,25 @@ plugin, OpenCode through its `skills` config paths, Pi through `--skill`, and Cu
 as copies in its private home's `.cursor/skills` (a skill the person has under the
 same name wins). Every provider, ACP included, can read the same text with
 `guide { topic }`; its result also lists the topic's tools from the live catalogue.
+Every client lists `tools_find { query, limit?, family? }`, which ranks the tools this
+session can call (`src/tool-search.ts`: stemmed words, a small synonym table, rarer words
+weigh more) and returns each match's name, purpose, effect and input schema.
 Claude Code and Codex defer MCP tools behind tool search; `context`, `guide`,
-`delegate`, `wait`, `browser_open` and `html_render` ask to load upfront.
+`delegate`, `wait`, `browser_open`, `html_render` and `tools_find` ask to load upfront.
 OpenCode and Pi load every listed tool upfront and reload on `tools/list_changed`
 (OpenCode 2.0.22 debounces a reload in `packages/core/src/tool/mcp.ts`; Pi's
 extension re-registers), so their injections send `X-Ace-Tools: core` and list only
-the entry points in `src/toolsets.ts`. Reading a guide, or using a family's entry
-point (`delegate`, `browser_open`, `screen_open_app`), adds that family's tools for
-the session and announces a tool-list change; in core mode `guide` also returns the
-family's schemas inline, so the next call needs no reload. Cursor's SDK (1.0.35)
-caches its tool list and never handles `tools/list_changed`, and ACP leaves it to
-each agent, so Cursor, ACP and Antigravity list the whole catalogue: a tool a client
-never lists is one its model can never call. OpenCode's own tools are named in
+the entry points in `src/toolsets.ts` plus `tools_find`. Reading a guide, using a
+family's entry point (`delegate`, `browser_open`, `screen_open_app`) or finding a
+family's tools with `tools_find` adds that family's tools for the session and
+announces a tool-list change; in core mode `guide` and `tools_find` also return the
+schemas inline, so the next call needs no reload. Cursor's SDK (1.0.35) caches its
+tool list and never handles `tools/list_changed`, and ACP leaves it to each agent, so
+Cursor, ACP and Antigravity send `X-Ace-Tools: static` (the stdio bridge too): the
+same core list plus `tools_find` and `tools_call { name, arguments }`, which runs any
+ace tool through the exact path a direct call takes. `tools_call` is marked
+destructive because it can reach destructive tools; it is offered nowhere else
+(ADR 0082). OpenCode's own tools are named in
 its session guidance (`packages/adapter-opencode/src/native-tools.ts`). Advertised input schemas omit bounds a
 model never approaches (`$schema`, string lengths, safe-integer limits,
 `additionalProperties: false`); calls are still validated against the full Zod

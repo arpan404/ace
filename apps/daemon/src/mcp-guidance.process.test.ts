@@ -82,13 +82,17 @@ function instructedTools(text: string): string[] {
     }
     const pointer = /\b([a-z]+) with topic\b/.exec(line)?.[1];
     if (pointer) tools.push(pointer);
+    // "Not sure which ace tool fits? tools_find with what you want to do."
+    const search = /\? ([a-z]+(?:_[a-z]+)*) with\b/.exec(line)?.[1];
+    if (search) tools.push(search);
   }
   return tools;
 }
 
 it("every tool the instructions name is served, in every provider's guidance", async () => {
   const { names } = await served();
-  expect(instructedTools(aceInstructions).length).toBeGreaterThanOrEqual(8);
+  expect(instructedTools(aceInstructions).length).toBeGreaterThanOrEqual(9);
+  expect(instructedTools(aceInstructions)).toContain("tools_find");
   for (const text of [
     aceInstructions,
     ...ProviderKind.options.map((p) => developerInstructions(p)),

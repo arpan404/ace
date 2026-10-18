@@ -29,6 +29,7 @@ it("rejects registration beyond the tool limit while admitted tools remain calla
   const { client } = await h.connect();
   expect((await client.listTools()).tools.map((entry) => entry.name)).toEqual([
     "context",
+    "tools_find",
     "ace_first",
   ]);
   expect(await client.callTool({ name: "context", arguments: {} })).toMatchObject({

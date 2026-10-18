@@ -69,3 +69,44 @@ own data.
 - Tests through a real MCP client check the catalogue, merged-tool behaviour, default provider,
   annotations, core-mode inline schemas, and that every tool name in the instructions and the
   agents and threads guides exists in the served catalogue.
+
+## Addendum: `tools_find` and `tools_call` (2026-10-17)
+
+Listing every tool to Cursor, ACP and Antigravity made their first request carry the whole
+catalogue (44 tools and about 11k tokens with the browser and computer use on), and a model
+choosing among 44 tools picks worse than one choosing among a dozen.
+
+**`tools_find {query, limit?, family?}`** is listed to every client and loads upfront in Claude
+Code. It ranks only the tools this session could call (capabilities, groups that are off and
+`ask` availability already applied) against the query: stemmed words from each tool's name,
+title, description, family and field descriptions, a small synonym table ("Safari" → app,
+"tap" → click) and rarer words weighted higher. The ranking is pure and deterministic
+(`tool-search.ts`). Each match carries its name, title, purpose, family, effect and full input
+schema, so the next call needs no second lookup. In core mode a search also opens the families
+it returned, the way reading a guide does.
+
+**Listing per client.** `X-Ace-Tools` now takes three values:
+
+- no header (Claude Code, Codex): every tool, with `tools_find` beside their own tool search.
+  `tools_call` would only duplicate a direct call there, so it is not offered.
+- `core` (OpenCode, Pi): the core tools plus `tools_find`, growing on `guide`, entry points and
+  searches. These clients reload, so a found tool becomes a listed tool with its own
+  annotations. `tools_call` is not offered, because it would replace each tool's accurate
+  annotations with its own destructive one.
+- `static` (Cursor's SDK, ACP over HTTP and the stdio bridge, Antigravity): the core tools,
+  `tools_find` and `tools_call`, about a dozen tools, and the list never grows.
+
+**`tools_call {name, arguments}`** runs the named tool through the server's direct call path:
+the same registry lookup, capability and group checks, schema validation and error text,
+timeouts, cancellation and result, `isError` and hints included. It refuses `tools_find` and
+itself. Approvals, transcript rows, evidence and private-input redaction treat it as the tool
+it ran (`dispatchedAceCall` in `@ace/provider-kit/ace-tool-names`), so the person approves
+"thread_merge", not "tools_call".
+
+**Trade-off: `tools_call` is marked destructive.** MCP annotations are per tool, and this one
+can reach `thread_merge` and `automation_remove`. Marking it `destructiveHint: true`,
+`readOnlyHint: false` keeps a client that gates destructive tools asking before such a call; the
+cost is that it also asks before a dispatched read. ace adds no gate of its own (ADR 0002), so
+under-declaring would let a destructive call through unasked. Clients that list tools
+individually keep per-tool annotations, which is why `tools_call` is offered only where the
+list cannot grow.

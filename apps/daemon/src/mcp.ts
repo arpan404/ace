@@ -12,6 +12,8 @@ import {
   type AwarenessPort,
   type KnowledgePort,
   aceToolAction,
+  aceToolDispatch,
+  aceToolSearch,
   maxRequestBodyBytes,
 } from "@ace/mcp-server";
 import type { Store } from "./store.ts";
@@ -70,7 +72,7 @@ export async function startDaemonMcp(
   });
   return {
     url: server.url,
-    toolNames: () => ["context", ...registry.names()],
+    toolNames: () => ["context", aceToolSearch, aceToolDispatch, ...registry.names()],
     toolsChanged: server.toolsChanged,
     /** This session's failed ace calls, for diagnostics. */
     failures: (sessionId: string) => server.awareness?.recentFailures(sessionId) ?? [],

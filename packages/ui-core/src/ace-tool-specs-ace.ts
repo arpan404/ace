@@ -177,6 +177,7 @@ const projectSpecs: Record<string, AceToolSpec> = {
     return say(verbs.checked, topic ?? " the project context");
   }),
   guide: spec("ace", ({ args }) => say(verbs.read, " the guide", named(args, ["topic"]))),
+  tools_find: spec("ace", () => say(verbs.lookedFor, " ace tools")),
   automations_list: spec("ace", ({ args }) =>
     say(verbs.listed, args.runs === true ? " automation runs" : " automations"),
   ),
