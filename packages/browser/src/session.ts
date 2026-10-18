@@ -345,6 +345,12 @@ export class BrowserSession {
     return this.state;
   }
   /** The person used a tab in a view the daemon does not route (the desktop's native view). */
+  leaveUnasked(tabId?: string): boolean {
+    if (this.closed) return false;
+    return (
+      (tabId === undefined ? this.tabs.viewed() : this.tabs.find(tabId))?.leaveUnasked() ?? false
+    );
+  }
   humanActivity(tabId?: string): void {
     if (this.closed) return;
     (tabId === undefined ? this.tabs.viewed() : this.tabs.find(tabId))?.humanActivity();

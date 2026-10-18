@@ -77,6 +77,11 @@ export class TabRuntime {
   readonly annotation: AnnotationSession;
   /** When the person last used this tab (collaboration clock); -Infinity: never. */
   humanAt = -Infinity;
+  /**
+   * The person used the page this tab shows now (input, or a command of theirs) since it last
+   * changed: its unsaved changes may be theirs, so only they may agree to discard them.
+   */
+  private personDocument = false;
   private queue: SessionQueue;
   /** Agent input waiting for the person, outside the queue so reads never wait behind it. */
   private lane: AgentInputLane;
@@ -164,6 +169,11 @@ export class TabRuntime {
   /** The page behind this tab changed (navigation, renderer restart, replaced backend). */
   invalidate(): void {
     this.refs.invalidate();
+    this.personDocument = false;
+  }
+  /** An agent's command may leave the page unasked: the person has not used it since it loaded. */
+  leaveUnasked(): boolean {
+    return this.agentRunning > 0 && !this.personDocument && !this.access.private;
   }
   /** The tab's page was replaced; refs from the old page expire and the backend relearns. */
   rebind(): void {
@@ -233,6 +243,7 @@ export class TabRuntime {
   }
   /** The person used the page directly (a native view the daemon does not route). */
   humanActivity(): void {
+    this.personDocument = true;
     this.humanAt = this.host.options.navigationClock.now();
     this.lastActiveAt = this.host.options.now();
   }
@@ -303,6 +314,8 @@ export class TabRuntime {
       return Promise.reject(error);
     }
     this.touch(actor);
+    // The person's own navigation or edit: leaving this page is for them to agree to.
+    if (actor.kind === "human" && mutatesBrowser(command)) this.personDocument = true;
     const end = this.beginAgent(actor);
     const work = this.submitted(command, actor, signal, target);
     void work.then(end, end);
@@ -327,6 +340,7 @@ export class TabRuntime {
       return (async () => {
         this.readCheck(actor, privateEpoch);
         this.check(actor, signal, submittedGeneration);
+        if (command.action === "dialog") this.leaveCheck(command, actor);
         return this.run(command, actor, signal, submittedGeneration);
       })();
     const waits = actor.kind === "agent" && waitsForPerson(command);
@@ -430,6 +444,16 @@ export class TabRuntime {
     });
     this.humanInput = work.catch(() => {});
     return work;
+  }
+  /**
+   * An agent may not agree to leave a page the person was using: that would discard their
+   * unsaved changes. It may still choose to stay.
+   */
+  private leaveCheck(command: { dialogId: string; accept: boolean }, actor: Actor): void {
+    if (actor.kind !== "agent" || !command.accept || !this.personDocument) return;
+    const pending = this.host.dialog(this.id);
+    if (pending?.dialogId === command.dialogId && pending.type === "beforeunload")
+      throw new BrowserActionError("unsaved_changes");
   }
   /** Thread-level work (recording) that must wait its turn behind this tab's commands. */
   serialize<T>(work: () => Promise<T>): Promise<T> {

@@ -105,7 +105,8 @@ Pending dialog ownership is checked across all tabs before switching or waiting.
 Dialog answers bypass the renderer command queue under the same submitting lease
 checks, so a read targeting another tab cannot block the answer. Other page
 commands return the outstanding dialog until it is answered. Obsolete IDs fail. Beforeunload is
-automatically accepted only under the agent lease. Native permissions remain denied;
+automatically accepted only when an agent's command leaves a page the person has not used
+(see "Leaving a page the person was editing" below). Native permissions remain denied;
 file chooser windows do not grant filesystem access.
 
 Snapshots collect same-origin and out-of-process frames through their own CDP
@@ -232,6 +233,29 @@ The audit found ways an agent could still trip over the person. The rules above 
   field in the agent-input lane, so a person who returns between two fields makes the next
   field wait. A drag checks before each pointer step; if the person used the tab within
   `quietMs` it releases the button where it is and fails with `human_active`.
+
+### Leaving a page the person was editing (amendment, 2026-10-17, browser audit)
+
+ace's Chrome accepted every `beforeunload` prompt for 8 s after an agent used a tab, the
+person's own navigation included, and the desktop's view never answered Electron's
+`will-prevent-unload`, so an agent's navigation off such a page waited out its timeout. Now a
+tab remembers whether the person used the page it shows (any input of theirs, or a command of
+theirs that acts on the page) until the next main-frame navigation, and:
+
+- **An agent leaving a page only it used goes unasked.** While an agent's command runs in the
+  tab and the person has not used the page, its prompt is accepted (`leaveUnasked`, asked by
+  the engine when the prompt opens).
+- **Anything else asks the person.** In ace's Chrome and Use my Chrome the prompt becomes the
+  tab's pending `beforeunload` dialog, which the person answers (Leave page / Stay); an agent's
+  command gets it as `pending_dialog`. An agent may dismiss it (stay) but accepting it on a page
+  the person used fails with `unsaved_changes` ("ask the person, or use another tab").
+- **The desktop decides at once**, since Electron needs the answer synchronously
+  (`unload.ts`): if the person's own click or key press led away, or no agent drives the view,
+  it shows the native leave prompt; if an agent drives it and the person has not pressed a key
+  or button on this page, it leaves; otherwise it stays and reports `ace.unloadRefused`, and
+  the agent's navigation fails at once with `unsaved_changes`. Input relayed from the person's
+  other devices does not count on the desktop. A same-document navigation also clears the
+  person's mark.
 
 ### Clicks land where they aim (amendment, 2026-10-17, browser audit)
 

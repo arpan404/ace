@@ -4,6 +4,7 @@ import { rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   BaseWindow as AppWindow,
+  dialog,
   WebContentsView,
   session as sessions,
   webContents,
@@ -153,6 +154,15 @@ export class EmbeddedViews implements ViewHost {
           log: this.options.log,
           forward: (accelerator) => this.forward(threadId, accelerator, page),
           forget: () => this.byContents.delete(view.webContents.id),
+          confirmLeave: (parent) =>
+            dialog.showMessageBoxSync(parent, {
+              type: "question",
+              buttons: ["Leave", "Stay"],
+              defaultId: 1,
+              cancelId: 1,
+              message: "Leave this page?",
+              detail: "Changes you made may not be saved.",
+            }) === 0,
           rememberPopup: (contents) => {
             this.byContents.set(contents.id, page);
             this.popupContents.add(contents.id);

@@ -44,6 +44,12 @@ export interface BackendOpen {
   popup?(url: string, target: PopupTarget): Promise<void>;
   /** Whether work without its own initiator (a page's own navigation) counts as the person's. */
   initiator?(): boolean;
+  /**
+   * Whether a `beforeunload` prompt on this tab may be accepted without asking anyone: an
+   * agent's command is leaving a page the person has not used since it loaded. Otherwise the
+   * prompt is the person's to answer (ADR 0067, "Leaving a page the person was editing").
+   */
+  leaveUnasked?(tabId?: string): boolean;
   /** The person used a tab directly, in a view the daemon does not route (the desktop's). */
   humanInput?(tabId?: string): void;
   navigation(tabId?: string): void;

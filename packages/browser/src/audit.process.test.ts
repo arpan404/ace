@@ -309,3 +309,19 @@ it("a read-only paired viewer can Find and read selection without taking control
     channel.close();
   }
 });
+
+it("an agent's navigation the desktop refused for the person's unsaved changes fails at once", async () => {
+  const f = await native();
+  await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/form" });
+  f.hold("Page.navigate");
+  f.requests.once("Page.navigate", () => f.event("ace.unloadRefused", {}));
+  const started = Date.now();
+  await expect(
+    f.service.execute(
+      "thread",
+      { action: "navigate", url: "http://localhost:3000/elsewhere" },
+      { kind: "agent" },
+    ),
+  ).rejects.toMatchObject({ code: "unsaved_changes" });
+  expect(Date.now() - started).toBeLessThan(5_000);
+});

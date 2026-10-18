@@ -47,6 +47,7 @@ export const PublicToolCode = z.enum([
   "not_visible",
   "not_hittable",
   "covered",
+  "unsaved_changes",
   "evaluate_approval_required",
   "page_text_limit",
   "approval_required",
@@ -260,6 +261,10 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   covered: {
     message: "Another element covers the browser element",
     hint: "An overlay, banner, dialog or sticky header sits over it, so the click would land there. Dismiss or close what covers it, then snapshot again and retry.",
+  },
+  unsaved_changes: {
+    message: "The person has unsaved changes on this page",
+    hint: "Leaving would discard what they entered. Dismiss the leave prompt to stay, ask the person, or open another tab with ace_browser_tabs.",
   },
   evaluate_approval_required: {
     message: "Browser evaluate was refused by the host policy",

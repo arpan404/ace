@@ -20,6 +20,7 @@ import { PausedRequests } from "./paused-requests.ts";
 import { CrashBackoff } from "./crash-backoff.ts";
 import { FocusHandoff, type ReplayedKey } from "./focus-handoff.ts";
 import { HumanInputReports } from "./human-input.ts";
+import { UnloadGuard } from "./unload.ts";
 const throttleIdleMs = 30_000;
 /** The longest the view keeps keys for the app before giving them up. */
 const handoffMs = 1_000;
@@ -40,6 +41,8 @@ export interface PageOptions {
   forget(): void;
   authPreload?: string | undefined;
   rememberPopup?(contents: WebContents): () => void;
+  /** Asks the person whether to leave a page that warns of unsaved changes; true: leave. */
+  confirmLeave(window: BaseWindow): boolean;
 }
 
 export class EmbeddedPage implements ViewPage {
@@ -108,6 +111,7 @@ export class EmbeddedPage implements ViewPage {
   private crashed = false;
   private crashReload: ReturnType<typeof setTimeout> | undefined;
   private handoff = new FocusHandoff();
+  private unload: UnloadGuard;
 
   constructor(options: PageOptions) {
     this.options = options;
@@ -126,6 +130,13 @@ export class EmbeddedPage implements ViewPage {
     const contents = this.contents;
     this.auth = new NativeBasicAuth(contents, () => this.nativeInput, options.authPreload);
     this.dialogs = new NativeDialogs(contents, (method, params) => this.emit(method, params));
+    this.unload = new UnloadGuard(
+      contents,
+      () => ({ agentDriving: this.agentControl, personLeaving: this.activation.byPerson() }),
+      () => options.confirmLeave(this.home),
+      // The daemon's navigation fails at once instead of waiting for a load that never comes.
+      () => this.emit("ace.unloadRefused", {}),
+    );
     this.popups = new NativePopups({
       contents,
       authPreload: options.authPreload,
@@ -193,6 +204,7 @@ export class EmbeddedPage implements ViewPage {
       if (this.allowInput()) {
         if (input.type === "keyDown")
           this.activation.note(this.injecting === 0 ? "person" : "agent");
+        if (this.injecting === 0 && input.type === "keyDown") this.unload.personUsed();
         // Key up and IME composition count as much as key down.
         if (this.injecting === 0) this.human.key();
         return;
@@ -203,6 +215,7 @@ export class EmbeddedPage implements ViewPage {
       if (this.allowInput()) {
         if (mouse.type === "mouseDown")
           this.activation.note(this.injecting === 0 ? "person" : "agent");
+        if (this.injecting === 0 && mouse.type === "mouseDown") this.unload.personUsed();
         if (this.injecting === 0) this.human.mouse(mouse.type, mouse.modifiers);
         return;
       }

@@ -126,8 +126,12 @@ export async function userTabSession(
   cdp.on("Page.javascriptDialogOpening", (raw) => {
     const parsed = DialogOpening.safeParse(raw);
     if (!parsed.success) return;
-    // Leaving an agent's own tab never waits on a person who is not looking at it.
-    if (parsed.data.type === "beforeunload" && tab.access === "agent") {
+    // An agent leaving a page only it used, in its own tab, goes unasked; else the person decides.
+    if (
+      parsed.data.type === "beforeunload" &&
+      tab.access === "agent" &&
+      request.leaveUnasked?.() === true
+    ) {
       void cdp.send("Page.handleJavaScriptDialog", { accept: true }).catch(() => {});
       return;
     }

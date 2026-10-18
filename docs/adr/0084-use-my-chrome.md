@@ -137,7 +137,8 @@ policy instead. `resize` emulates a viewport only on agent tabs; a shared tab ke
 size. Closing an agent session closes its tab; closing a shared session only detaches.
 Alerts, confirms and prompts are reported as the tab's `pending_dialog` and answered with
 `Page.handleJavaScriptDialog` (the person can still answer them in their browser; a
-`beforeunload` in an agent tab is accepted). Snapshots and refs reach same-origin frames through
+`beforeunload` in an agent tab is accepted only when an agent's command leaves a page the person
+has not used; ADR 0067, "Leaving a page the person was editing"). Snapshots and refs reach same-origin frames through
 the tab and cross-site frames through their child sessions. Downloads are not reported: the
 person's browser saves them itself, so `ace_browser_downloads` fails at once with
 `not_supported` instead of waiting for a download it can never see. Loss of a
