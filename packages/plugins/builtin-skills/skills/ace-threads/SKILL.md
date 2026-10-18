@@ -30,9 +30,10 @@ When you open or find the PR for this work, link it with `thread_link_pr` (URL o
 - **Send:** `agent_message` with `delivery` `queue`, `steer` or `restart`.
 - **Queue:** `thread_read` lists queued messages with their `entryId`s. `queue_edit` with `action` `edit` (new text), `cancel`, `steer` (deliver it now into the running turn) or `reorder` (`order`, first to last).
 - **Answer:** `question_answer` answers a pending question. Permission approvals stay with the person.
-- **Change:** `thread_control` with an `action`: `rename` (omit `title` to retitle from the first message), `configure` (model and effort), `fork`, `handoff` (move to a new Git worktree on `branch`), `interrupt`, `settle`, `unsettle`, `snooze`, `close_preview`, or `rename_project`.
+- **Change:** `thread_control` with an `action`: `rename` (omit `title` to retitle from the first message), `configure` (model and effort), `handoff` (move to a new Git worktree on `branch`), `interrupt`, `settle`, `unsettle`, `snooze`, `close_preview`, or `rename_project`.
 - **Settle:** `thread_control` `settle` moves a finished thread to Settled, as the person's Settle does. You can settle this thread before your turn ends: it settles once its work is done, and stays active if the turn fails or a question waits on the person. `unsettle` brings a thread back and cancels a pending settle.
-- **Merge:** `thread_merge` merges a thread's worktree changes back. It overwrites files, so your provider may ask the person first.
+- **Fork:** `thread_fork` copies a thread's conversation into a new thread and sends it `text`: the other approach to try, optionally on another `model`. It forks after the latest finished turn, so you can fork this thread mid-turn. The fork shares the thread's checkout and is yours.
+- **Merge back:** once a fork is done (`wait` on it), `thread_merge` with a `summary` brings its result into the thread it was forked from, citing the fork's latest answer. That thread's agent sees it from its next turn; file changes are already in the shared checkout.
 - **Tell the person:** `notify` posts a notice and sends a notification, for something they should see while away.
 
 ace names new threads itself from their first message, so renaming is only for a title that has become wrong.

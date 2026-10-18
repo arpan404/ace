@@ -17,35 +17,43 @@ export interface StartedThread {
   model: string | undefined;
   /** The account's label, as the person named it ("360", "Personal"). */
   account: string | undefined;
+  /** A fork of a thread rather than a new one. */
+  forked: boolean;
 }
 
-/** Claude's `mcp__ace__thread_start` or OpenCode's and Pi's `ace_thread_start`. */
-const namespaced = /^(?:mcp__ace__|ace_)(?:ace_)*thread_start$/;
+/** The ace tools that open a thread: starting one, or forking one. */
+type Opening = "thread_start" | "thread_fork";
+const isOpening = (name: string): name is Opening =>
+  name === "thread_start" || name === "thread_fork";
+/** Claude's `mcp__ace__thread_start` or OpenCode's and Pi's `ace_thread_fork`. */
+const namespaced = /^(?:mcp__ace__|ace_)(?:ace_)*(thread_(?:start|fork))$/;
 
-/** A `thread_start` reached through `tools_call`, the only route some clients have to it. */
-function dispatchedStart(call: Extract<Item, { type: "tool_call" }>["call"]) {
+/** A start or fork reached through `tools_call`, the only route some clients have to it. */
+function dispatchedOpening(call: Extract<Item, { type: "tool_call" }>["call"]) {
   const called = aceToolInput(call);
-  return called?.name === "thread_start" ? called : undefined;
+  return called && isOpening(called.name) ? { ...called, name: called.name } : undefined;
 }
 
 /**
- * Whether an item is a call of ace's `thread_start`, in any provider's naming or through
+ * Which of ace's thread-opening tools an item calls, in any provider's naming or through
  * `tools_call`. The bare name counts only from ace's own server: another server may have a
  * `thread_start` of its own.
  */
-export function isThreadStartCall(item: Item | undefined): boolean {
-  if (item?.type !== "tool_call") return false;
+function openingTool(item: Extract<Item, { type: "tool_call" }>): Opening | undefined {
   const { detail, title } = item.call;
-  if (detail.kind === "mcp")
-    return (
-      namespaced.test(detail.tool) ||
-      (/^ace$|^ace[-_]/.test(detail.server) && detail.tool === "thread_start") ||
-      dispatchedStart(item.call) !== undefined
-    );
-  return (
-    (detail.kind === "custom" && namespaced.test(title.trim())) ||
-    dispatchedStart(item.call) !== undefined
-  );
+  const named =
+    detail.kind === "mcp"
+      ? (namespaced.exec(detail.tool)?.[1] ??
+        (/^ace$|^ace[-_]/.test(detail.server) ? detail.tool : undefined))
+      : detail.kind === "custom"
+        ? namespaced.exec(title.trim())?.[1]
+        : undefined;
+  return named && isOpening(named) ? named : dispatchedOpening(item.call)?.name;
+}
+
+/** Whether an item calls ace's `thread_start` or `thread_fork`. */
+export function isThreadStartCall(item: Item | undefined): boolean {
+  return item?.type === "tool_call" && openingTool(item) !== undefined;
 }
 
 const text = (value: unknown, max = 256): string | undefined =>
@@ -77,7 +85,7 @@ function answerData(result: unknown, raw: readonly RawPayload[]): unknown {
 /** The arguments the agent called with: MCP's own, else the first found in the raw payloads. */
 function argumentsOf(item: Extract<Item, { type: "tool_call" }>): unknown {
   const { detail, raw } = item.call;
-  const dispatched = dispatchedStart(item.call);
+  const dispatched = dispatchedOpening(item.call);
   if (dispatched) return dispatched.input;
   if (detail.kind === "mcp") return detail.arguments;
   for (const payload of raw) {
@@ -89,9 +97,10 @@ function argumentsOf(item: Extract<Item, { type: "tool_call" }>): unknown {
   return undefined;
 }
 
-/** The thread a `thread_start` call started, once ace answered with its id. */
+/** The thread a `thread_start` or `thread_fork` call opened, once ace answered with its id. */
 export function startedThreadOf(item: Item | undefined): StartedThread | undefined {
-  if (item?.type !== "tool_call" || !isThreadStartCall(item)) return undefined;
+  const tool = item?.type === "tool_call" ? openingTool(item) : undefined;
+  if (item?.type !== "tool_call" || !tool) return undefined;
   if (item.call.status !== "succeeded") return undefined;
   const result: unknown = Reflect.get(item.call, "result");
   if (field(result, "isError") === true) return undefined;
@@ -105,5 +114,6 @@ export function startedThreadOf(item: Item | undefined): StartedThread | undefin
     provider: provider(field(data, "provider")) ?? provider(field(args, "provider")),
     model: text(field(data, "model")) ?? text(field(args, "model")),
     account: text(field(data, "account"), 64),
+    forked: tool === "thread_fork",
   };
 }

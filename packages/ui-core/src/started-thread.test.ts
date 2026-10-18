@@ -48,6 +48,7 @@ test("an answer that only carries the thread id still names the thread from the 
     provider: "codex",
     model: "gpt-6-luna",
     account: undefined,
+    forked: false,
   });
 });
 
@@ -116,4 +117,15 @@ test("another tool called through tools_call opens no thread", () => {
   expect(
     startedThreadOf(dispatched("thread_read", { ok: true, data: { threadId: "dc12" } })),
   ).toBeUndefined();
+});
+
+test("a fork opens the same card, marked as a fork", () => {
+  expect(
+    startedThreadOf(
+      call("succeeded", { ok: true, data: { threadId: "f1", title: "Try SQLite" } }, "thread_fork"),
+    ),
+  ).toMatchObject({ threadId: "f1", title: "Try SQLite", forked: true });
+  expect(
+    startedThreadOf(dispatched("thread_fork", { ok: true, data: { threadId: "f2" } })),
+  ).toMatchObject({ threadId: "f2", forked: true });
 });

@@ -421,30 +421,52 @@ export class DelegationService {
       throw new Error("Forbidden configuration");
     const thread = this.deps.store.getThread(operation.threadId);
     if (!thread) throw new Error("Thread missing");
+    const selection = await this.threadSelection(
+      caller,
+      thread,
+      operation.requestId,
+      operation.model,
+      operation.options,
+    );
+    signal.throwIfAborted();
+    const command = Command.parse({
+      id: controlCommandId(caller.threadId, operation.requestId, operation.op),
+      deviceId: "ace-agent",
+      payload: { type: "thread.switch", threadId: thread.id, selection },
+    });
+    await this.deps.engine.prepareCommand(command);
+    signal.throwIfAborted();
+    if (!this.authorize(caller, thread.id, true)) throw new Error("Forbidden configuration");
+    return this.command(command.id, command.payload);
+  }
+  /**
+   * The engine selection for a model (and effort, service tier) on a thread's own provider and
+   * account, as configuring or forking the thread runs it. Refuses a model the catalog lacks.
+   */
+  async threadSelection(
+    caller: McpAttribution,
+    thread: import("@ace/protocol").Thread,
+    requestId: string,
+    model: string,
+    launch: { effort?: string | undefined; serviceTier?: string | undefined } = {},
+  ) {
     const identity = thread.provider === "acp" ? importAcpIdentitySchema.parse(thread) : undefined;
     const request = DelegationRequest.parse({
-      requestId: operation.requestId,
+      requestId,
       provider: thread.provider,
       ...identity,
       instanceId: thread.execution?.instanceId ?? identity?.instanceId,
-      model: operation.model,
-      ...(operation.options?.effort ? { effort: operation.options.effort } : {}),
-      ...(operation.options?.serviceTier
-        ? { options: { serviceTier: operation.options.serviceTier } }
-        : {}),
+      model,
+      ...(launch.effort ? { effort: launch.effort } : {}),
+      ...(launch.serviceTier ? { options: { serviceTier: launch.serviceTier } } : {}),
       role: "configuration",
       task: "configure",
     });
     await this.prepareModels(caller, request);
-    signal.throwIfAborted();
     const filter = selectionModelFilter(thread.provider, thread.execution?.instanceId, identity);
     const selected =
-      filter &&
-      this.deps.models.resolve({ role: "configuration", ...filter, model: operation.model });
-    if (
-      !selected?.ok ||
-      (!isDefaultSelection(operation.model) && !matchesModel(selected.model, operation.model))
-    )
+      filter && this.deps.models.resolve({ role: "configuration", ...filter, model });
+    if (!selected?.ok || (!isDefaultSelection(model) && !matchesModel(selected.model, model)))
       throw new AgentControlError(
         "model_unavailable",
         "Requested configuration model is unavailable",
@@ -455,31 +477,21 @@ export class DelegationService {
       thread,
       thread.execution?.instanceId,
     );
-    const model = executionModelId(chosen);
-    const effort = operation.options?.effort
-      ? delegationEffort(chosen, request, thread)
-      : undefined;
+    const effort = launch.effort ? delegationEffort(chosen, request, thread) : undefined;
     const options = {
-      ...(operation.options?.serviceTier ? { serviceTier: operation.options.serviceTier } : {}),
+      ...(launch.serviceTier ? { serviceTier: launch.serviceTier } : {}),
       ...(effort ? { effort } : {}),
     };
-    const command = Command.parse({
-      id: controlCommandId(caller.threadId, operation.requestId, operation.op),
-      deviceId: "ace-agent",
-      payload: {
-        type: "thread.switch",
-        threadId: thread.id,
-        selection: {
-          provider: thread.provider,
-          model,
-          ...(thread.execution?.instanceId ? { instanceId: thread.execution.instanceId } : {}),
-          ...(Object.keys(options).length ? { options } : {}),
-        },
-      },
-    });
+    return {
+      provider: thread.provider,
+      model: executionModelId(chosen),
+      ...(thread.execution?.instanceId ? { instanceId: thread.execution.instanceId } : {}),
+      ...(Object.keys(options).length ? { options } : {}),
+    };
+  }
+  /** Runs a thread transition (fork, merge) the way the person's client does, once prepared. */
+  async transition(command: Command) {
     await this.deps.engine.prepareCommand(command);
-    signal.throwIfAborted();
-    if (!this.authorize(caller, thread.id, true)) throw new Error("Forbidden configuration");
     return this.command(command.id, command.payload);
   }
   /** Observation timeout releases the waiter so the existing durable wake can deliver. */
