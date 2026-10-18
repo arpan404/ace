@@ -612,6 +612,10 @@ export class BrowserSession {
     await this.onTab(actor, undefined, async (runtime) => runtime.readCheck(actor));
     return this.currentTab(actor);
   }
+  /** The thread's tabs as a restore brings them back: ids, addresses, labels, order. */
+  tabRecords(): import("./tab-store.ts").BrowserTabRecord[] {
+    return this.tabs.records();
+  }
   /** The tab an agent's next command without `tabId` would use, with its address. */
   currentTab(actor: Actor): { tabId: string; url: string; title: string } {
     const tabId = this.tabs.resolve(actor).id;

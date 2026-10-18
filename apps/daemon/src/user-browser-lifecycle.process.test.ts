@@ -12,6 +12,8 @@ import {
   UserChromeTabsBackend,
   agentTabLimit,
   type Actor,
+  type BrowserTabRecord,
+  type BrowserTabStore,
 } from "@ace/browser";
 import { Store } from "./store.ts";
 import { createDevThread } from "./commands.ts";
@@ -31,21 +33,53 @@ const agent = (agentId: string): Actor => ({ kind: "agent", agentId });
 const person: Actor = { kind: "human", connectionId: "person" };
 
 /** The person's Chrome with the ace extension, and the daemon's sessions there (ADR 0084). */
-async function usersChrome(options: { tabBudget?: TabBudget } = {}) {
+async function usersChrome(options: { tabBudget?: TabBudget; tabStore?: BrowserTabStore } = {}) {
   const home = await mkdtemp(join(tmpdir(), "ace-user-browser-lifecycle-"));
   onTestFinished(() => rm(home, { recursive: true, force: true }));
   const hub = new UserChromeHub({ now: () => 1, clock });
   const chrome = personsChrome(hub);
-  const sessions = new BrowserService({
-    dataDir: join(home, "user"),
-    headlessBackend: new UserChromeTabsBackend(new UserChromeBackend(hub, process.platform)),
-    backendPreference: () => "headless",
-    tabLifecycle: false,
-    ffmpeg: "",
-    ...options,
-  });
-  onTestFinished(() => sessions.close());
-  return { home, chrome, sessions };
+  /** The daemon's sessions there; a restarted daemon makes new ones over the same browser. */
+  const daemon = () => {
+    const service = new BrowserService({
+      dataDir: join(home, "user"),
+      headlessBackend: new UserChromeTabsBackend(new UserChromeBackend(hub, process.platform)),
+      backendPreference: () => "headless",
+      tabLifecycle: false,
+      ffmpeg: "",
+      ...options,
+    });
+    onTestFinished(() => service.close());
+    return service;
+  };
+  return { home, chrome, sessions: daemon(), daemon };
+}
+/** The daemon's database, as far as tabs go. */
+function memoryTabs(): BrowserTabStore {
+  const threads = new Map<string, BrowserTabRecord[]>();
+  return {
+    load: (threadId) => [...(threads.get(threadId) ?? [])],
+    save: (threadId, tabs) => void threads.set(threadId, [...tabs]),
+    clear: (threadId) => void threads.delete(threadId),
+  };
+}
+const shape = (sessions: BrowserService) =>
+  sessions
+    .state("thread")
+    .tabs?.map((tab) => ({ tabId: tab.tabId, url: tab.url, label: tab.label }));
+/** One thread whose agent works in two labelled tabs of the person's Chrome. */
+async function twoAgentTabs(sessions: BrowserService) {
+  await sessions.open({ threadId: "thread", workspaceId: "workspace", background: true });
+  await sessions.execute(
+    "thread",
+    { action: "navigate", url: "https://app.test/a" },
+    agent("worker"),
+  );
+  await sessions.execute(
+    "thread",
+    { action: "tabs", operation: "open", url: "https://app.test/b", label: "b" },
+    agent("worker"),
+  );
+  return shape(sessions);
 }
 const tabIds = (sessions: BrowserService, threadId: string) =>
   Listed.parse(sessions.state(threadId)).tabs.map((tab) => tab.tabId);
@@ -137,4 +171,32 @@ it("tabs in the person's Chrome count against the daemon-wide tab budget", async
     sessions.execute("thread", { action: "tabs", operation: "open" }, agent("worker")),
   ).rejects.toMatchObject({ code: "tab_limit" });
   expect(tabIds(sessions, "thread")).toHaveLength(1);
+});
+
+it("after its link drops, a thread takes back the agent tabs still open in the person's Chrome, with their ids", async () => {
+  const { chrome, sessions } = await usersChrome({ tabStore: memoryTabs() });
+  const had = await twoAgentTabs(sessions);
+  expect(had).toHaveLength(2);
+  chrome.reconnect();
+  await vi.waitFor(() => expect(() => sessions.state("thread")).toThrow("not open"));
+  const before = chrome.ops().length;
+  await sessions.open({ threadId: "thread", workspaceId: "workspace", background: true });
+  expect(shape(sessions)).toEqual(had);
+  const since = chrome.ops().slice(before);
+  expect(since).not.toContainEqual({ op: "tabs.open" });
+  expect(since.filter((operation) => operation.op === "tabs.attach")).toHaveLength(2);
+});
+
+it("after a daemon restart, a thread's tabs in the person's Chrome reopen with their ids, addresses and labels", async () => {
+  const { chrome, sessions, daemon } = await usersChrome({ tabStore: memoryTabs() });
+  const had = await twoAgentTabs(sessions);
+  await sessions.close();
+  const restarted = daemon();
+  await restarted.open({ threadId: "thread", workspaceId: "workspace", background: true });
+  expect(shape(restarted)).toEqual(had);
+  const open = [...chrome.tabs.values()].filter((tab) => tab.access === "agent");
+  expect(open.map((tab) => tab.url).toSorted()).toEqual([
+    "https://app.test/a",
+    "https://app.test/b",
+  ]);
 });

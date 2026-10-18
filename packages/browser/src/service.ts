@@ -201,10 +201,15 @@ export class BrowserService {
       if (!owned || !opening) return Promise.resolve();
       // While the desktop may still hand its views back, only the desktop takes the page.
       if (!this.embedded && loss.pending) return loss.settled().then(() => resume());
-      const recoveryRequest = opening;
+      const opened = opening;
       this.resumable.delete(options.threadId);
       const native = this.embedded;
       const recover = async () => {
+        // Every tab comes back with its id and address, not just the one that was shown.
+        const restoreTabs = owned.tabRecords().map(({ tabId, url }) => ({ tabId, url }));
+        const recoveryRequest: BackendOpen = restoreTabs.length
+          ? { ...opened, restoreTabs }
+          : opened;
         await owned.releaseLostBackend();
         const generation = ++recoveryGeneration;
         if (!native) {
@@ -228,7 +233,9 @@ export class BrowserService {
           if (replacement.adopted) await owned.readopt(replacement);
           else {
             replacement.privateMode?.(owned.viewedPrivate);
-            if (url !== "about:blank") await replacement.navigate(url, 10_000);
+            // A backend with tabs reopened them itself; a one-page desktop loads the last URL.
+            if (url !== "about:blank" && !(restoreTabs.length && replacement.tabs))
+              await replacement.navigate(url, 10_000);
             await owned.replace(replacement, "embedded");
             // A fresh view: the pages are gone, whether or not the grace had said so yet.
             if (!loss.reported) announce(url, "The desktop opened a new page");

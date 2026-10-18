@@ -88,14 +88,14 @@ The `cdp` operation's tab methods, for the daemon's tab runtime:
 
 This is the one tab contract the desktop and the daemon's tab runtime (ADR 0083) both keep:
 
-| Method            | Params                                     | Result                                 |
-| ----------------- | ------------------------------------------ | -------------------------------------- |
-| `ace.tabs.list`   | none                                       | `{activeTabId, tabs}`                  |
-| `ace.tabs.open`   | `{select?: boolean}` (default: background) | `{activeTabId, tabs, tabId}` (the new) |
-| `ace.tabs.switch` | `{tabId}`                                  | `{activeTabId, tabs}`                  |
-| `ace.tabs.close`  | `{tabId}`; the last tab cannot be closed   | `{activeTabId, tabs}`                  |
-| `ace.tabs.resize` | `{tabId, width, height}` (100 to 4096)     | `{activeTabId, tabs}`                  |
-| `ace.tabs.cdp`    | `{tabId, method, params?}`                 | the CDP result of that tab             |
+| Method            | Params                                    | Result                                 |
+| ----------------- | ----------------------------------------- | -------------------------------------- |
+| `ace.tabs.list`   | none                                      | `{activeTabId, tabs}`                  |
+| `ace.tabs.open`   | `{select?, tabId?}` (default: background) | `{activeTabId, tabs, tabId}` (the new) |
+| `ace.tabs.switch` | `{tabId}`                                 | `{activeTabId, tabs}`                  |
+| `ace.tabs.close`  | `{tabId}`; the last tab cannot be closed  | `{activeTabId, tabs}`                  |
+| `ace.tabs.resize` | `{tabId, width, height}` (100 to 4096)    | `{activeTabId, tabs}`                  |
+| `ace.tabs.cdp`    | `{tabId, method, params?}`                | the CDP result of that tab             |
 
 - **Opening.** The daemon sends `select: true` only when the new tab should take the person's
   view (they opened it, or an agent did while they had not picked a tab). A new tab is blank and
@@ -114,6 +114,10 @@ This is the one tab contract the desktop and the daemon's tab runtime (ADR 0083)
   the person cannot reach them. An unseen tab takes CDP key events and is sized with
   `ace.tabs.resize`.
 - **Closing.** Any tab but the last; the last goes with the browser.
+- **Restoring** (#946). `tabId` on `ace.tabs.open` asks for that id, granted when it is free:
+  the daemon reopens a thread's recorded tabs in fresh views with the ids they had, then
+  navigates each. The blank first view gives way to them (or is reused when it already has the
+  first id). An older desktop ignores `tabId`.
 
 ### Crashed renderers back off
 

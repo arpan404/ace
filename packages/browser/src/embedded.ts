@@ -4,6 +4,7 @@ import { mkdir } from "node:fs/promises";
 import { EmbeddedTabs } from "./embedded-tabs.ts";
 import { decodeNativeTabs } from "./native-tabs.ts";
 import { modelScreenshot } from "./model-screenshot.ts";
+import { restoreEmbeddedTabs } from "./embedded-restore.ts";
 import { EventEmitter } from "node:events";
 import { z } from "zod";
 import {
@@ -525,6 +526,9 @@ export class EmbeddedBackend implements BrowserBackend {
       if (opened.activeTabId !== undefined && opened.tabs) {
         tabs = new EmbeddedTabs(cdp, request);
         await tabs.start({ activeTabId: opened.activeTabId, tabs: opened.tabs }, opened.adopted);
+        // Fresh views (not kept ones) take back the thread's tabs from before.
+        if (!opened.adopted && request.restoreTabs?.length)
+          await restoreEmbeddedTabs(tabs, request.restoreTabs, request.signal, this.clock);
       } else guard = await installOriginGuard(cdp, request.allowed, request.initiator);
       await cdp.send("Page.enable");
       await cdp.send("Runtime.enable");

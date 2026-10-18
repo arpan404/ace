@@ -326,8 +326,12 @@ export class EmbeddedTabs {
    * so the caller's first navigation is already policed. A desktop that answers with no new tab
    * keeps its one page: the caller gets the shown tab back and reuses it.
    */
-  async open(options: { background?: boolean } = {}) {
-    const raw = await this.root.send("ace.tabs.open", { select: !(options.background ?? false) });
+  async open(options: { background?: boolean; tabId?: string } = {}) {
+    const raw = await this.root.send("ace.tabs.open", {
+      select: !(options.background ?? false),
+      // A restored tab asks for the id it had; a desktop that cannot choose ignores it.
+      ...(options.tabId ? { tabId: options.tabId } : {}),
+    });
     const state = decodeNativeTabs(raw)?.state;
     if (!state) return this.activeId;
     await this.update(state);

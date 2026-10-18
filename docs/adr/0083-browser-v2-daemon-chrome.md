@@ -177,6 +177,14 @@ A thread's browser holds ordered tabs on whichever backend serves it.
   cookies survive in the profile. Closing the browser clears the records. Each tab is its own
   top-level target in its own window with focus emulation: background tabs in a shared window
   render no frames. A tab's CDP surface (`TabCdp`) survives browser restarts.
+  Amended for #946: every backend restores. The desktop opens fresh views with the recorded
+  ids (`ace.tabs.open {tabId}`, ADR 0085) and loads each address; a desktop that cannot choose
+  ids keeps its own. Use my Chrome keeps its records in `user_browser_tabs`: a thread takes back
+  an agent tab still open at the same address in the person's browser (after a dropped link or
+  a crash) or opens one there; tabs the person shared come back when they are listed again. A
+  dropped Use my Chrome link loses the session with every agent tab still recorded. When the
+  desktop is lost and comes back with fresh views, or the thread moves to ace's Chrome, the
+  recovery reopens every tab with its id, not just the one that was shown.
 
 Not yet built: eager restore for threads with a working agent, discarding, the sleep/wake
 browser ping, and per-viewer capture of different tabs.

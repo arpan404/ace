@@ -28,18 +28,22 @@ export function personsChrome(hub: UserChromeHub) {
   const tabs = new Map<number, UserBrowserTab>();
   const operations: UserBrowserDaemonMessage[] = [];
   let next = 1;
-  const link = hub.register(
-    { family: "chrome", version: "155", profileId: "profile", extensionVersion: "0.1.0" },
-    {
-      send(message) {
-        operations.push(message);
-        if (message.type === "user_browser.command")
-          queueMicrotask(() => reply(message.id, message.operation));
-        return true;
+  const register = () => {
+    const current = hub.register(
+      { family: "chrome", version: "155", profileId: "profile", extensionVersion: "0.1.0" },
+      {
+        send(message) {
+          operations.push(message);
+          if (message.type === "user_browser.command")
+            queueMicrotask(() => reply(message.id, message.operation));
+          return true;
+        },
+        close() {},
       },
-      close() {},
-    },
-  );
+    );
+    return current;
+  };
+  let link = register();
   const publish = () =>
     link.handle({ type: "user_browser.event", event: { kind: "tabs", tabs: [...tabs.values()] } });
   const event = (tabId: number, method: string, params: unknown) =>
@@ -55,6 +59,8 @@ export function personsChrome(hub: UserChromeHub) {
       const url = String(params?.["url"]);
       tabs.set(tabId, { ...current, url });
       event(tabId, "Page.frameNavigated", { frame: { id: `frame-${tabId}`, url } });
+      // The extension reports a tab's new address as Chrome updates it.
+      queueMicrotask(publish);
       return { frameId: `frame-${tabId}` };
     }
     return {};
@@ -94,8 +100,19 @@ export function personsChrome(hub: UserChromeHub) {
     }
   };
   return {
-    link,
+    get link() {
+      return link;
+    },
     tabs,
+    /**
+     * The extension reconnects (a daemon restart, a dropped link): its agent tabs are still
+     * open, detached, and the daemon gets a new link to the same browser profile.
+     */
+    reconnect() {
+      for (const [tabId, tab] of tabs) tabs.set(tabId, { ...tab, attached: false });
+      link = register();
+      publish();
+    },
     /** A page in an agent tab opened another tab; the extension made it an agent tab. */
     popup(openerTabId: number, url: string) {
       const tabId = 100 + next++;

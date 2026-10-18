@@ -118,7 +118,7 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
   resources.own(() => browser.close());
   const user = services.userBrowser;
   if (user) {
-    // The person's own Chrome (ADR 0084): no desktop views, no restore, no fallback. A lost
+    // The person's own Chrome (ADR 0084): no desktop views, no fallback. A lost
     // tab or browser closes the thread's session there; it never moves to ace's own browser.
     const sessions = new BrowserService({
       dataDir: join(config.dataDir, "user-browser", "threads"),
@@ -126,6 +126,8 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
       backendPreference: () => "headless",
       tabLifecycle: false,
       tabBudget,
+      // Agent tabs there come back after a restart too, from their own table.
+      tabStore: new SqliteBrowserTabStore((sql) => store.statement(sql), "user_browser_tabs"),
       now,
       id,
       workspaceRoot,
