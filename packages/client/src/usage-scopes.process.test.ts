@@ -74,10 +74,13 @@ test("agent activity and multiple model snapshots survive live delivery and snap
     await when(client.connectionState(), (state) => state === "reconnecting");
     // Force snapshot recovery rather than allowing the live replay to hide materialization bugs.
     // A gap first resumes from the held cursor (ADR 0062); only a second gap at that cursor
-    // starts over with a snapshot, so the replay is broken twice.
+    // starts over with a snapshot. Frames of a dropped subscription can still arrive and are
+    // ignored, so break every events frame until the snapshot comes rather than counting them.
     let replaced = 0;
+    let snapshotted = false;
     faults.incoming = (message, frame, deliver) => {
-      if (message.type === "events" && replaced < 2) {
+      if (message.type === "snapshot") snapshotted = true;
+      if (message.type === "events" && !snapshotted) {
         replaced++;
         // Keep a valid envelope with stale coverage so delivery detects a
         // recoverable gap instead of rejecting an invalid event range.
@@ -101,7 +104,7 @@ test("agent activity and multiple model snapshots survive live delivery and snap
         message.seq >= recoverySeq,
     );
     await barrier(client, h.thread.id);
-    expect(replaced).toBe(2);
+    expect(replaced).toBeGreaterThanOrEqual(2);
     expect(client.state).toBe("ready");
     expect(store.usage("root")).toMatchObject({ inputTokens: 10, outputTokens: 2 });
     expect(h.daemon.store.snapshotThread(h.thread.id).usageSnapshots[key]?.inputTokens).toBe(210);
