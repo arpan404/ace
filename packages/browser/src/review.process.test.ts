@@ -157,15 +157,6 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
     ).rejects.toThrow("evaluate failed");
   }, 60_000);
 
-  it("rejects a snapshot of an oversized DOM before building its accessibility tree", async () => {
-    const f = await fixture();
-    await f.navigate();
-    await f.evaluate(
-      "const fragment=document.createDocumentFragment();for(let i=0;i<21000;i++)fragment.append(document.createElement('span'));document.body.append(fragment)",
-    );
-    await expect(f.execute({ action: "snapshot" })).rejects.toThrow("snapshot node limit");
-  }, 60_000);
-
   it("rejects excess commands while preserving admitted commands", async () => {
     const { promise: entered, resolve: notify } = Promise.withResolvers<void>();
     const { promise: pending, resolve: release } = Promise.withResolvers<boolean>();

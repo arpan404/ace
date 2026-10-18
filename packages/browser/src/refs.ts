@@ -8,7 +8,13 @@ import { z } from "zod";
 import { withoutSubtree } from "./snapshot-exclusion.ts";
 import { hitPoint, hitTargetFunction } from "./hit-target.ts";
 import { TypedKeeping, typeKeepingPerson } from "./typing.ts";
-import { limitDepth, outlineDomNodes, outlineHint, outlineRoles } from "./snapshot-scope.ts";
+import {
+  limitDepth,
+  outlineDomNodes,
+  outlineHint,
+  outlineRoles,
+  truncatedHint,
+} from "./snapshot-scope.ts";
 
 const DocumentRoot = z.object({ root: z.object({ backendNodeId: z.number().int() }) });
 /** Frame process swaps can detach an AX target between discovery and this read. */
@@ -165,19 +171,21 @@ export class SnapshotRefs {
       return found;
     };
     const page = new CompactPage(options);
-    for (const frame of frames) {
+    // A scoped read touches only its own frame; its refs join the latest snapshot's.
+    const read = scope
+      ? frames.filter((frame) => frame.cdp === scope.cdp && frame.frameId === scope.frameId)
+      : frames;
+    for (const frame of read) {
       const raw = AXTree.parse(
-        await frame.cdp
-          .send(
-            "Accessibility.getFullAXTree",
-            // A scoped read needs its subtree whole; depth then counts from the scope.
-            scope || options.depth === undefined
-              ? frame.frameId
-                ? { frameId: frame.frameId }
-                : {}
-              : { depth: options.depth, ...(frame.frameId ? { frameId: frame.frameId } : {}) },
-          )
-          .catch(staleFrame),
+        await (
+          scope
+            ? // Only the element's own subtree: work proportional to it, not to the page.
+              frame.cdp.send("Accessibility.queryAXTree", { backendNodeId: scope.backendNodeId })
+            : frame.cdp.send("Accessibility.getFullAXTree", {
+                ...(options.depth === undefined ? {} : { depth: options.depth }),
+                ...(frame.frameId ? { frameId: frame.frameId } : {}),
+              })
+        ).catch(staleFrame),
       );
       // ace's own layers live in the top document only.
       const tree = maskSecretFields(
@@ -194,7 +202,6 @@ export class SnapshotRefs {
             cdp: frame.cdp,
             ...(frame.frameId ? { frameId: frame.frameId } : {}),
           });
-      if (scope && (scope.cdp !== frame.cdp || scope.frameId !== frame.frameId)) continue;
       const scoped =
         scope && options.depth !== undefined
           ? subtree(tree, scope.backendNodeId, options.depth)
@@ -209,7 +216,8 @@ export class SnapshotRefs {
       page.add(compact);
     }
     if (epoch !== this.epoch) throw staleRef();
-    this.refs = page.refs;
+    if (scope) for (const [key, target] of page.refs) this.refs.set(key, target);
+    else this.refs = page.refs;
     this.reopened = false;
     return page.result();
   }
@@ -241,6 +249,7 @@ export class SnapshotRefs {
           page.refs.set(refOf(node.backendDOMNodeId), {
             backendNodeId: node.backendDOMNodeId,
             cdp: top.cdp,
+            ...(top.frameId ? { frameId: top.frameId } : {}),
           });
       page.add(compactTree(nodes, { refOf }) ?? []);
     }
@@ -461,7 +470,13 @@ class CompactPage {
     }
   }
   result(): SnapshotResult {
-    return { nodes: this.nodes, total: this.total, truncated: this.nodes.length < this.total };
+    const truncated = this.nodes.length < this.total;
+    return {
+      nodes: this.nodes,
+      total: this.total,
+      truncated,
+      ...(truncated ? { hint: truncatedHint } : {}),
+    };
   }
 }
 

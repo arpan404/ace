@@ -2,6 +2,7 @@ import { z } from "zod";
 import { BrowserDialog, type BrowserState, type BrowserTab } from "@ace/protocol";
 import type { CompactNode } from "./snapshot-compact.ts";
 import { renderSnapshot, snapshotLine } from "./snapshot-text.ts";
+import { truncatedHint } from "./snapshot-scope.ts";
 
 export type ToolContent = { type: "text"; text: string } | Record<string, unknown>;
 export interface ToolResult {
@@ -105,7 +106,8 @@ export function snapshotText(raw: unknown, scoped: boolean): ToolResult {
   const tab = snapshot.tabId ? ` [tab=${snapshot.tabId}]` : "";
   const lines = [snapshot.url ? `Page: ${snapshot.url}${tab}` : "", renderSnapshot(snapshot.nodes)];
   if (!snapshot.nodes.length) lines.push("(no accessible content)");
-  if (snapshot.hint) lines.push(`[${snapshot.hint}]`);
+  // The outline's hint says what the page is; a cut snapshot gets counts and the ways to narrow.
+  if (snapshot.hint && snapshot.hint !== truncatedHint) lines.push(`[${snapshot.hint}]`);
   else if (snapshot.truncated)
     lines.push(
       `[truncated: ${snapshot.nodes.length} of ${snapshot.total} nodes shown. Narrow with ${scoped ? "a smaller container ref" : "ref=<a container's ref>"}, interactiveOnly:true or browser_find, or raise maxNodes.]`,

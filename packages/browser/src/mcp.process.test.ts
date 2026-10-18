@@ -140,7 +140,14 @@ describe.skipIf(!executablePath)("ace browser tools on real Chromium", () => {
           }),
         ),
       ).toMatchObject({ code: "human_private" });
-      expect(await page.evaluate("document.querySelector('input').value")).toBe("MCP input");
+      // The person still reads the field; agents are what is kept out.
+      expect(
+        await page.service.execute(
+          "thread",
+          { action: "evaluate", expression: "document.querySelector('input').value" },
+          { kind: "human", connectionId: "person" },
+        ),
+      ).toBe("MCP input");
     } finally {
       f.close();
     }
