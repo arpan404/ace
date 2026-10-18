@@ -30,11 +30,12 @@ test("Home and End move to the first and last row of the list", async () => {
   await openApp();
   const all = rows();
   const first = all[0];
-  const last = all.at(-1);
-  if (!first || !last || first === last) throw new Error("The list needs two threads");
+  // The list ends on the folded Settled section's toggle, the last row ↓ reaches.
+  const settled = screen.getByRole("button", { name: /^Settled \(\d+\)/ });
+  if (!first || all.length < 2) throw new Error("The list needs two threads");
   all[1]?.focus();
   await userEvent.keyboard("{End}");
-  await waitFor(() => expect(focusedTitle()).toBe(titleOf(last)));
+  await waitFor(() => expect(document.activeElement).toBe(settled));
   await userEvent.keyboard("{Home}");
   await waitFor(() => expect(document.activeElement).toBe(first));
 });

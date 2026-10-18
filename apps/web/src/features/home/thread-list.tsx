@@ -371,6 +371,8 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
           ref={listRef}
           role="list"
           aria-label="Threads"
+          // Its letters jump between rows, so the composer's type-to-focus leaves them alone.
+          data-type-ahead=""
           onKeyDownCapture={onKeyDownCapture}
           onKeyDown={onKeyDown}
           onFocus={(event) => {
