@@ -56,7 +56,8 @@ test("⇧⌘O opens Add project in the palette on its four sources, the field fo
   await screen.findByRole("heading", { level: 1 });
   await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
   const sheet = await palette();
-  const sources = within(sheet).getByRole("listbox", { name: "Project sources" });
+  // The step's chunk loads on demand.
+  const sources = await within(sheet).findByRole("listbox", { name: "Project sources" });
   expect(
     within(sources)
       .getAllByRole("option")
