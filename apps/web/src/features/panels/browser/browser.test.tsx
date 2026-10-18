@@ -28,9 +28,16 @@ const thread = "thread-cold-start";
 /** The page the agent opened shows, as the screencast's live picture. */
 const agentPage = (panel: HTMLElement) =>
   within(panel).findByRole("img", { name: "Live view of localhost:5173/settings/devices" });
-/** The strip of the thread's browser tabs. */
-const strip = (panel: HTMLElement) => within(panel).getByRole("tablist", { name: "Browser tabs" });
+/** The panel's own tab strip: each of the thread's browser tabs is one of its tabs. */
+const strip = (panel: HTMLElement) =>
+  within(panel).getByRole("tablist", { name: "Thread panel tabs" });
 const shownTab = (panel: HTMLElement) => within(strip(panel)).getByRole("tab", { selected: true });
+const tools = new Set(["Summary", "Changes", "Files"]);
+/** The panel tabs that are browser tabs, in strip order. */
+const pageTabs = (panel: HTMLElement) =>
+  within(strip(panel))
+    .getAllByRole("tab")
+    .filter((tab) => !tools.has(tab.textContent?.trim() ?? ""));
 
 const address = (panel: HTMLElement) => within(panel).getByRole("combobox", { name: "Address" });
 
@@ -151,21 +158,24 @@ test("the person can use a tab an agent is working in, with no control to take",
   expect(browser.tab(thread)?.inUse).toMatchObject({ kind: "agent", agentId: "worker" });
 });
 
-test("typing an address in a new tab opens it in a new tab and shows it", async () => {
+test("a new browser tab's address opens a daemon tab, which becomes that panel tab", async () => {
   const { panel, browser } = await openBrowser();
   await agentPage(panel);
   const agentTab = browser.view(thread)?.activeTabId;
-  await userEvent.click(within(panel).getByRole("button", { name: "New browser tab" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
+  await userEvent.click(await within(panel).findByRole("button", { name: /^Browser/ }));
   await waitFor(() => expect(shownTab(panel).textContent).toContain("New tab"));
   // The new tab's address takes the typing at once.
-  expect(document.activeElement).toBe(address(panel));
+  await waitFor(() => expect(document.activeElement).toBe(address(panel)));
   await userEvent.keyboard("arpan.sh{Enter}");
   await waitFor(() => expect(browser.view(thread)?.url).toBe("https://arpan.sh/"));
   const tabs = browser.tabsList(thread);
   expect(tabs).toHaveLength(2);
   expect(browser.view(thread)?.activeTabId).not.toBe(agentTab);
-  // The agent's page is untouched in its own tab.
+  // The agent's page is untouched in its own tab, and the strip holds one tab per daemon tab.
   expect(tabs.find((tab) => tab.tabId === agentTab)?.url).toBe("localhost:5173/settings/devices");
+  await waitFor(() => expect(pageTabs(panel)).toHaveLength(2));
+  expect(shownTab(panel).textContent).toContain("Fixture page");
   await waitFor(() => expect((address(panel) as HTMLInputElement).value).toBe("arpan.sh"));
 });
 
@@ -180,23 +190,29 @@ test("an address from the new-tab launcher opens in a new browser tab, never ove
   expect(browser.tabsList(thread)).toHaveLength(2);
   expect(browser.view(thread)?.activeTabId).not.toBe(agentTab);
   await waitFor(() => expect(shownTab(panel).textContent).toContain("Fixture page"));
+  expect(pageTabs(panel)).toHaveLength(2);
   await waitFor(() => expect((address(panel) as HTMLInputElement).value).toBe("arpan.sh"));
 });
 
-test("closing the browser panel tab and opening a new one never resurrects the closed page", async () => {
+test("closing a top tab closes its browser tab, and a new one never resurrects the closed page", async () => {
   const { panel, browser } = await openBrowser();
   await agentPage(panel);
-  await userEvent.click(within(panel).getByRole("button", { name: "New browser tab" }));
-  await waitFor(() => expect(shownTab(panel).textContent).toContain("New tab"));
-  await goTo(panel, "docs.example.com/guide");
+  await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
+  await userEvent.type(
+    await within(panel).findByRole("combobox", { name: "Address" }),
+    "docs.example.com/guide{Enter}",
+  );
   await waitFor(() => expect(browser.view(thread)?.url).toBe("https://docs.example.com/guide"));
-  // Closing the panel tab closes the person's tabs; the agent keeps its own.
-  await userEvent.click(within(panel).getByRole("button", { name: "Close docs.example.com" }));
+  await waitFor(() => expect(pageTabs(panel)).toHaveLength(2));
+  act(() => browser.pageIdentity(thread, { title: "Guide" }));
+  await userEvent.click(await within(panel).findByRole("button", { name: "Close Guide" }));
+  // Only that daemon tab closes; the agent's stays, and so does its panel tab.
   await waitFor(() =>
     expect(browser.tabsList(thread).map((tab) => tab.url)).toEqual([
       "localhost:5173/settings/devices",
     ]),
   );
+  await waitFor(() => expect(pageTabs(panel)).toHaveLength(1));
   await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
   await userEvent.type(
     await within(panel).findByRole("combobox", { name: "Address" }),
@@ -204,10 +220,10 @@ test("closing the browser panel tab and opening a new one never resurrects the c
   );
   await waitFor(() => expect(browser.view(thread)?.url).toBe("https://example.org/"));
   expect(browser.tabsList(thread).some((tab) => tab.url.includes("docs.example.com"))).toBe(false);
-  expect(within(strip(panel)).queryByText(/docs\.example\.com/)).toBeNull();
+  await waitFor(() => expect(pageTabs(panel)).toHaveLength(2));
 });
 
-test("an agent's new tab appears in the strip with the agent cursor and doesn't take the person's tab", async () => {
+test("an agent tab appears as a top tab with the agent cursor and doesn't steal focus", async () => {
   const { panel, browser } = await openBrowser();
   await agentPage(panel);
   const mine = browser.view(thread)?.activeTabId ?? "";
@@ -217,20 +233,55 @@ test("an agent's new tab appears in the strip with the agent cursor and doesn't 
     browser.agentIdle(thread, mine);
     browser.tabOpen(thread, "https://shop.example/cart", { agentId: "worker", label: "checkout" });
   });
-  await waitFor(() => expect(within(strip(panel)).getAllByRole("tab")).toHaveLength(2));
-  const tabs = within(strip(panel)).getAllByRole("tab");
+  await waitFor(() => expect(pageTabs(panel)).toHaveLength(2));
+  const [first, second] = pageTabs(panel);
   expect(
-    within(tabs[1] as HTMLElement).getByRole("img", { name: /is using this tab$/ }),
+    within(second as HTMLElement).getByRole("img", { name: /is using this tab$/ }),
   ).toBeTruthy();
   expect(
-    within(tabs[0] as HTMLElement).queryByRole("img", { name: /is using this tab$/ }),
+    within(first as HTMLElement).queryByRole("img", { name: /is using this tab$/ }),
   ).toBeNull();
-  // The person's page stays shown.
+  // The person's page stays shown, here and on the daemon.
   expect(browser.view(thread)?.activeTabId).toBe(mine);
-  expect(tabs[0]?.getAttribute("aria-selected")).toBe("true");
+  expect(first?.getAttribute("aria-selected")).toBe("true");
   // Picking the agent's tab shows it, on every device.
-  await userEvent.click(tabs[1] as HTMLElement);
+  await userEvent.click(second as HTMLElement);
   await waitFor(() => expect(browser.view(thread)?.url).toBe("https://shop.example/cart"));
+});
+
+test("each daemon tab is one top-level panel tab, beside the panel's tools", async () => {
+  const { panel, browser } = await openBrowser();
+  await agentPage(panel);
+  act(() => {
+    browser.tabOpen(thread, "https://one.example/", { agentId: "a" });
+    browser.tabOpen(thread, "https://two.example/", { agentId: "b" });
+  });
+  await waitFor(() => expect(pageTabs(panel)).toHaveLength(3));
+  // No second strip of tabs inside the page.
+  expect(within(panel).getAllByRole("tablist")).toHaveLength(1);
+  // A tab the daemon shows elsewhere (an agent's, while the person looked away) is shown here.
+  const two = browser.tabsList(thread)[2]?.tabId ?? "";
+  act(() => browser.tabSelect(thread, two));
+  await waitFor(() => expect(shownTab(panel)).toBe(pageTabs(panel)[2]));
+  // A daemon tab that closes leaves the strip.
+  act(() => void browser.tabClose(thread, browser.tabsList(thread)[1]?.tabId ?? ""));
+  await waitFor(() => expect(pageTabs(panel)).toHaveLength(2));
+});
+
+test("the tab title and favicon follow the page", async () => {
+  const { panel, browser } = await openBrowser();
+  await agentPage(panel);
+  act(() => browser.agentIdle(thread));
+  const favicon = "data:image/png;base64,iVBORw0KGgo=";
+  act(() => browser.pageIdentity(thread, { title: "Inbox (3)", favicon }));
+  await waitFor(() => expect(shownTab(panel).textContent).toContain("Inbox (3)"));
+  expect(shownTab(panel).querySelector("img[data-favicon]")?.getAttribute("src")).toBe(favicon);
+  act(() => browser.pageIdentity(thread, { title: "Inbox (4)", favicon }));
+  await waitFor(() => expect(shownTab(panel).textContent).toContain("Inbox (4)"));
+  // A page with no icon shows the globe, never the last page's icon.
+  await goTo(panel, "docs.example.com");
+  await waitFor(() => expect(shownTab(panel).textContent).toContain("Fixture page"));
+  expect(shownTab(panel).querySelector("img[data-favicon]")).toBeNull();
 });
 
 test("keeping agents out of a tab blocks agent commands there, and letting them back in allows them", async () => {
@@ -241,7 +292,7 @@ test("keeping agents out of a tab blocks agent commands there, and letting them 
     await screen.findByRole("menuitemcheckbox", { name: "Keep agents out of this tab" }),
   );
   await waitFor(() => expect(browser.tab(thread)?.private).toBe(true));
-  expect(await within(strip(panel)).findByRole("img", { name: "Agents kept out" })).toBeTruthy();
+  expect(await within(shownTab(panel)).findByRole("img", { name: "Agents kept out" })).toBeTruthy();
   await expect(browser.navigateAgent(thread, "https://elsewhere.example/")).rejects.toThrow(
     "human_private",
   );
@@ -264,16 +315,24 @@ test("closing a tab from the strip closes it on the daemon, and middle-click clo
     browser.tabOpen(thread, "https://one.example/", { agentId: "a" });
     browser.tabOpen(thread, "https://two.example/", { agentId: "b" });
   });
-  await waitFor(() => expect(within(strip(panel)).getAllByRole("tab")).toHaveLength(3));
+  await waitFor(() => expect(pageTabs(panel)).toHaveLength(3));
   const [, second, third] = browser.tabsList(thread);
-  await userEvent.click(
-    within(strip(panel)).getAllByRole("button", { name: /^Close / })[1] as HTMLElement,
+  act(() => {
+    browser.agentIdle(thread, second?.tabId);
+    browser.agentIdle(thread, third?.tabId);
+  });
+  fireEvent(
+    pageTabs(panel)[1] as HTMLElement,
+    new MouseEvent("auxclick", { bubbles: true, button: 1 }),
   );
   await waitFor(() =>
     expect(browser.tabsList(thread).map((tab) => tab.tabId)).not.toContain(second?.tabId),
   );
-  const last = within(strip(panel)).getAllByRole("tab")[1] as HTMLElement;
-  fireEvent(last, new MouseEvent("auxclick", { bubbles: true, button: 1 }));
+  await waitFor(() => expect(pageTabs(panel)).toHaveLength(2));
+  fireEvent(
+    pageTabs(panel)[1] as HTMLElement,
+    new MouseEvent("auxclick", { bubbles: true, button: 1 }),
+  );
   await waitFor(() =>
     expect(browser.tabsList(thread).map((tab) => tab.tabId)).not.toContain(third?.tabId),
   );
@@ -390,6 +449,21 @@ test("a thread's first page downloads the browser with progress, then opens the 
   expect(browser.view("thread-settings")?.closed).toBe(false);
   // The address went into the new browser's own first tab, not a second one beside it.
   expect(browser.tabsList("thread-settings")).toHaveLength(1);
+});
+
+test("opening the Browser on a fresh thread shows a focused address field", async () => {
+  const { panel, browser } = await openBrowser(failingSubagent(), "/t/thread-settings");
+  expect(browser.view("thread-settings")).toBeUndefined();
+  // A usable new tab at once: its address takes the typing without a click.
+  const field = await within(panel).findByRole("combobox", { name: "Address" });
+  await waitFor(() => expect(document.activeElement).toBe(field));
+  expect(shownTab(panel).textContent).toContain("New tab");
+  await userEvent.keyboard("example.org{Enter}");
+  // Enter opens a daemon tab, which becomes the shown top tab.
+  await waitFor(() => expect(browser.tabsList("thread-settings")).toHaveLength(1));
+  await waitFor(() => expect(shownTab(panel).textContent).not.toContain("New tab"));
+  expect(pageTabs(panel)).toHaveLength(1);
+  await waitFor(() => expect(browser.view("thread-settings")?.url).toBe("https://example.org/"));
 });
 
 test("when the window loses focus to the page, the chrome lets go of its focused button but keeps an address being typed", async () => {

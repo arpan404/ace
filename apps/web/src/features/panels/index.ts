@@ -31,6 +31,8 @@ export const loadCreateFile = () => import("./files/create-file.tsx");
 export const loadAuthTerminal = () => import("./terminal/auth-terminal.tsx");
 
 export const loadThreadBrowser = () => import("./browser/thread-browser.tsx");
+/** The daemon tab the person views in a thread's browser (one panel tab per daemon tab). */
+export { shownBrowserTab } from "./browser/browser-closers.ts";
 
 /**
  * Shared, bounded diff rendering for hosted and local changes. Its code loads with the view that

@@ -5,7 +5,7 @@ import { displayAddress, describeBrowserFailure } from "@ace/ui-core";
 import { useEffectEvent, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
-import { type TabViewProps } from "@/lib/workspace/index.ts";
+import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts";
 import { reportBrowserControl } from "@/lib/browser-control.ts";
 import { usePanelServices } from "../services.ts";
 import { useLocal } from "../store.ts";
@@ -18,7 +18,7 @@ import { BrowserActions } from "./browser-actions.tsx";
 import { DownloadsButton } from "./downloads.tsx";
 import { ExtensionsMenu, extensionsHidden } from "./extensions-menu.tsx";
 import { PageNav, PageToolbar, ToolPill } from "./page-toolbar.tsx";
-import { PageTabs } from "./page-tabs.tsx";
+import { daemonTabId } from "./browser-data.ts";
 import { AnnotateButton } from "./annotate-button.tsx";
 import { useNativeView } from "./native-view.ts";
 import { Disconnected, LoadFailed, Offline, Opening, StartPage } from "./page-states.tsx";
@@ -37,18 +37,21 @@ const permissionLabel = (permission: string) =>
   })[permission] ?? "a site permission";
 
 /**
- * The thread's browser: the strip of its tabs (the person's and every agent's, the same on
- * every device), the shown tab's toolbar and the page itself. The person and agents share every
+ * One of the thread's browser tabs, as a panel tab (each daemon tab is its own panel tab, the
+ * person's and every agent's alike, the same on every device): its toolbar and the page itself.
+ * Showing it shows that tab to the person on every device. The person and agents share every
  * tab: anyone can click, type or navigate anywhere at any time, and an agent's work shows as its
- * cursor on the tab and over the page. The page fills the panel on ace's own surface (or the
- * desktop's native view); a failed load keeps its address with Reload.
+ * cursor on the panel tab and over the page. The page fills the panel on ace's own surface (or
+ * the desktop's native view); a failed load keeps its address with Reload.
  */
 function Browser(props: TabViewProps) {
   const [finding, setFinding] = useState(false);
   const threadId = props.scope;
+  const ownId = daemonTabId(props.tab);
   const { preview: source } = usePanelServices();
+  const actions = useWorkspaceActions(threadId);
   const browser = useBrowserFeatures(threadId);
-  const tabs = useBrowserTabs(source, threadId);
+  const tabs = useBrowserTabs(source, threadId, ownId);
   const page = useBrowserTab(source, threadId, props.tab, tabs);
   const toast = useToast();
   const extensionsOff = useLocal(extensionsHidden, (value) => value);
@@ -64,6 +67,21 @@ function Browser(props: TabViewProps) {
     );
   }, [threadId, live, working, privately]);
   useEffect(() => () => reportBrowserControl(threadId, undefined), [threadId]);
+
+  // Showing this panel tab shows its daemon tab, here and on the person's other devices. Only
+  // showing it asks: when the daemon later shows another tab, the panel follows it instead.
+  const reachable = !!live && live.status !== "paused";
+  useEffect(() => {
+    if (ownId && reachable) tabs.select(ownId);
+    // `tabs.select` reads the daemon's shown tab of this render.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownId, reachable]);
+  // A tab kept from before a daemon restart: its browser opens again, with the same tabs.
+  const unopened = ownId !== undefined && !live && online && tabs.reachable;
+  useEffect(() => {
+    if (unopened) void tabs.ensure();
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [unopened]);
 
   const viewport = viewportById(page.data.viewport);
   const shownUrl = page.shownUrl;
@@ -114,7 +132,7 @@ function Browser(props: TabViewProps) {
     if (accelerator === "CmdOrCtrl+L") focusAddress();
     else if (accelerator === "CmdOrCtrl+F") setFinding(true);
     else if (accelerator === "CmdOrCtrl+R") page.reload();
-    else if (accelerator === "CmdOrCtrl+T") void tabs.newTab().then(focusAddress);
+    else if (accelerator === "CmdOrCtrl+T") actions.open({ kind: "browser" });
     else if (accelerator === "CmdOrCtrl+[") page.back();
     else page.forward();
   };
@@ -196,22 +214,12 @@ function Browser(props: TabViewProps) {
       />
     );
   else if (!online) content = <Offline />;
-  else if (page.loading || (live && shown && !blank && !page.frame))
+  else if (page.loading || unopened || (live && shown && !blank && !page.frame))
     content = <Opening download={page.download} />;
   else content = <StartPage suggestions={page.suggestions} disabled={offline} onGo={page.go} />;
 
   return (
     <div ref={root} className="flex h-full min-h-0 flex-col" onKeyDownCapture={onKeyDown}>
-      {live && tabs.tabs.length > 0 && (
-        <PageTabs
-          threadId={threadId}
-          tabs={tabs.tabs}
-          shownId={tabs.shownId}
-          onSelect={tabs.select}
-          onClose={tabs.close}
-          onNew={() => void tabs.newTab().then(focusAddress)}
-        />
-      )}
       <PageToolbar
         nav={
           <PageNav

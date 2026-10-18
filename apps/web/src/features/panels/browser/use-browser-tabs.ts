@@ -29,17 +29,18 @@ function blankOnly(view: BrowserView | undefined): string | undefined {
 }
 
 /**
- * The thread's tabs, shared by the person and agents on every device, and what the person does
- * with them: open one (at an address, shown at once), show one, close one, keep agents out of
- * one. Nothing here takes or hands back control; the daemon's `activeTabId` is the tab shown.
+ * The thread's tabs, shared by the person and agents on every device, as one panel tab sees
+ * them: `ownId` is the daemon tab this panel tab shows (undefined for a new tab no daemon tab
+ * backs yet). What the person does here: open a tab (shown at once), show this one, close one,
+ * keep agents out of one. Nothing takes or hands back control.
  */
-export function useBrowserTabs(source: PreviewSource, threadId: string) {
+export function useBrowserTabs(source: PreviewSource, threadId: string, ownId: string | undefined) {
   const live = useLive(source, threadId);
   const toast = useToast();
   const workspaceId = useThreadMeta(threadId)?.workspaceId;
   const online = useConnectionState() === "ready";
   const tabs: readonly BrowserTabView[] = live?.tabs ?? [];
-  const shownId = live?.activeTabId;
+  const shownId = ownId;
   const shown = tabs.find((tab) => tab.tabId === shownId);
 
   const attempt = async <T>(title: string, run: () => Promise<T>): Promise<T | undefined> => {
@@ -85,15 +86,17 @@ export function useBrowserTabs(source: PreviewSource, threadId: string) {
     reachable: live !== undefined || workspaceId !== undefined,
     /** Throws its failure, for callers that show it in place (the address bar). */
     open,
-    newTab: () => attempt("Couldn't open a new tab", () => open()),
+    /** Opens the thread's browser (bringing back its tabs after a daemon restart). */
+    ensure: () => attempt("Couldn't open the browser", ensure),
     /** A browser that lost its pages opens them again at their last addresses. */
     reopen: () =>
       void attempt("Couldn't reopen the browser", async () => {
         if (!workspaceId) throw new Error("The thread's project isn't known yet.");
         await source.open(threadId, workspaceId);
       }),
+    /** Show this tab to the person, on every device (the daemon's shown tab). */
     select: (tabId: string) => {
-      if (tabId === shownId) return;
+      if (tabId === live?.activeTabId) return;
       void attempt("Couldn't show the tab", () => source.selectTab(threadId, tabId));
     },
     close: (tabId: string) =>
@@ -107,20 +110,3 @@ export function useBrowserTabs(source: PreviewSource, threadId: string) {
 }
 
 export type BrowserTabs = ReturnType<typeof useBrowserTabs>;
-
-/**
- * Closing the Browser panel tab: the tabs the person opened go, unless an agent is working in
- * them; agents keep their own. With nothing left, the browser itself closes.
- */
-export async function closePersonTabs(source: PreviewSource, threadId: string): Promise<void> {
-  const view = source.view(threadId);
-  if (!view || view.closed) return;
-  const tabs = view.tabs ?? [];
-  const kept = tabs.filter((tab) => tab.openedBy?.kind === "agent" || tab.inUse);
-  if (kept.length === 0) {
-    await source.close(threadId);
-    return;
-  }
-  for (const tab of tabs)
-    if (!kept.includes(tab)) await source.closeTab(threadId, tab.tabId).catch(() => {});
-}

@@ -160,6 +160,18 @@ export class FakeBrowser {
       tab.pointer = { ...options.pointer, sequence: (tab.pointer?.sequence ?? 0) + 1 };
     this.changed();
   }
+  /**
+   * Scripting: the page reports its own title and favicon (`document.title`, its icon), as the
+   * daemon's page identity does; a navigation clears them until the next page reports.
+   */
+  pageIdentity(threadId: string, identity: { title: string; favicon?: string }, tabId?: string) {
+    const tab = this.tab(threadId, tabId);
+    if (!tab) throw new Error("Browser tab unavailable");
+    tab.title = identity.title;
+    if (identity.favicon) tab.favicon = identity.favicon;
+    else delete tab.favicon;
+    this.changed();
+  }
   /** Scripting: the agent went idle; its mark leaves the tab. */
   agentIdle(threadId: string, tabId?: string): void {
     const tab = this.tab(threadId, tabId);
@@ -495,6 +507,7 @@ export class FakeBrowser {
   private load(entry: Entry, tab: BrowserTab, url: string, page: Page["page"]): void {
     tab.url = url;
     tab.title = "Fixture page";
+    delete tab.favicon;
     this.history.visit(tab.tabId, url);
     this.setPage(entry, tab.tabId, page);
     if (entry.view && tab.tabId === entry.view.activeTabId) {

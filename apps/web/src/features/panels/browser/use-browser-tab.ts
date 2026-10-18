@@ -4,20 +4,19 @@ import {
   type AddressSuggestion,
   type BrowserFailure,
 } from "@ace/ui-core";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   findTab,
   useWorkspaceActions,
   useWorkspaceStore,
   type WorkspaceTab,
 } from "@/lib/workspace/index.ts";
-import { useToast } from "@/components/ui/toast.tsx";
+import { LocalStore, useLocal } from "../store.ts";
 import type { PreviewSource } from "../sources.ts";
 import { browserTabData, type BrowserTabData } from "./browser-data.ts";
 import { useVisited, useVisitedStore } from "./browser-state.ts";
 import { setLoading } from "./loading.ts";
 import type { BrowserTabs } from "./use-browser-tabs.ts";
-import { reason } from "./use-browser-features.ts";
 
 /** A navigation this window started in one tab, or how it failed. */
 type Phase =
@@ -34,6 +33,22 @@ type Phase =
     };
 
 const idle: Phase = { phase: "idle" };
+
+/**
+ * Each tab's navigation phase, by `threadId\0tab`: outside the view, because a new tab becomes
+ * the daemon tab it opened (a new panel tab) while its first page is still loading or failing.
+ */
+const phases = new LocalStore<ReadonlyMap<string, Phase>>(new Map());
+const phaseKey = (threadId: string, tab: string) => `${threadId}\u0000${tab}`;
+function setPhase(key: string, phase: Phase) {
+  phases.set((current) => {
+    if (current.get(key) === phase) return current;
+    const next = new Map(current);
+    if (phase.phase === "idle") next.delete(key);
+    else next.set(key, phase);
+    return next;
+  });
+}
 
 const web = (url: string | undefined): url is string => !!url && /^https?:\/\//i.test(url);
 
@@ -69,12 +84,16 @@ export function useBrowserTab(
 ) {
   const actions = useWorkspaceActions(threadId);
   const store = useWorkspaceStore();
-  const toast = useToast();
   const visitedStore = useVisitedStore();
   const visited = useVisited(threadId);
-  const [reported, setState] = useState<Phase>(idle);
   const data = browserTabData(tab);
   const { live, shown, shownId, online } = tabs;
+  const key = phaseKey(threadId, shownId ?? `new:${tab.key}`);
+  const reported = useLocal(
+    phases,
+    useCallback((all: ReadonlyMap<string, Phase>) => all.get(key) ?? idle, [key]),
+  );
+  const setState = (phase: Phase) => setPhase(key, phase);
   // Once the tab has committed past a failure, the failure is over for good (adjusted while
   // rendering, so the card is never drawn over the page).
   const superseded =
@@ -82,14 +101,18 @@ export function useBrowserTab(
     (reported.tabId === undefined || reported.tabId === shownId) &&
     outlived(reported, shown, live?.loadError);
   const state: Phase = superseded ? idle : reported;
-  if (superseded) setState(idle);
-  const frame = live ? source.frame(threadId) : undefined;
+  useEffect(() => {
+    if (superseded) setPhase(key, idle);
+  }, [superseded, key]);
+  // The screencast follows the daemon's shown tab: it is this tab's picture only once shown.
+  const frame = live && live.activeTabId === shownId ? source.frame(threadId) : undefined;
 
   /** Merge into the panel tab's data as it is now (a navigation spans several renders). */
   const save = (patch: Partial<BrowserTabData>) => {
     const found = findTab(store.get(threadId), tab.key);
     const current = browserTabData(found?.tab);
-    if (Object.entries(patch).every(([key, value]) => Reflect.get(current, key) === value)) return;
+    if (Object.entries(patch).every(([field, value]) => Reflect.get(current, field) === value))
+      return;
     actions.update(tab.key, { data: { ...current, ...patch } });
   };
 
@@ -115,15 +138,10 @@ export function useBrowserTab(
   }, [source, threadId, shownId, historyKey]);
   const canStep = history?.key === historyKey ? history : { back: false, forward: false };
 
-  // The panel tab names the page it shows (its title, the composer's page list) and whether an
-  // agent works in any tab (its working dot).
-  const agent = tabs.tabs.some((each) => each.inUse !== undefined);
+  // The thread remembers the web pages it showed, for the address bar's suggestions.
   useEffect(() => {
-    save({ url: liveUrl, agent: agent || undefined });
     if (liveUrl && /^https?:\/\//i.test(liveUrl)) visitedStore.remember(threadId, liveUrl);
-    // Only the shown page's address and the agents' work are news here.
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveUrl, agent]);
+  }, [liveUrl, threadId, visitedStore]);
 
   /** The tab's page as the daemon reports it now (`tabId` undefined: the shown one). */
   const tabNow = (tabId: string | undefined) => {
@@ -132,17 +150,20 @@ export function useBrowserTab(
     return view?.tabs?.find((each) => each.tabId === id);
   };
 
-  const run = async (tabId: string | undefined, url: string, work: () => Promise<unknown>) => {
+  /** Navigate `tabId` (its phase kept under its own key, whichever panel tab shows it). */
+  const run = async (tabId: string, url: string, work: () => Promise<unknown>) => {
+    const at = phaseKey(threadId, tabId);
+    const panelKey = `browser:${tabId}`;
     const from = tabNow(tabId)?.url;
-    setLoading(threadId, tab.key, true);
-    setState({ phase: "loading", tabId, url });
+    setLoading(threadId, panelKey, true);
+    setPhase(at, { phase: "loading", tabId, url });
     try {
       await work();
-      setState(idle);
+      setPhase(at, idle);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const now = tabNow(tabId);
-      setState({
+      setPhase(at, {
         phase: "failed",
         tabId,
         url,
@@ -150,15 +171,49 @@ export function useBrowserTab(
         attempt: { from, loading: !!now?.loading },
       });
     } finally {
-      setLoading(threadId, tab.key, false);
+      setLoading(threadId, panelKey, false);
     }
   };
 
-  /** The shown tab goes to `url`; with no browser yet, one opens with it. */
+  /**
+   * A new tab's address: a daemon tab opens for it (with the thread's browser, the first time)
+   * and this panel tab becomes that tab, then the page loads there. A failure to open the
+   * browser stays on this new tab.
+   */
+  const openHere = async (url: string) => {
+    const pendingKey = phaseKey(threadId, `new:${tab.key}`);
+    setLoading(threadId, tab.key, true);
+    setPhase(pendingKey, { phase: "loading", tabId: undefined, url });
+    let tabId: string | undefined;
+    try {
+      tabId = await tabs.open();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setPhase(pendingKey, {
+        phase: "failed",
+        tabId: undefined,
+        url,
+        failure: describeBrowserFailure(message, url),
+        attempt: { from: undefined, loading: false },
+      });
+      return;
+    } finally {
+      setLoading(threadId, tab.key, false);
+    }
+    setPhase(pendingKey, idle);
+    if (!tabId) return;
+    const opened = tabId;
+    const current = browserTabData(findTab(store.get(threadId), tab.key)?.tab);
+    const { open: _open, ...kept } = current;
+    actions.replace(tab.key, { kind: "browser", id: opened, data: kept });
+    await run(opened, url, () => source.navigate(threadId, url, opened));
+  };
+
+  /** The shown tab goes to `url`; a new tab opens its daemon tab first. */
   const go = (url: string) => {
     const target = shownId;
-    if (!live || !target) {
-      void run(undefined, url, () => tabs.open(url));
+    if (!target) {
+      void openHere(url);
       return;
     }
     void run(target, url, () => source.navigate(threadId, url, target));
@@ -171,21 +226,15 @@ export function useBrowserTab(
     void run(target, liveUrl ?? "", () => traverse(threadId, direction, target));
   };
 
-  // Opened with an address (the launcher's bar, Suggested, a link): it opens once, in a new
-  // tab, as soon as a browser can be reached. The request is dropped before it runs, so a
-  // re-render or another window can never open it twice. A failed load shows in that tab.
+  // Opened with an address (the launcher's bar, Suggested, a link): it opens once, as soon as
+  // a browser can be reached. The request is dropped before it runs, so a re-render or another
+  // window can never open it twice.
   const pending = data.open;
   useEffect(() => {
-    if (!pending || !online || !tabs.reachable) return;
+    if (!pending || shownId || !online || !tabs.reachable) return;
     save({ open: undefined });
-    void tabs.open().then(
-      (tabId) => {
-        if (tabId) void run(tabId, pending, () => source.navigate(threadId, pending, tabId));
-      },
-      (error: unknown) =>
-        toast.error({ title: `Couldn't open ${pending}`, description: reason(error) }),
-    );
-    // `tabs.open` closes over this render's browser; the address is what matters.
+    void openHere(pending);
+    // `openHere` closes over this render's browser; the address is what matters.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [pending, online, tabs.reachable]);
 

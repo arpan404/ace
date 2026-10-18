@@ -45,7 +45,7 @@ async function annotating() {
   await screen.findByRole("feed", { name: "Transcript" });
   await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await within(panel).findByRole("tablist", { name: "Browser tabs" });
+  await within(panel).findByRole("combobox", { name: "Address" });
   const browser = app.daemon.browser;
   // The agent is on a web page of the project's dev server.
   act(() => browser.drive(threadId, { url: "http://localhost:5173/settings/devices" }));

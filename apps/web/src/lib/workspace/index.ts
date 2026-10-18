@@ -2,9 +2,13 @@
 export type { OpenTab, WorkspaceActions } from "./actions.ts";
 export { useWorkspaceCommands, type WorkspaceCommand } from "./commands.ts";
 export {
+  activateTab,
+  closeTab,
   findTab,
+  openTab,
   shownTab,
   tabKey,
+  updateTab,
   type OpenRequest,
   type ScopeWorkspace,
   type WorkspaceTab,

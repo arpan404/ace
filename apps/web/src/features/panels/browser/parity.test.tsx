@@ -26,13 +26,16 @@ test("an agent's new tab joins the strip and shows while the person hasn't picke
   const { panel, browser } = await openBrowser();
   const first = browser.view(threadId)?.activeTabId;
   act(() => browser.tabOpen(threadId, "https://status.example/", { agentId: "worker" }));
-  const tabs = within(panel).getByRole("tablist", { name: "Browser tabs" });
-  await waitFor(() => expect(within(tabs).getAllByRole("tab")).toHaveLength(2));
+  const tabs = within(panel).getByRole("tablist", { name: "Thread panel tabs" });
+  const pages = () =>
+    within(tabs)
+      .getAllByRole("tab")
+      .filter((tab) => !/^(Summary|Changes|Files)$/.test(tab.textContent?.trim() ?? ""));
+  await waitFor(() => expect(pages()).toHaveLength(2));
   expect(browser.tabsList(threadId)).toHaveLength(2);
   expect(browser.view(threadId)?.activeTabId).not.toBe(first);
-  await waitFor(() =>
-    expect(within(tabs).getByRole("tab", { selected: true }).textContent).toContain("Fixture page"),
-  );
+  // The daemon shows the agent's tab (the person hasn't picked one), so its top tab is shown.
+  await waitFor(() => expect(within(tabs).getByRole("tab", { selected: true })).toBe(pages()[1]));
 });
 
 test("a page's question waits in the panel, and answering it clears it on the daemon", async () => {
@@ -89,6 +92,9 @@ test("a tab the person keeps agents out of is never recorded, and is marked in t
   );
   await waitFor(() => expect(browser.tab(threadId)?.private).toBe(true));
   expect(await within(panel).findByRole("img", { name: "Agents kept out" })).toBeTruthy();
+  // A checkbox item leaves the menu open; it closes, then opens again.
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
   await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
   const record = await screen.findByRole("menuitem", { name: /Record the page/ });
   expect(record.getAttribute("aria-disabled")).toBe("true");

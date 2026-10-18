@@ -2,27 +2,33 @@ import * as z from "zod/mini";
 import type { WorkspaceTab } from "@/lib/workspace/index.ts";
 
 /*
- * The Browser panel tab's local state. The thread's browser lives on the daemon with any number
- * of tabs, shared by the person and agents on every device; the panel tab is only their
- * container (one per thread). It keeps no page of its own: which page shows is the daemon's
- * `activeTabId`, so nothing here can bring back a page that was closed. Small, so the thread's
- * tab kinds can read it before the browser's code loads.
+ * A browser panel tab's local state. Each of the thread's daemon browser tabs is one panel tab
+ * (kind `browser`, id: the daemon's tab id), shared by the person and agents on every device;
+ * the panel mirrors the daemon's list. A panel tab whose id is still `browser` is a new tab no
+ * daemon tab backs yet: the start page, until an address opens one. Small, so the thread's tab
+ * kinds can read it before the browser's code loads.
  */
 
-/** What the Browser panel tab keeps with it across reloads. */
 export const BrowserTabData = z.object({
-  /** An address to open in a new tab once the panel shows (the launcher, Suggested, a link). */
+  /** An address to open in a new daemon tab once the panel shows (the launcher, a link). */
   open: z.optional(z.string()),
-  /** The shown page's address, for the panel tab's title and the composer's page list. */
+  /** The page's address and title as the daemon last reported them (strip, composer). */
   url: z.optional(z.string()),
+  title: z.optional(z.string()),
   /** A device size from `viewports.ts`; absent follows the panel. */
   viewport: z.optional(z.string()),
-  /** An agent is working in one of the tabs (the panel tab's working dot). */
-  agent: z.optional(z.boolean()),
 });
 export type BrowserTabData = z.infer<typeof BrowserTabData>;
 
 export function browserTabData(tab: WorkspaceTab | undefined): BrowserTabData {
   const parsed = BrowserTabData.safeParse(tab?.data);
   return parsed.success ? parsed.data : {};
+}
+
+/** The new tab's id: no daemon tab backs it yet. */
+export const newBrowserTab = "browser";
+
+/** The daemon tab a panel tab shows, or undefined for a new tab not opened yet. */
+export function daemonTabId(tab: WorkspaceTab): string | undefined {
+  return tab.kind === "browser" && tab.id !== newBrowserTab ? tab.id : undefined;
 }

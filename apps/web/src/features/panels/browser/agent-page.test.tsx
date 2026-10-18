@@ -1,5 +1,5 @@
 import { coldStartReplay, facts, seedPanels } from "@ace/fake-daemon";
-import { act, screen, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
@@ -36,10 +36,15 @@ test.each([
 
   act(() => app.daemon.apply(threadId, [call]));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  const strip = await within(panel).findByRole("tablist", { name: "Browser tabs" });
-  // The agent's tab shows, marked with the agent cursor.
-  expect(within(strip).getByRole("tab", { selected: true })).toBeTruthy();
-  expect(within(strip).getByRole("img", { name: /is using this tab$/ })).toBeTruthy();
+  const strip = within(panel).getByRole("tablist", { name: "Thread panel tabs" });
+  // The agent's tab is the shown top tab, marked with the agent cursor.
+  await waitFor(() =>
+    expect(
+      within(within(strip).getByRole("tab", { selected: true })).getByRole("img", {
+        name: /is using this tab$/,
+      }),
+    ).toBeTruthy(),
+  );
 });
 
 test("an agent's other browser steps never pull the panel open", async () => {

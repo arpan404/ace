@@ -47,11 +47,12 @@ test("an address typed in the new tab's toolbar opens the Browser in its place",
   // The Browser takes the new tab's place, with the address in a browser tab of its own.
   expect(await within(panel).findByText("This site can't be reached")).toBeTruthy();
   expect(within(panel).queryByRole("list", { name: "Tools" })).toBeNull();
-  expect(
-    within(within(panel).getByRole("tablist", { name: "Browser tabs" })).getByRole("tab", {
-      selected: true,
-    }),
-  ).toBeTruthy();
+  const shown = within(within(panel).getByRole("tablist", { name: "Thread panel tabs" })).getByRole(
+    "tab",
+    { selected: true },
+  );
+  // The new tab became the browser tab it opened.
+  await waitFor(() => expect(shown.textContent).not.toContain("New tab"));
 });
 
 test("opening a new tab puts the cursor in its address", async () => {
