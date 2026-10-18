@@ -9,7 +9,7 @@ configure({ asyncUtilTimeout: 10000 });
 beforeEach(() => localStorage.clear());
 
 /*
- * The thread composer from the keyboard: Stop stays reachable while a follow-up is typed, ↑
+ * The thread composer from the keyboard: the primary slot switches from Stop to a follow-up action, ↑
  * recalls the last message, ⌘Z / ⇧⌘Z walk the composer's own history, and the suggestion list
  * follows the arrows, Home, End and the pointer.
  */
@@ -24,12 +24,12 @@ async function open(scenario: "idle" | "busy") {
   return { app, message };
 }
 
-test("while the agent works, Stop stays beside Queue as a follow-up is typed", async () => {
+test("typing replaces Stop with Queue and clearing the draft brings Stop back", async () => {
   const { message } = await open("busy");
   expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
   await userEvent.type(message, "Also check cold start");
   expect(screen.getByRole("button", { name: "Queue message" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Stop the agent" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
   await userEvent.clear(message);
   expect(screen.getByRole("button", { name: "Stop the agent" })).toBeTruthy();
 });
@@ -64,14 +64,14 @@ test("⌘Z takes typed text back and ⇧⌘Z brings it again", async () => {
   await waitFor(() => expect(message.textContent).toBe("hello"));
 });
 
-test("Tab from the message reaches +, access, the model, Stop and Queue in order", async () => {
+test("Tab with a draft reaches +, access, the model and Queue in order", async () => {
   const { message } = await open("busy");
+  await userEvent.type(message, "Follow up");
   const queue = screen.getByRole("button", { name: "Queue message" });
   const controls = [
     screen.getByRole("button", { name: "Add files and context" }),
     await screen.findByRole("button", { name: /^Access: / }),
     await screen.findByRole("button", { name: /^Model: / }),
-    await screen.findByRole("button", { name: "Stop the agent" }),
     queue,
   ];
   await userEvent.click(message);

@@ -108,7 +108,7 @@ function useAnswerSender(interactionId: string, identity: string | undefined) {
 /** How the card is drawn: a bordered card of its own, or inside a surface that frames it. */
 const frames = {
   card: `rounded-lg px-[18px] py-4 ${cardEdge}`,
-  attached: "px-4 pt-3.5 pb-1",
+  attached: "pb-1",
   inline: "py-2",
 };
 export type InteractionFrame = keyof typeof frames;

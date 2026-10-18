@@ -11,6 +11,7 @@ test("the app's font sizes and text colours both survive a merge", () => {
     "text-primary-foreground",
   ]);
   expect(cn("text-ui", "text-md")).toBe("text-md");
+  expect(cn("text-xs text-(--tone-text)", "text-meta")).toBe("text-(--tone-text) text-meta");
   expect(cn("text-prose text-foreground", "text-2xs")).toBe("text-foreground text-2xs");
 });
 

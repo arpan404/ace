@@ -72,7 +72,7 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
             <code className={chip}>{command}</code>
           )}
           {age && (!running || live.fresh) && (
-            <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
+            <span className="ml-auto shrink-0 pl-2 text-xs text-subtle-foreground tabular-nums">
               {age.replace(/ \d+s$/, "")}
             </span>
           )}

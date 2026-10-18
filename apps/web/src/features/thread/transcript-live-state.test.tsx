@@ -49,7 +49,7 @@ async function running(events = initial(), throughWorker = false) {
   };
 }
 
-test("a working turn says so in one live line after its steps; only its Summary icon opens the Summary", async () => {
+test("a working turn ends with a read-only status line and its agent tree opens from the menu", async () => {
   await running();
   const feed = screen.getByRole("feed", { name: "Transcript" });
   // One live status in the whole view: no copy pinned at the top, no second "Thinking" line.
@@ -62,9 +62,10 @@ test("a working turn says so in one live line after its steps; only its Summary 
   // It ends the turn's flow, under the ask and the step in flight.
   expect(ask.compareDocumentPosition(live()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(step.compareDocumentPosition(live()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  // The line itself is text, not a hidden button: the icon is the one way in.
-  expect(within(live()).getAllByRole("button")).toHaveLength(1);
-  await userEvent.click(within(live()).getByRole("button", { name: "Open the summary" }));
+  // The line stays selectable text; the thread menu opens its agent tree.
+  expect(within(live()).queryByRole("button")).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: /Open agent tree/ }));
   expect(await screen.findByRole("region", { name: "Thread panel" })).toBeTruthy();
 });
 
@@ -170,7 +171,8 @@ test("a parent answer stays working until its subagent finishes and its line ope
   );
   expect(live().textContent).toContain("1 subagent");
   expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
-  await userEvent.click(within(live()).getByRole("button", { name: "Open the summary" }));
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: /Open agent tree/ }));
   expect(await screen.findByRole("region", { name: "Thread panel" })).toBeTruthy();
   act(() => app.daemon.apply(id, [facts.toolDone("audit", "audit-check"), facts.endTurn("audit")]));
   expect(await screen.findByRole("button", { name: /^Worked for 1m 14s/ })).toBeTruthy();

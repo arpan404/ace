@@ -7,11 +7,12 @@ import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { ProjectMark, PullRequest, RowStatus } from "./row-parts.tsx";
+import { ThreadHoverPrs } from "./thread-hover-prs.tsx";
 import { onScrollMove, scrolledRecently } from "./scroll-rest.ts";
 
 /** One compact line of the card: a glyph and its fact. */
 function Fact(props: { children: ReactNode }) {
-  return <div className="flex h-7 min-w-0 items-center gap-2">{props.children}</div>;
+  return <div className="flex h-5 min-w-0 items-center gap-1.5">{props.children}</div>;
 }
 
 /** Metadata already in the row and shared account cache; no history or per-thread fetch. */
@@ -37,15 +38,17 @@ export function ThreadHoverContent(props: {
       align="start"
       collisionAvoidance={{ side: "flip", align: "shift", fallbackAxisSide: "none" }}
       aria-label={`Details for ${card.title}`}
-      className="w-72 max-h-[min(var(--available-height),400px,calc(100dvh-24px))] overflow-y-auto px-3 py-2.5 break-words"
+      className="w-64 max-w-[calc(100vw-24px)] max-h-[min(var(--available-height),400px,calc(100dvh-24px))] overflow-y-auto px-3 py-2 break-words"
     >
-      <p className="text-ui leading-5 font-medium text-foreground">{card.title}</p>
+      <p className="truncate text-ui leading-5 font-medium text-foreground" title={card.title}>
+        {card.title}
+      </p>
       {/* The row's own status, so the card and the row can never word it differently; the
           card is what the person is looking at, so it reads at full contrast. */}
       <div data-hover-status className="mt-0.5 flex">
         <RowStatus card={card} attention={currentAttention(card.attention, true)} />
       </div>
-      <div className="mt-1.5 text-ui text-muted-foreground">
+      <div className="mt-1 text-ui text-muted-foreground">
         <Fact>
           <ProjectMark id={entry.workspaceId} badge={card.badge} />
           <span className="min-w-0 truncate">{card.project}</span>
@@ -71,7 +74,7 @@ export function ThreadHoverContent(props: {
             decorative
             className="text-muted-foreground"
           />
-          <span className="shrink-0">
+          <span className="min-w-0 truncate">
             {providerDisplayName(card.provider, card.acpAgentId)}
             {account ? ` · ${account.label}${queued ? " (queued)" : ""}` : ""}
           </span>
@@ -95,25 +98,14 @@ export function ThreadHoverContent(props: {
         </Fact>
       </div>
       {(card.pr !== undefined || card.diff) && (
-        <div className="mt-1.5 border-t border-border pt-1.5 text-ui text-muted-foreground">
-          {card.prs?.length
-            ? card.prs.map((pr) => (
-                <Fact key={`${pr.repo.host}/${pr.repo.owner}/${pr.repo.name}/${pr.number}`}>
-                  <PullRequest
-                    card={{ ...card, pr: pr.number, prState: pr.state, prs: undefined }}
-                  />
-                  {pr.title && (
-                    <span className="min-w-0 truncate" title={pr.title}>
-                      {pr.title}
-                    </span>
-                  )}
-                </Fact>
-              ))
-            : card.pr !== undefined && (
-                <Fact>
-                  <PullRequest card={card} />
-                </Fact>
-              )}
+        <div className="mt-1 border-t border-border pt-1 text-ui text-muted-foreground">
+          {card.prs?.length ? (
+            <ThreadHoverPrs prs={card.prs} />
+          ) : card.pr !== undefined ? (
+            <Fact>
+              <PullRequest card={card} />
+            </Fact>
+          ) : null}
           {card.diff && (
             <Fact>
               <span

@@ -1,7 +1,7 @@
 import { accountName, providerDisplayName } from "@ace/ui-core";
 import { blockedUntil } from "@ace/accounts/availability";
 import type { AccountSummary } from "@ace/protocol/accounts";
-import type { Fact } from "@ace/core";
+import { hasRunningForegroundCommand, type Fact } from "@ace/core";
 import { QueuePage, type CommandPayload, type ThreadId } from "@ace/protocol";
 import {
   admissionFacts,
@@ -112,7 +112,11 @@ export function queueCommand(
         text: inputText(payload.input, payload.context),
       };
       // Steering a waiting message delivers it into the running turn now.
-      if (edited.delivery === "steer" && !host.queue.paused) {
+      if (
+        edited.delivery === "steer" &&
+        !host.queue.paused &&
+        !hasRunningForegroundCommand(host.state)
+      ) {
         host.queued.splice(index, 1);
         host.queueDirty = true;
         return {

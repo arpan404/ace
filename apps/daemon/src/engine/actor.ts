@@ -1,5 +1,5 @@
 import { attachmentEcho } from "./attachment-echo.ts";
-import { type Fact } from "@ace/core";
+import { hasRunningForegroundCommand, type Fact } from "@ace/core";
 import type { Frame, ProviderSession, Translator } from "@ace/engine-api";
 import type { ThreadId, EventPayload, Capabilities } from "@ace/protocol";
 import { z } from "zod";
@@ -344,6 +344,13 @@ export class ThreadActor {
           const facts = (translatedFacts ??= live.flatMap((entry) =>
             this.translateFrame(entry.frame, cursorSdk),
           ));
+          const toolBoundary = facts.some(
+            (fact) =>
+              (fact.type === "item.upsert" && fact.draft.type === "tool_call") ||
+              fact.type === "background.started",
+          );
+          const commandRunning =
+            toolBoundary && hasRunningForegroundCommand(this.repo.requireState(this.id));
           if (!cursorSdk && this.repo.stream(this.id, facts, this.clock.now())) this.schedule();
           else this.apply(facts);
           if (
@@ -353,6 +360,8 @@ export class ThreadActor {
             this.lifetime?.abort();
           if (
             before !== this.repo.requireState(this.id).status ||
+            (toolBoundary &&
+              commandRunning !== hasRunningForegroundCommand(this.repo.requireState(this.id))) ||
             facts.some((fact) =>
               [
                 "turn.started",

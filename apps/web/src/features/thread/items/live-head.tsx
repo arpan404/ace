@@ -10,16 +10,14 @@ import { useShownPlans } from "@/lib/use-plans.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { WorkingIndicator } from "@/components/working-indicator.tsx";
 import { StatusGlyph } from "@/components/status-glyph.tsx";
-import { ClipboardTextIcon, PauseCircleIcon } from "@phosphor-icons/react";
-import { IconButton } from "@/components/ui/icon-button.tsx";
-import { useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { PauseCircleIcon } from "@phosphor-icons/react";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { useDescendantRequest } from "../composer/descendant-request.ts";
 import { SystemRow } from "./system-row.tsx";
 
 /*
  * The live turn's one status line, at the end of its flow (DESIGN.md §8): one muted
- * `[grid] Working for 3m 6s` row after the turn's steps, with a small icon that opens the Summary.
+ * `[grid] Working for 3m 6s` row after the turn's steps.
  * It reads the same `turnActivity` as every other surface, counting the whole tree. The timer
  * writes its text through a ref, so a ticking second re-renders nothing, and it stands at the
  * time reached while the turn waits on the person (that time comes from the thread, so a redrawn
@@ -34,27 +32,18 @@ export function LiveHead(props: { threadId: string }) {
     turn?.tone === "needs-you" && descendant?.kind && turn.asker === descendant.name
       ? { ...turn, label: askingLabel(descendant.kind) }
       : turn;
-  const workspace = useWorkspaceActions(props.threadId);
   const plans = useShownPlans(props.threadId);
   const live = useLiveConnection();
   const progress = plans[0] ? livePlanStep(plans[0].progress) : undefined;
   const subagents = useWorkingSubagents(props.threadId, activity?.subagents);
   // A pause is the turn's own row; a lost connection is the header's to say.
   if (!activity || activity.tone === "paused" || live.staleLabel) return null;
-  // The status line stays a live region of its own; only the Summary icon after it opens the
-  // Summary, so a click on the line (selecting its text) does nothing.
+  // The status line stays a live region of its own; its text can be selected.
   return (
     <div role="group" aria-label="Turn in progress" className="flex min-w-0 items-center gap-1">
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <ActivityLine activity={activity} progress={progress} subagents={subagents} />
       </div>
-      <IconButton
-        icon={ClipboardTextIcon}
-        label="Open the summary"
-        size="sm"
-        className="text-subtle-foreground"
-        onClick={() => workspace.open({ kind: "work" })}
-      />
     </div>
   );
 }

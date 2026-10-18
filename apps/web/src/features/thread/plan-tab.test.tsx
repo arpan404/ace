@@ -37,7 +37,8 @@ test("operational plans show their progress in the composer strip and their full
   expect(strip.textContent).toContain("Plan · 1 of 3");
   expect(strip.textContent).toContain("Fix it");
   expect(screen.queryByRole("region", { name: "Waiting for you" })).toBeNull();
-  await userEvent.click(screen.getByRole("button", { name: "Open the summary" }));
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: /Open agent tree/ }));
   expect(await screen.findByRole("tab", { name: "Summary" })).toBeTruthy();
   const work = await screen.findByRole("tabpanel", { name: "Summary" });
   const list = await within(work).findByRole("list", { name: "Plan" });
@@ -63,7 +64,8 @@ test("operational plan updates advance the live step and completed plans leave a
   await waitFor(() => expect(live().textContent).toContain("Step 1 of 2 · Fix it"));
   plan([todo("Fix it", "completed"), todo("Test", "in_progress")]);
   await waitFor(() => expect(live().textContent).toContain("Step 2 of 2 · Test"));
-  await userEvent.click(screen.getByRole("button", { name: "Open the summary" }));
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: /Open agent tree/ }));
   plan([todo("Fix it", "completed"), todo("Test", "completed")]);
   act(() => app.daemon.apply(threadId, [facts.endTurn("root")]));
   await waitFor(() => expect(screen.queryByRole("list", { name: "Plan" })).toBeNull());
