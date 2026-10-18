@@ -6,6 +6,7 @@ import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
 import { oversizedScenario, approvalRetryScenario } from "./review-scenarios.ts";
 import { manyActions, snapshotFrames } from "./many-actions.ts";
 import { LostReceipt } from "./lost-receipt.ts";
+import { seedSheets } from "./sheet-scenario.ts";
 
 const daemon = new FakeDaemon({
   clock: Date.now,
@@ -134,6 +135,7 @@ daemon.apply("ios-tree", [
   facts.turn("reviewer", "spawn"),
   facts.endTurn("root"),
 ]);
+seedSheets(daemon);
 daemon.createThread({
   hasSentMessage: true,
   id: "ios-snoozed",

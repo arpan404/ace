@@ -57,6 +57,7 @@ import Observation
             return
         }
         problem = nil
+        client.canOperate = Grants(scopes: grants[entry.deviceId] ?? ["operate"]).canOperate
         await client.connect(target: target, directory: storage, itemLimit: itemLimit)
     }
     /// Remove authority first, then local data bound to that host and device.
