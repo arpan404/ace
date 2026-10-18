@@ -313,3 +313,25 @@ test("an opened session reads the account's usage, banked resets included, witho
     await h.dispose();
   }
 });
+
+test("a steer after the turn ended starts a new turn while background terminals keep running", async () => {
+  const h = await sessionHarness();
+  try {
+    await h.session.send(text("tree"), "queue");
+    await h.wait(received("item/started"));
+    await h.session.interrupt({ cascade: false });
+    await h.wait(received("turn/completed"));
+    await h.session.send(text("next"), "steer");
+    await h.wait(received("turn/started"));
+    const sent = (method: string) =>
+      h.frames.filter((f) => f.dir === "send" && obj(f.data)["method"] === method);
+    expect(sent("turn/steer")).toEqual([]);
+    expect(sent("turn/start").map((f) => obj(obj(f.data)["params"])["input"])).toContainEqual([
+      { type: "text", text: "next", text_elements: [] },
+    ]);
+    expect(Object.values(h.replay.state.tasks).some((t) => t.status === "running")).toBe(true);
+    expect(h.replay.state.status.state).not.toBe("done");
+  } finally {
+    await h.dispose();
+  }
+});

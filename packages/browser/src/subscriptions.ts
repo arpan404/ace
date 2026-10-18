@@ -1,11 +1,11 @@
-import type { BrowserBackendLost, BrowserState } from "@ace/protocol";
+import type { BrowserAnnotationMessage, BrowserBackendLost, BrowserState } from "@ace/protocol";
 import type { CaptureViewer, FrameFanout, FrameSink } from "./fanout.ts";
 
 type Subscriber = {
   connectionId: string;
   sink: FrameSink;
   state(state: BrowserState): void;
-  backendLost?(event: BrowserBackendLost): void;
+  event?(event: BrowserBackendLost | BrowserAnnotationMessage): void;
   stopFrames(): void;
   capture?: CaptureViewer;
 };
@@ -82,10 +82,22 @@ export class BrowserSubscriptions {
   backendLost(event: BrowserBackendLost): void {
     for (const viewer of this.threads.get(event.threadId) ?? []) {
       try {
-        viewer.backendLost?.(event);
+        viewer.event?.(event);
       } catch (error) {
         this.onError(error);
       }
+    }
+  }
+  /** Annotation events go to one connection only: the one that started annotate mode. */
+  annotation(connectionId: string, message: BrowserAnnotationMessage): void {
+    for (const viewer of this.threads.get(message.threadId) ?? []) {
+      if (viewer.connectionId !== connectionId) continue;
+      try {
+        viewer.event?.(message);
+      } catch (error) {
+        this.onError(error);
+      }
+      return;
     }
   }
   clear(): void {

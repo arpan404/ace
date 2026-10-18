@@ -1,0 +1,38 @@
+{
+  "$id": "https://ace.local/protocol/v1/UserBrowserStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "connections": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/UserBrowserConnection.json"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "extensionId": {
+      "maxLength": 64,
+      "type": "string"
+    },
+    "extensionPath": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "installed": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/UserBrowserHostInstall.json"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "supported": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "supported",
+    "extensionId",
+    "installed",
+    "connections"
+  ],
+  "type": "object"
+}

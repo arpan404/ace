@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ace</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font:
+          13px/1.4 system-ui,
+          sans-serif;
+      }
+      body {
+        margin: 0;
+        width: 300px;
+      }
+      #root {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 12px;
+      }
+      p {
+        margin: 0;
+      }
+      .status {
+        color: GrayText;
+      }
+      .status[data-state="connected"] {
+        color: CanvasText;
+      }
+      .row,
+      li {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .title {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .tabs {
+        list-style: none;
+        margin: 0;
+        padding: 8px 0 0;
+        border-top: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .tag {
+        color: GrayText;
+        font-size: 12px;
+      }
+      button {
+        font: inherit;
+        padding: 4px 10px;
+        border-radius: 6px;
+        border: 1px solid color-mix(in srgb, CanvasText 20%, transparent);
+        background: transparent;
+        color: inherit;
+      }
+      .danger {
+        align-self: flex-start;
+        color: #dc2626;
+      }
+      .problem {
+        color: #dc2626;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="popup.js"></script>
+  </body>
+</html>

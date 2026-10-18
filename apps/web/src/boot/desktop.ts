@@ -136,6 +136,20 @@ export function setDesktopWindowBackground(
     .catch(() => {});
 }
 
+/**
+ * The desktop's clipboard for images (PNG or JPEG as base64), which works without the page
+ * having focus or a user gesture; undefined in a browser or a desktop build that predates it.
+ */
+export function desktopImageClipboard(
+  scope: object = globalThis,
+):
+  | { writeImage(image: { mimeType: "image/png" | "image/jpeg"; data: string }): Promise<void> }
+  | undefined {
+  const write = call(record(record(Reflect.get(scope, "ace"))?.clipboard), "writeImage");
+  if (!write) return undefined;
+  return { writeImage: async (image) => void (await write(image)) };
+}
+
 /** A bridge method, bound to its object, if the bridge has it. */
 function call(target: Record<string, unknown> | undefined, name: string) {
   const method = target?.[name];

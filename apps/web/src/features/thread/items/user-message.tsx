@@ -2,7 +2,15 @@ import { BubbleText } from "./bubble-text.tsx";
 import { messageActions } from "./message-actions.ts";
 import { userBubble } from "./user-bubble.ts";
 import { useItem } from "@ace/client-react";
-import { formatClock, messageOrigin, withoutPortableHandoff, sanitizeUserText } from "@ace/ui-core";
+import {
+  formatClock,
+  messageOrigin,
+  withoutPortableHandoff,
+  sanitizeUserText,
+  splitAnnotationParts,
+  splitBrowserAnnotations,
+} from "@ace/ui-core";
+import { AnnotationsCard } from "@/features/annotations/index.ts";
 import { ArrowBendDownRightIcon, CheckIcon, ClockIcon, CopyIcon } from "@phosphor-icons/react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -94,13 +102,18 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
   const noticeId = local.noticeId;
   const message = item?.type === "message" ? item : undefined;
   if (!message && !local.send && !local.staged) return null;
-  // Most messages carry no files: only those load the thumbnails' code.
-  const parts = withoutPortableHandoff(
-    message?.parts ?? local.send?.payload.input ?? local.staged?.input ?? [],
+  // Browser annotations travel as a block after the person's words; they show as a card.
+  const annotated = splitAnnotationParts(
+    withoutPortableHandoff(
+      message?.parts ?? local.send?.payload.input ?? local.staged?.input ?? [],
+    ),
   );
+  // Most messages carry no files: only those load the thumbnails' code.
+  const parts = annotated.parts;
   // The words as shown: a portable handoff's envelope stays out of the bubble.
   const text = sanitizeUserText(
-    message || local.send ? inputText(parts) : (local.staged?.text ?? ""),
+    splitBrowserAnnotations(message || local.send ? inputText(parts) : (local.staged?.text ?? ""))
+      .text,
   );
   const images: { width?: number | undefined; height?: number | undefined }[] = [
     ...(message?.attachments ?? []).filter((file) => file.mimeType.startsWith("image/")),
@@ -172,6 +185,11 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
           </div>
         )}
       </div>
+      {annotated.annotations && (
+        <div className="mt-1 max-w-[80%]">
+          <AnnotationsCard annotations={annotated.annotations} />
+        </div>
+      )}
       {/* Only while it is on its way (or didn't go): how its sending goes, under the bubble. */}
       {saying && (
         <div className="mt-1 flex min-h-6 items-center gap-2">

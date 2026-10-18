@@ -1,0 +1,68 @@
+{
+  "$id": "https://ace.local/protocol/v1/UserBrowserSettingsResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "result": {
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "status",
+              "type": "string"
+            },
+            "status": {
+              "$ref": "https://ace.local/protocol/v1/UserBrowserStatus.json"
+            }
+          },
+          "required": [
+            "kind",
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "code": {
+              "enum": [
+                "forbidden",
+                "unsupported",
+                "unavailable",
+                "failed"
+              ],
+              "type": "string"
+            },
+            "kind": {
+              "const": "error",
+              "type": "string"
+            },
+            "message": {
+              "maxLength": 512,
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "code",
+            "message"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "type": {
+      "const": "user_browser.settings.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "result"
+  ],
+  "type": "object"
+}

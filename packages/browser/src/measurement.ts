@@ -6,7 +6,7 @@ import {
   validateMeasurementBudget,
 } from "@ace/interaction";
 import { BrowserMeasurementOptions, type InteractionMeasurement } from "@ace/protocol";
-import type { BrowserBackendSession } from "./backend.ts";
+import type { BrowserBackendPage } from "./backend.ts";
 import type { NavigationClock } from "./navigation.ts";
 import { MeasurementTrace } from "./measurement-trace.ts";
 import { MeasurementFrames, measurementFilmstrip } from "./measurement-filmstrip.ts";
@@ -14,7 +14,9 @@ import { BrowserActionError } from "./action-error.ts";
 
 interface MeasurementContext {
   threadId: string;
-  backend: BrowserBackendSession;
+  backend: BrowserBackendPage;
+  /** The tab being measured. */
+  tabId?: string;
   clock: NavigationClock;
   id(): string;
   read(): void;
@@ -178,7 +180,7 @@ async function runMeasurement(
       target: {
         kind: "browser-tab",
         threadId: context.threadId,
-        tabId: backend.tabs?.active() ?? frameId,
+        tabId: context.tabId ?? frameId,
       },
       ...(options.interaction
         ? { action: options.interaction, ...(actionAtMs === undefined ? {} : { actionAtMs }) }

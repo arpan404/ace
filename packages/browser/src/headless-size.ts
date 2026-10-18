@@ -12,3 +12,17 @@ export async function sizeHeadlessContents(
     .parse(await cdp.send("Browser.getWindowForTarget"));
   await cdp.send("Browser.setContentsSize", { windowId, width, height });
 }
+
+/** A tab's CSS viewport, at the browser's own device scale, and its window to match. */
+export async function sizeHeadlessTab(
+  cdp: BrowserCdp,
+  viewport: { width: number; height: number },
+  deviceScaleFactor: number,
+): Promise<void> {
+  await cdp.send("Emulation.setDeviceMetricsOverride", {
+    ...viewport,
+    deviceScaleFactor,
+    mobile: false,
+  });
+  await sizeHeadlessContents(cdp, viewport.width, viewport.height);
+}

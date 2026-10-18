@@ -30,6 +30,8 @@ import { useElementWidth } from "./use-element-width.ts";
 import { useMessageState } from "./use-message-state.ts";
 import { useStableHandlers } from "./use-stable-handlers.ts";
 import { useTypeToFocus } from "./use-type-to-focus.ts";
+import { useComposerAnnotations } from "./use-composer-annotations.ts";
+import { AnnotationChip, useAnnotationPort } from "@/features/annotations/index.ts";
 
 export type { Draft } from "./draft.ts";
 export type { ComposerHandle } from "./composer-props.ts";
@@ -107,6 +109,10 @@ function ComposerBody({
     props.replacedDraft?.attachments ??
       (props.keepsAttachments ? restored?.attachments : undefined),
   );
+  const annotations = useComposerAnnotations(
+    props.thread,
+    props.replacedDraft?.annotations ?? restored?.annotations,
+  );
   const attach = (files: Iterable<File>, note?: string) => {
     const selected = [...files];
     const left = attachments.add(selected);
@@ -123,13 +129,14 @@ function ComposerBody({
     recentFiles(storage, props.thread.workspaceId),
   );
   const { trigger, suggestions, items, active, adding, setAdding, setDismissed } = list;
-  const empty = !text.trim() && !attachments.items.length;
+  const empty = !text.trim() && !attachments.items.length && !annotations.count;
   const compact = width > 0 && width < compactWidth;
   const current: ComposerDraft = {
     text,
     tokens,
     mentions: [...message.picked],
     attachments: props.keepsAttachments ? attachments.ready : [],
+    annotations: annotations.draft,
   };
   const sync = useDraftSync({
     draftKey: props.draftKey,
@@ -140,6 +147,7 @@ function ComposerBody({
     keepsAttachments: !!props.keepsAttachments,
     take: message.take,
     replace: props.onReplaced,
+    takeAnnotations: annotations.replace,
     onDraftChange: props.onDraftChange,
     ownsDraft: props.ownsDraft,
     onReturnedOptions: props.onReturnedOptions,
@@ -175,6 +183,7 @@ function ComposerBody({
     openAdd: () => addMenu.current?.open(),
     focus: () => input.current?.focus(),
     takeFiles: intake,
+    submit: () => submit(false),
     preserveDraft: (key) => writeDraft(storage, key, current),
     discardIfSubmitted(sent) {
       if (!matchesSubmittedDraft({ ...current, attachments: attachments.ready }, sent))
@@ -184,6 +193,7 @@ function ComposerBody({
       sync.saved.drop();
       clear();
       attachments.clear();
+      annotations.replace(undefined);
       return true;
     },
   }));
@@ -223,6 +233,7 @@ function ComposerBody({
     current,
     entries: suggestions.entries,
     attachments,
+    annotations,
     saved: sync.saved,
     draftKey: props.draftKey,
     storage,
@@ -231,6 +242,10 @@ function ComposerBody({
     takeText: sync.take,
     replace: props.onReplaced,
   });
+  // The Browser's annotate bar adds to the draft and presses Send through this.
+  useAnnotationPort(props.thread.draft ? undefined : props.thread.id, annotations, () =>
+    submit(false),
+  );
   const canStop = props.busy && !!props.onStop;
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) =>
     composerKeyDown(event, {
@@ -324,6 +339,10 @@ function ComposerBody({
             data-pill={pill ? "" : undefined}
             className={cn(composerSurface, "relative z-10 flex flex-col rounded-xl")}
           >
+            <AnnotationChip
+              threadId={props.thread.draft ? undefined : props.thread.id}
+              annotations={annotations}
+            />
             <AttachmentChips
               items={attachments.items}
               onRemove={attachments.remove}

@@ -1,4 +1,13 @@
-import { app, BrowserWindow, dialog, nativeTheme, type OpenDialogOptions } from "electron";
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  ClipboardItem,
+  dialog,
+  nativeImage,
+  nativeTheme,
+  type OpenDialogOptions,
+} from "electron";
 import { shell } from "electron";
 import type {
   AppInfo,
@@ -11,6 +20,7 @@ import type { DoctorReport } from "../shared/onboarding.ts";
 import type { Background } from "./background.ts";
 import type { DaemonRuntime } from "./daemon/runtime.ts";
 import type { Handlers } from "./ipc.ts";
+import { writeClipboardImage } from "./os/clipboard.ts";
 import { openInEditor, reveal } from "./os/editor.ts";
 import { appIdentities, systemApplication, systemApplicationIcon } from "./os/app-identity.ts";
 import { editorIcons } from "./os/editor-icon.ts";
@@ -112,6 +122,18 @@ export function createHandlers(options: {
         : await dialog.showOpenDialog(picker);
       return chosen.canceled ? null : (chosen.filePaths[0] ?? null);
     },
+    "clipboard.writeImage": async (request) => {
+      await writeClipboardImage(request, {
+        decode: (bytes) => nativeImage.createFromBuffer(bytes),
+        writePng: (png) =>
+          clipboard.write([
+            new ClipboardItem({
+              "image/png": new Blob([new Uint8Array(png)], { type: "image/png" }),
+            }),
+          ]),
+      });
+      return undefined;
+    },
     "notify.show": (request) =>
       background.alert({
         category: "needsYou",
@@ -168,6 +190,10 @@ export function createHandlers(options: {
     },
     "browser.control": (request) => {
       background.browserControl(request.threadId, request.controller);
+      return undefined;
+    },
+    "browser.focus-app": (_request, sender) => {
+      if (sender) background.focusApp(sender.id);
       return undefined;
     },
     // The release feed check pulls in @ace/service and tar; load them only when asked.

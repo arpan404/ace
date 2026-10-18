@@ -17,6 +17,8 @@ export interface ComposerHandle {
   focus(): void;
   /** Attach what a drop or paste elsewhere on the screen carries; call it during the event. */
   takeFiles(data: DataTransfer): void;
+  /** Send the message as Send would (the Browser's annotate bar asks for it). */
+  submit(): void;
 }
 
 export interface ComposerProps {

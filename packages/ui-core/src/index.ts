@@ -17,6 +17,8 @@ export * from "./action-errors.ts";
 export * from "./pull-request.ts";
 export * from "./worktree-base.ts";
 export * from "./composer-drafts.ts";
+export * from "./browser-annotation-prompt.ts";
+export * from "./browser-annotation-parse.ts";
 export * from "./content-hash.ts";
 export * from "./counts.ts";
 export * from "./devices.ts";

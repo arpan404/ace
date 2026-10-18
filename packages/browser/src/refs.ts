@@ -3,22 +3,28 @@ import { staleRef, BrowserActionError } from "./action-error.ts";
 import type { BrowserCdp } from "./backend.ts";
 import { AXTree, Bounds, CallResult, ResolvedNode, snapshotNodes } from "./cdp.ts";
 import { z } from "zod";
+import { withoutSubtree } from "./snapshot-exclusion.ts";
 
 /** One generation and one bounded snapshot; navigation cannot alias an old ref. */
 export class SnapshotRefs {
   private epoch = 0;
   private refs = new Map<string, { backendNodeId: number; cdp: BrowserCdp; frameId?: string }>();
+  /** Every frame's session; returns undefined when the page has no frame list (one session). */
   private frames:
-    | (() => Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]>)
+    | (() => Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]> | undefined)
     | undefined;
   private cdp: BrowserCdp;
   private frameSessions = new Map<string, BrowserFrameSession>();
+  /** DOM node whose subtree snapshots omit: ace's annotate overlay in the top document. */
+  private excluded: () => Promise<number | undefined>;
   constructor(
     cdp: BrowserCdp,
-    frames?: () => Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]>,
+    frames?: () => Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]> | undefined,
+    excluded: () => Promise<number | undefined> = async () => undefined,
   ) {
     this.frames = frames;
     this.cdp = cdp;
+    this.excluded = excluded;
   }
   replace(cdp: BrowserCdp): void {
     this.cdp = cdp;
@@ -40,7 +46,8 @@ export class SnapshotRefs {
   }
   private async collect() {
     const epoch = this.epoch;
-    const frames = this.frames ? await this.frames() : [{ frameId: undefined, cdp: this.cdp }];
+    const listed = this.frames?.();
+    const frames = listed ? await listed : [{ frameId: undefined, cdp: this.cdp }];
     this.frameSessions = new Map(
       frames
         .filter((frame): frame is BrowserFrameSession => frame.frameId !== undefined)
@@ -57,8 +64,9 @@ export class SnapshotRefs {
     const refs = new Map<string, { backendNodeId: number; cdp: BrowserCdp; frameId?: string }>();
     let truncated = false,
       bytes = 0;
+    const excluded = await this.excluded();
     for (const frame of frames) {
-      const tree = AXTree.parse(
+      const raw = AXTree.parse(
         await frame.cdp
           .send("Accessibility.getFullAXTree", {
             depth: 20,
@@ -76,6 +84,7 @@ export class SnapshotRefs {
             throw error;
           }),
       );
+      const tree = "parentId" in frame && frame.parentId ? raw : withoutSubtree(raw, excluded);
       for (const node of snapshotNodes(tree, epoch)) {
         const backendNodeId = node.ref ? Number(node.ref.split("-")[1]) : undefined;
         const prefix = frame.frameId ? `${frame.frameId}:` : "";

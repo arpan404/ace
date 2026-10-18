@@ -11,6 +11,7 @@ export function fakeBrowserSession(
   connectionId: string,
 ) {
   const recording = new Set<string>();
+  const stopAnnotations = browser.annotations.connect(connectionId, send);
   const subscriptions = new Map<
     string,
     {
@@ -27,6 +28,7 @@ export function fakeBrowserSession(
       for (const entry of subscriptions.values()) entry.stop();
       subscriptions.clear();
       browser.disconnect(connectionId);
+      stopAnnotations();
     },
     /** As the daemon's browser bridge: a refusal is a `browser.result` with `ok: false`. */
     async handle(message: BrowserClientMessage) {
@@ -70,6 +72,7 @@ export function fakeBrowserSession(
           break;
         case "browser.tabs.open":
         case "browser.tabs.switch":
+        case "browser.tabs.select":
         case "browser.tabs.close":
         case "browser.dialog.answer": {
           if (browser.view(id)?.controller !== "human" || browser.view(id)?.owner !== connectionId)
@@ -81,7 +84,11 @@ export function fakeBrowserSession(
           }
           if (message.type === "browser.tabs.open") {
             if (message.url) browser.navigate(id, message.url);
-          } else if (message.type === "browser.tabs.switch") browser.tabSwitch(id, message.tabId);
+          } else if (
+            message.type === "browser.tabs.switch" ||
+            message.type === "browser.tabs.select"
+          )
+            browser.tabSwitch(id, message.tabId);
           else if (message.type === "browser.tabs.close") browser.tabClose(id, message.tabId);
           else {
             browser.dialogAnswer(id, message.dialogId);
@@ -172,7 +179,10 @@ export function fakeBrowserSession(
             if (command.operation === "open") {
               browser.tabOpen(id);
               if (command.url) browser.navigate(id, command.url);
-            } else if (command.operation === "switch" && command.tabId)
+            } else if (
+              (command.operation === "switch" || command.operation === "select") &&
+              command.tabId
+            )
               browser.tabSwitch(id, command.tabId);
             else if (command.operation === "close" && command.tabId)
               browser.tabClose(id, command.tabId);
@@ -195,6 +205,8 @@ export function fakeBrowserSession(
           else if (command.action === "snapshot") result = { text: "Synthetic fixture page" };
           else if (command.action === "screenshot") result = browser.frame(id);
           else if (command.action === "logs") result = { entries: [], limit: command.limit };
+          else if (command.action === "annotate" || command.action === "annotate_capture")
+            result = browser.annotations.execute(id, connectionId, command);
           else if (command.action === "evaluate")
             throw new Error("evaluation_unavailable_in_fixture");
           break;

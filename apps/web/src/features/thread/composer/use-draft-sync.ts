@@ -28,6 +28,8 @@ export function useDraftSync(args: {
   take(draft: ComposerDraft): void;
   /** Remount on a draft whose files differ. */
   replace(draft: ComposerDraft): void;
+  /** Take another window's browser annotations along with its words. */
+  takeAnnotations(annotations: ComposerDraft["annotations"]): void;
   onDraftChange?: ((draft: ComposerDraft) => void) | undefined;
   ownsDraft?: (() => boolean) | undefined;
   onReturnedOptions?: ((options: ReturnedDraft["options"]) => void) | undefined;
@@ -51,6 +53,7 @@ export function useDraftSync(args: {
         (draftKey && draftSaveFailed(storage, draftKey))
       )
         return void setTheirs(draft);
+      args.takeAnnotations(draft.annotations);
       if (!otherFiles(draft)) return void take(draft);
       args.replace(draft);
       return "replace";

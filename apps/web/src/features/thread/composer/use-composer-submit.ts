@@ -2,6 +2,8 @@ import { withTypedCommand, type ComposerDraft, type KeyValueStorage } from "@ace
 import type { CatalogEntry } from "@ace/protocol";
 import { useEffectEvent } from "react";
 import type { useAttachments } from "./attachments.tsx";
+import { withAnnotations } from "@/features/annotations/index.ts";
+import type { useComposerAnnotations } from "./use-composer-annotations.ts";
 import type { Draft } from "./draft.ts";
 import { readDraft, writeDraft } from "./draft-store.ts";
 import { mergeReturnedDraft, restoreReturnedDraft } from "./returned-draft.ts";
@@ -27,6 +29,8 @@ export function useComposerSubmit(args: {
   /** The current catalog, so a `/name` typed without the menu still goes as its mention. */
   entries: readonly CatalogEntry[] | undefined;
   attachments: ReturnType<typeof useAttachments>;
+  /** Browser annotations waiting in the draft; they travel after the words. */
+  annotations: ReturnType<typeof useComposerAnnotations>;
   saved: ReturnType<typeof useDraftPersistence>;
   draftKey: string | undefined;
   storage: KeyValueStorage | undefined;
@@ -51,15 +55,23 @@ export function useComposerSubmit(args: {
   });
   return (opposite) => {
     if (args.blocked) return;
+    const content = composerContent({
+      ...current,
+      tokens: withTypedCommand(current.text, current.tokens ?? [], args.entries),
+      attachments: attachments.ready,
+    });
+    const annotated = args.annotations.handOff();
+    const message = withAnnotations(
+      { input: content.input, files: attachments.handOff() },
+      annotated,
+      (image) => image,
+    );
     const draft: Draft = {
       text: current.text,
-      ...composerContent({
-        ...current,
-        tokens: withTypedCommand(current.text, current.tokens ?? [], args.entries),
-        attachments: attachments.ready,
-      }),
+      ...content,
+      input: message.input,
       files: {
-        ...attachments.handOff(),
+        ...message.files,
         uploading: attachments.items.filter((file) => file.state === "uploading").length,
       },
       opposite,
@@ -69,6 +81,7 @@ export function useComposerSubmit(args: {
       tokens: current.tokens,
       mentions: current.mentions,
       attachments: attachments.ready,
+      annotations: annotated?.returned,
     };
     saved.hold();
     args.clear();

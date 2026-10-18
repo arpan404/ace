@@ -19,6 +19,7 @@ export class LiveCapture {
   private pressure = new CapturePressure();
   private viewport: () => { width: number; height: number };
   private adapting = false;
+  private tab: () => string | undefined;
   private closed = false;
   private generation = 0;
   constructor(
@@ -27,7 +28,9 @@ export class LiveCapture {
     onFrame: (frame: BrowserFrame, epoch: number) => void,
     privacy: () => { epoch: number; since: number } = () => ({ epoch: 0, since: -Infinity }),
     viewport: () => { width: number; height: number } = () => ({ width: 1280, height: 720 }),
+    tab: () => string | undefined = () => undefined,
   ) {
+    this.tab = tab;
     this.cdp = cdp;
     this.now = now;
     this.onFrame = onFrame;
@@ -35,6 +38,11 @@ export class LiveCapture {
     this.viewport = viewport;
   }
   private receive: (raw: unknown) => void = () => {};
+  /** The tab this capture shows, fixed when the capture starts on its page. */
+  private capturing: string | undefined;
+  private tabField(): { tabId?: string } {
+    return this.capturing ? { tabId: this.capturing } : {};
+  }
   private captureFrame(raw: unknown, cdp: BrowserCdp, generation: number): void {
     const ack = Ack.safeParse(raw);
     if (ack.success) void cdp.send("Page.screencastFrameAck", ack.data).catch(() => {});
@@ -49,6 +57,7 @@ export class LiveCapture {
       data: parsed.data.data,
       width: parsed.data.metadata.deviceWidth,
       height: parsed.data.metadata.deviceHeight,
+      ...this.tabField(),
     };
     this.fanout.publish(frame);
     const privacy = this.privacy(),
@@ -60,6 +69,7 @@ export class LiveCapture {
   }
   async start(): Promise<void> {
     if (this.closed) throw new Error("Browser capture closed");
+    this.capturing = this.tab();
     const cdp = this.cdp,
       generation = this.generation;
     this.receive = (raw) => this.captureFrame(raw, cdp, generation);
@@ -109,6 +119,7 @@ export class LiveCapture {
         timestamp: this.now(),
         data: initial.data,
         ...viewport,
+        ...this.tabField(),
       };
       this.fanout.publish(frame);
       if (epoch === this.privacy().epoch) this.onFrame(frame, epoch);

@@ -64,8 +64,8 @@ test("rotated logs leave with their window while the live log stays", async () =
   expect(await readFile(join(f.root, "logs/ace.jsonl"), "utf8")).toBe("current");
 });
 
-test("shortening the saved window runs a pass soon after, without a restart", async () => {
-  const f = await setup();
+/** Retention on the fixture with saved settings and a hand-driven schedule. */
+async function scheduled(f: Awaited<ReturnType<typeof setup>>) {
   const dataDir = await mkdtemp(join(tmpdir(), "ace-retention-settings-"));
   const settings = new SettingsService({ dataDir, debounceMs: 0 });
   cleanups.push(async () => {
@@ -85,6 +85,17 @@ test("shortening the saved window runs a pass soon after, without a restart", as
     { startupMs: 30_000, intervalMs: 6 * 3600_000, changeMs: 2_000, retryMs: 60_000 },
   );
   cleanups.push(() => retention.close());
+  const run = async () => {
+    timers.shift()?.work();
+    // A finished pass always arms the next one.
+    await expect.poll(() => timers.length, { timeout: 30_000 }).toBe(1);
+  };
+  return { settings, retention, timers, run };
+}
+
+test("shortening the saved window runs a pass soon after, without a restart", async () => {
+  const f = await setup();
+  const { settings, retention, timers, run } = await scheduled(f);
   // Idle for 100 days: inside the default 120-day window, outside a 90-day one.
   const thread = f.thread("hundred-days", { state: "done" }, {});
   f.store.appendEvents(
@@ -95,11 +106,6 @@ test("shortening the saved window runs a pass soon after, without a restart", as
   await retention.start();
   expect(retention.window()).toBe(120);
   expect(timers.map((timer) => timer.delay)).toEqual([30_000]);
-  const run = async () => {
-    timers.shift()?.work();
-    // A finished pass always arms the next one.
-    await expect.poll(() => timers.length).toBe(1);
-  };
   await run();
   expect(deleted(f, thread.id)).toBe(false);
   expect(timers.map((timer) => timer.delay)).toEqual([6 * 3600_000]);
@@ -111,3 +117,33 @@ test("shortening the saved window runs a pass soon after, without a restart", as
   await run();
   expect(deleted(f, thread.id)).toBe(true);
 });
+
+test("an unfinished inventory retries soon only while passes still remove something", async () => {
+  const f = await setup();
+  const { retention, timers, run } = await scheduled(f);
+  // More threads than one inventory reads: the first pass cannot see them all.
+  const expired = Array.from({ length: 257 }, (_, index) => f.thread(`expired-${index}`));
+  const recent = Array.from({ length: 257 }, (_, index) => {
+    const thread = f.thread(`recent-${index}`, { state: "done" }, {});
+    f.store.appendEvents(
+      thread.id,
+      [{ type: "thread.client.updated", changes: { activityAt: storageNow - day } }],
+      1,
+    );
+    return thread;
+  });
+  await retention.start();
+  // Passes that remove expired threads come back after the short retry.
+  const delays: number[] = [];
+  while (expired.some((thread) => !deleted(f, thread.id))) {
+    await run();
+    delays.push(timers[0]?.delay ?? 0);
+    expect(delays.length).toBeLessThan(10);
+  }
+  expect(delays.every((delay) => delay === 60_000)).toBe(true);
+  // What is left is still more than one inventory reads, but none of it can be removed, so
+  // the next pass waits the full interval instead of rescanning every minute.
+  await run();
+  expect(timers.map((timer) => timer.delay)).toEqual([6 * 3600_000]);
+  expect(recent.every((thread) => !deleted(f, thread.id))).toBe(true);
+}, 120_000);

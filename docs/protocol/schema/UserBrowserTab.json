@@ -1,0 +1,43 @@
+{
+  "$id": "https://ace.local/protocol/v1/UserBrowserTab.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "access": {
+      "$ref": "https://ace.local/protocol/v1/UserBrowserAccess.json"
+    },
+    "active": {
+      "type": "boolean"
+    },
+    "attached": {
+      "type": "boolean"
+    },
+    "tabId": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "title": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "url": {
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "windowId": {
+      "maximum": 9007199254740991,
+      "minimum": -9007199254740991,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "tabId",
+    "windowId",
+    "url",
+    "title",
+    "active",
+    "access",
+    "attached"
+  ],
+  "type": "object"
+}

@@ -17,6 +17,8 @@ export class SessionLogs {
     level?: string | undefined;
     url?: string | undefined;
     status?: number | undefined;
+    /** Only this tab's entries, plus entries no tab claimed. */
+    tabId?: string | undefined;
     limit: number;
   }) {
     return {
@@ -26,7 +28,8 @@ export class SessionLogs {
             (!filter.kind || entry.kind === filter.kind) &&
             (!filter.level || entry.type === filter.level) &&
             (!filter.url || entry.url?.includes(filter.url)) &&
-            (filter.status === undefined || entry.status === filter.status),
+            (filter.status === undefined || entry.status === filter.status) &&
+            (!filter.tabId || !entry.tabId || entry.tabId === filter.tabId),
         )
         .slice(-filter.limit),
       limit: filter.limit,

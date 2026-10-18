@@ -6,6 +6,7 @@ import {
   type AddressSuggestion,
 } from "@ace/ui-core";
 import { useId, useRef, useState, type ReactNode } from "react";
+import { desktopBrowserViews } from "@/boot/desktop-browser.ts";
 import { Icon } from "@/components/icon.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -120,6 +121,9 @@ export function AddressBar(props: {
             autoCapitalize="off"
             data-editing={editing || undefined}
             onFocus={(event) => {
+              // In the desktop app the OS focus may still be in the native page: take it now,
+              // so the first key typed lands here.
+              desktopBrowserViews()?.focusApp();
               setFocused(true);
               event.currentTarget.select();
             }}

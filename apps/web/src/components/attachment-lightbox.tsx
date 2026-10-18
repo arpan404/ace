@@ -12,6 +12,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
+import { copyImageToClipboard } from "@/lib/clipboard-image.ts";
 import { ImageUrl, type ImageState } from "./attachment-bytes.tsx";
 import { formatBytes, type ShownImage } from "./attachment-format.ts";
 
@@ -108,7 +109,7 @@ function Actions(props: { image: ShownImage; full: ImageState }) {
         disabled={!url}
         onClick={() => {
           if (!url) return;
-          copyImage(url).then(
+          copyImageToClipboard(fetch(url).then((response) => response.blob())).then(
             () => toast.add({ title: "Image copied" }),
             () => toast.error({ title: "Couldn't copy the image" }),
           );
@@ -134,25 +135,6 @@ function Actions(props: { image: ShownImage; full: ImageState }) {
       )}
     </>
   );
-}
-
-/** Clipboards take PNG; anything else is redrawn as one. */
-async function copyImage(url: string): Promise<void> {
-  const png = fetch(url)
-    .then((response) => response.blob())
-    .then(async (blob) => {
-      if (blob.type === "image/png") return blob;
-      const bitmap = await createImageBitmap(blob);
-      const canvas = document.createElement("canvas");
-      canvas.width = bitmap.width;
-      canvas.height = bitmap.height;
-      canvas.getContext("2d")?.drawImage(bitmap, 0, 0);
-      return new Promise<Blob>((resolve, reject) =>
-        canvas.toBlob((out) => (out ? resolve(out) : reject(new Error("encode"))), "image/png"),
-      );
-    });
-  // A pending blob keeps Safari's user activation while the bytes are read.
-  await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
 }
 
 /** The image fitted to the stage; zoom grows it toward its natural size, then it scrolls. */

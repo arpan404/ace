@@ -1,6 +1,7 @@
 import { BrowserOriginError, browserOrigin } from "@ace/browser/policy";
 import type { BrowserInput, BrowserTab, BrowserDownload, BrowserDialog } from "@ace/protocol";
 import { BrowserDocumentHistory } from "./browser-history.ts";
+import { FakeAnnotations } from "./browser-annotation.ts";
 import { pairPhoneFrame, sitePage } from "./preview-page.ts";
 
 /**
@@ -29,6 +30,10 @@ export interface BrowserView {
   downloads?: BrowserDownload[];
   pending_dialog?: BrowserDialog | undefined;
   reason?: string;
+  /** Page features this fixture supports (BrowserState.features). */
+  features?: string[];
+  /** The connection with annotate mode open (ADR 0082). */
+  annotation?: { owner: string };
 }
 export interface ScreenFrame {
   sequence: number;
@@ -83,6 +88,11 @@ export class FakeBrowser {
   }
   private tabSequence = 0;
   private entries = new Map<string, Entry>();
+  /** Annotate mode: `emit` and `pin` script what the page's overlay would report. */
+  readonly annotations = new FakeAnnotations(
+    (threadId) => this.entries.get(threadId)?.view,
+    () => this.changed(),
+  );
   private watchers = new Set<() => void>();
   private revision = 0;
   readonly available = true;
@@ -150,6 +160,7 @@ export class FakeBrowser {
     this.changed();
   }
   lose(threadId: string): void {
+    this.annotations.end(threadId, "restart");
     const view = this.view(threadId);
     if (!view) return;
     view.status = "paused";
@@ -166,6 +177,7 @@ export class FakeBrowser {
     this.changed();
   }
   disconnect(owner: string): void {
+    this.annotations.disconnect(owner, this.entries.keys());
     for (const [threadId, entry] of this.entries)
       if (entry.view?.owner === owner) {
         if (entry.view.takeoverMode === "private") {
@@ -179,6 +191,7 @@ export class FakeBrowser {
       }
   }
   async handback(threadId: string): Promise<void> {
+    this.annotations.end(threadId, "lease");
     this.control(threadId, "agent");
     this.privateLifecycle?.(threadId, false);
     const view = this.view(threadId);
@@ -249,6 +262,7 @@ export class FakeBrowser {
       throw new Error(`net::ERR_CONNECTION_REFUSED at ${url}`);
     if (parsed.hostname.endsWith(".invalid"))
       throw new Error(`net::ERR_NAME_NOT_RESOLVED at ${url}`);
+    this.annotations.end(threadId, "navigated");
     entry.view = { ...entry.view, url: parsed.href };
     this.updateTab(entry);
     if (entry.view.activeTabId) this.history.visit(entry.view.activeTabId, entry.view.url);
@@ -281,6 +295,7 @@ export class FakeBrowser {
     entry.view.downloads = [];
     entry.view.takeoverMode = "shared";
     entry.view.status = "ready";
+    entry.view.features = ["annotate"];
     entry.page = options.url === "about:blank" ? "site" : "pair";
     this.paint(entry, options.typed ?? "");
   }
@@ -315,6 +330,7 @@ export class FakeBrowser {
     if (view.controller !== "human") throw new Error("Browser controller mismatch");
     const url = this.history.move(view.activeTabId, direction);
     if (url !== undefined) {
+      this.annotations.end(threadId, "navigated");
       entry.view = { ...view, url };
       this.updateTab(entry);
       entry.page = "site";
@@ -336,10 +352,39 @@ export class FakeBrowser {
     entry.page = "site";
     this.paint(entry, entry.typed);
   }
+  /**
+   * A second tab beside the page, as an agent opens one in the real daemon (ADR 0083): its own
+   * id, address, opener and label. The person's view moves to it.
+   */
+  tabAdd(
+    threadId: string,
+    url: string,
+    options: { label?: string; agentId?: string } = {},
+  ): string {
+    const view = this.view(threadId);
+    if (!view || view.closed) throw new Error("Browser closed");
+    const tabId = `tab-${++this.tabSequence}`;
+    view.tabs = [
+      ...(view.tabs ?? []),
+      {
+        tabId,
+        url,
+        title: "Fixture page",
+        openedBy: options.agentId ? { kind: "agent", agentId: options.agentId } : { kind: "human" },
+        ...(options.label ? { label: options.label } : {}),
+        lease: { controller: "agent", mode: "shared" },
+        lifecycle: "live",
+      },
+    ];
+    this.history.visit(tabId, url);
+    this.tabSwitch(threadId, tabId);
+    return tabId;
+  }
   tabSwitch(threadId: string, tabId: string): void {
     const entry = this.entries.get(threadId),
       tab = entry?.view?.tabs?.find((candidate) => candidate.tabId === tabId);
     if (!entry?.view || !tab) throw new Error("Browser tab unavailable");
+    if (entry.view.activeTabId !== tabId) this.annotations.end(threadId, "tab");
     entry.view.activeTabId = tabId;
     entry.view.url = tab.url;
     entry.view.pending_dialog = this.tabsList(threadId).find(
@@ -396,6 +441,7 @@ export class FakeBrowser {
     if (tab && entry.view) tab.url = entry.view.url;
   }
   close(threadId: string): void {
+    this.annotations.end(threadId, "stopped");
     const entry = this.entries.get(threadId);
     for (const tab of entry?.view?.tabs ?? []) this.history.remove(tab.tabId);
     if (entry?.view) entry.view = { ...entry.view, closed: true, controller: "none" };
