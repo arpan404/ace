@@ -4,6 +4,7 @@ import {
   CopyIcon,
   DevicesIcon,
   DotsThreeIcon,
+  EyeIcon,
   MagnifyingGlassIcon,
   PlusIcon,
   PuzzlePieceIcon,
@@ -60,6 +61,9 @@ export function BrowserActions(props: {
   onDrawer(open: boolean): void;
   /** Opens "Screenshot at sizes…" for the tab shown. */
   onScreenshotSizes(): void;
+  /** Watch mode: on, off, or unavailable (no agent browses). */
+  watching: boolean | undefined;
+  onWatch(): void;
 }) {
   const toast = useToast();
   const { shownUrl, external, viewport, browser, tab } = props;
@@ -141,6 +145,11 @@ export function BrowserActions(props: {
         <MenuItem icon={icon(ArrowSquareOutIcon)} disabled={!external} onClick={openOutside}>
           Open in your browser
         </MenuItem>
+        {props.watching !== undefined && (
+          <MenuItem icon={icon(EyeIcon)} onClick={props.onWatch}>
+            {props.watching ? "Stop watching the agent" : "Watch the agent"}
+          </MenuItem>
+        )}
         <MenuSeparator />
         <MenuSub>
           <MenuSubTrigger icon={icon(DevicesIcon)}>Page size</MenuSubTrigger>

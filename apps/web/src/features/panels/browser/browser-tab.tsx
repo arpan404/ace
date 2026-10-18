@@ -30,6 +30,7 @@ import { viewportById } from "./viewports.ts";
 import { ConsoleDrawer, drawerHeights } from "./console-drawer.tsx";
 import { ResponsiveScreenshotDialog } from "./responsive-screenshot.tsx";
 import { rememberPageSize } from "./page-size.ts";
+import { WatchButton, useWatchToggle } from "./watch-button.tsx";
 
 const permissionLabel = (permission: string) =>
   ({
@@ -87,6 +88,7 @@ function Browser(props: TabViewProps) {
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [unopened]);
 
+  const watch = useWatchToggle(threadId, live);
   const viewport = viewportById(page.data.viewport);
   // Live while dragging; saved with the tab when the drag ends.
   const [drawerHeight, setDrawerHeight] = useState<number>();
@@ -292,6 +294,7 @@ function Browser(props: TabViewProps) {
         }
         actions={
           <>
+            {watch.watching !== undefined && <WatchButton {...watch} />}
             <ToolPill>
               {!extensionsOff && (
                 <ExtensionsMenu
@@ -318,6 +321,8 @@ function Browser(props: TabViewProps) {
               drawer={drawer !== undefined}
               onDrawer={(open) => page.save({ drawer: open ? "console" : undefined })}
               onScreenshotSizes={() => setSizing(true)}
+              watching={watch.watching}
+              onWatch={watch.toggle}
             />
           </>
         }

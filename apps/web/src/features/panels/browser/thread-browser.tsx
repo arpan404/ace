@@ -17,6 +17,7 @@ import { usePhone } from "@/lib/breakpoints.ts";
 import { LocalStore, useLocal } from "../store.ts";
 import { BrowserPip } from "./browser-pip.tsx";
 import { pipPage } from "./pip-rules.ts";
+import { useWatchMode } from "./use-watch-mode.ts";
 
 /** Threads whose picture-in-picture the person closed, until their Browser shows again. */
 const dismissedPip = new LocalStore<ReadonlySet<string>>(new Set());
@@ -82,6 +83,7 @@ function ThreadBrowser(props: { threadId: string }) {
   }, [source, threadId, showingBrowser, view?.backend]);
   const actions = useWorkspaceActions(threadId);
   const phone = usePhone();
+  useWatchMode(store, threadId, view, workspace);
   const dismissed = useLocal(dismissedPip, (threads) => threads.has(threadId));
   // Only a page the person has looked at in the panel follows them out of it.
   const [seenIn, setSeenIn] = useState<string>();
