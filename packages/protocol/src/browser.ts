@@ -139,9 +139,14 @@ export const BrowserCommand = z.discriminatedUnion("action", [
   commandBase.extend({
     action: z.literal("tabs"),
     /** `switch` is the earlier name of `select`. */
-    operation: z.enum(["list", "open", "select", "switch", "close"]).default("list"),
+    operation: z.enum(["list", "open", "select", "switch", "close", "keep"]).default("list"),
     url: z.string().max(8192).optional(),
     label: z.string().min(1).max(64).optional(),
+    /**
+     * With `open`: the new tab is a deliverable or handoff that stays after your turn. With
+     * `keep`: `false` makes a kept tab temporary again. Omitted on `keep`: true.
+     */
+    keep: z.boolean().optional(),
   }),
   commandBase.extend({
     action: z.literal("fill_form"),

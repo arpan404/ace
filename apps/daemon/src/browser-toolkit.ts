@@ -93,6 +93,12 @@ export function browserToolkit(
             .max(64)
             .optional()
             .describe("A short name for a new tab, such as checkout or admin."),
+          keep: z
+            .boolean()
+            .optional()
+            .describe(
+              "With newTab: keep the tab after your turn (a deliverable or handoff). Tabs you open are otherwise temporary.",
+            ),
           ...browserMachineInput,
           ...browserChoiceInput,
         }),
@@ -122,7 +128,13 @@ export function browserToolkit(
           if (args.newTab) {
             await service.execute(
               caller.threadId,
-              { action: "tabs", operation: "open", url: args.url, label: args.label },
+              {
+                action: "tabs",
+                operation: "open",
+                url: args.url,
+                label: args.label,
+                keep: args.keep,
+              },
               actor,
               signal,
             );

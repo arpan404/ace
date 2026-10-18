@@ -37,6 +37,7 @@ export type {
 } from "./backend.ts";
 export type { BrowserTabRecord, BrowserTabStore } from "./tab-store.ts";
 export { agentTabLimit, daemonTabLimit, threadTabLimit } from "./tab-limits.ts";
+export { TabBudget } from "./tab-budget.ts";
 export type { LifecycleSchedule } from "./session-lifecycle.ts";
 export { acquireChromium, type ChromiumAcquisitionOptions } from "./acquisition.ts";
 export { chromiumArtifact, ChromiumArtifact } from "./chromium-manifest.ts";

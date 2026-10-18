@@ -84,7 +84,7 @@ export class BrowserService {
         return () => clearTimeout(timer);
       },
     };
-    this.tabs = new TabBudget(options.maxTabs ?? daemonTabLimit);
+    this.tabs = options.tabBudget ?? new TabBudget(options.maxTabs ?? daemonTabLimit);
     this.acquisition = ownedHeadless(options, this.lifetime.signal);
     this.headless = this.acquisition.backend;
   }
@@ -463,6 +463,15 @@ export class BrowserService {
     if (!embedded) return { desktop: false };
     await embedded.purge(threadId, workspaceId);
     return { desktop: true };
+  }
+  /**
+   * An agent's turn ended (from the daemon's orchestrator): its temporary tabs in the thread's
+   * browser close and its tab cursor is released. Nothing happens without an open browser.
+   */
+  async agentFinished(threadId: string, agentId: string): Promise<void> {
+    const session = this.sessions.get(threadId);
+    if (!session || session.state.closed) return;
+    await session.finishAgent(agentId);
   }
   private get(threadId: string): BrowserSession {
     const session = this.sessions.get(threadId);

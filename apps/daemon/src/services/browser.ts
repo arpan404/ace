@@ -1,7 +1,13 @@
 import { settingsScope } from "../settings.ts";
 import { z } from "zod";
 import { join } from "node:path";
-import { BrowserService, UserChromeTabsBackend, type BrowserServiceOptions } from "@ace/browser";
+import {
+  BrowserService,
+  TabBudget,
+  UserChromeTabsBackend,
+  daemonTabLimit,
+  type BrowserServiceOptions,
+} from "@ace/browser";
 import {
   ItemId,
   ThreadId,
@@ -12,6 +18,7 @@ import {
 import { desktopCredential } from "../browser-desktop.ts";
 import { BrowserForget } from "../browser-forget.ts";
 import { SqliteBrowserTabStore } from "../browser-tab-store.ts";
+import { watchBrowserTurns, type BrowserTurnPort } from "../browser-turns.ts";
 import type { ServiceContext } from "./types.ts";
 const BrowserProfilePreference = z.enum(["persistent", "ephemeral"]);
 export async function startBrowser(context: ServiceContext): Promise<void> {
@@ -50,8 +57,11 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
     if (files) await files.browserArtifacts.publish(threadId, artifact, append);
     else append();
   };
+  // ace's Chrome, the desktop's views and the person's own Chrome share one daemon-wide budget.
+  const tabBudget = new TabBudget(options.browser?.maxTabs ?? daemonTabLimit);
   const browser = new BrowserService({
     ...options.browser,
+    tabBudget,
     dataDir: config.dataDir,
     tabStore: options.browser?.tabStore ?? new SqliteBrowserTabStore((sql) => store.statement(sql)),
     workspaceRoot,
@@ -115,6 +125,7 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
       headlessBackend: new UserChromeTabsBackend(user.backend),
       backendPreference: () => "headless",
       tabLifecycle: false,
+      tabBudget,
       now,
       id,
       workspaceRoot,
@@ -127,6 +138,13 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
     context.log.log("warn", `Browser cleanup for a deleted thread: ${String(error)}`),
   );
   resources.own(() => forget?.close());
+  const turns: BrowserTurnPort[] = [browser];
+  if (services.userBrowserSessions) turns.push(services.userBrowserSessions);
+  resources.own(
+    watchBrowserTurns(store, turns, (error) =>
+      context.log.log("warn", `Browser cleanup after an agent's turn: ${String(error)}`),
+    ),
+  );
   services.browser = browser;
 }
 

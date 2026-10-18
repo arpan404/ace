@@ -10,6 +10,8 @@ export interface BrowserTabRecord {
   openedBy?: BrowserTabActor | undefined;
   /** The person keeps agents out of this tab; it stays so after a restart. */
   private?: boolean | undefined;
+  /** An agent kept it as a deliverable or handoff: it outlives the agent's turn. */
+  kept?: boolean | undefined;
   lastActiveAt: number;
 }
 /**

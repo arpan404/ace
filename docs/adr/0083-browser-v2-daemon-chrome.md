@@ -158,6 +158,15 @@ A thread's browser holds ordered tabs on whichever backend serves it.
 - **Desktop tabs** follow the contract in ADR 0085: whether an agent uses the tab (`agentUse`),
   native keys and the panel size are the shown tab's; every other tab is driven through `ace.tabs.cdp`.
 - **Limits**: 16 tabs per thread (popups included), 8 open per agent, 48 live across the daemon.
+  A popup adopted from an agent's tab counts as that agent's and closes past its 8. Agent tabs
+  in the person's own Chrome (ADR 0084) share the daemon's 48 (one `TabBudget`).
+- **Turn end** (amended for #943): tabs an agent opens are temporary. When the daemon sees the
+  agent settle (`agent.status` idle, interrupted or failed; never while it waits on subagents,
+  background work or a person), its temporary tabs close and its cursor is released, so a
+  finished agent never pushes the next one into an extra tab. A tab stays when the agent kept
+  it (`ace_browser_tabs` `keep`, or `keep` on open: a deliverable or handoff), when the person
+  opened it, views it, used it in the last 10 minutes or keeps agents out, and while it is
+  busy, holds a dialog or is downloading. `kept` is restored after a restart.
 - **Lifecycle** (`tab-lifecycle.ts`, pure, injected clock): an unviewed, idle, unpinned tab
   freezes after 15 minutes (`Page.setWebLifecycleState`) and wakes before its next command. The
   policy also marks tabs due for discard after 2 hours; this is not applied yet, so page state is

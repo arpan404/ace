@@ -22,6 +22,8 @@ interface Entry {
   session?: UserTabSession;
   claiming?: Promise<UserTabSession> | undefined;
   page: BrowserBackendPage;
+  /** An agent tab's place in the daemon-wide tab budget. */
+  release?: () => void;
 }
 
 const sharedId = (ref: UserTabRef) => `shared-${ref.connectionId}-${ref.tabId}`;
@@ -85,15 +87,34 @@ class UserTabs {
       lost: (reason) => this.tabLost(id, reason),
     };
   }
+  /** A place in the daemon-wide tab budget: agent tabs here count as ace's own do. */
+  private reserve(): () => void {
+    return this.request.reserveTab?.() ?? (() => {});
+  }
   private async openAgent(): Promise<string> {
     const id = `agent-${++this.sequence}`;
-    const session = await this.user.open(this.tabRequest(id));
+    const release = this.reserve();
+    let session: UserTabSession & { ref: UserTabRef };
+    try {
+      session = await this.user.open(this.tabRequest(id));
+    } catch (error) {
+      release();
+      throw error;
+    }
     if (this.closed) {
+      release();
       await session.close();
       throw new Error("Browser closed");
     }
-    this.agents.set(id, { session, page: session, ref: session.ref });
+    this.agents.set(id, { session, page: session, ref: session.ref, release });
     return id;
+  }
+  /** An agent tab leaves the thread; its budget place goes with it. */
+  private dropAgent(id: string): Entry | undefined {
+    const entry = this.agents.get(id);
+    this.agents.delete(id);
+    entry?.release?.();
+    return entry;
   }
   /**
    * A page in one of this thread's agent tabs opened a tab (`target=_blank`, `window.open`):
@@ -115,20 +136,30 @@ class UserTabs {
   }
   private async adoptPopup(ref: UserTabRef, opener: string): Promise<void> {
     const id = `agent-${++this.sequence}`;
+    let release: () => void;
+    try {
+      release = this.reserve();
+    } catch {
+      // The daemon-wide budget is full: the popup stays the person's browser's own business.
+      this.refused.add(refKey(ref));
+      return;
+    }
     let session: UserTabSession;
     try {
       session = await this.user.adopt(this.tabRequest(id), ref);
     } catch {
+      release();
       this.refused.add(refKey(ref));
       return;
     }
     // Over the thread's tab limit, or after the thread's browser closed: the popup goes.
     if (this.closed || this.agents.size + this.claimed.size >= (this.request.maxTabs ?? 16)) {
+      release();
       this.refused.add(refKey(ref));
       await session.close();
       return;
     }
-    this.agents.set(id, { session, page: session, ref, opener });
+    this.agents.set(id, { session, page: session, ref, opener, release });
     this.request.changed?.();
   }
   /**
@@ -148,7 +179,7 @@ class UserTabs {
       this.request.lost(reason);
       return;
     }
-    this.agents.delete(id);
+    this.dropAgent(id);
     if (this.activeId === id) this.activeId = this.agents.keys().next().value ?? "";
     this.request.changed?.();
   }
@@ -268,7 +299,7 @@ class UserTabs {
         const agent = this.agents.get(id);
         if (agent) {
           if (this.agents.size === 1) throw new Error(lastTab);
-          this.agents.delete(id);
+          this.dropAgent(id);
           if (this.activeId === id) this.activeId = this.agents.keys().next().value ?? "";
           await agent.session?.close();
         } else {
@@ -326,6 +357,7 @@ class UserTabs {
     this.closed = true;
     this.stopWatching();
     const entries = [...this.agents.values(), ...this.claimed.values()];
+    for (const entry of this.agents.values()) entry.release?.();
     this.agents.clear();
     this.claimed.clear();
     await Promise.allSettled(entries.map((entry) => entry.session?.close()));

@@ -12,6 +12,9 @@
     "inUse": {
       "$ref": "https://ace.local/protocol/v1/BrowserTabActor.json"
     },
+    "kept": {
+      "type": "boolean"
+    },
     "label": {
       "maxLength": 64,
       "type": "string"
@@ -24,6 +27,9 @@
     },
     "openedBy": {
       "$ref": "https://ace.local/protocol/v1/BrowserTabActor.json"
+    },
+    "pageStateLost": {
+      "type": "boolean"
     },
     "pending_dialog": {
       "$ref": "https://ace.local/protocol/v1/BrowserDialog.json"

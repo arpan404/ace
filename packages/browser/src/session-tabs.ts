@@ -4,7 +4,7 @@ import { AgentCursors } from "./agent-cursors.ts";
 import type { BrowserBackendPage, BrowserBackendSession } from "./backend.ts";
 import type { Actor } from "./session-options.ts";
 import { TabRuntime, type TabHost, type TabMeta } from "./tab-runtime.ts";
-import { tabOpenRefusal } from "./tab-limits.ts";
+import { agentTabLimit, tabOpenRefusal } from "./tab-limits.ts";
 import type { BrowserTabRecord } from "./tab-store.ts";
 
 /** The one page of a backend that reports no tabs. */
@@ -34,6 +34,10 @@ export class SessionTabs {
   private pending = new Map<string, TabMeta>();
   /** The opener of the tab being opened right now; backends report the tab before returning. */
   private opening: TabMeta | undefined;
+  /** Tabs an agent kept as a deliverable or handoff; its other tabs close at its turn's end. */
+  private keptIds = new Set<string>();
+  /** Tabs reopened after a discard: their page state is gone until their next navigation. */
+  private lostIds = new Set<string>();
   constructor(host: TabHost, backend: () => BrowserBackendSession) {
     this.host = host;
     this.backend = backend;
@@ -83,6 +87,8 @@ export class SessionTabs {
       if (!ids.includes(id)) {
         this.runtimes.delete(id);
         this.cursors.forget(id);
+        this.keptIds.delete(id);
+        this.lostIds.delete(id);
         removed.push(runtime);
       }
     let carry = carried;
@@ -153,6 +159,8 @@ export class SessionTabs {
       if (runtime.openedBy) entry.openedBy = runtime.openedBy;
       if (runtime.drivenBy) entry.drivenBy = runtime.drivenBy;
       if (runtime.label) entry.label = runtime.label;
+      if (this.keptIds.has(tab.tabId)) entry.kept = true;
+      if (this.lostIds.has(tab.tabId)) entry.pageStateLost = true;
       const status = this.statusOf(tab.tabId);
       if (status) entry.loading = status.loading;
       if (cursor === tab.tabId) entry.current = true;
@@ -181,6 +189,7 @@ export class SessionTabs {
               ...(runtime.label ? { label: runtime.label } : {}),
               ...(runtime.openedBy ? { openedBy: runtime.openedBy } : {}),
               ...(runtime.private ? { private: true } : {}),
+              ...(this.keptIds.has(tab.tabId) ? { kept: true } : {}),
               lastActiveAt: runtime.lastActiveAt,
             },
           ]
@@ -197,7 +206,10 @@ export class SessionTabs {
    * Opens a tab for `actor`. The person's view moves to it when they opened it, or when an
    * agent opened it and the person has not picked or used a tab lately.
    */
-  async open(actor: Actor, options: { label?: string | undefined }): Promise<TabRuntime> {
+  async open(
+    actor: Actor,
+    options: { label?: string | undefined; keep?: boolean | undefined },
+  ): Promise<TabRuntime> {
     const tabs = this.backend().tabs;
     if (!tabs) throw new BrowserActionError("not_supported");
     const opener = tabActor(actor);
@@ -227,6 +239,7 @@ export class SessionTabs {
     const runtime = this.get(id);
     runtime.openedBy = opener;
     if (options.label) runtime.label = options.label;
+    if (options.keep) this.keptIds.add(id);
     if (actor.kind === "agent") this.cursors.set(actor.agentId, id);
     if (follow && tabs.active() !== id) await tabs.switch(id);
     if (actor.kind === "human") this.picked();
@@ -278,9 +291,43 @@ export class SessionTabs {
     if (this.host.options.navigationClock.now() - this.pickedAt < window) return false;
     return !this.viewed()?.humanWithin(window);
   }
+  /** Marks a tab kept past its agent's turn, or temporary again. */
+  keep(tabId: string, value: boolean): void {
+    if (value) this.keptIds.add(tabId);
+    else this.keptIds.delete(tabId);
+  }
+  kept(tabId: string): boolean {
+    return this.keptIds.has(tabId);
+  }
+  /** A discarded tab came back at its address, without its page state. */
+  stateLost(tabId: string, value: boolean): void {
+    if (value) this.lostIds.add(tabId);
+    else this.lostIds.delete(tabId);
+  }
+  /**
+   * New tabs that put their agent over its own tab limit: popups adopted from an agent's tab
+   * count as that agent's, so a page cannot open tabs past what the agent itself may.
+   */
+  overAgentLimit(added: readonly TabRuntime[]): TabRuntime[] {
+    const over: TabRuntime[] = [];
+    for (const tab of added) {
+      const opener = tab.openedBy;
+      if (opener?.kind !== "agent") continue;
+      const own = this.all().filter(
+        (other) =>
+          other.openedBy?.kind === "agent" &&
+          other.openedBy.agentId === opener.agentId &&
+          !over.includes(other),
+      ).length;
+      if (own > agentTabLimit) over.push(tab);
+    }
+    return over;
+  }
   clear(): void {
     this.runtimes.clear();
     this.cursors.clear();
     this.pending.clear();
+    this.keptIds.clear();
+    this.lostIds.clear();
   }
 }

@@ -53,6 +53,13 @@ export const BrowserTab = z.object({
   /** Where the agent using this tab last pointed. */
   pointer: BrowserAgentPointer.optional(),
   lifecycle: BrowserTabLifecycle.optional(),
+  /**
+   * An agent kept this tab as a deliverable or handoff. Other tabs an agent opened are
+   * temporary: they close when that agent's turn ends, unless the person views or used them.
+   */
+  kept: z.boolean().optional(),
+  /** The tab was discarded while idle and reopened at its address: its page state is gone. */
+  pageStateLost: z.boolean().optional(),
   loading: z.boolean().optional(),
   favicon: z.string().max(8192).optional(),
 });

@@ -16,6 +16,7 @@ import { executeDownloads, executeTabs } from "./session-structure.ts";
 import { freezeIdleTabs, wakeTab } from "./session-lifecycle.ts";
 import { tabCommand } from "./session-commands.ts";
 import { collaborationTiming } from "./collaboration.ts";
+import { keepAfterPersonMs, temporaryTabs } from "./turn-end.ts";
 
 import type { Actor, SessionOptions } from "./session-options.ts";
 export type { Actor, SessionOptions } from "./session-options.ts";
@@ -101,6 +102,8 @@ export class BrowserSession {
         lastActiveAt: record.lastActiveAt,
         private: record.private,
       });
+    for (const record of options.restoredTabs ?? [])
+      if (record.kept) this.tabs.keep(record.tabId, true);
     this.tabs.reconcile();
     this.captured = this.tabs.viewedId();
     this.live = new LiveCapture(
@@ -188,7 +191,15 @@ export class BrowserSession {
     const records = this.tabs.records();
     // Activity times alone do not warrant a write.
     const signature = JSON.stringify(
-      records.map((tab) => [tab.tabId, tab.url, tab.title, tab.label, tab.openedBy, tab.private]),
+      records.map((tab) => [
+        tab.tabId,
+        tab.url,
+        tab.title,
+        tab.label,
+        tab.openedBy,
+        tab.private,
+        tab.kept,
+      ]),
     );
     if (signature === this.persisted) return;
     this.persisted = signature;
@@ -196,6 +207,7 @@ export class BrowserSession {
   }
   navigation(tabId?: string): void {
     this.blocked = undefined;
+    if (tabId !== undefined) this.tabs.stateLost(tabId, false);
     (tabId === undefined ? this.tabs.viewed() : this.tabs.find(tabId))?.invalidate();
     this.emit();
   }
@@ -363,6 +375,14 @@ export class BrowserSession {
     // A popup of a private page is private too.
     for (const tab of added)
       if (tab.openedBy?.kind === "page" && viewed?.private) tab.setPrivate(true);
+    // A popup from an agent's tab is that agent's, and past its own tab limit it goes.
+    for (const tab of this.tabs.overAgentLimit(added))
+      void this.tabs
+        .structural(async () => {
+          if (!this.closed && !this.tabs.leaving(tab.id) && !this.tabs.last(tab.id))
+            await this.tabs.close(tab.id);
+        })
+        .catch(() => {});
     const viewedId = this.tabs.viewedId();
     if (viewedId !== this.captured && !this.paused) {
       this.tabs.find(this.captured ?? "")?.annotation.end("tab");
@@ -524,6 +544,46 @@ export class BrowserSession {
         })
         .finally(() => this.scheduleLifecycle());
     });
+  }
+  /** A download still arriving in this tab: the tab must not freeze, discard or close under it. */
+  private downloading(tabId: string): boolean {
+    return (this.options.backend.tabs?.downloads?.() ?? []).some(
+      (download) => download.tabId === tabId && download.state === "pending",
+    );
+  }
+  /**
+   * `agentId`'s turn ended. Its cursor goes, so no later agent finds its tab taken, and the
+   * temporary tabs it opened close. Kept tabs stay, as do tabs the person views, used lately
+   * or keeps private, and tabs still busy, holding a dialog or downloading.
+   */
+  async finishAgent(agentId: string): Promise<void> {
+    if (this.closed) return;
+    this.tabs.cursors.release(agentId);
+    const viewedId = this.tabs.viewedId();
+    const dialogs = new Set(
+      this.options.backend.tabs?.list().flatMap((tab) => (tab.pending_dialog ? [tab.tabId] : [])),
+    );
+    const doomed = temporaryTabs(
+      this.tabs.all().map((tab) => ({
+        tabId: tab.id,
+        openedBy: tab.openedBy,
+        kept: this.tabs.kept(tab.id),
+        private: tab.private,
+        viewed: tab.id === viewedId,
+        busy: tab.busy,
+        pinned: dialogs.has(tab.id) || this.downloading(tab.id),
+        usedByPerson: tab.humanWithin(keepAfterPersonMs),
+      })),
+      agentId,
+    );
+    for (const tabId of doomed)
+      await this.tabs
+        .structural(async () => {
+          if (!this.closed && !this.tabs.leaving(tabId) && !this.tabs.last(tabId))
+            await this.tabs.close(tabId);
+        })
+        .catch(() => {});
+    if (!this.closed) this.changed();
   }
   close(): Promise<void> {
     this.closing ??= (async () => {

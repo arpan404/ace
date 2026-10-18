@@ -38,6 +38,11 @@ export interface BrowserServiceOptions {
   workspaceRoot?: (threadId: string) => string | Promise<string>;
   /** Live tabs across every thread; default 48 (ADR 0083). */
   maxTabs?: number;
+  /**
+   * The daemon-wide tab budget, shared with another service (Use my Chrome's tabs count
+   * against the same 48 as ace's own). Omitted: a budget of `maxTabs` for this service.
+   */
+  tabBudget?: import("./tab-budget.ts").TabBudget;
   /** Where thread tabs are kept for restore after a daemon restart; omitted, nowhere. */
   tabStore?: import("./tab-store.ts").BrowserTabStore;
   /** Idle-tab freezing in ace's Chrome; `false` turns it off. */
