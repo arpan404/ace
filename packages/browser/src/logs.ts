@@ -26,7 +26,9 @@ export class SessionLogs {
         .filter(
           (entry) =>
             (!filter.kind || entry.kind === filter.kind) &&
-            (!filter.level || entry.type === filter.level) &&
+            (!filter.level ||
+              entry.type === filter.level ||
+              (filter.level === "error" && entry.type === "pageerror")) &&
             (!filter.url || entry.url?.includes(filter.url)) &&
             (filter.status === undefined || entry.status === filter.status) &&
             (!filter.tabId || !entry.tabId || entry.tabId === filter.tabId),

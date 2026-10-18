@@ -18,7 +18,7 @@ function refusal(item: string): Fact {
       code: "delegation_denied",
       title: "Child permissions exceed the parent permission ceiling",
       text: reason,
-      raw: [{ type: "ace.agent_control.failed", data: { operation: "delegate_task" } }],
+      raw: [{ type: "ace.agent_control.failed", data: { operation: "delegate" } }],
     },
   };
 }
@@ -49,13 +49,18 @@ export function refusedDelegation(id = "thread-refused-delegation"): Scenario {
       aceCall(
         "root",
         item,
-        "delegate_task",
+        "delegate",
         {
-          provider: "claude",
-          model: "claude-haiku-5-5",
-          role: "helper",
-          task: "Take over the task",
-          ...(access ? { access } : {}),
+          tasks: [
+            {
+              requestId: `helper-${index}`,
+              provider: "claude",
+              model: "claude-haiku-5-5",
+              role: "helper",
+              task: "Take over the task",
+              ...(access ? { access } : {}),
+            },
+          ],
         },
         [{ type: "text", text: failed }],
         true,

@@ -71,8 +71,8 @@ it("an agent opens, types into and foregrounds an app through daemon MCP without
   await f.screen.enable(true);
   for (const [name, args] of [
     ["screen_open_app", { bundleId: "com.apple.Safari" }],
-    ["screen_type", { text: "release notes" }],
-    ["screen_request_foreground", {}],
+    ["screen_input", { action: "type", text: "release notes" }],
+    ["screen_open_app", { bundleId: "com.apple.Safari", mode: "foreground" }],
   ] as const) {
     const result = await f.call(name, args);
     expect(result.isError, `${name}: ${JSON.stringify(result.content)}`).not.toBe(true);
@@ -91,7 +91,7 @@ it("an agent opens, types into and foregrounds an app through daemon MCP without
   const [session] = f.screen.states();
   if (!session) throw new Error("Missing agent session");
   f.screen.controller(session.sessionId, "human", "person");
-  expect((await f.call("screen_type", { text: "blocked" })).isError).toBe(true);
+  expect((await f.call("screen_input", { action: "type", text: "blocked" })).isError).toBe(true);
 });
 
 it("the person's computer use switch is stored, and Stop all turns it off for agents", async () => {

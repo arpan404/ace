@@ -22,7 +22,7 @@ const delegation = {
   op: "delegate_task",
   requestId: "review-on-studio",
   task: "Summarize the open pull requests",
-  role: "Reviewer",
+  role: "Review-open-pull-requests",
   provider: "claude",
   machine: "studio",
   project: "project",
@@ -60,7 +60,7 @@ it("an agent sees another paired machine only while that machine lets agents in"
   expect(JSON.stringify(outputs)).not.toContain(pair.credential.token);
 });
 
-it("a task delegated to another machine runs there, and ace_wait here returns its result", async () => {
+it("a task delegated to another machine runs there, and wait here returns its result", async () => {
   const pair = await pairedMachines({ access: "operate" });
   await pair.source.call({ op: "machines" });
   const started = await pair.source.call(delegation);
@@ -68,7 +68,10 @@ it("a task delegated to another machine runs there, and ace_wait here returns it
 
   // The child is an ordinary thread on the other machine, in the named project.
   const child = pair.target.daemon.store.getThread(threadId);
-  expect(child).toMatchObject({ workspaceId: pair.target.workspace, title: "Reviewer" });
+  expect(child).toMatchObject({
+    workspaceId: pair.target.workspace,
+    title: "Review-open-pull-requests",
+  });
   // A retried call with the same requestId is the same child, not a second one.
   expect(Delegated.parse((await pair.source.call(delegation)).data).threadId).toBe(threadId);
 
@@ -120,7 +123,7 @@ it("a read-only pairing can list the machine but can't start work on it", async 
   expect(listed).toEqual([expect.objectContaining({ machine: "studio", access: "read" })]);
   await expect(pair.source.call(delegation)).rejects.toMatchObject({ code: "machine_forbidden" });
   expect(pair.target.daemon.store.listThreads().map((thread) => thread.title)).not.toContain(
-    "Reviewer",
+    "Review-open-pull-requests",
   );
 });
 
@@ -135,7 +138,7 @@ it("an agent opens a new site in the other machine's browser with nobody asked",
   const connection = { url: pair.source.daemon.mcp.url, bearer: lease.bearer };
   const result = ToolResult.parse(
     await (
-      await invoke(connection, "ace_browser_open", {
+      await invoke(connection, "browser_open", {
         url: "https://docs.example.test/start",
         machine: "studio",
       })
@@ -160,7 +163,7 @@ it("an offline machine fails clearly with what to do next", async () => {
   const failure = await pair.source.call(delegation).catch((error: unknown) => error);
   expect(failure).toMatchObject({
     code: "machine_offline",
-    hint: expect.stringContaining("start ace there"),
+    hint: expect.stringContaining("omit machine"),
   });
   // Seen opted in before, it stays listed as offline rather than vanishing.
   expect(Machines.parse((await pair.source.call({ op: "machines" })).data).machines).toEqual([

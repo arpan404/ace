@@ -4,69 +4,72 @@ ace injects the same scoped MCP server into each supported local provider CLI.
 The session lease identifies the calling thread and agent. Tools cannot choose
 another caller, collect provider credentials, or approve permission requests.
 
-Start with `ace_agents_catalog`. It reads the same live catalog as the composer,
-including configured models and account-specific discovery. Models expose their
-native/execution IDs, reasoning efforts and service tiers. Instances expose
-installation, auth, availability, supported launch options and native permission
-modes. Stale and unknown states stay explicit. `allowedPermissionModes` and
-`allowedDefault` describe the caller's permission ceiling, not authentication or
-remaining quota. Admission checks those separately.
+Start with `models`. It reads the same live catalog as the composer, including
+configured models and account-specific discovery. Models expose their IDs and
+reasoning efforts. Providers expose installation, login state and the access
+modes a child may take. Those modes describe the caller's ceiling, not
+authentication or remaining quota. Admission checks those separately.
 
-Page models with `nextOffset`, instances with `nextInstanceOffset`, and a selected
-instance's modes with `nextPermissionOffset` as `permissionOffset`. Use provider
-and instance filters to inspect one account. Pages omit raw provider data, account
-homes, environment variables and credentials. Discovery reads retained metadata;
+Page with `offset` from `nextOffset`, and filter by `provider`. Pages omit raw
+provider data, native selectors, account homes, environment variables and
+credentials. Discovery reads retained metadata;
 it does not start a conversation to inspect capabilities.
 
 ## Child work
 
-Use `delegate_task` for work whose completion belongs to the calling thread.
-Choose `provider`, optional `accountId`, `model`, `options` and `permissionMode`.
-Generic ACP selections also require their source-qualified agent, installation
-and instance identity from the catalog. Use a stable `requestId` for retries.
+Use `delegate` for work whose completion belongs to the calling thread. Input is
+a batch: `{tasks: [...], waitSeconds?, waitFor?}`. Each task may choose
+`provider`, `model`, `effort`, `access` and `workspace`. The provider defaults to
+the caller's. The daemon resolves the model to an account and instance. Use a
+stable `requestId` for retries.
 
 ```json
 {
-  "requestId": "review-auth-1",
-  "provider": "claude",
-  "model": "<catalog model ID>",
-  "role": "reviewer",
-  "task": "Review the authentication change and report actionable findings",
-  "permissionMode": "plan",
-  "workspace": { "kind": "project" }
+  "tasks": [
+    {
+      "requestId": "review-auth-1",
+      "provider": "claude",
+      "model": "<model ID from models>",
+      "role": "reviewer",
+      "task": "Review the authentication change and report actionable findings",
+      "workspace": { "kind": "project" }
+    }
+  ]
 }
 ```
 
-Delegation is async by default. The reply contains the child `threadId`.
-`waitMs` observes for at most four minutes; expiry returns that identity without
-cancelling its work. The older `wait: true` uses the same four-minute bound.
+Delegation is async by default. The reply contains the child `threadIds`.
+`waitSeconds` (at most 600) observes until `waitFor` (`all` or `any`) is met;
+expiry returns those identities without cancelling their work.
 Completion is delivered as durable ace context in a queued `subagent_result`
 parent turn, with near-simultaneous results coalesced. Parents need not poll.
 
-- `ace_agent_status` reports working, waiting on human, waiting on children,
-  result available, failed or cancelled. It uses whole-tree canonical status.
-- `ace_agent_result` reads the settled result without consuming its parent wake.
-- `ace_agent_message` sends another task to the same child and preserves its
+- `agents_status` without an ID snapshots every child. With a `threadId` it
+  reports working, waiting on human, waiting on children, failed or cancelled,
+  and returns the settled result without consuming its parent wake. It uses
+  whole-tree canonical status.
+- `wait` blocks until named threads settle or one needs the person.
+- `agent_message` sends another task to the same child and preserves its
   generation accounting, model and permission ancestry.
-- `ace_agent_cancel` requests cascading cancellation. Read status for confirmation
+- `agent_cancel` requests cascading cancellation. Read status for confirmation
   that the complete tree has stopped.
 
-Large outcomes contain a preview and a transcript cursor. `ace_thread_read`
+Large outcomes contain a preview and a transcript cursor. `thread_read`
 returns a bounded timeline page; continue with `itemsBefore` as `before`.
-Retained text sources can be paged with `ace_thread_read_output` in byte ranges.
-The legacy spawn, agent list, wait and thread-info tools remain available.
+Retained text sources are paged with `thread_read` `streamId` and `offset` in
+byte ranges. The old spawn, list, result and thread-info tools are gone.
 
 ## Ordinary conversations
 
-`ace_threads_list` lists or searches the calling thread's project, with an opaque
-cursor. A cursor belongs to its exact query and project. `ace_thread_read` reads
+`threads_find` lists or searches the calling thread's project, with an opaque
+cursor. A cursor belongs to its exact query and project. `thread_read` reads
 the state and timeline of an authorized thread.
 
-Use `ace_thread_start` for an ordinary top-level conversation. It requires a
+Use `thread_start` for an ordinary top-level conversation. It requires a
 title, initial text, provider selection, stable request ID and workspace strategy.
 It records durable caller ownership and permission ancestry, but does not attach
 a child agent to the caller or deliver a result wake. The caller can finish while
-the conversation continues. Use `delegate_task` when that work must hold the
+the conversation continues. Use `delegate` when that work must hold the
 parent open.
 
 Ordinary conversations share the caller's admission budget. Their own usage and
@@ -99,7 +102,7 @@ Workspace strategies are explicit for conversation launch, optional for children
 - `{ "kind": "existing_worktree", "path": "/absolute/registered/path" }` reuses
   a worktree registered to that Git project. Arbitrary directories are rejected.
 
-`ace_thread_message` accepts `queue`, `steer` and `restart`. Steering follows the
+`agent_message` accepts `delivery` `queue`, `steer` or `restart`. Steering follows the
 provider's existing fallback to queue. Restart atomically accepts a cascade
 interrupt and replacement input, clears obsolete recovery holds and puts the
 new input before retained queued messages. Retrying its request ID cannot issue
@@ -108,7 +111,8 @@ pending preparation signals are cancelled and their durable reservations revoked
 so an obsolete child cannot launch after restart acceptance;
 the target thread remains available for the replacement turn.
 
-`ace_thread_interrupt` stops an owned thread tree. `ace_thread_configure` changes
+`thread_control` with `action: "interrupt"` stops an owned thread tree.
+`action: "configure"` changes
 an owned thread's catalog model and launch options through the existing engine
 switch lifecycle, preserving its provider and account. Acceptance is not proof
 that the switch has applied; inspect the thread's `switch` and `execution` state.
@@ -132,4 +136,5 @@ or permission mode, as recorded in ADR 0050; its process has the user's OS right
 Conservative same-provider reductions are supported. Other cross-provider policies
 or unknown CLI defaults fail closed when containment cannot be established.
 Select a known caller mode in ace before using those launch paths. ace MCP tools
-keep their own consent checks regardless of the provider's native mode.
+add no approvals of their own: the provider's native mode decides each call from the
+tools' annotations, and only `thread_merge` and `automation_remove` are destructive.

@@ -171,8 +171,7 @@ if (provider === "opencode") {
       }
       const entry = z.object({ value: z.string() }).parse(JSON.parse(body));
       // OpenCode reads ace's guidance from MCP instructions; this entry teaches its tool names.
-      if (!entry.value.includes("ace_ace_guide"))
-        throw new Error("Native tool guidance is missing");
+      if (!entry.value.includes("ace_guide")) throw new Error("Native tool guidance is missing");
       res.writeHead(204).end();
       return;
     } else if (path.endsWith("/interrupt")) result = { interrupted: true };

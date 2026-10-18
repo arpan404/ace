@@ -32,7 +32,7 @@ A template defines each run: fanout starts every lane with the same prompt;
 race starts every lane and selects the first checked success; pipeline starts
 one stage at a time with explicit implement/review/fix instructions, passing the previous stage's structured artifact; and
 coordinator starts one planner which can request nested lanes through the
-`ace_spawn_agent` entry point. A persisted orchestration contains its run ID,
+`delegate` entry point (originally a separate spawn tool). A persisted orchestration contains its run ID,
 lanes, counters, usage, winner, and pending intents. Each attempt has a fresh
 thread and worktree. Late facts carry the attempt number and are ignored.
 
@@ -73,7 +73,7 @@ inside the daemon receipt transaction. Orchestration event and snapshot schemas
 are exported separately for later subscription wiring; they do not change the
 thread event log or claim to implement client subscriptions here.
 
-`ace_spawn_agent` is an engine/MCP entry point scoped to the requesting lane.
+`delegate` is the engine/MCP entry point scoped to the requesting lane.
 It accepts a lane spec and request ID, uses the same reducer, deduplicates
 requests, and cannot exceed the run's depth or lane budget. It does not grant
 permission to pick winners or change checks.
@@ -137,31 +137,34 @@ least eight production mutations are caught by behavioural tests before PR.
 
 Extend the daemon's existing agent-control port and protocol operation union.
 The authenticated MCP lease selects the caller; arguments never select a parent.
-Keep `delegate_task`, `ace_list_agents`, `ace_wait`, `ace_thread_info` and the
-existing thread readers compatible. (`ace_spawn_agent` was later retired in
-favour of `delegate_task`; see ADR 0052, "Monitoring and bounded waits".)
+Keep `delegate`, `agents_status`, `wait`, `context` and the existing thread
+readers compatible. (The spawn tool was later retired in favour of `delegate`;
+see ADR 0052, "Monitoring and bounded waits". Names here are the current bare
+names; see ADR 0010, "bare tool names".)
 
-- `ace_agents_catalog` pages the composer's live model catalog by provider and
+- `models` pages the composer's live model catalog by provider and
   account. Return model identities, reasoning efforts, service tiers, native
   permission modes, installation/authentication state and redacted account
   availability. Never return account homes, environment or credentials.
-- `delegate_task` retains stable request IDs and async default. Optional
-  `waitMs` bounds observation without cancelling accepted work. Optional
+- `delegate` retains stable request IDs and async default. It takes a batch,
+  `{tasks: [...], waitSeconds?, waitFor?}`. `waitSeconds` bounds observation
+  without cancelling accepted work. Optional
   `workspace` selects the project, an existing registered Git worktree, or a
   new daemon-owned worktree from an explicit base. Omission retains the caller's
   workspace. Reserve capacity before filesystem effects.
-- `ace_agent_status`, `ace_agent_result`, `ace_agent_message` and
-  `ace_agent_cancel` address an owned child by thread ID. Status distinguishes
+- `agents_status`, `agent_message` and `agent_cancel` address an owned child
+  by thread ID. `agents_status` with a thread ID returns the result once the
+  child settles. Status distinguishes
   working, human wait, child wait, available result, failure and cancellation.
   Result reads do not consume the durable parent notification. Follow-ups use
   the same child and existing generation accounting. Cancellation cascades.
-- `ace_threads_list` lists or searches the caller's project with a bounded
-  cursor. `ace_thread_read` remains the paginated state/timeline reader.
-  `ace_thread_start` creates an ordinary conversation with a required workspace
+- `threads_find` lists or searches the caller's project with a bounded
+  cursor. `thread_read` remains the paginated state/timeline reader.
+  `thread_start` creates an ordinary conversation with a required workspace
   strategy, selection, permission mode and initial text. It has durable caller
   ownership and request deduplication, but no child attachment or result wakeup.
-  `ace_thread_message` adds restart delivery to queue and steer;
-  `ace_thread_interrupt` and `ace_thread_configure` operate on owned threads.
+  `agent_message` adds restart delivery to queue and steer;
+  `thread_control` actions `interrupt` and `configure` operate on owned threads.
 
 Schemas remain in `@ace/protocol`. Pages are bounded by encoded bytes as well
 as row count and use the MCP registry's JSON budget. Discovery reports retained

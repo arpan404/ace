@@ -58,13 +58,13 @@ export function devWorld(): WorldThread[] {
     ...childActions().map((scenario) => ({ scenario, agoMs: 0 })),
     // A thread that delegated work to Codex through ace: the delegate is a thread of its own.
     ...delegatedDocs().map((scenario) => ({ scenario, agoMs: 3 * 60 * minute })),
-    // An OpenCode thread whose agent started a separate Codex conversation (ace_thread_start).
+    // An OpenCode thread whose agent started a separate Codex conversation (thread_start).
     ...startedConversation().map((scenario) => ({ scenario, agoMs: minute })),
     // Agents using ace's own tools: computer use, the browser and a simulator.
     ...aceTools().map((scenario) => ({ scenario, agoMs: 20 * minute })),
     // A Codex browser thread whose approvals repeat: one row per call, the answer as its note.
     { scenario: aceToolApprovals(), agoMs: minute },
-    // A published HTML visualization (ace_html_render) above the agent's reply.
+    // A published HTML visualization (html_render) above the agent's reply.
     { scenario: visualization(), agoMs: 25 * minute },
     // An interactive learning page (slider, step-through, quick check) inline in the reply.
     { scenario: explainer(), agoMs: 12 * minute },

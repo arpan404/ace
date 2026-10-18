@@ -10,7 +10,6 @@ import { defaultDaemonUrl, forgetToken, type DaemonTarget } from "./boot/connect
 import { pairingLinkFromUrl } from "./boot/fragment-handoff.ts";
 import { DaemonConnectionContext } from "./boot/connection.tsx";
 import { createDaemonClient, forgetDaemonIdentity } from "./boot/daemon.ts";
-import { useRemoteAgentBroker } from "./boot/remote-agent-broker.ts";
 import { useBrowserMachinePool } from "./boot/machine-pool-boot.ts";
 import {
   desktopConnection,
@@ -61,7 +60,6 @@ const app = (client: ClientApi, machines?: MachinePool) => (
 /** A real daemon's app, with the machine pool this browser has stored for its connection. */
 function DaemonApp(props: { client: ClientApi }) {
   const { pool, ensure } = useBrowserMachinePool(local, session);
-  useRemoteAgentBroker(props.client, pool);
   return (
     <App
       client={props.client}

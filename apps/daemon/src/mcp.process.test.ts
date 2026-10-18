@@ -114,10 +114,12 @@ it("serves remote device access alongside isolated MCP authority and shuts down 
       fingerprint: daemon.fingerprint,
     }),
   ).toMatchObject({ running: true });
-  expect(await (await call(daemon.mcp.url, lease.bearer, "ace_status")).json()).toMatchObject({
-    result: { structuredContent: { threadId: scope.threadId } },
+  expect(
+    await (await call(daemon.mcp.url, lease.bearer, "context", { topics: ["status"] })).json(),
+  ).toMatchObject({
+    result: { structuredContent: { status: { threadId: scope.threadId } } },
   });
-  expect((await call(daemon.mcp.url, paired.token, "ace_status")).status).toBe(401);
+  expect((await call(daemon.mcp.url, paired.token, "context")).status).toBe(401);
   await expect(
     accessRequest(remote, "/mcp", {
       token: paired.token,
@@ -134,7 +136,7 @@ it("serves remote device access alongside isolated MCP authority and shuts down 
   });
   expect(reopened.store.getMcpAgent(scope.threadId, scope.agentId)).toMatchObject({ id: "root" });
   expect(reopened.fingerprint).toBe(daemon.fingerprint);
-  expect((await call(reopened.mcp.url, lease.bearer, "ace_status")).status).toBe(401);
+  expect((await call(reopened.mcp.url, lease.bearer, "context")).status).toBe(401);
 });
 
 it("persists an attributed notice and notification intent together and preserves pending intents across restart", async () => {
@@ -155,7 +157,7 @@ it("persists an attributed notice and notification intent together and preserves
   cleanups.push(() => daemon.close());
   const { thread, scope } = seed(daemon.store);
   const lease = daemon.mcp.openSession(scope, new AbortController().signal);
-  const response = await call(daemon.mcp.url, lease.bearer, "ace_notify_user", {
+  const response = await call(daemon.mcp.url, lease.bearer, "notify", {
     text: "Need input",
     level: "warning",
   });
@@ -185,7 +187,7 @@ it("persists an attributed notice and notification intent together and preserves
   const reopened = await openTransport();
   cleanups.push(() => reopened.close());
   expect(reopened.store.readMcpIntents()).toMatchObject([pending[0]]);
-  expect((await call(reopened.mcp.url, lease.bearer, "ace_status")).status).toBe(401);
+  expect((await call(reopened.mcp.url, lease.bearer, "context")).status).toBe(401);
   const first = reopened.store.readMcpIntents()[0];
   if (!first) throw new Error("Expected pending intent");
   expect(reopened.store.acknowledgeMcpIntent(first.id)).toBe(true);
@@ -225,7 +227,7 @@ it("rolls back both intent and notice when event persistence fails", () => {
   expect(store.readMcpIntents()).toMatchObject([{ id: "ok" }]);
 });
 
-it("reads indexed agent pages with canonical status and late parent linkage", async () => {
+it("thread_read reports the waiting state a child agent's approval gives its thread", async () => {
   const daemon = await startDaemon({
     config: readConfig({ ACE_HOME: home(), ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
   });
@@ -252,24 +254,7 @@ it("reads indexed agent pages with canonical status and late parent linkage", as
     2,
   );
   const lease = daemon.mcp.openSession(scope, new AbortController().signal);
-  expect(
-    await (await call(daemon.mcp.url, lease.bearer, "ace_list_agents", { limit: 1 })).json(),
-  ).toMatchObject({
-    result: {
-      structuredContent: {
-        agents: [{ id: "child", parentId: "root", status: { state: "blocked", on: "human" } }],
-        nextCursor: "child",
-      },
-    },
-  });
-  expect(
-    await (
-      await call(daemon.mcp.url, lease.bearer, "ace_list_agents", { cursor: "child", limit: 1 })
-    ).json(),
-  ).toMatchObject({
-    result: { structuredContent: { agents: [{ id: "root" }], nextCursor: null } },
-  });
-  expect(await (await call(daemon.mcp.url, lease.bearer, "ace_thread_read")).json()).toMatchObject({
+  expect(await (await call(daemon.mcp.url, lease.bearer, "thread_read")).json()).toMatchObject({
     result: { structuredContent: { data: { thread: { status: { state: "needs_you" } } } } },
   });
   expect(() =>
@@ -393,10 +378,10 @@ it("the daemon advertises unique scoped tools from every real registered toolkit
     return result.result.tools.map((tool) => tool.name);
   }
   const disabled = await catalog();
-  expect(disabled.filter((name) => /^(screen_|device_)/.test(name))).toEqual([]);
+  expect(disabled.filter((name) => /^(screen_|sim_)/.test(name))).toEqual([]);
   await screen.enable(true);
   expect((await catalog()).filter((name) => name.startsWith("screen_"))).toEqual(
-    expect.arrayContaining(["screen_open_app", "screen_ui_tree", "screen_request_foreground"]),
+    expect.arrayContaining(["screen_open_app", "screen_ui_tree", "screen_input"]),
   );
   const devices = daemon.devices;
   if (!devices) throw new Error("Missing catalog devices service");
@@ -405,18 +390,18 @@ it("the daemon advertises unique scoped tools from every real registered toolkit
   expect(new Set(names).size).toBe(names.length);
   expect(names).toEqual(
     expect.arrayContaining([
-      "ace_thread_read",
-      "ace_read_handoff",
-      "ace_read_handoff_chunk",
-      "ace_browser_open",
-      "ace_browser_close",
-      "ace_browser_snapshot",
-      "ace_browser_screenshot",
+      "context",
+      "thread_read",
+      "handoff_read",
+      "browser_open",
+      "browser_settings",
+      "browser_snapshot",
+      "browser_screenshot",
       "screen_screenshot",
       "screen_ui_tree",
-      "device_screenshot",
-      "device_ui_tree",
-      "device_tap",
+      "sim_screenshot",
+      "sim_ui",
+      "sim_act",
     ]),
   );
   lease.end();

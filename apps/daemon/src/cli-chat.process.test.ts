@@ -103,6 +103,8 @@ test("chat shows descendant human attention and resolves its approval inline wit
     f.caller.threadId,
     "--provider",
     "claude",
+    "--role",
+    "chat-attention-child",
     "--json",
   ]);
   const child = z

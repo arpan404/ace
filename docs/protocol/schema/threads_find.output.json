@@ -1,0 +1,78 @@
+{
+  "$id": "https://ace.local/protocol/v1/threads_find.output.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "enum": [
+        "unsupported",
+        "forbidden",
+        "not_found",
+        "limit",
+        "not_ready",
+        "invalid",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "data": {
+      "additionalProperties": {},
+      "properties": {
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hits": {
+          "items": {
+            "additionalProperties": {},
+            "properties": {
+              "itemId": {
+                "type": "string"
+              },
+              "snippet": {
+                "additionalProperties": {},
+                "properties": {
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "text"
+                ],
+                "type": "object"
+              },
+              "threadId": {
+                "type": "string"
+              },
+              "threadTitle": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "threadId"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "hits"
+      ],
+      "type": "object"
+    },
+    "hint": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "ok": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "type": "object"
+}

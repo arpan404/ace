@@ -80,6 +80,18 @@ export async function startMcp(context: ServiceContext): Promise<void> {
   };
   resources.own(measurements.close);
   resources.own(results.close);
+  const knowledge = knowledgePort({
+    store,
+    projects: () => services.projects?.catalog,
+    delegations: () => services.agentControl?.delegations,
+    prStatus: async (thread, cwd) =>
+      (await services.workspaceActions?.forge.status(thread, cwd)) ?? null,
+    git: contextGit,
+    failures: (sessionId) => services.mcp?.failures(sessionId) ?? [],
+    asks,
+    now: context.now,
+    id: context.id,
+  });
   const mcp = await startDaemonMcp(
     store,
     [
@@ -93,20 +105,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
       handoffToolkit(store),
       // The shipped skills, on demand, for every provider (Claude and Codex also get them natively).
       guideToolkit(await builtinGuides()),
-      knowledgeToolkit(
-        knowledgePort({
-          store,
-          projects: () => services.projects?.catalog,
-          delegations: () => services.agentControl?.delegations,
-          prStatus: async (thread, cwd) =>
-            (await services.workspaceActions?.forge.status(thread, cwd)) ?? null,
-          git: contextGit,
-          failures: (sessionId) => services.mcp?.failures(sessionId) ?? [],
-          asks,
-          now: context.now,
-          id: context.id,
-        }),
-      ),
+      knowledgeToolkit(knowledge),
       agentControlToolkit({
         async execute(caller, operation, signal) {
           return services.agentControl
@@ -136,29 +135,34 @@ export async function startMcp(context: ServiceContext): Promise<void> {
       ...(services.screen ? [screenToolkit(services.screen)] : []),
     ],
     observations,
-    (caller) => ({
-      // Report the thread's own native selector; a fixed placeholder misleads agents.
-      access: store.getThread(caller.threadId)?.permission?.effective ?? null,
-      // Providers with their own ask tool keep it; delegated children and Cursor get ace_ask.
-      askAvailable:
-        store.getThread(caller.threadId)?.provider === "cursor" ||
-        !!services.agentControl?.delegations.journal.get(caller.threadId),
-      disabled: {
-        ...(!services.browser
-          ? { browser: "ace's built-in browser failed to start in this daemon." }
-          : {}),
-        ...(!services.screen?.isEnabled()
-          ? {
-              screen: "Computer use is disabled.",
-            }
-          : {}),
-        ...(!services.devices?.isEnabled()
-          ? {
-              devices: "Devices are disabled.",
-            }
-          : {}),
-      },
-    }),
+    (caller) => {
+      const thread = store.getThread(caller.threadId);
+      const project = thread && store.getWorkspace(thread.workspaceId);
+      return {
+        // Report the thread's own native selector; a fixed placeholder misleads agents.
+        access: thread?.permission?.effective ?? null,
+        ...(thread && project ? { project: { id: thread.workspaceId, name: project.name } } : {}),
+        // Providers with their own ask tool keep it; delegated children and Cursor get ask.
+        askAvailable:
+          thread?.provider === "cursor" ||
+          !!services.agentControl?.delegations.journal.get(caller.threadId),
+        disabled: {
+          ...(!services.browser
+            ? { browser: "ace's built-in browser failed to start in this daemon." }
+            : {}),
+          ...(!services.screen?.isEnabled()
+            ? {
+                screen: "Computer use is disabled.",
+              }
+            : {}),
+          ...(!services.devices?.isEnabled()
+            ? {
+                devices: "Devices are disabled.",
+              }
+            : {}),
+        },
+      };
+    },
     mcpAwareness({
       store,
       delegations: () => services.agentControl?.delegations,
@@ -166,6 +170,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         (services.projects?.catalog.get(workspace).notes ?? []).map((note) => note.text),
       machine: hostname(),
     }),
+    knowledge,
   );
   resources.own(() => mcp.close());
   services.mcp = mcp;

@@ -110,9 +110,9 @@ test("Pi native registration retains the engine's scoped agent-control lease and
     const listed = z
       .object({ result: z.object({ tools: z.array(z.object({ name: z.string() })) }) })
       .parse(await response.json());
-    expect(listed.result.tools.map((tool) => tool.name)).toContain("ace_browser_open");
-    expect(listed.result.tools.map((tool) => tool.name)).toContain("delegate_task");
-    expect(listed.result.tools.map((tool) => tool.name)).toContain("ace_question_answer");
+    expect(listed.result.tools.map((tool) => tool.name)).toContain("browser_open");
+    expect(listed.result.tools.map((tool) => tool.name)).toContain("delegate");
+    expect(listed.result.tools.map((tool) => tool.name)).toContain("question_answer");
     await daemon.engine.close();
     expect(
       (await fetch(daemon.mcp.url, { headers: { Authorization: `Bearer ${issued}` } })).status,

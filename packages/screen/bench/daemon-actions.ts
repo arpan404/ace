@@ -25,11 +25,11 @@ try {
   const tools = module.computerUseHandler(screen, state.sessionId, "agent");
   const results: Record<string, number> = {};
   for (const [name, args] of [
-    ["screen_key", { key: "l", modifiers: ["command"] }],
-    ["screen_type", { text: "fixture" }],
-    ["screen_click", { x: 10, y: 10 }],
-    ["screen_scroll", { dx: 0, dy: 10 }],
-    ["screen_paste", { text: "fixture" }],
+    ["screen_input", { action: "key", key: "l", modifiers: ["command"] }],
+    ["screen_input", { action: "type", text: "fixture" }],
+    ["screen_input", { action: "click", x: 10, y: 10 }],
+    ["screen_input", { action: "scroll", dx: 0, dy: 10 }],
+    ["screen_input", { action: "paste", text: "fixture" }],
   ] as const) {
     const samples: number[] = [];
     for (let repeat = 0; repeat < 10; repeat++) {
@@ -38,7 +38,7 @@ try {
       samples.push(performance.now() - started);
     }
     samples.sort((a, b) => a - b);
-    results[name] = Number((samples[5] ?? 0).toFixed(2));
+    results[`${name}.${args.action}`] = Number((samples[5] ?? 0).toFixed(2));
   }
   console.log(JSON.stringify({ fixtureRoundTripMs: 10, samplesPerAction: 10, medianMs: results }));
 } finally {

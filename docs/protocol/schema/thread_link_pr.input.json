@@ -1,0 +1,38 @@
+{
+  "$id": "https://ace.local/protocol/v1/thread_link_pr.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "all": {
+      "const": true,
+      "description": "With unlink: remove every link.",
+      "type": "boolean"
+    },
+    "number": {
+      "description": "Or its number.",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "repo": {
+      "description": "owner/name or host/owner/name; default: this workspace's origin.",
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    },
+    "unlink": {
+      "default": false,
+      "description": "Remove the link instead.",
+      "type": "boolean"
+    },
+    "url": {
+      "description": "The pull request URL.",
+      "format": "ace-whatwg-url",
+      "type": "string",
+      "x-ace-constraint": "Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code.",
+      "x-ace-url-maxLength": 2048
+    }
+  },
+  "type": "object",
+  "x-ace-constraint": "Exactly one of url, number, or all: true; all only with unlink."
+}

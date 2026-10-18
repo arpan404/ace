@@ -22,41 +22,54 @@ test("a read-only MCP lease can call transcript reads and receives accurate tool
   }).register(h.registry);
   const { client } = await h.connect();
   const tools = await client.listTools();
-  expect(tools.tools.find((tool) => tool.name === "ace_thread_read")).toMatchObject({
+  expect(tools.tools.find((tool) => tool.name === "thread_read")).toMatchObject({
+    title: "Read a thread",
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   });
   expect(
-    await client.callTool({ name: "ace_thread_read", arguments: { threadId: "child" } }),
+    await client.callTool({ name: "thread_read", arguments: { threadId: "child" } }),
   ).toMatchObject({
     structuredContent: { ok: true, data: { threadId: "child", retained: "child result" } },
   });
-  expect(tools.tools.some((tool) => tool.name === "delegate_task")).toBe(false);
+  expect(tools.tools.some((tool) => tool.name === "delegate")).toBe(false);
   const agents = await h.connect(scope("parent", ["agents"]));
   expect(
-    (await agents.client.listTools()).tools.find((tool) => tool.name === "delegate_task"),
+    (await agents.client.listTools()).tools.find((tool) => tool.name === "delegate"),
   ).toMatchObject({
     annotations: { readOnlyHint: false },
     _meta: { "ace/timeoutMs": 630000, "ace/riskClass": "agent-execution" },
   });
 });
 
-test("providers see only tools that overwrite work or commit spending as destructive", async () => {
+test("only tools that delete or overwrite work are destructive; reads never ask", async () => {
   const h = await harness(cleanups);
   agentControlToolkit({
     async execute() {
       return { ok: true, data: null };
     },
   }).register(h.registry);
-  const { client } = await h.connect(scope("root", ["thread_control", "automations"]));
-  const hints = new Map(
-    (await client.listTools()).tools.map((tool) => [tool.name, tool.annotations]),
+  const { client } = await h.connect(
+    scope("root", ["thread_control", "automations", "agents", "projects"]),
   );
-  expect(hints.get("ace_thread_merge")).toMatchObject({ destructiveHint: true });
-  expect(hints.get("ace_automation_manage")).toMatchObject({ destructiveHint: true });
-  expect(hints.get("ace_thread_rename")).toMatchObject({
+  const listed = (await client.listTools()).tools;
+  const destructive = listed
+    .filter((tool) => tool.annotations?.destructiveHint)
+    .map((tool) => tool.name);
+  expect(destructive.toSorted()).toEqual(["automation_remove", "thread_merge"]);
+  const hints = new Map(listed.map((tool) => [tool.name, tool.annotations]));
+  expect(hints.get("automations_list")).toMatchObject({
+    readOnlyHint: true,
+    destructiveHint: false,
+  });
+  expect(hints.get("thread_control")).toMatchObject({
     readOnlyHint: false,
     destructiveHint: false,
     openWorldHint: false,
   });
-  expect(hints.get("ace_thread_read")).toMatchObject({ readOnlyHint: true, idempotentHint: true });
+  // Every control tool acts on this machine's threads, so none reaches the open world.
+  for (const tool of listed) {
+    expect(tool.annotations?.openWorldHint, tool.name).toBe(false);
+    expect(tool.title, tool.name).toBeTruthy();
+    expect(tool.annotations?.title, tool.name).toBe(tool.title);
+  }
 });

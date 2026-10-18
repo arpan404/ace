@@ -36,7 +36,7 @@ export const MachineDescription = z.object({
 });
 export type MachineDescription = z.infer<typeof MachineDescription>;
 
-/** One entry of `ace_machines`. Offline machines are listed only once seen opted in. */
+/** One entry of `machines`. Offline machines are listed only once seen opted in. */
 export const MachineSummary = z.object({
   machine: MachineName,
   name: z.string().min(1).max(256),
@@ -89,7 +89,7 @@ export const MachineCall = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("browser.session") }),
   z.strictObject({
     op: z.literal("browser"),
-    tool: z.string().regex(/^ace_browser_[a-z_]{1,64}$/),
+    tool: z.string().regex(/^browser_[a-z_]{1,64}$/),
     args: z.record(z.string(), z.unknown()),
   }),
 ]);

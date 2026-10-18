@@ -50,7 +50,6 @@ export const PublicToolCode = z.enum([
   "page_text_limit",
   "approval_required",
   "denied",
-  "read_only",
   "timeout",
   "invalid_origin",
   "delegation_required",
@@ -94,11 +93,11 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   target_busy: {
     message: "App is controlled by another session",
-    hint: "Inspect screen sessions and ask the holder to hand back control.",
+    hint: "Another agent or the person holds this app. Work on another app, or call screen_open_app again once they release it.",
   },
   foreground_required: {
     message: "App requires foreground input",
-    hint: "Call screen_request_foreground for this session. Do not repeat background input blindly.",
+    hint: 'Call screen_open_app with mode:"foreground" for this app. Do not repeat background input blindly.',
   },
   focus_changed: {
     message: "Input target focus changed",
@@ -106,7 +105,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   window_minimized: {
     message: "Target window is minimized",
-    hint: "Ask the human to restore the window.",
+    hint: "Call screen_windows and pass a visible window's windowId to screen_open_app; if it is the only one, ask the person to restore it.",
   },
   window_offscreen: {
     message: "Foreground pointer input cannot reach this off-display window",
@@ -114,7 +113,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   window_ambiguous: {
     message: "The helper cannot uniquely identify the selected window",
-    hint: "Call screen_list_windows, then screen_open_app with windowId or screen_select_window for an existing session.",
+    hint: "Call screen_windows, then screen_open_app with one of the windowIds.",
   },
   key_unsupported: {
     message: "Unsupported key name",
@@ -126,7 +125,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   no_key_window: {
     message: "The selected window has no verified keyboard destination",
-    hint: "Use screen_ui_act on a field, screen_menu or screen_open_url. Do not replay input into a different window.",
+    hint: "Use screen_ui_act on a field or a menu path, or screen_open_app with url. Do not replay input into a different window.",
   },
   delivery_unconfirmed: {
     message: "Input was dispatched but its effect is unconfirmed",
@@ -146,31 +145,31 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   invalid_html: {
     message: "The page has unsupported content and was not published",
-    hint: "Fix each problem in issues, then call ace_html_render again with the corrected page.",
+    hint: "Fix each problem in issues, then call html_render again with the corrected page.",
   },
   invalid_data: {
     message: "Invalid tool or backend data",
-    hint: "Retry once. If the error persists, report it to the user.",
+    hint: "Retry once. If it fails again, tell the person and do the work another way.",
   },
   provider_unavailable: {
     message: "Provider CLI is unavailable",
-    hint: "Install the provider CLI on the daemon host, set its binary path in provider settings, and check its login.",
+    hint: "That provider's CLI is not installed here. Call models for the providers you can use and pick one; tell the person if this one is needed.",
   },
   provider_disabled: {
     message: "Provider is disabled",
-    hint: "Enable this provider and account in provider settings before delegating.",
+    hint: "Call models for the enabled providers and pick one; only the person can enable this one.",
   },
   model_unavailable: {
     message: "Requested model is unavailable",
-    hint: "Refresh the selected provider account's model catalog and choose an available model.",
+    hint: "Call models and pass a listed id, or omit model for the provider's default.",
   },
   account_unavailable: {
     message: "Provider account is unavailable",
-    hint: "Check the selected account, its CLI login and quota, or choose another account.",
+    hint: "Retry with another provider from models, or without naming an account; the person fixes logins and quota.",
   },
   admission_closed: {
     message: "Daemon is not accepting agent work",
-    hint: "Wait for daemon startup or maintenance to finish before retrying.",
+    hint: "ace is starting or shutting down. Retry the same call, with the same requestId, in a few seconds.",
   },
   delegation_cancelled: {
     message: "This agent is being stopped",
@@ -182,11 +181,11 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   workspace_unavailable: {
     message: "Workspace is unavailable for agent creation",
-    hint: "Check that the workspace exists and finish any workspace or worktree change before retrying.",
+    hint: "Retry without workspace (this project's checkout), or call context with topics [changes] to check the branch first.",
   },
   delegation_denied: {
     message: "Child permissions exceed the parent permission ceiling",
-    hint: "Choose an access mode allowed by the parent thread.",
+    hint: "Retry with access inherit, or a mode no broader than yours.",
   },
   access_escalation_denied: {
     message: "The requested access is broader than the parent thread's",
@@ -206,31 +205,31 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   stale_ref: {
     message: "Stale or unknown element ref",
-    hint: "Refresh ace_browser_snapshot, screen_ui_tree or device_ui_tree for the affected tool and use a current ref.",
+    hint: "Read fresh refs (browser_snapshot, screen_ui_tree or sim_ui, matching the tool you used) and retry with a current ref.",
   },
   controller_changed: {
     message: "Browser control changed while the action was queued",
-    hint: "Take a fresh snapshot and retry after control is handed back.",
+    hint: "Call browser_snapshot for fresh refs, then retry.",
   },
   human_private: {
     message: "Browser is private while a human has control",
-    hint: "Wait for explicit human handback. A disconnect does not restore agent access.",
+    hint: "Wait for explicit human handback of this tab; a disconnect does not restore agent access. Your other tabs keep working (browser_tabs open for a new one).",
   },
   human_controlled: {
     message: "Browser controlled by human",
-    hint: "Wait for handback before input or closing.",
+    hint: "The person holds this tab: wait for handback before input or closing it. Your other tabs keep working.",
   },
   browser_paused: {
     message: "Browser backend paused",
-    hint: "Ask the user to restore the browser backend or close it after handback.",
+    hint: "Call browser_open to resume the page; if a person holds it, wait for their handback.",
   },
   browser_closed: {
     message: "Browser closed",
-    hint: "Call ace_browser_open to open a new session.",
+    hint: "Call browser_open to open the browser again, then browser_snapshot.",
   },
   backend_changed: {
     message: "Browser backend changed during command",
-    hint: "Take a fresh snapshot before retrying.",
+    hint: "Call browser_snapshot for fresh refs before retrying.",
   },
   queue_full: {
     message: "Browser command queue full",
@@ -238,47 +237,43 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   tab_not_found: {
     message: "Browser tab not found",
-    hint: "Call ace_browser_tabs with operation list for current tab ids; the tab may have been closed.",
+    hint: "Call browser_tabs (action list) for current tab ids; the tab may have been closed.",
   },
   tab_crashed: {
     message: "Browser tab crashed",
-    hint: "The page crashed repeatedly and stays down. Reload it (ace_browser_history direction reload) or navigate it to bring it back.",
+    hint: "The page crashed repeatedly and stays down. Reload it (browser_history direction reload) or navigate it to bring it back.",
   },
   tab_limit: {
     message: "Browser tab limit reached",
-    hint: "Close tabs you no longer need with ace_browser_close and its tabId, or reuse one of your tabs.",
+    hint: "Close tabs you no longer need with browser_tabs (action close, tabId), or reuse one of your tabs.",
   },
   element_unavailable: {
     message: "Browser element is detached or unavailable",
-    hint: "Take a fresh snapshot and choose an editable or actionable element.",
+    hint: "Call browser_snapshot and choose an editable or actionable element.",
   },
   not_visible: {
     message: "Browser element is not visible",
-    hint: "Wait for visibility or choose an element in the latest snapshot.",
+    hint: 'Call browser_wait_for with the ref and state:"visible", or scroll with browser_act action:"scroll", then retry.',
   },
   evaluate_approval_required: {
     message: "Browser evaluate was refused by the host policy",
-    hint: "Read the page with a snapshot or find_text instead.",
+    hint: "Read the page with browser_snapshot or browser_find instead.",
   },
   page_text_limit: {
     message: "Browser text search exceeds the bounded page limit",
-    hint: "Use a snapshot or a smaller page. This search reads at most 1024 nodes and 65536 text characters.",
+    hint: "Use browser_find with role or name, or browser_snapshot scoped to a ref. Text search reads at most 1024 nodes and 65536 characters.",
   },
   approval_required: {
     message: "Browser origin was refused by the host policy",
-    hint: "Use another origin.",
+    hint: "This origin is blocked for agents here. Continue with an allowed URL (localhost always works), or tell the person which origin you need.",
   },
   denied: {
     message: "Browser refused the request",
     hint: "Report the refusal; for uploads, pass regular files that are not being replaced.",
   },
-  read_only: {
-    message: "Read-only mode refuses agent navigation",
-    hint: "Ask the user to change the permission mode before navigating.",
-  },
   timeout: {
     message: "Tool operation timed out",
-    hint: "Inspect current page or device state and any pending approval before retrying.",
+    hint: "Check current state (browser_open, sim_list or screen_screenshot) before retrying; pass a longer timeout for slow pages.",
   },
   invalid_origin: {
     message: "Browser navigation requires an HTTP(S) URL without credentials",
@@ -290,7 +285,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   screenshot_required: {
     message: "A fresh model screenshot is required for legacy coordinate input",
-    hint: "Call screen_screenshot after takeover or capture geometry changes. Use pixels from that image.",
+    hint: "Call screen_screenshot again; control changed during the capture.",
   },
   screenshot_failed: {
     message: "Screenshot encoding failed or exceeded the model limit",
@@ -322,24 +317,27 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   tool_unavailable: {
     message: "This ace tool is not available to this thread",
-    hint: "Its ace group is off here or the name is wrong. ace_status lists the groups that are on and ace_guide the tools for each task; if the group is off, tell the person. Your own tools are unaffected.",
+    hint: "The name is wrong or its ace group is off here. Call context with topics [status] for the groups that are on, or guide for each task's tools; if a group is off, tell the person. Your own tools are unaffected.",
   },
   tool_missing: {
     message: "Required device tool is unavailable",
     hint: "Ask the user to install the required capture or input tools on the daemon host.",
   },
   not_found: {
-    message: "Approved device was not found",
-    hint: "Refresh device_list and ask the user to check the device.",
+    message: "Simulator or emulator was not found",
+    hint: "Call sim_list for current simIds and retry with one of them.",
   },
-  not_booted: { message: "Device is not booted", hint: "Call device_boot for an approved device." },
+  not_booted: {
+    message: "Simulator is not booted",
+    hint: "Call sim_start with this simId (boot defaults to true).",
+  },
   command_failed: {
     message: "Device command failed",
     hint: "Check installed tools and device state before retrying.",
   },
   lease_required: {
-    message: "Device controller lease required",
-    hint: "Ask the user to delegate the device controller again after expiry or takeover.",
+    message: "This thread does not hold the simulator",
+    hint: "Call sim_start for this simId. If a person is using it, wait until they hand it back.",
   },
   limit: {
     message: "Device operation exceeds its limit",
@@ -347,7 +345,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   machine_offline: {
     message: "That machine is offline",
-    hint: "Ask the person to wake it and start ace there, then call ace_machines again, or do the work on this machine.",
+    hint: "Do the work on this machine (omit machine), or call machines later. Only the person can wake it.",
   },
   user_browser_unavailable: {
     message: "The person's own browser is not connected to ace",
@@ -355,11 +353,11 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   machine_unavailable: {
     message: "That machine is not available to agents",
-    hint: "Call ace_machines for the machines you may use. The person turns on agent access in Settings › Remote devices on that machine.",
+    hint: "Call machines for the machines you may use, or do the work on this machine.",
   },
   machine_forbidden: {
     message: "Not allowed on that machine",
-    hint: "Its agent access or pairing is read-only, or this thread is read-only. Use a read-only tool, or ask the person to change access.",
+    hint: "Its agent access or pairing is read-only, or this thread is read-only. Use a read-only tool there, or do the work on this machine.",
   },
   machine_disconnected: {
     message: "The connection to that machine dropped during the call",

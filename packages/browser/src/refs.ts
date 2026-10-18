@@ -1,14 +1,42 @@
 import { frameOffset, type BrowserFrameSession } from "./frame-coordinates.ts";
 import { staleRef, BrowserActionError } from "./action-error.ts";
 import type { BrowserCdp } from "./backend.ts";
-import { AXTree, Bounds, CallResult, ResolvedNode, snapshotNodes } from "./cdp.ts";
+import { AXTree, Bounds, CallResult, ResolvedNode } from "./cdp.ts";
+import { compactTree, type CompactNode } from "./snapshot-compact.ts";
+import { snapshotLine } from "./snapshot-text.ts";
 import { z } from "zod";
 import { withoutSubtree } from "./snapshot-exclusion.ts";
+
+/** About 1.5k tokens: a default snapshot stays cheaper than a 1536 px screenshot. */
+export const defaultSnapshotNodes = 120;
+/** About 12k tokens: the most one snapshot returns, whatever maxNodes says. */
+const maxSnapshotBytes = 48 * 1024;
+interface RefTarget {
+  backendNodeId: number;
+  cdp: BrowserCdp;
+  frameId?: string;
+}
+export interface SnapshotOptions {
+  /** A ref from the latest snapshot: return only that element's subtree. */
+  scope?: string;
+  interactiveOnly?: boolean;
+  maxNodes?: number;
+  /** Keep only matching nodes (find); the budget counts matches only. */
+  match?: (node: CompactNode) => boolean;
+}
+export interface SnapshotResult {
+  nodes: CompactNode[];
+  /** Matching nodes on the page, including those the budget left out. */
+  total: number;
+  truncated: boolean;
+}
 
 /** One generation and one bounded snapshot; navigation cannot alias an old ref. */
 export class SnapshotRefs {
   private epoch = 0;
-  private refs = new Map<string, { backendNodeId: number; cdp: BrowserCdp; frameId?: string }>();
+  private refs = new Map<string, RefTarget>();
+  /** Short, document-stable names for child frames, so refs stay a few characters long. */
+  private frameAliases = new Map<string, string>();
   /** Every frame's session; returns undefined when the page has no frame list (one session). */
   private frames:
     | (() => Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]> | undefined)
@@ -33,21 +61,36 @@ export class SnapshotRefs {
   invalidate(): void {
     this.epoch++;
     this.refs.clear();
+    this.frameAliases.clear();
   }
-  async snapshot() {
+  /** Bounded, compact snapshot of every frame; it replaces the actionable ref set. */
+  async snapshot(options: SnapshotOptions = {}): Promise<SnapshotResult> {
     for (let attempt = 0; ; attempt++) {
       try {
-        return await this.collect();
+        return await this.collect(options);
       } catch (error) {
         if (!(error instanceof BrowserActionError && error.code === "stale_ref") || attempt >= 4)
           throw error;
       }
     }
   }
-  private async collect() {
+  private alias(frame: { frameId?: string | undefined; parentId?: string | undefined }): string {
+    if (!frame.frameId || !frame.parentId) return "";
+    let alias = this.frameAliases.get(frame.frameId);
+    if (!alias) {
+      alias = `f${this.frameAliases.size + 1}:`;
+      this.frameAliases.set(frame.frameId, alias);
+    }
+    return alias;
+  }
+  private async collect(options: SnapshotOptions): Promise<SnapshotResult> {
     const epoch = this.epoch;
+    const scope = options.scope === undefined ? undefined : this.refs.get(options.scope);
+    if (options.scope !== undefined && !scope) throw staleRef();
     const listed = this.frames?.();
-    const frames = listed ? await listed : [{ frameId: undefined, cdp: this.cdp }];
+    const frames: { frameId?: string; cdp: BrowserCdp; parentId?: string }[] = listed
+      ? await listed
+      : [{ cdp: this.cdp }];
     this.frameSessions = new Map(
       frames
         .filter((frame): frame is BrowserFrameSession => frame.frameId !== undefined)
@@ -60,18 +103,16 @@ export class SnapshotRefs {
         .parse(await cdp.send("Memory.getDOMCounters")).nodes;
       if (domNodes > 20000) throw new Error("Browser document exceeds snapshot node limit");
     }
-    const nodes: (ReturnType<typeof snapshotNodes>[number] & { frameId?: string })[] = [];
-    const refs = new Map<string, { backendNodeId: number; cdp: BrowserCdp; frameId?: string }>();
-    let truncated = false,
+    const limit = options.maxNodes ?? defaultSnapshotNodes;
+    const nodes: CompactNode[] = [];
+    const refs = new Map<string, RefTarget>();
+    let total = 0,
       bytes = 0;
     const excluded = await this.excluded();
     for (const frame of frames) {
       const raw = AXTree.parse(
         await frame.cdp
-          .send("Accessibility.getFullAXTree", {
-            depth: 20,
-            ...(frame.frameId ? { frameId: frame.frameId } : {}),
-          })
+          .send("Accessibility.getFullAXTree", frame.frameId ? { frameId: frame.frameId } : {})
           .catch((error: unknown) => {
             // Frame process swaps can detach an AX target between discovery and this read.
             if (
@@ -84,36 +125,42 @@ export class SnapshotRefs {
             throw error;
           }),
       );
-      const tree = "parentId" in frame && frame.parentId ? raw : withoutSubtree(raw, excluded);
-      for (const node of snapshotNodes(tree, epoch)) {
-        const backendNodeId = node.ref ? Number(node.ref.split("-")[1]) : undefined;
-        const prefix = frame.frameId ? `${frame.frameId}:` : "";
-        const output = {
-          ...node,
-          id: prefix + node.id,
-          children: node.children.map((id) => prefix + id),
-          ...(frame.frameId ? { frameId: frame.frameId } : {}),
-          ...(node.ref ? { ref: prefix + node.ref } : {}),
-        };
-        bytes += Buffer.byteLength(JSON.stringify(output));
-        if (nodes.length >= 10000 || bytes > 512 * 1024) {
-          truncated = true;
-          break;
+      // ace's annotate overlay lives in the top document only.
+      const tree = frame.parentId ? raw : withoutSubtree(raw, excluded);
+      const prefix = this.alias(frame);
+      const refOf = (backendNodeId: number) => `${prefix}e${epoch}-${backendNodeId}`;
+      const target = (backendNodeId: number): RefTarget => ({
+        backendNodeId,
+        cdp: frame.cdp,
+        ...(frame.frameId ? { frameId: frame.frameId } : {}),
+      });
+      // Every DOM-backed node stays actionable, including ones the budget leaves out.
+      for (const node of tree.nodes)
+        if (node.backendDOMNodeId)
+          refs.set(refOf(node.backendDOMNodeId), target(node.backendDOMNodeId));
+      if (scope && (scope.cdp !== frame.cdp || scope.frameId !== frame.frameId)) continue;
+      const compact = compactTree(tree.nodes, {
+        refOf,
+        ...(scope ? { scope: scope.backendNodeId } : {}),
+        ...(options.interactiveOnly ? { interactiveOnly: true } : {}),
+        ...(prefix && frame.frameId ? { frameId: frame.frameId } : {}),
+      });
+      if (!compact) throw staleRef();
+      for (const node of compact) {
+        if (options.match && !options.match(node)) continue;
+        total++;
+        if (nodes.length >= limit) continue;
+        bytes += snapshotLine(node).length + 1;
+        if (bytes > maxSnapshotBytes) {
+          bytes = Number.POSITIVE_INFINITY;
+          continue;
         }
-        nodes.push(output);
-        if (output.ref && backendNodeId !== undefined)
-          refs.set(output.ref, {
-            backendNodeId,
-            cdp: frame.cdp,
-            ...(frame.frameId ? { frameId: frame.frameId } : {}),
-          });
+        nodes.push(node);
       }
-      if (nodes.length < tree.nodes.length) truncated = true;
-      if (truncated) break;
     }
     if (epoch !== this.epoch) throw staleRef();
     this.refs = refs;
-    return { nodes, truncated };
+    return { nodes, total, truncated: nodes.length < total };
   }
 
   documentGuard(): () => void {

@@ -12,7 +12,7 @@ type Fact = Extract<Step, { kind: "facts" }>["facts"][number];
 const originRequest = {
   kind: "approval" as const,
   title: "open https://arpan.sh in the thread browser",
-  target: { tool: "ace_browser_navigate", access: "execute" as const },
+  target: { tool: "browser_open", access: "execute" as const },
   options: [
     { id: "allow_once", label: "Allow once", kind: "allow_once" as const },
     { id: "allow_thread", label: "Allow for this thread", kind: "allow_session" as const },

@@ -10,7 +10,7 @@ it("ace MCP failures show their real error text while other Cursor errors keep t
     h.frame("delta", {
       type: "tool-call-started",
       callId: id,
-      toolCall: { type: "mcp", args: { server, tool: "screen_click", arguments: { x: 1, y: 2 } } },
+      toolCall: { type: "mcp", args: { server, tool: "screen_screenshot", arguments: {} } },
     });
     h.frame("delta", {
       type: "tool-call-completed",

@@ -38,9 +38,11 @@ it("live screenshots and MCP actions use the delegated session and human takeove
     received.resolve(value);
   });
   const tool = computerUseHandler(screen, id, "agent-1");
-  await expect(tool("screen_type", { text: "hello" })).rejects.toThrow("ownership");
+  await expect(tool("screen_input", { action: "type", text: "hello" })).rejects.toThrow(
+    "ownership",
+  );
   screen.controller(id, "agent", "agent-1");
-  await tool("screen_type", { text: "hello" });
+  await tool("screen_input", { action: "type", text: "hello" });
   const firstFrame = await received.promise;
   expect(firstFrame.payload.toString()).toBe("jpeg-0");
   const screenshot = await tool("screen_screenshot", {});
@@ -54,13 +56,13 @@ it("live screenshots and MCP actions use the delegated session and human takeove
       },
       {
         type: "text",
-        text: expect.stringContaining("Screenshot scale: 1 pixels per target point"),
+        text: expect.stringContaining("scale 1 for screen_input points"),
       },
     ],
   });
   expect(screenshot.content[0]).not.toMatchObject({ data: firstFrame.payload.toString("base64") });
   screen.controller(id, "human", "human-1");
-  await expect(tool("screen_click", { x: 1, y: 2 })).rejects.toThrow("ownership");
+  await expect(tool("screen_input", { action: "click", x: 1, y: 2 })).rejects.toThrow("ownership");
   await expect(
     screen.action(id, "human", { kind: "type", text: "hello" }, "human-2"),
   ).rejects.toThrow("ownership");

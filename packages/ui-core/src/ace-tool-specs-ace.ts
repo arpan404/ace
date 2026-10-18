@@ -3,16 +3,20 @@ import { humanize } from "./tool-names.ts";
 
 /*
  * ace's agent, thread, project and status tools as sentences: "Delegated “Review the login
- * flow”", "Notified you". Computer use, the browser and devices are in `ace-tool-specs.ts`.
- * Pure.
+ * flow”", "Notified you". Keyed by bare tool name (`delegate`, `thread_control`); providers'
+ * spellings are stripped before lookup. Computer use, the browser and devices are in
+ * `ace-tool-specs.ts`. Pure.
  */
 
 type Family = AceToolSpec["family"];
+type Args = Record<string, unknown>;
 const spec = (family: Family, words: AceToolSpec["words"]): AceToolSpec => ({ family, words });
 const fixed = (family: Family, words: ToolWords): AceToolSpec => spec(family, () => words);
+const record = (value: unknown): Args =>
+  typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Args) : {};
 
 /** The first of `keys` that is a non-empty string, on one line and short. */
-function named(args: Record<string, unknown>, keys: readonly string[], max = 56) {
+function named(args: Args, keys: readonly string[], max = 56) {
   for (const key of keys) {
     const value = str(args, key);
     if (value) {
@@ -23,11 +27,10 @@ function named(args: Record<string, unknown>, keys: readonly string[], max = 56)
   return undefined;
 }
 
-const threadRead = spec("threads", ({ args }) =>
-  say(verbs.read, " thread", named(args, ["title", "threadId"])),
-);
+const count = (value: unknown) => (Array.isArray(value) ? value.length : 0);
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-function prLabel(args: Record<string, unknown>): string {
+function prLabel(args: Args): string {
   const number =
     typeof args.number === "number"
       ? args.number
@@ -37,130 +40,196 @@ function prLabel(args: Record<string, unknown>): string {
   return number ? ` PR #${number}` : " a PR";
 }
 
-const aceSpecs: Record<string, AceToolSpec> = {
-  ace_device_list: fixed("device", say(verbs.listed, " connected devices")),
-  ace_device_delegate: fixed(
-    "device",
-    say(["Delegated", "Delegating", "Delegate"], " work to another device"),
-  ),
-  ace_device_task_publish: fixed(
-    "device",
-    say(["Returned", "Returning", "Return"], " results from another device"),
-  ),
-  ace_device_task_status: fixed(
-    "device",
-    say(["Checked", "Checking", "Check"], " work on another device"),
-  ),
-  ace_device_task_wait: fixed("device", say(verbs.waited, " work on another device")),
-  ace_device_task_cancel: fixed(
-    "device",
-    say(["Stopped", "Stopping", "Stop"], " work on another device"),
-  ),
-  delegate_task: spec("agents", ({ args }) => {
-    const delegated = ["Delegated", "Delegating", "Delegate"] as const;
-    if (Array.isArray(args.tasks) && args.tasks.length > 1)
-      return say(delegated, ` ${args.tasks.length} tasks`);
-    const task = str(args, "task");
-    return say(delegated, ` ${task ? quote(task, 56) : "a task"}`);
-  }),
-  ace_machines: fixed("device", say(verbs.listed, " your machines")),
-  ace_list_agents: fixed("agents", say(verbs.listed, " agents")),
-  ace_wait: fixed("agents", say(verbs.waited, " subagents")),
-  ace_agents_status: fixed("agents", say(["Checked", "Checking", "Check"], " subagents")),
-  ace_thread_info: fixed("threads", say(verbs.read, " this thread's details")),
-  ace_thread_read: threadRead,
-  ace_thread_read_output: threadRead,
-  ace_thread_search: spec("threads", ({ args }) => {
-    const query = str(args, "query");
-    return say(
-      ["Searched", "Searching", "Search"],
-      ` threads${query ? ` for ${quote(query)}` : ""}`,
-    );
-  }),
-  ace_thread_create: spec("threads", ({ args }) =>
-    say(
-      ["Created a thread", "Creating a thread", "Create a thread"],
-      "",
-      named(args, ["title", "name"]),
-    ),
-  ),
-  ace_thread_launch: fixed("threads", say(verbs.started, " a thread")),
-  ace_thread_start: spec("threads", ({ args }) =>
-    say(["Started a thread", "Starting a thread", "Start a thread"], "", named(args, ["title"])),
-  ),
-  ace_thread_message: spec("threads", ({ args }) =>
-    say(
-      ["Messaged a thread", "Messaging a thread", "Message a thread"],
-      "",
-      named(args, ["text", "message"]),
-    ),
-  ),
-  ace_thread_wait: spec("threads", ({ args }) =>
-    say(
-      verbs.waited,
-      Array.isArray(args.ids) && args.ids.length > 1 ? ` ${args.ids.length} threads` : " a thread",
-    ),
-  ),
-  ace_thread_interrupt: spec("threads", ({ args }) =>
-    say(["Stopped a thread", "Stopping a thread", "Stop a thread"], "", named(args, ["threadId"])),
-  ),
-  ace_thread_fork: fixed("threads", say(["Forked", "Forking", "Fork"], " a thread")),
-  ace_thread_merge: fixed("threads", say(["Merged", "Merging", "Merge"], " a thread")),
-  ace_thread_rename: spec("threads", ({ args }) => {
-    const title = named(args, ["title"]);
-    return say(
-      ["Renamed", "Renaming", "Rename"],
-      ` the thread${title ? ` to ${quote(title)}` : ""}`,
-    );
-  }),
-  ace_thread_regenerate_title: fixed(
-    "threads",
-    say(["Retitled", "Retitling", "Retitle"], " the thread"),
-  ),
-  ace_thread_link_pr: spec("threads", ({ args }) =>
-    say(["Linked", "Linking", "Link"], prLabel(args)),
-  ),
-  ace_thread_unlink_pr: spec("threads", ({ args }) =>
-    say(["Unlinked", "Unlinking", "Unlink"], args.all === true ? " all PRs" : prLabel(args)),
-  ),
-  ace_thread_list_prs: fixed("threads", say(["Listed", "Listing", "List"], " linked PRs")),
-  ace_thread_settle: fixed("threads", say(["Marked", "Marking", "Mark"], " a thread done")),
-  ace_thread_snooze: fixed("threads", say(["Snoozed", "Snoozing", "Snooze"], " a thread")),
-  ace_thread_handoff: fixed(
-    "threads",
-    say(["Handed off", "Handing off", "Hand off"], " the thread"),
-  ),
-  ace_queue_edit: fixed("threads", say(["Edited", "Editing", "Edit"], " a queued message")),
-  ace_queue_reorder: fixed("threads", say(["Reordered", "Reordering", "Reorder"], " the queue")),
-  ace_question_answer: fixed("threads", say(["Answered", "Answering", "Answer"], " a question")),
-  ace_read_handoff: fixed("threads", say(verbs.read, " the handoff history")),
-  ace_read_handoff_chunk: fixed("threads", say(verbs.read, " the handoff history")),
-  ace_notify_user: spec("ace", ({ args }) => {
-    const text = named(args, ["text", "title", "message"], 80);
-    return say(["Notified you", "Notifying you", "Notify you"], text ? `: ${quote(text, 80)}` : "");
-  }),
-  ace_project_read: spec("ace", ({ args }) => say(verbs.read, " project", named(args, ["path"]))),
-  ace_project_rename: fixed("ace", say(["Renamed", "Renaming", "Rename"], " the project")),
-  ace_preview_list: fixed("ace", say(verbs.listed, " previews")),
-  ace_preview_close: fixed("ace", say(verbs.closed, " a preview")),
-  ace_automation_manage: spec("ace", ({ args }) =>
-    say(
-      ["Updated an automation", "Updating an automation", "Update an automation"],
-      "",
-      named(args, ["name", "title"]),
-    ),
-  ),
-  ace_status: fixed("ace", say(verbs.checked, " ace's status")),
-  ace_context_usage: fixed("ace", say(verbs.checked, " context use")),
-  ace_models: fixed("ace", say(verbs.listed, " models")),
+/* ---------------------------------------------------------------------------------------- */
+/* Agents                                                                                    */
+
+const delegated = ["Delegated", "Delegating", "Delegate"] as const;
+
+/** One task reads as its words (and machine); several as a count. */
+function delegateWords(args: Args): ToolWords {
+  const tasks = Array.isArray(args.tasks) ? args.tasks.map(record) : [];
+  if (tasks.length > 1) return say(delegated, ` ${tasks.length} tasks`);
+  const [only] = tasks;
+  const task = only && str(only, "task");
+  const machine = only && str(only, "machine");
+  return say(delegated, ` ${task ? quote(task, 56) : "a task"}${machine ? ` on ${machine}` : ""}`);
+}
+
+const deliveries: Record<string, readonly [string, string, string]> = {
+  queue: ["Messaged a subagent", "Messaging a subagent", "Message a subagent"],
+  steer: ["Steered a subagent", "Steering a subagent", "Steer a subagent"],
+  restart: ["Restarted a subagent", "Restarting a subagent", "Restart a subagent"],
 };
 
-/** Any other `ace_*` tool, named by its words: "Used ace › frobnicate". */
+const agentSpecs: Record<string, AceToolSpec> = {
+  delegate: spec("agents", ({ args }) => delegateWords(args)),
+  wait: spec("agents", ({ args }) => {
+    const n = count(args.threadIds);
+    return say(verbs.waited, n ? ` ${plural(n, "agent")}` : " subagents");
+  }),
+  agents_status: spec("agents", ({ args }) =>
+    say(verbs.checked, str(args, "threadId") ? " a subagent" : " subagents"),
+  ),
+  agent_message: spec("agents", ({ args }) =>
+    say(
+      deliveries[str(args, "delivery") ?? "queue"] ?? deliveries["queue"]!,
+      "",
+      named(args, ["text"]),
+    ),
+  ),
+  agent_cancel: fixed("agents", say(["Stopped", "Stopping", "Stop"], " a subagent")),
+  machines: fixed("device", say(verbs.listed, " your machines")),
+  models: fixed("ace", say(verbs.listed, " models")),
+};
+
+/* ---------------------------------------------------------------------------------------- */
+/* Threads                                                                                   */
+
+/** `thread_control` reads by its action: "Renamed the thread to “X”", "Forked a thread". */
+const controlWords: Record<string, (args: Args) => ToolWords> = {
+  rename: (args) => {
+    const title = named(args, ["title"]);
+    return title
+      ? say(["Renamed", "Renaming", "Rename"], ` the thread to ${quote(title)}`)
+      : say(["Retitled", "Retitling", "Retitle"], " the thread");
+  },
+  configure: (args) => {
+    const model = named(args, ["model"]);
+    return say(["Switched", "Switching", "Switch"], " a thread's model", model);
+  },
+  fork: () => say(["Forked", "Forking", "Fork"], " a thread"),
+  handoff: (args) =>
+    say(["Handed off", "Handing off", "Hand off"], " the thread", named(args, ["branch"])),
+  interrupt: () => say(["Stopped", "Stopping", "Stop"], " a thread"),
+  settle: () => say(["Marked", "Marking", "Mark"], " a thread done"),
+  snooze: (args) =>
+    args.until === null
+      ? say(["Unmuted", "Unmuting", "Unmute"], " a thread")
+      : say(["Snoozed", "Snoozing", "Snooze"], " a thread"),
+  close_preview: () => say(verbs.closed, " a preview"),
+  rename_project: (args) => {
+    const name = named(args, ["name"]);
+    return say(
+      ["Renamed", "Renaming", "Rename"],
+      ` the project${name ? ` to ${quote(name)}` : ""}`,
+    );
+  },
+};
+
+const changedThread = say(["Changed", "Changing", "Change"], " a thread");
+
+const threadSpecs: Record<string, AceToolSpec> = {
+  threads_find: spec("threads", ({ args }) => {
+    const query = str(args, "query");
+    const where = str(args, "threadId") ? " a thread" : " threads";
+    return query
+      ? say(["Searched", "Searching", "Search"], `${where} for ${quote(query)}`)
+      : say(verbs.listed, " recent threads");
+  }),
+  thread_read: spec("threads", ({ args }) =>
+    str(args, "streamId")
+      ? say(verbs.read, " a thread's output")
+      : say(verbs.read, str(args, "threadId") ? " a thread" : " this thread"),
+  ),
+  thread_start: spec("threads", ({ args }) =>
+    say(["Started a thread", "Starting a thread", "Start a thread"], "", named(args, ["title"])),
+  ),
+  thread_control: spec("threads", ({ args }) => {
+    const words = controlWords[str(args, "action") ?? ""];
+    return words ? words(args) : changedThread;
+  }),
+  thread_merge: fixed("threads", say(["Merged", "Merging", "Merge"], " a thread")),
+  queue_edit: spec("threads", ({ args }) =>
+    Array.isArray(args.order)
+      ? say(["Reordered", "Reordering", "Reorder"], " the queue")
+      : say(["Edited", "Editing", "Edit"], " a queued message"),
+  ),
+  question_answer: spec("threads", ({ args }) =>
+    args.dismissed === true
+      ? say(["Declined", "Declining", "Decline"], " a question")
+      : say(["Answered", "Answering", "Answer"], " a question"),
+  ),
+  thread_link_pr: spec("threads", ({ args }) =>
+    args.unlink === true
+      ? say(["Unlinked", "Unlinking", "Unlink"], args.all === true ? " all PRs" : prLabel(args))
+      : say(["Linked", "Linking", "Link"], prLabel(args)),
+  ),
+  handoff_read: fixed("threads", say(verbs.read, " the handoff history")),
+};
+
+/* ---------------------------------------------------------------------------------------- */
+/* Project, automations and the person                                                       */
+
+const contextTopics: Record<string, string> = {
+  status: " ace's status",
+  recent: " recent threads",
+  changes: " this worktree's changes",
+  prs: " linked PRs",
+  notes: " project notes",
+  diagnostics: " this session's diagnostics",
+};
+
+const projectSpecs: Record<string, AceToolSpec> = {
+  context: spec("ace", ({ args }) => {
+    const topics = Array.isArray(args.topics) ? args.topics : [];
+    const [only] = topics;
+    const topic = topics.length === 1 && typeof only === "string" ? contextTopics[only] : undefined;
+    return say(verbs.checked, topic ?? " the project context");
+  }),
+  guide: spec("ace", ({ args }) => say(verbs.read, " the guide", named(args, ["topic"]))),
+  automations_list: spec("ace", ({ args }) =>
+    say(verbs.listed, args.runs === true ? " automation runs" : " automations"),
+  ),
+  automation_put: spec("ace", ({ args }) =>
+    say(
+      ["Saved an automation", "Saving an automation", "Save an automation"],
+      "",
+      named(args, ["title", "id"]),
+    ),
+  ),
+  automation_run: spec("ace", ({ args }) =>
+    say(
+      ["Ran an automation", "Running an automation", "Run an automation"],
+      "",
+      named(args, ["id"]),
+    ),
+  ),
+  automation_remove: spec("ace", ({ args }) =>
+    say(
+      ["Removed an automation", "Removing an automation", "Remove an automation"],
+      "",
+      named(args, ["id"]),
+    ),
+  ),
+  note_add: spec("ace", ({ args }) => {
+    const text = named(args, ["text"], 80);
+    return say(
+      ["Saved a project note", "Saving a project note", "Save a project note"],
+      text ? `: ${quote(text, 80)}` : "",
+    );
+  }),
+  note_retire: fixed("ace", say(["Retired", "Retiring", "Retire"], " a project note")),
+  ask: spec("ace", ({ args }) => {
+    const question = named(args, ["question"], 80);
+    return say(["Asked you", "Asking you", "Ask you"], question ? `: ${quote(question, 80)}` : "");
+  }),
+  notify: spec("ace", ({ args }) => {
+    const text = named(args, ["text"], 80);
+    return say(["Notified you", "Notifying you", "Notify you"], text ? `: ${quote(text, 80)}` : "");
+  }),
+  // Its markup and title are private input, redacted before they reach the transcript.
+  html_render: fixed("ace", say(["Rendered", "Rendering", "Render"], " a page")),
+};
+
+const aceSpecs: Readonly<Record<string, AceToolSpec>> = {
+  ...agentSpecs,
+  ...threadSpecs,
+  ...projectSpecs,
+};
+
+/** Any other ace tool, named by its words: "Used ace › frobnicate". */
 export function unknownAceTool(name: string): AceToolSpec {
-  return fixed(
-    "ace",
-    say(["Used ace", "Using ace", "Use ace"], "", humanize(name.replace(/^ace_/, ""))),
-  );
+  return fixed("ace", say(["Used ace", "Using ace", "Use ace"], "", humanize(name)));
 }
 
 export { aceSpecs };

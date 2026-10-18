@@ -35,7 +35,7 @@ function result(context: StructureContext, actor: Actor, tabId?: string) {
   };
 }
 
-/** `ace_browser_tabs`: list, open, select and close tabs. Only open and close change the set. */
+/** `browser_tabs`: list, open, select and close tabs. Only open and close change the set. */
 export async function executeTabs(
   context: StructureContext,
   command: TabsCommand,
@@ -85,7 +85,7 @@ export async function executeTabs(
   }
 }
 
-/** `ace_browser_downloads`: what the thread's tabs downloaded, or wait for downloads to finish. */
+/** Downloads (`browser_logs` kind downloads, `browser_wait_for` downloads): what the thread's tabs downloaded, or wait for downloads to finish. */
 export async function executeDownloads(
   context: StructureContext,
   command: DownloadsCommand,

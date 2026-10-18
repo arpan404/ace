@@ -19,7 +19,10 @@ export {
   browserToolkit,
   browserChoiceInput,
   browserMachineInput,
+  type BrowserCaller,
   type BrowserMachineRoute,
+  type BrowserTabRef,
+  type BrowserToolPort,
 } from "./mcp.ts";
 
 export { Recording as BrowserRecording } from "./recording.ts";

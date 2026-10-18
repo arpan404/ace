@@ -59,14 +59,13 @@ test("a delegated task of 100 KB reaches the child's first message", async () =>
     const connection = f.h.contexts.get(f.caller.threadId)?.aceMcp;
     if (!connection) throw new Error("MCP connection missing");
     const task = largeTask("Review the attached log");
-    const result = await callTool(connection, "delegate_task", {
-      requestId: "large-task",
-      provider: "claude",
-      task,
-      role: "review-large-log",
+    const result = await callTool(connection, "delegate", {
+      tasks: [{ requestId: "large-task", provider: "claude", task, role: "review-large-log" }],
     });
     expect(result.isError).not.toBe(true);
-    const child = z.object({ threadId: ThreadId }).parse(result.structuredContent?.data).threadId;
+    const [child] = z
+      .object({ threadIds: z.tuple([ThreadId]) })
+      .parse(result.structuredContent?.data).threadIds;
     await f.daemon.engine?.flush();
     expect(f.h.inputs.get(child)?.[0]).toBe(`Role: review-large-log\n\nTask:\n${task}`);
   } finally {
@@ -85,7 +84,7 @@ test("a batch of 100 KB tasks starts every child with its whole task", async () 
       task: largeTask(name),
       role: name,
     }));
-    const result = await callTool(connection, "delegate_task", { tasks });
+    const result = await callTool(connection, "delegate", { tasks });
     expect(result.isError).not.toBe(true);
     const children = z
       .object({ threadIds: z.array(ThreadId) })
@@ -104,11 +103,15 @@ test("a task longer than a person's message is refused with the limit and starts
   try {
     const connection = f.h.contexts.get(f.caller.threadId)?.aceMcp;
     if (!connection) throw new Error("MCP connection missing");
-    const result = await callTool(connection, "delegate_task", {
-      requestId: "too-long",
-      provider: "claude",
-      task: "x".repeat(maxMessageBytes + 1),
-      role: "review-too-long-task",
+    const result = await callTool(connection, "delegate", {
+      tasks: [
+        {
+          requestId: "too-long",
+          provider: "claude",
+          task: "x".repeat(maxMessageBytes + 1),
+          role: "review-too-long-task",
+        },
+      ],
     });
     expect(result.isError).toBe(true);
     const failure = result.content.map((part) => part.text ?? "").join("");

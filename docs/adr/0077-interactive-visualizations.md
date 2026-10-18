@@ -4,7 +4,7 @@ Date: 2026-10-13. Status: accepted. Supersedes the static-only decision in commi
 
 ## Context
 
-`ace_html_render` publishes an agent-written HTML page into the transcript. Commit e6a090b53
+`html_render` publishes an agent-written HTML page into the transcript. Commit e6a090b53
 stripped every authored script and event handler, because Blink dispatches `preconnect` and
 `dns-prefetch` hints without a CSP check. A script that creates `<link rel=preconnect>` could
 therefore reach the network from a page whose CSP said `connect-src 'none'`. The result was a
@@ -54,7 +54,7 @@ Scripts run. The isolation is layered, and its boundary differs by client.
    when they return.
 
 6. **Agent-chosen mode.** The owner's decision is "interactive and static, the agent will
-   decide". `ace_html_render` takes `mode: "interactive" | "static"`, which the agent picks for each
+   decide". `html_render` takes `mode: "interactive" | "static"`, which the agent picks for each
    page. An omitted mode is `static` when the page has no script element or inline handler, and
    `interactive` otherwise. The daemon stores the resolved mode on the item, so it survives reload
    and reaches every client.

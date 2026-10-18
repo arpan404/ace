@@ -163,6 +163,6 @@ it("Cursor's scripted SDK receives ace status, its resource and instructions wit
     threadId: thread.id,
     agentId: AgentId.parse("root"),
     resources: [{ uri: "ace://status" }],
-    instructions: expect.stringContaining("ace_guide"),
+    instructions: expect.stringContaining("guide with topic"),
   });
 });

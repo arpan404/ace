@@ -15,14 +15,7 @@ export async function captureModelImage(
   const image = await modelImage({ payload: frame.payload, ...frame.header }, signal, runtime);
   signal.throwIfAborted();
   authorizeInput(session, "agent", owner);
+  // Control changed while capturing: the image may show another controller's state.
   if (epoch !== session.epoch) throw new PublicToolError("screenshot_required");
-  session.modelCoordinates = {
-    owner,
-    epoch,
-    sourceWidth: frame.header.width,
-    sourceHeight: frame.header.height,
-    width: image.width,
-    height: image.height,
-  };
   return image;
 }

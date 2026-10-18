@@ -190,15 +190,13 @@ it("browser user calls run in the person's Chrome, list their shared tabs, and n
   };
 
   // No browser connected: the call says so instead of using ace's browser.
-  await expect(call("ace_browser_open", { browser: "user" })).rejects.toThrow(
-    "not connected to ace",
-  );
+  await expect(call("browser_open", { browser: "user" })).rejects.toThrow("not connected to ace");
   const chrome = personsChrome(hub);
   chrome.share(7, "https://mail.test/");
 
   const opened = z
     .object({ tabId: z.string() })
-    .parse(await call("ace_browser_open", { browser: "user", url: "https://app.test/" }));
+    .parse(await call("browser_open", { browser: "user", url: "https://app.test/" }));
   expect(chrome.ops()).toContainEqual({ op: "tabs.open" });
   expect([...chrome.tabs.values()]).toContainEqual(
     expect.objectContaining({ access: "agent", url: "https://app.test/" }),
@@ -213,13 +211,13 @@ it("browser user calls run in the person's Chrome, list their shared tabs, and n
         }),
       ),
     })
-    .parse(await call("ace_browser_tabs", { browser: "user", operation: "list" }));
+    .parse(await call("browser_tabs", { browser: "user", action: "list" }));
   const shared = listed.tabs.find((tab) => tab.url === "https://mail.test/");
   expect(shared?.openedBy).toEqual({ kind: "human" });
   expect(listed.tabs.map((tab) => tab.tabId)).toContain(opened.tabId);
   // Listing never takes the person's tab; the first command on it does.
   expect(chrome.ops()).not.toContainEqual({ op: "tabs.attach", tabId: 7 });
-  await call("ace_browser_navigate", {
+  await call("browser_open", {
     browser: "user",
     tabId: shared?.tabId,
     url: "https://mail.test/inbox",
@@ -230,7 +228,7 @@ it("browser user calls run in the person's Chrome, list their shared tabs, and n
   // The person's browser goes away: the thread's session there closes and stays closed.
   chrome.link.close("Your browser disconnected from ace");
   await vi.waitFor(() => expect(() => sessions.state(thread.id)).toThrow("not open"));
-  await expect(call("ace_browser_snapshot", { browser: "user" })).rejects.toThrow(
+  await expect(call("browser_snapshot", { browser: "user" })).rejects.toThrow(
     "not connected to ace",
   );
   expect(aceOpens).toEqual([]);

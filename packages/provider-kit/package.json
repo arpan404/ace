@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./permission-modes": "./src/permission-modes.ts",
+    "./ace-tool-names": "./src/ace-tool-names.ts",
     "./cli-versions": "./src/cli-versions.ts",
     "./cli-requirements": "./src/cli-requirements.ts",
     "./access-modes": "./src/access-modes.ts",

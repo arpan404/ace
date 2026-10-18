@@ -5,7 +5,7 @@ description: Show an interactive or static HTML page inline in ace chat when see
 
 # Visualize in ace chat
 
-`ace_html_render` puts a self-contained HTML page inline in your reply. It renders at the full width of the message column, on the chat's own background, and grows to fit its content. In `interactive` mode its scripts run; in `static` mode they are stripped.
+`html_render` puts a self-contained HTML page inline in your reply. It renders at the full width of the message column, on the chat's own background, and grows to fit its content. In `interactive` mode its scripts run; in `static` mode they are stripped.
 
 ## When to use it
 
@@ -32,7 +32,7 @@ Use prose for a single fact, a one-step action, or a short list that is already 
 ## How
 
 1. Write one complete HTML document with inline `<style>`, plus inline `<script>` for an interactive page. Keep it at or below 256 KiB of UTF-8. Draw with HTML, inline SVG or `<canvas>`. Embed raster images as base64 `data:` PNG, JPEG, GIF or WebP.
-2. Call `ace_html_render` with `{ title, html, mode, height? }`. Claude Code exposes it as `mcp__ace__ace_html_render`; Codex uses the ace MCP server's tool name. The title is short and descriptive. `height` is an optional maximum (80–2000 CSS px); a taller page scrolls inside it.
+2. Call `html_render` with `{ title, html, mode, height? }`. Claude Code exposes it as `mcp__ace__html_render`, OpenCode and Pi as `ace_html_render`. The title is short and descriptive. `height` is an optional maximum (80–2000 CSS px); a taller page scrolls inside it.
 3. If it returns `invalid_html`, nothing was published: fix every problem listed in `issues` and call it again.
 4. In the reply, say only what the page doesn't already show.
 

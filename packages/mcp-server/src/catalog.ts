@@ -1,39 +1,59 @@
 import { z } from "zod";
-import {
-  McpStatus,
-  Agent,
-  McpNoticeInput,
-  HandoffPageInput,
-  HandoffPage,
-  HandoffChunkInput,
-  HandoffChunk,
-} from "@ace/protocol";
+import { McpNoticeInput, ThreadId } from "@ace/protocol";
+
+export const HandoffReadInput = z.strictObject({
+  sourceThreadId: ThreadId.describe("The sourceThreadId from the handoff manifest."),
+  before: z
+    .number()
+    .int()
+    .positive()
+    .max(Number.MAX_SAFE_INTEGER)
+    .optional()
+    .describe("The previous page's itemsBefore, for earlier items."),
+  limit: z.number().int().min(1).max(50).default(50).describe("Items per page, 1 to 50."),
+  streamId: z
+    .string()
+    .min(1)
+    .max(1024)
+    .optional()
+    .describe("Read a cited text or shell-output stream instead of items."),
+  offset: z
+    .number()
+    .int()
+    .nonnegative()
+    .max(Number.MAX_SAFE_INTEGER)
+    .default(0)
+    .describe("With streamId: byte offset, from nextOffset."),
+  maxBytes: z
+    .number()
+    .int()
+    .min(1)
+    .max(32_768)
+    .default(32_768)
+    .describe("With streamId: bytes to read."),
+});
+export type HandoffReadInput = z.output<typeof HandoffReadInput>;
 
 /** Registered by the handoff owner; scope checks stay at the storage boundary. */
 export const handoffToolCatalog = [
   {
-    name: "ace_read_handoff",
+    name: "handoff_read",
+    title: "Read handoff history",
+    toolset: "ace-threads",
     riskClass: "read-only",
     description:
-      "Page cited handoff history. Use sourceThreadId from the manifest and itemsBefore for earlier pages.",
-    input: HandoffPageInput,
-    output: HandoffPage,
-    // The full item union is ~57 KB of schema; agents read type, id and text parts.
-    advertisedOutput: z.looseObject({
-      threadId: z.string(),
-      items: z.array(z.looseObject({ type: z.string(), id: z.string().optional() })),
-      itemsBefore: z.number().int().positive().nullable(),
+      "Page the history cited by a handoff from another provider: items newest first (before = itemsBefore for earlier ones), or with streamId a bounded text or shell-output stream as base64 in the returned encoding, continued at nextOffset until eof.",
+    input: HandoffReadInput,
+    output: z.looseObject({
+      threadId: z.string().optional(),
+      // The full item union is ~57 KB of schema; agents read type, id and text parts.
+      items: z.array(z.looseObject({ type: z.string(), id: z.string().optional() })).optional(),
+      itemsBefore: z.number().int().positive().nullable().optional(),
+      bytes: z.string().optional(),
+      encoding: z.enum(["utf-16le", "utf-8"]).optional(),
+      nextOffset: z.number().int().nonnegative().optional(),
+      eof: z.boolean().optional(),
     }),
-    capability: null,
-    timeoutMs: 10_000,
-  },
-  {
-    name: "ace_read_handoff_chunk",
-    riskClass: "read-only",
-    description:
-      "Read a bounded text or shell-output stream from handoff history. Bytes are base64; decode with the returned encoding. Continue at nextOffset until eof.",
-    input: HandoffChunkInput,
-    output: HandoffChunk,
     capability: null,
     timeoutMs: 10_000,
   },
@@ -43,46 +63,23 @@ const accepted = z.strictObject({
   intentId: z.string().min(1).max(256),
   accepted: z.literal(true),
 });
-export const AgentPageInput = z.strictObject({
-  cursor: z.string().max(256).optional(),
-  limit: z.number().int().min(1).max(100).default(50),
-});
-export const AgentPage = z.strictObject({
-  agents: z.array(Agent).max(100),
-  nextCursor: z.string().max(256).nullable(),
-});
 
 /** Source of truth shared by runtime registration and the generated reference. */
 export const builtinToolCatalog = [
   {
-    name: "ace_list_agents",
-    riskClass: "read-only",
-    description: "Read a page of this thread's agent tree; status includes live descendants.",
-    input: AgentPageInput,
-    output: AgentPage,
-    capability: null,
-    timeoutMs: 10_000,
-  },
-  {
-    name: "ace_notify_user",
-    riskClass: "external-effect",
-    description: "Post a notice and request a user notification.",
-    input: McpNoticeInput,
+    name: "notify",
+    title: "Notify the person",
+    toolset: "ace-threads",
+    riskClass: "thread-write",
+    openWorld: false,
+    description:
+      "Post a notice on this thread and send the person a notification, for something they should see while away (a long task finished, a decision is needed).",
+    input: z.strictObject({
+      text: McpNoticeInput.shape.text.describe("What happened, in one or two sentences."),
+      level: McpNoticeInput.shape.level.describe("info (default), warning or error."),
+    }),
     output: accepted,
     capability: "notify",
-    timeoutMs: 10_000,
-  },
-] as const;
-
-export const statusToolCatalog = [
-  {
-    name: "ace_status",
-    riskClass: "read-only",
-    description:
-      "Describe ace, this connection, which ace tool groups are enabled, and the thread's access mode. Groups cover only ace's own tools: use your own workspace tools for files and shell. Also available as ace://status.",
-    input: z.strictObject({}),
-    output: McpStatus,
-    capability: null,
     timeoutMs: 10_000,
   },
 ] as const;

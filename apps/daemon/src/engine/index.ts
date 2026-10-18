@@ -587,42 +587,6 @@ export class Engine {
     );
     this.wake(parentId);
   }
-  /** External execution holds the parent open without pretending the child is a local thread. */
-  remoteDelegation(task: import("@ace/protocol").RemoteTask): void {
-    const state = this.repo.requireState(task.parentThreadId);
-    const agent = state.indexes.agentKeysById[task.parentAgentId];
-    if (!agent) throw new Error("Unknown remote delegation parent");
-    const terminal = ["completed", "failed", "cancelled"].includes(task.phase);
-    const key = `ace-remote:${task.id}`;
-    this.repo.apply(
-      task.parentThreadId,
-      terminal
-        ? [
-            {
-              type: "background.ended",
-              task: key,
-              status:
-                task.phase === "completed"
-                  ? "completed"
-                  : task.phase === "cancelled"
-                    ? "stopped"
-                    : "failed",
-            },
-          ]
-        : [
-            {
-              type: "background.started",
-              owner: "ace",
-              agent,
-              task: key,
-              kind: "subagent",
-              title: task.request.role,
-              stoppable: true,
-            },
-          ],
-      this.clock.now(),
-    );
-  }
   /**
    * A child on another paired machine (ADR 0078): its launch row names the machine, and a
    * background hold keeps the parent from reading done while the child works there.
@@ -834,7 +798,8 @@ export class Engine {
     const previous = this.hostInteractionHandler;
     this.hostInteractionHandler = (command) => handler(command) ?? previous?.(command);
   }
-  bindRemoteTaskStop(stop: (id: string) => void, prefix = "ace-remote:"): void {
+  /** Routes a stop of a background hold whose key starts with `prefix` to its external owner. */
+  bindExternalTaskStop(prefix: string, stop: (id: string) => void): void {
     this.bindHostInteractions((command) => {
       if (command.payload.type !== "background_task.stop") return;
       const owner = this.repo.entityThread("backgroundTasks", command.payload.taskId);
@@ -897,7 +862,7 @@ export class Engine {
     },
   ): void {
     this.actor(threadId).apply([{ type: "interaction.closed", interaction: key, ...result }]);
-    // A host gate (private browser, an ace_ask question) may be the last hold on the
+    // A host gate (private browser, an ace ask question) may be the last hold on the
     // queue. Provider frames wake the thread on their own; a host-side close must too.
     this.wake(threadId);
   }

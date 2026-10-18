@@ -5,13 +5,23 @@ import {
   maxToolTimeoutMs,
   type AceMcpConnection,
 } from "@ace/mcp-server";
+import { bareToolName } from "@ace/provider-kit/ace-tool-names";
 import { obj, str } from "./native.ts";
 import type { PiExtensionApi } from "./extension-api.ts";
 
-export const AceToolName = z
+/** A tool name as ace's MCP server registers it: bare (`context`), or a toolkit's `ace_` name. */
+const AceToolName = z
   .string()
   .max(128)
-  .regex(/^(?:delegate_task|(?:ace_|screen_|device_)[a-z0-9_]+)$/);
+  .regex(/^[a-z][a-z0-9_]{0,100}$/);
+
+/**
+ * Pi has no MCP namespace of its own, so ace namespaces its extension tools the way OpenCode
+ * does: `ace_<bare name>` (`ace_guide`, `ace_screen_input`). Pi's transcript maps them back.
+ */
+export function piToolName(mcpName: string): string {
+  return `ace_${bareToolName(mcpName)}`;
+}
 const Tools = z.object({
   tools: z
     .array(
@@ -146,7 +156,7 @@ export function registerAceMcpTools(pi: PiExtensionApi, connection: AceMcpConnec
     return { systemPrompt };
   });
   pi.on("tool_result", (event) => {
-    if (!AceToolName.safeParse(event.toolName).success) return;
+    if (!event.toolName.startsWith("ace_")) return;
     const result = obj(obj(event.details).aceMcp);
     return typeof result.isError === "boolean" ? { isError: result.isError } : undefined;
   });
@@ -195,11 +205,12 @@ async function listen(pi: PiExtensionApi, client: McpClient): Promise<void> {
     const catalog = Tools.parse(catalogValue);
     if (catalog.nextCursor) throw new Error("ace MCP catalog exceeds extension budget");
     for (const tool of catalog.tools) {
-      if (registered.has(tool.name)) continue;
-      registered.add(tool.name);
+      const name = piToolName(tool.name);
+      if (registered.has(name)) continue;
+      registered.add(name);
       pi.registerTool({
-        name: tool.name,
-        label: tool.name,
+        name,
+        label: name,
         description: tool.description ?? tool.name,
         promptSnippet: tool.description ?? tool.name,
         parameters: tool.inputSchema,
@@ -241,7 +252,7 @@ async function listen(pi: PiExtensionApi, client: McpClient): Promise<void> {
     }
     if (pi.setActiveTools && pi.getActiveTools) {
       const native = pi.getActiveTools().filter((name) => !registered.has(name));
-      pi.setActiveTools([...native, ...catalog.tools.map((tool) => tool.name)]);
+      pi.setActiveTools([...native, ...catalog.tools.map((tool) => piToolName(tool.name))]);
     }
   };
   refresh(await client.listTools());

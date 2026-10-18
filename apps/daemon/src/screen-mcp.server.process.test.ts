@@ -106,13 +106,9 @@ it("a configured daemon exposes scoped screen tools and returns screenshot image
     expect(listed.result.tools.map((tool) => tool.name)).toEqual(
       expect.arrayContaining([
         "screen_ui_tree",
-        "screen_ui_find",
         "screen_ui_act",
         "screen_screenshot",
-        "screen_click",
-        "screen_type",
-        "screen_key",
-        "screen_scroll",
+        "screen_input",
       ]),
     );
     const session = await screen.start({ kind: "window", windowId: 1, bundleId: "dev.ace.test" });

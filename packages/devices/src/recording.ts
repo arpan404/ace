@@ -15,7 +15,7 @@ export async function recordDevice(
     throw new DeviceError(
       "permission_denied",
       "Recording needs a thread using this device",
-      "Call device_start to take this device for the thread.",
+      "Call sim_start to take this simulator for the thread.",
     );
   if (session.lifecycle !== "live")
     throw new DeviceError("not_found", "Capture is not live", "Start capture before recording.");

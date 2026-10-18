@@ -11,15 +11,28 @@ export interface HtmlPublicationPort {
     signal: AbortSignal,
   ): Promise<{ itemId: string }>;
 }
+const { title, html, height, mode } = HtmlRenderInput.shape;
+const RenderInput = HtmlRenderInput.extend({
+  title: title.describe("A short caption shown above the page."),
+  html: html.describe(
+    "A complete self-contained HTML document: inline CSS, JS, SVG and data: images, no network.",
+  ),
+  height: height.describe("Frame height in CSS pixels; default fits the content."),
+  mode: mode.describe(
+    "interactive runs its scripts in a sandbox; static strips them (charts, diagrams). Default: inferred.",
+  ),
+});
 export const htmlToolCatalog = [
   {
-    name: "ace_html_render",
+    name: "html_render",
+    title: "Show an HTML visual inline",
     description:
-      'Show a self-contained HTML page (inline CSS, JS, SVG and data: images; no network) inline in your reply. mode "interactive" runs its scripts in a sandbox; "static" strips them and suits charts and diagrams. An invalid page returns invalid_html listing every problem and publishes nothing. Design and sandbox rules: ace_guide visualize.',
-    input: HtmlRenderInput,
+      "Show a chart, diagram, mockup or small interactive page inline in your reply. An invalid page returns invalid_html listing every problem and publishes nothing. Design and sandbox rules: guide visualize.",
+    input: RenderInput,
     output: z.object({ itemId: ItemId }),
     capability: null,
     riskClass: "thread-write",
+    toolset: "visualize",
     timeoutMs: 30000,
     maxInputBytes: 2 * 1024 * 1024,
   },

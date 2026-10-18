@@ -29,7 +29,7 @@ function call(
 const browse = (id: string, url?: string, agent?: string) =>
   call(
     id,
-    { kind: "mcp", server: "ace", tool: "ace_browser_open", arguments: url ? { url } : {} },
+    { kind: "mcp", server: "ace", tool: "browser_open", arguments: url ? { url } : {} },
     { agent },
   );
 
@@ -57,7 +57,7 @@ it("carries an agent's site to its later browser steps that name no URL", () => 
 it("names the app a computer-use step acted on from the daemon's result target", () => {
   const item = call(
     "type",
-    { kind: "mcp", server: "ace", tool: "screen_type", arguments: { text: "hi" } },
+    { kind: "mcp", server: "ace", tool: "screen_input", arguments: { action: "type", text: "hi" } },
     {
       result: {
         isError: false,

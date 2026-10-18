@@ -1,51 +1,44 @@
 import type { Principal } from "./credentials.ts";
+import { bareToolName } from "./tool-names.ts";
 
 /**
- * Clients that load every listed tool upfront (OpenCode, Cursor, Pi, ACP) send this header and
- * see only ace's core tools until the session needs more. Claude Code and Codex defer MCP tools
- * behind their own tool search, so they omit it and see the whole catalogue.
+ * Clients that load every listed tool upfront and refresh their list on `tools/list_changed`
+ * send this header and see only ace's core tools until the session needs more. Verified for
+ * OpenCode 2.0.22 (debounced reload on the notification) and Pi (ace's extension re-registers).
+ * Cursor's SDK and generic ACP agents do not refresh, so they omit it and list every tool:
+ * a tool a client never lists is a tool its model can never call. Claude Code and Codex defer
+ * MCP tools behind their own tool search and omit it too.
  */
 export const coreToolsHeader = { name: "X-Ace-Tools", value: "core" } as const;
 
-/** The entry points every session lists: one per task family, plus status and the guides. */
+/**
+ * What a core-mode session lists before it opens a family: the tools the instructions name as
+ * entry points. Compared by bare name, so a toolkit's spelling never matters.
+ */
 export const coreTools: ReadonlySet<string> = new Set([
-  "ace_status",
-  "ace_guide",
-  "ace_ask",
-  "delegate_task",
-  "ace_wait",
-  "ace_browser_open",
-  "ace_html_render",
-  "ace_context",
-  "ace_thread_read",
-  "ace_thread_link_pr",
-  "ace_note_add",
+  "context",
+  "guide",
+  "delegate",
+  "wait",
+  "ask",
+  "note_add",
+  "thread_link_pr",
+  "browser_open",
+  "html_render",
   "screen_open_app",
 ]);
 
 /** Using one of these opens its family: the next steps after it are its toolset's tools. */
 const entryPoints: ReadonlyMap<string, string> = new Map([
-  ["delegate_task", "ace-agents"],
-  ["ace_browser_open", "ace-browser"],
+  ["delegate", "ace-agents"],
+  ["browser_open", "ace-browser"],
   ["screen_open_app", "ace-computer-use"],
 ]);
 
-/** The guide topic whose toolset a tool belongs to. Every ace tool belongs to exactly one. */
-export function toolsetOf(name: string): string {
-  if (name.startsWith("ace_browser_")) return "ace-browser";
-  if (name.startsWith("screen_") || name.startsWith("device_")) return "ace-computer-use";
-  if (
-    name === "delegate_task" ||
-    name === "ace_wait" ||
-    name === "ace_ask" ||
-    name === "ace_machines" ||
-    name === "ace_list_agents" ||
-    /^ace_agents?_/.test(name) ||
-    name.startsWith("ace_device_")
-  )
-    return "ace-agents";
-  if (name === "ace_html_render") return "visualize";
-  return "ace-threads";
+/** The family a call opens: a guide's topic, or an entry point's family. */
+export function openedToolset(tool: string, args: unknown): string | undefined {
+  const bare = bareToolName(tool);
+  return bare === "guide" ? guideTopic(args) : entryPoints.get(bare);
 }
 
 /**
@@ -57,7 +50,7 @@ export class OpenToolsets {
   private readonly open = new WeakMap<Principal, Set<string>>();
   /** True when this call opened a toolset the session did not have. */
   opened(principal: Principal, tool: string, args: unknown): boolean {
-    const topic = tool === "ace_guide" ? guideTopic(args) : entryPoints.get(tool);
+    const topic = openedToolset(tool, args);
     if (topic === undefined) return false;
     const set = this.open.get(principal) ?? new Set<string>();
     this.open.set(principal, set);
@@ -65,9 +58,13 @@ export class OpenToolsets {
     set.add(topic);
     return true;
   }
-  /** Whether a core-mode session lists this tool now. */
-  lists(principal: Principal, tool: string): boolean {
-    return coreTools.has(tool) || (this.open.get(principal)?.has(toolsetOf(tool)) ?? false);
+  /** Whether a core-mode session lists this tool now. A tool without a family is always listed. */
+  lists(principal: Principal, tool: string, toolset: string | undefined): boolean {
+    return (
+      coreTools.has(bareToolName(tool)) ||
+      toolset === undefined ||
+      (this.open.get(principal)?.has(toolset) ?? false)
+    );
   }
 }
 

@@ -19,6 +19,8 @@ test("explicit work restores a filtered intermediate member while its unmatched 
         parent,
         "--provider",
         provider,
+        "--role",
+        prompt,
         "--json",
       ]);
       expect(result.code, result.stderr).toBe(0);
@@ -30,7 +32,7 @@ test("explicit work restores a filtered intermediate member while its unmatched 
       op: "delegate_task",
       requestId: "intermediate-member",
       task: "Intermediate work",
-      role: "delegate",
+      role: "intermediate-member",
       provider: "claude",
       access: "full-access",
       wait: false,
@@ -138,6 +140,8 @@ test.each(["subtree", "provider"] as const)(
         parent,
         "--provider",
         scope === "subtree" ? "claude" : "codex",
+        "--role",
+        "Asynchronous child",
         "--json",
       ]);
       const child = z.object({ data: identity }).parse(JSON.parse(spawned.stdout)).data.threadId;
@@ -262,6 +266,8 @@ test("subtree kill cancels unfinished ancestors without rewriting a completed ch
       parent,
       "--provider",
       "codex",
+      "--role",
+      "Finished child",
       "--json",
     ]);
     const child = z.object({ data: identity }).parse(JSON.parse(delegated.stdout)).data.threadId;
@@ -309,6 +315,8 @@ test("a provider-filtered kill stops a Claude parent while its Codex child keeps
       parent,
       "--provider",
       "codex",
+      "--role",
+      "Codex child",
       "--json",
     ]);
     const child = z.object({ data: identity }).parse(JSON.parse(delegated.stdout)).data.threadId;

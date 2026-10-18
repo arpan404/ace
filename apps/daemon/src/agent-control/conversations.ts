@@ -64,8 +64,11 @@ export function createConversationStarts(
       .update(JSON.stringify([caller.threadId, operation.requestId]))
       .digest("hex");
     const { op: _op, title, text, requestId: _requestId, ...selection } = operation;
+    const provider = selection.provider ?? context.store.getThread(caller.threadId)?.provider;
+    if (!provider) return { ok: false, code: "forbidden" };
     const request = {
       ...selection,
+      provider,
       requestId: `conversation-${key}`,
       task: text,
       role: title,

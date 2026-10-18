@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { sessionHarness } from "./session.test-helper.ts";
+import { bareToolName } from "@ace/provider-kit/ace-tool-names";
 import { obj } from "./native.ts";
 
 const aceMcp = { url: "http://127.0.0.1:1/mcp", bearer: "a".repeat(64) };
@@ -19,14 +20,14 @@ const calls = (h: Awaited<ReturnType<typeof scripted>>, tool: string) =>
     (item) =>
       item.type === "tool_call" &&
       item.call.detail.kind === "mcp" &&
-      item.call.detail.tool === tool,
+      item.call.detail.tool === bareToolName(tool),
   );
 
 test.each([
-  [":danger-full-access", "ace_browser_navigate"],
-  [":workspace", "ace_browser_navigate"],
-  [":workspace", "ace_thread_read"],
-  [":read-only", "ace_status"],
+  [":danger-full-access", "browser_open"],
+  [":workspace", "browser_open"],
+  [":workspace", "thread_read"],
+  [":read-only", "context"],
 ])("Codex in %s calls %s five times without asking the person", async (mode, tool) => {
   const h = await scripted(mode);
   try {
@@ -45,14 +46,14 @@ test.each([
 test("a destructive ace tool asks once when the person allows it for the thread", async () => {
   const h = await scripted();
   try {
-    const done = await turn(h, "call ace_thread_merge 5");
+    const done = await turn(h, "call thread_merge 5");
     const first = await h.wait(() => approvals(h).some((i) => i.state === "pending"));
     expect(first).toBeTruthy();
     const [asked] = approvals(h);
     expect(asked?.request).toMatchObject({
       kind: "approval",
       mcpServer: { name: "ace" },
-      target: { tool: "ace_thread_merge" },
+      target: { tool: "thread_merge" },
       options: expect.arrayContaining([
         expect.objectContaining({ kind: "allow_session", label: "Allow for this thread" }),
       ]),
@@ -64,7 +65,7 @@ test("a destructive ace tool asks once when the person allows it for the thread"
     await done();
     expect(approvals(h)).toHaveLength(1);
     expect(
-      calls(h, "ace_thread_merge").filter(
+      calls(h, "thread_merge").filter(
         (item) => item.type === "tool_call" && item.call.status === "succeeded",
       ),
     ).toHaveLength(5);
@@ -76,7 +77,7 @@ test("a destructive ace tool asks once when the person allows it for the thread"
 test("allowing a destructive ace tool once asks again on its next call", async () => {
   const h = await scripted();
   try {
-    const done = await turn(h, "call ace_thread_merge 2");
+    const done = await turn(h, "call thread_merge 2");
     for (const round of [1, 2]) {
       await h.wait(
         () =>

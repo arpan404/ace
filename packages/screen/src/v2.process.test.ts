@@ -235,10 +235,10 @@ it("named key, Unicode, scroll and pointer operations use the existing v2 proces
   const state = await ready(f.screen);
   f.screen.controller(state.sessionId, "agent", "agent");
   const handler = computerUseHandler(f.screen, state.sessionId, "agent");
-  await handler("screen_key", { key: "Enter", modifiers: ["command"] });
-  await handler("screen_type", { text: "こんにちは 👋" });
-  await handler("screen_scroll", { dx: 0, dy: 20 });
-  await handler("screen_click", { x: 10, y: 20 });
+  await handler("screen_input", { action: "key", key: "Enter", modifiers: ["command"] });
+  await handler("screen_input", { action: "type", text: "こんにちは 👋" });
+  await handler("screen_input", { action: "scroll", dx: 0, dy: 20 });
+  await handler("screen_input", { action: "click", x: 10, y: 20 });
   await f.screen.input(state.sessionId, "agent", { kind: "pointer.move", x: 10, y: 20 }, "agent");
   await f.screen.input(
     state.sessionId,

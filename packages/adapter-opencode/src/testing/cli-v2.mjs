@@ -249,14 +249,14 @@ const server = createServer(async (req, res) => {
         Accept: "application/json, text/event-stream",
         "MCP-Protocol-Version": "2026-07-28",
         "Mcp-Method": "tools/call",
-        "Mcp-Name": "ace_scope",
+        "Mcp-Name": "scope",
       },
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: 1,
         method: "tools/call",
         params: {
-          name: "ace_scope",
+          name: "scope",
           arguments: {},
           _meta: {
             "io.modelcontextprotocol/protocolVersion": "2026-07-28",

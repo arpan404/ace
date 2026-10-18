@@ -1,6 +1,6 @@
 # HTML visualizations in chat
 
-Agents call `ace_html_render({ title, html, mode?, height? })` to publish a page inline in
+Agents call `html_render({ title, html, mode?, height? })` to publish a page inline in
 their reply. Render validates first: a page with unsupported features fails with
 `invalid_html`, lists each size, nesting or feature problem in `issues`, and publishes
 nothing, so one call both checks and publishes. HTML in a normal message remains text.

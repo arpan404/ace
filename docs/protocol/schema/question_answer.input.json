@@ -1,0 +1,53 @@
+{
+  "$id": "https://ace.local/protocol/v1/question_answer.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "answers": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "description": "Question id to the chosen option ids, or to free text when other is allowed.",
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "dismissed": {
+      "description": "Decline to answer; the agent continues without.",
+      "type": "boolean"
+    },
+    "feedback": {
+      "description": "Why, when declining.",
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "interactionId": {
+      "description": "The request's interactionId.",
+      "minLength": 1,
+      "type": "string"
+    },
+    "requestId": {
+      "description": "Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice.",
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "threadId": {
+      "description": "A thread you own: this one or one you started.",
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "threadId",
+    "requestId",
+    "interactionId",
+    "answers"
+  ],
+  "type": "object"
+}

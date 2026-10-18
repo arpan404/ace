@@ -101,7 +101,7 @@ it("negotiates the legacy handshake with the monolithic SDK client", async () =>
   await client.connect(wire);
   expect(client.getServerVersion()?.name).toBe("ace");
   expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
-    "ace_status",
+    "context",
     "ace_echo",
   ]);
   expect(await client.callTool({ name: "ace_echo", arguments: { value: "legacy" } })).toMatchObject(
@@ -125,7 +125,7 @@ it("filters unauthorized tools and rejects direct capability bypasses", async ()
     },
   });
   const denied = await h.connect();
-  expect((await denied.client.listTools()).tools.map((tool) => tool.name)).toEqual(["ace_status"]);
+  expect((await denied.client.listTools()).tools.map((tool) => tool.name)).toEqual(["context"]);
   expect(
     await denied.client.callTool({ name: "ace_echo", arguments: { value: "denied" } }),
   ).toMatchObject({ isError: true });
@@ -153,27 +153,19 @@ it("revokes authority when the provider session ends and rejects every later HTT
 it("attributes concurrent builtin intents to each credential's own node", async () => {
   const h = await harness(cleanups);
   const notices: unknown[] = [];
-  registerBuiltins(
-    h.registry,
-    {
-      async agents() {
-        return { agents: [], nextCursor: null };
-      },
+  registerBuiltins(h.registry, {
+    async notify(intent) {
+      notices.push(intent);
+      return { intentId: `notice-${intent.agentId}` };
     },
-    {
-      async notify(intent) {
-        notices.push(intent);
-        return { intentId: `notice-${intent.agentId}` };
-      },
-    },
-  );
+  });
   const [root, child] = await Promise.all([
     h.connect(scope("root", ["notify", "agents"])),
     h.connect(scope("child", ["notify", "agents"])),
   ]);
   const responses = await Promise.all([
-    root.client.callTool({ name: "ace_notify_user", arguments: { text: "Help" } }),
-    child.client.callTool({ name: "ace_notify_user", arguments: { text: "Review" } }),
+    root.client.callTool({ name: "notify", arguments: { text: "Help" } }),
+    child.client.callTool({ name: "notify", arguments: { text: "Review" } }),
   ]);
   expect(responses).toMatchObject([
     { structuredContent: { accepted: true, intentId: "notice-root" } },
@@ -200,7 +192,7 @@ it("attributes concurrent builtin intents to each credential's own node", async 
   expect(notices).toHaveLength(2);
   expect(
     await child.client.callTool({
-      name: "ace_notify_user",
+      name: "notify",
       arguments: { text: "Spoof", agentId: "root" },
     }),
   ).toMatchObject({ isError: true });
@@ -270,7 +262,7 @@ it("routes a browser workstream adapter through schema checks, attribution and c
   registerAutomationTool(
     h.registry,
     {
-      name: "ace_browser_open",
+      name: "browser_open",
       description: "Open browser",
       input: z.strictObject({ url: z.url() }),
       output: z.strictObject({ tabId: z.string(), agent: z.string() }),
@@ -286,20 +278,20 @@ it("routes a browser workstream adapter through schema checks, attribution and c
     },
   );
   const denied = await h.connect();
-  expect((await denied.client.listTools()).tools.map((tool) => tool.name)).toEqual(["ace_status"]);
+  expect((await denied.client.listTools()).tools.map((tool) => tool.name)).toEqual(["context"]);
   expect(
     await denied.client.callTool({
-      name: "ace_browser_open",
+      name: "browser_open",
       arguments: { url: "https://denied.example" },
     }),
   ).toMatchObject({ isError: true });
   expect(effects).toEqual([]);
   const { client } = await h.connect(scope("browser-child", ["browser"]));
   expect(
-    await client.callTool({ name: "ace_browser_open", arguments: { url: "https://example.com" } }),
+    await client.callTool({ name: "browser_open", arguments: { url: "https://example.com" } }),
   ).toMatchObject({ structuredContent: { tabId: "example.com", agent: "browser-child" } });
   expect(
-    await client.callTool({ name: "ace_browser_open", arguments: { url: "invalid" } }),
+    await client.callTool({ name: "browser_open", arguments: { url: "invalid" } }),
   ).toMatchObject({ isError: true });
   expect(effects).toEqual(["https://example.com"]);
 });

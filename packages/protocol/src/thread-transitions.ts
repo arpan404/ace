@@ -42,7 +42,7 @@ export const ThreadSwitch = z.object({
   selection: ExecutionSelection,
   state: z.enum(["queued", "applied", "failed"]),
   lossy: z.boolean(),
-  recommendation: z.literal("delegate_task").optional(),
+  recommendation: z.literal("delegate").optional(),
   error: z.string().max(2048).optional(),
   at: Timestamp,
 });
@@ -69,8 +69,7 @@ export const PortableHandoff = z.object({
   omittedItems: z.number().int().nonnegative(),
   history: z.object({
     type: z.literal("items.page"),
-    tool: z.literal("ace_read_handoff").default("ace_read_handoff"),
-    chunkTool: z.literal("ace_read_handoff_chunk").default("ace_read_handoff_chunk"),
+    tool: z.literal("handoff_read").default("handoff_read"),
     threadId: ThreadId,
     before: z.number().int().positive(),
     limit: z.literal(50),
