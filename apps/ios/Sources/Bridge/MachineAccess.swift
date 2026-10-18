@@ -43,6 +43,7 @@ struct AccessOutcome: Decodable, Sendable {
 enum AccessRequest: Sendable {
     case list
     case remove(hostId: String)
+    case rename(hostId: String, name: String)
     case pair(PairingLink, name: String)
 }
 
@@ -62,6 +63,7 @@ struct BridgeMachineAccess: MachineAccess {
         switch request {
         case .list: target = nil; body = ["op": "list"]
         case .remove(let hostId): target = nil; body = ["op": "remove", "hostId": hostId]
+        case .rename(let hostId, let name): target = nil; body = ["op": "rename", "hostId": hostId, "name": name]
         case .pair(let link, let name):
             target = .pairing(endpoint: link.socketURL, pin: link.fingerprint)
             body = ["op": "pair", "code": link.code, "name": name, "url": link.socketURL.absoluteString, "fingerprint": link.fingerprint]

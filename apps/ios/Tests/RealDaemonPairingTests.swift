@@ -28,13 +28,13 @@ private struct E2EConfig: Decodable {
         #expect(harness.machines.machines.isEmpty)
         let link = try PairingLink.parse(try #require(config.links["operate"]))
         try await expectPaired(harness, link, "ace iOS e2e")
-        let entry = try #require(harness.machines.active)
+        let entry = try #require(harness.machines.machines.first)
         // The authenticated identity from the pinned socket, not the address's hostname.
         #expect(entry.hostId == config.hostId)
         #expect(entry.displayName.isEmpty == false)
-        let client = harness.machines.client
+        let client = try #require(harness.machines.inbox.client(entry.hostId))
         try await until("ready over pinned WSS") { client.connection == "ready" && client.inboxLoaded }
-        #expect(!harness.machines.activeIsReadOnly)
+        #expect(!harness.machines.isReadOnly(entry.hostId))
 
         let token = try #require(try KeychainSecrets().get(entry.secretKey))
         #expect(token.count == 64)
@@ -67,9 +67,10 @@ private struct E2EConfig: Decodable {
         defer { harness.cleanUp() }
         await harness.machines.load()
         try await expectPaired(harness, try PairingLink.parse(try #require(config.links["read"])), "ace iOS read-only")
-        try await until("ready") { harness.machines.client.connection == "ready" }
-        #expect(harness.machines.activeIsReadOnly)
-        if let entry = harness.machines.active { await harness.machines.remove(entry.hostId) }
+        let entry = try #require(harness.machines.machines.first)
+        try await until("ready") { harness.machines.inbox.client(entry.hostId)?.connection == "ready" }
+        #expect(harness.machines.isReadOnly(entry.hostId))
+        if let entry = harness.machines.machines.first { await harness.machines.remove(entry.hostId) }
     }
 
     @Test(.timeLimit(.minutes(1))) func aWrongPinSendsNothingSoTheSameCodeStillPairsWithTheRightPin() async throws {
@@ -83,7 +84,7 @@ private struct E2EConfig: Decodable {
         #expect(await harness.machines.pair(tampered, name: "wrong pin")?.code == "pin")
         #expect(harness.machines.machines.isEmpty)
         try await expectPaired(harness, good, "right pin")
-        if let entry = harness.machines.active { await harness.machines.remove(entry.hostId) }
+        if let entry = harness.machines.machines.first { await harness.machines.remove(entry.hostId) }
     }
 
     @Test(.timeLimit(.minutes(1))) func aRedirectIsRefusedSoTheCodeIsNeverForwarded() async throws {
@@ -97,7 +98,7 @@ private struct E2EConfig: Decodable {
         // The trap holds the daemon's own TLS key, so the pin passes and only the redirect is tested.
         #expect(await harness.machines.pair(try PairingLink.parse(viaTrap), name: "redirect")?.code == "redirect")
         try await expectPaired(harness, try PairingLink.parse(real), "after redirect")
-        if let entry = harness.machines.active { await harness.machines.remove(entry.hostId) }
+        if let entry = harness.machines.machines.first { await harness.machines.remove(entry.hostId) }
     }
 
     @Test(.timeLimit(.minutes(1))) func anUnreachableComputerIsReportedWithoutStoringAnything() async throws {
@@ -140,13 +141,13 @@ private struct E2EConfig: Decodable {
     var storage: URL { root.appendingPathComponent("machines", isDirectory: true) }
     init() throws {
         let defaults = try #require(UserDefaults(suiteName: suite))
-        machines = MachinesModel(client: ClientModel(now: { Date().timeIntervalSince1970 * 1000 }),
-                                 access: BridgeMachineAccess(directoryURL: root.appendingPathComponent("machines.json")),
-                                 storage: root.appendingPathComponent("machines", isDirectory: true), defaults: defaults, itemLimit: 200)
+        machines = MachinesModel(access: BridgeMachineAccess(directoryURL: root.appendingPathComponent("machines.json")),
+                                 storage: root.appendingPathComponent("machines", isDirectory: true), defaults: defaults, itemLimit: 200,
+                                 makeClient: { ClientModel(now: { Date().timeIntervalSince1970 * 1000 }) })
     }
     func cleanUp() {
-        let client = machines.client
-        Task { await client.disconnectAndWait() }
+        let machines = self.machines
+        Task { await machines.disconnectAll() }
         UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
         try? FileManager.default.removeItem(at: root)
     }

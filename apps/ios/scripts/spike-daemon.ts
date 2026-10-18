@@ -7,17 +7,26 @@ import { oversizedScenario, approvalRetryScenario } from "./review-scenarios.ts"
 import { manyActions, snapshotFrames } from "./many-actions.ts";
 import { LostReceipt } from "./lost-receipt.ts";
 
+/** A second fixture machine runs on another port with its own host id (`--spike-machines`). */
+const port = z.coerce
+  .number()
+  .int()
+  .min(1024)
+  .max(65535)
+  .parse(process.env.ACE_SPIKE_PORT ?? 9841);
+const hostId = port === 9841 ? "ios-spike-host" : `ios-spike-host-${port}`;
+const machineName = port === 9841 ? "arpan-mbp" : `studio-${port}`;
 const daemon = new FakeDaemon({
   clock: Date.now,
-  hostId: "ios-spike-host",
-  displayName: "arpan-mbp",
+  hostId,
+  displayName: machineName,
   token: "ios-spike-token",
   snapshotItems: 200,
 });
 const details = (branch: string) => ({
   workspace: { id: "ace", name: "ace-next", path: "/tmp/ace-ios-spike" },
   branch,
-  machine: { host: "ios-spike-host", name: "arpan-mbp" },
+  machine: { host: hostId, name: machineName },
 });
 daemon.createThread({
   hasSentMessage: true,
@@ -170,7 +179,7 @@ const Control = z.object({ online: z.boolean() });
 const lostReceipt = new LostReceipt();
 const server = Bun.serve<undefined>({
   hostname: "127.0.0.1",
-  port: 9841,
+  port,
   async fetch(request, listener) {
     const path = new URL(request.url).pathname;
     if (path === "/review/receipt") {
@@ -274,5 +283,5 @@ process.on("SIGINT", () => {
   server.stop(true);
 });
 console.log(
-  "iOS spike daemon on ws://127.0.0.1:9841. No provider processes or subscription quota.",
+  `iOS spike daemon on ws://127.0.0.1:${port}. No provider processes or subscription quota.`,
 );

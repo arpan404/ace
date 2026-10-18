@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Production root: app lock, then onboarding or the inbox of the selected paired computer.
+/// Production root: app lock, then onboarding or the inbox across every paired computer.
 struct RootView: View {
     @Bindable var machines: MachinesModel
     @Bindable var lock: AppLock
@@ -19,7 +19,7 @@ struct RootView: View {
         }
         .onChange(of: machines.machines.isEmpty) { _, empty in if !empty { lock.enable() } }
         .onChange(of: phase) { _, phase in
-            if phase == .background { lock.didEnterBackground() }
+            if phase == .background { lock.didEnterBackground(); machines.inbox.recordSeen() }
             if phase == .active { lock.didBecomeActive() }
         }
     }
@@ -36,8 +36,7 @@ struct RootView: View {
                 }
             }
         } else {
-            InboxView(model: machines.client)
-                .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) { MachineBar(machines: machines, adding: $adding) }
+            InboxView(inbox: machines.inbox, machines: machines) { adding = true }
                 .sheet(isPresented: $adding) {
                     NavigationStack {
                         PairingView(machines: machines) { adding = false }

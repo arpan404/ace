@@ -1,22 +1,30 @@
 import SwiftUI
 
-/// The single inbox (issue #560): the bridge's shared sections in order, Done and Snoozed folded
-/// away below. Swift filters by search text and draws; grouping and wording come from the SDK side.
+/// The single inbox (issue #560) across every paired machine: the shared sections merged by rank,
+/// Done and Snoozed folded away below. Swift filters by search text and draws; grouping and
+/// wording come from each machine's runtime. A row and its thread belong to their machine.
 struct InboxView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Bindable var model: ClientModel
+    @Bindable var inbox: MachineInbox
+    /// Rename, remove and pairing for the Machines sheet; nil for the debug fixture.
+    var machines: MachinesModel?
+    var addMachine: () -> Void = {}
     @State private var path: [String] = []
+    /// The machine whose thread is open: the whole navigation stack routes to its runtime.
+    @State private var openMachine: String?
     @State private var search = ""
     @State private var showingSearch = false
     @State private var showingMachines = false
     @State private var showSettled = false
-    @State private var snoozing: ThreadRow?
-    @State private var archived: ThreadRow?
+    @State private var snoozing: InboxKey?
+    @State private var archived: (key: InboxKey, title: String)?
     private static let settledKeys: Set<String> = ["done", "snoozed"]
 
-    private var sections: [InboxLayout.Section] { model.inboxLayout.sections.compactMap(filtered) }
-    private var open: [InboxLayout.Section] { sections.filter { !Self.settledKeys.contains($0.key) } }
-    private var settled: [InboxLayout.Section] { sections.filter { Self.settledKeys.contains($0.key) } }
+    private var merged: MergedInbox { inbox.merged }
+    private var sections: [MergedInbox.Section] { merged.sections.compactMap(filtered) }
+    private var open: [MergedInbox.Section] { sections.filter { !Self.settledKeys.contains($0.key) } }
+    private var settled: [MergedInbox.Section] { sections.filter { Self.settledKeys.contains($0.key) } }
+    private var current: ClientModel? { openMachine.flatMap(inbox.client) }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -24,16 +32,18 @@ struct InboxView: View {
                 if showingSearch {
                     TextField("Search threads", text: $search).textFieldStyle(.plain).accessibilityIdentifier("inbox.search")
                 }
-                if model.connection != "ready" {
-                    InboxConnectionBanner(connection: model.connection) { model.retry() }.listRowSeparator(.hidden)
+                ForEach(inbox.sessions.filter { $0.client.connection != "ready" }) { session in
+                    InboxConnectionBanner(connection: session.client.connection,
+                                          machine: inbox.showsMachineNames ? inbox.name(session.hostId) : nil) { session.client.retry() }
+                        .listRowSeparator(.hidden)
                 }
                 ForEach(open) { section in
-                    Section { rows(section) } header: { InboxSectionHeader(title: section.label, count: section.ids.count) }
+                    Section { rows(section) } header: { InboxSectionHeader(title: section.label, count: section.rows.count) }
                 }
                 if !settled.isEmpty {
                     Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { showSettled.toggle() } } label: {
                         HStack(spacing: AceTheme.Spacing.md) {
-                            Text(settled.map { "\($0.label) (\($0.ids.count))" }.joined(separator: " · "))
+                            Text(settled.map { "\($0.label) (\($0.rows.count))" }.joined(separator: " · "))
                             Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border)
                             Image(systemName: "chevron.down").rotationEffect(.degrees(showSettled ? 180 : 0))
                         }
@@ -46,12 +56,12 @@ struct InboxView: View {
                     .accessibilityValue(showSettled ? "Expanded" : "Collapsed")
                     if showSettled {
                         ForEach(settled) { section in
-                            Section { rows(section) } header: { InboxSectionHeader(title: section.label, count: section.ids.count) }
+                            Section { rows(section) } header: { InboxSectionHeader(title: section.label, count: section.rows.count) }
                         }
                     }
                 }
-                if model.inboxLayout.more && search.isEmpty {
-                    Button("Show older threads") { model.loadOlderThreads() }
+                if !merged.more.isEmpty && search.isEmpty {
+                    Button("Show older threads") { for id in merged.more { inbox.client(id)?.loadOlderThreads() } }
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
                         .listRowSeparator(.hidden).accessibilityIdentifier("inbox.more")
                 }
@@ -64,70 +74,85 @@ struct InboxView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
             .navigationDestination(for: String.self) { id in
-                if let thread = model.thread, thread.id == id { ThreadView(model: model, thread: thread) }
+                if let client = current, let thread = client.thread, thread.id == id { ThreadView(model: client, thread: thread) }
             }
-            .sheet(isPresented: $showingMachines) { machinesSheet }
-            .confirmationDialog("Snooze until", isPresented: Binding(get: { snoozing != nil }, set: { if !$0 { snoozing = nil } }), presenting: snoozing) { row in
-                ForEach(model.inboxLayout.snooze) { option in
-                    Button(option.label) { Task { _ = await model.snooze(row.id, preset: option.id) } }
+            .sheet(isPresented: $showingMachines) {
+                MachinesSheet(inbox: inbox, machines: machines) { showingMachines = false; addMachine() }
+            }
+            .confirmationDialog("Snooze until", isPresented: Binding(get: { snoozing != nil }, set: { if !$0 { snoozing = nil } }), presenting: snoozing) { key in
+                ForEach(merged.snooze) { option in
+                    Button(option.label) { Task { _ = await inbox.client(key.machineId)?.snooze(key.id, preset: option.id) } }
                 }
             }
             .overlay(alignment: .bottom) { undoArchive }
-            .onChange(of: path) { old, new in if !old.isEmpty && new.isEmpty { model.back() } }
+            .onChange(of: path) { old, new in
+                if !old.isEmpty && new.isEmpty { current?.back(); openMachine = nil }
+            }
         }
         .tint(AceTheme.Colours.foreground)
-        .alert("Request needs attention", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
-            Button("OK") { model.error = nil }
-        } message: { Text(model.error ?? "") }
+        .alert("Request needs attention", isPresented: Binding(get: { failing != nil }, set: { if !$0 { failing?.client.error = nil } })) {
+            Button("OK") { failing?.client.error = nil }
+        } message: {
+            if let failing { Text(inbox.showsMachineNames ? "\(inbox.name(failing.hostId)): \(failing.client.error ?? "")" : failing.client.error ?? "") }
+        }
     }
 
-    @ViewBuilder private func rows(_ section: InboxLayout.Section) -> some View {
+    /// The first machine with an error to show; each machine's error is its own.
+    private var failing: MachineSession? { inbox.sessions.first { $0.client.error != nil } }
+
+    @ViewBuilder private func rows(_ section: MergedInbox.Section) -> some View {
         if section.key == "unsent" {
-            ForEach(section.ids, id: \.self) { id in
-                if let entry = model.pending[id] {
-                    Button { openThread(entry.threadId) } label: { InboxUnsentRow(entry: entry, thread: model.inbox[entry.threadId]) }
-                        .buttonStyle(.plain).accessibilityIdentifier("unsent.\(id)")
+            ForEach(section.rows, id: \.self) { key in
+                if let entry = inbox.pending(key) {
+                    let thread = InboxKey(machineId: key.machineId, id: entry.threadId)
+                    Button { openThread(thread) } label: { InboxUnsentRow(entry: entry, thread: inbox.row(thread)) }
+                        .buttonStyle(.plain).accessibilityIdentifier("unsent.\(key.id)")
                 }
             }
         } else {
-            ForEach(section.ids, id: \.self) { id in
-                if let row = model.inbox[id] { threadRow(row, section: section.key) }
+            ForEach(section.rows, id: \.self) { key in
+                if let row = inbox.row(key) { threadRow(row, key: key, section: section.key) }
             }
         }
     }
-    private func threadRow(_ row: ThreadRow, section: String) -> some View {
+    private func threadRow(_ row: ThreadRow, key: InboxKey, section: String) -> some View {
         let snoozed = section == "snoozed"
-        return Button { openThread(row.id) } label: { InboxThreadRow(row: row, snoozed: snoozed) }
+        let client = inbox.client(key.machineId)
+        return Button { openThread(key) } label: {
+            InboxThreadRow(row: row, snoozed: snoozed, machine: inbox.showsMachineNames ? inbox.name(key.machineId) : nil)
+        }
             .buttonStyle(.plain)
-            .accessibilityIdentifier("thread.\(row.id)")
+            .accessibilityIdentifier(inbox.showsMachineNames ? "thread.\(key.machineId).\(row.id)" : "thread.\(row.id)")
             .listRowBackground(section == "needs-you" ? AceTheme.Colours.needsYouSurface : AceTheme.Colours.background)
             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                Button("Archive", systemImage: "archivebox") { archive(row) }.tint(AceTheme.Colours.mutedForeground)
+                Button("Archive", systemImage: "archivebox") { archive(row, key: key) }.tint(AceTheme.Colours.mutedForeground)
             }
             .swipeActions(edge: .leading, allowsFullSwipe: snoozed) {
-                if snoozed { Button("Wake", systemImage: "sun.max") { Task { _ = await model.wake(row.id) } }.tint(AceTheme.Status.waiting) }
-                else { Button("Snooze", systemImage: "moon.zzz") { snoozing = row }.tint(AceTheme.Status.waiting) }
+                if snoozed { Button("Wake", systemImage: "sun.max") { Task { _ = await client?.wake(row.id) } }.tint(AceTheme.Status.waiting) }
+                else { Button("Snooze", systemImage: "moon.zzz") { snoozing = key }.tint(AceTheme.Status.waiting) }
             }
             .contextMenu {
-                if snoozed { Button("Wake", systemImage: "sun.max") { Task { _ = await model.wake(row.id) } } }
+                if snoozed { Button("Wake", systemImage: "sun.max") { Task { _ = await client?.wake(row.id) } } }
                 else {
                     Menu("Snooze", systemImage: "moon.zzz") {
-                        ForEach(model.inboxLayout.snooze) { option in
-                            Button(option.label) { Task { _ = await model.snooze(row.id, preset: option.id) } }
+                        ForEach(merged.snooze) { option in
+                            Button(option.label) { Task { _ = await client?.snooze(row.id, preset: option.id) } }
                         }
                     }
                 }
-                Button("Archive", systemImage: "archivebox") { archive(row) }
+                Button("Archive", systemImage: "archivebox") { archive(row, key: key) }
             }
     }
     @ViewBuilder private var emptyState: some View {
         if sections.isEmpty {
-            if !search.isEmpty && !model.inboxLayout.sections.isEmpty { ContentUnavailableView.search(text: search) }
-            else if !model.inboxLoaded {
-                if model.connection == "fatal" || model.connection == "offline" {
+            if !search.isEmpty && !merged.sections.isEmpty { ContentUnavailableView.search(text: search) }
+            else if !inbox.anyLoaded {
+                if inbox.sessions.allSatisfy({ ["fatal", "offline", "reconnecting"].contains($0.client.connection) }) && !inbox.sessions.isEmpty {
                     ContentUnavailableView {
-                        Label("Can't reach your machine", systemImage: "wifi.slash")
-                    } description: { Text("Your threads appear once it's back.") } actions: { Button("Retry") { model.retry() } }
+                        Label(inbox.showsMachineNames ? "Can't reach your machines" : "Can't reach your machine", systemImage: "wifi.slash")
+                    } description: { Text("Your threads appear once it's back.") } actions: {
+                        Button("Retry") { for session in inbox.sessions { session.client.retry() } }
+                    }
                 } else {
                     ContentUnavailableView { Label { Text("Connecting to your machine…") } icon: { ProgressView() } }
                 }
@@ -137,20 +162,23 @@ struct InboxView: View {
         }
     }
     @ViewBuilder private var undoArchive: some View {
-        if let row = archived {
+        if let archived {
             HStack(spacing: AceTheme.Spacing.md) {
-                Text("Archived “\(row.title)”").lineLimit(1)
+                Text("Archived “\(archived.title)”").lineLimit(1)
                 Spacer(minLength: AceTheme.Spacing.sm)
-                Button("Undo") { archived = nil; Task { _ = await model.unarchive(row.id) } }.bold().accessibilityIdentifier("inbox.undoArchive")
+                Button("Undo") {
+                    self.archived = nil
+                    Task { _ = await inbox.client(archived.key.machineId)?.unarchive(archived.key.id) }
+                }.bold().accessibilityIdentifier("inbox.undoArchive")
             }
             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
             .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.md)
             .floatingGlass()
             .padding(.horizontal, AceTheme.Spacing.lg).padding(.bottom, AceTheme.Spacing.md)
             .transition(.move(edge: .bottom).combined(with: .opacity))
-            .task(id: row.id) {
+            .task(id: archived.key) {
                 try? await Task.sleep(for: .seconds(5))
-                if archived?.id == row.id { withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { archived = nil } }
+                if self.archived?.key == archived.key { withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { self.archived = nil } }
             }
         }
     }
@@ -159,50 +187,48 @@ struct InboxView: View {
             Text("ace.").aceFont(AceTheme.Typography.wordmark, relativeTo: .title3).fixedSize(horizontal: true, vertical: false).foregroundStyle(AceTheme.Colours.foreground)
             Button { showingMachines = true } label: {
                 HStack(spacing: AceTheme.Spacing.xs) {
-                    Circle().fill(model.connection == "ready" ? AceTheme.Status.done : AceTheme.Colours.decoration).frame(width: AceTheme.Dimensions.statusDot, height: AceTheme.Dimensions.statusDot)
-                    Text("1 machine").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                    Circle().fill(inbox.allReady ? AceTheme.Status.done : AceTheme.Colours.decoration).frame(width: AceTheme.Dimensions.statusDot, height: AceTheme.Dimensions.statusDot)
+                    Text(inbox.sessions.count == 1 ? "1 machine" : "\(inbox.sessions.count) machines").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                 }.foregroundStyle(AceTheme.Colours.mutedForeground)
-            }.accessibilityLabel("Machines")
+            }
+            .accessibilityLabel("Machines")
+            .accessibilityValue(inbox.allReady ? "All connected" : "Not all connected")
+            .accessibilityIdentifier("inbox.machines")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { showingSearch.toggle(); if !showingSearch { search = "" } } } label: { Image(systemName: "magnifyingglass") }
                 .accessibilityLabel("Search threads")
         }
     }
-    private var machinesSheet: some View {
-        NavigationStack {
-            List {
-                Label(model.inbox.values.first?.machine ?? "Your machine", systemImage: "laptopcomputer")
-                LabeledContent("Connection", value: model.connection)
-            }
-            .navigationTitle("Machines").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showingMachines = false } } }
-        }.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
-    }
 
-    private func filtered(_ section: InboxLayout.Section) -> InboxLayout.Section? {
+    private func filtered(_ section: MergedInbox.Section) -> MergedInbox.Section? {
         guard !search.isEmpty else { return section }
-        let ids = section.ids.filter { id in
-            let row = section.key == "unsent" ? model.pending[id].flatMap { model.inbox[$0.threadId] } : model.inbox[id]
-            let text = section.key == "unsent" ? model.pending[id]?.text ?? "" : ""
-            return [row?.title ?? "", row?.project ?? "", text].contains { $0.localizedCaseInsensitiveContains(search) }
+        let rows = section.rows.filter { key in
+            let pending = section.key == "unsent" ? inbox.pending(key) : nil
+            let row = section.key == "unsent" ? pending.flatMap { inbox.row(InboxKey(machineId: key.machineId, id: $0.threadId)) } : inbox.row(key)
+            let machine = inbox.showsMachineNames ? inbox.name(key.machineId) : ""
+            return [row?.title ?? "", row?.project ?? "", pending?.text ?? "", machine].contains { $0.localizedCaseInsensitiveContains(search) }
         }
-        return ids.isEmpty ? nil : InboxLayout.Section(key: section.key, label: section.label, ids: ids)
+        return rows.isEmpty ? nil : MergedInbox.Section(key: section.key, label: section.label, rows: rows)
     }
-    private func openThread(_ id: String) {
-        guard model.inbox[id] != nil else { return }
-        model.open(id); path.append(id)
+    /// Opening routes to the row's machine; a thread already open elsewhere is closed first.
+    private func openThread(_ key: InboxKey) {
+        guard let client = inbox.client(key.machineId), client.inbox[key.id] != nil else { return }
+        if let openMachine, openMachine != key.machineId { inbox.client(openMachine)?.back() }
+        openMachine = key.machineId
+        client.open(key.id); path = [key.id]
     }
-    private func archive(_ row: ThreadRow) {
+    private func archive(_ row: ThreadRow, key: InboxKey) {
         Task {
-            guard await model.archive(row.id) else { return }
-            withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { archived = row }
+            guard await inbox.client(key.machineId)?.archive(row.id) == true else { return }
+            withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { archived = (key, row.title) }
         }
     }
-    /// The list is live; a pull asks the SDK to reconnect now and waits briefly for it.
+    /// The list is live; a pull asks every machine that isn't ready to reconnect now.
     private func refresh() async {
-        guard model.connection != "ready" else { return }
-        model.retry()
-        for _ in 0..<20 where model.connection != "ready" { try? await Task.sleep(for: .milliseconds(100)) }
+        let waiting = inbox.sessions.filter { $0.client.connection != "ready" }
+        guard !waiting.isEmpty else { return }
+        for session in waiting { session.client.retry() }
+        for _ in 0..<20 where waiting.contains(where: { $0.client.connection != "ready" }) { try? await Task.sleep(for: .milliseconds(100)) }
     }
 }

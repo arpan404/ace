@@ -1,88 +1,107 @@
 import Foundation
 import Observation
 
-/// Paired computers and the one this phone is connected to. Directory rules and credentials
-/// stay in the shared SDK and Keychain; this model only selects and switches connections.
+/// Paired computers, each connected at once on its own runtime. Directory rules and credentials
+/// stay in the shared SDK and Keychain; this model starts, renames and retires runtimes.
 @MainActor @Observable final class MachinesModel {
     private(set) var machines: [MachineEntry] = []
-    private(set) var activeHostId: String?
     private(set) var loaded = false
     private(set) var grants: [String: [String]]
+    /// Directory trouble, or an operation on a machine that failed (for a person).
     var problem: ProblemNotice?
-    @ObservationIgnored let client: ClientModel
+    /// Machines stored without a pinned direct address; they need pairing again.
+    private(set) var unsupported: Set<String> = []
+    let inbox: MachineInbox
     @ObservationIgnored private let access: any MachineAccess
     @ObservationIgnored private let storage: URL
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let itemLimit: Int
+    @ObservationIgnored private let makeClient: @MainActor () -> ClientModel
 
-    init(client: ClientModel, access: any MachineAccess, storage: URL, defaults: UserDefaults = .standard, itemLimit: Int = 2200) {
-        self.client = client; self.access = access; self.storage = storage; self.defaults = defaults; self.itemLimit = itemLimit
+    init(access: any MachineAccess, storage: URL, defaults: UserDefaults = .standard, itemLimit: Int = 2200,
+         now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 },
+         makeClient: @escaping @MainActor () -> ClientModel) {
+        self.access = access; self.storage = storage; self.defaults = defaults; self.itemLimit = itemLimit; self.makeClient = makeClient
+        inbox = MachineInbox(defaults: defaults, now: now)
         grants = defaults.dictionary(forKey: Keys.grants) as? [String: [String]] ?? [:]
-        activeHostId = defaults.string(forKey: Keys.active)
     }
-    var active: MachineEntry? { machines.first { $0.hostId == activeHostId } }
-    /// The host chose a view-only grant for this phone; commands will be refused.
-    var activeIsReadOnly: Bool { active.map { !(Grants(scopes: grants[$0.deviceId] ?? ["operate"]).canOperate) } ?? false }
+    func entry(_ hostId: String) -> MachineEntry? { machines.first { $0.hostId == hostId } }
+    /// The host chose a view-only grant for this phone; its commands will be refused.
+    func isReadOnly(_ hostId: String) -> Bool {
+        entry(hostId).map { !(Grants(scopes: grants[$0.deviceId] ?? ["operate"]).canOperate) } ?? false
+    }
 
-    /// Load the directory, then reconnect to the last machine (or the first one).
+    /// Load the directory, then connect every paired machine. An offline one gates nothing.
     func load() async {
         switch await access.perform(.list) {
         case .success(let outcome): machines = outcome.machines ?? []
         case .failure(let notice): problem = notice
         }
         loaded = true
-        if let target = active ?? machines.first { await select(target.hostId) }
+        for entry in machines { await connect(entry) }
     }
-    /// Redeem a confirmed link, store the device, then switch to it. Returns the failure, if any.
+    /// Redeem a confirmed link, store the device, then connect it beside the others.
     func pair(_ link: PairingLink, name: String) async -> ProblemNotice? {
         switch await access.perform(.pair(link, name: name)) {
         case .failure(let notice): return notice
         case .success(let outcome):
             machines = outcome.machines ?? machines
-            guard let paired = outcome.paired, let entry = machines.first(where: { $0.hostId == paired.hostId }) else { return .unknown }
+            guard let paired = outcome.paired, let entry = entry(paired.hostId) else { return .unknown }
             grants[entry.deviceId] = paired.scopes
             defaults.set(grants, forKey: Keys.grants)
-            await select(entry.hostId)
+            await connect(entry)
             return nil
         }
     }
-    /// Await the previous runtime's shutdown before the next one opens its own database.
-    func select(_ hostId: String) async {
-        guard let entry = machines.first(where: { $0.hostId == hostId }) else { return }
-        activeHostId = hostId
-        defaults.set(hostId, forKey: Keys.active)
-        guard let target = entry.connectionTarget else {
-            problem = ProblemNotice(code: "unsupported", message: "This machine needs a direct pinned address. Pair it again.")
-            await client.disconnectAndWait()
-            return
+    /// A name for this phone only; the computer keeps its own.
+    func rename(_ hostId: String, to name: String) async -> ProblemNotice? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        switch await access.perform(.rename(hostId: hostId, name: String(trimmed.prefix(256)))) {
+        case .failure(let notice): return notice
+        case .success(let outcome):
+            machines = outcome.machines ?? machines
+            if let entry = entry(hostId) { inbox.rename(hostId, to: entry.displayName) }
+            return nil
         }
-        problem = nil
-        await client.connect(target: target, directory: storage, itemLimit: itemLimit)
     }
-    /// Remove authority first, then local data bound to that host and device.
+    /// Stop that machine's runtime, remove its credential, then the local data bound to that host
+    /// and device. The other machines keep running throughout.
     func remove(_ hostId: String) async {
-        guard let entry = machines.first(where: { $0.hostId == hostId }) else { return }
-        let wasActive = activeHostId == hostId
-        if wasActive { await client.disconnectAndWait() }
+        guard let entry = entry(hostId) else { return }
+        let client = inbox.client(hostId)
+        await client?.disconnectAndWait()
         switch await access.perform(.remove(hostId: hostId)) {
         case .failure(let notice):
-            if wasActive { await select(hostId) }
             problem = notice
+            if let client, let target = entry.connectionTarget { await client.connect(target: target, directory: storage, itemLimit: itemLimit) }
             return
         case .success(let outcome): machines = outcome.machines ?? machines.filter { $0.hostId != hostId }
         }
+        inbox.detach(hostId)
+        unsupported.remove(hostId)
         grants[entry.deviceId] = nil
         defaults.set(grants, forKey: Keys.grants)
         let database = ClientModel.database(hostId: entry.hostId, deviceId: entry.deviceId, in: storage)
         for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(at: URL(fileURLWithPath: database.path + suffix)) }
-        if wasActive {
-            activeHostId = nil
-            defaults.removeObject(forKey: Keys.active)
-            if let next = machines.first { await select(next.hostId) }
+    }
+    /// Network changes reach every runtime; the SDK owns each reconnect.
+    func network(online: Bool, interfaceChanged: Bool) {
+        for session in inbox.sessions {
+            session.client.network(online)
+            // A new interface (Wi-Fi, cellular, Tailscale) can reach a host the old one couldn't.
+            if online && interfaceChanged { session.client.retry() }
         }
     }
-    private enum Keys {
-        static let grants = "ace.machines.grants"
-        static let active = "ace.machines.active"
+    func disconnectAll() async {
+        for session in inbox.sessions { await session.client.disconnectAndWait() }
     }
+    private func connect(_ entry: MachineEntry) async {
+        guard let target = entry.connectionTarget else { unsupported.insert(entry.hostId); return }
+        if inbox.client(entry.hostId) != nil { return }
+        let client = makeClient()
+        inbox.attach(entry.hostId, name: entry.displayName, client: client)
+        await client.connect(target: target, directory: storage, itemLimit: itemLimit)
+    }
+    private enum Keys { static let grants = "ace.machines.grants" }
 }

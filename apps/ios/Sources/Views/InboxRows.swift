@@ -2,9 +2,11 @@ import SwiftUI
 
 /// One thread in the inbox: project and status, title, then branch, machine, tree size and when
 /// it last worked (or wakes). Every word arrives from the bridge; colour comes from its token.
+/// The machine shows only when more than one is paired (DESIGN.md list rows).
 struct InboxThreadRow: View {
     let row: ThreadRow
     let snoozed: Bool
+    var machine: String? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             HStack(spacing: AceTheme.Spacing.sm) {
@@ -16,7 +18,7 @@ struct InboxThreadRow: View {
             Text(row.title).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
             HStack(spacing: AceTheme.Spacing.sm) {
                 if !row.branch.isEmpty { Text(row.branch).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(1) }
-                if !row.machine.isEmpty { Text(row.branch.isEmpty ? row.machine : "· \(row.machine)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(1) }
+                if let machine, !machine.isEmpty { Text(row.branch.isEmpty ? machine : "· \(machine)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(1) }
                 Spacer(minLength: AceTheme.Spacing.none)
                 if row.agents > 1 {
                     Label("\(row.agents) agents", systemImage: "point.3.connected.trianglepath.dotted")
@@ -82,6 +84,8 @@ struct InboxSectionHeader: View {
 /// The connection as the inbox shows it: quiet while connecting, a retry when it can't reach.
 struct InboxConnectionBanner: View {
     let connection: String
+    /// Which machine, when more than one is paired; the others' rows stay as they are.
+    var machine: String? = nil
     let retry: () -> Void
     var body: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
@@ -92,14 +96,15 @@ struct InboxConnectionBanner: View {
         }
         .foregroundStyle(AceTheme.Colours.mutedForeground)
         .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("inbox.connection")
+        .accessibilityIdentifier(machine.map { "inbox.connection.\($0)" } ?? "inbox.connection")
     }
     private var waiting: Bool { connection == "connecting" || connection == "starting" }
     private var message: String {
-        switch connection {
+        let state = switch connection {
         case "fatal": "Connection needs attention"
         case "offline", "reconnecting": "Offline · showing what this phone last saw"
-        default: "Connecting to your machine…"
+        default: machine == nil ? "Connecting to your machine…" : "Connecting…"
         }
+        return machine.map { "\($0) · \(state)" } ?? state
     }
 }

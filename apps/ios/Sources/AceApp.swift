@@ -2,12 +2,12 @@ import SwiftUI
 import QuartzCore
 
 @main struct AceApp: App {
-    @State private var model = ClientModel(now: { Date().timeIntervalSince1970 * 1000 })
+    @State private var spikeInbox = MachineInbox(now: { Date().timeIntervalSince1970 * 1000 })
     @State private var started = false
     @State private var production = ProductionApp.make()
     var body: some Scene {
         WindowGroup {
-            if SpikeConfiguration.enabled { spike } else if let production { production.root(model: model) } else { storageUnavailable }
+            if SpikeConfiguration.enabled { spike } else if let production { production.root() } else { storageUnavailable }
         }
     }
     private var storageUnavailable: some View {
@@ -17,21 +17,26 @@ import QuartzCore
     /// Debug `--spike` only: the loopback fixture with a fixed fake device credential.
     private var spike: some View {
         Group {
-            if started { InboxView(model: model) }
+            if started { InboxView(inbox: spikeInbox) }
             else { ContentUnavailableView("Connecting to the spike daemon", systemImage: "point.3.connected.trianglepath.dotted") }
         }
         .task {
-            guard !started, let target = SpikeConfiguration.target() else { return }
-            do {
-                let directory = try ProductionApp.storageDirectory()
-                await model.connect(target: target, directory: directory, itemLimit: 2200)
+            let targets = SpikeConfiguration.targets()
+            guard !started, !targets.isEmpty, let directory = try? ProductionApp.storageDirectory() else { return }
+            // One runtime per fixture machine, as production runs one per paired computer.
+            for (index, spike) in targets.enumerated() {
+                let model = ClientModel(now: { Date().timeIntervalSince1970 * 1000 })
+                spikeInbox.attach(spike.target.hostId, name: spike.name, client: model)
+                await model.connect(target: spike.target, directory: directory, itemLimit: 2200)
                 #if DEBUG
-                let metrics = SpikeMetrics(model: model, now: { CACurrentMediaTime() }, output: directory.appendingPathComponent("spike-metrics.json"))
-                model.metrics = metrics
-                metrics.start()
+                if index == 0 {
+                    let metrics = SpikeMetrics(model: model, now: { CACurrentMediaTime() }, output: directory.appendingPathComponent("spike-metrics.json"))
+                    model.metrics = metrics
+                    metrics.start()
+                }
                 #endif
-                started = true
-            } catch { model.error = "Could not open local storage" }
+            }
+            started = true
         }
     }
 }
@@ -58,17 +63,14 @@ import QuartzCore
     }
     nonisolated static func machineDirectory(in directory: URL) -> URL { directory.appendingPathComponent("machines.json") }
 
-    func root(model: ClientModel) -> some View {
-        let machines = self.machines ?? MachinesModel(client: model, access: BridgeMachineAccess(directoryURL: Self.machineDirectory(in: directory)),
-                                                      storage: directory.appendingPathComponent("machines", isDirectory: true))
+    func root() -> some View {
+        let machines = self.machines ?? MachinesModel(access: BridgeMachineAccess(directoryURL: Self.machineDirectory(in: directory)),
+                                                      storage: directory.appendingPathComponent("machines", isDirectory: true),
+                                                      makeClient: { ClientModel(now: { Date().timeIntervalSince1970 * 1000 }) })
         if self.machines == nil {
             self.machines = machines
             network.start { change in
-                Task { @MainActor in
-                    model.network(change.online)
-                    // A new interface (Wi-Fi, cellular, Tailscale) can reach a host the old one couldn't.
-                    if change.online && change.interfaceChanged { model.retry() }
-                }
+                Task { @MainActor in machines.network(online: change.online, interfaceChanged: change.interfaceChanged) }
             }
         }
         return RootView(machines: machines, lock: lock)
