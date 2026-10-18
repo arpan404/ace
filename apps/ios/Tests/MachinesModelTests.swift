@@ -3,7 +3,7 @@ import Testing
 @testable import Ace
 
 /// The SDK directory and the VMs are substituted at their boundaries; model logic is real.
-@Suite @MainActor struct MachinesModelTests {
+@Suite(.timeLimit(.minutes(1))) @MainActor struct MachinesModelTests {
     @Test func everyPairedMachineConnectsAtOnceEachBoundToItsOwnHostDeviceAndDatabase() async throws {
         let fixture = try Fixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")])
         defer { fixture.cleanUp() }
@@ -55,7 +55,8 @@ import Testing
         let sent = fixture.sessions.started[1].invoked.joined()
         #expect(sent.contains(#""kind":"archive""#) && sent.contains(#""threadId":"t1""#))
         #expect(sent.contains(#""type":"open""#))
-        await fixture.model.disconnectAll() // Cancels the pending admission.
+        // Disconnecting cancels the pending admission; the fake VMs then finish shutting down.
+        for session in fixture.model.inbox.sessions { session.client.disconnect() }
         for session in fixture.sessions.started { session.finishShutdown() }
         _ = await archive.value
     }
