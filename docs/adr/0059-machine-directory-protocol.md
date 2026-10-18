@@ -158,7 +158,7 @@ unchanged direct single-client API. Review regressions cover delayed/failed
 replacement snapshots, removal storage failure, mismatched one-way controls,
 throwing consumers, snapshot reordering and listener bounds. These regressions
 and pool-specific performance measurements need run at merge under the owner's
-test policy; see [review verification](../testing/multi-daemon-review.md).
+test policy.
 A real local daemon test covers authenticated
 identity, hostname fallback and the global display-name setting. All test homes
 are temporary. No provider sessions or recording tools are used.
