@@ -153,8 +153,11 @@ export async function executeBrowserCommand(
       return pageHistory(cdp);
     case "history":
       context.check(actor, signal, generation);
-      return traverseHistory(cdp, command.direction, () =>
-        context.check(actor, signal, generation),
+      return traverseHistory(
+        cdp,
+        command.direction,
+        () => context.check(actor, signal, generation),
+        context.options.navigationClock,
       );
     case "find_text":
       context.read();
