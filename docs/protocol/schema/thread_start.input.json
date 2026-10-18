@@ -19,6 +19,12 @@
       "minLength": 1,
       "type": "string"
     },
+    "project": {
+      "description": "Another project on this machine: its name, folder path or id from projects_find. Default: this project.",
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json",
       "description": "Default: yours."
@@ -47,7 +53,7 @@
       "default": {
         "kind": "project"
       },
-      "description": "Where it works. Default: this project's checkout; new_worktree starts a Git worktree from base."
+      "description": "Where it works. Default: the project's checkout; new_worktree starts a Git worktree from base."
     }
   },
   "required": [

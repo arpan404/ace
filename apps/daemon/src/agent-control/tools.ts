@@ -12,6 +12,8 @@ import type { Store } from "../store.ts";
 import type { DelegationService } from "./delegations.ts";
 import { controlCommandId } from "./delegations.ts";
 import { childTaskView } from "./task-view.ts";
+import { settleThread, unsettleThread } from "./thread-settle.ts";
+import { findProjects } from "./projects.ts";
 import { resolveSelection, type OpenSelection } from "./selection-defaults.ts";
 import { conversationTool, type ConversationStartPort } from "./conversation-tools.ts";
 import { AgentControlError } from "./failure.ts";
@@ -426,18 +428,16 @@ export function createAgentControlPort(
           return extensions.pr
             ? extensions.pr(caller, operation, signal)
             : { ok: false, code: "unsupported" };
-        case "thread.settle": {
-          if (
-            !["done", "failed", "new"].includes(
-              store.getThread(operation.threadId)?.status.state ?? "",
-            )
-          )
-            return { ok: false, code: "not_ready" };
-          const result = service.command(
-            controlCommandId(operation.threadId, "settle", operation.op),
-            { type: "thread.archive", threadId: operation.threadId },
-          );
-          return { ok: result.ok };
+        case "thread.settle":
+          return settleThread(store, operation.threadId, service.now());
+        case "thread.unsettle":
+          return unsettleThread(store, operation.threadId, service.now());
+        case "projects.list": {
+          const current = store.getThread(caller.threadId)?.workspaceId;
+          return {
+            ok: true,
+            data: { projects: findProjects(store, operation.query, operation.limit, current) },
+          };
         }
         case "thread.snooze": {
           if (!extensions.snooze) return { ok: false, code: "unsupported" };

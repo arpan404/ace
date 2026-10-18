@@ -1,3 +1,4 @@
+import { aceToolInput } from "@ace/core";
 import type { Item, ProviderKind, RawPayload } from "@ace/protocol";
 import { field, mcpResultParts } from "./mcp-result.ts";
 import { providerNames } from "./providers.ts";
@@ -21,9 +22,16 @@ export interface StartedThread {
 /** Claude's `mcp__ace__thread_start` or OpenCode's and Pi's `ace_thread_start`. */
 const namespaced = /^(?:mcp__ace__|ace_)(?:ace_)*thread_start$/;
 
+/** A `thread_start` reached through `tools_call`, the only route some clients have to it. */
+function dispatchedStart(call: Extract<Item, { type: "tool_call" }>["call"]) {
+  const called = aceToolInput(call);
+  return called?.name === "thread_start" ? called : undefined;
+}
+
 /**
- * Whether an item is a call of ace's `thread_start`, in any provider's naming. The bare name
- * counts only from ace's own server: another server may have a `thread_start` of its own.
+ * Whether an item is a call of ace's `thread_start`, in any provider's naming or through
+ * `tools_call`. The bare name counts only from ace's own server: another server may have a
+ * `thread_start` of its own.
  */
 export function isThreadStartCall(item: Item | undefined): boolean {
   if (item?.type !== "tool_call") return false;
@@ -31,9 +39,13 @@ export function isThreadStartCall(item: Item | undefined): boolean {
   if (detail.kind === "mcp")
     return (
       namespaced.test(detail.tool) ||
-      (/^ace$|^ace[-_]/.test(detail.server) && detail.tool === "thread_start")
+      (/^ace$|^ace[-_]/.test(detail.server) && detail.tool === "thread_start") ||
+      dispatchedStart(item.call) !== undefined
     );
-  return detail.kind === "custom" && namespaced.test(title.trim());
+  return (
+    (detail.kind === "custom" && namespaced.test(title.trim())) ||
+    dispatchedStart(item.call) !== undefined
+  );
 }
 
 const text = (value: unknown, max = 256): string | undefined =>
@@ -65,6 +77,8 @@ function answerData(result: unknown, raw: readonly RawPayload[]): unknown {
 /** The arguments the agent called with: MCP's own, else the first found in the raw payloads. */
 function argumentsOf(item: Extract<Item, { type: "tool_call" }>): unknown {
   const { detail, raw } = item.call;
+  const dispatched = dispatchedStart(item.call);
+  if (dispatched) return dispatched.input;
   if (detail.kind === "mcp") return detail.arguments;
   for (const payload of raw) {
     const data = field(payload, "data");

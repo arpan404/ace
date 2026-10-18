@@ -172,6 +172,8 @@ export const ThreadStartOperation = z.strictObject({
   title: z.string().min(1).max(256),
   text: MessageText,
   workspace: AgentWorkspace,
+  /** Another local project, by id, name or folder path. Omitted: the caller's own project. */
+  project: z.string().min(1).max(4096).optional(),
   ...AgentSelection.shape,
   /** Omitted: the caller's own provider, resolved by the daemon before the thread starts. */
   provider: ProviderKind.optional(),
@@ -345,6 +347,13 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     }),
   z.strictObject({ op: z.literal("thread.list_prs") }),
   z.strictObject({ op: z.literal("thread.settle"), threadId: ThreadId }),
+  z.strictObject({ op: z.literal("thread.unsettle"), threadId: ThreadId }),
+  /** This machine's projects, matched by name or path; empty query lists recent ones first. */
+  z.strictObject({
+    op: z.literal("projects.list"),
+    query: z.string().max(256).default(""),
+    limit: z.number().int().min(1).max(50).default(20),
+  }),
   z.strictObject({
     op: z.literal("thread.snooze"),
     threadId: ThreadId,
