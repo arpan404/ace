@@ -3,7 +3,7 @@ import { Command } from "@ace/protocol";
 import { ThreadOrganizer } from "../thread-organizer.ts";
 import { harness, scriptFrames, start, end, question, task } from "./test-support.ts";
 
-test("settlement and deletion follow real human interaction and background execution facts", async () => {
+test("settlement and deletion follow real human interaction and background execution facts, and an unsettled thread stays until auto-settle is back on", async () => {
   const frames = scriptFrames();
   const h = await harness([{ on: "send", frames: [frames.frame(start, question)] }], frames);
   const organizer = new ThreadOrganizer(h.store, undefined, h.clock.now, () => () => {});
@@ -11,7 +11,7 @@ test("settlement and deletion follow real human interaction and background execu
     const id = await h.create();
     const client = await h.connect("device");
     const command = async (
-      type: "thread.settle" | "thread.unsettle" | "thread.delete",
+      type: "thread.settle" | "thread.unsettle" | "thread.delete" | "thread.autoSettle",
       commandId: string,
     ) => {
       client.send({
@@ -19,7 +19,11 @@ test("settlement and deletion follow real human interaction and background execu
         command: Command.parse({
           id: commandId,
           deviceId: "device",
-          payload: { type, threadId: id },
+          payload: {
+            type,
+            threadId: id,
+            ...(type === "thread.autoSettle" ? { enabled: true } : {}),
+          },
         }),
       });
       return client.next();
@@ -41,10 +45,16 @@ test("settlement and deletion follow real human interaction and background execu
       h.clock.now(),
     );
     await organizer.sweep();
+    // Unsettled by hand: the merged PR doesn't settle it again.
+    expect(h.store.getThread(id)?.settledAt).toBeUndefined();
+    await command("thread.autoSettle", "auto-settle-on");
+    await organizer.sweep();
     expect(h.store.getThread(id)).toMatchObject({
       settledReason: "pr_merged",
     });
     await command("thread.unsettle", "unsettled-merged");
+    await organizer.sweep();
+    expect(h.store.getThread(id)?.settledAt).toBeUndefined();
     const context = h.contexts[0];
     if (!context) throw new Error("Missing provider boundary");
     context.onFrame(
@@ -67,12 +77,11 @@ test("settlement and deletion follow real human interaction and background execu
       ok: true,
     });
     await command("thread.unsettle", "unsettled-background");
-    await organizer.sweep();
-    expect(h.store.getThread(id)).toMatchObject({
-      settledReason: "pr_merged",
-    });
     context.onFrame(frames.frame({ type: "background.ended", task: "shell", status: "completed" }));
     await h.engine.flush();
+    await organizer.sweep();
+    expect(h.store.getThread(id)?.settledAt).toBeUndefined();
+    await command("thread.autoSettle", "auto-settle-again");
     await organizer.sweep();
     expect(h.store.getThread(id)?.settledReason).toBe("pr_merged");
     expect(await command("thread.delete", "completed-tree")).toMatchObject({ ok: true });

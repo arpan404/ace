@@ -4,9 +4,13 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { resetQueueEdits } from "./composer/queue-edit.ts";
 import { openEffortControl, chooseEffort, closeModelControl } from "@/test/model-control.ts";
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+  localStorage.clear();
+  resetQueueEdits();
+});
 
 const threadId = "thread-replay-cursor";
 
@@ -53,12 +57,22 @@ async function queuedEditButton(queued = screen.getByRole("list", { name: "Queue
   return edit;
 }
 
-async function takeBackButton(queued: HTMLElement) {
+/** The composer's message box: it remounts when a queued message is put in it to edit. */
+const composerBox = () => screen.getByRole("combobox", { name: "Message" });
+
+/** Open a queued message in the composer to edit it. */
+async function editInComposer(queued?: HTMLElement) {
   await userEvent.click(await queuedEditButton(queued));
-  // Within the edit dialog: a button role query over the page weighs every queued row's
-  // controls, which with hundreds of rows costs seconds on a loaded machine.
-  const dialog = await screen.findByRole("dialog", { name: "Edit queued message" });
-  return within(dialog).getByRole("button", { name: "Take back to composer" });
+  await within(screen.getByRole("list", { name: "Queued messages" })).findByText(
+    "Editing in composer",
+  );
+}
+
+/** Replace the composer's words and press Enter. */
+async function retypeAndEnter(text: string) {
+  await waitFor(() => expect(composerBox().textContent).not.toBe(""));
+  await userEvent.clear(composerBox());
+  await userEvent.type(composerBox(), `${text}{Enter}`);
 }
 
 async function queueTwo(message: HTMLElement) {
@@ -89,18 +103,30 @@ test("removing a queued message preserves the next message and the current draft
   expect(message.textContent).toBe("Keep this draft");
 });
 
-test("a queued message can be taken back, edited and queued again", async () => {
+test("a queued message is edited in the composer, and the draft typed before comes back after saving", async () => {
   const { app, message } = await openBusy();
   await userEvent.type(message, "Cap retries at 3{Enter}");
-  const queued = await screen.findByRole("list", { name: "Queued messages" });
-  await userEvent.click(await takeBackButton(queued));
-  await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
-  const restored = screen.getByRole("combobox", { name: "Message" });
-  expect(restored.textContent).toBe("Cap retries at 3");
-  await userEvent.clear(restored);
-  await userEvent.type(restored, "Cap retries at 5{Enter}");
-  await waitFor(() => expect(pills()[0]).toContain("Cap retries at 5"));
-  expect(await daemonQueue(app)).toEqual(["Cap retries at 5"]);
+  await screen.findByRole("list", { name: "Queued messages" });
+  await userEvent.type(composerBox(), "Keep this draft");
+  await editInComposer();
+  await waitFor(() => expect(composerBox().textContent).toBe("Cap retries at 3"));
+  await retypeAndEnter("Cap retries at 5");
+  await waitFor(async () => expect(await daemonQueue(app)).toEqual(["Cap retries at 5"]));
+  await waitFor(() => expect(composerBox().textContent).toBe("Keep this draft"));
+  expect(screen.queryByText("Editing in composer")).toBeNull();
+});
+
+test("cancelling an edit leaves the queued message alone and brings back the draft", async () => {
+  const { app, message } = await openBusy();
+  await userEvent.type(message, "Check the retry path{Enter}");
+  await screen.findByRole("list", { name: "Queued messages" });
+  await userEvent.type(composerBox(), "Keep this draft");
+  await editInComposer();
+  await waitFor(() => expect(composerBox().textContent).toBe("Check the retry path"));
+  await userEvent.type(composerBox(), " and the timeout");
+  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(composerBox().textContent).toBe("Keep this draft"));
+  expect(await daemonQueue(app)).toEqual(["Check the retry path"]);
 });
 
 test("Steer sends a queued message into the running turn", async () => {
@@ -115,60 +141,6 @@ test("Steer sends a queued message into the running turn", async () => {
   expect(await within(feed).findByText("Use the cursor from the ack")).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
   expect(await daemonQueue(app)).toEqual([]);
-});
-
-test("taking back a queued message appends its text to the current draft once", async () => {
-  const { app, message } = await openBusy();
-  await userEvent.type(message, "Check the retry path{Enter}");
-  const queued = await screen.findByRole("list", { name: "Queued messages" });
-  await userEvent.type(message, "Keep this draft");
-  const takeBack = await takeBackButton(queued);
-  fireEvent.click(takeBack);
-  fireEvent.click(takeBack);
-  await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
-  expect((await screen.findByRole("combobox", { name: "Message" })).textContent).toBe(
-    "Keep this draft\n\nCheck the retry path",
-  );
-  expect(await daemonQueue(app)).toEqual([]);
-});
-
-test("taking back a queued attachment restores it alongside the current draft", async () => {
-  const { app, message } = await openBusy();
-  await userEvent.upload(
-    screen.getByLabelText("Files to attach"),
-    new File(["hello"], "trace.txt", { type: "text/plain" }),
-  );
-  await userEvent.type(message, "Review this trace{Enter}");
-  const queued = await screen.findByRole("list", { name: "Queued messages" });
-  const reply = await app.client.request({ type: "queue.get", threadId: ThreadId.parse(threadId) });
-  const sha256 = reply.queue.messages[0]?.context?.attachments[0]?.sha256;
-  expect(sha256).toBeTruthy();
-  await userEvent.type(message, "Keep this draft");
-  const takeBack = await takeBackButton(queued);
-  await userEvent.click(takeBack);
-  await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
-  expect((await screen.findByRole("combobox", { name: "Message" })).textContent).toBe(
-    "Keep this draft\n\nReview this trace",
-  );
-  expect(
-    within(await screen.findByRole("list", { name: "Attachments" })).getByText("trace.txt"),
-  ).toBeTruthy();
-  expect(app.storage.getItem("ace.composer.drafts")).toContain(sha256);
-});
-
-test("a refused take back keeps the queued message and leaves the current draft intact", async () => {
-  const { app, message } = await openBusy();
-  await userEvent.type(message, "Check retries{Enter}");
-  const queued = await screen.findByRole("list", { name: "Queued messages" });
-  await userEvent.type(message, "Keep this draft");
-  app.daemon.refuseCommands("queue_conflict", "queue.remove");
-  await userEvent.click(await takeBackButton(queued));
-  await screen.findByRole("alertdialog", { name: "Couldn't take back the message" });
-  expect(
-    within(screen.getByRole("list", { name: "Queued messages" })).getByText("Check retries"),
-  ).toBeTruthy();
-  expect(message.textContent).toBe("Keep this draft");
-  expect(await daemonQueue(app)).toEqual(["Check retries"]);
 });
 
 test("a refused Steer keeps the pending bubble without adding a confirmed message", async () => {
@@ -386,7 +358,7 @@ test("a queue change during a drag asks the user to move again", async () => {
   ]);
 });
 
-test("editing a queued attachment keeps its file and leaves the composer draft alone", async () => {
+test("editing a queued attachment keeps its file and brings back the composer draft", async () => {
   const { app, message } = await openBusy();
   await userEvent.upload(
     screen.getByLabelText("Files to attach"),
@@ -399,26 +371,23 @@ test("editing a queued attachment keeps its file and leaves the composer draft a
     threadId: ThreadId.parse(threadId),
   });
   await userEvent.type(message, "Keep this draft");
-  await userEvent.click(await queuedEditButton());
-  const editor = await screen.findByRole("textbox", { name: "Queued message text" });
-  await userEvent.clear(editor);
-  await userEvent.type(editor, "Review only errors{Control>}{Enter}{/Control}");
+  await editInComposer();
+  await waitFor(() => expect(composerBox().textContent).toBe("Review this trace"));
+  await retypeAndEnter("Review only errors");
   await waitFor(async () => expect(await daemonQueue(app)).toEqual(["Review only errors"]));
   const after = await app.client.request({ type: "queue.get", threadId: ThreadId.parse(threadId) });
   expect(after.queue.messages[0]?.context?.attachments).toEqual(
     before.queue.messages[0]?.context?.attachments,
   );
-  expect(message.textContent).toBe("Keep this draft");
+  await waitFor(() => expect(composerBox().textContent).toBe("Keep this draft"));
 });
 
-test("an edit stays available to copy after another device dispatches the message", async () => {
+test("an edit stays in the composer when another device sends the message first", async () => {
   const { app, message } = await openBusy();
   await userEvent.type(message, "Check retries{Enter}");
-  const queued = await screen.findByRole("list", { name: "Queued messages" });
-  await userEvent.click(await queuedEditButton(queued));
-  const editor = await screen.findByRole("textbox", { name: "Queued message text" });
-  await userEvent.clear(editor);
-  await userEvent.type(editor, "Keep my revised wording");
+  await screen.findByRole("list", { name: "Queued messages" });
+  await editInComposer();
+  await waitFor(() => expect(composerBox().textContent).toBe("Check retries"));
   const { queue } = await app.client.request({
     type: "queue.get",
     threadId: ThreadId.parse(threadId),
@@ -439,9 +408,9 @@ test("an edit stays available to copy after another device dispatches the messag
       "other-device-steer",
     );
   });
-  await screen.findByText("This message has left the queue. Your edits are still here to copy.");
-  expect(editor).toHaveProperty("value", "Keep my revised wording");
-  expect(screen.getByRole("button", { name: "Save changes" }).hasAttribute("disabled")).toBe(true);
+  await retypeAndEnter("Keep my revised wording");
+  await screen.findByText("That message already left the queue");
+  await waitFor(() => expect(composerBox().textContent).toBe("Keep my revised wording"));
   expect(await daemonQueue(app)).toEqual([]);
 });
 
@@ -449,14 +418,11 @@ test("a refused edit keeps the unsaved text and the original queued message", as
   const { app, message } = await openBusy();
   await userEvent.type(message, "Original wording{Enter}");
   await screen.findByRole("list", { name: "Queued messages" });
-  await userEvent.click(await queuedEditButton());
-  const editor = await screen.findByRole("textbox", { name: "Queued message text" });
-  await userEvent.clear(editor);
-  await userEvent.type(editor, "Unsaved revision");
+  await editInComposer();
   app.daemon.refuseCommands("queue_conflict", "queue.edit");
-  await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await retypeAndEnter("Unsaved revision");
   await screen.findByRole("alertdialog", { name: "Couldn't save the message" });
-  expect(editor).toHaveProperty("value", "Unsaved revision");
+  await waitFor(() => expect(composerBox().textContent).toBe("Unsaved revision"));
   expect(await daemonQueue(app)).toEqual(["Original wording"]);
 });
 
@@ -571,11 +537,8 @@ test("saved messages beyond the visible page do not reappear as saving rows or t
     .getAllByRole("listitem")
     .at(-1);
   if (!last) throw new Error("no last row");
-  await userEvent.click(await queuedEditButton(last));
-  expect(await screen.findByRole("textbox", { name: "Queued message text" })).toHaveProperty(
-    "value",
-    "Follow-up 17",
-  );
+  await editInComposer(last);
+  await waitFor(() => expect(composerBox().textContent).toBe("Follow-up 17"));
   expect(
     (await app.client.request({ type: "queue.get", threadId: ThreadId.parse(threadId) })).queue
       .total,
@@ -583,7 +546,7 @@ test("saved messages beyond the visible page do not reappear as saving rows or t
 });
 
 test.each([17, 33, 257])(
-  "a fresh client can take back retained input %i without running earlier messages",
+  "a fresh client can edit retained input %i in the composer without running earlier messages",
   async (count) => {
     const queuedCount = Math.min(count, 256);
     const inputs = Array.from({ length: queuedCount }, (_, index) => `Retained input ${index + 1}`);
@@ -626,21 +589,19 @@ test.each([17, 33, 257])(
       const last = await within(tray).findByText(lastInput);
       const row = last.closest("li");
       if (!row) throw new Error("Missing queued row");
-      await userEvent.click(await takeBackButton(row));
-      await waitFor(() =>
-        expect(screen.getByRole("combobox", { name: "Message" }).textContent).toContain(lastInput),
-      );
+      await editInComposer(row);
+      await waitFor(() => expect(composerBox().textContent).toBe(lastInput));
       const remaining = await peer.request({
         type: "queue.get",
         threadId: ThreadId.parse(threadId),
         limit: 32,
       });
-      expect(remaining.queue.total).toBe(count - 1);
+      expect(remaining.queue.total).toBe(count);
       expect(
         remaining.queue.messages.flatMap((entry) =>
           entry.input.flatMap((part) => (part.type === "text" ? [part.text] : [])),
         ),
-      ).toEqual(inputs.slice(0, -1).slice(0, 32));
+      ).toEqual(inputs.slice(0, 32));
     } finally {
       await peer.close();
     }
