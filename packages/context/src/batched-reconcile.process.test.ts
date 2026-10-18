@@ -120,3 +120,27 @@ test("a deleted folder and its descendants leave the index in the same batch", a
   // Nothing remained to ask Git about.
   expect(count("check-ignore")).toBe(0);
 });
+
+test("a file under an ignored folder whose name starts with a colon stays out of context", async () => {
+  const { repo, workspace } = await countedRepository();
+  await repo.write(".gitignore", ":odd/\n");
+  await repo.write("src/main.ts", "main");
+  await workspace.initialize();
+  // Git reads a leading `:` as pathspec magic; checked as `odd/secret.txt` it looks visible.
+  await repo.write(":odd/secret.txt", "token");
+  await workspace.update([":odd/secret.txt"]);
+  expect(workspace.index.complete("secret")).toEqual([]);
+  await expect(workspace.read(":odd/secret.txt", 100)).rejects.toMatchObject({ code: "ignored" });
+});
+
+test("a file named like pathspec magic reconciles without failing its batch", async () => {
+  const { repo, workspace } = await countedRepository();
+  await repo.write("src/main.ts", "main");
+  await workspace.initialize();
+  await repo.write(":!x", "bang");
+  await repo.write("src/fresh.ts", "fresh");
+  await workspace.update([":!x", "src/fresh.ts"]);
+  expect(workspace.index.complete("fresh")).toEqual(["src/fresh.ts"]);
+  const read = await workspace.read(":!x", 100);
+  expect(read.bytes.toString()).toBe("bang");
+});

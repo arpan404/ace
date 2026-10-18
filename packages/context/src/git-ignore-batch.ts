@@ -18,7 +18,9 @@ export async function ignoredPaths(
 ): Promise<Set<string>> {
   if (!paths.length) return new Set();
   const asked = new Set(paths);
-  const input = Buffer.from(`${[...asked].join("\0")}\0`);
+  // Git reads each line as a pathspec: a leading `:` is magic (`:odd/x` is checked as
+  // `odd/x`, `:!x` is fatal). A `./` prefix makes every name literal; Git echoes it back.
+  const input = Buffer.from([...asked].map((path) => `./${path}\0`).join(""));
   const result = await withGit(
     root,
     ["check-ignore", "--no-index", "--stdin", "-z"],
@@ -38,8 +40,14 @@ export async function ignoredPaths(
         pending += decoder.write(data);
         let end: number;
         while ((end = pending.indexOf("\0")) >= 0) {
-          const path = pending.slice(0, end);
+          const echoed = pending.slice(0, end);
           pending = pending.slice(end + 1);
+          requireContext(
+            echoed.startsWith("./"),
+            "invalid_request",
+            "Unexpected Git ignore response",
+          );
+          const path = echoed.slice(2);
           requireContext(asked.has(path), "invalid_request", "Unexpected Git ignore response");
           ignored.add(path);
         }
