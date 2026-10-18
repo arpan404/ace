@@ -81,9 +81,15 @@ test("⌘Z outside a text field takes back the latest settle; inside one it is t
   const done = `Settled · ${title}`;
   await screen.findByText(done);
 
-  await userEvent.click(screen.getByRole("searchbox", { name: "Search threads" }));
+  // The palette's search is a text field: ⌘Z there is the field's own.
+  await userEvent.keyboard("{Control>}k{/Control}");
+  const palette = await screen.findByRole("dialog", { name: "Command palette" });
+  const field = within(palette).getByRole("combobox", { name: "Search commands" });
+  await waitFor(() => expect(document.activeElement).toBe(field));
   await userEvent.keyboard("{Control>}z{/Control}");
   expect(screen.queryByText(done)).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull());
 
   document.getElementById("main")?.focus();
   await userEvent.keyboard("{Control>}z{/Control}");

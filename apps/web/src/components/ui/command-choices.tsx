@@ -9,6 +9,7 @@ import {
   commandStepField,
   stepFieldKey,
 } from "./command-step.tsx";
+import { backHint, escapeHint, KeyHints, navigateHint, selectHint } from "./key-hints.tsx";
 
 export interface CommandChoice {
   id: string;
@@ -119,6 +120,13 @@ export function CommandChoices(props: {
           </div>
         )}
       </CommandStepList>
+      <KeyHints
+        hints={[
+          ...(rows.length ? [navigateHint, selectHint] : []),
+          ...(props.onBack ? [backHint] : []),
+          escapeHint(text),
+        ]}
+      />
     </>
   );
 }

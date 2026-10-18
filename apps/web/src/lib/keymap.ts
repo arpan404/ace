@@ -62,7 +62,6 @@ export const keymap = {
   nextRegion: { keys: "f6", label: "Focus the next region" },
   previousRegion: { keys: "shift+f6", label: "Focus the previous region" },
   focusThreadList: { keys: "shift+mod+e", label: "Focus the thread list" },
-  focusListSearch: { keys: "alt+mod+f", label: "Search the thread list" },
   focusComposer: { keys: "mod+l", web: "alt+mod+l", label: "Focus the composer" },
   stopAgent: { keys: "mod+.", label: "Stop the agent", scope: "thread" },
   // The latest archive, settle, snooze, unpin or discard, while its Undo still shows.
@@ -231,6 +230,7 @@ const glyphs: Record<string, [apple: string, other: string]> = {
   alt: ["⌥", "Alt+"],
   enter: ["↵", "Enter"],
   escape: ["esc", "Esc"],
+  backspace: ["⌫", "Backspace"],
   delete: ["⌦", "Delete"],
   home: ["Home", "Home"],
   end: ["End", "End"],

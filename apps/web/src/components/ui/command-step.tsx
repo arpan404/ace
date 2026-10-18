@@ -3,6 +3,7 @@ import type { KeyboardEvent, ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { commandField, CommandSearchRow } from "./command.tsx";
 import { IconButton } from "./icon-button.tsx";
+import { KeyHintList, type KeyHint } from "./key-hints.tsx";
 import { sectionRule } from "./rules.ts";
 
 /*
@@ -120,10 +121,15 @@ function CommandStepLabel(props: { children: ReactNode }) {
   );
 }
 
-/** The step's footer: what's chosen on the left, its actions on the right. */
-function CommandStepFooter(props: { children: ReactNode; note?: ReactNode }) {
+/** The step's footer: its key hints and what's chosen on the left, its actions on the right. */
+function CommandStepFooter(props: {
+  children: ReactNode;
+  note?: ReactNode;
+  hints?: readonly KeyHint[];
+}) {
   return (
     <div className={cn("flex min-h-12 shrink-0 items-center gap-2 px-3 py-2", sectionRule)}>
+      {props.hints && <KeyHintList hints={props.hints} className="shrink" />}
       <div className="min-w-0 flex-1 truncate font-mono text-xs text-subtle-foreground">
         {props.note}
       </div>

@@ -126,7 +126,7 @@ existing components need no edits.
 | Errors                    | `--destructive`                                                                  |
 | Code                      | `--code`, `--syn-{kw,str,num,fn,type,com,punc}`, `--diff-{add,del}` (+ `-text`)  |
 | Loading                   | `--skel`, `--skel-hi`                                                            |
-| Modal backdrop            | `--scrim` (solid), `--scrim-glass` (over blur)                                   |
+| Modal backdrop            | `--scrim` (solid), `--scrim-glass` over a `--backdrop-blur` (7px) blur           |
 | Floating material         | `--float-edge`, `--float-shadow` (= `--glass-shadow`), `--glass-*`, `--sliver`   |
 | Project badges            | `--project-1` … `--project-12`                                                   |
 | Chat visualization series | `--chart-1` … `--chart-6`                                                        |
@@ -299,10 +299,10 @@ On, or when it's System and the OS prefers reduced motion. Under it:
 
 Dialogs, sheets and the command palette (`components/ui/dialog.tsx`, `sheet.tsx`, `command.tsx`):
 
-- **Backdrop** (`.ace-backdrop`): under Translucent the page is blurred once, 16px with a light
-  saturate, under a faint tint (`--scrim-glass`); there is no dark dim. Under Solid or reduced
-  transparency it is a light neutral scrim (`--scrim`). It fades in by opacity with the motion
-  tokens; the blur radius never animates.
+- **Backdrop** (`.ace-backdrop`): under Translucent the page is blurred once, `--backdrop-blur`
+  (7px) with a light saturate, under a faint tint (`--scrim-glass`); there is no dark dim. Under
+  Solid or reduced transparency it is a light neutral scrim (`--scrim`). It fades in by opacity
+  with the motion tokens; the blur radius never animates.
 - **Panel** (`.ace-modal` with `.ace-floating`) for dialogs and the palette: a 90–92% tint over
   the already blurred page, with no blur or displacement of its own, so text and fields read as on
   a solid surface. Sheet panels are solid (`--popover`) over the same backdrop.
@@ -311,6 +311,10 @@ Dialogs, sheets and the command palette (`components/ui/dialog.tsx`, `sheet.tsx`
 - **Placement:** centred with insets and auto margins, never with a translate. Dialogs centre in
   the window; the palette and search are 640px wide (less on phones), 13vh from the top, and as
   tall as their content.
+- **Key hints** (`components/ui/key-hints.tsx`): the palette, its steps and search end in a
+  36px bar of key caps and muted labels (↑ ↓ Navigate, ↵ Select, ⌫ Back, esc Close), listing
+  only what the step on screen does. A step with actions puts them on the bar's right. Hidden on
+  touch and from assistive tech.
 - **Empty states act:** before a query, search offers recent threads, recent searches and quick
   commands. No explanatory prose.
 

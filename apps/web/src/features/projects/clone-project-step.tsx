@@ -20,7 +20,7 @@ import {
   commandStepField,
   stepFieldKey,
 } from "@/components/ui/command-step.tsx";
-import { Kbd } from "@/components/ui/kbd.tsx";
+import { backHint, escapeHint } from "@/components/ui/key-hints.tsx";
 import { ProgressBar } from "@/components/ui/progress-bar.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { applePlatform } from "@/lib/keymap.ts";
@@ -186,6 +186,11 @@ export function CloneProjectStep(props: {
         )}
       </div>
       <CommandStepFooter
+        hints={[
+          { keys: ["enter"], label: "Clone" },
+          ...(props.onBack ? [backHint] : []),
+          escapeHint(url),
+        ]}
         note={
           parent && folder && !nameProblem
             ? displayPath(childFolder(parent, folder), place.home?.path)
@@ -198,7 +203,6 @@ export function CloneProjectStep(props: {
           disabled={running || machine.client === undefined || !parent}
         >
           {running ? "Cloning…" : "Clone"}
-          {!running && <Kbd aria-hidden keys="enter" resolve={false} variant="on-primary" />}
         </Button>
       </CommandStepFooter>
     </form>

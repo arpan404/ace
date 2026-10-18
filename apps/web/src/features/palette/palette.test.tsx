@@ -62,6 +62,27 @@ test("choosing a project opens its latest thread", async () => {
   expect(screen.queryByRole("button", { name: "Project filter: billing-api" })).toBeNull();
 });
 
+/** The words of a sheet's key-hint bar (decoration, hidden from assistive tech). */
+const hints = (sheet: HTMLElement) =>
+  sheet.querySelector('[data-slot="key-hints"]')?.textContent ?? "";
+
+test("the palette's key hints name its keys, with Back only inside a step", async () => {
+  await openApp();
+  await palette();
+  const sheet = screen.getByRole("dialog", { name: "Command palette" });
+  for (const label of ["Navigate", "Select", "Close"]) expect(hints(sheet)).toContain(label);
+  expect(hints(sheet)).not.toContain("Back");
+
+  await userEvent.keyboard("new thread in");
+  await userEvent.click(await screen.findByRole("option", { name: /^New thread in…/ }));
+  const step = await screen.findByRole("dialog", { name: "New thread in" });
+  for (const label of ["Navigate", "Select", "Back", "Close"]) expect(hints(step)).toContain(label);
+  // With words in the field, Esc clears them before it closes.
+  await userEvent.keyboard("billing");
+  expect(hints(step)).toContain("Clear");
+  expect(hints(step)).not.toContain("Close");
+});
+
 test("New thread in… lists the projects and opens a draft in the one chosen", async () => {
   await openApp();
   const search = await palette();

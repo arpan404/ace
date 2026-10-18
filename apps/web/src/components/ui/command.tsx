@@ -192,11 +192,6 @@ function CommandShortcut({ className, ...props }: React.ComponentProps<"span">) 
   );
 }
 
-/** Key hints along the bottom edge. Hidden on touch, where there are no keys to press. */
-function CommandFooter() {
-  return null;
-}
-
 export {
   CommandDialog,
   Command,
@@ -210,5 +205,4 @@ export {
   CommandCollection,
   CommandItem,
   CommandShortcut,
-  CommandFooter,
 };

@@ -6,8 +6,6 @@ import { useNow } from "@/lib/time.ts";
 import { archivedOrder, arrange, projectCounts, type ProjectCount } from "@ace/ui-core";
 import { useOrganizeOverlay, useOrganizerState } from "@/features/organize/index.ts";
 import { usePendingActions } from "@/lib/pending-actions.ts";
-import { useProjectName } from "@/lib/projects.ts";
-import { filterByQuery, useListQuery } from "./list-query.ts";
 
 /**
  * Home's threads: pinned first in their own order, then the work in hand in Home order, then
@@ -68,26 +66,24 @@ const listEqual = (a: HomeList, b: HomeList) =>
 
 /**
  * Pinned threads in the person's order, then Home order (requests, working, then the rest,
- * most recent first in each; settled apart), across every project the filter lets through and
- * matching the sidebar's Search words. Only ids are selected, so a status change re-renders its
- * own row and moves rows only when the order changes.
+ * most recent first in each; settled apart), across every project the filter lets through.
+ * Only ids are selected, so a status change re-renders its own row and moves rows only when the
+ * order changes.
  */
 export function useHomeList(): HomeList {
   const keys = useEveryEntryKey();
   const state = useOrganizerState();
   const now = useNow();
   const read = useEntries();
-  const query = useListQuery();
-  const name = useProjectName();
   const select = useCallback(
     (reader: SidebarReader): HomeList => {
-      const entries = filterByQuery(read(reader), query, name);
+      const entries = read(reader);
       const { pinned, active, recent, snoozed, settled } = arrange(entries, state, now);
       const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
       const needsYou = active.filter((id) => byId.get(id)?.status.state === "needs_you");
       return { pinned, active, recent, snoozed, settled, needsYou };
     },
-    [state, now, read, query, name],
+    [state, now, read],
   );
   return useSidebar(keys, select, listEqual) ?? empty;
 }
