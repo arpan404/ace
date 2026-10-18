@@ -2,6 +2,8 @@ import { normalize } from "node:path";
 import { Mention, type ContextDiagnostic, type ResolvedMention } from "@ace/protocol";
 import { ContextError, requireContext } from "./errors.ts";
 import type { WorkspaceFiles } from "./git-workspace.ts";
+import { folderListing } from "./folder-listing.ts";
+import { sniffMime } from "./media.ts";
 
 export interface MentionLimits {
   fileBytes: number;
@@ -13,11 +15,24 @@ export const defaultMentionLimits: MentionLimits = {
   totalBytes: 256 * 1024,
   files: 128,
 };
+/** What a resolved entry covers: a whole file, a line range, or a folder listing. */
+export type WorkspaceMention = ResolvedMention & { scope: "file" | "lines" | "folder" };
 export async function resolveMentions(
   workspace: WorkspaceFiles,
   mentions: readonly Mention[],
   limits = defaultMentionLimits,
 ): Promise<{ entries: ResolvedMention[]; diagnostics: ContextDiagnostic[] }> {
+  const { entries, diagnostics } = await resolveWorkspaceMentions(workspace, mentions, limits);
+  return {
+    entries: entries.map(({ path, text, truncated }) => ({ path, text, truncated })),
+    diagnostics,
+  };
+}
+export async function resolveWorkspaceMentions(
+  workspace: WorkspaceFiles,
+  mentions: readonly Mention[],
+  limits = defaultMentionLimits,
+): Promise<{ entries: WorkspaceMention[]; diagnostics: ContextDiagnostic[] }> {
   requireContext(
     Number.isInteger(limits.fileBytes) &&
       Number.isInteger(limits.totalBytes) &&
@@ -32,7 +47,7 @@ export async function resolveMentions(
     "Invalid mention limits",
   );
   requireContext(mentions.length <= 64, "quota", "Too many mentions");
-  const entries: ResolvedMention[] = [];
+  const entries: WorkspaceMention[] = [];
   const diagnostics: ContextDiagnostic[] = [];
   let remaining = limits.totalBytes;
   let count = 0;
@@ -44,7 +59,8 @@ export async function resolveMentions(
       const decoded = new TextDecoder("utf-8", { fatal: true });
       let text: string;
       try {
-        if (bytes.includes(0)) throw new Error("Binary");
+        // A PDF is a document even when its bytes happen to decode as text.
+        if (bytes.includes(0) || sniffMime(bytes) === "application/pdf") throw new Error("Binary");
         // A partial UTF-8 codepoint at the cap is not a binary file.
         text = decoded.decode(bytes, { stream: more });
       } catch {
@@ -81,7 +97,12 @@ export async function resolveMentions(
         });
       }
       remaining -= Buffer.byteLength(output);
-      entries.push({ path, text: output, truncated: needsTruncation });
+      entries.push({
+        path,
+        text: output,
+        truncated: needsTruncation,
+        scope: lines ? "lines" : "file",
+      });
     } catch (error) {
       diagnostics.push({
         code: error instanceof ContextError ? error.code : "not_found",
@@ -104,16 +125,22 @@ export async function resolveMentions(
           });
       } else {
         requireContext(!mention.lines, "invalid_request", "Folders do not have line ranges");
-        for (const path of workspace.index.under(normalize(mention.path).replace(/\/$/, ""))) {
-          if (!(await visit(path))) {
-            diagnostics.push({
-              code: "truncated",
-              path: mention.path,
-              message: "Folder expansion limit reached",
-            });
-            break;
-          }
-        }
+        requireContext(
+          count < limits.files && remaining >= 512,
+          "truncated",
+          "Context limit reached",
+        );
+        count++;
+        const folder = normalize(mention.path).replace(/\/$/, "");
+        const listing = await folderListing(workspace, folder, remaining);
+        remaining -= Buffer.byteLength(listing.text);
+        entries.push({ path: folder, ...listing, scope: "folder" });
+        if (listing.truncated)
+          diagnostics.push({
+            code: "truncated",
+            path: mention.path,
+            message: "Folder listing limit reached",
+          });
       }
     } catch (error) {
       diagnostics.push({

@@ -27,9 +27,6 @@
   "apps/web/src/components/ui/provider-account-icon.tsx": {
     "text-size": 1
   },
-  "apps/web/src/components/ui/scroll-area.tsx": {
-    "bare-outline": 1
-  },
   "apps/web/src/features/devices/device-screen.tsx": {
     "radius": 1
   },

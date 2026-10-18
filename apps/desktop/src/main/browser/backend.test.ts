@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { describe, expect, it, vi } from "vitest";
-import { BrowserBackend, type ControllerState } from "./backend.ts";
+import { BrowserBackend, type BackendOptions, type ControllerState } from "./backend.ts";
 import {
   BrowserBackendClientMessage,
   BrowserBackendOperation,
@@ -13,7 +13,7 @@ import { fakeViews, screencastFrame } from "./test-support.ts";
  * the wire schema, so a frame the daemon would reject fails here. The same behaviour is
  * exercised against the daemon's own relay in `relay.process.test.ts`.
  */
-function setup() {
+function setup(options: Partial<BackendOptions> = {}) {
   const views = fakeViews();
   const controllers: ControllerState[] = [];
   const takeovers: string[] = [];
@@ -21,16 +21,20 @@ function setup() {
     onController: (state) => controllers.push(state),
     onTakeover: (threadId) => takeovers.push(threadId),
     log: () => {},
+    ...options,
   });
   const sent: BrowserBackendClientMessage[] = [];
-  backend.attach({
-    backendId: "backend-1",
-    connectionId: "connection-1",
-    send: (serialized) => {
-      sent.push(BrowserBackendClientMessage.parse(JSON.parse(serialized)));
-      return true;
-    },
-  });
+  /** A (new) daemon connection; the old one's sessions are gone, its pages orphaned. */
+  const connect = (connectionId = "connection-1") =>
+    backend.attach({
+      backendId: "backend-1",
+      connectionId,
+      send: (serialized) => {
+        sent.push(BrowserBackendClientMessage.parse(JSON.parse(serialized)));
+        return true;
+      },
+    });
+  connect();
   let sequence = 0;
   const request = (sessionId: string, operation: unknown) => {
     const id = `request-${++sequence}`;
@@ -66,17 +70,18 @@ function setup() {
         frameId,
       }),
     );
-  const open = async (sessionId = "s-1", threadId = "t-1") =>
+  const open = async (sessionId = "s-1", threadId = "t-1", profile = "ephemeral") =>
     response(
       request(sessionId, {
         kind: "open",
-        options: { threadId, workspaceId: "w-1", profile: "ephemeral" },
+        options: { threadId, workspaceId: "w-1", profile },
         viewport: { width: 1280, height: 720 },
         lease: { generation: 0, controller: "agent" },
       }),
     );
   return {
     backend,
+    connect,
     views,
     sent,
     controllers,
@@ -308,15 +313,69 @@ describe("embedded browser backend", () => {
     expect(await t.response(id)).toMatchObject({ error: "Unknown browser session" });
   });
 
-  it("closes every view when the connection is lost, since the daemon never reuses a session", async () => {
+  it("a lost connection keeps every page, and the next daemon adopts it by thread instead of opening another", async () => {
     const t = setup();
     await t.open("s-1", "t-1");
     await t.open("s-2", "t-2");
+    const first = t.views.pages.get("s-1");
+    await first?.navigate("https://kept.test/");
     t.backend.detach();
-    await vi.waitFor(() =>
-      expect([...t.views.pages.values()].every((page) => page.closed)).toBe(true),
-    );
-    expect(t.controllers.slice(-2).map((state) => state.controller)).toEqual(["none", "none"]);
+    expect([...t.views.pages.values()].map((page) => [page.closed, page.orphaned])).toEqual([
+      [false, true],
+      [false, true],
+    ]);
+    t.connect("connection-2");
+    // The daemon never reuses a session id: the new one names the thread.
+    expect(await t.open("s-3", "t-1")).toMatchObject({
+      result: { url: "https://kept.test/", adopted: true },
+    });
+    expect(t.views.opened).toHaveLength(2);
+    expect(first).toMatchObject({ closed: false, orphaned: false, adoptions: 1 });
+    const id = t.request("s-3", { kind: "cdp", method: "Runtime.evaluate" });
+    expect(await t.response(id)).toMatchObject({ sessionId: "s-3", result: {} });
+    const old = t.request("s-1", { kind: "cdp", method: "Runtime.evaluate" });
+    expect(await t.response(old)).toMatchObject({ error: "Unknown browser session" });
+  });
+
+  it("a page nobody adopts within the grace period closes", async () => {
+    const expire: (() => void)[] = [];
+    const t = setup({
+      timers: {
+        set(_delayMs, callback) {
+          expire.push(callback);
+          return () => {};
+        },
+      },
+    });
+    await t.open("s-1", "t-1");
+    t.backend.detach();
+    expect(t.views.only().closed).toBe(false);
+    for (const run of expire) run();
+    await vi.waitFor(() => expect(t.views.only().closed).toBe(true));
+    t.connect("connection-2");
+    expect(await t.open("s-2", "t-1")).not.toMatchObject({ result: { adopted: true } });
+    expect(t.views.opened).toHaveLength(2);
+  });
+
+  it("an open for another profile of the thread gets a fresh page and the orphan closes", async () => {
+    const t = setup();
+    await t.open("s-1", "t-1", "ephemeral");
+    const orphan = t.views.only();
+    t.backend.detach();
+    t.connect("connection-2");
+    expect(await t.open("s-2", "t-1", "persistent")).not.toMatchObject({
+      result: { adopted: true },
+    });
+    expect(orphan.closed).toBe(true);
+    expect(t.views.opened).toHaveLength(2);
+  });
+
+  it("Quit closes the pages still waiting to be adopted", async () => {
+    const t = setup();
+    await t.open("s-1", "t-1");
+    t.backend.detach();
+    t.backend.closeAll();
+    await vi.waitFor(() => expect(t.views.only().closed).toBe(true));
   });
 
   it("answers a command for a view that closed underneath it with that request's error", async () => {

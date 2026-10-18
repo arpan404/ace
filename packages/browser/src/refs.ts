@@ -5,6 +5,7 @@ import { AXTree, Bounds, CallResult, ResolvedNode } from "./cdp.ts";
 import { compactTree, type CompactNode } from "./snapshot-compact.ts";
 import { snapshotLine } from "./snapshot-text.ts";
 import { z } from "zod";
+import { withoutSubtree } from "./snapshot-exclusion.ts";
 
 /** About 1.5k tokens: a default snapshot stays cheaper than a 1536 px screenshot. */
 export const defaultSnapshotNodes = 120;
@@ -36,17 +37,22 @@ export class SnapshotRefs {
   private refs = new Map<string, RefTarget>();
   /** Short, document-stable names for child frames, so refs stay a few characters long. */
   private frameAliases = new Map<string, string>();
+  /** Every frame's session; returns undefined when the page has no frame list (one session). */
   private frames:
-    | (() => Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]>)
+    | (() => Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]> | undefined)
     | undefined;
   private cdp: BrowserCdp;
   private frameSessions = new Map<string, BrowserFrameSession>();
+  /** DOM node whose subtree snapshots omit: ace's annotate overlay in the top document. */
+  private excluded: () => Promise<number | undefined>;
   constructor(
     cdp: BrowserCdp,
-    frames?: () => Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]>,
+    frames?: () => Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]> | undefined,
+    excluded: () => Promise<number | undefined> = async () => undefined,
   ) {
     this.frames = frames;
     this.cdp = cdp;
+    this.excluded = excluded;
   }
   replace(cdp: BrowserCdp): void {
     this.cdp = cdp;
@@ -81,8 +87,9 @@ export class SnapshotRefs {
     const epoch = this.epoch;
     const scope = options.scope === undefined ? undefined : this.refs.get(options.scope);
     if (options.scope !== undefined && !scope) throw staleRef();
-    const frames: { frameId?: string; cdp: BrowserCdp; parentId?: string }[] = this.frames
-      ? await this.frames()
+    const listed = this.frames?.();
+    const frames: { frameId?: string; cdp: BrowserCdp; parentId?: string }[] = listed
+      ? await listed
       : [{ cdp: this.cdp }];
     this.frameSessions = new Map(
       frames
@@ -101,8 +108,9 @@ export class SnapshotRefs {
     const refs = new Map<string, RefTarget>();
     let total = 0,
       bytes = 0;
+    const excluded = await this.excluded();
     for (const frame of frames) {
-      const tree = AXTree.parse(
+      const raw = AXTree.parse(
         await frame.cdp
           .send("Accessibility.getFullAXTree", frame.frameId ? { frameId: frame.frameId } : {})
           .catch((error: unknown) => {
@@ -117,6 +125,8 @@ export class SnapshotRefs {
             throw error;
           }),
       );
+      // ace's annotate overlay lives in the top document only.
+      const tree = frame.parentId ? raw : withoutSubtree(raw, excluded);
       const prefix = this.alias(frame);
       const refOf = (backendNodeId: number) => `${prefix}e${epoch}-${backendNodeId}`;
       const target = (backendNodeId: number): RefTarget => ({

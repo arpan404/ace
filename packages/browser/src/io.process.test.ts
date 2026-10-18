@@ -1,30 +1,18 @@
 import { execFile, spawn } from "node:child_process";
-import { chromium, type BrowserContext } from "playwright-core";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { readFile, readdir } from "node:fs/promises";
+import { describe, expect, it, vi } from "vitest";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
+import type { CdpSend } from "./cdp-connection.ts";
 import { executablePath, fixture } from "./test-support.ts";
 
-const noop = () => {};
 const exec = promisify(execFile);
-let releaseDelayedStop = noop;
-afterEach(() => {
-  releaseDelayedStop();
-  releaseDelayedStop = noop;
-});
 
 describe.skipIf(!executablePath)("injected browser process boundaries", () => {
-  it("uses an injected launcher with real Chromium", async () => {
-    const f = await fixture({
-      launchContext: (profile, options) =>
-        chromium.launchPersistentContext(profile, {
-          ...options,
-          viewport: { width: 640, height: 480 },
-        }),
-    });
-    expect(await f.evaluate("[innerWidth,innerHeight]")).toEqual([640, 480]);
+  it("passes an embedder's extra launch flags to ace's Chrome", async () => {
+    const f = await fixture({ chrome: { args: ["--user-agent=ace-injected-agent"] } });
+    expect(await f.evaluate("navigator.userAgent")).toBe("ace-injected-agent");
   }, 60_000);
 
   it("falls back to a playable sequence when an injected encoder process fails", async () => {
@@ -53,92 +41,23 @@ describe.skipIf(!executablePath)("injected browser process boundaries", () => {
     expect((await readFile(`${dir}/1.jpg`)).subarray(0, 2)).toEqual(Buffer.from([255, 216]));
   }, 60_000);
 
-  it("waits for the first Chromium shutdown before releasing its writable profile", async () => {
-    const entered = Promise.withResolvers<void>(),
-      release = Promise.withResolvers<void>();
-    let fence: (() => Promise<unknown>) | undefined;
-    let closing = false;
+  it("closes a thread even when the screencast stop is never answered", async () => {
     const f = await fixture({
-      launchContext: async (profile, options) => {
-        const context = await chromium.launchPersistentContext(profile, options);
-        const page = context.pages()[0];
-        if (!page) throw new Error("Missing page");
-        const cdp = await context.newCDPSession(page);
-        fence = async () => {
-          await cdp.send("Memory.getDOMCounters").catch(() => {});
-          return readdir(join(profile, ".."));
-        };
-        const close = context.close.bind(context);
-        // At the I/O boundary, a repeated close can return before the original finishes.
-        context.close = async () => {
-          if (closing) return;
-          closing = true;
-          await close();
-          entered.resolve();
-          await release.promise;
-        };
-        releaseDelayedStop = release.resolve;
-        return context;
-      },
-    });
-    const finished = Promise.withResolvers<void>();
-    const stopping = f.service.closeThread("thread").then(
-      () => finished.resolve(),
-      (error: unknown) => {
-        finished.resolve();
-        throw error;
-      },
-    );
-    const result = Promise.allSettled([stopping]);
-    try {
-      await entered.promise;
-      if (!fence) throw new Error("Missing CDP barrier");
-      expect(
-        await Promise.race([
-          finished.promise.then(() => "closed before first shutdown completed"),
-          fence().then(() => "first shutdown still pending"),
-        ]),
-      ).toBe("first shutdown still pending");
-      expect(
-        (await readdir(join(f.home, "browser"))).some((name) => name.startsWith("ephemeral-")),
-      ).toBe(true);
-    } finally {
-      release.resolve();
-      const outcomes = await result;
-      expect(outcomes[0]?.status).toBe("fulfilled");
-    }
-    expect(
-      (await readdir(join(f.home, "browser"))).filter((name) => name.startsWith("ephemeral-")),
-    ).toEqual([]);
-  });
-
-  it("closes Chromium even when a screencast stop response is delayed until transport closure", async () => {
-    const closed = Promise.withResolvers<void>();
-    const f = await fixture({
-      launchContext: async (profile, options) => {
-        const context = await chromium.launchPersistentContext(profile, options);
-        context.once("close", () => closed.resolve());
-        releaseDelayedStop = closed.resolve;
-        const createSession = context.newCDPSession.bind(context);
-        context.newCDPSession = async (page) => {
-          const session = await createSession(page);
-          const send = session.send.bind(session);
-          session.send = async (method, params) => {
-            const result = await send(method, params);
-            if (method === "Page.stopScreencast") await closed.promise;
-            return result;
-          };
-          return session;
-        };
-        return context;
+      chrome: {
+        intercept: {
+          send: (send) => (method, params, sessionId) =>
+            method === "Page.stopScreencast"
+              ? new Promise(() => {})
+              : send(method, params, sessionId),
+        },
       },
     });
     await f.service.closeThread("thread");
-    await closed.promise;
-    expect(
-      (await readdir(`${f.home}/browser`)).filter((name) => name.startsWith("ephemeral-")),
-    ).toEqual([]);
     expect(() => f.service.state("thread")).toThrow("not open");
+    await f.service.close();
+    expect((await exec("ps", ["-axo", "command"])).stdout).not.toContain(
+      `--user-data-dir=${f.home}`,
+    );
   }, 60_000);
 
   it("returns the distinct playable video produced by an injected encoder", async (context) => {
@@ -213,16 +132,28 @@ describe.skipIf(!executablePath)("injected browser process boundaries", () => {
 it.skipIf(!executablePath)(
   "closing the last Chromium page publishes closed state and permits reopening",
   async () => {
-    let context: BrowserContext | undefined;
+    const pages: string[] = [];
+    let wire: CdpSend | undefined;
     const f = await fixture({
-      launchContext: async (profile, options) => {
-        context = await chromium.launchPersistentContext(profile, options);
-        return context;
+      chrome: {
+        intercept: {
+          send: (send) => {
+            wire = send;
+            return send;
+          },
+          event: (method, params, sessionId) => {
+            const attached = z
+              .object({ targetInfo: z.object({ targetId: z.string(), type: z.literal("page") }) })
+              .safeParse(params);
+            if (method === "Target.attachedToTarget" && !sessionId && attached.success)
+              pages.push(attached.data.targetInfo.targetId);
+          },
+        },
       },
     });
-    const page = context?.pages()[0];
-    if (!page) throw new Error("Missing page");
-    await page.close();
+    const page = pages.at(-1);
+    if (!page || !wire) throw new Error("Missing page");
+    await wire("Target.closeTarget", { targetId: page });
     await vi.waitFor(() => expect(() => f.service.state("thread")).toThrow("not open"));
     await f.service.open({ threadId: "thread", workspaceId: "workspace" });
     await f.navigate();

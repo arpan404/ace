@@ -6,12 +6,17 @@ import { useEffect, useRef } from "react";
 import { Notifier } from "@/features/notifications/index.ts";
 import { DeleteConfirmationHost, MoveToProjectHost } from "@/features/organize/index.ts";
 import { CommandPalette } from "@/features/palette/index.ts";
-import { ProjectsHost, useProjectDialogs } from "@/features/projects/index.ts";
+import { ProjectsHost, useNewThreadEntry, useProjectDialogs } from "@/features/projects/index.ts";
 import { ComputerUseIndicator } from "@/features/computer-use/index.ts";
 import { loadPullRequestTab } from "@/features/forge/index.ts";
 import { PullRequestViewProvider } from "@/features/panels/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
-import { ThreadStepKeys, ThreadsSidebar, useSeenWhileOpen } from "@/features/home/index.ts";
+import {
+  ThreadLeaveProvider,
+  ThreadStepKeys,
+  ThreadsSidebar,
+  useSeenWhileOpen,
+} from "@/features/home/index.ts";
 import { SearchHost } from "@/features/search/index.ts";
 import { SignInHost } from "@/features/sign-in/index.ts";
 import { AppSidebar, GlobalHotkeys, SidebarFrame, ShortcutHost } from "@/features/shell/index.ts";
@@ -66,9 +71,11 @@ export function AppShell() {
                 </LocalBoundary>
               }
             >
-              <PullRequestViewProvider value={PullRequestTab.Component}>
-                <Outlet />
-              </PullRequestViewProvider>
+              <ThreadLeaveProvider>
+                <PullRequestViewProvider value={PullRequestTab.Component}>
+                  <Outlet />
+                </PullRequestViewProvider>
+              </ThreadLeaveProvider>
             </SidebarFrame>
             <LocalBoundary label="the command palette" fallback={null}>
               <CommandPalette />
@@ -113,7 +120,14 @@ function ShellSidebar() {
 
 function ShellHotkeys() {
   const projects = useProjectDialogs();
-  return <GlobalHotkeys onAddProject={() => projects.open({ kind: "add", tab: "open" })} />;
+  const entry = useNewThreadEntry();
+  return (
+    <GlobalHotkeys
+      onAddProject={() => projects.open({ kind: "add", tab: "sources" })}
+      onNewThread={entry.start}
+      onNewThreadHere={entry.here}
+    />
+  );
 }
 
 /** Where focus already is on purpose; a navigation must not pull it out of these. */

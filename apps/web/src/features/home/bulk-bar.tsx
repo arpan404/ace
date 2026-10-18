@@ -27,15 +27,14 @@ import {
   useOrganizeOverlay,
   useThreadActions,
   useThreadMover,
-  type BulkConfirm,
   type HomeSelection,
 } from "@/features/organize/index.ts";
 
 /*
  * Bulk actions on the picked Home threads: the bar under the list, the context menu of a picked
  * row and the palette all offer Pin or Unpin, Move to project, Archive and Delete. Move asks
- * which project; Archive and Delete ask first. Move and Archive then offer one Undo for all,
- * while Delete is permanent at once (no Undo). Loaded once something is picked.
+ * which project; Delete asks first. Move and Archive act at once and offer one Undo for all,
+ * while Delete is permanent (no Undo). Loaded once something is picked.
  */
 
 /** The picked threads as this window shows them (with organize actions not yet confirmed). */
@@ -83,10 +82,13 @@ function bulkActions(
     },
     {
       id: "archive",
-      label: `Archive ${count(entries.length)}…`,
+      label: `Archive ${count(entries.length)}`,
       icon: ArchiveIcon,
       danger: false,
-      run: () => selection.ask("archive"),
+      run: () => {
+        actions.archiveMany(entries);
+        selection.clear();
+      },
     },
     {
       id: "delete",
@@ -166,41 +168,26 @@ export function BulkMenuItems() {
   );
 }
 
-const copy: Record<BulkConfirm, { title: string; body: string; verb: string }> = {
-  archive: {
-    title: "Archive",
-    body: "They leave the list on every device. Undo brings them back for a few seconds after.",
-    verb: "Archive",
-  },
-  delete: {
-    title: "Delete",
-    body: "They are deleted for good, on every device. This can't be undone.",
-    verb: "Delete",
-  },
-};
-
-/** The question before archiving or deleting the picked threads; Cancel has focus. */
+/** The question before deleting the picked threads, which can't be undone; Cancel has focus. */
 function BulkConfirmDialog(props: { entries: readonly ThreadListEntry[] }) {
   const selection = useHomeSelection();
   const { confirm } = useHomeSelectionState();
   const actions = useThreadActions();
   const cancel = useRef<HTMLButtonElement>(null);
-  const words = copy[confirm ?? "archive"];
   const n = props.entries.length;
   const shown = props.entries.slice(0, 5);
   const go = () => {
-    if (confirm === "delete") actions.removeMany(props.entries);
-    else actions.archiveMany(props.entries);
+    actions.removeMany(props.entries);
     selection.clear();
   };
   return (
     <Dialog open={confirm !== undefined} onOpenChange={(open) => !open && selection.ask(undefined)}>
       <DialogContent initialFocus={cancel} showCloseButton={false}>
         <DialogHeader>
-          <DialogTitle>
-            {words.title} {count(n)}?
-          </DialogTitle>
-          <DialogDescription>{words.body}</DialogDescription>
+          <DialogTitle>Delete {count(n)}?</DialogTitle>
+          <DialogDescription>
+            They are deleted for good, on every device. This can't be undone.
+          </DialogDescription>
         </DialogHeader>
         <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
           {shown.map((entry) => (
@@ -214,8 +201,8 @@ function BulkConfirmDialog(props: { entries: readonly ThreadListEntry[] }) {
           <Button ref={cancel} variant="ghost" onClick={() => selection.ask(undefined)}>
             Cancel
           </Button>
-          <Button variant={confirm === "delete" ? "danger" : "primary"} onClick={go}>
-            {words.verb} {count(n)}
+          <Button variant="danger" onClick={go}>
+            Delete {count(n)}
           </Button>
         </DialogFooter>
       </DialogContent>

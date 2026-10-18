@@ -1,12 +1,17 @@
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { chromium } from "playwright-core";
-import { detectChromium } from "../src/discovery.ts";
-import { LiveCapture } from "../src/live.ts";
+import { mkdtemp, rm } from "node:fs/promises";
+import { loadavg, tmpdir } from "node:os";
+import { join } from "node:path";
+import sharp from "sharp";
 import { z } from "zod";
-import { loadavg } from "node:os";
+import { BrowserOpen } from "@ace/protocol";
+import { detectChromium } from "../src/discovery.ts";
+import { ChromeBackend } from "../src/headless.ts";
+import { LiveCapture } from "../src/live.ts";
+import { chromeDefaults } from "../src/owned-backend.ts";
 
-// Own ephemeral context, local content, and a viewer that decodes every JPEG before ack.
+// ace's own Chrome over its pipe, local content, and a viewer that decodes every JPEG before ack.
 const executablePath = await detectChromium();
 if (!executablePath) throw new Error("No test Chromium");
 const server = createServer((_request, response) =>
@@ -21,23 +26,31 @@ await once(server, "listening");
 const address = server.address();
 if (!address || typeof address === "string") throw new Error("No local server");
 const dpr = Number(process.env.ACE_BENCH_DPR ?? 2);
-const browser = await chromium.launch({
-  executablePath,
-  headless: true,
-  args: dpr === 2 ? ["--force-device-scale-factor=2"] : [],
+const home = await mkdtemp(join(tmpdir(), "ace-crisp-"));
+const defaults = chromeDefaults(process.platform);
+const backend = new ChromeBackend({
+  executable: async () => executablePath,
+  stagingDir: (profile) => `${profile}-downloads`,
+  platform: process.platform,
+  launch: { ...defaults.launch, deviceScaleFactor: dpr },
+  cleanup: defaults.cleanup,
 });
-const context = await browser.newContext({
-  viewport: { width: 1280, height: 720 },
-  deviceScaleFactor: dpr,
+const lifetime = new AbortController();
+const session = await backend.open({
+  options: BrowserOpen.parse({ threadId: "bench", workspaceId: "bench", profile: "ephemeral" }),
+  profileDir: join(home, "profile"),
+  signal: lifetime.signal,
+  allowed: async () => true,
+  navigation() {},
+  log() {},
+  lost() {},
 });
-const page = await context.newPage();
-const viewer = await context.newPage();
-const cdp = await context.newCDPSession(page);
 const live = new LiveCapture(
-  cdp,
+  session.cdp,
   () => performance.now(),
   () => {},
 );
+const evaluate = (expression: string) => session.cdp.send("Runtime.evaluate", { expression });
 const loadAtStart = loadavg()[0];
 let count = 0,
   bytes = 0;
@@ -46,57 +59,31 @@ let pending: Promise<void> | undefined;
 let changed: (() => void) | undefined;
 let blueSeen: (() => void) | undefined;
 try {
-  if (dpr === 2) {
-    const target = z
-      .object({ windowId: z.number() })
-      .parse(await cdp.send("Browser.getWindowForTarget"));
-    await cdp.send("Browser.setContentsSize", {
-      windowId: target.windowId,
-      width: 1280,
-      height: 720,
-    });
-  }
-  await page.goto(`http://127.0.0.1:${address.port}`);
-  await viewer.setContent("<canvas></canvas>");
-  await page.bringToFront();
+  await session.navigate(`http://127.0.0.1:${address.port}`, 10_000);
   await live.start();
   const stop = live.fanout.subscribe("bench", {
     send(frame) {
-      pending = viewer
-        .evaluate(
-          `(async (data) => {
-        const img = new Image(); img.src = 'data:image/jpeg;base64,' + data;
-        await img.decode();
-        const canvas = document.querySelector('canvas');
-        canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
-        const draw = canvas.getContext('2d'); draw.drawImage(img, 0, 0);
-        const pixel = draw.getImageData(10, 10, 1, 1).data;
-        return { width: img.naturalWidth, height: img.naturalHeight, red: pixel[0] > 200 && pixel[2] < 50, blue: pixel[2] > 200 && pixel[0] < 50 };
-      })(${JSON.stringify(frame.data)})`,
-        )
-        .then((raw: unknown) => {
-          const result = z
-            .object({ width: z.number(), height: z.number(), red: z.boolean(), blue: z.boolean() })
-            .parse(raw);
-          dimensions = `${result.width}x${result.height}`;
+      const jpeg = Buffer.from(frame.data, "base64");
+      pending = sharp(jpeg)
+        .raw()
+        .toBuffer({ resolveWithObject: true })
+        .then(({ data, info }) => {
+          const pixel = (10 * info.width + 10) * info.channels;
+          const [red = 0, , blue = 0] = data.subarray(pixel, pixel + 3);
+          dimensions = `${info.width}x${info.height}`;
           count++;
-          bytes += Buffer.from(frame.data, "base64").length;
-          if (result.red) changed?.();
-          if (result.blue) blueSeen?.();
+          bytes += jpeg.length;
+          if (red > 200 && blue < 50) changed?.();
+          if (blue > 200 && red < 50) blueSeen?.();
           live.fanout.acknowledge("bench", frame.sequence);
         });
       return true;
     },
   });
-  const configure: unknown = Reflect.get(live.fanout, "configure");
-  if (typeof configure === "function")
-    Reflect.apply(configure, live.fanout, [
-      "bench",
-      {
-        viewport: { width: 1280, height: 720, devicePixelRatio: 2 },
-        local: true,
-      },
-    ]);
+  live.fanout.configure("bench", {
+    viewport: { width: 1280, height: 720, devicePixelRatio: 2 },
+    local: true,
+  });
   await new Promise((resolve) => setTimeout(resolve, 2500));
   count = 0;
   bytes = 0;
@@ -108,7 +95,7 @@ try {
   for (let i = 0; i < 8; i++) {
     const blue = Promise.withResolvers<void>();
     blueSeen = blue.resolve;
-    await page.evaluate("document.getElementById('marker').style.background='blue'");
+    await evaluate("document.getElementById('marker').style.background='blue'");
     await Promise.race([
       blue.promise,
       new Promise((_, reject) => setTimeout(() => reject(new Error("No blue reset pixel")), 5000)),
@@ -117,20 +104,7 @@ try {
     const seen = Promise.withResolvers<void>();
     changed = seen.resolve;
     const inputAt = performance.now();
-    await cdp.send("Input.dispatchMouseEvent", {
-      type: "mousePressed",
-      x: 30,
-      y: 310,
-      button: "left",
-      clickCount: 1,
-    });
-    await cdp.send("Input.dispatchMouseEvent", {
-      type: "mouseReleased",
-      x: 30,
-      y: 310,
-      button: "left",
-      clickCount: 1,
-    });
+    await session.click(30, 310);
     await Promise.race([
       seen.promise,
       new Promise((_, reject) => setTimeout(() => reject(new Error("No changed pixel")), 3000)),
@@ -164,6 +138,8 @@ try {
   live.fanout.clear();
   await pending?.catch(() => {});
   await live.close();
-  await browser.close();
+  await session.close();
+  await backend.close();
   await new Promise<void>((resolve) => server.close(() => resolve()));
+  await rm(home, { recursive: true, force: true });
 }

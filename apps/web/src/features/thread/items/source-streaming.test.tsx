@@ -67,6 +67,10 @@ test("source-backed thinking and answer text grow independently before either co
     ]),
   );
   const feed = await screen.findByRole("feed", { name: "Transcript" }, { timeout: 10000 });
+  // A thought streams folded under its "Thinking…" header; opened, it shows as it grows.
+  const header = await within(feed).findByRole("button", { name: "Thinking…" });
+  expect(header.getAttribute("aria-expanded")).toBe("false");
+  act(() => header.click());
   expect(await within(feed).findByText(/Thought past preview/)).toBeTruthy();
   expect(await within(feed).findByText(/Answer preview/)).toBeTruthy();
   expect(await within(feed).findByText(/Answer past preview/)).toBeTruthy();

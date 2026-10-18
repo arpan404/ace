@@ -116,14 +116,19 @@ export async function startMcp(context: ServiceContext): Promise<void> {
       ...(options.toolkits ?? []),
       ...(services.browser
         ? [
-            browserToolkit(services.browser, store, async (call, { caller, signal }) => {
-              const machines = services.machines;
-              if (!machines) throw new PublicToolError("machine_unavailable");
-              return machines.caller.browser(caller, call.machine, call.tool, call.args, {
-                timeoutMs: call.timeoutMs,
-                signal,
-              });
-            }),
+            browserToolkit(
+              services.browser,
+              store,
+              async (call, { caller, signal }) => {
+                const machines = services.machines;
+                if (!machines) throw new PublicToolError("machine_unavailable");
+                return machines.caller.browser(caller, call.machine, call.tool, call.args, {
+                  timeoutMs: call.timeoutMs,
+                  signal,
+                });
+              },
+              userBrowserTools(services),
+            ),
           ]
         : []),
       ...(services.devices ? [devicesToolkit(services.devices)] : []),
@@ -318,4 +323,14 @@ export function createMcpSession(context: SocketContext): SocketService {
       lifetime.abort();
     },
   };
+}
+
+/** The person's own Chrome for agents, when the daemon runs "Use my Chrome" (ADR 0084). */
+function userBrowserTools(
+  services: Pick<Partial<import("./types.ts").Services>, "userBrowser" | "userBrowserSessions">,
+): import("../browser-toolkit.ts").UserBrowserTools | undefined {
+  const user = services.userBrowser;
+  const sessions = services.userBrowserSessions;
+  if (!user || !sessions) return undefined;
+  return { sessions, available: () => user.backend.available() };
 }

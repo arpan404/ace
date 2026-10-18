@@ -84,11 +84,8 @@ function AgentWork(props: {
   onOlder: () => void;
 }) {
   const built = useAgentBlocks(props.threadId, props.agentId);
-  // A thread's live head and tail read the whole tree; the subagent's own live line replaces them.
-  const blocks = useMemo(
-    () => built.filter((block) => block.kind !== "live" && block.kind !== "thinking"),
-    [built],
-  );
+  // A thread's live line reads the whole tree; the subagent's own live line replaces it.
+  const blocks = useMemo(() => built.filter((block) => block.kind !== "live"), [built]);
   const status = useAgent(props.threadId, props.agentId)?.status;
   const failure =
     status?.state === "failed" && !blocks.some((block) => block.kind === "end")

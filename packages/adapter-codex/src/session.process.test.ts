@@ -276,7 +276,7 @@ test("images reach app-server as native localImage and data image inputs", async
   }
 });
 
-test("text, PDF and arbitrary file references reach the fake Codex CLI", async () => {
+test("text, PDF and arbitrary file references reach the fake Codex CLI as visible paths", async () => {
   const h = await sessionHarness();
   try {
     await h.session.send(
@@ -285,15 +285,22 @@ test("text, PDF and arbitrary file references reach the fake Codex CLI", async (
         { type: "file", path: "/files/code.ts", mimeType: "text/plain" },
         { type: "file", path: "/files/report.pdf", mimeType: "application/pdf" },
         { type: "file", path: "/files/archive.zip", mimeType: "application/zip" },
+        {
+          type: "file",
+          path: "/files/notes.md",
+          mimeType: "text/plain",
+          content: { encoding: "text", data: "# Notes" },
+        },
       ],
       "queue",
     );
     const receivedInput = await h.wait(received("test/attachments"));
     expect(obj(obj(receivedInput.data).params).input).toEqual([
       { type: "text", text: "attachment-proof", text_elements: [] },
-      { type: "mention", name: "code.ts", path: "/files/code.ts" },
-      { type: "mention", name: "report.pdf", path: "/files/report.pdf" },
-      { type: "mention", name: "archive.zip", path: "/files/archive.zip" },
+      { type: "text", text: "File: /files/code.ts", text_elements: [] },
+      { type: "text", text: "File: /files/report.pdf", text_elements: [] },
+      { type: "text", text: "File: /files/archive.zip", text_elements: [] },
+      { type: "text", text: "File: /files/notes.md\n# Notes", text_elements: [] },
     ]);
   } finally {
     await h.dispose();
@@ -309,6 +316,28 @@ test("an opened session reads the account's usage, banked resets included, witho
     expect(h.frames.some((f) => f.dir === "send" && obj(f.data)["method"] === "turn/start")).toBe(
       false,
     );
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("a steer after the turn ended starts a new turn while background terminals keep running", async () => {
+  const h = await sessionHarness();
+  try {
+    await h.session.send(text("tree"), "queue");
+    await h.wait(received("item/started"));
+    await h.session.interrupt({ cascade: false });
+    await h.wait(received("turn/completed"));
+    await h.session.send(text("next"), "steer");
+    await h.wait(received("turn/started"));
+    const sent = (method: string) =>
+      h.frames.filter((f) => f.dir === "send" && obj(f.data)["method"] === method);
+    expect(sent("turn/steer")).toEqual([]);
+    expect(sent("turn/start").map((f) => obj(obj(f.data)["params"])["input"])).toContainEqual([
+      { type: "text", text: "next", text_elements: [] },
+    ]);
+    expect(Object.values(h.replay.state.tasks).some((t) => t.status === "running")).toBe(true);
+    expect(h.replay.state.status.state).not.toBe("done");
   } finally {
     await h.dispose();
   }

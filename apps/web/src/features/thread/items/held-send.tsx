@@ -11,6 +11,9 @@ import { queuedText, useQueue } from "../composer/use-queue.ts";
 import { NotSent } from "./failed-send.tsx";
 import { ClearStaleLock } from "./clear-stale-lock.tsx";
 import { userBubble } from "./user-bubble.ts";
+import { BubbleText } from "./bubble-text.tsx";
+import { HeldAttachments } from "./held-attachments.tsx";
+import { cn } from "@/lib/cn.ts";
 
 const failureOf = (reader: ThreadReader) => reader.queue?.lastFailure?.title;
 const fencedOf = (reader: ThreadReader) => reader.queue?.lastFailure?.code === "git_quarantined";
@@ -35,13 +38,19 @@ export function HeldSend(props: { threadId: string }) {
   // Before the first queue page arrives the message isn't known yet; Try again still works.
   if (held?.notice.kind !== "not_sent" || (!message && queue.page)) return null;
   const busy = queue.acting || (!!message && queue.busy(message.id));
-  const files = message?.context?.attachments.length ?? 0;
   const text = message ? queuedText(message) : "";
   return (
     <section aria-label="Message not sent" className="mt-4 flex flex-col items-end">
       {message && (
+        <HeldAttachments
+          threadId={props.threadId}
+          message={message}
+          className={cn("max-w-[80%]", text && "mb-1")}
+        />
+      )}
+      {message && text && (
         <div className={userBubble}>
-          {text || `${files} attached ${files === 1 ? "file" : "files"}`}
+          <BubbleText text={text} />
         </div>
       )}
       <div

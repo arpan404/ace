@@ -39,6 +39,11 @@ export function describeAceAction(
   // Listing history reads; moving through it navigates.
   if (bare === "browser_history" && input && typeof input === "object")
     riskClass = Reflect.get(input, "direction") === undefined ? "read-only" : "external-effect";
+  // Listing tabs or installed extensions reads; the other actions change the browser.
+  if (bare === "browser_tabs" && input && typeof input === "object")
+    riskClass = (Reflect.get(input, "action") ?? "list") === "list" ? "read-only" : riskClass;
+  if (bare === "browser_settings" && input && typeof input === "object")
+    riskClass = Reflect.get(input, "action") === "extensions" ? "read-only" : riskClass;
   const scope =
     input && typeof input === "object"
       ? Object.entries(input).filter(([key]) => scopeKeys.has(key))

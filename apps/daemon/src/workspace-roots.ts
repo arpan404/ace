@@ -218,8 +218,7 @@ export class WorkspaceRoots {
     for (let attempt = 0; attempt < 2; attempt++) {
       const check = await this.sourceControl?.guard();
       const root = this.root(id);
-      const info = await this.git.repositoryInfo(root);
-      const changed = await this.git.changeSummary(root);
+      const { info, diff: changed } = await this.git.checkoutSummary(root);
       const thread = this.store.getThread(id);
       if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
       const project = this.store.getWorkspace(thread.workspaceId);

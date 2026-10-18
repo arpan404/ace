@@ -9,8 +9,11 @@ import {
 } from "@ace/ui-core";
 import { useMemo, useSyncExternalStore } from "react";
 
-/** A bulk action waiting on the person's yes: the selection bar's dialog asks. */
-export type BulkConfirm = "archive" | "delete";
+/**
+ * A bulk action waiting on the person's yes: the selection bar's dialog asks. Only Delete,
+ * which can't be undone; Archive goes at once, with Undo.
+ */
+export type BulkConfirm = "delete";
 
 interface State extends ListSelection {
   confirm: BulkConfirm | undefined;
@@ -50,7 +53,7 @@ export class HomeSelection {
     if (this.state.ids.length || this.state.confirm)
       this.set({ ...noSelection, confirm: undefined });
   }
-  /** Ask before archiving or deleting the picked threads (the selection bar shows the question). */
+  /** Ask before deleting the picked threads (the selection bar shows the question). */
   ask(confirm: BulkConfirm | undefined): void {
     this.set({ confirm });
   }

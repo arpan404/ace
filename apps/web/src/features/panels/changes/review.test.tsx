@@ -3,7 +3,7 @@ import { Command, ThreadId } from "@ace/protocol";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
@@ -266,4 +266,27 @@ test("comments sharing an ending line keep independent replies and resolve actio
   expect(within(conversation).getByText("Second same-line finding")).toBeTruthy();
   expect(within(conversation).queryByText("First overlapping finding")).toBeNull();
   expect(within(conversation).getByRole("button", { name: "Resolve" })).toBeTruthy();
+}, 30000);
+
+test("a changed file's menu opens it in the installed editor, and offers none without one", async () => {
+  const { app, panel } = await openChanges();
+  const menu = () => within(panel).getByRole("button", { name: `Actions for ${path}` });
+  await userEvent.click(menu());
+  expect(await screen.findByRole("menuitem", { name: "Copy path" })).toBeTruthy();
+  expect(screen.queryByRole("menuitem", { name: /^Open in/ })).toBeNull();
+  await userEvent.keyboard("{Escape}");
+  app.daemon.workspace.setEditors([{ id: "zed", name: "Zed", command: "zed" }]);
+  const launched = vi.spyOn(window, "open").mockImplementation(() => null);
+  try {
+    await userEvent.click(menu());
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Open in Zed" }));
+    await waitFor(() =>
+      expect(launched).toHaveBeenCalledWith(
+        expect.stringMatching(`^zed://file/.*/${path}$`),
+        "_self",
+      ),
+    );
+  } finally {
+    launched.mockRestore();
+  }
 }, 30000);

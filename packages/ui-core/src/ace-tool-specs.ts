@@ -251,6 +251,16 @@ const browserActs: Record<string, { input?: InputKind; words: AceToolSpec["words
       return say(verbs.pressed, ` ${key ? playwrightChord(key) : "a key"}`);
     },
   },
+  fill_form: {
+    input: "type",
+    words: ({ args }) => {
+      const count = Array.isArray(args["fields"]) ? args["fields"].length : 0;
+      return say(
+        ["Filled", "Filling", "Fill"],
+        count > 1 ? ` ${count} form fields` : " a form field",
+      );
+    },
+  },
   scroll: { input: "scroll", words: () => say(verbs.scrolled, " the page") },
   hover: {
     words: (facts) =>
@@ -296,19 +306,37 @@ const browserSettings: Record<string, (args: Record<string, unknown>) => ToolWor
   emulate: () => say(["Changed", "Changing", "Change"], " the device emulation"),
   record_start: () => say(verbs.started, " recording the browser"),
   record_stop: () => say(verbs.stopped, " recording the browser"),
+  extensions: () => say(verbs.listed, " browser extensions"),
   close: () => say(verbs.closed, " the browser"),
+};
+
+const browserTabs: Record<string, (args: Record<string, unknown>) => ToolWords> = {
+  list: () => say(verbs.listed, " browser tabs"),
+  open: (args) => {
+    const url = str(args, "url");
+    const label = str(args, "label");
+    return url
+      ? say(verbs.opened, " a tab at", shortUrl(url))
+      : say(verbs.opened, label ? ` a tab ${quote(label)}` : " a browser tab");
+  },
+  select: () => say(["Switched", "Switching", "Switch"], " browser tabs"),
+  close: () => say(verbs.closed, " a browser tab"),
 };
 
 const browserSpecs: Record<string, AceToolSpec> = {
   browser_open: browser(({ args }) => {
     const url = str(args, "url");
     if (url) return say(verbs.opened, "", shortUrl(url));
-    if (str(args, "tabId")) return say(["Switched", "Switching", "Switch"], " browser tabs");
     return say(verbs.opened, " the browser");
   }),
+  browser_tabs: browser(({ args }) =>
+    (browserTabs[str(args, "action") ?? "list"] ?? browserTabs["list"]!)(args),
+  ),
   browser_snapshot: browser(() => say(verbs.read, " the page")),
-  browser_screenshot: browser(({ subject }) =>
-    say(verbs.took, ` a screenshot of ${subject ?? "the page"}`),
+  browser_screenshot: browser(({ args, subject }) =>
+    args["format"] === "pdf"
+      ? say(["Printed", "Printing", "Print"], ` ${subject ?? "the page"} to PDF`)
+      : say(verbs.took, ` a screenshot of ${subject ?? "the page"}`),
   ),
   browser_act: {
     family: "browser",
@@ -336,7 +364,14 @@ const browserSpecs: Record<string, AceToolSpec> = {
   browser_logs: browser(({ args }) =>
     str(args, "requestId")
       ? say(verbs.read, " a network response")
-      : say(verbs.read, args["kind"] === "network" ? " network requests" : " the console"),
+      : say(
+          verbs.read,
+          args["kind"] === "network"
+            ? " network requests"
+            : args["kind"] === "downloads"
+              ? " the downloads"
+              : " the console",
+        ),
   ),
   browser_history: browser(({ args }) => {
     const direction = str(args, "direction");

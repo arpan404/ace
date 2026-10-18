@@ -3,7 +3,6 @@ import {
   ArrowsOutSimpleIcon,
   FileIcon,
   FolderPlusIcon,
-  GitBranchIcon,
   GitDiffIcon,
   GlobeIcon,
   MoonIcon,
@@ -15,6 +14,8 @@ import {
   TerminalWindowIcon,
   TreeStructureIcon,
   ArrowCounterClockwiseIcon,
+  LinkIcon,
+  ListPlusIcon,
   PushPinIcon,
   PushPinSlashIcon,
   TerminalIcon,
@@ -23,7 +24,7 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { openNewTerminal } from "@/features/panels/index.ts";
-import { useProjectDialogs } from "@/features/projects/index.ts";
+import { useNewThreadEntry } from "@/features/projects/index.ts";
 import { pageTitle, settingsIndex } from "@/features/settings/index.ts";
 import { views, type View } from "@/features/shell/index.ts";
 import { keymap } from "@/lib/keymap.ts";
@@ -35,7 +36,7 @@ import {
   useWorkspaceCommands,
   type WorkspaceCommand,
 } from "@/lib/workspace/index.ts";
-import { useLayout } from "@/lib/layout.tsx";
+import { useLayout, type PalettePage } from "@/lib/layout.tsx";
 import { themeIds, themes } from "@/theme/palettes.ts";
 import { useTheme } from "@/theme/theme-provider.tsx";
 import { useLiveCommands } from "./live-commands.ts";
@@ -55,6 +56,7 @@ const groupOrder = [
   "Go to",
   "Threads",
   "Projects",
+  "New thread",
   "Actions",
   "Theme",
   "Settings",
@@ -78,7 +80,11 @@ function tabCommandIcon(command: WorkspaceCommand): PaletteCommand["icon"] {
  * register entries without touching the dialog: threads, projects and thread actions come from
  * `thread-commands.ts`.
  */
-export function usePaletteGroups(close: () => void, query = ""): PaletteGroup[] {
+export function usePaletteGroups(
+  close: () => void,
+  query: string,
+  push: (page: PalettePage) => void,
+): PaletteGroup[] {
   const navigate = useNavigate();
   const { resolved, update } = useTheme();
   // Workspace commands act on the screen showing one (a thread), and only appear there.
@@ -89,11 +95,12 @@ export function usePaletteGroups(close: () => void, query = ""): PaletteGroup[] 
   const tabCommands = useWorkspaceCommands();
   const threadGroups = useThreadCommands(close, query);
   const liveGroups = useLiveCommands(close);
-  const projects = useProjectDialogs();
+  const newThread = useNewThreadEntry();
   const directory = useProjectDirectory();
   const { openSearch } = useLayout();
   // With no project yet, adding one is the only way forward.
   const noProjects = directory.loaded && directory.projects.length === 0;
+  const several = directory.projects.length > 1;
   const staticGroups = useMemo(() => {
     const run = (action: () => void) => () => {
       close();
@@ -104,19 +111,31 @@ export function usePaletteGroups(close: () => void, query = ""): PaletteGroup[] 
     const addProject: PaletteCommand = {
       id: "add-project",
       label: "Add project…",
+      keywords: "folder open local new clone git url github repository",
       keys: keymap.addProject.keys,
       icon: FolderPlusIcon,
-      run: run(() => projects.open({ kind: "add", tab: "sources" })),
+      run: () => push("add-project"),
     };
     const create: PaletteCommand[] = [
       {
         id: "new-thread",
         label: "New thread",
-        keys: keymap.newThread.keys,
+        keys: several ? keymap.newThreadHere.keys : keymap.newThread.keys,
         icon: NotePencilIcon,
         ...needsProject,
-        run: go("/new"),
+        run: run(newThread.here),
       },
+      ...(several
+        ? [
+            {
+              id: "new-thread-in",
+              label: "New thread in…",
+              keys: keymap.newThread.keys,
+              icon: ListPlusIcon,
+              run: () => push("new-thread-in"),
+            } satisfies PaletteCommand,
+          ]
+        : []),
     ];
     const groups: PaletteGroup[] = [
       {
@@ -126,8 +145,9 @@ export function usePaletteGroups(close: () => void, query = ""): PaletteGroup[] 
           {
             id: "clone-repository",
             label: "Clone a repository…",
-            icon: GitBranchIcon,
-            run: run(() => projects.open({ kind: "add", tab: "clone" })),
+            keywords: "git url",
+            icon: LinkIcon,
+            run: () => push("add-clone"),
           },
         ],
       },
@@ -305,8 +325,10 @@ export function usePaletteGroups(close: () => void, query = ""): PaletteGroup[] 
     panel,
     workspace,
     tabCommands,
-    projects,
+    newThread,
+    push,
     noProjects,
+    several,
     openSearch,
   ]);
   return useMemo(

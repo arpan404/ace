@@ -1,0 +1,20 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserAnnotationTextChange.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "after": {
+      "maxLength": 4000,
+      "type": "string"
+    },
+    "before": {
+      "maxLength": 4000,
+      "type": "string"
+    }
+  },
+  "required": [
+    "before",
+    "after"
+  ],
+  "type": "object"
+}

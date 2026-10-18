@@ -10,6 +10,14 @@ export function forkPointOf(item: Item | undefined, run: Run | undefined): ForkP
   return run && run.state !== "active" ? { type: "turn", runId: run.id } : undefined;
 }
 
+/** Whether two fork points are the same turn or the same message. */
+export function sameForkPoint(a: ForkPoint | undefined, b: ForkPoint | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.type === "turn") return b.type === "turn" && a.runId === b.runId;
+  return b.type === "item" && a.itemId === b.itemId;
+}
+
 interface Reader {
   readonly order: readonly string[];
   item(id: string): Item | undefined;

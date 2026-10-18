@@ -1,6 +1,7 @@
 import { RendererRecovery } from "./renderer-recovery.ts";
 import { NativeBasicAuth } from "./basic-auth.ts";
 import { NativePopups } from "./popups.ts";
+import { popupNavigation, UserActivation } from "./popup-navigation.ts";
 import { PageMetrics } from "./page-metrics.ts";
 import { findNativeText } from "./find.ts";
 import { NativeDialogs } from "./dialogs.ts";
@@ -15,7 +16,12 @@ import { WebSocketGate } from "./socket-gate.ts";
 import { throttleDecision, type ViewPresence } from "./throttle.ts";
 import type { NativeDevice, Rect } from "./placement.ts";
 import { clearPartition } from "./partition-cleanup.ts";
+import { PausedRequests } from "./paused-requests.ts";
+import { CrashBackoff } from "./crash-backoff.ts";
+import { FocusHandoff, type ReplayedKey } from "./focus-handoff.ts";
 const throttleIdleMs = 30_000;
+/** The longest the view keeps keys for the app before giving them up. */
+const handoffMs = 1_000;
 const blockServiceWorkers = `Object.defineProperty(Navigator.prototype, "serviceWorker", { get() { return undefined; }, configurable: false });`;
 export interface PageOptions {
   view: WebContentsView;
@@ -68,6 +74,7 @@ export class EmbeddedPage implements ViewPage {
   private target: { bounds: Rect; zoom: number; device?: NativeDevice | undefined } | undefined;
   private downloads: NativeDownloads;
   private popups: NativePopups;
+  private activation = new UserActivation(() => Date.now());
   private auth: NativeBasicAuth;
   private dialogs: NativeDialogs;
   private closing: Promise<void> | undefined;
@@ -76,6 +83,14 @@ export class EmbeddedPage implements ViewPage {
   private screencasting = false;
   private throttled = false;
   private throttleTimer: ReturnType<typeof setTimeout> | undefined;
+  private paused = new PausedRequests();
+  /** The daemon link is down: nothing the daemon decides can be decided now. */
+  private orphaned = false;
+  private crashes = new CrashBackoff();
+  /** Repeated crashes stopped the automatic reloads; a manual reload restarts the page. */
+  private crashed = false;
+  private crashReload: ReturnType<typeof setTimeout> | undefined;
+  private handoff = new FocusHandoff();
 
   constructor(options: PageOptions) {
     this.options = options;
@@ -100,13 +115,24 @@ export class EmbeddedPage implements ViewPage {
       allowed: () => this.nativeInput,
       emit: (method, params) => this.emit(method, params),
       remember: (popup) => options.rememberPopup?.(popup) ?? (() => {}),
-      navigate: (url) => this.emit("ace.popupRequested", { url: url.slice(0, 8192) }),
+      navigate: (url) => {
+        const target = popupNavigation({
+          url,
+          current: contents.getURL(),
+          activated: this.activation.active(),
+        });
+        if (target) this.emit("ace.popupRequested", { url: target.slice(0, 8192) });
+      },
     });
     contents.on("page-title-updated", (_event, title) =>
       this.emit("ace.title", { title: title.slice(0, 1024) }),
     );
     contents.on("will-attach-webview", (event) => event.preventDefault());
     contents.on("before-input-event", (event, input) => {
+      if (this.injecting === 0 && this.handoff.capture(Date.now(), input)) {
+        event.preventDefault();
+        return;
+      }
       if (
         this.injecting === 0 &&
         (options.platform === "darwin" ? input.meta : input.control) &&
@@ -147,11 +173,17 @@ export class EmbeddedPage implements ViewPage {
         if (input.type === "keyDown" && !input.isAutoRepeat) options.forward(chord);
         return;
       }
-      if (this.allowInput()) return;
+      if (this.allowInput()) {
+        if (input.type === "keyDown") this.activation.note();
+        return;
+      }
       event.preventDefault();
     });
     contents.on("before-mouse-event", (event, mouse) => {
-      if (this.allowInput()) return;
+      if (this.allowInput()) {
+        if (mouse.type === "mouseDown") this.activation.note();
+        return;
+      }
       event.preventDefault();
       if (mouse.type === "mouseDown") this.reportBlocked();
     });
@@ -161,23 +193,54 @@ export class EmbeddedPage implements ViewPage {
       if (sessionId) return;
       if (method === "Inspector.detached") {
         setImmediate(() => {
-          if (!this.recovery.active) this.detached("The browser page disconnected");
+          if (!this.ownsDetach()) this.detached("The browser page disconnected");
         });
         return;
       }
+      const paused = this.paused.event(method, params);
+      // Nobody can approve a load while the daemon link is down: refuse it (fail closed).
+      if (this.orphaned)
+        for (const request of paused) void this.paused.refuse((m, p) => this.send(m, p), request);
       this.emit(method, params);
     });
     contents.debugger.on("detach", (_event, reason) => {
       queueMicrotask(() => {
-        if (!this.recovery.active) this.detached(reason);
+        if (!this.ownsDetach()) this.detached(reason);
       });
     });
-    contents.on("render-process-gone", () => {
-      if (this.recovery.active || this.closing) {
-        this.detached("The browser page stopped responding");
-        return;
-      }
-      this.recovery.start();
+    contents.on("render-process-gone", (_event, details) => this.rendererGone(details.reason));
+    contents.on("destroyed", () => this.detached("Browser view destroyed"));
+  }
+
+  /**
+   * The renderer died. It reloads (after a growing pause) and the daemon re-arms it through
+   * `ace.rendererRestarted`; after repeated crashes it stays crashed and says so with
+   * `ace.rendererCrashed`, until a reload asks for one more try (see `CrashBackoff`).
+   */
+  private rendererGone(reason: string): void {
+    if (this.closing) return;
+    this.paused.clear();
+    clearTimeout(this.crashReload);
+    // Drop stale Fetch interception before the replacement renderer loads. The session's
+    // webRequest gate checks reload requests until CDP is guarded again.
+    this.detachDebugger();
+    const decision = this.crashes.crashed(Date.now());
+    if (decision.kind === "give-up") {
+      this.recovery.ready();
+      this.crashed = true;
+      this.emit("ace.rendererCrashed", { crashes: decision.crashes, reason });
+      return;
+    }
+    this.restart(decision.delayMs);
+  }
+
+  /** Reload the dead renderer after `delayMs`, then attach CDP and tell the daemon. */
+  private restart(delayMs: number): void {
+    const contents = this.contents;
+    this.crashed = false;
+    this.recovery.start();
+    this.crashReload = setTimeout(() => {
+      if (this.closing || contents.isDestroyed()) return;
       contents.once("did-finish-load", () => {
         void (async () => {
           if (!contents.debugger.isAttached()) contents.debugger.attach("1.3");
@@ -188,15 +251,90 @@ export class EmbeddedPage implements ViewPage {
             source: blockServiceWorkers,
             runImmediately: true,
           });
+          // Without a daemon to re-arm it, nothing will confirm the restart: it is done.
+          if (this.orphaned) this.recovery.ready();
           this.emit("ace.rendererRestarted", {});
         })().catch(() => this.detached("The browser page could not restart"));
       });
-      // Drop stale Fetch interception before the replacement renderer loads. The session's
-      // webRequest gate checks reload requests until CDP is guarded again.
-      if (contents.debugger.isAttached()) contents.debugger.detach();
       contents.reload();
+    }, delayMs);
+  }
+
+  private detachDebugger(): void {
+    const contents = this.contents;
+    if (!contents.isDestroyed() && contents.debugger.isAttached()) contents.debugger.detach();
+  }
+
+  /**
+   * A detach this page caused: a crash restart, a crashed page, or a debugger swapped for a
+   * fresh one (already attached again by the time Electron reports the old one's detach).
+   */
+  private ownsDetach(): boolean {
+    return (
+      this.recovery.active ||
+      this.crashed ||
+      (!this.contents.isDestroyed() && this.contents.debugger.isAttached())
+    );
+  }
+
+  /** The daemon link dropped: the page lives on, refusing loads only the daemon may approve. */
+  orphan(): void {
+    this.orphaned = true;
+    void this.paused.refuseAll((method, params) => this.send(method, params));
+  }
+
+  /**
+   * A daemon adopts this page again, as if it had just opened it: a fresh CDP session with
+   * only ace's own refusals, nothing paused and no screencast or emulation left from before.
+   * The page itself (document, scroll, form state, history) is untouched.
+   */
+  async readopt(): Promise<void> {
+    if (this.contents.isDestroyed()) throw new Error("Browser view closed");
+    // A crashed page has nothing worth keeping: the daemon opens a fresh one instead.
+    if (this.crashed || this.recovery.active) throw new Error("The browser page crashed");
+    this.orphaned = false;
+    this.paused.clear();
+    this.screencasting = false;
+    this.detachDebugger();
+    this.contents.debugger.attach("1.3");
+    await this.send("Page.enable");
+    await this.send("Page.addScriptToEvaluateOnNewDocument", {
+      source: blockServiceWorkers,
+      runImmediately: true,
     });
-    contents.on("destroyed", () => this.detached("Browser view destroyed"));
+    await this.send("Page.setInterceptFileChooserDialog", { enabled: this.agentControl });
+    this.metrics = new PageMetrics();
+    if (this.target && this.placed)
+      this.place({
+        window: this.home,
+        bounds: this.target.bounds,
+        visible: true,
+        zoom: this.appZoom,
+        device: this.target.device,
+      });
+    this.updateThrottle();
+  }
+
+  /** A shortcut sent typing to the app's own field: keep the keys typed here until it has it. */
+  beginHandoff(): void {
+    this.handoff.start(Date.now(), handoffMs);
+  }
+
+  /** Keys typed into the view since `beginHandoff`; the handoff ends. */
+  takeHandoff(): ReplayedKey[] {
+    return this.handoff.take();
+  }
+
+  /** The window holding the view is closing: the view moves, unseen, to the parking window. */
+  evacuate(closing: BaseWindow, park: (size: { width: number; height: number }) => BaseWindow) {
+    if (this.options.window !== closing) return;
+    const view = this.options.view;
+    const { width, height } = view.getBounds();
+    view.setVisible(false);
+    this.attach(park({ width, height }));
+    view.setBounds({ x: 0, y: 0, width, height });
+    this.placed = false;
+    this.updateThrottle();
   }
 
   /** Attach CDP and install the refusals before the daemon sees the view. */
@@ -327,6 +465,14 @@ export class EmbeddedPage implements ViewPage {
   }
 
   async cdp(method: string, params?: Record<string, unknown>): Promise<unknown> {
+    // Liveness for the daemon: answered here, without waiting on the page's renderer.
+    if (method === "ace.ping")
+      return { alive: !this.contents.isDestroyed(), crashed: this.crashed };
+    if (this.crashed) {
+      if (method !== "Page.reload") throw new Error("The page crashed. Reload it to try again.");
+      this.restart(0);
+      return {};
+    }
     if (
       method === "Emulation.setDeviceMetricsOverride" ||
       method === "Emulation.clearDeviceMetricsOverride"
@@ -371,6 +517,7 @@ export class EmbeddedPage implements ViewPage {
     else if (method === "Page.stopScreencast") this.screencasting = false;
     this.driven();
     this.gate.command(method, params);
+    this.paused.command(method, params);
     if (!method.startsWith("Input.")) return this.send(method, params);
     return this.inject(() => this.send(method, params));
   }
@@ -401,6 +548,7 @@ export class EmbeddedPage implements ViewPage {
   }
 
   navigate(url: string, timeoutMs: number): Promise<string> {
+    if (this.crashed) return Promise.reject(new Error("The page crashed. Reload it to try again."));
     this.driven();
     const contents = this.contents;
     return new Promise((resolve, reject) => {
@@ -528,6 +676,7 @@ export class EmbeddedPage implements ViewPage {
     this.listeners.clear();
     this.blocked.clear();
     clearTimeout(this.throttleTimer);
+    clearTimeout(this.crashReload);
     this.recovery.ready();
     const { view, window, session, released } = this.options;
     if (!window.isDestroyed()) window.contentView.removeChildView(view);

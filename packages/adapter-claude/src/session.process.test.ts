@@ -364,7 +364,7 @@ test("the Claude CLI receives image content with the original MIME and base64 by
   }
 });
 
-test("the fake Claude CLI receives text and binary paths plus a native PDF document", async () => {
+test("the fake Claude CLI receives binary paths plus native PDF and text documents with their content", async () => {
   const h = await harness();
   try {
     await h.session.send(
@@ -378,6 +378,12 @@ test("the fake Claude CLI receives text and binary paths plus a native PDF docum
           content: { encoding: "base64", data: "JVBERi0xLjc=" },
         },
         { type: "file", path: "/files/archive.zip", mimeType: "application/zip" },
+        {
+          type: "file",
+          path: "/files/notes.md",
+          mimeType: "text/plain",
+          content: { encoding: "text", data: "# Notes" },
+        },
       ],
       "queue",
     );
@@ -390,6 +396,12 @@ test("the fake Claude CLI receives text and binary paths plus a native PDF docum
         source: { type: "base64", media_type: "application/pdf", data: "JVBERi0xLjc=" },
       },
       { type: "text", text: 'File (application/zip): "/files/archive.zip"' },
+      {
+        type: "document",
+        title: "notes.md",
+        context: 'Path: "/files/notes.md"',
+        source: { type: "text", media_type: "text/plain", data: "# Notes" },
+      },
     ]);
   } finally {
     await h.session.close("user");
@@ -414,6 +426,34 @@ test("Claude does not publish a resumable conversation before native initializat
     );
     expect(h.session.sessionConfirmed).toBe(true);
     expect(confirmed).toEqual([h.session.nativeSessionId]);
+  } finally {
+    await h.session.close("user");
+  }
+});
+test("a steer after the turn ended reaches the CLI as its next turn and leaves background tasks running", async () => {
+  const h = await harness();
+  try {
+    await h.session.send([{ type: "text", text: "tasks" }], "queue");
+    await h.wait((f) => object(f.data)["task_id"] === "shell-one");
+    await h.wait((f) => object(f.data)["type"] === "result");
+    await h.session.send([{ type: "text", text: "while it runs" }], "steer");
+    const frame = await h.wait(
+      (f) =>
+        subtype("fake_input")(f) &&
+        JSON.stringify(object(object(object(f.data)["input"])["message"])["content"]).includes(
+          "while it runs",
+        ),
+    );
+    expect(object(object(frame.data)["input"])["priority"]).toBe("now");
+    // Nothing stops or interrupts the background agent and shell to make room for the message.
+    expect(
+      h.frames
+        .filter((f) => subtype("fake_control")(f))
+        .map((f) => object(object(f.data)["request"])["subtype"]),
+    ).not.toContain("stop_task");
+    expect(h.frames.some((f) => object(object(f.data)["request"])["subtype"] === "interrupt")).toBe(
+      false,
+    );
   } finally {
     await h.session.close("user");
   }

@@ -1,0 +1,82 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserAnnotation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "comment": {
+      "maxLength": 4000,
+      "type": "string"
+    },
+    "documentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "element": {
+      "$ref": "https://ace.local/protocol/v1/BrowserAnnotationElement.json"
+    },
+    "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "number": {
+      "maximum": 99,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "point": {
+      "properties": {
+        "x": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "y": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "styles": {
+      "default": [],
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/BrowserAnnotationStyleChange.json"
+      },
+      "maxItems": 24,
+      "type": "array"
+    },
+    "text": {
+      "$ref": "https://ace.local/protocol/v1/BrowserAnnotationTextChange.json"
+    },
+    "title": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "url": {
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "viewport": {
+      "$ref": "https://ace.local/protocol/v1/BrowserAnnotationViewport.json"
+    }
+  },
+  "required": [
+    "id",
+    "number",
+    "documentId",
+    "url",
+    "title",
+    "point",
+    "comment",
+    "element",
+    "viewport"
+  ],
+  "type": "object"
+}

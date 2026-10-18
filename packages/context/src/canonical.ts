@@ -11,6 +11,8 @@ export function canonicalContext(projection: Projection): ContentPart[] {
       return { type: "image", mimeType: part.mime, url: part.url };
     if (part.type === "file")
       return { type: "file", path: fileURLToPath(part.url), mimeType: part.mime };
+    if (part.type === "resource_link")
+      return { type: "file", path: fileURLToPath(part.uri), mimeType: part.mimeType };
     if (part.type === "image") {
       if ("source" in part)
         return {

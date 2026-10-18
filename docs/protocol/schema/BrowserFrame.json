@@ -16,6 +16,11 @@
       "minimum": 0,
       "type": "integer"
     },
+    "tabId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
     "timestamp": {
       "type": "number"
     },

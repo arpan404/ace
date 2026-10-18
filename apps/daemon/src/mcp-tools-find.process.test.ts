@@ -7,6 +7,7 @@ import {
   cursorSdkInjection,
   staticToolsHeader,
 } from "@ace/mcp-server";
+import { detectChromium } from "@ace/browser";
 import { EvalAgent } from "./evals/agent.ts";
 import { evalWorld, type EvalWorld } from "./evals/world.ts";
 
@@ -14,6 +15,7 @@ import { evalWorld, type EvalWorld } from "./evals/world.ts";
  * `tools_find` and `tools_call` through the real daemon and a real MCP client, connected the way
  * each kind of provider connects.
  */
+const chromium = await detectChromium();
 let world: EvalWorld | undefined;
 afterEach(async () => {
   await world?.close();
@@ -65,6 +67,13 @@ it("tools_find offers the computer-use tools for clicking in an app only while c
   const off = await agent.call("tools_find", query);
   expect(off.failed, off.text).toBe(false);
   expect(found(off).filter((name) => name.startsWith("screen_"))).toEqual([]);
+});
+
+it.skipIf(!chromium)("tools_find ranks the browser's tab tool first for tab work", async () => {
+  world = await evalWorld({ browser: true });
+  const { agent } = await world.agent({});
+  for (const query of ["open a new browser tab for a parallel agent", "list the open tabs"])
+    expect(found(await agent.call("tools_find", { query }))[0], query).toBe("browser_tabs");
 });
 
 it("tools_find answers a query nothing matches with where to look next", async () => {

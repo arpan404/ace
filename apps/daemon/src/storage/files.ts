@@ -64,6 +64,12 @@ export class StorageFiles {
   constructor(owner: StorageOwner) {
     this.owner = owner;
     this.directory = PinnedDirectory.atBoundary(owner.root);
+    // Each inspected file asks which threads own it. Indexed, that is a lookup per file instead
+    // of parsing every transcript item once per file on the event loop.
+    owner.store.atomic((db) =>
+      db.exec(`CREATE INDEX IF NOT EXISTS items_artifact_path ON items(json_extract(item,'$.path'),thread_id)
+        WHERE json_extract(item,'$.type')='artifact'`),
+    );
   }
   private parent(path: string): { directory: PinnedDirectory; name: string } {
     if (!this.directory.matchesBoundary(this.owner.root)) throw new Error("storage_root_changed");
@@ -196,7 +202,11 @@ export class StorageFiles {
       directory.closeSync();
     }
   }
-  inventory(): { candidates: OwnedStorageCandidate[]; complete: boolean } {
+  /** Files and skill roots of the requested kinds; other roots are not walked. */
+  inventory(kinds: ReadonlySet<StorageKind>): {
+    candidates: OwnedStorageCandidate[];
+    complete: boolean;
+  } {
     const candidates: OwnedStorageCandidate[] = [];
     let visited = 0;
     let complete = true;
@@ -241,6 +251,7 @@ export class StorageFiles {
       }
     };
     for (const [path, kind] of roots) {
+      if (!kinds.has(kind)) continue;
       let directory: PinnedDirectory | undefined;
       try {
         // Add a dummy final name to acquire the category directory through the pinned root.
@@ -252,7 +263,7 @@ export class StorageFiles {
         directory?.closeSync();
       }
     }
-    complete = this.skillRoots(candidates) && complete;
+    if (kinds.has("caches")) complete = this.skillRoots(candidates) && complete;
     return { candidates, complete };
   }
   remove(path: string, kind: StorageKind, fingerprint: string): void {

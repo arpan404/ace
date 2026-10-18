@@ -32,11 +32,15 @@ export function pairing(response: { url: string; expiresAt: number }): Pairing {
 }
 
 /**
- * A phone or browser a person paired and can revoke. The daemon also lists the desktop app's
- * own embedded-browser credential (desktop scope only), which is not a paired device.
+ * A phone or browser a person paired and can revoke. The daemon also lists its own local
+ * credentials: the desktop app's embedded browser (`desktop`) and the "Use my Chrome" native host
+ * (`user-browser`, revoked from Computer use), which are not paired devices.
  */
 function paired(device: Device): boolean {
-  return device.revokedAt === null && device.scopes.some((scope) => scope !== "desktop");
+  return (
+    device.revokedAt === null &&
+    device.scopes.some((scope) => scope !== "desktop" && scope !== "user-browser")
+  );
 }
 
 /** A failed access call, in words a person can act on. */
@@ -87,7 +91,14 @@ export function accessSource(endpoint: DaemonEndpoint | undefined, gaps: AccessG
     remoteStatus: () => run((access) => access.remoteStatus()),
     devices: () => run((access) => access.devices()).then((all) => all.filter(paired)),
     pair: (scopes) =>
-      run((access) => access.pairing(scopes.filter((scope) => scope !== "desktop"))).then(pairing),
+      run((access) =>
+        access.pairing(
+          scopes.filter(
+            (scope): scope is Exclude<typeof scope, "desktop" | "user-browser"> =>
+              scope !== "desktop" && scope !== "user-browser",
+          ),
+        ),
+      ).then(pairing),
     revoke: (deviceId) => run((access) => access.revoke(deviceId)).then(() => undefined),
   };
 }

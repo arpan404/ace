@@ -117,6 +117,10 @@ it("measurement MCP validates bounded inputs and returns numbers plus an image",
   });
   browserToolkit({
     open: unused,
+    tab: unused,
+    state: () => {
+      throw new Error("not called");
+    },
     execute: async () => model,
     screenshot: async () => Buffer.from("unused"),
     close: unused,

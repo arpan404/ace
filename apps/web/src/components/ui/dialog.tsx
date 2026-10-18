@@ -40,11 +40,10 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
   );
 }
 
-/** Widths: confirmations and short forms; forms with a list; pickers and reviews. */
+/** Two widths (DESIGN.md §3): confirmations and forms; pickers, lists and reviews. */
 const sizes = {
-  sm: "w-[min(420px,calc(100vw-2rem))]",
-  md: "w-[min(480px,calc(100vw-2rem))]",
-  lg: "w-[min(620px,calc(100vw-2rem))]",
+  sm: "w-[min(480px,calc(100vw-2rem))]",
+  lg: "w-[min(640px,calc(100vw-2rem))]",
 } as const;
 
 /**
@@ -168,7 +167,7 @@ function DialogContent({
           // behind it is blurred once by its backdrop.
           "ace-floating-solid text-popover-foreground",
           // Centred by insets and auto margins, never by a translate another rule could replace.
-          "ace-modal fixed inset-0 m-auto flex h-fit max-h-[calc(100dvh-2rem)] flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain rounded-lg p-5 text-ui text-popover-foreground outline-none [-webkit-app-region:no-drag]",
+          "ace-modal fixed inset-0 m-auto flex h-fit max-h-[calc(100dvh-2rem)] flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain rounded-card p-5 text-ui text-popover-foreground outline-none [-webkit-app-region:no-drag]",
           "transition-[opacity,transform] duration-(--motion-base) ease-spring data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-(--motion-exit) data-ending-style:ease-exit data-starting-style:translate-y-(--rise) data-starting-style:scale-[0.97] data-starting-style:opacity-0",
           sizes[size],
           className,
@@ -275,7 +274,7 @@ function withSubmitHint(children: ReactNode): ReactNode {
 function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   return (
     <DialogPrimitive.Title
-      className={cn("text-md font-medium tracking-[-0.005em]", className)}
+      className={cn("text-lg font-semibold tracking-title", className)}
       {...props}
     />
   );

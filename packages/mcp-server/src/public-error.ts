@@ -41,6 +41,9 @@ export const PublicToolCode = z.enum([
   "browser_closed",
   "backend_changed",
   "queue_full",
+  "tab_not_found",
+  "tab_limit",
+  "tab_crashed",
   "element_unavailable",
   "not_visible",
   "evaluate_approval_required",
@@ -66,6 +69,7 @@ export const PublicToolCode = z.enum([
   "limit",
   "machine_offline",
   "machine_unavailable",
+  "user_browser_unavailable",
   "machine_forbidden",
   "machine_disconnected",
   "tool_unavailable",
@@ -209,11 +213,11 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   human_private: {
     message: "Browser is private while a human has control",
-    hint: "Wait for explicit human handback. A disconnect does not restore agent access.",
+    hint: "Wait for explicit human handback of this tab; a disconnect does not restore agent access. Your other tabs keep working (browser_tabs open for a new one).",
   },
   human_controlled: {
     message: "Browser controlled by human",
-    hint: "Wait for handback before input or closing.",
+    hint: "The person holds this tab: wait for handback before input or closing it. Your other tabs keep working.",
   },
   browser_paused: {
     message: "Browser backend paused",
@@ -230,6 +234,18 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   queue_full: {
     message: "Browser command queue full",
     hint: "Wait for the pending commands to finish before retrying.",
+  },
+  tab_not_found: {
+    message: "Browser tab not found",
+    hint: "Call browser_tabs (action list) for current tab ids; the tab may have been closed.",
+  },
+  tab_crashed: {
+    message: "Browser tab crashed",
+    hint: "The page crashed repeatedly and stays down. Reload it (browser_history direction reload) or navigate it to bring it back.",
+  },
+  tab_limit: {
+    message: "Browser tab limit reached",
+    hint: "Close tabs you no longer need with browser_tabs (action close, tabId), or reuse one of your tabs.",
   },
   element_unavailable: {
     message: "Browser element is detached or unavailable",
@@ -330,6 +346,10 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   machine_offline: {
     message: "That machine is offline",
     hint: "Do the work on this machine (omit machine), or call machines later. Only the person can wake it.",
+  },
+  user_browser_unavailable: {
+    message: "The person's own browser is not connected to ace",
+    hint: "Ask the person to turn on Use my Chrome (Settings › Computer use) and keep Chrome open with the ace extension, or omit browser to use ace's browser. It is only available on this machine.",
   },
   machine_unavailable: {
     message: "That machine is not available to agents",

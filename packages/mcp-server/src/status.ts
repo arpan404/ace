@@ -33,7 +33,7 @@ export function aceGuidance(groups?: readonly string[]): string {
       ? "- work splits into independent or parallel parts: delegate (instead of your provider's subagent tool), then wait;"
       : "",
     has("browser")
-      ? "- you changed a UI or a localhost page: browser_open, then browser_snapshot to check it; the person watches, and console and network logs are there;"
+      ? "- you changed a UI or a localhost page: browser_open, then browser_snapshot to check it; the person watches, and console and network logs are there. Parallel agents each open their own tab (browser_open newTab) and pass its tabId;"
       : "",
     "- a chart, diagram or mockup explains it better: html_render;",
     "- you opened or found the PR for this work: thread_link_pr;",

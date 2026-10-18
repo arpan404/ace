@@ -1,8 +1,8 @@
 /*
- * A list that holds still while the person is looking at it (UX audit TN-3): while the pointer
- * is over it or a row has keyboard focus, rows keep their places; the new order applies a
- * moment after the pointer leaves. Pure order logic plus a small state machine; the caller
- * passes the timers.
+ * A list that holds still while the person is working in it (UX audit TN-3): while a row has
+ * keyboard focus or a drag is under way, rows keep their places; the new order applies a moment
+ * after both end. The pointer merely resting on the list never holds it. Pure order logic plus a
+ * small state machine; the caller passes the timers.
  */
 
 /**
@@ -48,22 +48,22 @@ export interface Timers {
 export interface Hold {
   /** Keep the order drawn now. */
   held: boolean;
-  /** A row that needs you may still rise: the pointer isn't over the list. */
+  /** A row that needs you may still rise: no drag is under way. */
   rise: boolean;
 }
 
-/** How long after the pointer leaves the list its new order applies. */
+/** How long after keyboard focus leaves the list, or a drag ends, its new order applies. */
 export const holdReleaseMs = 600;
 
 const free: Hold = { held: false, rise: true };
 
 /**
- * Whether a list holds its order. It holds while the pointer is over it or keyboard focus is in
- * it, and for `releaseMs` after both have gone. A React view reads it with
+ * Whether a list holds its order. It holds while keyboard focus is in it or a drag is under way,
+ * and for `releaseMs` after both have ended. A React view reads it with
  * `useSyncExternalStore`.
  */
 export class ListHold {
-  private over = false;
+  private dragging = false;
   private focused = false;
   private settling: (() => void) | undefined;
   private state: Hold = free;
@@ -79,9 +79,9 @@ export class ListHold {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
-  /** The pointer came over the list (true) or left it (false). */
-  pointer(over: boolean): void {
-    this.over = over;
+  /** A drag in the list began (true) or ended (false). */
+  drag(active: boolean): void {
+    this.dragging = active;
     this.update();
   }
   /** Keyboard focus came into the list (true) or left it (false). */
@@ -93,12 +93,12 @@ export class ListHold {
   dispose(): void {
     this.settling?.();
     this.settling = undefined;
-    this.over = false;
+    this.dragging = false;
     this.focused = false;
     this.set(free);
   }
   private update(): void {
-    const looking = this.over || this.focused;
+    const looking = this.dragging || this.focused;
     if (looking) {
       this.settling?.();
       this.settling = undefined;
@@ -108,7 +108,7 @@ export class ListHold {
         this.set(free);
       });
     }
-    if (looking || this.settling) this.set({ held: true, rise: !this.over });
+    if (looking || this.settling) this.set({ held: true, rise: !this.dragging });
   }
   private set(next: Hold): void {
     if (next.held === this.state.held && next.rise === this.state.rise) return;

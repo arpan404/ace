@@ -1,4 +1,10 @@
-import { useClient, useIntent, useInteractions, useThreadMeta } from "@ace/client-react";
+import {
+  useClient,
+  useIntent,
+  useInteractions,
+  useThreadMeta,
+  useThreadStore,
+} from "@ace/client-react";
 import { useComposerActions } from "./composer-actions.ts";
 import type { Interaction, ThreadStatus } from "@ace/protocol";
 import { ThreadId } from "@ace/protocol";
@@ -35,6 +41,7 @@ import {
 } from "./deferred-parts.tsx";
 import { DeferredComposerStrip } from "./deferred-cards.ts";
 import { UsageNotice } from "./usage-notice.tsx";
+import { lastSentText } from "./last-sent.ts";
 import { runsOn, changedTurnOptions, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { clearStop, recordStop, useStopFence, useStopping } from "./stop-state.ts";
 import { useNavigate } from "@tanstack/react-router";
@@ -72,8 +79,9 @@ export function isBusy(status: ThreadStatus | undefined): boolean {
  * default), and ⌘↵ / Ctrl+↵ does the opposite where the provider can steer. Its footer shows
  * how actions are approved and the model, both changeable from the next turn. Nothing sits below
  * it; one strip sits above it (`ComposerStrip`): the agent's open requests (answered on their
- * card there), the connection, the queue or the plan. Stop is in the send slot while the
- * composer is empty, and never while a question waits. The unsent draft is kept per thread.
+ * card there), the connection, the queue or the plan. Stop sits beside send while the agent
+ * works, draft or not, and never while a question waits. ↑ in an empty composer brings back
+ * the last message sent. The unsent draft is kept per thread.
  */
 export function ThreadComposer({
   composer,
@@ -89,6 +97,8 @@ export function ThreadComposer({
   const time = useContext(TimeContext);
   const toast = useToast();
   const meta = useThreadMeta(props.thread.id);
+  // Read when ↑ asks, never subscribed: the transcript changing doesn't re-render the composer.
+  const transcript = useThreadStore(props.thread.id);
   const modelChoices = useModelChoices();
   const [setting] = useDaemonSetting("threads.followUpBehavior", {
     threadId: ThreadId.parse(props.thread.id),
@@ -333,6 +343,7 @@ export function ThreadComposer({
         followUp={selectionWaiting ? "queue" : followUp}
         canSteer={canSteer && !selectionWaiting}
         onSubmit={submit}
+        recall={() => (transcript ? lastSentText(transcript) : undefined)}
         onStop={canStop ? stop : undefined}
         onStopKey={stopKey}
         stopping={stopping}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { PreviewSource } from "../sources.ts";
+import { desktopBrowserViews } from "@/boot/desktop-browser.ts";
 import { Input } from "@/components/ui/input.tsx";
 import { Button } from "@/components/ui/button.tsx";
 
@@ -51,6 +52,8 @@ export function FindPage(props: { source: PreviewSource; threadId: string; onClo
       <Input
         aria-label="Find text"
         autoFocus
+        // In the desktop app ⌘F may come from the native page: take the keyboard from it.
+        onFocus={() => desktopBrowserViews()?.focusApp()}
         value={text}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {

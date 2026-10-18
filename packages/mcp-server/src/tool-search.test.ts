@@ -58,6 +58,28 @@ const catalogue: SearchableTool[] = [
     inputSchema: schema({ url: "http(s) URL to load.", ...machine }),
   },
   {
+    name: "browser_tabs",
+    title: "Browser tabs",
+    family: "ace-browser",
+    description:
+      "List, open, select or close tabs in this thread's browser. list shows who opened and drives each tab and whether a person holds it; current marks yours. open gives you a new labelled tab that becomes your current tab.",
+    inputSchema: schema({
+      action: "list, open, select or close.",
+      tabId: "select, close: a tabId from list.",
+      ...machine,
+    }),
+  },
+  {
+    name: "browser_snapshot",
+    title: "Read page structure",
+    family: "ace-browser",
+    description: "Read the page as compact indented text: one line per meaningful element.",
+    inputSchema: schema({
+      tabId: "The tab to act in, from browser_tabs or browser_open. Omit for your current tab.",
+      ...machine,
+    }),
+  },
+  {
     name: "delegate",
     title: "Delegate to child agents",
     family: "ace-agents",
@@ -108,6 +130,13 @@ it("running a task on another machine finds delegation and the machine list", ()
 
 it("checking a page's console finds the browser's logs first", () => {
   expect(names("check page console")[0]).toBe("browser_logs");
+});
+
+it("opening, switching or closing a browser tab finds the tab tool, not every page tool", () => {
+  for (const query of ["open a new tab", "switch to another tab", "close the tabs I opened"])
+    expect(names(query)[0], query).toBe("browser_tabs");
+  // Reading a page is still the page tools' job, even though they take a tabId.
+  expect(names("read the page structure")[0]).toBe("browser_snapshot");
 });
 
 it("a word's other forms match it: clicked, clicking and clicks all reach the input tools", () => {

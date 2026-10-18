@@ -1,7 +1,8 @@
 import { requireEngineColumns } from "./schema-version.ts";
 import { withoutPortableHandoff } from "@ace/projection";
 import { piInput } from "@ace/adapter-pi/input";
-import { content as claudeInputContent } from "@ace/adapter-claude/input";
+import { admissions as claudeAdmissions } from "@ace/adapter-claude/input";
+import { nativeCommandInputs } from "@ace/commands/invocation";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
@@ -33,6 +34,11 @@ export function inputOrigin(command: Command): MessageOrigin {
         : trigger;
   return { kind, commandId: command.id };
 }
+
+/** Whether input of this origin is the person's own words (typed, queued or steered). */
+export function personInput(origin: MessageOrigin): boolean {
+  return origin.kind === "person" || origin.kind === "queue" || origin.kind === "steer";
+}
 function signature(parts: ContentPart[]): string {
   return createHash("sha256")
     .update(
@@ -47,9 +53,11 @@ function providerInput(
   parts: ContentPart[],
   provider?: import("@ace/protocol").ProviderKind,
 ): ContentPart[] {
-  if (provider === "pi") return [{ type: "text", text: piInput(parts).message }];
+  // Selected commands become several admissions; the first one's echo stands for the message.
+  if (provider === "pi")
+    return [{ type: "text", text: piInput(nativeCommandInputs(parts)[0] ?? parts).message }];
   if (provider !== "claude") return parts;
-  const content = claudeInputContent(parts);
+  const content = claudeAdmissions(parts)[0] ?? "";
   if (typeof content === "string") return [{ type: "text", text: content }];
   return content.flatMap((part) =>
     part.type === "text" ? [{ type: "text" as const, text: part.text }] : [],
@@ -158,6 +166,12 @@ export class InputJournal {
       .statement("DELETE FROM engine_inputs WHERE thread_id=? AND item_key=?")
       .run(thread, key);
   }
+  /** Correct an accepted input's origin once its delivery is known (a steer into a run). */
+  restamp(thread: ThreadId, key: string, origin: MessageOrigin): void {
+    this.store
+      .statement("UPDATE engine_inputs SET origin=? WHERE thread_id=? AND item_key=?")
+      .run(JSON.stringify(origin), thread, key);
+  }
   register(thread: ThreadId, key: string, parts: ContentPart[], origin: MessageOrigin): void {
     this.store
       .statement(
@@ -243,7 +257,7 @@ export class InputJournal {
       draft: {
         ...draft,
         origin,
-        synthetic: origin.kind !== "person" && origin.kind !== "queue",
+        synthetic: !personInput(origin),
         nativeId: fact.draft.nativeId ?? fact.item,
       },
     };

@@ -152,9 +152,9 @@ test("a thread that fails raises a toast that opens it", async () => {
   build.runThrough("failed");
 
   expect(await within(await toasts()).findByText("Cut the 0.9 release build failed")).toBeTruthy();
-  // A failure is announced as one, at once; F6 reaches its action.
+  // A failure is announced as one, at once; ⌥F6 reaches its action (F6 walks regions).
   expect(screen.getByRole("alert")).toBeTruthy();
-  await userEvent.keyboard("{F6}");
+  await userEvent.keyboard("{Alt>}{F6}{/Alt}");
   await userEvent.click(await within(await toasts()).findByRole("button", { name: "Open" }));
   await waitFor(() =>
     expect(

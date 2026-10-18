@@ -215,3 +215,29 @@ it("typed browser client APIs follow tabs, downloads, dialogs and private handba
     await f.client.close();
   }
 });
+
+it("fake wire lists an agent's second tab and shows it when the person selects it", async () => {
+  const f = await fixture();
+  try {
+    const first = f.daemon.browser.view(f.threadId)?.activeTabId;
+    const second = f.daemon.browser.tabAdd(f.threadId, "https://shop.example/cart", {
+      agentId: "worker",
+      label: "checkout",
+    });
+    expect(
+      await f.client.request({ type: "browser.tabs.list", threadId: f.threadId }),
+    ).toMatchObject({
+      ok: true,
+      result: [
+        { tabId: first },
+        { tabId: second, label: "checkout", openedBy: { kind: "agent", agentId: "worker" } },
+      ],
+    });
+    await f.client.request({ type: "browser.takeover", threadId: f.threadId });
+    if (!first) throw new Error("tab");
+    await f.client.request({ type: "browser.tabs.select", threadId: f.threadId, tabId: first });
+    expect(f.daemon.browser.view(f.threadId)?.activeTabId).toBe(first);
+  } finally {
+    await f.client.close();
+  }
+});

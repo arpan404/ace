@@ -45,6 +45,17 @@ export class Repository {
     } catch {
       throw new GitError("not_a_repo", `Repository path does not exist: ${repo}`);
     }
+    // A checkout root stays its own root until its `.git`, Git directory or config changes.
+    // Only that answer is kept: a deeper path's root also depends on the worktree registry.
+    return this.cli.configFact(
+      cwd,
+      "root",
+      () => this.discoverRoot(repo, cwd, signal),
+      (root) => root === cwd,
+    );
+  }
+
+  private async discoverRoot(repo: string, cwd: string, signal?: AbortSignal): Promise<string> {
     const inside = await this.cli.call(cwd, ["rev-parse", "--is-inside-work-tree"], {
       allowFailure: true,
       ...(signal ? { signal } : {}),
@@ -115,15 +126,22 @@ export class Repository {
 
   async info(root: string): Promise<RepositoryInfo> {
     const { branch } = await this.state(root);
-    const remotes = await this.cli.call(
-      root,
-      ["config", "-z", "--get-regexp", "^remote\\..*\\.(url|pushurl)$"],
-      { allowFailure: true },
-    );
-    if (remotes.exitCode !== 0 && remotes.exitCode !== 1) {
-      throw new GitError("git_failed", remotes.stderr);
-    }
-    return { root, ...branch, remotes: parseRemotes(remotes.stdout) };
+    return { root, ...branch, remotes: await this.remotes(root) };
+  }
+
+  /** Configured remotes, re-read only once a Git config file the checkout uses has changed. */
+  remotes(root: string): Promise<RepositoryInfo["remotes"]> {
+    return this.cli.configFact(root, "remotes", async () => {
+      const remotes = await this.cli.call(
+        root,
+        ["config", "-z", "--get-regexp", "^remote\\..*\\.(url|pushurl)$"],
+        { allowFailure: true },
+      );
+      if (remotes.exitCode !== 0 && remotes.exitCode !== 1) {
+        throw new GitError("git_failed", remotes.stderr);
+      }
+      return parseRemotes(remotes.stdout);
+    });
   }
 
   async commit(root: string, ref: string, signal?: AbortSignal): Promise<string> {

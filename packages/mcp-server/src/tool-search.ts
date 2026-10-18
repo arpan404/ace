@@ -50,7 +50,7 @@ const synonymGroups: readonly string[] = [
   "button element widget menu ui",
   "app application native macos mac desktop window safari finder xcode mail calendar music photo slack figma",
   "simulator emulator iphone ipad ios android phone mobile sim",
-  "page website site web url localhost browser tab",
+  "page website site web url localhost browser",
   "console log network request output",
   "screenshot image picture capture visual look",
   "run start launch spawn kick begin execute",

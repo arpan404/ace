@@ -166,7 +166,7 @@ export function SkillSource({ skill }: { skill: Skill }) {
           if (!open) closeReview();
         }}
       >
-        <DialogContent size="md">
+        <DialogContent>
           {review && (
             <PluginReviewStep
               action="Accept changes"

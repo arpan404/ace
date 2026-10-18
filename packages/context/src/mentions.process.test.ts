@@ -2,7 +2,7 @@ import { symlink, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { resolveMentions, PathIndex } from "./index.ts";
-import { repository, run } from "./test-support.ts";
+import { listedPaths, repository, run } from "./test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -15,7 +15,7 @@ async function fixture() {
 }
 
 describe("workspace mentions", () => {
-  test("folder context excludes nested ignore rules and includes re-included files", async () => {
+  test("folder listings exclude nested ignore rules and include re-included files", async () => {
     const f = await fixture();
     await f.write("src/.gitignore", "*.secret\n!public.secret\n");
     await f.write("src/private.secret", "hidden password");
@@ -23,9 +23,12 @@ describe("workspace mentions", () => {
     await f.write("src/main.ts", "export const answer = 42;");
     await f.workspace.initialize();
     const result = await resolveMentions(f.workspace, [{ path: "src" }]);
-    expect(result.entries.map((entry) => entry.path)).toContain("src/public.secret");
-    expect(result.entries.map((entry) => entry.path)).toContain("src/main.ts");
-    expect(result.entries.some((entry) => entry.text.includes("hidden password"))).toBe(false);
+    expect(listedPaths(result.entries).toSorted()).toEqual([
+      "src/.gitignore",
+      "src/main.ts",
+      "src/public.secret",
+    ]);
+    expect(result.entries.some((entry) => entry.text.includes("private.secret"))).toBe(false);
     expect(
       (await resolveMentions(f.workspace, [{ path: "src/private.secret" }])).diagnostics,
     ).toContainEqual(expect.objectContaining({ code: "ignored" }));
@@ -111,28 +114,39 @@ describe("workspace mentions", () => {
     expect(result.entries[0]?.text).toBe("File: lines.txt:1-2\nfirst\nsecond");
     expect(result.entries[0]?.truncated).toBe(false);
   });
-  test("aggregate and folder file caps limit expansion with diagnostics", async () => {
+  test("a folder mention lists file names and sizes without pasting their contents", async () => {
     const f = await fixture();
-    await f.write("src/a.txt", "a".repeat(100));
-    await f.write("src/b.txt", "b".repeat(100));
+    await f.write("src/a.txt", "secret-a".repeat(10));
+    await f.write("src/deep/b.txt", "bb");
     await f.workspace.initialize();
-    const result = await resolveMentions(f.workspace, [{ path: "src" }], {
-      fileBytes: 200,
-      totalBytes: 80,
-      files: 10,
-    });
-    expect(
-      result.entries.reduce((bytes, entry) => bytes + Buffer.byteLength(entry.text), 0),
-    ).toBeLessThanOrEqual(80);
-    expect(result.entries[0]?.text).toContain("[ace: context truncated]");
-    expect(result.diagnostics.some((item) => item.message.includes("Folder"))).toBe(true);
-    const capped = await resolveMentions(f.workspace, [{ path: "src" }], {
+    const result = await resolveMentions(f.workspace, [{ path: "src/" }]);
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries[0]?.path).toBe("src");
+    expect(result.entries[0]?.text).toContain("Folder: src/ (2 files");
+    expect(result.entries[0]?.text).toContain("src/a.txt (80 bytes)");
+    expect(result.entries[0]?.text).toContain("src/deep/b.txt (2 bytes)");
+    expect(result.entries[0]?.text).not.toContain("secret-a");
+    expect(result.diagnostics).toEqual([]);
+  });
+  test("large folders list a bounded prefix and report the unlisted remainder", async () => {
+    const f = await fixture();
+    for (let index = 0; index < 205; index++)
+      await f.write(`many/file-${String(index).padStart(3, "0")}.txt`, "x");
+    await f.workspace.initialize();
+    const result = await resolveMentions(f.workspace, [{ path: "many" }]);
+    expect(listedPaths(result.entries)).toHaveLength(200);
+    expect(result.entries[0]?.text).toContain("Folder: many/ (205 files");
+    expect(result.entries[0]?.text).toContain("[ace: 5 more files not listed]");
+    expect(result.entries[0]?.truncated).toBe(true);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ code: "truncated", path: "many" }),
+    ]);
+    const capped = await resolveMentions(f.workspace, [{ path: "many" }], {
       fileBytes: 200,
       totalBytes: 1000,
       files: 1,
     });
-    expect(capped.entries).toHaveLength(1);
-    expect(capped.diagnostics[0]?.code).toBe("truncated");
+    expect(Buffer.byteLength(capped.entries[0]?.text ?? "")).toBeLessThanOrEqual(1000);
   });
   test("incremental index updates add, delete and honor changed ignore rules", async () => {
     const f = await fixture();

@@ -36,8 +36,18 @@ function agent(port: Parameters<typeof browserToolkit>[0]) {
 const unused = async () => {
   throw new Error("not called");
 };
+const never = () => {
+  throw new Error("not called");
+};
 it("reads never prompt and only input, navigation and scripts count as effects", () => {
-  const f = agent({ open: unused, execute: unused, screenshot: unused, close: unused });
+  const f = agent({
+    open: unused,
+    tab: unused,
+    state: never,
+    execute: unused,
+    screenshot: unused,
+    close: unused,
+  });
   try {
     const risk = (name: string, args: unknown) => f.registry.action(name, args)?.riskClass;
     expect(risk("browser_snapshot", {})).toBe("read-only");
@@ -47,6 +57,10 @@ it("reads never prompt and only input, navigation and scripts count as effects",
     expect(risk("browser_history", { direction: "back" })).toBe("external-effect");
     expect(risk("browser_act", { action: "click", ref: "e1-2" })).toBe("external-effect");
     expect(risk("browser_evaluate", { expression: "1" })).toBe("external-effect");
+    expect(risk("browser_tabs", {})).toBe("read-only");
+    expect(risk("browser_tabs", { action: "close", tabId: "t" })).toBe("external-effect");
+    expect(risk("browser_settings", { action: "extensions" })).toBe("read-only");
+    expect(risk("browser_settings", { action: "close" })).toBe("external-effect");
     const listed = f.registry.list(f.lease.principal);
     const open = listed.find((tool) => tool.name === "browser_open");
     expect(open).toMatchObject({
@@ -69,7 +83,14 @@ it("refuses an act whose fields do not fit its action before touching the page",
     touched = true;
     throw new Error("touched");
   };
-  const f = agent({ open: touch, execute: touch, screenshot: touch, close: touch });
+  const f = agent({
+    open: touch,
+    tab: touch,
+    state: never,
+    execute: touch,
+    screenshot: touch,
+    close: touch,
+  });
   try {
     const result = jsonOf(await f.call("browser_act", { action: "type", ref: "e1-2", key: "a" }));
     expect(result).toMatchObject({
@@ -210,6 +231,77 @@ describe.skipIf(!executablePath)("ace browser tools on real Chromium", () => {
       expect(pending.hint).toContain('action:"dialog"');
       await act({ action: "dialog", dialogId: pending.pending_dialog.dialogId, accept: true });
       await expect.poll(output).toBe("true");
+    } finally {
+      f.close();
+    }
+  }, 60_000);
+
+  it("an agent works in a tab of its own by tabId, and closing it leaves the first tab", async () => {
+    const page = await fixture();
+    const f = agent(toolPort(page.service));
+    const Tabs = z.object({
+      tabs: z.array(
+        z.object({
+          tabId: z.string(),
+          label: z.string().optional(),
+          current: z.boolean().optional(),
+          openedBy: z.object({ kind: z.string(), agentId: z.string().optional() }).optional(),
+        }),
+      ),
+    });
+    try {
+      const first = z
+        .object({ tabId: z.string() })
+        .parse(jsonOf(await f.call("browser_open", { url: page.url }))).tabId;
+      const opened = z.object({ tabId: z.string(), label: z.string() }).parse(
+        jsonOf(
+          await f.call("browser_tabs", {
+            action: "open",
+            url: `${page.url}/controls`,
+            label: "form",
+          }),
+        ),
+      );
+      expect(opened).toMatchObject({ label: "form" });
+      expect(opened.tabId).not.toBe(first);
+      const listed = Tabs.parse(jsonOf(await f.call("browser_tabs")));
+      expect(listed.tabs.find((tab) => tab.tabId === opened.tabId)).toMatchObject({
+        current: true,
+        openedBy: { kind: "agent", agentId: "root" },
+      });
+      // The first tab, named by id, is read and filled while the new one stays current.
+      const snapshot = textOf(await f.call("browser_snapshot", { tabId: first }));
+      expect(snapshot).toContain(`[tab=${first}]`);
+      expect(
+        jsonOf(
+          await f.call("browser_act", {
+            tabId: first,
+            action: "fill_form",
+            fields: [{ ref: textRef(snapshot, "textbox", "Name"), value: "filled" }],
+          }),
+        ),
+      ).toMatchObject({ ok: true, tabId: first });
+      expect(
+        jsonOf(
+          await f.call("browser_evaluate", {
+            tabId: first,
+            expression: "document.querySelector('input').value",
+          }),
+        ),
+      ).toBe("filled");
+      // Without tabId, calls land in the agent's current tab: the one it opened.
+      expect(textOf(await f.call("browser_snapshot"))).toContain(`[tab=${opened.tabId}]`);
+      const printed = z
+        .object({ path: z.string() })
+        .parse(jsonOf(await f.call("browser_screenshot", { tabId: first, format: "pdf" })));
+      expect(printed.path).toMatch(/\.pdf$/);
+      expect(
+        jsonOf(await f.call("browser_tabs", { action: "close", tabId: opened.tabId })),
+      ).toMatchObject({ closed: true, open: 1 });
+      expect(page.service.state("thread").tabs?.map((tab) => tab.tabId)).toEqual([first]);
+      expect(jsonOf(await f.call("browser_snapshot", { tabId: opened.tabId }))).toMatchObject({
+        code: "tab_not_found",
+      });
     } finally {
       f.close();
     }

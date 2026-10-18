@@ -1,3 +1,5 @@
+import type { AnnotationDriver } from "@/features/annotations/index.ts";
+
 /*
  * The daemon services behind the panels, as the panels see them. `terminal/daemon-terminals.ts`
  * implements the terminal over `terminal.request` / `terminal.output` / `terminal.credit`, and
@@ -51,7 +53,7 @@ export interface BrowserView {
   status?: "ready" | "paused" | "recovering" | undefined;
   reason?: string | undefined;
   /** Where the page runs: the desktop app's own browser, or the daemon's headless Chromium. */
-  backend?: "embedded" | "headless" | undefined;
+  backend?: "embedded" | "headless" | "user" | undefined;
   /** The page was reopened after its backend was lost; cookies and page state are gone. */
   pageStateLost?: boolean | undefined;
   loading?: boolean | undefined;
@@ -66,6 +68,10 @@ export interface BrowserView {
   pendingDialog?: BrowserDialogView | undefined;
   /** "private": a person holds the page and agents can't see or read it. */
   takeoverMode?: "shared" | "private" | undefined;
+  /** Set while a connection has annotate mode open on the page (ADR 0082). */
+  annotation?: { owner: string } | undefined;
+  /** Optional page features the daemon supports, such as `annotate`. */
+  features?: readonly string[] | undefined;
 }
 export interface BrowserDialogView {
   dialogId: string;
@@ -232,6 +238,8 @@ export interface PreviewSource {
    */
   heldAs(threadId: string): string | undefined;
   input(threadId: string, input: ForwardedInput): void | Promise<void>;
+  /** Annotate mode on the page (ADR 0082); absent where the client can't drive it. */
+  annotate?: AnnotationDriver | undefined;
   /** Read the current page selection for local copy and cut. */
   selection?(threadId: string): Promise<string>;
   nativeShown?(threadId: string, shown: boolean): void;

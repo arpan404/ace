@@ -33,7 +33,7 @@ import {
   type LayerReplay,
   type StackReplayOptions,
 } from "./stack-sync.ts";
-import { changedFiles, changeSummary } from "./changed-files.ts";
+import { changedFiles, changeSummary, checkoutSummary } from "./changed-files.ts";
 import { deleteBranch, type BranchCleanup } from "./branch-cleanup.ts";
 import { GitCli } from "./cli.ts";
 import { mkdir } from "node:fs/promises";
@@ -248,6 +248,10 @@ export class GitService {
   }
   changeSummary(worktree: string) {
     return changeSummary(this.repository, worktree);
+  }
+  /** `repositoryInfo` and `changeSummary` of one checkout, from a single status read. */
+  checkoutSummary(worktree: string) {
+    return checkoutSummary(this.repository, worktree);
   }
   push(options: PushOptions): Promise<void> {
     return pushBranch(this.repository, options);

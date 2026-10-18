@@ -72,24 +72,66 @@ export async function focusListRow(options: {
     sibling.focus();
     return homeRowThread(rows[options.index]?.item ?? { kind: "unsent" });
   }
-  for (let index = options.index + step; index >= 0 && index < rows.length; index += step) {
+  return focusRowFrom({ viewport, rows, start: options.index + step, step, mount: options.mount });
+}
+
+/** Whether a row can hold focus: not leaving, and not the Pinned group's heading or rule. */
+function focusable(row: { item: HomeRow; phase: string } | undefined): boolean {
+  return (
+    row !== undefined &&
+    row.phase !== "exit" &&
+    row.item.kind !== "pinned-header" &&
+    row.item.kind !== "pinned-end"
+  );
+}
+
+/**
+ * Focus the first row from `start` on, in the direction of `step`, that can take focus,
+ * mounting it first when it is outside the virtual window. Entering a row going down lands on
+ * its first stop, going up on its last. Returns the thread it landed on, if any.
+ */
+export async function focusRowFrom(options: {
+  viewport: HTMLElement | null;
+  rows: readonly { item: HomeRow; phase: string }[];
+  start: number;
+  step: number;
+  mount(index: number): void;
+}): Promise<string | undefined> {
+  const { viewport, rows, step } = options;
+  if (!viewport) return undefined;
+  for (let index = options.start; index >= 0 && index < rows.length; index += step) {
     const row = rows[index];
-    if (
-      !row ||
-      row.phase === "exit" ||
-      row.item.kind === "pinned-header" ||
-      row.item.kind === "pinned-end"
-    )
-      continue;
+    if (!row || !focusable(row)) continue;
     options.mount(index);
     // Scrolling an offscreen virtual row mounts it on the next browser frame.
     if (!viewport.querySelector(`[data-index="${index}"]`))
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    const links = targets(index);
+    const links = [
+      ...(viewport
+        .querySelector(`[data-index="${index}"]`)
+        ?.querySelectorAll<HTMLElement>(rowFocusSelector) ?? []),
+    ];
     const next = step > 0 ? links[0] : links.at(-1);
     if (!next) continue;
     next.focus();
     return homeRowThread(row.item);
+  }
+  return undefined;
+}
+
+/**
+ * Type to jump: the next row after `current` (wrapping round) whose title starts with
+ * `letter`, as other lists do. Rows without a title (headings, Unsent) are passed over.
+ */
+export function typeAheadIndex(
+  titles: readonly (string | undefined)[],
+  current: number,
+  letter: string,
+): number | undefined {
+  const wanted = letter.toLowerCase();
+  for (let step = 1; step <= titles.length; step++) {
+    const index = (current + step) % titles.length;
+    if (titles[index]?.trim().toLowerCase().startsWith(wanted)) return index;
   }
   return undefined;
 }

@@ -1,6 +1,5 @@
 import type { SessionOptions } from "./session-options.ts";
 import type { LiveCapture } from "./live.ts";
-import type { SessionQueue } from "./session-queue.ts";
 import type { SessionRecording } from "./session-recording.ts";
 import type { SessionLogs } from "./logs.ts";
 
@@ -8,7 +7,7 @@ import type { SessionLogs } from "./logs.ts";
 export async function closeSession(
   options: SessionOptions,
   live: LiveCapture,
-  queue: SessionQueue,
+  settled: () => Promise<unknown>,
   recordings: SessionRecording,
   logs: SessionLogs,
 ): Promise<void> {
@@ -18,7 +17,7 @@ export async function closeSession(
       await options.backend.close();
     } finally {
       await stopped;
-      await queue.settled();
+      await settled();
     }
   } finally {
     try {

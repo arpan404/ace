@@ -74,6 +74,7 @@
         "@ace/agent-registry": "workspace:*",
         "@ace/automations": "workspace:*",
         "@ace/browser": "workspace:*",
+        "@ace/browser-extension": "workspace:*",
         "@ace/client": "workspace:*",
         "@ace/commands": "workspace:*",
         "@ace/context": "workspace:*",
@@ -283,6 +284,7 @@
     "packages/adapter-claude": {
       "name": "@ace/adapter-claude",
       "dependencies": {
+        "@ace/commands": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/engine-api": "workspace:*",
         "@ace/mcp-server": "workspace:*",
@@ -396,11 +398,11 @@
     "packages/browser": {
       "name": "@ace/browser",
       "dependencies": {
+        "@ace/browser-annotate": "workspace:*",
         "@ace/interaction": "workspace:*",
         "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/redaction": "workspace:*",
-        "playwright-core": "1.61.1",
         "sharp": "0.34.5",
         "yauzl": "3.2.0",
         "zod": "^4.6.5",
@@ -409,6 +411,29 @@
         "@types/ws": "8.18.1",
         "@types/yauzl": "2.10.3",
         "ws": "8.22.0",
+      },
+    },
+    "packages/browser-annotate": {
+      "name": "@ace/browser-annotate",
+      "dependencies": {
+        "@ace/design-tokens": "workspace:*",
+        "@ace/protocol": "workspace:*",
+      },
+      "devDependencies": {
+        "esbuild": "0.25.12",
+      },
+    },
+    "packages/browser-extension": {
+      "name": "@ace/browser-extension",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "ws": "8.22.0",
+        "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@ace/browser": "workspace:*",
+        "@types/ws": "8.18.1",
+        "esbuild": "0.25.12",
       },
     },
     "packages/client": {
@@ -990,6 +1015,10 @@
     "@ace/automations": ["@ace/automations@workspace:packages/automations"],
 
     "@ace/browser": ["@ace/browser@workspace:packages/browser"],
+
+    "@ace/browser-annotate": ["@ace/browser-annotate@workspace:packages/browser-annotate"],
+
+    "@ace/browser-extension": ["@ace/browser-extension@workspace:packages/browser-extension"],
 
     "@ace/client": ["@ace/client@workspace:packages/client"],
 
@@ -3015,7 +3044,7 @@
 
     "playwright": ["playwright@1.63.0", "", { "dependencies": { "playwright-core": "1.63.0" }, "bin": { "playwright": "cli.js" } }, "sha512-+7ziBLidS4NaNCdt57SUDT+wYmmd5fmiQejUic/kb+YsYSCPyOOE9sebzMjNmQrsnNpDJqd4WHvV/8lfKfUDUg=="],
 
-    "playwright-core": ["playwright-core@1.61.1", "", { "bin": { "playwright-core": "cli.js" } }, "sha512-h7Qlt6m4REp25qvIdvbDtVmD4LqVXfpRxhORv9L0jzETM05p4fuPJ3dKyuSXQxDSbXnmS79HAgi9589lGSpLkg=="],
+    "playwright-core": ["playwright-core@1.63.0", "", { "bin": { "playwright-core": "cli.js" } }, "sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg=="],
 
     "plist": ["plist@3.1.0", "", { "dependencies": { "@xmldom/xmldom": "^0.8.8", "base64-js": "^1.5.1", "xmlbuilder": "^15.1.1" } }, "sha512-uysumyrvkUX0rX/dEVqt8gC3sTBzd4zoWfLeS29nb53imdaXVvLINYXTI2GNqzaMuvacNx4uJQ8+b3zXR0pkgQ=="],
 
@@ -3483,9 +3512,9 @@
 
     "@ace/browser/yauzl": ["yauzl@3.2.0", "", { "dependencies": { "buffer-crc32": "~0.2.3", "pend": "~1.2.0" } }, "sha512-Ow9nuGZE+qp1u4JIPvg+uCiUr7xGQWdff7JQSk5VGYTAZMDe2q8lxJ10ygv10qmSj031Ty/6FNJpLO4o1Sgc+w=="],
 
-    "@ace/client-react/react": ["react@19.3.0", "", {}, "sha512-E8LUcbtBWt20bbl2YoHfx4ZDBdxVTfOKtCZn9cDSJ4l6/nuoApcpIBcj47t2wZoVX8g2ZHuMHbiShgCR1T5Sog=="],
+    "@ace/browser-extension/@types/ws": ["@types/ws@8.18.1", "", { "dependencies": { "@types/node": "*" } }, "sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg=="],
 
-    "@ace/desktop/playwright-core": ["playwright-core@1.63.0", "", { "bin": { "playwright-core": "cli.js" } }, "sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg=="],
+    "@ace/client-react/react": ["react@19.3.0", "", {}, "sha512-E8LUcbtBWt20bbl2YoHfx4ZDBdxVTfOKtCZn9cDSJ4l6/nuoApcpIBcj47t2wZoVX8g2ZHuMHbiShgCR1T5Sog=="],
 
     "@ace/devices/@types/ws": ["@types/ws@8.18.1", "", { "dependencies": { "@types/node": "*" } }, "sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg=="],
 
@@ -3708,8 +3737,6 @@
     "ora/chalk": ["chalk@2.4.2", "", { "dependencies": { "ansi-styles": "^3.2.1", "escape-string-regexp": "^1.0.5", "supports-color": "^5.3.0" } }, "sha512-Mti+f9lpJNcwF4tWV8/OrTTtF1gZi+f8FqlyAdouralcFWFQWF2+NgCHShjkCb+IFBLq9buZwE1xckQU4peSuQ=="],
 
     "pkijs/@noble/hashes": ["@noble/hashes@1.8.0", "", {}, "sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A=="],
-
-    "playwright/playwright-core": ["playwright-core@1.63.0", "", { "bin": { "playwright-core": "cli.js" } }, "sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg=="],
 
     "postject/commander": ["commander@9.5.0", "", {}, "sha512-KRs7WVDKg86PWiuAqhDrAQnTXZKraVcCc6vFdL14qrZ/DcWwuRo7VoiYXalXO7S5GKpqYiVEwCbgFDfxNHKJBQ=="],
 
