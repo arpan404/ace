@@ -37,6 +37,7 @@ struct InboxView: View {
                                           machine: inbox.showsMachineNames ? inbox.name(session.hostId) : nil) { session.client.retry() }
                         .listRowSeparator(.hidden)
                 }
+                if !inbox.sessions.isEmpty && inbox.sessions.allSatisfy({ !$0.client.canOperate }) { ViewOnlyNote.inbox.listRowSeparator(.hidden) }
                 ForEach(open) { section in
                     Section { rows(section) } header: { InboxSectionHeader(title: section.label, count: section.rows.count) }
                 }
@@ -85,6 +86,7 @@ struct InboxView: View {
                 }
             }
             .overlay(alignment: .bottom) { undoArchive }
+            .aceNotifications(inbox: inbox) { key in openThread(key) }
             .onChange(of: path) { old, new in
                 if !old.isEmpty && new.isEmpty { current?.back(); openMachine = nil }
             }
@@ -118,6 +120,8 @@ struct InboxView: View {
     private func threadRow(_ row: ThreadRow, key: InboxKey, section: String) -> some View {
         let snoozed = section == "snoozed"
         let client = inbox.client(key.machineId)
+        // A view-only grant is per machine: only that machine's rows lose their actions.
+        let canOperate = client?.canOperate ?? false
         return Button { openThread(key) } label: {
             InboxThreadRow(row: row, snoozed: snoozed, machine: inbox.showsMachineNames ? inbox.name(key.machineId) : nil)
         }
@@ -125,14 +129,16 @@ struct InboxView: View {
             .accessibilityIdentifier(inbox.showsMachineNames ? "thread.\(key.machineId).\(row.id)" : "thread.\(row.id)")
             .listRowBackground(section == "needs-you" ? AceTheme.Colours.needsYouSurface : AceTheme.Colours.background)
             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                Button("Archive", systemImage: "archivebox") { archive(row, key: key) }.tint(AceTheme.Colours.mutedForeground)
+                if canOperate { Button("Archive", systemImage: "archivebox") { archive(row, key: key) }.tint(AceTheme.Colours.mutedForeground) }
             }
             .swipeActions(edge: .leading, allowsFullSwipe: snoozed) {
-                if snoozed { Button("Wake", systemImage: "sun.max") { Task { _ = await client?.wake(row.id) } }.tint(AceTheme.Status.waiting) }
+                if !canOperate { EmptyView() }
+                else if snoozed { Button("Wake", systemImage: "sun.max") { Task { _ = await client?.wake(row.id) } }.tint(AceTheme.Status.waiting) }
                 else { Button("Snooze", systemImage: "moon.zzz") { snoozing = key }.tint(AceTheme.Status.waiting) }
             }
             .contextMenu {
-                if snoozed { Button("Wake", systemImage: "sun.max") { Task { _ = await client?.wake(row.id) } } }
+                if !canOperate { EmptyView() }
+                else if snoozed { Button("Wake", systemImage: "sun.max") { Task { _ = await client?.wake(row.id) } } }
                 else {
                     Menu("Snooze", systemImage: "moon.zzz") {
                         ForEach(merged.snooze) { option in
@@ -140,7 +146,7 @@ struct InboxView: View {
                         }
                     }
                 }
-                Button("Archive", systemImage: "archivebox") { archive(row, key: key) }
+                if canOperate { Button("Archive", systemImage: "archivebox") { archive(row, key: key) } }
             }
     }
     @ViewBuilder private var emptyState: some View {

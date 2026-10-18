@@ -35,6 +35,13 @@ import CryptoKit
     /// The Machines sheet's view of this runtime's computer (`bridge/machine-info.ts`).
     var machineStatus: MachineStatusInfo?
     var providers: MachineProvidersInfo?
+    /// False for a view-only grant: the phone reads threads but submits no commands.
+    var canOperate = true
+    /// A thread a tapped notification asked to open.
+    var deepLink: String?
+    @ObservationIgnored var notificationSink: ((NotificationPatch) -> Void)?
+    /// The open thread's Agents and Changes sheets (`bridge/sheets.ts`).
+    let sheets = ThreadSheetsModel()
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var runtime: (any ClientSession)?
     @ObservationIgnored private let makeRuntime: ClientSessionFactory
@@ -56,7 +63,7 @@ import CryptoKit
         connectionEpoch += 1
         let epoch = connectionEpoch
         let closing = retireRuntime()
-        inbox = [:]; pending = [:]; thread = nil; inboxLoaded = false
+        inbox = [:]; pending = [:]; thread = nil; inboxLoaded = false; sheets.reset()
         inboxLayout = .empty
         machineStatus = nil; providers = nil
         connection = "connecting"; error = nil; problem = nil
@@ -102,6 +109,7 @@ import CryptoKit
             case .machineProviders(let info): providers = info
             case .pending(let id, let row): pending[id] = row
             case .error(let message): error = message
+            case .notification(let patch): notificationSink?(patch)
             case .receipt(let id, let ok, let message):
                 if let interactionId = approvalRequests[id], approvalSubmissions[interactionId]?.requestId == id {
                     if ok { approvalSubmissions[interactionId]?.phase = .waiting }
@@ -142,6 +150,11 @@ import CryptoKit
                 }
             case .cursor(let id, let epoch, let cursor): if thread?.id == id, thread?.epoch == epoch { thread?.cursor = cursor }
             case .ready(let id, let epoch, _): if thread?.id == id, thread?.epoch == epoch { thread?.loaded = true }
+            case .agents(let id, let epoch, let sheet): if thread?.id == id, thread?.epoch == epoch { sheets.agents = sheet }
+            case .changesSummary(let id, let epoch, let summary): if thread?.id == id, thread?.epoch == epoch { sheets.changes = summary }
+            case .changesFile(let id, let epoch, let path, let diff):
+                if thread?.id == id, thread?.epoch == epoch { sheets.file = .init(path: path, diff: diff) }
+            case .gitResult(let id, let ok, let message): sheets.outcomes[id] = GitOutcome(ok: ok, message: message)
             }
         }
         if reorder, let thread {
@@ -153,28 +166,45 @@ import CryptoKit
     }
     func open(_ id: String) {
         generation += 1
+        sheets.reset()
         thread = ThreadModel(id: id)
         thread?.epoch = generation
         action(["type": "open", "threadId": id])
     }
-    func back() { generation += 1; action(["type": "back"]); thread = nil }
+    func back() { generation += 1; action(["type": "back"]); thread = nil; sheets.reset() }
+    /// A sheet action for the open thread (`bridge/sheets.ts`).
+    @discardableResult func sheet(_ value: [String: Any]) -> Bool { action(["type": "sheet", "action": value]) }
+    /// Durable stop through the SDK's outbox: true once admitted on this device. `agentId` nil
+    /// stops the whole tree; otherwise that agent and everything under it.
+    func interrupt(agentId: String?) async -> Bool {
+        guard canOperate, let thread else { return false }
+        var payload: [String: Any] = ["type": "thread.interrupt", "threadId": thread.id, "cascade": true]
+        if let agentId { payload["agentId"] = agentId } else { payload["beforeSeq"] = thread.cursor }
+        let id = admissions.nextId()
+        return await admissions.wait(id: id) { command(payload, requestId: id) }
+    }
+    func stopTask(_ taskId: String) async -> Bool {
+        guard canOperate else { return false }
+        let id = admissions.nextId()
+        return await admissions.wait(id: id) { command(["type": "background_task.stop", "taskId": taskId], requestId: id) }
+    }
     func network(_ online: Bool) { action(["type": "network", "online": online]) }
     func retry() { action(["type": "retry"]) }
     /// Ask the computer for its CLIs and usage; runs on the next ready connection if offline.
     func refreshMachine() { action(["type": "machine.refresh"]) }
     func send(_ text: String, delivery: String) async -> Bool {
-        guard let thread, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard canOperate, let thread, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let id = admissions.nextId()
         return await admissions.wait(id: id) {
             command(["type": "thread.send", "threadId": thread.id, "input": [["type": "text", "text": text]], "delivery": delivery], requestId: id)
         }
     }
     func stopTree() {
-        guard let thread else { return }
+        guard canOperate, let thread else { return }
         command(["type": "thread.interrupt", "threadId": thread.id, "cascade": true, "beforeSeq": thread.cursor])
     }
     func approve(_ interaction: ApprovalRow, option: ApprovalRow.Option) {
-        guard interaction.state == "pending", approvalSubmissions[interaction.id] == nil else { return }
+        guard canOperate, interaction.state == "pending", approvalSubmissions[interaction.id] == nil else { return }
         let id = admissions.nextId()
         approvalSubmissions[interaction.id] = ApprovalSubmission(requestId: id, phase: .saving)
         approvalRequests[id] = interaction.id
@@ -185,11 +215,14 @@ import CryptoKit
     }
     /// Inbox organization (`bridge/inbox.ts`): true once the SDK durably admitted the command.
     func inboxCommand(_ value: [String: Any]) async -> Bool {
+        guard canOperate else { return false }
         let id = admissions.nextId()
         return await admissions.wait(id: id) { action(["type": "inbox", "action": value, "requestId": id]) }
     }
     /// Inbox reads that admit nothing durable, such as loading older threads.
     func inboxRequest(_ value: [String: Any]) { action(["type": "inbox", "action": value, "requestId": admissions.nextId()]) }
+    /// `notifications.*` bridge actions (Sources/Notifications).
+    @discardableResult func notificationAction(_ value: [String: Any]) -> Bool { action(value) }
     @discardableResult private func command(_ payload: [String: Any], requestId: String? = nil) -> Bool {
         let dispatched = action(["type": "command", "payload": payload, "requestId": requestId ?? admissions.nextId()])
         if !dispatched { error = "Could not submit the request. Your draft is still available." }

@@ -9,20 +9,27 @@ enum SpikeConfiguration {
         false
         #endif
     }
-    /// `--spike` connects to the fixture on 9841. `--spike-machines 9841,9842` adds one fixture
-    /// machine per port (`ACE_SPIKE_PORT=9842 bun run spike:daemon`), each on its own runtime.
+    static func target() -> ConnectionTarget? {
+        // `--spike-port N` lets parallel fixtures share one Mac; loopback only.
+        let arguments = ProcessInfo.processInfo.arguments
+        let port = arguments.firstIndex(of: "--spike-port").flatMap { arguments.indices.contains($0 + 1) ? Int(arguments[$0 + 1]) : nil } ?? 9841
+        guard enabled, (1024...65535).contains(port), let url = URL(string: "ws://127.0.0.1:\(port)") else { return nil }
+        return ConnectionTarget(endpoint: url, hostId: "ios-spike-host", deviceId: "ios-spike-device", pin: nil,
+                                credential: { "{\"token\":\"ios-spike-token\"}" })
+    }
+    /// The fixture machines to run at once. `--spike-machines 9852,9863` connects one runtime per
+    /// port to fixtures started with `ACE_IOS_SPIKE_PORT=<port> ACE_IOS_SPIKE_MACHINE=1`, each its
+    /// own host; otherwise the single `target()`.
     static func targets() -> [(name: String, target: ConnectionTarget)] {
         guard enabled else { return [] }
         let arguments = ProcessInfo.processInfo.arguments
-        let ports = arguments.firstIndex(of: "--spike-machines").flatMap { index in
-            index + 1 < arguments.count ? arguments[index + 1].split(separator: ",").compactMap { Int($0) } : nil
-        } ?? [9841]
-        return ports.compactMap { port in
+        guard let index = arguments.firstIndex(of: "--spike-machines"), arguments.indices.contains(index + 1) else {
+            return target().map { [("arpan-mbp", $0)] } ?? []
+        }
+        return arguments[index + 1].split(separator: ",").compactMap { Int($0) }.filter { (1024...65535).contains($0) }.compactMap { port in
             guard let url = URL(string: "ws://127.0.0.1:\(port)") else { return nil }
-            let suffix = port == 9841 ? "" : "-\(port)"
-            return (port == 9841 ? "arpan-mbp" : "studio-\(port)",
-                    ConnectionTarget(endpoint: url, hostId: "ios-spike-host\(suffix)", deviceId: "ios-spike-device", pin: nil,
-                                     credential: { "{\"token\":\"ios-spike-token\"}" }))
+            return ("studio-\(port)", ConnectionTarget(endpoint: url, hostId: "ios-spike-host-\(port)", deviceId: "ios-spike-device", pin: nil,
+                                                       credential: { "{\"token\":\"ios-spike-token\"}" }))
         }
     }
 }

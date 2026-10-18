@@ -1056,6 +1056,9 @@
       "$ref": "https://ace.local/protocol/v1/NotificationMessage.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/NotificationFeedResult.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/NotificationRegisterResult.json"
     },
     {

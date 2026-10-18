@@ -90,8 +90,13 @@ enum BridgePatch: Decodable, Sendable {
     case problem(ProblemNotice?)
     case machineStatus(MachineStatusInfo)
     case machineProviders(MachineProvidersInfo)
+    case notification(NotificationPatch)
+    case agents(String, Int, AgentSheet)
+    case changesSummary(String, Int, ChangesSummary)
+    case changesFile(String, Int, String, FileDiff)
+    case gitResult(String, Bool, String)
 
-    private enum Keys: String, CodingKey { case type, id, row, threadId, epoch, state, message, ok, cursor, count, index, problem }
+    private enum Keys: String, CodingKey { case type, id, row, threadId, epoch, state, message, ok, cursor, count, index, problem, sheet, path, diff }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
@@ -122,6 +127,13 @@ enum BridgePatch: Decodable, Sendable {
         case "connection.problem": self = .problem(try box.decodeIfPresent(ProblemNotice.self, forKey: .problem))
         case "machine.status": self = .machineStatus(try MachineStatusInfo(from: decoder))
         case "machine.providers": self = .machineProviders(try MachineProvidersInfo(from: decoder))
+        case let kind where kind.hasPrefix("notifications."): self = .notification(try NotificationPatch(from: decoder))
+        case "agents.sheet": let (id, epoch) = try scope(); self = .agents(id, epoch, try box.decode(AgentSheet.self, forKey: .sheet))
+        case "changes.summary": let (id, epoch) = try scope(); self = .changesSummary(id, epoch, try ChangesSummary(from: decoder))
+        case "changes.file":
+            let (id, epoch) = try scope()
+            self = .changesFile(id, epoch, try box.decode(String.self, forKey: .path), try box.decode(FileDiff.self, forKey: .diff))
+        case "git.result": self = .gitResult(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: box, debugDescription: "Unknown bridge patch")
         }
     }

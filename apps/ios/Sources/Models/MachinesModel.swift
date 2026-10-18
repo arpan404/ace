@@ -17,6 +17,10 @@ import Observation
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let itemLimit: Int
     @ObservationIgnored private let makeClient: @MainActor () -> ClientModel
+    /// Runs before each machine's connection opens, so notifications bind to that runtime.
+    @ObservationIgnored var beforeConnect: ((ClientModel, ConnectionTarget) async -> Void)?
+    /// Runs once a removed machine's runtime has stopped, so nothing keeps routing to it.
+    @ObservationIgnored var afterRemove: ((ClientModel, String) -> Void)?
 
     init(access: any MachineAccess, storage: URL, defaults: UserDefaults = .standard, itemLimit: Int = 2200,
          now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 },
@@ -28,8 +32,9 @@ import Observation
     func entry(_ hostId: String) -> MachineEntry? { machines.first { $0.hostId == hostId } }
     /// The host chose a view-only grant for this phone; its commands will be refused.
     func isReadOnly(_ hostId: String) -> Bool {
-        entry(hostId).map { !(Grants(scopes: grants[$0.deviceId] ?? ["operate"]).canOperate) } ?? false
+        entry(hostId).map { !canOperate($0) } ?? false
     }
+    private func canOperate(_ entry: MachineEntry) -> Bool { Grants(scopes: grants[entry.deviceId] ?? ["operate"]).canOperate }
 
     /// Load the directory, then connect every paired machine. An offline one gates nothing.
     func load() async {
@@ -74,11 +79,11 @@ import Observation
         switch await access.perform(.remove(hostId: hostId)) {
         case .failure(let notice):
             problem = notice
-            if let client, let target = entry.connectionTarget { await client.connect(target: target, directory: storage, itemLimit: itemLimit) }
+            if let client, let target = entry.connectionTarget { await open(client, entry: entry, target: target) }
             return
         case .success(let outcome): machines = outcome.machines ?? machines.filter { $0.hostId != hostId }
         }
-        inbox.detach(hostId)
+        if let client = inbox.detach(hostId) { afterRemove?(client, hostId) }
         unsupported.remove(hostId)
         grants[entry.deviceId] = nil
         defaults.set(grants, forKey: Keys.grants)
@@ -101,6 +106,11 @@ import Observation
         if inbox.client(entry.hostId) != nil { return }
         let client = makeClient()
         inbox.attach(entry.hostId, name: entry.displayName, client: client)
+        await open(client, entry: entry, target: target)
+    }
+    private func open(_ client: ClientModel, entry: MachineEntry, target: ConnectionTarget) async {
+        client.canOperate = canOperate(entry)
+        await beforeConnect?(client, target)
         await client.connect(target: target, directory: storage, itemLimit: itemLimit)
     }
     private enum Keys { static let grants = "ace.machines.grants" }

@@ -2146,6 +2146,9 @@
       "$ref": "https://ace.local/protocol/v1/NotificationSnooze.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/NotificationFeedRequest.json"
+    },
+    {
       "properties": {
         "channel": {
           "enum": [

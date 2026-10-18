@@ -30,7 +30,9 @@ Use one simulator destination and one build at a time. The fixture binds to
 loopback port 9841, invokes no provider CLIs and spends no provider quota. It seeds
 2,000 items, streams 20 deltas per second, opens a shell approval and keeps a child
 working after its root finishes. Restart the fixture before independent screenshot
-or performance runs. Contract sends deliberately add inputs to its history.
+or performance runs. Contract sends deliberately add inputs to its history. The
+streaming thread's turn never ends, so a queued follow-up waits in the daemon queue,
+outside the transcript, as it would on a real daemon; `GET /queue?thread=ID` lists it.
 
 XcodeGen output, generated `Resources/client.js`, build products and xcresult bundles
 are ignored. Run `generate` before opening Xcode. The Swift theme is committed;
@@ -120,7 +122,7 @@ machine together; the TS tests in `mobile-inbox-merge.test.ts` hold it to that.
 `MachineInbox` keys rows by machine and thread id, routes actions and opened threads to
 the row's machine, and names machines on rows only when more than one is paired. A
 machine that drops gets its own banner; its rows read Syncing and the others are
-untouched. An idle runtime costs about 25–30 MiB (measured in the PR).
+untouched. Each machine's runtime adds about 48 MiB in the simulator (see the PR).
 
 The header chip opens the Machines sheet: connection word and last seen
 (`bridge/machine-info.ts`, `machineConnection`), access, address, ace version, and the
@@ -129,7 +131,33 @@ worded by `machineProviders`). Rename is local to this phone (`MachineDirectory.
 remove stops only that machine's runtime, then deletes its credential and database.
 
 `--spike-machines 9852,9863` connects one fixture runtime per port; start each fixture
-with `ACE_SPIKE_PORT=<port> bun run spike:daemon`. `MachinesUITests` uses those two ports.
+with `ACE_IOS_SPIKE_PORT=<port> ACE_IOS_SPIKE_MACHINE=1 bun run spike:daemon` so each is
+its own host. `MachinesUITests` uses those two ports.
+
+## Agents and Changes sheets
+
+The thread header opens two detent sheets (`Views/Agents`, `Views/Changes`). The bridge
+follows each only while its sheet is shown (`bridge/sheets.ts`), and navigation releases both.
+
+- Agents: `agentSheet` in `@ace/ui-core/mobile` shapes the tree depth-first with each
+  agent's tree-aware status (`agentTreeWork`), so a finished root with a working child never
+  reads done. It also carries usage, the root's context meter and background tasks. Trees cap
+  at 100 agents and 30 tasks. Unsettled agents and their ancestors win the cap, and every
+  hidden agent and task is counted. Only entity changes reshape the tree; transcript deltas
+  don't. Stop all, and stopping an agent with subagents, ask first. Stops go through the
+  durable outbox (`thread.interrupt`, cascading), as does `background_task.stop`.
+- Changes: the bridge reads `git.status` (≤500 files), `git.diff` (≤256 KiB) and, for a
+  linked PR, `pr.status`. It keeps these reads only while the sheet is open. It sends at most
+  200 file rows and one file's diff at a time, within 1,500 lines, 1,000 UTF-16 units per
+  line and 96,000 in total. Past that, the view points to the computer. The next step
+  (commit & push, push, create PR, merge) follows the web's `nextGitStep` and `mergeGate`. It
+  runs through the daemon's guarded git and forge commands. A view-only grant
+  (`ClientModel.canOperate`) shows both sheets without their actions.
+
+`scripts/sheet-scenario.ts` seeds the fixture's `ios-tree` thread with a nested subagent
+tree, a running background command, usage, and a three-file diff. The diff includes a
+3,000-line file and a long line. Set `ACE_IOS_SPIKE_PORT` and launch with
+`--spike-port N` to run a fixture beside another agent's.
 
 ## Pairing with a real daemon
 
@@ -156,6 +184,15 @@ leave the link; the code goes in the `/v1/pair` POST body.
 - Each machine's banner and Machines sheet entry show the SDK's connection problem:
   unreachable (still retrying), offline, revoked, pin mismatch, or another host. The
   sheet also marks view-only grants.
+- Local notifications bind to every paired machine's runtime before it connects, each with
+  its own catch-up ledger. Alerts carry their machine, so a tap opens the thread there and
+  Allow/Deny answers that machine. A background refresh connects every paired machine (its
+  grant, Keychain token and outbox) only to catch up on daemon alerts, all within one time
+  budget; it shows no UI, so the app lock still guards the app itself. A view-only pairing
+  never answers Allow/Deny from a notification.
+- A view-only grant replaces the composer with a note, leaves approval choices disabled
+  and drops archive and snooze for that machine's rows. `ClientModel` submits no commands
+  for that machine; the others are unaffected.
   `NWPathMonitor` reports network changes to the SDK, which owns reconnect.
 
 `bun run e2e:pairing` starts a real daemon with its LAN TLS listener advertised on
@@ -167,8 +204,7 @@ expire in five minutes. These tests skip when the config is absent.
 ## Scope
 
 `--spike` (Debug only) keeps the unpinned loopback fixture. Release builds require WSS
-and an exact pin. A real device over Tailscale, questions, Agents and Changes
-are still to come.
+and an exact pin. A real device over Tailscale and questions are still to come.
 
 Connection replacement now awaits old-runtime shutdown, clears host-specific views
 and rejects its late updates/errors. Concurrent replacements select the newest
@@ -184,6 +220,12 @@ The thirty Swift tests and this UI test pass with Xcode 26.3 on the iPhone 17 Pr
 iOS 26.3 simulator. These checks do not establish real-device performance, remote
 pairing or daemon-restart durability.
 
-APNs and Live Activity remain Phase 2. No hosted relay, paid Apple service or APNs
-signing credentials are implemented here. The proposed delivery design and approval
-must precede that work.
+## Notifications
+
+Local only ([ADR 0087](../../docs/adr/0087-ios-local-notifications.md)). `Sources/Notifications/`
+posts the daemon's canonical `notification` messages and its `notification.feed` catch-up with
+`UNUserNotificationCenter`; `bridge/notifications.ts` registers the phone, reports foreground or
+background presence and runs approval actions through the SDK outbox. With the fixture running,
+`curl -X POST localhost:9841/review/notify -d '{"threadId":"ios-approval"}'` sends an alert and
+`/review/retract -d '{"id":"…"}'` withdraws one. Remote push (APNs, a push gateway) and Live
+Activities are deferred; see the [draft](../../docs/adr/drafts/ios-push-notifications.md).

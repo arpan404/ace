@@ -1,6 +1,8 @@
 # Draft: iOS push notifications and Live Activities
 
-Date: 2026-10-18. Status: **draft, awaiting owner approval. No code changes.**
+Date: 2026-10-18. Status: **Proposed, deferred by owner 2026-10-18.** iOS ships local notifications
+first ([ADR 0087](../0087-ios-local-notifications.md)); this design is kept for when remote push is
+revisited. ADR 0087 covers the backgrounded-phone router case (contradiction 5) for local delivery.
 Refs #560 (MVP item 8). Builds on [ADR 0012](../0012-notifications.md),
 [ADR 0070](../0070-runtime-remote-access.md), [ADR 0073](../0073-native-mobile-clients.md)
 and [ADR 0074](../0074-native-ios-client.md).
@@ -99,7 +101,7 @@ The gateway stores no device directory. A handle is a sealed capability:
 `AEAD(gatewayKey, {apnsToken, kind, environment, topic, vapidKeyHash?, expiresAt})`.
 
 - `POST /v1/handles` from the phone: `{apnsToken, kind: "alert" | "liveactivity",
-  environment: "sandbox" | "production"}` → `{endpoint, expiresAt}`. The endpoint is
+environment: "sandbox" | "production"}` → `{endpoint, expiresAt}`. The endpoint is
   `https://<gateway>/v1/push/<handle>`. Handles last 30 days. The app refreshes on
   every launch, because Apple says not to cache tokens.
 - `POST /v1/push/<handle>` from the daemon: RFC 8030 request. Required headers:
@@ -140,7 +142,7 @@ The gateway stores no device directory. A handle is a sealed capability:
 4. The app requests an alert handle from the gateway.
 5. Over the existing pinned WSS session (ADR 0070, ADR 0074), the app sends
    `notification.register { device: { channel: "webpush", platform: "phone",
-   subscription: { endpoint, p256dh, auth } } }` with a `requestId`. The daemon
+subscription: { endpoint, p256dh, auth } } }` with a `requestId`. The daemon
    stores it in the private notification database, as it already does for Web Push.
    Identity comes from the authenticated connection.
 6. On a token change, reinstall or key rotation, the app repeats steps 2–5. The new

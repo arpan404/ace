@@ -76,6 +76,45 @@ import Testing
         #expect(fixture.model.inbox.showsMachineNames)
     }
 
+    @Test func aViewOnlyMachineSubmitsNoCommandsWhileAMachineThatAllowsActingStillDoes() async throws {
+        let fixture = try Fixture(machines: [machine("laptop", device: "phone-2")])
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        fixture.access.pairing = .success(machine("studio", device: "phone-1"), scopes: ["read"])
+        let link = try PairingLink.parse("https://127.0.0.1:4611/pair#fingerprint=\(DaemonCertificate.pin)&code=abc&scopes=read")
+        #expect(await fixture.model.pair(link, name: "Phone") == nil)
+        let client = try #require(fixture.model.inbox.client("studio"))
+        let viewOnly = try #require(fixture.sessions.started.last)
+        #expect(viewOnly.target.hostId == "studio")
+        #expect(!client.canOperate)
+        client.open("thread-1")
+        let approval = ApprovalRow(id: "ask", kind: "approval", state: "pending", title: "Run a command", description: "", command: "git push",
+                                   options: [.init(id: "allow", label: "Allow", kind: "allow_once")], truncated: false)
+        #expect(await client.send("Ship it", delivery: "queue") == false)
+        client.approve(approval, option: approval.options[0])
+        client.stopTree()
+        #expect(await client.archive("thread-1") == false)
+        #expect(await client.snooze("thread-1", preset: "hour") == false)
+        #expect(client.approvalSubmissions.isEmpty)
+        #expect(viewOnly.submitted.isEmpty)
+        // The machine paired with View and act keeps taking commands beside it.
+        let laptop = try #require(fixture.model.inbox.client("laptop"))
+        #expect(laptop.canOperate)
+        laptop.open("thread-1")
+        laptop.stopTree()
+        #expect(fixture.sessions.started[0].submitted.count == 1)
+    }
+
+    @Test func notificationsBindToEachMachineBeforeItsRuntimeOpens() async throws {
+        let fixture = try Fixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")])
+        defer { fixture.cleanUp() }
+        var bound: [(host: String, runtimesBefore: Int)] = []
+        fixture.model.beforeConnect = { _, target in bound.append((target.hostId, fixture.sessions.started.count)) }
+        await fixture.model.load()
+        #expect(bound.map(\.host) == ["studio", "laptop"])
+        #expect(bound.map(\.runtimesBefore) == [0, 1])
+    }
+
     @Test func aRefusedPairingAddsNothingAndReportsWhy() async throws {
         let fixture = try Fixture(machines: [])
         defer { fixture.cleanUp() }
@@ -245,6 +284,8 @@ private final class FakeSession: ClientSession, @unchecked Sendable {
     var stopped: Bool { lock.withLock { stopRequested } }
     var invoked: [String] { lock.withLock { calls } }
     func start(itemLimit: Int) {}
+    /// Commands and inbox organization the model handed to the VM.
+    var submitted: [String] { lock.withLock { calls.filter { $0.contains("\"type\":\"command\"") || $0.contains("\"type\":\"inbox\"") } } }
     func invoke(_ name: String, json: String) { lock.withLock { calls.append(json) } }
     func acknowledge(accepted: Bool) {}
     func stop(completion: @escaping @Sendable () -> Void) { lock.withLock { stopRequested = true; self.completion = completion } }

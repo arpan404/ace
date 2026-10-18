@@ -10,6 +10,9 @@ import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
 import { nativeTransport, socketEvent } from "./socket.ts";
 import { followMachine, MachineProviders } from "./machine-info.ts";
+import { NotificationAction, NotificationBridge } from "./notifications.ts";
+import { Sheets } from "./sheets.ts";
+import { preview } from "./presentation.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -29,6 +32,8 @@ const Action = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("retry") }),
   z.object({ type: z.literal("machine.refresh") }),
+  /** The thread's Agents and Changes sheets (`sheets.ts`). */
+  z.object({ type: z.literal("sheet"), action: z.unknown() }),
   z.object({
     type: z.literal("inbox"),
     action: z.unknown(),
@@ -36,6 +41,7 @@ const Action = z.discriminatedUnion("type", [
   }),
 ]);
 let client: ClientCore | undefined;
+let notifications: NotificationBridge | undefined;
 let lease: Lease<ThreadSource> | undefined;
 let stopThread: (() => void) | undefined;
 let epoch = 0;
@@ -44,6 +50,8 @@ let historyAbort: AbortController | undefined;
 let machine: MachineProviders | undefined;
 const pump = new PatchPump();
 const trust = new TrustMonitor();
+const sheets = new Sheets(pump, preview);
+let openThreadId: string | undefined;
 function error(): void {
   pump.put("error", () => ({
     type: "error",
@@ -89,6 +97,7 @@ async function start(json: string): Promise<void> {
     now: () => host.now(),
   });
   const connection = client.connectionState();
+  notifications = new NotificationBridge(client, (key, read) => pump.put(key, read), scheduler.set);
   const owner = client;
   connection.subscribe(() => {
     if (connection.getSnapshot() === "ready") trust.clear();
@@ -144,7 +153,14 @@ async function hydrate(
 }
 function action(json: string): void {
   try {
-    const value = Action.parse(JSON.parse(json));
+    const raw: unknown = JSON.parse(json);
+    const notice = NotificationAction.safeParse(raw);
+    if (notice.success) {
+      if (notifications) notifications.handle(notice.data);
+      else error();
+      return;
+    }
+    const value = Action.parse(raw);
     if (!client) {
       if (value.type === "command")
         pump.put(`admission:${value.requestId}`, () => ({
@@ -161,7 +177,9 @@ function action(json: string): void {
         historyAbort?.abort();
         historyAbort = new AbortController();
         stopThread?.();
+        sheets.close();
         lease?.release();
+        openThreadId = value.threadId;
         lease = client.thread(value.threadId);
         stopThread = followThread(lease.store, value.threadId, ++epoch, pump, itemLimit);
         if (itemLimit > 200) {
@@ -176,8 +194,10 @@ function action(json: string): void {
         epoch++;
         historyAbort?.abort();
         stopThread?.();
+        sheets.close();
         lease?.release();
         lease = undefined;
+        openThreadId = undefined;
         break;
       case "network":
         client.networkOnline(value.online);
@@ -194,6 +214,14 @@ function action(json: string): void {
       case "inbox":
         inboxAction(client, value.action, value.requestId, pump);
         break;
+      case "sheet": {
+        const thread =
+          lease && openThreadId
+            ? { owner: client, store: lease.store, threadId: openThreadId, epoch }
+            : undefined;
+        if (!sheets.action(thread, value.action)) error();
+        break;
+      }
     }
   } catch {
     error();

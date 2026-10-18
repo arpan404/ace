@@ -1,7 +1,7 @@
 import XCTest
 
-/// Two fixture machines in one inbox. Run two fixtures first:
-/// `ACE_SPIKE_PORT=9852 bun run spike:daemon` and `ACE_SPIKE_PORT=9863 bun run spike:daemon`.
+/// Two fixture machines in one inbox. Run two separate-host fixtures first:
+/// `ACE_IOS_SPIKE_PORT=9852 ACE_IOS_SPIKE_MACHINE=1 bun run spike:daemon`, and the same on 9863.
 /// Both seed the same thread ids, so every row must stay tied to its own machine.
 @MainActor final class MachinesUITests: XCTestCase, @unchecked Sendable {
     private let ports = [9852, 9863]
