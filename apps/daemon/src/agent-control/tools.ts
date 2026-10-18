@@ -12,6 +12,10 @@ import type { Store } from "../store.ts";
 import type { DelegationService } from "./delegations.ts";
 import { controlCommandId } from "./delegations.ts";
 import { childTaskView } from "./task-view.ts";
+import { settleThread, unsettleThread } from "./thread-settle.ts";
+import { findProjects } from "./projects.ts";
+import { queueControl } from "./queue-control.ts";
+import { createForks } from "./forks.ts";
 import { resolveSelection, type OpenSelection } from "./selection-defaults.ts";
 import { conversationTool, type ConversationStartPort } from "./conversation-tools.ts";
 import { AgentControlError } from "./failure.ts";
@@ -25,15 +29,7 @@ import {
 export type ExtensionOperation = Extract<
   AgentControlOperation,
   {
-    op:
-      | "thread.fork"
-      | "thread.merge"
-      | "queue.edit"
-      | "queue.reorder"
-      | "automation.manage"
-      | "thread.handoff"
-      | "preview.list"
-      | "preview.close";
+    op: "automation.manage" | "thread.handoff" | "preview.list" | "preview.close";
   }
 >;
 export type ThreadOwnerOperation = Extract<
@@ -130,6 +126,7 @@ export function createAgentControlPort(
   service: DelegationService,
   extensions: AgentControlExtensions = {},
 ): AgentControlPort {
+  const forks = createForks(store, service, service.conversations);
   return {
     async execute(caller, value, signal) {
       const operation = AgentControlOperation.parse(value);
@@ -156,6 +153,7 @@ export function createAgentControlPort(
           "thread.read",
           "thread.read_output",
           "thread.search",
+          "queue.list",
           "preview.list",
           "agent.status",
           "agent.result",
@@ -426,18 +424,16 @@ export function createAgentControlPort(
           return extensions.pr
             ? extensions.pr(caller, operation, signal)
             : { ok: false, code: "unsupported" };
-        case "thread.settle": {
-          if (
-            !["done", "failed", "new"].includes(
-              store.getThread(operation.threadId)?.status.state ?? "",
-            )
-          )
-            return { ok: false, code: "not_ready" };
-          const result = service.command(
-            controlCommandId(operation.threadId, "settle", operation.op),
-            { type: "thread.archive", threadId: operation.threadId },
-          );
-          return { ok: result.ok };
+        case "thread.settle":
+          return settleThread(store, operation.threadId, service.now());
+        case "thread.unsettle":
+          return unsettleThread(store, operation.threadId, service.now());
+        case "projects.list": {
+          const current = store.getThread(caller.threadId)?.workspaceId;
+          return {
+            ok: true,
+            data: { projects: findProjects(store, operation.query, operation.limit, current) },
+          };
         }
         case "thread.snooze": {
           if (!extensions.snooze) return { ok: false, code: "unsupported" };
@@ -460,10 +456,16 @@ export function createAgentControlPort(
             return { ok: !!row, data: row };
           });
         }
-        case "thread.fork":
-        case "thread.merge":
+        case "queue.list":
         case "queue.edit":
+        case "queue.cancel":
+        case "queue.steer":
         case "queue.reorder":
+          return queueControl(service, caller, operation);
+        case "thread.fork":
+          return forks.fork(caller, operation);
+        case "thread.merge":
+          return forks.merge(caller, operation);
         case "automation.manage":
         case "thread.handoff":
         case "preview.list":

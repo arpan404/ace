@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/projects_find.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "limit": {
+      "default": 20,
+      "description": "Results, 1 to 50.",
+      "maximum": 50,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "query": {
+      "default": "",
+      "description": "Words to match in the name or folder; empty lists recent projects.",
+      "maxLength": 256,
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

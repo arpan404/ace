@@ -12,7 +12,14 @@
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
     },
     "request": {
-      "$ref": "https://ace.local/protocol/v1/ThreadStartOperation.json"
+      "oneOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ThreadStartOperation.json"
+        },
+        {
+          "$ref": "https://ace.local/protocol/v1/ThreadForkOperation.json"
+        }
+      ]
     },
     "rootId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"

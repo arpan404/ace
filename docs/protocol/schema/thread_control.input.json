@@ -4,14 +4,14 @@
   "additionalProperties": false,
   "properties": {
     "action": {
-      "description": "rename: set title, or omit title to retitle from the first message. configure: model and effort. fork: copy the conversation into a new thread. handoff: move it to a new Git worktree on branch. interrupt: stop its current turn and its children. settle: archive it once done. snooze: mute its notifications until a time. close_preview: stop a preview server. rename_project: rename this project.",
+      "description": "rename: set title, or omit title to retitle from the first message. configure: model and effort. handoff: move it to a new Git worktree on branch. interrupt: stop its current turn and its children. settle: move it to Settled, as the person's Settle does; a thread still working (this one, mid-turn) settles when it is done, unless it fails or needs the person. unsettle: bring it back and cancel a pending settle. snooze: mute its notifications until a time. close_preview: stop a preview server. rename_project: rename this project.",
       "enum": [
         "rename",
         "configure",
-        "fork",
         "handoff",
         "interrupt",
         "settle",
+        "unsettle",
         "snooze",
         "close_preview",
         "rename_project"
@@ -59,12 +59,6 @@
       "pattern": "^[a-zA-Z0-9_.-]+$",
       "type": "string"
     },
-    "runId": {
-      "description": "fork: fork after this run; default the latest.",
-      "maxLength": 128,
-      "minLength": 1,
-      "type": "string"
-    },
     "serviceTier": {
       "description": "configure.",
       "enum": [
@@ -76,7 +70,7 @@
     },
     "threadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json",
-      "description": "A thread you own. Default: this thread."
+      "description": "A thread you own, or with full access any of the person's. Default: this thread."
     },
     "title": {
       "description": "rename: the new title.",
@@ -100,5 +94,5 @@
     "action"
   ],
   "type": "object",
-  "x-ace-constraint": "configure needs requestId and model; fork and interrupt need requestId; handoff needs requestId and branch; snooze needs until; close_preview needs previewId; rename_project needs name."
+  "x-ace-constraint": "configure needs requestId and model; interrupt needs requestId; handoff needs requestId and branch; snooze needs until; close_preview needs previewId; rename_project needs name."
 }

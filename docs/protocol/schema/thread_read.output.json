@@ -57,6 +57,9 @@
           "items": {},
           "type": "array"
         },
+        "queue": {
+          "description": "Messages waiting for the thread, oldest first."
+        },
         "thread": {
           "additionalProperties": {},
           "properties": {

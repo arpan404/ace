@@ -20,6 +20,11 @@
           "const": "threads.list",
           "type": "string"
         },
+        "project": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
         "query": {
           "default": "",
           "maxLength": 256,
@@ -533,38 +538,19 @@
       "type": "object"
     },
     {
-      "additionalProperties": false,
-      "properties": {
-        "op": {
-          "const": "thread.fork",
-          "type": "string"
-        },
-        "requestId": {
-          "maxLength": 128,
-          "minLength": 1,
-          "pattern": "^[a-zA-Z0-9_.-]+$",
-          "type": "string"
-        },
-        "runId": {
-          "maxLength": 128,
-          "minLength": 1,
-          "pattern": "^[a-zA-Z0-9_.-]+$",
-          "type": "string"
-        },
-        "threadId": {
-          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
-        }
-      },
-      "required": [
-        "op",
-        "threadId",
-        "requestId"
-      ],
-      "type": "object"
+      "$ref": "https://ace.local/protocol/v1/ThreadForkOperation.json"
     },
     {
       "additionalProperties": false,
       "properties": {
+        "itemIds": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ItemId.json"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array"
+        },
         "op": {
           "const": "thread.merge",
           "type": "string"
@@ -575,6 +561,9 @@
           "pattern": "^[a-zA-Z0-9_.-]+$",
           "type": "string"
         },
+        "summary": {
+          "$ref": "https://ace.local/protocol/v1/MessageText.json"
+        },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         }
@@ -582,7 +571,8 @@
       "required": [
         "op",
         "threadId",
-        "requestId"
+        "requestId",
+        "summary"
       ],
       "type": "object"
     },
@@ -654,6 +644,85 @@
         "threadId",
         "requestId",
         "entryIds"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "queue.list",
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "op",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "entryId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        "op": {
+          "const": "queue.cancel",
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "op",
+        "threadId",
+        "requestId",
+        "entryId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "entryId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        "op": {
+          "const": "queue.steer",
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "op",
+        "threadId",
+        "requestId",
+        "entryId"
       ],
       "type": "object"
     },
@@ -876,6 +945,47 @@
       "required": [
         "op",
         "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "thread.unsettle",
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "op",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "default": 20,
+          "maximum": 50,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "op": {
+          "const": "projects.list",
+          "type": "string"
+        },
+        "query": {
+          "default": "",
+          "maxLength": 256,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
       ],
       "type": "object"
     },
