@@ -12,6 +12,17 @@
           "minimum": 0,
           "type": "integer"
         },
+        "autoSettle": {
+          "anyOf": [
+            {
+              "const": false,
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "autoSettleAt": {
           "anyOf": [
             {

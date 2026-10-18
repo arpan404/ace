@@ -4,6 +4,7 @@ import {
   ArchiveIcon,
   ArrowCounterClockwiseIcon,
   CheckIcon,
+  ClockCountdownIcon,
   EnvelopeSimpleIcon,
   EnvelopeSimpleOpenIcon,
   FolderSimpleIcon,
@@ -14,6 +15,7 @@ import {
   PencilSimpleIcon,
   PushPinIcon,
   PushPinSlashIcon,
+  TimerIcon,
   TrashIcon,
   TrayArrowUpIcon,
 } from "@phosphor-icons/react";
@@ -124,6 +126,7 @@ export function threadActions(
   ];
   const settle = settleAction(entry, flags, actions);
   if (settle) list.push(settle);
+  list.push(autoSettleAction(entry, actions));
   list.push(
     entry.archivedAt === undefined
       ? {
@@ -183,6 +186,18 @@ export function settleAction(
   };
 }
 
+/** Turn the thread's own auto-settle off (it stays until settled by hand) or back on. */
+export function autoSettleAction(entry: ThreadListEntry, actions: ThreadActions): ThreadAction {
+  const on = entry.autoSettle !== false;
+  return {
+    id: "auto-settle",
+    label: on ? "Turn off auto-settle" : "Turn on auto-settle",
+    icon: on ? TimerIcon : ClockCountdownIcon,
+    section: "settle",
+    run: () => actions.setAutoSettle(entry, !on),
+  };
+}
+
 /**
  * Everything a person can do to one thread, for the Home row's context menu and the thread's ⋯
  * menu alike (`threadActions`), with Snooze before settling. `hints` shows the R, P and ⇧N keys
@@ -212,7 +227,9 @@ export function ThreadActionItems(props: {
   });
   const list = props.compact
     ? allActions.filter((action) =>
-        ["rename", "unread", "pin", "move", "archive", "restore", "delete"].includes(action.id),
+        ["rename", "unread", "pin", "move", "auto-settle", "archive", "restore", "delete"].includes(
+          action.id,
+        ),
       )
     : allActions.filter((action) => !action.disabled);
   const section = (name: ThreadAction["section"]) =>
