@@ -7,3 +7,4 @@ export * from "./mobile-status.ts";
 export * from "./mobile-inbox.ts";
 export * from "./mobile-transcript.ts";
 export { snoozePresets, type SnoozePreset } from "./snooze.ts";
+export * from "./mobile-machines.ts";

@@ -9,6 +9,7 @@ import { dispatchCommand } from "./commands.ts";
 import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
 import { nativeTransport, socketEvent } from "./socket.ts";
+import { followMachine, MachineProviders } from "./machine-info.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -27,6 +28,7 @@ const Action = z.discriminatedUnion("type", [
     requestId: z.string().min(1).max(64),
   }),
   z.object({ type: z.literal("retry") }),
+  z.object({ type: z.literal("machine.refresh") }),
   z.object({
     type: z.literal("inbox"),
     action: z.unknown(),
@@ -39,6 +41,7 @@ let stopThread: (() => void) | undefined;
 let epoch = 0;
 let itemLimit = 200;
 let historyAbort: AbortController | undefined;
+let machine: MachineProviders | undefined;
 const pump = new PatchPump();
 const trust = new TrustMonitor();
 function error(): void {
@@ -96,6 +99,8 @@ async function start(json: string): Promise<void> {
     }));
   });
   followInbox(client, config.hostId, pump);
+  followMachine(client, pump, trust);
+  machine = new MachineProviders(client, pump);
   await client.start();
 }
 async function hydrate(
@@ -179,6 +184,9 @@ function action(json: string): void {
         break;
       case "retry":
         client.reconnectNow();
+        break;
+      case "machine.refresh":
+        machine?.refresh();
         break;
       case "command":
         void dispatchCommand(client, value.payload, value.requestId, pump);

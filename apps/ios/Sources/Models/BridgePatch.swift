@@ -54,7 +54,14 @@ struct PendingRow: Codable, Sendable, Identifiable {
 struct StatusDisplay: Codable, Sendable, Equatable { let label: String; let token: String }
 /// The shared inbox grouping: ordered sections of row ids (thread ids, or pending ids for Unsent).
 struct InboxLayout: Codable, Sendable, Equatable {
-    struct Section: Codable, Sendable, Identifiable, Equatable { let key: String; let label: String; let ids: [String]; var id: String { key } }
+    struct Section: Codable, Sendable, Identifiable, Equatable {
+        let key: String; let label: String; let ids: [String]
+        /// The shared rank of each row, parallel to `ids`, and the section's place among groups:
+        /// `MergedInbox` orders every machine's sections by them.
+        var ranks: [String]? = nil
+        var order: Int? = nil
+        var id: String { key }
+    }
     struct SnoozeOption: Codable, Sendable, Identifiable, Equatable { let id: String; let label: String }
     let sections: [Section]
     /// The daemon has older threads beyond the loaded window.
@@ -81,6 +88,8 @@ enum BridgePatch: Decodable, Sendable {
     case admission(String, Bool, String)
     case inboxSections(InboxLayout)
     case problem(ProblemNotice?)
+    case machineStatus(MachineStatusInfo)
+    case machineProviders(MachineProvidersInfo)
 
     private enum Keys: String, CodingKey { case type, id, row, threadId, epoch, state, message, ok, cursor, count, index, problem }
     init(from decoder: any Decoder) throws {
@@ -111,6 +120,8 @@ enum BridgePatch: Decodable, Sendable {
         case "admission": self = .admission(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
         case "inbox.sections": self = .inboxSections(try InboxLayout(from: decoder))
         case "connection.problem": self = .problem(try box.decodeIfPresent(ProblemNotice.self, forKey: .problem))
+        case "machine.status": self = .machineStatus(try MachineStatusInfo(from: decoder))
+        case "machine.providers": self = .machineProviders(try MachineProvidersInfo(from: decoder))
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: box, debugDescription: "Unknown bridge patch")
         }
     }

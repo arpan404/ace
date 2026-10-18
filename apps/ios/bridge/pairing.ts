@@ -15,6 +15,11 @@ export const AccessRequest = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("list") }),
   z.strictObject({ op: z.literal("remove"), hostId: z.string().min(1).max(256) }),
   z.strictObject({
+    op: z.literal("rename"),
+    hostId: z.string().min(1).max(256),
+    name: z.string().trim().min(1).max(256),
+  }),
+  z.strictObject({
     op: z.literal("pair"),
     code: z.string().min(1).max(256),
     name: z.string().trim().min(1).max(256),
@@ -48,6 +53,12 @@ export async function performAccess(deps: PairingDeps, raw: unknown): Promise<Ac
   try {
     const request = AccessRequest.parse(raw);
     if (request.op === "list") return { ok: true, machines: await deps.directory.load() };
+    if (request.op === "rename") {
+      await deps.directory.load();
+      const entry = deps.directory.machines.find((machine) => machine.hostId === request.hostId);
+      await deps.directory.rename(request.hostId, request.name, entry?.icon);
+      return { ok: true, machines: deps.directory.machines };
+    }
     if (request.op === "remove") {
       await deps.directory.remove(request.hostId);
       return { ok: true, machines: deps.directory.machines };

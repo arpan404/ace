@@ -118,6 +118,23 @@ describe("pairing a machine", () => {
     expect(await performAccess(deps, { op: "list" })).toMatchObject({ ok: true, machines: [] });
   });
 
+  test("renaming a machine changes only its name; its credential and address stay", async () => {
+    const { deps, secrets } = harness();
+    await performAccess(deps, pair);
+    const renamed = await performAccess(deps, {
+      op: "rename",
+      hostId: "host-studio",
+      name: "  Desk  ",
+    });
+    expect(renamed).toMatchObject({
+      ok: true,
+      machines: [{ hostId: "host-studio", displayName: "Desk", target: { url: pair.url } }],
+    });
+    expect(secrets.size).toBe(1);
+    const unknown = await performAccess(deps, { op: "rename", hostId: "elsewhere", name: "X" });
+    expect(unknown.ok).toBe(false);
+  });
+
   test("a link with a malformed pin is rejected before any request", async () => {
     const { deps, requests } = harness();
     const result = await performAccess(deps, { ...pair, fingerprint: "not-a-pin" });

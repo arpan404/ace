@@ -59,6 +59,8 @@ export interface InboxSection {
   label: string;
   /** Row keys in display order. */
   keys: string[];
+  /** Each row's rank, parallel to `keys` (`inboxRank`, `unsentRank`). */
+  ranks: string[];
 }
 
 /**
@@ -122,50 +124,79 @@ export function unsentText(send: PendingSend): string {
     .join("\n");
 }
 
-const byKey = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+/** Fixed-width digits so ranks compare as plain strings; timestamps fit with room to spare. */
+const rankTop = 9e15;
+const ascending = (value: number) =>
+  String(Math.min(rankTop, Math.max(0, Number.isFinite(value) ? Math.round(value) : 0))).padStart(
+    16,
+    "0",
+  );
+const descending = (value: number) => ascending(rankTop - value);
 
 /**
- * The inbox's sections in order, empty ones left out. Within a group the most recent activity
- * leads; Working puts running trees above those waiting or stalled; Snoozed lists what wakes
- * soonest first. Unsent keeps the outbox's own order. Ties break by key, so the order is stable
- * across machines and reloads.
+ * Where a row sorts within its group, as a string compared by UTF-16 code units (JavaScript's
+ * own `<`). Most recent activity leads; Working puts running trees above those waiting or
+ * stalled; Snoozed lists what wakes soonest first; ties break by machine, then key. A rank
+ * depends only on its own row, so a client that groups each machine on its own runtime merges
+ * their sections by rank and gets the order grouping them together would.
+ */
+export function inboxRank(thread: InboxThread, group: InboxGroupKey): string {
+  const tail = `\u0000${thread.machineId}\u0000${thread.key}`;
+  const recent = descending(activityOf(thread.entry));
+  if (group === "working")
+    return (thread.entry.status.state === "working" ? "0" : "1") + recent + tail;
+  if (group === "snoozed") return ascending(thread.entry.snoozedUntil ?? 0) + recent + tail;
+  return recent + tail;
+}
+
+/** Unsent rows: each machine's outbox in its own order, machines apart. */
+export function unsentRank(machineId: string, position: number): string {
+  return `\u0000${machineId}\u0000${ascending(position)}`;
+}
+
+/** Section order, for clients that merge sections grouped on separate runtimes. */
+export function inboxGroupRank(key: InboxGroupKey): number {
+  return groupOrder.indexOf(key);
+}
+
+const byRank = (a: { rank: string }, b: { rank: string }) =>
+  a.rank < b.rank ? -1 : a.rank > b.rank ? 1 : 0;
+
+/**
+ * The inbox's sections in order, empty ones left out, each row with its rank. Unsent lists each
+ * machine's outbox in its own order.
  */
 export function inboxSections(
   threads: Iterable<InboxThread>,
   unsent: Iterable<InboxUnsent>,
   now: number,
 ): InboxSection[] {
-  const groups = new Map<InboxGroupKey, InboxThread[]>();
+  const groups = new Map<InboxGroupKey, { key: string; rank: string }[]>();
   for (const thread of threads) {
     const group = inboxGroup(thread, now);
     if (!group) continue;
+    const row = { key: thread.key, rank: inboxRank(thread, group) };
     const list = groups.get(group);
-    if (list) list.push(thread);
-    else groups.set(group, [thread]);
+    if (list) list.push(row);
+    else groups.set(group, [row]);
   }
-  const recency = (a: InboxThread, b: InboxThread) =>
-    activityOf(b.entry) - activityOf(a.entry) || byKey(a.key, b.key);
-  const running = (thread: InboxThread) => (thread.entry.status.state === "working" ? 0 : 1);
   const sections: InboxSection[] = [];
   for (const key of groupOrder) {
-    let keys: string[];
+    let rows: { key: string; rank: string }[];
     if (key === "unsent") {
-      keys = [];
-      for (const row of unsent) if (isUnsent(row.send)) keys.push(row.key);
-    } else {
-      const list = groups.get(key) ?? [];
-      if (key === "working") list.sort((a, b) => running(a) - running(b) || recency(a, b));
-      else if (key === "snoozed")
-        list.sort(
-          (a, b) =>
-            (a.entry.snoozedUntil ?? 0) - (b.entry.snoozedUntil ?? 0) ||
-            activityOf(b.entry) - activityOf(a.entry) ||
-            byKey(a.key, b.key),
-        );
-      else list.sort(recency);
-      keys = list.map((thread) => thread.key);
-    }
-    if (keys.length) sections.push({ key, label: inboxGroupLabels[key], keys });
+      rows = [];
+      for (const row of unsent)
+        if (isUnsent(row.send))
+          rows.push({ key: row.key, rank: unsentRank(row.machineId, rows.length) });
+      rows.sort(byRank);
+    } else rows = (groups.get(key) ?? []).toSorted(byRank);
+    if (rows.length)
+      sections.push({
+        key,
+        label: inboxGroupLabels[key],
+        keys: rows.map((row) => row.key),
+        ranks: rows.map((row) => row.rank),
+      });
   }
   return sections;
 }

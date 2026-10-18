@@ -1,5 +1,6 @@
 import type { ChangeTap, ClientCore, PendingSend, SidebarSource } from "@ace/client";
 import {
+  inboxGroupRank,
   inboxSections,
   inboxStatus,
   snoozePresets,
@@ -17,8 +18,8 @@ import type { PatchPump } from "./patch-pump.ts";
 /*
  * The inbox as native rows: each thread's row with its ready-made status, the shared grouping
  * as ordered sections, and the outbox's unsent sends. Swift draws them and maps token keys to
- * colours; it never groups or labels. Rows are keyed by thread id and carry their machine, so a
- * merged inbox can key them by machine later.
+ * colours; it never groups or labels. Rows are keyed by thread id and carry their machine; each
+ * section row carries its shared rank, so the app merges every machine's runtime by rank.
  */
 
 function inboxThread(store: SidebarSource, machineId: string, id: string): InboxThread | undefined {
@@ -61,6 +62,9 @@ export function followInbox(owner: ClientCore, machineId: string, pump: PatchPum
           key: section.key,
           label: section.label,
           ids: section.keys,
+          // A merged inbox orders sections from every machine by these (`inboxRank`).
+          ranks: section.ranks,
+          order: inboxGroupRank(section.key),
         })),
         more: store.window?.before != null,
         snooze: snoozePresets(host.now()).map((preset) => ({ id: preset.id, label: preset.label })),

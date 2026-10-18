@@ -32,6 +32,9 @@ import CryptoKit
     var inboxLoaded = false
     var inboxLayout = InboxLayout.empty
     var approvalSubmissions: [String: ApprovalSubmission] = [:]
+    /// The Machines sheet's view of this runtime's computer (`bridge/machine-info.ts`).
+    var machineStatus: MachineStatusInfo?
+    var providers: MachineProvidersInfo?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var runtime: (any ClientSession)?
     @ObservationIgnored private let makeRuntime: ClientSessionFactory
@@ -55,6 +58,7 @@ import CryptoKit
         let closing = retireRuntime()
         inbox = [:]; pending = [:]; thread = nil; inboxLoaded = false
         inboxLayout = .empty
+        machineStatus = nil; providers = nil
         connection = "connecting"; error = nil; problem = nil
         frames = BridgeFrames(); generation = 0
         await closing?.value
@@ -94,6 +98,8 @@ import CryptoKit
             case .inboxSections(let layout): if inboxLayout != layout { inboxLayout = layout }
             case .connection(let state): connection = state
             case .problem(let notice): problem = notice
+            case .machineStatus(let info): machineStatus = info
+            case .machineProviders(let info): providers = info
             case .pending(let id, let row): pending[id] = row
             case .error(let message): error = message
             case .receipt(let id, let ok, let message):
@@ -154,6 +160,8 @@ import CryptoKit
     func back() { generation += 1; action(["type": "back"]); thread = nil }
     func network(_ online: Bool) { action(["type": "network", "online": online]) }
     func retry() { action(["type": "retry"]) }
+    /// Ask the computer for its CLIs and usage; runs on the next ready connection if offline.
+    func refreshMachine() { action(["type": "machine.refresh"]) }
     func send(_ text: String, delivery: String) async -> Bool {
         guard let thread, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let id = admissions.nextId()
