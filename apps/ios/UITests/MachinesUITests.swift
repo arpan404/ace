@@ -13,8 +13,8 @@ import XCTest
         app.launchArguments = ["--spike", "--spike-machines", ports.map(String.init).joined(separator: ",")]
         app.launch()
         defer { app.terminate() }
-        let first = app.buttons["thread.ios-spike-host-9852.ios-stream"]
-        let second = app.buttons["thread.ios-spike-host-9863.ios-stream"]
+        let first = app.buttons["thread.ios-spike-host-9852.ios-approval"]
+        let second = app.buttons["thread.ios-spike-host-9863.ios-approval"]
         XCTAssertTrue(first.waitForExistence(timeout: 30))
         XCTAssertTrue(second.waitForExistence(timeout: 30))
         XCTAssertTrue(first.label.contains("studio-9852") && second.label.contains("studio-9863"), "rows name their machine")
@@ -22,7 +22,7 @@ import XCTest
 
         // Opening a row routes to its own machine's runtime and transcript.
         second.tap()
-        XCTAssertTrue(app.otherElements["spike.loaded"].waitForExistence(timeout: 30) || app.collectionViews["transcript"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["transcript"].firstMatch.waitForExistence(timeout: 30))
         screenshot("machines-thread")
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(first.waitForExistence(timeout: 10))
