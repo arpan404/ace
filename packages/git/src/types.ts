@@ -40,6 +40,17 @@ export interface GitProcessRuntime {
   groupAlive: (pid: number) => boolean;
   /** Every live Git process and its working directory; `undefined` when it can't be listed. */
   gitProcesses: () => Promise<readonly { pid: number; cwd?: string | undefined }[] | undefined>;
+  /**
+   * The executable a bare `git` would end up running, when starting it directly is cheaper than
+   * going through a launcher (macOS's `/usr/bin/git` shim); undefined to keep running `git`.
+   * Only consulted when no `gitBinary` is configured.
+   */
+  locateGit: (env: NodeJS.ProcessEnv) => Promise<string | undefined>;
+  /**
+   * The filesystem's wall clock in epoch milliseconds, to tell how long ago a file's timestamps
+   * were set. Separate from `GitOptions.now`, which dates what ace records.
+   */
+  fileClock: () => number;
   cleanupSupervisor?: MutationCleanupSupervisor<ChildProcessWithoutNullStreams>;
 }
 

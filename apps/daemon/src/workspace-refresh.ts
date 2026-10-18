@@ -1,13 +1,30 @@
-import { ThreadId } from "@ace/protocol";
+import { ThreadId, type Thread } from "@ace/protocol";
 import type { Store } from "./store.ts";
 import type { WorkspaceRuntime } from "./workspace-runtime.ts";
 import { organizerSchedule, type OrganizerSchedule } from "./thread-organizer.ts";
 import { HeadWatch, headStamp } from "./workspace-head-watch.ts";
 
-/** Finished threads still notice outside commits, at a slow cadence. */
+/** Quiet threads nobody is viewing still notice outside edits and commits, at a slow cadence. */
 const settledCadenceMs = 600_000;
 /** How often threads with an open terminal are checked for a commit or checkout. */
 const headCadenceMs = 5_000;
+
+/** No agent work can be changing the checkout: nothing runs, waits or asks. */
+const quietStates = new Set<Thread["status"]["state"]>(["done", "new", "failed", "limited"]);
+
+/**
+ * Whether a thread's checkout is read only at the settled cadence after a refresh: nothing in it
+ * is running, no client is viewing it and it has no pull request to follow. Any thread event
+ * still makes it due at once, so agent edits are never left for the slow cadence.
+ */
+function settled(thread: Thread, viewed: readonly ThreadId[]): boolean {
+  return (
+    quietStates.has(thread.status.state) &&
+    !viewed.includes(thread.id) &&
+    !thread.details?.linkedPrs?.length &&
+    !thread.details?.linkedPr
+  );
+}
 
 /** Indexed, durable dirty/deadline queue. A refresh touches at most eight current trees. */
 export class WorkspaceRefresh {
@@ -58,12 +75,16 @@ export class WorkspaceRefresh {
       });
     };
     const sweep = async () => {
-      const ids = privateStore.atomic((db) =>
-        db
+      const viewed = privateStore.viewedThreads();
+      const ids = privateStore.atomic((db) => {
+        // A thread someone is looking at is read at the active cadence, whatever its state.
+        const due = db.prepare("UPDATE workspace_refresh SET due=MIN(due,?) WHERE thread_id=?");
+        for (const id of viewed) due.run(now(), id);
+        return db
           .prepare("SELECT thread_id FROM workspace_refresh WHERE due<=? ORDER BY due LIMIT 8")
           .all(now())
-          .map((row) => ThreadId.parse(row.thread_id)),
-      );
+          .map((row) => ThreadId.parse(row.thread_id));
+      });
       const refresh: { id: ThreadId; cwd: string }[] = [];
       for (const id of ids) {
         if (this.closed) return;
@@ -91,11 +112,7 @@ export class WorkspaceRefresh {
           if (thread.details?.linkedPrs?.length || thread.details?.linkedPr)
             refresh.push({ id, cwd: runtime.root(id) });
           const current = privateStore.getThread(id);
-          if (
-            current?.status.state === "done" &&
-            !current.details?.linkedPrs?.length &&
-            !current.details?.linkedPr
-          )
+          if (current && settled(current, privateStore.viewedThreads()))
             await privateStore.write((db) =>
               db
                 .prepare("UPDATE workspace_refresh SET due=? WHERE thread_id=? AND due>0")
