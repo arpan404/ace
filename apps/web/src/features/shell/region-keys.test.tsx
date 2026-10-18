@@ -33,9 +33,9 @@ test("F6 skips a region that isn't on screen and wraps from the composer back to
 async function openThread() {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
-  await app.open("/t/thread-docs-index");
+  await app.open("/t/thread-refund-tax");
   const message = await screen.findByRole("combobox", { name: "Message" });
-  const threads = screen.getByRole("navigation", { name: "Threads" });
+  const threads = await screen.findByRole("navigation", { name: "Threads" });
   await within(threads).findAllByRole("link");
   return { app, message, threads };
 }
