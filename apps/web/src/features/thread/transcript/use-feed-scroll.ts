@@ -22,7 +22,13 @@ import {
   type ScrollMode,
 } from "./scroll-mode.ts";
 import { useDockShift, useStayPinned } from "./scroll.ts";
-import { createScrollMemory, restoreAt, type SavedScroll } from "./scroll-memory.ts";
+import { useLayout, type SessionKey } from "@/lib/layout.tsx";
+import {
+  createScrollMemory,
+  restoreAt,
+  type SavedScroll,
+  type ScrollMemory,
+} from "./scroll-memory.ts";
 
 /*
  * The I/O shell of the transcript's scroll state machine (`scroll-mode.ts`): it feeds the machine
@@ -63,8 +69,12 @@ export interface FeedScrollOptions {
   remember(saved: SavedScroll | undefined): void;
 }
 
-/** Reading positions of the threads left this session. */
-export const threadScrolls = createScrollMemory();
+const threadScrollsKey: SessionKey<ScrollMemory> = { name: "thread scrolls" };
+
+/** Reading positions of the threads left in this app's session. */
+export function useThreadScrolls(): ScrollMemory {
+  return useLayout().sessionValue(threadScrollsKey, createScrollMemory);
+}
 
 const distanceToEnd = (el: HTMLElement) => el.scrollHeight - el.scrollTop - el.clientHeight;
 

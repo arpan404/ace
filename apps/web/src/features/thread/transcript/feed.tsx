@@ -39,7 +39,7 @@ import { blockItems, type Block } from "./blocks.ts";
 import { useDropTurnSteps } from "../lib/turn-steps.ts";
 import { rowOf, sameRow, transcriptRows, type Row } from "./rows.ts";
 import { useGutter } from "./scroll.ts";
-import { threadScrolls, useFeedScroll, writeScroll } from "./use-feed-scroll.ts";
+import { useFeedScroll, useThreadScrolls, writeScroll } from "./use-feed-scroll.ts";
 import { rowGap } from "./row-gap.ts";
 import { useHistoryPaging, usePagingIntent } from "./use-history-paging.ts";
 import { useRunOrdinals } from "./run-ordinals.ts";
@@ -140,6 +140,7 @@ export function Feed(props: FeedProps) {
   const placed = usePlaceBeforePaint<HTMLDivElement, Element>();
   // Where the reader left this thread, and its rows' sizes then, so it reopens there (a link
   // to an item or an open window goes where it points instead).
+  const threadScrolls = useThreadScrolls();
   const [left] = useState(() => {
     const saved = detached || focus ? undefined : threadScrolls.peek(threadId);
     return { saved, measured: saved ? [...saved.measured] : [] };

@@ -94,6 +94,15 @@ interface LayoutValue {
   storage: KeyValueStorage | undefined;
   /** This app's workspace store, made by `create` on first use (`lib/workspace` loads lazily). */
   workspaceStore(create: () => WorkspaceStore): WorkspaceStore;
+  /** A value this app keeps for its life (in memory), made by `create` on first use of `key`. */
+  sessionValue<T>(key: SessionKey<T>, create: () => T): T;
+}
+
+/** Names one `sessionValue`; its type ties the key to what it holds. */
+export interface SessionKey<T> {
+  readonly name: string;
+  /** Never set: carries `T` for the compiler. */
+  readonly holds?: T;
 }
 const LayoutContext = createContext<LayoutValue | undefined>(undefined);
 
@@ -142,6 +151,14 @@ export function LayoutProvider(props: {
     let store: WorkspaceStore | undefined;
     return (create: () => WorkspaceStore) => (store ??= create());
   });
+  const [sessionValue] = useState(() => {
+    const values = new Map<SessionKey<unknown>, unknown>();
+    return <T,>(key: SessionKey<T>, create: () => T): T => {
+      if (!values.has(key)) values.set(key, create());
+      // Set under this key above, by the `create` its type names.
+      return values.get(key) as T;
+    };
+  });
   const change = useCallback(
     (next: (previous: ShellLayout) => ShellLayout) =>
       setLayout((previous) => {
@@ -172,6 +189,7 @@ export function LayoutProvider(props: {
       setRightPanel,
       storage,
       workspaceStore,
+      sessionValue,
       setSidebarOpen: (open) => change((p) => ({ ...p, sidebarOpen: open })),
     }),
     [
@@ -193,6 +211,7 @@ export function LayoutProvider(props: {
       change,
       storage,
       workspaceStore,
+      sessionValue,
     ],
   );
   return <LayoutContext.Provider value={value}>{props.children}</LayoutContext.Provider>;
