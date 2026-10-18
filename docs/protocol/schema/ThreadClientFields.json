@@ -10,6 +10,10 @@
       "minimum": 0,
       "type": "integer"
     },
+    "autoSettle": {
+      "const": false,
+      "type": "boolean"
+    },
     "autoSettleAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },

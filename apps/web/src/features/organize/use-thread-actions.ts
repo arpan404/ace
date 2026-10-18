@@ -22,6 +22,8 @@ export interface ThreadTarget {
   pinned?: boolean | undefined;
   /** Its place among pinned threads, so Undo puts an unpinned thread back where it was. */
   pinOrder?: number | undefined;
+  /** False when the thread never settles by itself. */
+  autoSettle?: false | undefined;
 }
 
 /** A pinned thread's new place, from a drag or a keyboard move (`placePinned`). */
@@ -32,7 +34,10 @@ export interface PinPlacement {
 
 export interface ThreadActions {
   settle(entry: ThreadTarget): void;
+  /** Unsettle, which also keeps it from settling by itself again. */
   unsettle(entry: ThreadTarget): void;
+  /** Let the thread settle by itself again, or keep it until settled by hand. */
+  setAutoSettle(entry: ThreadTarget, enabled: boolean): void;
   snooze(entry: ThreadTarget, until: number, now: number): void;
   wake(entry: ThreadTarget): void;
   /** Pin (leading the group) or unpin (with Undo). */
@@ -70,6 +75,7 @@ type Organize = Extract<
     type:
       | "thread.settle"
       | "thread.unsettle"
+      | "thread.autoSettle"
       | "thread.snooze"
       | "thread.pin"
       | "thread.read"
@@ -193,10 +199,16 @@ export function useThreadActions(): ThreadActions {
       failed: "settle the thread",
     });
     const unsettle = (entry: ThreadTarget): Action => ({
-      patch: { settled: false },
+      patch: { settled: false, autoSettle: false },
       payload: { type: "thread.unsettle", threadId: id(entry) },
       verb: "Unsettle",
       failed: "unsettle the thread",
+    });
+    const autoSettle = (entry: ThreadTarget, enabled: boolean): Action => ({
+      patch: { autoSettle: enabled },
+      payload: { type: "thread.autoSettle", threadId: id(entry), enabled },
+      verb: enabled ? "Turn on auto-settle" : "Turn off auto-settle",
+      failed: enabled ? "turn on auto-settle" : "turn off auto-settle",
     });
     const snooze = (entry: ThreadTarget, until: number | null): Action => ({
       patch: { snoozedUntil: until },
@@ -327,7 +339,15 @@ export function useThreadActions(): ThreadActions {
       settle: (entry) =>
         void reversible(entry, settle(entry), `Settled · ${entry.title}`, unsettle(entry)),
       unsettle: (entry) =>
-        void reversible(entry, unsettle(entry), `Back in the list · ${entry.title}`, settle(entry)),
+        void reversibleAll(
+          [{ entry, action: unsettle(entry), undo: settle(entry) }],
+          `Back in the list · ${entry.title}`,
+          // Undo puts back the auto-settle that unsettling turned off.
+          () => {
+            if (entry.autoSettle !== false) void act(entry, autoSettle(entry, true));
+          },
+        ),
+      setAutoSettle: (entry, enabled) => void act(entry, autoSettle(entry, enabled)),
       snooze: (entry, until, now) =>
         void reversible(
           entry,
