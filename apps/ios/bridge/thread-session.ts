@@ -1,61 +1,36 @@
-import { retrySend, type ClientCore, type ThreadSource } from "@ace/client";
-import {
-  FollowUpBehavior,
-  InteractionId,
-  ModelListResult,
-  ThreadId,
-  type CommandPayload,
-} from "@ace/protocol";
-import { modelLabel } from "@ace/ui-core";
+import { retrySend, type ChangeTap, type ClientCore, type ThreadSource } from "@ace/client";
+import { FollowUpBehavior, InteractionId, ThreadId, type CommandPayload } from "@ace/protocol";
+import { isBusy, modelLabel } from "@ace/ui-core";
 import { runsOn } from "@ace/ui-core/thread-execution";
 import { z } from "zod";
+import { call, host } from "./host.ts";
 import { dispatchCommand } from "./commands.ts";
 import type { PatchPump } from "./patch-pump.ts";
 import { preview } from "./presentation.ts";
+import { ThreadAction } from "./thread-actions.ts";
+import { AttachmentTray, type ChunkReader } from "./thread-attachments.ts";
 import { followBlocks } from "./thread-blocks.ts";
 import { QueueFollower } from "./thread-queue.ts";
+import { requestResolution } from "./thread-requests.ts";
+import { StepsFollower } from "./thread-steps.ts";
+import { TuneFollower } from "./thread-tune.ts";
 import { answerResolution, controlsRow, sendPayload, stopPayload } from "./thread-controls.ts";
 
 /*
  * What the open thread adds to the spike's item and interaction rows: its blocks, the composer's
- * controls, history paging and the model list, and the actions the thread screen sends. One
- * session per navigation generation; leaving the thread disposes it and cancels its reads.
+ * controls (effort, speed, attachments), history paging, the model list, finished turns' steps
+ * and a subagent's lane, and the actions the thread screen sends. One session per navigation
+ * generation; leaving the thread disposes it and cancels its reads.
  */
 
-const requestId = z.string().min(1).max(64);
-const ThreadAction = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("send"),
-    text: z.string().min(1),
-    opposite: z.boolean(),
-    requestId,
-  }),
-  z.object({ type: z.literal("stop"), requestId }),
-  z.object({
-    type: z.literal("answer"),
-    interactionId: z.string().min(1),
-    answers: z.record(z.string(), z.array(z.string().max(8192)).max(64)),
-    dismissed: z.boolean(),
-    requestId,
-  }),
-  z.object({ type: z.literal("retrySend"), id: z.string().min(1), requestId }),
-  z.object({ type: z.literal("loadOlder") }),
-  z.object({ type: z.literal("models") }),
-  z.object({ type: z.literal("switchModel"), model: z.string().min(1).max(256), requestId }),
-  z.object({
-    type: z.literal("queue"),
-    messageId: z.string().min(1).max(256),
-    change: z.discriminatedUnion("kind", [
-      z.object({ kind: z.literal("remove") }),
-      z.object({ kind: z.literal("steer") }),
-      z.object({ kind: z.literal("words"), text: z.string().min(1) }),
-    ]),
-    requestId,
-  }),
-]);
+/** Staged files are read from Swift a chunk at a time (`Sources/Bridge/AttachmentStaging`). */
+const nativeChunks: ChunkReader = (localId, offset, limit) =>
+  call("attachment.chunk", { localId, offset, limit });
+
 const SettingEntries = z.object({
   entries: z.array(z.object({ key: z.string(), value: z.unknown() })),
 });
+type Put = (key: string, read: () => Record<string, unknown> | undefined) => void;
 
 export class ThreadSession {
   readonly #client: ClientCore;
@@ -66,6 +41,11 @@ export class ThreadSession {
   readonly #abort = new AbortController();
   readonly #stop: () => void;
   readonly #queue: QueueFollower;
+  readonly #blocks: ReturnType<typeof followBlocks>;
+  readonly #steps: StepsFollower;
+  readonly #tune: TuneFollower;
+  readonly #tray: AttachmentTray;
+  #lane: { agentId: string; tap: ChangeTap } | undefined;
   #setting: FollowUpBehavior | undefined;
   #loading = false;
   #models: { state: string; models: Record<string, unknown>[] } = { state: "idle", models: [] };
@@ -76,39 +56,44 @@ export class ThreadSession {
     threadId: string,
     epoch: number,
     pump: PatchPump,
+    chunks: ChunkReader = nativeChunks,
   ) {
     this.#client = client;
     this.#store = store;
     this.#threadId = ThreadId.parse(threadId);
     this.#epoch = epoch;
     this.#pump = pump;
-    const blocks = followBlocks(store, (key, read) => this.#put(key, read));
-    this.#queue = new QueueFollower(
-      client,
-      store,
-      this.#threadId,
-      this.#abort.signal,
-      (key, read) => this.#put(key, read),
-    );
+    const put: Put = (key, read) => this.#put(key, read);
+    const signal = this.#abort.signal;
+    this.#blocks = followBlocks(store, put);
+    this.#queue = new QueueFollower(client, store, this.#threadId, signal, put);
+    this.#steps = new StepsFollower(client, store, this.#threadId, put);
+    this.#tune = new TuneFollower(client, store, signal, put, () => host.now());
+    this.#tray = new AttachmentTray(client, this.#threadId, signal, put, chunks);
     this.#stop = store.observe((keys) => {
-      blocks(keys);
+      this.#blocks.tap(keys);
+      this.#lane?.tap(keys);
       if (keys === "all") void this.#readSetting();
       if (keys === "all" || keys.has("thread") || keys.has("interactions") || keys.has("cursor"))
         this.#controls();
+      if (keys === "all" || keys.has("thread")) this.#tune.update();
       if (keys === "all" || keys.has("order") || keys.has("history")) this.#history();
       if (keys === "all" || keys.has("queue") || keys.has("thread") || keys.has("agents"))
         this.#queue.update();
     });
-    blocks("all");
+    this.#blocks.tap("all");
     this.#controls();
     this.#history();
     this.#queue.update();
+    this.#tune.update();
     void this.#readSetting();
   }
 
   dispose(): void {
     this.#abort.abort();
     this.#stop();
+    this.#steps.dispose();
+    this.#tray.dispose();
   }
 
   handle(raw: unknown): void {
@@ -120,13 +105,7 @@ export class ThreadSession {
     const action = parsed.data;
     switch (action.type) {
       case "send":
-        this.#dispatch(
-          sendPayload(this.#store, this.#threadId, action.text, {
-            opposite: action.opposite,
-            setting: this.#setting,
-          }),
-          action.requestId,
-        );
+        this.#send(action.text, action.opposite, action.requestId);
         break;
       case "stop":
         this.#dispatch(stopPayload(this.#store, this.#threadId), action.requestId);
@@ -137,17 +116,36 @@ export class ThreadSession {
           action.answers,
           action.dismissed,
         );
-        this.#dispatch(
-          resolution && {
-            type: "interaction.resolve",
-            interactionId: InteractionId.parse(action.interactionId),
-            resolution,
-          },
+        this.#resolve(
+          action.interactionId,
+          resolution,
           action.requestId,
           "That answer doesn't fit the question. Check your choices.",
         );
         break;
       }
+      case "resolve":
+        this.#resolve(
+          action.interactionId,
+          requestResolution(this.#store.interaction(action.interactionId), action.answer),
+          action.requestId,
+          "That doesn't fit the request. Check what you entered.",
+        );
+        break;
+      case "effort":
+        this.#admission(
+          action.requestId,
+          this.#tune.effort(action.effort ?? undefined),
+          "That effort can't be set for this model.",
+        );
+        break;
+      case "speed":
+        this.#admission(
+          action.requestId,
+          this.#tune.speed(action.speed),
+          "That speed can't be set for this model.",
+        );
+        break;
       case "retrySend":
         void this.#retry(action.id, action.requestId);
         break;
@@ -167,6 +165,27 @@ export class ThreadSession {
           "That queued message has changed. Check the queue and try again.",
         );
         break;
+      case "steps.open":
+        this.#steps.open(action.ordinal, this.#answersOf(action.block));
+        break;
+      case "steps.close":
+        this.#steps.close(action.ordinal);
+        break;
+      case "steps.more":
+        this.#steps.more(action.ordinal);
+        break;
+      case "lane.open":
+        this.#openLane(action.agentId);
+        break;
+      case "lane.close":
+        this.#lane = undefined;
+        break;
+      case "attach":
+        this.#tray.attach(action.file, this.#tune.reader());
+        break;
+      case "detach":
+        this.#tray.detach(action.localId);
+        break;
     }
   }
 
@@ -176,7 +195,8 @@ export class ThreadSession {
       return patch && { ...patch, threadId: this.#threadId, epoch: this.#epoch };
     });
   }
-  #admission(id: string, ok: boolean, message: string): void {
+  #admission(id: string, ok: boolean, refused: string): void {
+    const message = ok ? "" : refused;
     this.#pump.put(`admission:${id}`, () => ({ type: "admission", id, ok, message }));
   }
   #dispatch(
@@ -186,6 +206,62 @@ export class ThreadSession {
   ): void {
     if (!payload) this.#admission(id, false, refused);
     else void dispatchCommand(this.#client, payload, id, this.#pump);
+  }
+  #resolve(
+    interactionId: string,
+    resolution: Extract<CommandPayload, { type: "interaction.resolve" }>["resolution"] | undefined,
+    id: string,
+    refused: string,
+  ): void {
+    this.#dispatch(
+      resolution && {
+        type: "interaction.resolve",
+        interactionId: InteractionId.parse(interactionId),
+        resolution,
+      },
+      id,
+      refused,
+    );
+  }
+  /** A message as the composer showed it: its delivery, the picked effort and speed, its files. */
+  #send(text: string, opposite: boolean, id: string): void {
+    const files = this.#tray.context();
+    if ("refused" in files) {
+      this.#admission(id, false, files.refused);
+      return;
+    }
+    const payload = sendPayload(this.#store, this.#threadId, text, {
+      opposite,
+      setting: this.#setting,
+    });
+    if (payload.type !== "thread.send") return;
+    const { options, spends } = this.#tune.sendOptions(
+      isBusy(this.#store.thread?.status),
+      payload.delivery,
+    );
+    const message: CommandPayload = {
+      ...payload,
+      ...(options ? { options } : {}),
+      ...(files.context ? { context: files.context } : {}),
+    };
+    void dispatchCommand(this.#client, message, id, this.#pump, {
+      saved: () => this.#tray.sent(),
+      receipt: (ok) => {
+        if (ok && spends) this.#tune.spent(spends);
+      },
+    });
+  }
+  /** A settled head's answers, which its opened log leaves out. */
+  #answersOf(key: string): readonly string[] {
+    const block = this.#blocks.block(key);
+    return block?.kind === "work" ? (block.answerIds ?? []) : [];
+  }
+  /** One native subagent's own blocks, grouped as the transcript is, for its lane sheet. */
+  #openLane(agentId: string): void {
+    if (this.#lane?.agentId === agentId) return;
+    const lane = followBlocks(this.#store, (key, read) => this.#put(key, read), { agentId });
+    this.#lane = { agentId, tap: lane.tap };
+    lane.tap("all");
   }
   #controls(): void {
     this.#put("controls", () => ({
@@ -258,18 +334,7 @@ export class ThreadSession {
     if (!selection) return;
     this.#publishModels("loading", []);
     try {
-      const reply = await this.#client.request(
-        {
-          type: "models.list",
-          options: {
-            provider: selection.provider,
-            ...(selection.instanceId ? { instance: selection.instanceId } : {}),
-            limit: 100,
-          },
-        },
-        { signal: this.#abort.signal },
-      );
-      const listed = ModelListResult.parse(reply.result).models;
+      const listed = await this.#tune.read();
       const seen = new Set<string>();
       const models = listed.flatMap((model) => {
         if (seen.has(model.id)) return [];

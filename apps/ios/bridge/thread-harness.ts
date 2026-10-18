@@ -1,0 +1,146 @@
+import { native } from "./test-host.ts";
+import { ClientCore, type Lease, type ThreadSource } from "@ace/client";
+import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
+import { DeviceId, HostId } from "@ace/protocol";
+import { PatchPump, followThread } from "./patches.ts";
+import { ThreadSession } from "./thread-session.ts";
+import type { ChunkReader } from "./thread-attachments.ts";
+
+/*
+ * The thread screen's bridge over the real SDK and an in-process fake daemon, for behaviour
+ * tests: the production pump, item follower and thread session, with `test-host.ts` standing in
+ * for Swift. No provider CLI runs. Test-only.
+ */
+
+export { native };
+export const pump = new PatchPump();
+native.ack = (accepted) => pump.ack(accepted);
+/** Every text frame the client sent the daemon. */
+export const sent: string[] = [];
+/** A send the daemon turns down once (its retry goes through), by its text. */
+export const refuseOnce = { text: "Refuse this once" };
+
+let client: ClientCore | undefined;
+let lease: Lease<ThreadSource> | undefined;
+let stop: (() => void) | undefined;
+let session: ThreadSession | undefined;
+
+export async function reset(): Promise<void> {
+  session?.dispose();
+  stop?.();
+  lease?.release();
+  await client?.close();
+  native.frames.length = 0;
+  native.calls.clear();
+  sent.length = 0;
+}
+
+function refusal(text: string): string | undefined {
+  const message = JSON.parse(text) as {
+    type?: string;
+    command?: { id?: string; payload?: { type?: string; input?: { text?: string }[] } };
+  };
+  const command = message.type === "command" ? message.command : undefined;
+  if (command?.payload?.type !== "thread.send" || command.id?.endsWith(":retry")) return undefined;
+  if (command.payload.input?.[0]?.text !== refuseOnce.text) return undefined;
+  return JSON.stringify({
+    type: "commandResult",
+    commandId: command.id,
+    ok: false,
+    error: "refused",
+  });
+}
+
+export function fixture(): FakeDaemon {
+  return new FakeDaemon({ clock: Date.now, hostId: "ios-test-host", token: "ios-test-token" });
+}
+
+export function connect(daemon: FakeDaemon): ClientCore {
+  let saved: string | null = null;
+  client = new ClientCore({
+    deviceId: DeviceId.parse("ios-bridge-test"),
+    expectedHostId: HostId.parse("ios-test-host"),
+    transport: () => {
+      const inner = fakeTransport(daemon);
+      let deliver: ((text: string) => void) | undefined;
+      return {
+        open: (events) => {
+          deliver = (text) => events.message(text);
+          inner.open(events);
+        },
+        send: (text) => {
+          sent.push(text);
+          const refused = refusal(text);
+          if (refused) queueMicrotask(() => deliver?.(refused));
+          else inner.send(text);
+        },
+        close: () => inner.close(),
+      };
+    },
+    credential: async () => ({ token: "ios-test-token" }),
+    storage: {
+      load: async () => saved,
+      save: async (value) => {
+        saved = value;
+      },
+    },
+    scheduler: {
+      set: (delay, callback) => {
+        const timer = setTimeout(callback, delay);
+        return () => clearTimeout(timer);
+      },
+    },
+    id: () => crypto.randomUUID(),
+    random: () => 0.5,
+    now: () => Date.now(),
+  });
+  void client.start();
+  return client;
+}
+
+export function open(owner: ClientCore, threadId: string, chunks?: ChunkReader): ThreadSession {
+  lease = owner.thread(threadId);
+  stop = followThread(lease.store, threadId, 1, pump, 200);
+  session = new ThreadSession(owner, lease.store, threadId, 1, pump, chunks);
+  return session;
+}
+
+/** The latest delivered patch of a type (and id), as Swift would hold it. */
+export function latest(type: string, id?: string): Record<string, unknown> | undefined {
+  for (let index = native.frames.length - 1; index >= 0; index--) {
+    const frame = native.frames[index];
+    if (frame?.type === type && (id === undefined || frame.id === id)) return frame;
+  }
+  return undefined;
+}
+/** The rows Swift holds for an id-keyed patch type, after deletions. */
+export function rows(type: string): Record<string, unknown>[] {
+  const byId = new Map<string, Record<string, unknown>>();
+  for (const frame of native.frames)
+    if (frame.type === type && typeof frame.id === "string") {
+      if (frame.row) byId.set(frame.id, frame.row as Record<string, unknown>);
+      else byId.delete(frame.id);
+    }
+  return [...byId.values()];
+}
+export async function until<T>(read: () => T | undefined | false, label: string): Promise<T> {
+  const deadline = Date.now() + 5000;
+  for (;;) {
+    const value = read();
+    if (value) return value;
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${label}`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+/** Command payloads of a type the client sent, in order. */
+export function commands(type: string): Record<string, unknown>[] {
+  return sent.flatMap((text) => {
+    const message = JSON.parse(text) as {
+      type?: string;
+      command?: { payload?: { type?: string } };
+    };
+    return message.type === "command" && message.command?.payload?.type === type
+      ? [message.command.payload as Record<string, unknown>]
+      : [];
+  });
+}

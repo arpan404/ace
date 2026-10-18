@@ -7,24 +7,22 @@ import {
   choiceForModel,
   currentModelChoice,
   modelControlName,
-  nextOptions,
   optionEffort,
+  pickEffort,
+  pickSpeed,
   permissionPendingNote,
   pickerModelsFromChoices,
   pickerProviders,
   providerNames,
   reconcileNextOptions,
   recordedChoice,
-  resolveEffort,
-  speedControl,
-  speedOption,
   selectionInputs,
   choiceSelection,
   switchUnsupportedNote,
   threadSwitchRoute,
   threadForkSwitchRoute,
   threadAccessSummary,
-  threadEffortControl,
+  threadTuning,
   unavailablePickerModel,
   unavailableModelNotice,
   type ModelChoice,
@@ -105,7 +103,6 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
 const offlineNote = "Offline: changes apply when reconnected";
 const limitReached = (resetsAt: number | undefined) =>
   resetsAt === undefined ? "Limit reached" : `Limit reached · resets ${formatClock(resetsAt)}`;
-const none: ExecutionOptions = {};
 
 /**
  * Effort and speed the person picked for the thread's next message (held by the composer, which
@@ -169,29 +166,10 @@ export function ThreadModelControl(props: {
     setKnown({ key: selectionKey, choice: current });
   const remembered = known?.key === selectionKey ? known.choice : undefined;
   const shown = current ?? (online ? undefined : remembered) ?? recordedChoice(selection);
-  const base = selection?.options ?? none;
-  const options = pending ?? base;
-  const preset = resolveEffort(shown?.efforts ?? [], undefined, shown?.defaultEffort);
-  const effort = threadEffortControl({
-    choice: shown,
-    capabilities: meta?.capabilities,
-    current: optionEffort(options),
-  });
-  const speed = speedControl({
-    model: shown && {
-      label: shown.model,
-      provider: shown.provider,
-      speeds: shown.speeds,
-      defaultSpeed: shown.defaultSpeed,
-    },
-    current: options["serviceTier"],
-    capabilities: meta?.capabilities,
-    running: true,
-  });
-  const change = (patch: Record<string, string | undefined>) => {
-    const next = nextOptions(base, options, patch);
+  const tuning = threadTuning({ thread: meta, choice: shown, pending });
+  const { base, options, preset, effort, speed } = tuning;
+  const pick = (next: ExecutionOptions | undefined) =>
     props.next.onChange(next && { identity: selectionKey, options: next });
-  };
   // The thread moved since effort or speed was picked: keep what its model still takes.
   const stale = props.next.pending?.identity !== selectionKey ? props.next.pending : undefined;
   const catalogued = current !== undefined;
@@ -350,11 +328,8 @@ export function ThreadModelControl(props: {
         actions={{
           // Back to the default: where the thread's own selection names an effort, the
           // provider keeps it unless told otherwise, so the default goes out by name.
-          onEffort: (next) =>
-            change({
-              effort: next ?? (optionEffort(base) === undefined ? undefined : preset),
-            }),
-          onSpeed: (next) => change({ serviceTier: speedOption(speed.tiers, next) }),
+          onEffort: (next) => pick(pickEffort(tuning, next)),
+          onSpeed: (next) => pick(pickSpeed(tuning, next)),
           onModel: (key, instance) => {
             const from = continuedTo ?? moving.chosen ?? current;
             const choice = choiceForModel(choices, key, instance ?? from?.accountId);

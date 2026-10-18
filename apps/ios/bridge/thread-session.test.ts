@@ -1,176 +1,24 @@
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, expect, test } from "vitest";
+import { facts } from "@ace/fake-daemon";
+import {
+  commands,
+  connect,
+  fixture,
+  latest,
+  native,
+  open,
+  reset,
+  rows,
+  sent,
+  until,
+} from "./thread-harness.ts";
 
 /*
- * The thread screen's bridge messages over the real SDK and an in-process fake daemon: the
- * production pump, item follower and thread session, with a test host standing in for Swift
- * (it decodes every frame and acknowledges it). No provider CLI runs.
+ * The thread screen's bridge messages over the real SDK and an in-process fake daemon
+ * (`thread-harness.ts`). No provider CLI runs.
  */
 
-const native = vi.hoisted(() => {
-  const state = { frames: [] as Record<string, unknown>[], ack: (_accepted: boolean) => {} };
-  let next = 0;
-  Object.assign(globalThis, {
-    aceHost: {
-      call: () => {},
-      emit(frame: string) {
-        state.frames.push(...(JSON.parse(frame) as Record<string, unknown>[]));
-        setTimeout(() => state.ack(true), 0);
-      },
-      socket: () => {},
-      timer: (_id: string, delay: number, callback: () => void) => setTimeout(callback, delay),
-      cancelTimer: () => {},
-      now: () => Date.now(),
-      uuid: () => `id-${++next}`,
-      random: () => 0.5,
-      encode: (text: string) => [...new TextEncoder().encode(text)],
-      utf8Base64: (text: string) => Buffer.from(text, "utf8").toString("base64"),
-      previewHead: (text: string, limit: number) => text.slice(0, limit),
-      previewTail: (text: string, limit: number) => text.slice(-limit),
-      decode: (bytes: number[]) => new TextDecoder().decode(new Uint8Array(bytes)),
-      randomBytes: (count: number) => Array.from({ length: count }, () => 7),
-      base64: (text: string, decode: boolean) =>
-        decode
-          ? Buffer.from(text, "base64").toString("binary")
-          : Buffer.from(text, "binary").toString("base64"),
-    },
-  });
-  return state;
-});
-
-import { ClientCore, type Lease, type ThreadSource } from "@ace/client";
-import { FakeDaemon, facts, fakeTransport } from "@ace/fake-daemon";
-import { DeviceId, HostId } from "@ace/protocol";
-import { PatchPump, followThread } from "./patches.ts";
-import { ThreadSession } from "./thread-session.ts";
-
-const pump = new PatchPump();
-native.ack = (accepted) => pump.ack(accepted);
-const sent: string[] = [];
-let client: ClientCore | undefined;
-let lease: Lease<ThreadSource> | undefined;
-let stop: (() => void) | undefined;
-let session: ThreadSession | undefined;
-
-afterEach(async () => {
-  session?.dispose();
-  stop?.();
-  lease?.release();
-  await client?.close();
-  native.frames.length = 0;
-  sent.length = 0;
-});
-
-/** The daemon turns down the first attempt of a send that asks for it; its retry goes through. */
-function refusal(text: string): string | undefined {
-  const message = JSON.parse(text) as {
-    type?: string;
-    command?: { id?: string; payload?: { type?: string; input?: { text?: string }[] } };
-  };
-  const command = message.type === "command" ? message.command : undefined;
-  if (command?.payload?.type !== "thread.send" || command.id?.endsWith(":retry")) return undefined;
-  if (command.payload.input?.[0]?.text !== "Refuse this once") return undefined;
-  return JSON.stringify({
-    type: "commandResult",
-    commandId: command.id,
-    ok: false,
-    error: "refused",
-  });
-}
-
-function connect(daemon: FakeDaemon): ClientCore {
-  let saved: string | null = null;
-  client = new ClientCore({
-    deviceId: DeviceId.parse("ios-bridge-test"),
-    expectedHostId: HostId.parse("ios-test-host"),
-    transport: () => {
-      const inner = fakeTransport(daemon);
-      let deliver: ((text: string) => void) | undefined;
-      return {
-        open: (events) => {
-          deliver = (text) => events.message(text);
-          inner.open(events);
-        },
-        send: (text) => {
-          sent.push(text);
-          const refused = refusal(text);
-          if (refused) queueMicrotask(() => deliver?.(refused));
-          else inner.send(text);
-        },
-        close: () => inner.close(),
-      };
-    },
-    credential: async () => ({ token: "ios-test-token" }),
-    storage: {
-      load: async () => saved,
-      save: async (value) => {
-        saved = value;
-      },
-    },
-    scheduler: {
-      set: (delay, callback) => {
-        const timer = setTimeout(callback, delay);
-        return () => clearTimeout(timer);
-      },
-    },
-    id: () => crypto.randomUUID(),
-    random: () => 0.5,
-    now: () => Date.now(),
-  });
-  void client.start();
-  return client;
-}
-
-function open(owner: ClientCore, threadId: string): ThreadSession {
-  lease = owner.thread(threadId);
-  stop = followThread(lease.store, threadId, 1, pump, 200);
-  session = new ThreadSession(owner, lease.store, threadId, 1, pump);
-  return session;
-}
-
-/** The latest delivered patch of a type for an id, as Swift would hold it. */
-function latest(type: string, id?: string): Record<string, unknown> | undefined {
-  for (let index = native.frames.length - 1; index >= 0; index--) {
-    const frame = native.frames[index];
-    if (frame?.type === type && (id === undefined || frame.id === id)) return frame;
-  }
-  return undefined;
-}
-const rows = (type: string) => {
-  const byId = new Map<string, Record<string, unknown>>();
-  for (const frame of native.frames)
-    if (frame.type === type && typeof frame.id === "string") {
-      if (frame.row) byId.set(frame.id, frame.row as Record<string, unknown>);
-      else byId.delete(frame.id);
-    }
-  return [...byId.values()];
-};
-async function until<T>(read: () => T | undefined | false, label: string): Promise<T> {
-  const deadline = Date.now() + 5000;
-  for (;;) {
-    const value = read();
-    if (value) return value;
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${label}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
-const commands = (type: string) =>
-  sent.flatMap((text) => {
-    const message = JSON.parse(text) as {
-      type?: string;
-      command?: { payload?: { type?: string } };
-    };
-    return message.type === "command" && message.command?.payload?.type === type
-      ? [message.command.payload as Record<string, unknown>]
-      : [];
-  });
-
-function fixture(): FakeDaemon {
-  return new FakeDaemon({
-    clock: Date.now,
-    hostId: "ios-test-host",
-    token: "ios-test-token",
-  });
-}
+afterEach(reset);
 
 test("a finished turn folds its steps into one Worked for head with counts; its answer stays in view", async () => {
   const fake = fixture();

@@ -64,6 +64,7 @@ export function degradedPatch(patch: Record<string, unknown>): Record<string, un
           reason: "",
           riskText: "",
           ...degradedChoices(row),
+          ...degradedRequest(row),
           truncated: true,
           options: options.data.map((option, index) =>
             Object.assign(option, {
@@ -112,5 +113,45 @@ function degradedChoices(row: Record<string, unknown>): Record<string, unknown> 
           ),
         }
       : {}),
+  };
+}
+
+const Form = z
+  .object({ fields: z.array(z.object({ choices: Entries }).catchall(z.unknown())) })
+  .catchall(z.unknown());
+
+/** Plans, forms and browser requests keep their field keys and choice values; words go. */
+function degradedRequest(row: Record<string, unknown>): Record<string, unknown> {
+  const form = Form.safeParse(row.form);
+  return {
+    ...(row.plan
+      ? {
+          plan: {
+            title: "Plan details unavailable",
+            summary: "",
+            markdown: "Check the full plan on your machine.",
+            truncated: true,
+            todos: [],
+          },
+        }
+      : {}),
+    ...(form.success
+      ? {
+          form: Object.assign(form.data, {
+            title: "Request details unavailable",
+            message: "Check the full request on your machine.",
+            fields: form.data.fields.map((field, index) =>
+              Object.assign(field, {
+                title: `Field ${index + 1}`,
+                detail: "",
+                choices: field.choices.map((choice, at) =>
+                  Object.assign(choice, { label: `Choice ${at + 1}` }),
+                ),
+              }),
+            ),
+          }),
+        }
+      : {}),
+    ...(row.help ? { help: { title: "Browser request", detail: "" } } : {}),
   };
 }

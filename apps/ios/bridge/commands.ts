@@ -44,25 +44,30 @@ export async function dispatchCommand(
   raw: unknown,
   requestId: string,
   pump: PatchPump,
+  hooks: { saved?(): void; receipt?(ok: boolean): void } = {},
 ): Promise<void> {
   try {
     await submitCommand(
       owner,
       CommandPayload.parse(raw),
-      () =>
+      () => {
+        hooks.saved?.();
         pump.put(`admission:${requestId}`, () => ({
           type: "admission",
           id: requestId,
           ok: true,
           message: "",
-        })),
-      (result) =>
+        }));
+      },
+      (result) => {
+        hooks.receipt?.(result.ok);
         pump.put(`receipt:${requestId}`, () => ({
           type: "receipt",
           id: requestId,
           ok: result.ok,
           message: result.ok ? "" : preview(result.error ?? "Request refused", 2048),
-        })),
+        }));
+      },
     );
   } catch {
     pump.put(`admission:${requestId}`, () => ({
