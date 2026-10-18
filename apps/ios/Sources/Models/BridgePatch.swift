@@ -81,6 +81,7 @@ enum BridgePatch: Decodable, Sendable {
     case admission(String, Bool, String)
     case inboxSections(InboxLayout)
     case problem(ProblemNotice?)
+    case notification(NotificationPatch)
 
     private enum Keys: String, CodingKey { case type, id, row, threadId, epoch, state, message, ok, cursor, count, index, problem }
     init(from decoder: any Decoder) throws {
@@ -111,6 +112,7 @@ enum BridgePatch: Decodable, Sendable {
         case "admission": self = .admission(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
         case "inbox.sections": self = .inboxSections(try InboxLayout(from: decoder))
         case "connection.problem": self = .problem(try box.decodeIfPresent(ProblemNotice.self, forKey: .problem))
+        case let kind where kind.hasPrefix("notifications."): self = .notification(try NotificationPatch(from: decoder))
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: box, debugDescription: "Unknown bridge patch")
         }
     }

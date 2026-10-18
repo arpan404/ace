@@ -73,6 +73,7 @@ struct InboxView: View {
                 }
             }
             .overlay(alignment: .bottom) { undoArchive }
+            .aceNotifications(model: model, path: $path)
             .onChange(of: path) { old, new in if !old.isEmpty && new.isEmpty { model.back() } }
         }
         .tint(AceTheme.Colours.foreground)

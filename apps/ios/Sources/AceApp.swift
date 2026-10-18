@@ -2,6 +2,8 @@ import SwiftUI
 import QuartzCore
 
 @main struct AceApp: App {
+    @UIApplicationDelegateAdaptor(NotificationAppDelegate.self) private var notificationDelegate
+    @Environment(\.scenePhase) private var scenePhase
     @State private var model = ClientModel(now: { Date().timeIntervalSince1970 * 1000 })
     @State private var started = false
     @State private var production = ProductionApp.make()
@@ -20,10 +22,13 @@ import QuartzCore
             if started { InboxView(model: model) }
             else { ContentUnavailableView("Connecting to the spike daemon", systemImage: "point.3.connected.trianglepath.dotted") }
         }
+        .environment(notificationDelegate.coordinator)
+        .onChange(of: scenePhase) { _, phase in notificationDelegate.coordinator.scene(active: phase == .active) }
         .task {
             guard !started, let target = SpikeConfiguration.target() else { return }
             do {
                 let directory = try ProductionApp.storageDirectory()
+                await notificationDelegate.coordinator.attach(model, target: target)
                 await model.connect(target: target, directory: directory, itemLimit: 2200)
                 #if DEBUG
                 let metrics = SpikeMetrics(model: model, now: { CACurrentMediaTime() }, output: directory.appendingPathComponent("spike-metrics.json"))

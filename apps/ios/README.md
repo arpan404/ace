@@ -162,6 +162,12 @@ The thirty Swift tests and this UI test pass with Xcode 26.3 on the iPhone 17 Pr
 iOS 26.3 simulator. These checks do not establish real-device performance, remote
 pairing or daemon-restart durability.
 
-APNs and Live Activity remain Phase 2. No hosted relay, paid Apple service or APNs
-signing credentials are implemented here. The proposed delivery design and approval
-must precede that work.
+## Notifications
+
+Local only ([ADR 0087](../../docs/adr/0087-ios-local-notifications.md)). `Sources/Notifications/`
+posts the daemon's canonical `notification` messages and its `notification.feed` catch-up with
+`UNUserNotificationCenter`; `bridge/notifications.ts` registers the phone, reports foreground or
+background presence and runs approval actions through the SDK outbox. With the fixture running,
+`curl -X POST localhost:9841/review/notify -d '{"threadId":"ios-approval"}'` sends an alert and
+`/review/retract -d '{"id":"…"}'` withdraws one. Remote push (APNs, a push gateway) and Live
+Activities are deferred; see the [draft](../../docs/adr/drafts/ios-push-notifications.md).
