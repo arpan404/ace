@@ -1,4 +1,4 @@
-import type { BrowserScreenshotSet, BrowserScreenshotSize } from "@ace/protocol";
+import type { BrowserPageState, BrowserScreenshotSet, BrowserScreenshotSize } from "@ace/protocol";
 import type { AnnotationDriver } from "@/features/annotations/index.ts";
 
 /*
@@ -236,7 +236,18 @@ export type ForwardedInput =
       code?: string;
       modifiers?: number;
     }
-  | { kind: "scroll"; x: number; y: number; deltaX: number; deltaY: number };
+  | { kind: "scroll"; x: number; y: number; deltaX: number; deltaY: number }
+  /** IME text being composed, shown marked in the page's field; empty cancels it. */
+  | { kind: "ime"; text: string; selectionStart: number; selectionEnd: number }
+  /** The person's choice in the page's open picker; without values it is dismissed. */
+  | { kind: "pick"; pickerId: string; values?: readonly string[] };
+
+/**
+ * What a remote view draws over a tab's pixels: the focused field (where a phone's keyboard
+ * types), the picker the page opened, the cursor shape and a `title` tooltip. Boxes are in the
+ * tab's CSS pixels, the same space as the frame and forwarded input.
+ */
+export type BrowserPageView = BrowserPageState;
 
 /** How far the daemon's Chromium download has got (`browser.download.progress`). */
 export interface BrowserDownload {
@@ -336,6 +347,11 @@ export interface PreviewSource {
   extensions?(threadId: string): Promise<readonly BrowserExtensionView[]>;
   /** The person's own input; it lands at once, whoever else works in the tab. */
   input(threadId: string, input: ForwardedInput, tabId?: string): void | Promise<void>;
+  /**
+   * A tab's page state as the daemon last reported it (`browser.page`); undefined from a daemon
+   * or backend that doesn't report one. Changes notify `subscribe` listeners for the thread.
+   */
+  page?(threadId: string, tabId: string): BrowserPageView | undefined;
   /** Annotate mode on the page (ADR 0082); absent where the client can't drive it. */
   annotate?: AnnotationDriver | undefined;
   /** Read the current page selection for local copy and cut. */

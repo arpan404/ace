@@ -22,6 +22,9 @@ import { AgentCursor } from "./agent-cursor.tsx";
 import { useCaptureSize } from "../preview/use-capture-size.ts";
 import { useViewportSync } from "../preview/use-viewport-sync.ts";
 import { PageContextMenu, type PageMenu } from "./page-context-menu.tsx";
+import { typedByPageKeyboard } from "./page-keyboard.tsx";
+import { PageStateLayer } from "./page-state-layer.tsx";
+import { usePageState } from "./use-page-state.ts";
 
 /**
  * The page itself, edge to edge in the panel: the screencast frame on the panel's own surface,
@@ -58,6 +61,8 @@ export function PageView(props: {
   const pane = useRef<HTMLDivElement>(null);
   const picture = useRef<HTMLImageElement>(null);
   const keymap = useResolvedKeymap();
+  /** The focused field, picker, cursor shape and tooltip the page reports for this tab. */
+  const page = usePageState(props.source, props.threadId, tabId);
   const appChords = useMemo(
     () =>
       keymapIds
@@ -117,6 +122,8 @@ export function PageView(props: {
     });
   };
   const onKey = (type: "keyDown" | "keyUp") => (event: KeyboardEvent<HTMLElement>) => {
+    // Text the page keyboard types (an IME, a dead key, a phone's letters) goes as text.
+    if (typedByPageKeyboard(event)) return;
     // Toolbar and app chords are consumed by the ancestors. Editing chords reach the page.
     if (event.defaultPrevented || appChords.some((chord) => matchesChord(event.nativeEvent, chord)))
       return;
@@ -227,7 +234,8 @@ export function PageView(props: {
       onKeyDown={live ? onKey("keyDown") : undefined}
       onKeyUp={live ? onKey("keyUp") : undefined}
       onPaste={live ? paste : undefined}
-      className={cn(className, "outline-none", live && "cursor-default focus-ring-inset")}
+      className={cn(className, "outline-none", live && "focus-ring-inset")}
+      style={live ? { cursor: page?.cursor ?? "default" } : undefined}
     >
       {image}
       {image && props.tab?.inUse && props.tab.pointer && !inPage && (
@@ -237,6 +245,15 @@ export function PageView(props: {
           pointer={props.tab.pointer}
           page={{ width: frame.width, height: frame.height }}
           picture={picture}
+        />
+      )}
+      {image && live && (
+        <PageStateLayer
+          page={page}
+          pane={pane}
+          picture={picture}
+          frame={frame}
+          forward={(input) => void forward(input)}
         />
       )}
     </div>
