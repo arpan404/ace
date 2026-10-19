@@ -47,6 +47,7 @@ import type { PageActions } from "./use-page-actions.ts";
 import type { PageTools } from "./use-page-tools.ts";
 import { ZoomRow } from "./zoom-controls.tsx";
 import { AskAgentItem } from "./ask-agent-item.tsx";
+import { LatencyItem } from "./latency-item.tsx";
 
 const icon = (glyph: typeof CopyIcon) => <Icon icon={glyph} />;
 
@@ -317,6 +318,7 @@ export function BrowserActions(props: {
             Console and network
           </span>
         </MenuCheckboxItem>
+        <LatencyItem threadId={props.threadId} />
         {hidden && (
           <MenuItem icon={icon(PuzzlePieceIcon)} onClick={() => extensionsHidden.set(() => false)}>
             Show extensions in the toolbar
