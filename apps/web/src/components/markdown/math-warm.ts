@@ -1,3 +1,4 @@
+import { scheduleIdleWork, type IdleScheduler } from "@/lib/idle.ts";
 import amsRegular from "katex/dist/fonts/KaTeX_AMS-Regular.woff2?url";
 import mainRegular from "katex/dist/fonts/KaTeX_Main-Regular.woff2?url";
 import mathItalic from "katex/dist/fonts/KaTeX_Math-Italic.woff2?url";
@@ -59,14 +60,10 @@ export function readWarmHints(): WarmHints {
   };
 }
 
-export interface IdleScheduler {
-  requestIdleCallback?:
-    | ((callback: () => void, options?: { timeout: number }) => number)
-    | undefined;
-  cancelIdle?: ((handle: number) => void) | undefined;
-  setTimeout: (callback: () => void, ms: number) => ReturnType<typeof setTimeout>;
-  clearTimeout: (id: ReturnType<typeof setTimeout>) => void;
-}
+export type { IdleScheduler };
+
+/** Where there is no idle callback, warm shortly after interactivity. */
+const NO_IDLE_WARM_DELAY_MS = 1200;
 
 /**
  * Run `work` once the page is idle (`timeoutMs` bounds the wait), or shortly
@@ -80,28 +77,7 @@ export function scheduleWhenIdle(
   work: () => void,
   timeoutMs = 3000,
 ): () => void {
-  let settled = false;
-  let idleId: number | undefined;
-  let timerId: ReturnType<typeof setTimeout> | undefined;
-  const cancel = () => {
-    settled = true;
-    if (idleId !== undefined) scheduler.cancelIdle?.(idleId);
-    if (timerId !== undefined) scheduler.clearTimeout(timerId);
-  };
-  const run = () => {
-    if (settled) return;
-    settled = true;
-    if (idleId !== undefined) scheduler.cancelIdle?.(idleId);
-    if (timerId !== undefined) scheduler.clearTimeout(timerId);
-    work();
-  };
-  if (scheduler.requestIdleCallback) {
-    idleId = scheduler.requestIdleCallback(run, { timeout: timeoutMs });
-    timerId = scheduler.setTimeout(run, timeoutMs);
-  } else {
-    timerId = scheduler.setTimeout(run, 1200);
-  }
-  return cancel;
+  return scheduleIdleWork(scheduler, work, timeoutMs, NO_IDLE_WARM_DELAY_MS);
 }
 
 const realScheduler = (): IdleScheduler => ({
