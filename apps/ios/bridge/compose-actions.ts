@@ -6,8 +6,9 @@ import { CreateAction, NewThread } from "./new-thread.ts";
 import { ProjectFiles } from "./project-files.ts";
 
 /*
- * The `compose` (New thread, Add project) and `files` (a thread's Files sheet) actions Swift
- * sends, parsed once and routed to their sessions. `false` means the action couldn't be read.
+ * The `compose` (New thread, Add project) and `files` (the Files sheet: a thread's checkout, or
+ * from New thread a project's own folder) actions Swift sends, parsed once and routed to their
+ * sessions. `false` means the action couldn't be read.
  */
 
 const id = z.string().min(1).max(128);
@@ -28,6 +29,7 @@ const ComposeAction = z.discriminatedUnion("kind", [
 ]);
 const FilesAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("open"), threadId: id }),
+  z.object({ kind: z.literal("openProject"), workspaceId: id }),
   z.object({ kind: z.literal("folder"), path: z.string().max(4096) }),
   z.object({ kind: z.literal("search"), query: z.string().max(128) }),
   z.object({ kind: z.literal("preview"), path: z.string().min(1).max(4096) }),
@@ -41,7 +43,9 @@ export class ComposeActions {
   constructor(owner: ClientCore, sink: PatchSink, preview: Preview, now: () => number) {
     this.newThread = new NewThread(owner, sink, preview, now);
     this.search = new ComposeSearch(owner, sink, preview);
-    this.checkout = new ProjectFiles(owner, sink, preview);
+    this.checkout = new ProjectFiles(owner, sink, preview, (workspaceId, query, limit) =>
+      this.search.complete(workspaceId, query, limit),
+    );
   }
   compose(raw: unknown): boolean {
     const parsed = ComposeAction.safeParse(raw);
@@ -85,6 +89,9 @@ export class ComposeActions {
     switch (action.kind) {
       case "open":
         void this.checkout.open(action.threadId);
+        break;
+      case "openProject":
+        void this.checkout.openProject(action.workspaceId);
         break;
       case "folder":
         this.checkout.folder(action.path);

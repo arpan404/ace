@@ -97,9 +97,13 @@ export class FakeServicesWire {
     this.host = context;
     this.providerStatuses = providerStatuses;
     this.history = new FakeHistory(context);
-    this.files = new FakeFilesWire(context);
+    this.files = new FakeFilesWire(context, (id) => this.workspace.projects.get(id) !== undefined);
     this.settings = settings;
-    this.context = new FakeContextWire(context, (threadId) => this.files.paths(threadId));
+    this.context = new FakeContextWire(
+      context,
+      (threadId) => this.files.paths(threadId),
+      (workspaceId) => this.files.projectPaths(workspaceId),
+    );
     this.workspace = new FakeWorkspaceWire(context);
     this.automations = new FakeAutomationWire(
       context.now,

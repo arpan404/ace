@@ -38,6 +38,17 @@ export class FakeCheckout {
       thread.details?.workspaceChange?.uncertain
     )
       throw new Error("BUSY");
+    return this.at(
+      thread.details?.worktree ?? `/fake/${thread.workspaceId}`,
+      thread.workspaceId,
+      path,
+    );
+  }
+  /** A project's own folder: its main checkout, the one threads without a worktree share. */
+  projectKey(workspaceId: string, path: string): string {
+    return this.at(`/fake/${workspaceId}`, workspaceId, path);
+  }
+  private at(root: string, workspaceId: string, path: string): string {
     if (
       path.startsWith("/") ||
       path.includes("\\") ||
@@ -45,7 +56,6 @@ export class FakeCheckout {
       path.split("/").some((part) => part === ".." || part === "." || part === ".git")
     )
       throw new Error("OUTSIDE_WORKSPACE");
-    const root = thread.details?.worktree ?? `/fake/${thread.workspaceId}`;
     if (!this.roots.has(root)) {
       this.roots.add(root);
       this.files.set(`${root}\0.cache`, {
@@ -57,7 +67,7 @@ export class FakeCheckout {
         bytes: new TextEncoder().encode("Ignored build output\n"),
         version: this.version(),
       });
-      for (const [name, text] of Object.entries(checkoutFiles(thread.workspaceId))) {
+      for (const [name, text] of Object.entries(checkoutFiles(workspaceId))) {
         this.files.set(`${root}\0${name}`, {
           bytes: new TextEncoder().encode(text),
           version: this.version(),
@@ -88,7 +98,32 @@ export class FakeCheckout {
     return `file-${++this.sequence}`;
   }
   paths(threadId: string, includeIgnored = false) {
-    const root = this.key(threadId, "");
+    return this.pathsAt(this.key(threadId, ""), includeIgnored);
+  }
+  projectPaths(workspaceId: string): string[] {
+    return this.pathsAt(this.projectKey(workspaceId, ""));
+  }
+  /** One folder's listing under a root key, as the daemon's bounded `list`. */
+  list(root: string, op: Extract<FileOperation, { op: "list" }>) {
+    const paths = this.pathsAt(root).filter(
+      (path) => !op.path || inside(clean(path), clean(op.path)),
+    );
+    return { paths: paths.slice(0, op.limit), truncated: paths.length > op.limit };
+  }
+  /** Put a text file (and its folders) in a project's own folder. */
+  seedProject(workspaceId: string, path: string, text: string): void {
+    const parts = path.split("/");
+    for (let depth = 1; depth < parts.length; depth++) {
+      const folder = this.projectKey(workspaceId, parts.slice(0, depth).join("/"));
+      if (!this.files.has(folder))
+        this.files.set(folder, { bytes: new Uint8Array(), version: this.version(), folder: true });
+    }
+    this.files.set(this.projectKey(workspaceId, path), {
+      bytes: new TextEncoder().encode(text),
+      version: this.version(),
+    });
+  }
+  private pathsAt(root: string, includeIgnored = false) {
     return [...this.files]
       .filter(
         ([key]) =>
@@ -99,12 +134,7 @@ export class FakeCheckout {
   }
   apply(threadId: string, op: FileOperation): unknown {
     const root = this.key(threadId, "");
-    if (op.op === "list") {
-      const paths = this.paths(threadId).filter(
-        (path) => !op.path || inside(clean(path), clean(op.path)),
-      );
-      return { paths: paths.slice(0, op.limit), truncated: paths.length > op.limit };
-    }
+    if (op.op === "list") return this.list(root, op);
     if (op.op === "trash.list") {
       const all = [...this.deleted.values()]
         .filter(

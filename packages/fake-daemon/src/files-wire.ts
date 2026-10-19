@@ -1,4 +1,5 @@
 import {
+  type FileOperation,
   type ReviewComment,
   FilesClientMessage,
   type ClientMessage,
@@ -39,8 +40,14 @@ export class FakeFilesWire {
   private uploads = new Map<string, Upload>();
   private sequence = 0;
   private host: FakeServiceContext;
-  constructor(host: FakeServiceContext) {
+  private registered: (workspaceId: string) => boolean;
+  /** `registered` says whether a project is still in the catalog, for project-scoped reads. */
+  constructor(
+    host: FakeServiceContext,
+    registered: (workspaceId: string) => boolean = () => false,
+  ) {
     this.host = host;
+    this.registered = registered;
     this.checkout = new FakeCheckout(host);
     this.files = this.checkout.files;
   }
@@ -54,8 +61,15 @@ export class FakeFilesWire {
     }
     this.checkout.apply(threadId, { op: "create", path, expected: null, text });
   }
+  /** Put a text file (and its folders) in a project's own folder, which New thread browses. */
+  seedProject(workspaceId: string, path: string, text: string): void {
+    this.checkout.seedProject(workspaceId, path, text);
+  }
   paths(threadId: string): string[] {
     return this.checkout.paths(threadId);
+  }
+  projectPaths(workspaceId: string): string[] {
+    return this.checkout.projectPaths(workspaceId);
   }
   private key(threadId: string, path: string): string {
     return this.checkout.key(threadId, path);
@@ -124,6 +138,63 @@ export class FakeFilesWire {
     const allocate = () => {
       if (channels.size >= 4) throw new Error("BUSY");
       return ++sequence;
+    };
+    /** Stat or open a download of one file, by its key in the fixture's checkouts. */
+    const read = (
+      op: Extract<FileOperation, { op: "download" | "stat" | "artifact.download" }>,
+      threadId: string,
+      key: string,
+      requestId: string,
+    ) => {
+      const file = this.files.get(key);
+      if (!file && op.op === "stat") {
+        // As the daemon: an absent path is a result with no version, not an error.
+        emit({
+          type: "files.result",
+          requestId,
+          value: { path: op.path, version: null },
+        });
+        return;
+      }
+      if (!file) throw new Error("NOT_FOUND");
+      if (op.op === "stat") {
+        emit({
+          type: "files.result",
+          requestId,
+          value: {
+            path: op.path,
+            size: file.bytes.length,
+            version: file.version,
+            type: file.folder ? "directory" : "file",
+          },
+        });
+        return;
+      }
+      if (file.folder) throw new Error("INVALID_PATH");
+      if (
+        (op.offset > 0 && !op.validator) ||
+        (op.validator && op.validator !== file.version) ||
+        op.offset > file.bytes.length
+      )
+        throw new Error("CONFLICT");
+      const channel = allocate();
+      channels.set(channel, {
+        kind: "read",
+        key,
+        threadId,
+        requestId,
+        file,
+        offset: op.offset,
+      });
+      emit({
+        type: "files.ready",
+        requestId,
+        channel,
+        offset: op.offset,
+        size: file.bytes.length,
+        validator: file.version,
+      });
+      return;
     };
     return {
       close() {
@@ -226,59 +297,26 @@ export class FakeFilesWire {
             });
             return;
           }
+          if (message.workspaceId !== undefined) {
+            // As the daemon: a project's own folder is read-only and needs a registered project.
+            const workspaceId = message.workspaceId;
+            if (message.threadId || message.scope) throw new Error("INVALID_MESSAGE");
+            if (op.op !== "list" && op.op !== "stat" && op.op !== "download")
+              throw new Error("FORBIDDEN");
+            if (!this.registered(workspaceId)) throw new Error("NOT_FOUND");
+            if (op.op === "list") {
+              const value = this.checkout.list(this.checkout.projectKey(workspaceId, ""), op);
+              emit({ type: "files.result", requestId: message.requestId, value });
+              return;
+            }
+            read(op, "", this.checkout.projectKey(workspaceId, op.path), message.requestId);
+            return;
+          }
           if (!message.threadId) throw new Error("INVALID_MESSAGE");
           const threadId = message.threadId;
           if (op.op === "download" || op.op === "stat" || op.op === "artifact.download") {
             const path = op.op === "artifact.download" ? `artifacts/${op.artifactId}` : op.path;
-            const key = this.key(threadId, path);
-            const file = this.file(threadId, path, key);
-            if (!file && op.op === "stat") {
-              // As the daemon: an absent path is a result with no version, not an error.
-              emit({
-                type: "files.result",
-                requestId: message.requestId,
-                value: { path: op.path, version: null },
-              });
-              return;
-            }
-            if (!file) throw new Error("NOT_FOUND");
-            if (op.op === "stat") {
-              emit({
-                type: "files.result",
-                requestId: message.requestId,
-                value: {
-                  path: op.path,
-                  size: file.bytes.length,
-                  version: file.version,
-                  type: file.folder ? "directory" : "file",
-                },
-              });
-              return;
-            }
-            if (file.folder) throw new Error("INVALID_PATH");
-            if (
-              (op.offset > 0 && !op.validator) ||
-              (op.validator && op.validator !== file.version) ||
-              op.offset > file.bytes.length
-            )
-              throw new Error("CONFLICT");
-            const channel = allocate();
-            channels.set(channel, {
-              kind: "read",
-              key,
-              threadId,
-              requestId: message.requestId,
-              file,
-              offset: op.offset,
-            });
-            emit({
-              type: "files.ready",
-              requestId: message.requestId,
-              channel,
-              offset: op.offset,
-              size: file.bytes.length,
-              validator: file.version,
-            });
+            read(op, threadId, this.key(threadId, path), message.requestId);
             return;
           }
           if (op.op === "upload.begin" || op.op === "upload.resume") {
