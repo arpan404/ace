@@ -123,7 +123,7 @@ final class NativeHost: @unchecked Sendable {
                 runtime?.execute { context in context.objectForKeyedSubscript("aceSocket")?.call(withArguments: [id, "close", "4003"]) }
                 return
             }
-            let socket = PinnedSocket(target: target, now: services.now) { type, value in
+            let socket = PinnedSocket(target: target, now: services.now, streams: runtime?.browserStreams) { type, value in
                 runtime?.execute { context in
                     context.objectForKeyedSubscript("aceSocket")?.call(withArguments: [id, type, value])
                 }

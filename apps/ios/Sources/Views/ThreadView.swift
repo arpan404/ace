@@ -15,6 +15,7 @@ struct ThreadView: View {
     @State private var showTools = false
     @State private var activityProblem: String?
     @State private var showChanges = false
+    @State private var showBrowser = false
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
     private var metadata: ThreadRow? { thread.metadata ?? thread.placeholder?.metadata ?? model.inbox[thread.id] }
@@ -81,7 +82,8 @@ struct ThreadView: View {
                         case "elicitation":
                             FormRequestCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
                         case "browser_help":
-                            BrowserHelpCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
+                            BrowserHelpCard(interaction: request, submission: submission, canAct: model.canOperate,
+                                            openBrowser: { showBrowser = true }) { model.resolve(request, answer: $0) }.id(request.id)
                         default:
                             ApprovalCard(approval: request, submission: submission, canAct: model.canOperate) { model.approve(request, option: $0) }
                         }
@@ -139,6 +141,12 @@ struct ThreadView: View {
                 ModelPickerSheet(screen: screen, load: { model.requestModels() }, choose: { await model.switchModel($0) })
             }
             .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
+            // The agent may open its browser after the thread was opened: ask again as it works.
+            .onChange(of: metadata?.state) { model.probeBrowser() }
+            .fullScreenCover(isPresented: $showBrowser) {
+                let help = thread.approvals.first { $0.kind == "browser_help" }
+                BrowserLiveView(model: model, help: help) { answer in if let help { model.resolve(help, answer: answer) } }
+            }
             #if DEBUG
             .overlay(alignment: .topLeading) {
                 if SpikeConfiguration.enabled && ProcessInfo.processInfo.arguments.contains("--spike-metrics") {
@@ -186,6 +194,9 @@ struct ThreadView: View {
             }
             if !archived { Button("Archive", systemImage: "archivebox") { Task { if await model.archive(thread.id) { dismiss() } } } }
             Button("Files", systemImage: "folder") { showFiles = true }.accessibilityIdentifier("thread.files")
+            if model.threadHasBrowser {
+                Button("Browser", systemImage: "safari") { showBrowser = true }.accessibilityIdentifier("thread.browser")
+            }
             Divider()
             Button("Connection details", systemImage: "network") { showDetails = true }
         } label: { Image(systemName: "ellipsis") }

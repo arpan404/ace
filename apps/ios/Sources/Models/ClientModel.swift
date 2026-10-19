@@ -53,6 +53,8 @@ import CryptoKit
     let compose = ComposeModel()
     let files = ThreadFilesModel()
     let terminal = TerminalScreenModel()
+    /// The open thread's live browser view (`Sources/Browser`, `bridge/browser-live.ts`).
+    let browser = BrowserLiveModel()
     @ObservationIgnored private var generation = 0
     /// Confirmation fence: the newest activity generation the bridge has reported, on any
     /// connection or inbox row. Older confirmed rows read as unconfirmed until their snapshot
@@ -212,6 +214,7 @@ import CryptoKit
             case .files(let patch): files.apply(patch)
             case .screen(let id, let epoch, let screen):
                 if let thread, thread.id == id, thread.epoch == epoch { thread.screen.apply(screen) }
+            case .browser(let patch): browser.apply(patch)
             }
         }
         thread?.screen.commit()
@@ -226,13 +229,19 @@ import CryptoKit
     func open(_ id: String) {
         generation += 1
         sheets.reset()
+        browser.close(streams: runtime?.browserStreams)
         let opened = ThreadModel(id: id)
         opened.epoch = generation
         opened.placeholder = trail.reopen(id, leaving: thread)
         thread = opened
         action(["type": "open", "threadId": id])
     }
-    func back() { generation += 1; action(["type": "back"]); thread = nil; trail.clear(); sheets.reset() }
+    func back() {
+        generation += 1; action(["type": "back"]); thread = nil; trail.clear(); sheets.reset()
+        browser.close(streams: runtime?.browserStreams)
+    }
+    /// Where this runtime's sockets deliver browser pictures (`ClientModel+Browser.swift`).
+    var browserStreams: BrowserStreamHub? { runtime?.browserStreams }
     /// A sheet action for the open thread (`bridge/sheets.ts`).
     @discardableResult func sheet(_ value: [String: Any]) -> Bool { action(["type": "sheet", "action": value]) }
     /// Durable stop through the SDK's outbox: true once admitted on this device. `agentId` nil
@@ -324,6 +333,7 @@ import CryptoKit
         services.cancel()
         admissions.cancel()
         approvalSubmissions = [:]; approvalRequests = [:]
+        browser.close(streams: runtime?.browserStreams)
         guard let runtime else { return shutdown }
         self.runtime = nil
         let previous = shutdown

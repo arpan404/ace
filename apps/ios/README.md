@@ -186,6 +186,35 @@ remove stops only that machine's runtime, then deletes its credential and databa
 with `ACE_IOS_SPIKE_PORT=<port> ACE_IOS_SPIKE_MACHINE=1 bun run spike:daemon` so each is
 its own host. `MachinesUITests` uses those two ports.
 
+## Live browser
+
+Issue #1061, on the remote view protocol of [ADR 0088](../../docs/adr/0088-remote-browser-view-v2.md).
+A thread's menu shows Browser while its browser has a tab open (`browser.tabs.list`, asked when the
+thread opens and again as its state changes), and a browser request's card has Open browser. Both
+open `Views/Browser/BrowserLiveView` full screen; the request's Done is offered there too.
+
+- `bridge/browser-live.ts` subscribes (`browser.subscribe` with `binaryFrames`, the view's size and
+  scale, and `video: avc1.42E033`), lays the page out at the view's size as a touch screen
+  (`resize` with `touch` and the screen's scale), subscribes again after a tab, backend or
+  connection change, and sends the shown tab's `browser.page` state and the person's input.
+  The transport now reports binary support.
+- Pictures never enter JavaScriptCore. `PinnedSocket` routes `ACES` stream pieces to
+  `Sources/Browser`: `StreamAssembler` and `BrowserStreamMessage` read kinds 1 (JPEG) and 2
+  (H.264); downloads (kind 8) and unknown kinds are skipped; any other binary message goes to the
+  SDK. `BrowserRenderer` decodes on its own queue (ImageIO for JPEG, VideoToolbox through
+  `H264Decoder` from the keyframe's `avcC`) and shows pictures on an `AVSampleBufferDisplayLayer`.
+  Each picture is acknowledged once shown (`browser.ack`, video cumulatively); a delta before a
+  keyframe is acknowledged at once, a decode error asks for a keyframe (`VideoChunkGate`), and
+  acknowledgements wait while the app is in the background.
+- Fingers go to the page as touch points (`TouchTracker`), so tap, drag-scroll and pinch are the
+  page's own. A hidden `UITextField` over the focused field brings up the keyboard the field asks
+  for (`KeyboardStyle`); `RemoteTyping` replays its edits as Backspace, Delete and text, and IME
+  composition as marked text. Select, date, time, month, week and colour pickers open native
+  pickers and answer with `pick` (`PickerValues`, in UTC). Tooltips show over the page.
+- Tests: `BrowserStreamTests` (pieces written by the daemon's encoder), `BrowserInputTests`,
+  `H264DecodeTests` (real VideoToolbox frames), `BrowserLiveTests`, and
+  `bunx vitest run apps/ios/bridge/browser-live.test.ts` on the fake daemon.
+
 ## Agents and Changes sheets
 
 The thread header opens two detent sheets (`Views/Agents`, `Views/Changes`). The bridge
