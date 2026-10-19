@@ -11,7 +11,8 @@
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
-    "bench": "node bench/frames.ts"
+    "bench": "node bench/frames.ts",
+    "build:android-ui-helper": "node src/android-ui-helper/build.ts"
   },
   "dependencies": {
     "@ace/browser": "workspace:*",

@@ -76,12 +76,33 @@ and `emulator/emulator` by absolute path. adb need not be on PATH. iOS uses
 can still show one platform when the other SDK is missing; typed diagnostics
 contain a fix hint. Physical devices are excluded.
 
-Android capture pipes `adb exec-out screenrecord --output-format=h264` into
-ffmpeg. The pipe applies backpressure before decoding; independent JPEG frames
-can then skip intermediate images safely. ffmpeg must be on the daemon's PATH.
-Identical decoded images are suppressed and the finite screenrecord process
-restarts at its native boundary. Actual image compatibility, latency and CPU
-cost require live verification at merge. No emulator gRPC endpoint is assumed.
+Android capture speaks the scrcpy protocol (Apache-2.0) with ace's own client,
+written from scrcpy's `doc/develop.md` and the documented message layouts. The
+pinned upstream `scrcpy-server` v5.0.1 is downloaded on first use into
+`<ACE_HOME>/tools` and checked against its SHA-256; `ACE_SCRCPY_SERVER` may name a
+verified local copy. It is pushed with adb and started with `app_process` (video on,
+audio off, control on) behind an `adb forward` tunnel. The emulator's own H.264 is
+passed through to viewers with its parameter sets in front of every keyframe; a
+keyframe request resets the device encoder; size, frame rate and bitrate come from
+the shared stream profile. There is no time limit and no ffmpeg in the live view.
+JPEG viewers, screenshots and recordings decode that H.264 once through ffmpeg;
+without ffmpeg every viewer stays on H.264. Input goes over the control socket:
+multi-touch with pointer ids (`pointer.pointerId`), keys including back, home and
+recents, rotation, and text. Printable ASCII is injected as text; anything else
+(accents, emoji) is pasted through the device clipboard and the action completes
+when the device acknowledges it, so it replaces the emulator's clipboard. When the
+server cannot start, capture falls back to `adb exec-out screenrecord` into ffmpeg
+(JPEG, restarted at screenrecord's time limit, input through `adb shell input`).
+`ACE_ANDROID_SCRCPY=off` forces that fallback.
+
+Android UI trees come from ace's own long-running UiAutomation reader
+(`src/android-ui-helper/`, a 4 KB dex built from `Main.java` with the SDK's javac
+and d8: `bun run --filter @ace/devices build:android-ui-helper`). It is pushed and
+started with `app_process`, answers each read over adb's stdio in tens of
+milliseconds, and exits after 30 seconds idle so test runners can take UiAutomation.
+If it cannot start or read the screen, `uiautomator dump` is used.
+`ACE_ANDROID_UI_HELPER=off` disables it. Both run only when the daemon gives the
+platform a tools directory.
 
 iOS prefers a pinned `serve-sim` (0.1.47 or 0.1.48; install with
 `npm install -g serve-sim@0.1.48`, or point `ACE_SERVE_SIM` at it). ace spawns
@@ -113,8 +134,9 @@ Both platforms support boot/shutdown, app launch, URL/deep links, light/dark
 appearance and location. iOS installs Simulator-built `.app` bundles; `.ipa`
 receives an explicit unsupported error with an extraction/build hint. Android
 installs `.apk` files. Runtime locale changes receive an unsupported error and a
-Settings hint. Android CLI text input accepts printable ASCII and rejects
-Unicode and the special `%s` sequence rather than corrupting it. Android semantic
+Settings hint. The screenrecord fallback's `adb shell input` text accepts printable
+ASCII and rejects Unicode and the special `%s` sequence rather than corrupting it,
+and accepts one finger only. Android semantic
 actions validate a fresh accessibility ref and disclose coordinate fallback.
 iOS back/power keys are unsupported; home, rotate and enter use Simulator keys.
 

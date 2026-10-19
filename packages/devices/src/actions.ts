@@ -29,6 +29,16 @@ export async function performDeviceAction(
       await platform.configure(session.device, operation.settings, guard);
       break;
     case "input":
+      if (
+        operation.input.kind === "pointer" &&
+        operation.input.pointerId &&
+        !session.capture?.multiTouch
+      )
+        throw new DeviceError(
+          "not_supported",
+          "This device view supports one finger",
+          "Send pointer input without a pointerId, or use one finger.",
+        );
       if (session.capture?.input) {
         await session.capture.input(operation.input, guard);
         break;

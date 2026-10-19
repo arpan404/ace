@@ -46,6 +46,16 @@ processes implement lifecycle and app operations. Android accessibility dumps ma
 to ADR 0011 v2 nodes and refs; actions refresh and validate their target before
 synthesizing input, and report that fallback explicitly.
 
+Update (2026-10-19, #1103): Android capture now speaks the scrcpy protocol with
+ace's own client and the pinned upstream scrcpy-server (Apache-2.0), downloaded on
+first use into ace's home and verified by SHA-256. It is an external, pinned binary
+like serve-sim; ace's code is written from scrcpy's documentation. The device's H.264
+is passed through, input uses scrcpy's control socket (multi-touch, Unicode by paste,
+clipboard, rotation), and UI trees come from ace's own long-running UiAutomation
+helper started with `app_process`. The screenrecord pipeline below remains the
+fallback when the server cannot start, and `uiautomator dump` remains the tree
+fallback.
+
 Android capture uses an owned `adb exec-out screenrecord` H.264 process connected
 with stream backpressure to an owned ffmpeg JPEG decoder. Independent JPEG frames
 reuse `FrameHub`, `framePacket` and `Recording` from `@ace/screen`. Dropping the
