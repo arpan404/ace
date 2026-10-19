@@ -1,6 +1,8 @@
 # 0073: Native mobile clients share the headless SDK and design tokens
 
-Date: 2026-10-11. Status: accepted stack and Phase 0 evidence; performance gate held.
+Date: 2026-10-11. Status: accepted stack. The Phase 0 spikes (#565 Android, #567 iOS) merged on
+2026-10-12. iOS Phase 1 is built on `ace/ios-mvp` ([ADR 0074](0074-native-ios-client.md)).
+Real-device performance measurement is still owed on both platforms.
 
 ## Context
 
@@ -71,9 +73,9 @@ notification and durable-command paths from ADR 0012.
 
 ## Phase 0 outcome
 
-The owner accepts #565 as Phase 0 evidence, matching iOS #567. It remains an
-unmerged draft with the gate held. Phase 1 waits for the owner and real-device
-measurements. [The measurement report](../verification/android-phase0/README.md)
+The owner accepts #565 as Phase 0 evidence, matching iOS #567. Both merged on
+2026-10-12. iOS Phase 1 is now built on `ace/ios-mvp`; Android stays at its Phase 0
+scope. Real-device measurements are still owed before either performance gate passes. [The measurement report](../verification/android-phase0/README.md)
 records methods, raw numbers and screenshots.
 
 Proven in the measured emulator scope:

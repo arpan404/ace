@@ -1,6 +1,8 @@
 # 0074: Native iOS client on the shared SDK through JavaScriptCore
 
-Date: 2026-10-12. Status: Phase 0 evidence accepted; smoothness gate not passed. Phase 1 held.
+Date: 2026-10-12. Status: accepted. The Phase 0 spike (#567) merged on 2026-10-12; Phase 1 is
+built on `ace/ios-mvp`. The smoothness gate is still open: real-device performance measurement
+is owed.
 Amends [ADR 0003](0003-runtime-and-tooling.md). Refs #560.
 
 ## Phase 0 outcome
@@ -15,9 +17,9 @@ relaunch after daemon admission with a lost receipt now have the follow-up
 functional verification below; they do not release the performance gate.
 
 The rejection-versus-newer-update race was fixed in `8aae02b70` after round 4.
-Its regressions pass, but the fix has not been re-reviewed. PR #567 remains draft
-and unmerged, with `Refs #560` and the performance gate held. Phase 1 waits for the
-owner's go-ahead and real-device measurements.
+PR #567 merged on 2026-10-12 with `Refs #560`. The owner then lifted the Phase 1 hold
+for features (see [Phase 1 status](#phase-1-status-2026-10-18)); the performance gate
+itself stays open until real-device measurements exist.
 
 ## Decision and ownership
 
@@ -256,6 +258,7 @@ the maintainer's approval before implementation. This spike introduces neither.
 
 ## Gate disposition
 
+Superseded on 2026-10-12, when #567 merged and Phase 1 began; kept as the Phase 0 record.
 Stop at Phase 0 and submit the work and measurements for review. Keep the requested
 SwiftUI/JavaScriptCore implementation available for another measured run. Establish
 render FPS/hitches on a supported device or instrumentation path and complete the
@@ -277,6 +280,23 @@ grants, a wrong pin and a refused redirect (the code stays unredeemed in both), 
 unreachable host. A physical phone over Tailscale remains unverified.
 `offlineInputSurvivesRuntimeDestructionAndIsAdmittedOnce` fails on the base commit
 `95a097ea7` too, so this work did not cause it.
+
+## Phase 1 status, 2026-10-18
+
+Phase 1 is built on `ace/ios-mvp`; [the app's README](../../apps/ios/README.md) describes each
+part. Every paired machine connects at once on its own runtime and the inbox merges them with
+the shared mobile grouping. Threads show the web's transcript blocks, full steps of finished
+turns, question, approval, plan, form and browser cards, effort and speed, attachments and the
+queue. The Agents, Changes, Files and Machines sheets, New thread (project, worktree and base,
+agent and model, effort, speed, access, first-message files, project browsing), archive,
+settings, local notifications ([ADR 0087](0087-ios-local-notifications.md)) and the
+accessibility audit are in place. Shared logic lives in `@ace/ui-core`, `@ace/ui-core/mobile`
+and `@ace/client`; Swift draws what the bridge sends.
+
+All verification so far ran in the simulator against the spike fixture and a real daemon's
+TLS listener on loopback. Still owed: render FPS, hitches and input latency on a physical
+phone, a physical phone paired over Tailscale, and daemon-restart durability. Remote push and
+Live Activities remain deferred.
 
 ## Primary references
 

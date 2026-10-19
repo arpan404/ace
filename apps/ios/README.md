@@ -1,8 +1,9 @@
-# Native iOS spike
+# Native iOS app
 
-Phase 0 of #560. SwiftUI runs the shared `@ace/client` SDK in JavaScriptCore on a
-dedicated thread. See [ADR 0074](../../docs/adr/0074-native-ios-client.md) for the
-measured gate and current hold on Phase 1.
+Issue #560. SwiftUI runs the shared `@ace/client` SDK in JavaScriptCore on a dedicated
+thread, one runtime per paired machine. The Phase 0 spike merged on 2026-10-12 and Phase 1
+is built on `ace/ios-mvp`; see [ADR 0074](../../docs/adr/0074-native-ios-client.md). All
+verification so far is in the simulator: real-device performance measurement is still owed.
 
 The [Tailscale roadmap](../../docs/mobile/tailscale-roadmap.md) maps shared features
 and the future native pairing flow for iOS and Android.
@@ -128,11 +129,15 @@ behavior tests run with `bunx vitest run apps/ios/bridge/thread-*.test.ts` (shar
 Plan reviews, MCP forms and browser requests answer on their own cards
 (`bridge/thread-requests.ts`, validated with the shared `@ace/ui-core` form rules). An opened
 settled "Worked for" log reads its turn's full steps (`turn.steps` through the SDK's bounded
-`TurnStepsCache`), sent in 25-step page patches. The effort and speed chip follows the web's
+`TurnStepsCache`), sent in 25-step page patches. While the log is open, a change to one of the
+turn's own items reads the turn's summary (`turns.page`) and holds the turn with its `endSeq`, so
+the cache reads it again only when its copy is older, as the web does. The effort and speed chip follows the web's
 capability rules (`threadTuning`, `followUpTurnOptions` in `@ace/ui-core`); a pick goes with the next
 message only. Photos and files are staged natively (`Sources/Bridge/AttachmentStaging.swift`,
 hashed with CryptoKit); the bridge checks the shared limits and what the agent reads, then uploads
 through `context.request`, pulling one 48 KiB chunk at a time over the `attachment.chunk` host call.
+A message may carry only files (`messageHasContent`, as the web composer allows); refusals use the
+web's wording (`contextErrorMessage`).
 A native subagent's lane sheet groups its own blocks (`createBlockReader(agentId)`). Going back from
 a child keeps the parent's last transcript (`ThreadTrail`) until the reopened session's first block.
 Request threads live in `scripts/request-scenarios.ts`; `POST /review/fresh {"scenario": …}` seeds a
@@ -140,12 +145,10 @@ new one per contract test, so suites pass in any order.
 
 ## Scope
 
-The app currently connects through an explicit debug launch argument. Release builds
-cannot use the unpinned loopback fixture. Production targets require WSS and an exact
-QR-confirmed SHA-256 DER SPKI pin; redirects are refused. Actual paired TLS, ticket
-exchange, QR onboarding, Keychain, Face ID, multi-machine UI, Agents and Changes
-remain Phase 1 work. SPKI adapter implementation is present; it has not been
-validated against a real paired daemon in this spike.
+`--spike` (Debug only) connects to the unpinned loopback fixture; release builds require WSS
+and an exact QR-confirmed SHA-256 DER SPKI pin, and refuse redirects. Pairing, Keychain, Face
+ID, several machines, Agents, Changes, Files, New thread and notifications are described
+below. A physical phone over Tailscale and real-device performance are still unverified.
 
 ## Inbox
 
@@ -208,16 +211,34 @@ tree, a running background command, usage, and a three-file diff. The diff inclu
 
 The inbox header's compose button opens New thread (`Views/NewThread`). It follows the web's
 New thread: machine (when several are paired), project, an optional new worktree with its base
-(`baseOptions`, `defaultWorktreeBase`), coding agent and model, then the first message. The
-bridge (`bridge/new-thread.ts`) reads projects (`workspaces.list`, recent first by thread
-activity via `newThreadProjects`), the machine's agents (`providers.request` readiness,
-`accounts.list` and the paged `models.list` reader shared with the web), and judges each with
-`newThreadAgents`: one that isn't installed, is signed out or needs attention stays listed,
-disabled, with its reason. It builds `thread.create` with the web's `createPayload` and admits
-it through the SDK outbox under the draft's own command id, so sending the same draft again,
-including after the app was killed, replays one command. The draft (choices and words, never a
-token) lives in `Application Support/ace/new-thread-draft.json`. Once the receipt names the
-thread and its row arrives, it opens; offline, it waits in Unsent.
+(`baseOptions`, `defaultWorktreeBase`), coding agent and model, reasoning effort, speed, access,
+then the first message with any photos or files. The bridge (`bridge/new-thread.ts`) reads
+projects (`workspaces.list`, recent first by thread activity via `newThreadProjects`), the
+machine's agents (`providers.request` readiness, `accounts.list` and the paged `models.list`
+reader shared with the web), and judges each with `newThreadAgents`: one that isn't installed,
+is signed out or needs attention stays listed, disabled, with its reason. The agent picker groups
+models by agent and leads with the model in use (else the account's default); the rest of a long
+list waits behind More models (`newThreadModelList`). Swift tells the bridge what the draft has
+chosen (`choice`), so ordering and access follow it.
+
+- **Speed** offers the tiers the model lists and goes out as `serviceTier`
+  (`selectNewThreadAgent`). **Access** (`bridge/new-thread-access.ts`) reads the daemon's
+  default (`access.defaultMode`) and the chosen account's modes (`permissions.capabilities`),
+  and applies the web's rule, now shared as `newThreadAccess`: the draft's pick, else the
+  project's default, else the daemon's, run as the nearest stricter mode the agent supports. A
+  mode with nothing as strict holds Start with the reason.
+- **First-message files** upload into the project's draft scope (`draft.upload.begin`) through
+  the same `AttachmentTray` as a thread's composer, one 48 KiB chunk at a time. The create
+  carries their `draftId` and hashes, and the new thread takes the scope over, so closing the
+  sheet afterwards releases nothing. A first message of only files can start a thread; one with
+  neither words nor files is refused. Files picked before the app is killed are not kept.
+- Upload and attachment refusals use the web's wording (`contextErrorMessage` in `@ace/ui-core`).
+
+The bridge builds `thread.create` with the web's `createPayload` and admits it through the SDK
+outbox under the draft's own command id, so sending the same draft again, including after the
+app was killed, replays one command. The draft (choices and words, never a token) lives in
+`Application Support/ace/new-thread-draft.json`. Once the receipt names the thread and its row
+arrives, it opens; offline, it waits in Unsent.
 
 `@` mentions insert `@path`, as the web's composer does. Before a thread exists they search a
 device-owned draft scope (`draft.create`, `draft.mention.complete`). Add project searches the
@@ -228,8 +249,10 @@ A thread's menu opens Files (`bridge/project-files.ts`, `Views/Files`): the daem
 the thread's checkout (at most 1,000 paths) shown one folder at a time, 200 rows each with the
 rest counted, search through `mention.complete`, and a read-only SF Mono preview of at most
 128 KiB, 2,000 lines and 96,000 UTF-16 units, past which it says to view the rest on the
-computer. The protocol only lists files inside a thread's checkout, so New thread offers file
-search, not browsing. View-only machines browse but start nothing. `scripts/project-scenario.ts`
+computer. New thread's Browse files opens the same sheet on the chosen project's own folder
+before any thread exists: `files.request` with a `workspaceId` lists, stats and downloads
+read-only inside the registered project root, under the device's read grant (`list`, `stat`
+and `download` only). View-only machines browse but start nothing. `scripts/project-scenario.ts`
 seeds host folders, a 240-file folder and a large log in `ios-done`.
 
 ## Pairing with a real daemon
@@ -274,10 +297,10 @@ loopback, plus a redirect trap that holds the daemon's own key. It writes
 `-only-testing:AceTests/RealDaemonPairingTests` with `test-without-building`; codes
 expire in five minutes. These tests skip when the config is absent.
 
-## Scope
+## Connection lifecycle
 
 `--spike` (Debug only) keeps the unpinned loopback fixture. Release builds require WSS
-and an exact pin. A real device over Tailscale and questions are still to come.
+and an exact pin. A real device over Tailscale is still to be verified.
 
 Connection replacement now awaits old-runtime shutdown, clears host-specific views
 and rejects its late updates/errors. Concurrent replacements select the newest
