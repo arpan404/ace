@@ -73,7 +73,7 @@ export async function networkIdle(
   if (!pending) throw new BrowserActionError("not_supported");
   /** When this wait first saw each request in flight. */
   const seen = new Map<string, number>();
-  let quietSince = clock.now();
+  let quietSince: number | undefined = clock.now();
   for (;;) {
     signal.throwIfAborted();
     const now = clock.now();
@@ -85,7 +85,10 @@ export async function networkIdle(
       seen.set(id, since);
       if (now - since < lastingRequestMs) busy = true;
     }
-    if (busy) quietSince = now;
+    // Quiet counts from the first look that finds nothing in flight, never from the last busy
+    // one: the requests may have ended any time up to this look.
+    if (busy) quietSince = undefined;
+    else if (quietSince === undefined) quietSince = now;
     else if (now - quietSince >= networkQuietMs) return;
     await pause(clock, pollMs, signal);
   }
