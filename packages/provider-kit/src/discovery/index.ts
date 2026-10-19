@@ -38,7 +38,7 @@ const specs = {
     command: "claude",
     authArgs: ["auth", "status"],
     parse: parseClaudeAuth,
-    loginHint: "claude, then /login",
+    loginHint: "claude auth login",
   },
   codex: {
     command: "codex",

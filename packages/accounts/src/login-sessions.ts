@@ -4,7 +4,7 @@ import { ProviderLoginFailure } from "./login-failure.ts";
 
 export type LoginUpdate = Pick<
   ProviderLoginProgress,
-  "state" | "url" | "userCode" | "prompt" | "choices" | "message" | "hint" | "manual"
+  "state" | "url" | "userCode" | "prompt" | "choices" | "message" | "hint" | "manual" | "codeEntry"
 >;
 export interface ProviderLoginDriver {
   manual?: ProviderLoginProgress["manual"];
@@ -100,6 +100,18 @@ export class ProviderLoginSessions {
     } finally {
       if (request?.type === "provider.login.apiKey") request.apiKey = "";
       if (typeof input === "object" && input !== null && "apiKey" in input) input.apiKey = "";
+      // A pasted sign-in code answers the CLI once; no copy outlives the request.
+      if (request?.type === "provider.login.input" && "code" in request.input)
+        request.input.code = "";
+      if (
+        typeof input === "object" &&
+        input !== null &&
+        "input" in input &&
+        typeof input.input === "object" &&
+        input.input !== null &&
+        "code" in input.input
+      )
+        input.input.code = "";
     }
   }
   private async dispatch(
@@ -232,8 +244,12 @@ export class ProviderLoginSessions {
         if (!accepted) key.fill(0);
       }
     } else if (request.type === "provider.login.input") {
-      if (job.progress.state !== "awaiting_input" || !job.driver?.input?.(request.input))
-        return failure("invalid_input");
+      // A code is taken only while the CLI waits for one; other input only at a prompt.
+      const expected =
+        "code" in request.input
+          ? job.progress.codeEntry === true
+          : job.progress.state === "awaiting_input";
+      if (!expected || !job.driver?.input?.(request.input)) return failure("invalid_input");
     }
     return reply(job);
   }

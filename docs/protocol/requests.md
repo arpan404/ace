@@ -453,7 +453,7 @@ Example:
 ```json
 {
   "input": {
-    "choice": "vh4h1j9"
+    "code": "kM#NuP7-ASJy"
   },
   "requestId": "example",
   "session": "example",
@@ -476,9 +476,8 @@ Example:
 
 ```json
 {
-  "acpAgentId": "official:i8tezohr8",
-  "agent": "qwen-code",
-  "provider": "pi",
+  "agent": "claude-acp",
+  "provider": "opencode",
   "requestId": "example",
   "type": "provider.install.plan"
 }

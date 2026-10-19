@@ -8,6 +8,8 @@ const claudeEndpoints = [
   ["claude.com", /^\/cai\/oauth\/authorize\/?$/],
 ] as const;
 const cursorEndpoints = [["cursor.com", /^\/(?:login|loginDeepControl)\/?$/]] as const;
+/** Claude's paste-code page: it shows `code#state` for the person to paste back into the CLI. */
+const claudeCodeCallback = "https://platform.claude.com/oauth/code/callback";
 
 /** Only reviewed verification/authorization endpoints may cross the wire. */
 export function loginUrl(provider: ProviderKind, candidate: string): string | undefined {
@@ -58,7 +60,7 @@ export function loginUrl(provider: ProviderKind, candidate: string): string | un
     "code_challenge_method",
     "audience",
     "originator",
-    ...(provider === "claude" ? ["code"] : []),
+    ...(provider === "claude" ? ["code", "login_hint", "login_method", "orgUUID"] : []),
     ...(provider === "opencode" ? ["user_code"] : []),
     ...(provider === "pi" ? ["agent_name", "device_id", "agent_host_id", "prompt", "code"] : []),
     ...(provider === "acp" || provider === "antigravity"
@@ -72,6 +74,8 @@ export function loginUrl(provider: ProviderKind, candidate: string): string | un
     if (key === "redirectTarget" && value !== "sdk") return;
     if (key === "code" && value !== "true") return;
     if (key === "redirect_uri") {
+      // The one remote redirect: Claude's own paste-code page, whose code returns to the CLI.
+      if (provider === "claude" && value === claudeCodeCallback) continue;
       let redirect: URL;
       try {
         redirect = new URL(value);
@@ -116,10 +120,20 @@ export function loginObservation(
   text: string,
 ): LoginObservation | undefined {
   if (provider === "claude") {
-    // Claude Code opens the browser itself and waits on localhost for the callback.
-    if (/opening browser to sign in/i.test(text)) return { state: "awaiting_browser" };
-    // Its paste prompt is only a fallback; the CLI keeps waiting for the browser meanwhile.
-    if (/paste code here if prompted/i.test(text)) return;
+    // Claude Code opens the browser itself and waits on localhost for the callback, while its
+    // stdin takes the code its fallback page shows.
+    if (/opening browser to sign in/i.test(text))
+      return { state: "awaiting_browser", codeEntry: true };
+    // Its paste prompt is a fallback while it keeps waiting for the browser: the code its page
+    // shows can be pasted back from any device.
+    if (/paste code here if prompted/i.test(text))
+      return { state: "awaiting_browser", codeEntry: true };
+    if (/^\s*(?:invalid code|that code is not from this sign-in)/i.test(text))
+      return {
+        state: "awaiting_browser",
+        codeEntry: true,
+        message: "That code didn't work. Copy the whole code from the page and paste it again.",
+      };
   }
   if (
     /(?:api[ _-]?key|access[ _-]?token|refresh[ _-]?token|(?:authorization|oauth) code|paste.*code)/i.test(
