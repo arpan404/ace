@@ -63,12 +63,20 @@ export interface CliLoginOptions {
   openTerminal?: PiLoginOptions["openTerminal"];
   assertCurrent?(): void;
   onIntegration?(id: string): void;
+  /** OpenCode's own server for a browser sign-in in ace's dialog. */
+  openCodeSignIn?(
+    signal: AbortSignal,
+  ): Promise<import("@ace/adapter-opencode/sign-in").OpenCodeSignIn>;
 }
 /** PTY output has no scrollback or logging. Only finite, reviewed observations leave here. */
 export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
   const { provider, action, help } = options;
   if (provider === "pi") return piLoginDriver(options);
-  if (provider === "opencode") return openCodeLoginDriver(options);
+  if (provider === "opencode")
+    return openCodeLoginDriver({
+      ...options,
+      ...(options.openCodeSignIn ? { signIn: options.openCodeSignIn } : {}),
+    });
   const manual = manualLogin(provider, action, options.instance);
   let live: ReturnType<TerminalManager["openLiveTerminal"]> | undefined;
   let enter: (() => void) | undefined;

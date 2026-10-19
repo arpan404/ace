@@ -49,6 +49,7 @@ const signedIn = () => fs.existsSync(home + '/cli-credential');
 if (args[0] === '--version') console.log(${JSON.stringify(provider === "codex" ? "codex-cli 0.159.1" : "2.0.30")});
 else if (args.includes('--help')) console.log('login logout --with-api-key --device-auth --standalone');
 else if (args.join(' ') === 'login status' || args.includes('list')) console.log(${provider === "codex" ? "signedIn() ? 'Logged in using ChatGPT' : 'Not logged in'" : "JSON.stringify([{id:'github-copilot',connections:signedIn() ? [{type:'credential'}] : []}, ...(fs.existsSync(home + '/other-credential') ? [{id:'anthropic',connections:[{type:'credential'}]}] : [])])"});
+else if (args[0] === 'serve') process.exit(1);
 else if (args[0] === 'app-server') readline.createInterface({input:process.stdin}).on('line', line => {
   const request = JSON.parse(line); if (request.id === undefined) return;
   const result = request.method === 'model/list' ? {data:[{id:'fixture',model:'configured-login-model',displayName:'Fixture',isDefault:true,supportedReasoningEfforts:[],defaultReasoningEffort:'high'}],nextCursor:null} : {};

@@ -27,6 +27,7 @@ import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import type { ServiceContext } from "./types.ts";
 
 import { apiKeyLoginDriver, apiKeySupport } from "../provider-api-key.ts";
+import { openOpenCodeSignIn } from "@ace/adapter-opencode/sign-in";
 import { cursorApiKeyEntry } from "@ace/adapter-cursor/auth";
 
 const cursorSdkMissing =
@@ -301,6 +302,17 @@ export async function prepareProviderLogin(
             help,
             cwd: instance.implicit ? config.dataDir : instance.homeDir,
             env,
+            ...(target.provider === "opencode"
+              ? {
+                  openCodeSignIn: (signIn: AbortSignal) =>
+                    openOpenCodeSignIn({
+                      command: executable,
+                      env,
+                      cwd: instance.implicit ? config.dataDir : instance.homeDir,
+                      signal: signIn,
+                    }),
+                }
+              : {}),
             manager,
             assertCurrent,
             ...(management
