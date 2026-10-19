@@ -1,11 +1,14 @@
 // oxlint-disable react/no-array-index-key -- tokens and text runs have no identity; position is it.
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import type { LineMark } from "@ace/ui-core";
+import { memo, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { tokensFit } from "@/components/markdown/code-lines.ts";
 import { CodeTokens } from "@/components/markdown/code-tokens.tsx";
-import { useCodeLines } from "@/components/markdown/use-code-lines.ts";
+import { useLatestCodeLines } from "@/components/markdown/use-code-lines.ts";
 import { LongRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { cn } from "@/lib/cn.ts";
 
 import type { FindHit } from "./find-hits.ts";
+import { useSettled } from "./use-checkout.ts";
 export { findHits, type FindHit } from "./find-hits.ts";
 
 /** A line with each occurrence of `query` marked, the current one stronger. */
@@ -41,12 +44,25 @@ function reveal(box: HTMLElement | null, handle: VirtualRowsHandle | null, index
 
 export const sourceGutter = (lines: number) => Math.max(48, String(lines).length * 8 + 24);
 
+/** The diff view's colours: new text green at the gutter's edge, a removal red above a line. */
+const markBar: Record<LineMark, string> = {
+  added: "shadow-[inset_-3px_0_0_var(--status-done)]",
+  modified: "shadow-[inset_-3px_0_0_var(--status-done)]",
+  removed: "shadow-[inset_0_2px_0_var(--status-failed)]",
+};
+const markWords: Record<LineMark, string> = {
+  added: "Added since the last commit",
+  modified: "Changed since the last commit",
+  removed: "Lines removed above",
+};
+
 /**
  * A source file with line numbers: 13px mono on a 22px pitch, numbers right-aligned in their
  * own gutter (left out of a copy), highlighted in the markdown worker and plain until then.
  * Only the lines near the viewport mount, so a 50,000-line file scrolls like a short one.
+ * Lines changed since the last commit carry a bar at the gutter's edge.
  */
-export function SourceView(props: {
+export const SourceView = memo(function SourceView(props: {
   text: string;
   lang: string | undefined;
   wrap: boolean;
@@ -55,8 +71,19 @@ export function SourceView(props: {
   /** A line (1-based) to bring into view once. */
   line?: number | undefined;
   label: string;
+  /** Uncommitted changes by line (1-based). */
+  marks?: ReadonlyMap<number, LineMark> | undefined;
+  /**
+   * Highlight only once the text has stopped changing for this long (an editor, as you type).
+   * Lines whose text still matches keep their colours meanwhile.
+   */
+  highlightDelay?: number | undefined;
 }) {
-  const highlighted = useCodeLines(props.text, props.lang);
+  const highlightSource = useSettled(props.text, props.highlightDelay ?? 0);
+  const highlighted = useLatestCodeLines(
+    props.highlightDelay ? highlightSource : props.text,
+    props.lang,
+  );
   const plain = useMemo(() => props.text.split("\n"), [props.text]);
   // A final newline ends the last line; it doesn't start an empty one.
   const count = plain.length > 1 && plain.at(-1) === "" ? plain.length - 1 : plain.length;
@@ -89,7 +116,10 @@ export function SourceView(props: {
         overscan={12}
         render={(index) => {
           const text = plain[index] ?? "";
-          const tokens = highlighted?.lines[index];
+          const kept = highlighted?.lines[index];
+          // Lines highlighted for an earlier text show plain until their own colours arrive.
+          const tokens = kept && tokensFit(kept, text) ? kept : undefined;
+          const mark = props.marks?.get(index + 1);
           return (
             <div
               data-line={index}
@@ -101,8 +131,13 @@ export function SourceView(props: {
             >
               <span
                 aria-hidden
+                title={mark && markWords[mark]}
+                data-mark={mark}
                 style={{ width: gutter }}
-                className="sticky left-0 z-[1] shrink-0 bg-background pr-4 text-right text-subtle-foreground tabular-nums select-none"
+                className={cn(
+                  "sticky left-0 z-[1] shrink-0 bg-background pr-4 text-right text-subtle-foreground tabular-nums select-none",
+                  mark && markBar[mark],
+                )}
               >
                 {index + 1}
               </span>
@@ -130,4 +165,4 @@ export function SourceView(props: {
       />
     </div>
   );
-}
+});

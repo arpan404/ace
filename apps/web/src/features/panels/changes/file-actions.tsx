@@ -22,9 +22,10 @@ import { useOpenInEditor } from "@/lib/open-in-editor.ts";
 export function FileActions(props: {
   threadId: string;
   path: string;
-  viewed: boolean;
+  /** Absent where a scope has no review (uncommitted changes): no Viewed toggle. */
+  viewed?: boolean | undefined;
   open: boolean;
-  onViewed(viewed: boolean): void;
+  onViewed?: ((viewed: boolean) => void) | undefined;
   onOpen(open: boolean): void;
 }) {
   const toast = useToast();
@@ -36,18 +37,7 @@ export function FileActions(props: {
   };
   return (
     <>
-      <button
-        type="button"
-        aria-pressed={props.viewed}
-        onClick={() => props.onViewed(!props.viewed)}
-        className={cn(
-          "flex h-6 shrink-0 items-center gap-1.5 rounded-sm px-1.5 text-xs text-muted-foreground outline-none transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-ring",
-          props.viewed && "text-foreground",
-        )}
-      >
-        <Icon icon={props.viewed ? CheckSquareIcon : SquareIcon} size={14} active={props.viewed} />
-        Viewed
-      </button>
+      {props.onViewed && <ViewedToggle viewed={props.viewed ?? false} onViewed={props.onViewed} />}
       <Menu>
         <MenuTrigger
           render={
@@ -79,6 +69,23 @@ export function FileActions(props: {
         </MenuContent>
       </Menu>
     </>
+  );
+}
+
+function ViewedToggle(props: { viewed: boolean; onViewed(viewed: boolean): void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={props.viewed}
+      onClick={() => props.onViewed(!props.viewed)}
+      className={cn(
+        "flex h-6 shrink-0 items-center gap-1.5 rounded-sm px-1.5 text-xs text-muted-foreground outline-none transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-ring",
+        props.viewed && "text-foreground",
+      )}
+    >
+      <Icon icon={props.viewed ? CheckSquareIcon : SquareIcon} size={14} active={props.viewed} />
+      Viewed
+    </button>
   );
 }
 

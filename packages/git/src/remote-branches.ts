@@ -7,7 +7,7 @@ import { defaultBranch } from "./projects.ts";
 import type { Repository } from "./repository.ts";
 import { GitError } from "./types.ts";
 
-/** Same bound as `listBranches`. */
+/** Same bound as `listBranches`, and the most the `branches` reply carries. */
 const refLimit = 1000;
 const timeout = z.number().int().positive().max(2_147_483_647);
 
@@ -17,37 +17,84 @@ export interface BranchRefs {
   truncated: boolean;
 }
 
+interface ListedRef {
+  refname: string;
+  ref: BranchRef;
+}
+
 /**
  * Local branches (with their upstream and how far they are from it, as of the last fetch) and
- * remotes' branches, from one `for-each-ref`. No network.
+ * remotes' branches. No network.
+ *
+ * A repository can hold more branches than one reply carries. The default branch, locally and on
+ * every remote, is always included; the rest of the room is shared between local and remote
+ * branches (neither side can crowd the other out), each side keeping its most recently committed
+ * ones. The result is ordered by ref name, local branches first.
  */
 export async function branchRefs(repository: Repository, worktree: string): Promise<BranchRefs> {
   const root = await repository.root(worktree);
-  const [listing, remotes, base] = await Promise.all([
-    repository.cli.call(
-      root,
-      [
-        "for-each-ref",
-        `--count=${refLimit + 1}`,
-        "--format=%(refname)%00%(symref)%00%(upstream:short)%00%(upstream:track,nobracket)",
-        "refs/heads",
-        "refs/remotes",
-      ],
-      { captureBytes: 8 * 1_048_576 },
-    ),
+  const [remotes, base] = await Promise.all([
     remoteNames(repository, root),
     defaultBranch(repository.cli, root),
   ]);
-  if (listing.truncated) throw new GitError("output_too_large", "Branch listing exceeded 8 MiB");
-  const lines = listing.stdout.toString("utf8").split("\n").filter(Boolean);
-  const refs = lines
-    .slice(0, refLimit)
-    .flatMap((line) => parseRef(line, remotes))
-    .slice(0, refLimit);
-  return { refs, defaultBranch: base, truncated: lines.length > refLimit };
+  const list = (patterns: string[], count: number) =>
+    listRefs(repository, root, patterns, count, remotes);
+  const [pinnedRefs, local, remote] = await Promise.all([
+    list([`refs/heads/${base}`, ...remotes.map((name) => `refs/remotes/${name}/${base}`)], 0),
+    list(["refs/heads"], refLimit + 1),
+    list(["refs/remotes"], refLimit + 1),
+  ]);
+  // A literal pattern also matches refs below it (`refs/heads/main/x`); only the branch itself counts.
+  const pinned = pinnedRefs.filter((listed) => listed.ref.name === base).slice(0, refLimit);
+  const isPinned = new Set(pinned.map((listed) => listed.refname));
+  const localRest = local.filter((listed) => !isPinned.has(listed.refname));
+  const remoteRest = remote.filter((listed) => !isPinned.has(listed.refname));
+  const room = refLimit - pinned.length;
+  const localTake = Math.min(
+    localRest.length,
+    Math.max(Math.ceil(room / 2), room - remoteRest.length),
+  );
+  const remoteTake = Math.min(remoteRest.length, room - localTake);
+  const kept = [...pinned, ...localRest.slice(0, localTake), ...remoteRest.slice(0, remoteTake)];
+  return {
+    refs: kept
+      .toSorted((a, b) => (a.refname < b.refname ? -1 : a.refname > b.refname ? 1 : 0))
+      .map((listed) => listed.ref),
+    defaultBranch: base,
+    truncated: localTake < localRest.length || remoteTake < remoteRest.length,
+  };
 }
 
-function parseRef(line: string, remotes: readonly string[]): BranchRef[] {
+/** Branches under `patterns`, most recently committed first; `count` 0 lists them all. */
+async function listRefs(
+  repository: Repository,
+  root: string,
+  patterns: string[],
+  count: number,
+  remotes: readonly string[],
+): Promise<ListedRef[]> {
+  const listing = await repository.cli.call(
+    root,
+    [
+      "for-each-ref",
+      ...(count > 0 ? [`--count=${count}`] : []),
+      "--sort=refname",
+      "--sort=-committerdate",
+      "--format=%(refname)%00%(symref)%00%(upstream:short)%00%(upstream:track,nobracket)",
+      "--end-of-options",
+      ...patterns,
+    ],
+    { captureBytes: 8 * 1_048_576 },
+  );
+  if (listing.truncated) throw new GitError("output_too_large", "Branch listing exceeded 8 MiB");
+  return listing.stdout
+    .toString("utf8")
+    .split("\n")
+    .filter(Boolean)
+    .flatMap((line) => parseRef(line, remotes));
+}
+
+function parseRef(line: string, remotes: readonly string[]): ListedRef[] {
   const [refname = "", symref = "", upstream = "", track = ""] = line.split("\0");
   // A remote's `HEAD` (and any other symbolic ref) names another branch, not one of its own.
   if (symref) return [];
@@ -57,7 +104,7 @@ function parseRef(line: string, remotes: readonly string[]): BranchRef[] {
       name,
       ...(upstream ? { upstream, ...trackCounts(track) } : {}),
     });
-    return parsed.success ? [parsed.data] : [];
+    return parsed.success ? [{ refname, ref: parsed.data }] : [];
   }
   const rest = refname.slice("refs/remotes/".length);
   // Branch names can contain `/`; remote names are matched against the configured ones.
@@ -66,7 +113,7 @@ function parseRef(line: string, remotes: readonly string[]): BranchRef[] {
     .toSorted((a, b) => b.length - a.length)[0];
   if (!remote) return [];
   const parsed = BranchRef.safeParse({ name: rest.slice(remote.length + 1), remote });
-  return parsed.success ? [parsed.data] : [];
+  return parsed.success ? [{ refname, ref: parsed.data }] : [];
 }
 
 /** `ahead 1, behind 2` / `ahead 1` / `behind 2` / `` (in sync) / `gone` (upstream deleted). */

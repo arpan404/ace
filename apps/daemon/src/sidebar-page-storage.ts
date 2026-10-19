@@ -16,10 +16,10 @@ export function sidebarPageStorage(
   const draft =
     "COALESCE(json_extract(client, '$.hasSentMessage'), 1) != 0 AND NOT (json_extract(client, '$.hasSentMessage') IS NULL AND json_extract(status, '$.state') = 'new' AND title = 'New thread')";
   const visible = `json_extract(client, '$.deletedAt') IS NULL AND archived_at IS ${options.archived ? "NOT " : ""}NULL`;
-  // Queue attention exactly matches projection.sidebarSettled, including manual empty queues.
+  // Queue attention and settled membership exactly match projection.sidebarSettled.
   const attention =
     "COALESCE(json_extract(provider_metadata, '$.queue.paused'), 0) = 1 AND json_extract(provider_metadata, '$.queue.resumeAt') IS NULL AND json_extract(provider_metadata, '$.queue.reason') IS NOT NULL AND json_extract(provider_metadata, '$.queue.reason') NOT IN ('limit', 'snooze') AND NOT (json_extract(provider_metadata, '$.queue.reason') = 'manual' AND COALESCE(json_extract(provider_metadata, '$.queue.pendingCount'), 0) = 0)";
-  const settled = `COALESCE(json_extract(client, '$.pinned'), 0) != 1 AND json_extract(client, '$.settledAt') IS NOT NULL AND json_extract(status, '$.state') = 'done' AND NOT (${attention})`;
+  const settled = `COALESCE(json_extract(client, '$.pinned'), 0) != 1 AND json_extract(client, '$.settledAt') IS NOT NULL AND json_extract(status, '$.state') NOT IN ('working', 'needs_you') AND (COALESCE(json_extract(client, '$.settledReason'), '') = 'manual' OR NOT (${attention}))`;
   const paged = options.archived ? "1" : `(${settled})`;
   const matching = `${visible}${options.project ? " AND workspace_id = ?" : ""}`;
   const params: string[] = options.project ? [options.project] : [];

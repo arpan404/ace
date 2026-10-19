@@ -4,6 +4,7 @@ import { clip, firstLine } from "./line-text.ts";
 import { displayCommand } from "./step-display.ts";
 import { resultLead } from "./system-events.ts";
 import { mcpToolLabel } from "./tool-labels.ts";
+import { isToolSearch, toolSearchRow } from "./tool-search.ts";
 
 /*
  * What an agent is for and what it is doing, in plain words for the Summary's rows: its task from
@@ -64,8 +65,12 @@ function toolStep(item: Extract<Item, { type: "tool_call" }>): string {
       return `deleting ${files(detail.changes.map((change) => change.path))}`;
     case "file.move":
       return `moving ${files(detail.changes.map((change) => change.path))}`;
-    case "search":
-      return `searching for ${clip(detail.query, 60)}`;
+    case "search": {
+      if (!isToolSearch(call)) return `searching for ${clip(detail.query, 60)}`;
+      const words = toolSearchRow(detail.query).words;
+      const running = words.running.charAt(0).toLowerCase() + words.running.slice(1);
+      return words.target ? `${running} ${clip(words.target, 60)}` : running;
+    }
     case "web.search":
       return `searching the web for ${clip(detail.query, 60)}`;
     case "web.fetch":

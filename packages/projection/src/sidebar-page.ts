@@ -1,13 +1,17 @@
 import type { ThreadListEntry, ThreadListCursor, ThreadListWindow } from "@ace/protocol";
 import { threadAttention } from "./thread-attention.ts";
 /**
- * In the Settled section. Working work always resurfaces. A queue needing recovery resurfaces an
- * automatically settled thread, but a thread the person settled by hand stays settled.
+ * In the Settled section. Working work always resurfaces, and so does a thread waiting on the
+ * person (a question or an approval), while it waits: settled or not, it is never out of sight
+ * then. It stays settled, so it returns to Settled once answered. A queue needing recovery
+ * resurfaces an automatically settled thread, but a thread the person settled by hand stays
+ * settled.
  */
 export function sidebarSettled(entry: ThreadListEntry): boolean {
   return (
     entry.settledAt !== undefined &&
     entry.status.state !== "working" &&
+    entry.status.state !== "needs_you" &&
     (entry.settledReason === "manual" || !threadAttention(entry))
   );
 }

@@ -68,7 +68,8 @@ const byId = (a: ThreadListEntry, b: ThreadListEntry) => (a.id < b.id ? -1 : a.i
 /**
  * Home order: pinned threads first in their own order; then, sorting by activity, by rank, most
  * recent first within a rank, split into the work in hand and the Recent threads at rest;
- * sorting by creation or by hand, one list in that order. Snoozed and Settled apart by recency.
+ * sorting by creation or by hand, one list in that order. Snoozed apart, soonest wake first;
+ * Settled apart by recency.
  * Pinned tasks stay in the person's order; snoozed requests stay exposed.
  */
 export function arrange(
@@ -94,7 +95,10 @@ export function arrange(
   pinned.sort(
     (a, b) => pinOrderOf(b) - pinOrderOf(a) || activityOf(b) - activityOf(a) || byId(a, b),
   );
-  snoozed.sort((a, b) => activityOf(b) - activityOf(a));
+  // What wakes soonest leads: the section reads as a schedule.
+  snoozed.sort(
+    (a, b) => (a.snoozedUntil ?? 0) - (b.snoozedUntil ?? 0) || activityOf(b) - activityOf(a),
+  );
   settled.sort((a, b) => activityOf(b) - activityOf(a));
   const sortBy = state.sortBy ?? "activity";
   if (sortBy !== "activity") {

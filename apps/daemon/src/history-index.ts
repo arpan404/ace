@@ -339,6 +339,29 @@ export class HistoryIndex {
     }
     return item;
   }
+  /**
+   * The thread's first message the person wrote, as of `through`, looking at its first `scan`
+   * items only: a handoff carries the opening ask even when it is older than the recent page.
+   */
+  opening(threadId: ThreadId, through: number, scan = 16): Item | undefined {
+    count.parse(through);
+    const rows = z
+      .array(z.object({ id: ItemId }))
+      .max(64)
+      .parse(
+        this.statement(
+          "SELECT id FROM history_items WHERE thread_id=? AND created_seq<=? ORDER BY created_seq ASC LIMIT ?",
+        ).all(threadId, through, Math.min(scan, 64)),
+      );
+    for (const row of rows) {
+      const value = this.itemAt(row.id, through);
+      if (value?.type !== "message" || value.role !== "user") continue;
+      const kind = value.origin?.kind;
+      if (kind === undefined ? value.synthetic : kind !== "person" && kind !== "queue") continue;
+      return this.preview(threadId, value, through);
+    }
+    return undefined;
+  }
   page(
     threadId: ThreadId,
     through: number,

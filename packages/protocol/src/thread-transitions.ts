@@ -57,6 +57,12 @@ export const ThreadSwitch = z.object({
 export type ThreadSwitch = z.infer<typeof ThreadSwitch>;
 export const HandoffCitation = z.object({ threadId: ThreadId, itemId: ItemId });
 export type HandoffCitation = z.infer<typeof HandoffCitation>;
+/** A provider and model whose work a context handoff carries, or the one it hands to. */
+export const HandoffModel = z.object({
+  provider: ProviderKind,
+  model: z.string().min(1).max(256).optional(),
+});
+export type HandoffModel = z.infer<typeof HandoffModel>;
 export const MergedForkContext = z.object({
   sourceThreadId: ThreadId,
   summary: MessageText,
@@ -72,7 +78,18 @@ export const PortableHandoff = z.object({
     .optional(),
   throughSeq: z.number().int().nonnegative(),
   lossy: z.literal(true),
-  policy: z.literal("recent-complete-items"),
+  /**
+   * `conversation-first` keeps the latest ask and answer and the thread's opening ask before
+   * older items, and leaves out reasoning and earlier handoffs. Older manifests read as stored.
+   */
+  policy: z.enum(["recent-complete-items", "conversation-first"]),
+  /** The distinct models whose work the carried history holds, oldest first. */
+  sources: z.array(HandoffModel).max(8).optional(),
+  /**
+   * A return to a provider that resumes its own earlier session: the excerpts cover only what
+   * happened after this event cutoff, which that session already holds everything before.
+   */
+  since: z.number().int().nonnegative().optional(),
   excerpts: z.array(z.object({ citation: HandoffCitation, text: z.string().max(8192) })).max(200),
   omittedItems: z.number().int().nonnegative(),
   history: z.object({

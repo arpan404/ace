@@ -155,14 +155,14 @@ test("a menu opened from the card closes before the card does", async () => {
   expect(screen.getByRole("dialog", { name: "Thread details" })).toBe(card);
 });
 
-test("an action from the card runs the project's script in a terminal tab of the side panel", async () => {
+test("an action from the card runs the project's script in a terminal of the bottom panel", async () => {
   // Before the agent starts the relay in the background.
   const app = await openThread("replay", "delegated");
   const actions = await openMachineMenu();
   await userEvent.click(
     await within(actions).findByRole("menuitem", { name: "Run bun run dev:relay" }),
   );
-  const panel = await sidePanel();
+  const panel = await screen.findByRole("region", { name: "Terminal panel" });
   // The tab opening on the script's terminal is the only confirmation.
   expect(await within(panel).findByRole("tab", { name: "dev:relay", selected: true })).toBeTruthy();
   await waitFor(() =>
@@ -170,20 +170,22 @@ test("an action from the card runs the project's script in a terminal tab of the
       "relay listening on ws://127.0.0.1:8787",
     ),
   );
-  expect(screen.queryByRole("region", { name: "Bottom panel" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull();
   expect(app.daemon.terminals.list("thread-replay-cursor").map((t) => t.name)).toEqual([
     "dev:relay",
   ]);
 
   // Running it again goes back to its terminal rather than starting a second one.
-  await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
+  await userEvent.click(within(panel).getByRole("button", { name: "Hide terminal panel" }));
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Terminal panel" })).toBeNull());
   const again = await openMachineMenu();
   await userEvent.click(
     await within(again).findByRole("menuitem", {
       name: "Run bun run dev:relay",
     }),
   );
-  expect(await within(panel).findByRole("tab", { name: "dev:relay", selected: true })).toBeTruthy();
+  const shown = await screen.findByRole("region", { name: "Terminal panel" });
+  expect(await within(shown).findByRole("tab", { name: "dev:relay", selected: true })).toBeTruthy();
   expect(app.daemon.terminals.list("thread-replay-cursor")).toHaveLength(1);
 });
 

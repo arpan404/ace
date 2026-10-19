@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "vitest";
-import { PortableHandoff, McpScope, HandoffPage, ThreadId } from "@ace/protocol";
+import { McpScope, HandoffPage, ThreadId } from "@ace/protocol";
 import { ToolRegistry } from "@ace/mcp-server";
 import { handoffToolkit } from "../services/handoff-tools.ts";
-import { transitionHarness } from "./transition-test-support.ts";
+import { receivedHandoff, transitionHarness } from "./transition-test-support.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -42,11 +42,9 @@ test("SDK portable forks keep the source checkpoint and resume their own pinned 
   });
   expect(h.store.getThread(source)?.backend).toBe("cursor-sdk");
   const rendered = h.inputs.at(-1)?.text ?? "";
-  const manifest = PortableHandoff.parse(
-    JSON.parse(rendered.slice(0, rendered.indexOf("\ncontinue fork"))),
-  );
-  expect(manifest.origin).toEqual({ provider: "cursor", backend: "cursor-sdk" });
-  expect(manifest.excerpts.some((entry) => entry.text.includes("source context"))).toBe(true);
+  const manifest = receivedHandoff(rendered);
+  expect(manifest.block).toContain("cursor worked on before you");
+  expect(manifest.block).toContain("source context");
   await h.restart();
   expect(
     h.command({
@@ -213,13 +211,11 @@ test("switching into Cursor SDK starts fresh with portable context and resumes o
   expect(session.context.resume).toBeUndefined();
   expect(session.context.fork).toBeUndefined();
   const text = h.inputs.at(-1)?.text ?? "";
-  const manifest = PortableHandoff.parse(
-    JSON.parse(text.slice(0, text.indexOf("\nfresh SDK continuation"))),
-  );
-  expect(manifest.origin).toEqual({ provider: "codex" });
+  const manifest = receivedHandoff(text);
+  expect(manifest.block).toContain("on codex worked on before you");
   expect(manifest.sourceThreadId).toBe(id);
-  expect(manifest.excerpts.some((entry) => entry.text.includes("source history"))).toBe(true);
-  expect(Buffer.byteLength(JSON.stringify(manifest))).toBeLessThanOrEqual(16384);
+  expect(manifest.block).toContain("user: source history");
+  expect(manifest.bytes).toBeLessThanOrEqual(32768);
   expect(h.histories.get(sourceNative)?.map((entry) => entry.text)).toEqual(["source history"]);
   await h.restart();
   expect(
@@ -267,11 +263,9 @@ test("switching out of Cursor SDK preserves its checkpoint and requires a fresh 
   expect(h.sessions.at(-1)?.context.resume).toBeUndefined();
   expect(h.sessions.at(-1)?.context.fork).toBeUndefined();
   const text = h.inputs.at(-1)?.text ?? "";
-  const manifest = PortableHandoff.parse(
-    JSON.parse(text.slice(0, text.indexOf("\nfresh Codex continuation"))),
-  );
-  expect(manifest.origin).toEqual({ provider: "cursor", backend: "cursor-sdk" });
-  expect(manifest.excerpts.some((entry) => entry.text.includes("source context"))).toBe(true);
+  const manifest = receivedHandoff(text);
+  expect(manifest.block).toContain("cursor worked on before you");
+  expect(manifest.block).toContain("source context");
   expect(h.histories.get(native)?.map((entry) => entry.text)).toEqual(["source context"]);
   await h.restart();
   expect(
@@ -307,13 +301,11 @@ test("SDK handoffFrom creates a fresh agent and grants frozen source history wit
   const id = h.store.listThreads().find((thread) => thread.provider === "cursor")?.id;
   if (!id) throw new Error("Missing SDK handoff recipient");
   const text = h.inputs.at(-1)?.text ?? "";
-  const manifest = PortableHandoff.parse(
-    JSON.parse(text.slice(0, text.indexOf("\ncontinue SDK context"))),
-  );
-  expect(manifest.origin).toEqual({ provider: "codex" });
+  const manifest = receivedHandoff(text);
+  expect(manifest.block).toContain("codex worked on before you");
   expect(h.store.getThread(id)).toMatchObject({
     backend: "cursor-sdk",
-    handoff: { sourceThreadId: source, bytes: Buffer.byteLength(JSON.stringify(manifest)) },
+    handoff: { sourceThreadId: source, bytes: manifest.bytes },
   });
   expect(h.inputs.at(-1)?.nativeId).not.toBe(sourceNative);
   expect(h.sessions.at(-1)?.context.resume).toBeUndefined();
@@ -339,7 +331,7 @@ test("SDK handoffFrom creates a fresh agent and grants frozen source history wit
     signal: new AbortController().signal,
   };
   const response = await tools.call(
-    manifest.history.tool,
+    "handoff_read",
     { sourceThreadId: source, before: h.store.headSeq() + 1, limit: 50 },
     principal,
     principal.signal,

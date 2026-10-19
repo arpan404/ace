@@ -145,6 +145,10 @@ export class ThreadReads {
     this.source.flush();
     return this.source.history.completion(threadId, itemId);
   }
+  historicalOpening(threadId: ThreadId, through: number) {
+    this.source.flush();
+    return this.source.history.opening(threadId, through);
+  }
   readHistoricalItemPage(
     threadId: ThreadId,
     through: number,

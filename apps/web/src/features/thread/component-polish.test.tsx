@@ -178,7 +178,11 @@ test("fresh diff counts describe the displayed patch once even when saved counts
   await userEvent.keyboard("{Shift>}{Meta>}d{/Meta}{/Shift}");
   expect((await screen.findByLabelText("Uncommitted diff")).textContent).toContain("+fresh line");
   const toolbar = screen.getByRole("toolbar", { name: "Changes" });
-  expect(toolbar.textContent).toContain("+1");
-  expect(screen.getAllByText("+1").length).toBe(1);
+  expect(within(toolbar).getAllByText("+1")).toHaveLength(1);
+  // The one file's header counts the same line; the saved +27 −11 shows nowhere.
+  const file = screen.getByRole("region", { name: "readme.md" });
+  expect(within(file).getAllByText("+1")).toHaveLength(1);
+  expect(screen.getAllByText("+1")).toHaveLength(2);
+  expect(screen.queryByText("+27")).toBeNull();
   expect(screen.queryByText("No uncommitted changes")).toBeNull();
 });

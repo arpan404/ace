@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { useLayout } from "@/lib/layout.tsx";
 import { workspaceActions, type WorkspaceActions } from "./actions.ts";
 import { emptyWorkspace, type ScopeWorkspace } from "./model.ts";
+import type { PanelPlace } from "./places.ts";
 import { WorkspaceStore } from "./store.ts";
 
 /**
@@ -25,10 +26,45 @@ export function useScopeWorkspace(scope: string | undefined): ScopeWorkspace {
   return useSyncExternalStore(subscribe, read, read);
 }
 
+/**
+ * The panel a view is drawn in, so what it opens (a new terminal) opens beside it. Outside
+ * both panels, "auto": where the person chose.
+ */
+export const PanelPlaceContext = createContext<PanelPlace | "auto">("auto");
+
 /** Open, show, close and arrange a scope's tabs (a thread's: pass its id). */
 export function useWorkspaceActions(scope: string): WorkspaceActions {
   const store = useWorkspaceStore();
-  return useMemo(() => workspaceActions(store, scope), [store, scope]);
+  const here = useContext(PanelPlaceContext);
+  return useMemo(() => workspaceActions(store, scope, here), [store, scope, here]);
+}
+
+function useGlobal<T>(read: (store: WorkspaceStore) => T): T {
+  const store = useWorkspaceStore();
+  const subscribe = useCallback((listener: () => void) => store.subscribeGlobal(listener), [store]);
+  const get = useCallback(() => read(store), [store, read]);
+  return useSyncExternalStore(subscribe, get, get);
+}
+
+const readBottomHeight = (store: WorkspaceStore) => store.preferredBottom;
+const readPlace = (store: WorkspaceStore) => store.preferredPlace;
+const readFits = (store: WorkspaceStore) => store.bottomFits;
+
+/** The bottom panel's height on this device. */
+export function useBottomHeight(): number {
+  return useGlobal(readBottomHeight);
+}
+
+/** Where terminals (the bottom panel's kinds) open on this device, and a way to change it. */
+export function usePreferredPlace(): [PanelPlace, (place: PanelPlace) => void] {
+  const store = useWorkspaceStore();
+  const place = useGlobal(readPlace);
+  return [place, useCallback((next: PanelPlace) => store.setPreferredPlace(next), [store])];
+}
+
+/** Whether the screen showing has room for the bottom panel. */
+export function useBottomFits(): boolean {
+  return useGlobal(readFits);
 }
 
 /** The side panel's width for scopes without one of their own. */
