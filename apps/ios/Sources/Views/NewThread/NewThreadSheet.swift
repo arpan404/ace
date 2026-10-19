@@ -16,7 +16,15 @@ struct NewThreadSheet: View {
     @State private var sending = false
     @State private var failure: String?
     @State private var browsing = false
+    @State private var attachProblem: String?
     private var draft: NewThreadDraft { drafts.draft }
+    /// The first message's files, in the chosen project's draft scope.
+    private var files: [AttachmentFile] {
+        guard let read = compose?.attachments, read.workspaceId == draft.projectId else { return [] }
+        return read.files
+    }
+    /// What the bridge needs to know of the draft to order the picker and read access modes.
+    private var choiceKey: [String] { [draft.projectId, draft.provider, draft.model, draft.account, draft.access].map { $0 ?? "" } }
 
     private var machineId: String? {
         if let id = draft.machineId, inbox.client(id) != nil { return id }
@@ -39,7 +47,10 @@ struct NewThreadSheet: View {
         guard let read = compose?.branches, read.workspaceId == draft.projectId else { return nil }
         return (read.state, read.bases, read.start, read.noWorktree)
     }
-    private var blocker: String? { NewThreadGate.blocker(draft, canOperate: client?.canOperate ?? false, agent: agentsLoaded ? agent : nil) }
+    private var blocker: String? {
+        NewThreadGate.blocker(draft, canOperate: client?.canOperate ?? false, agent: agentsLoaded ? agent : nil, files: files.count,
+                              waits: [compose?.attachments?.blocked, compose?.access?.provider == agent?.provider ? compose?.access?.problem : nil])
+    }
     private var agentsLoaded: Bool { compose?.agentsState == "ready" }
 
     var body: some View {
@@ -70,11 +81,13 @@ struct NewThreadSheet: View {
         .task(id: machineId) {
             guard let client else { return }
             client.composeAction(["kind": "open"])
+            client.composeChoice(draft)
             if let project = draft.projectId { client.composeAction(["kind": "branches", "workspaceId": project]) }
         }
         .onChange(of: draft.projectId) { _, project in
             if let project { client?.composeAction(["kind": "branches", "workspaceId": project]) }
         }
+        .onChange(of: choiceKey) { _, _ in client?.composeChoice(draft) }
         .onDisappear { client?.composeAction(["kind": "close"]) }
         .sheet(isPresented: $browsing) { projectFiles }
     }
@@ -88,7 +101,7 @@ struct NewThreadSheet: View {
     private var machineSection: some View {
         Section {
             Picker("Machine", selection: Binding(get: { machineId ?? "" }, set: { id in
-                drafts.edit { $0.machineId = id; $0.projectId = nil; $0.provider = nil; $0.model = nil; $0.account = nil; $0.effort = nil; $0.base = nil }
+                drafts.edit { $0.machineId = id; $0.projectId = nil; $0.provider = nil; $0.model = nil; $0.account = nil; $0.effort = nil; $0.speed = nil; $0.access = nil; $0.base = nil }
             })) {
                 ForEach(inbox.sessions) { session in
                     Text(session.client.canOperate ? inbox.name(session.hostId) : "\(inbox.name(session.hostId)) · View only").tag(session.hostId)
@@ -150,6 +163,10 @@ struct NewThreadSheet: View {
                     ForEach(model.efforts) { effort in Text(effort.label).tag(effort.id) }
                 }
             }
+            NewThreadTuningRows(model: model, access: compose?.access?.provider == agent?.provider ? compose?.access : nil,
+                                speed: draft.speed,
+                                setSpeed: { speed in drafts.edit { $0.provider = agent?.provider; $0.model = model?.key; $0.account = model?.account; $0.speed = speed } },
+                                setAccess: { mode in drafts.edit { $0.access = mode } })
         }
     }
     private var messageSection: some View {
@@ -161,6 +178,22 @@ struct NewThreadSheet: View {
             NavigationLink(value: NewThreadRoute.mention) { Label("Mention a file", systemImage: "at") }
                 .disabled(draft.projectId == nil)
                 .accessibilityIdentifier("newThread.mention")
+            if !files.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: AceTheme.Spacing.xs) {
+                        ForEach(files) { file in AttachmentChip(file: file) { client?.composeDetach(file.id) } }
+                    }
+                }
+            }
+            AttachMenu(stage: { staged in
+                if let client, let project = draft.projectId { client.composeAttach(staged, workspaceId: project) }
+            }, problem: $attachProblem, identifier: "newThread.attach") {
+                Label("Add photos or files", systemImage: "paperclip").frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .disabled(draft.projectId == nil || client?.canOperate != true)
+            if let attachProblem {
+                Text(attachProblem).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.StatusText.failed)
+            }
         }
     }
     @ViewBuilder private func destination(_ route: NewThreadRoute) -> some View {
@@ -180,7 +213,7 @@ struct NewThreadSheet: View {
             case .agents:
                 AgentPickerView(compose: client.compose, selected: model.map { (agent?.provider ?? "", $0.key, $0.account) },
                                 reload: { client.composeAction(["kind": "agents"]) }) { agent, model in
-                    drafts.edit { $0.provider = agent.provider; $0.model = model.key; $0.account = model.account; $0.effort = nil }
+                    drafts.edit { $0.provider = agent.provider; $0.model = model.key; $0.account = model.account; $0.effort = nil; $0.speed = nil }
                     path = []
                 }
             case .mention:

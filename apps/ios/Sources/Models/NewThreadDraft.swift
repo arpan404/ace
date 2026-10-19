@@ -10,6 +10,10 @@ struct NewThreadDraft: Codable, Equatable, Sendable {
     var model: String?
     var account: String?
     var effort: String?
+    /// A speed turned on for the first turn; nil runs at the model's default.
+    var speed: String?
+    /// An access mode picked for this thread; nil follows the project's and the computer's.
+    var access: String?
     var worktree = false
     var base: ComposeBaseRef?
     var text = ""
@@ -71,12 +75,15 @@ struct NewThreadDraftStore: Sendable {
 /// checks the agent again before anything is saved.
 enum NewThreadGate {
     static let viewOnly = "View only. Start threads on your computer, or pair this phone with View and act."
-    static func blocker(_ draft: NewThreadDraft, canOperate: Bool, agent: ComposeAgent?) -> String? {
+    /// `files` are the first message's attachments and `waits` what the bridge said holds Send
+    /// back (files still uploading, an access mode the agent can't run); a message of only files
+    /// can go.
+    static func blocker(_ draft: NewThreadDraft, canOperate: Bool, agent: ComposeAgent?, files: Int = 0, waits: [String?] = []) -> String? {
         if !canOperate { return viewOnly }
         if draft.projectId == nil { return "Choose a project" }
         if let agent, !agent.ready { return agent.reason ?? "\(agent.name) isn't ready" }
         if agent == nil { return "Choose a coding agent" }
-        if draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Write the first message" }
-        return nil
+        if files == 0, draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Write the first message" }
+        return waits.lazy.compactMap { $0 }.first
     }
 }

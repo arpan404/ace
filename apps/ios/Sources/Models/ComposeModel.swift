@@ -9,9 +9,13 @@ struct ComposeProject: Codable, Sendable, Identifiable, Equatable {
 struct ComposeAgent: Codable, Sendable, Identifiable, Equatable {
     struct Account: Codable, Sendable, Identifiable, Equatable { let id: String; let label: String; let usage: String }
     struct Effort: Codable, Sendable, Identifiable, Equatable { let id: String; let label: String }
+    struct Speed: Codable, Sendable, Identifiable, Equatable { let speed: String; let label: String; var id: String { speed } }
     struct Model: Codable, Sendable, Identifiable, Equatable {
         let key: String; let label: String; let account: String
         let efforts: [Effort]; let defaultEffort: String?
+        /// Speeds it can start at, slowest first; empty or absent when there's nothing faster.
+        var speeds: [Speed]?
+        var defaultSpeed: String?
         var id: String { account + "\u{0}" + key }
     }
     let provider: String; let name: String; let ready: Bool
@@ -19,7 +23,28 @@ struct ComposeAgent: Codable, Sendable, Identifiable, Equatable {
     /// Why it can't start a thread; nil when it can.
     let reason: String?
     let accounts: [Account]; let models: [Model]
+    /// How many models show before "More models": the one in use (else the default) leads.
+    var lead: Int?
     var id: String { provider }
+    var leading: ArraySlice<Model> { models.prefix(lead ?? models.count) }
+    var more: ArraySlice<Model> { models.dropFirst(lead ?? models.count) }
+}
+/// One access mode the chosen agent supports, worded by the shared rules.
+struct ComposeAccessChoice: Codable, Sendable, Identifiable, Equatable {
+    let mode: String; let label: String; let description: String; let attention: Bool
+    var id: String { mode }
+}
+/// What the thread would run at (`newThreadAccess` in `@ace/ui-core`) and what else it could.
+struct ComposeAccess: Codable, Sendable, Equatable {
+    let provider: String?; let state: String
+    let choices: [ComposeAccessChoice]
+    /// The mode it runs as: the one picked, else the project's or daemon's default, stepped down.
+    let selected: String?
+    let label: String?
+    /// Why it runs stricter than the default it follows.
+    let stricter: String?
+    /// Why Send waits: nothing that strict is supported.
+    let problem: String?
 }
 /// What a thread starts on when nothing is picked.
 struct ComposeChoice: Codable, Sendable, Equatable { let provider: String; let model: String; let account: String; let effort: String? }
@@ -46,9 +71,12 @@ enum ComposePatch: Decodable, Sendable {
     case folders(query: String, state: String, [ComposeFolder])
     case started(id: String, ComposeOutcome)
     case added(id: String, ComposeOutcome)
+    case access(ComposeAccess)
+    case attachments(workspaceId: String, [AttachmentFile], blocked: String?)
 
     private enum Keys: String, CodingKey {
         case type, state, projects, providers, start, workspaceId, bases, noWorktree, query, paths, folders, id, ok, threadId, projectId, message
+        case files, blocked
     }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
@@ -76,6 +104,10 @@ enum ComposePatch: Decodable, Sendable {
             self = .added(id: try box.decode(String.self, forKey: .id),
                           ComposeOutcome(ok: try box.decode(Bool.self, forKey: .ok), id: try box.decodeIfPresent(String.self, forKey: .projectId),
                                          message: try box.decode(String.self, forKey: .message)))
+        case "compose.access": self = .access(try ComposeAccess(from: decoder))
+        case "compose.attachments":
+            self = .attachments(workspaceId: try box.decode(String.self, forKey: .workspaceId), try box.decode([AttachmentFile].self, forKey: .files),
+                                blocked: try box.decodeIfPresent(String.self, forKey: .blocked))
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: box, debugDescription: "Unknown compose patch")
         }
     }
@@ -94,6 +126,10 @@ enum ComposePatch: Decodable, Sendable {
     /// Daemon receipts by command id: the thread a start made, or why it didn't.
     var started: [String: ComposeOutcome] = [:]
     var added: [String: ComposeOutcome] = [:]
+    /// The chosen agent's access modes and the one the thread would run at.
+    var access: ComposeAccess?
+    /// The first message's files, in the chosen project's draft scope, and why they can't go yet.
+    var attachments: (workspaceId: String, files: [AttachmentFile], blocked: String?)?
 
     func apply(_ patch: ComposePatch) {
         switch patch {
@@ -105,10 +141,12 @@ enum ComposePatch: Decodable, Sendable {
         case .folders(let query, let state, let rows): folders = (query, state, rows)
         case .started(let id, let outcome): started[id] = outcome
         case .added(let id, let outcome): added[id] = outcome
+        case .access(let read): access = read
+        case .attachments(let workspaceId, let files, let blocked): attachments = (workspaceId, files, blocked)
         }
     }
     func reset() {
         projectsState = "idle"; projects = []; agentsState = "idle"; agents = []; start = nil
-        branches = nil; mentions = nil; folders = nil; started = [:]; added = [:]
+        branches = nil; mentions = nil; folders = nil; started = [:]; added = [:]; access = nil; attachments = nil
     }
 }

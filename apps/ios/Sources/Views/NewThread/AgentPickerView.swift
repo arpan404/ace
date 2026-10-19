@@ -1,13 +1,16 @@
 import SwiftUI
 
-/// The machine's coding agents and their models. One that isn't installed, is signed out or
-/// needs attention stays listed, disabled, with the reason the bridge gave.
+/// The machine's coding agents and their models, grouped by agent. One that isn't installed, is
+/// signed out or needs attention stays listed, disabled, with the reason the bridge gave. Each
+/// agent leads with the model in use (else its default); the rest of a long list waits behind
+/// "More models", in the order the bridge sent (`newThreadModelList` in `@ace/ui-core/mobile`).
 struct AgentPickerView: View {
     @Bindable var compose: ComposeModel
     /// Provider, model key and account currently chosen.
     let selected: (String, String, String)?
     let reload: () -> Void
     let choose: (ComposeAgent, ComposeAgent.Model) -> Void
+    @State private var expanded: Set<String> = []
     var body: some View {
         List {
             switch compose.agentsState {
@@ -15,7 +18,8 @@ struct AgentPickerView: View {
                 ForEach(compose.agents) { agent in
                     Section {
                         if agent.ready {
-                            ForEach(agent.models) { model in row(agent, model) }
+                            ForEach(agent.leading) { model in row(agent, model) }
+                            if !agent.more.isEmpty { more(agent) }
                         } else {
                             Text(agent.reason ?? "Not ready").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                                 .foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -37,6 +41,27 @@ struct AgentPickerView: View {
         }
         .navigationTitle("Coding agent").navigationBarTitleDisplayMode(.inline)
         .refreshable { reload() }
+    }
+    @ViewBuilder private func more(_ agent: ComposeAgent) -> some View {
+        if expanded.contains(agent.provider) {
+            ForEach(agent.more) { model in row(agent, model) }
+            Button("Fewer models") { expanded.remove(agent.provider) }
+                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .accessibilityIdentifier("agent.\(agent.provider).fewer")
+        } else {
+            Button { expanded.insert(agent.provider) } label: {
+                HStack {
+                    Text("More models")
+                    Spacer(minLength: AceTheme.Spacing.none)
+                    Text("\(agent.more.count)").monospacedDigit().foregroundStyle(AceTheme.Colours.mutedForeground)
+                    Image(systemName: "chevron.down").foregroundStyle(AceTheme.Colours.decoration).accessibilityHidden(true)
+                }
+                .frame(minHeight: AceTheme.Dimensions.touchTarget).contentShape(Rectangle())
+            }
+            .accessibilityLabel("More models")
+            .accessibilityValue("\(agent.more.count) more")
+            .accessibilityIdentifier("agent.\(agent.provider).more")
+        }
     }
     private func row(_ agent: ComposeAgent, _ model: ComposeAgent.Model) -> some View {
         let chosen = selected.map { $0.0 == agent.provider && $0.1 == model.key && $0.2 == model.account } ?? false

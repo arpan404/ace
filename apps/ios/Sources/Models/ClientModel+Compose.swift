@@ -9,8 +9,10 @@ extension ClientModel {
     /// Save the start in the SDK's outbox under `commandId`: true once it is on this phone.
     /// A view-only machine submits nothing.
     func startThread(_ draft: NewThreadDraft, commandId: String) async -> Bool {
-        guard canOperate, let project = draft.projectId,
-              !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard canOperate, let project = draft.projectId else { return false }
+        let files = compose.attachments?.workspaceId == project ? compose.attachments?.files.count ?? 0 : 0
+        // Words, files or both; the bridge checks again with the shared rule.
+        guard files > 0 || !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         var create: [String: Any] = [
             "kind": "create", "commandId": commandId, "workspaceId": project,
             "mode": draft.worktree ? "worktree" : "local", "text": draft.text,
@@ -19,10 +21,31 @@ extension ClientModel {
         if let model = draft.model { create["model"] = model }
         if let account = draft.account { create["account"] = account }
         if let effort = draft.effort { create["effort"] = effort }
+        if let speed = draft.speed { create["speed"] = speed }
+        if let access = draft.access { create["access"] = access }
         if draft.worktree, let base = draft.base {
             create["base"] = base.remote.map { ["ref": base.ref, "remote": $0] } ?? ["ref": base.ref]
         }
         return await admissions.wait(id: commandId) { composeAction(create) }
+    }
+    /// What the sheet has chosen so far: the picker leads with it and its access modes are read.
+    func composeChoice(_ draft: NewThreadDraft) {
+        var choice: [String: Any] = ["kind": "choice"]
+        if let project = draft.projectId { choice["workspaceId"] = project }
+        if let provider = draft.provider { choice["provider"] = provider }
+        if let model = draft.model { choice["model"] = model }
+        if let account = draft.account { choice["account"] = account }
+        if let access = draft.access { choice["access"] = access }
+        composeAction(choice)
+    }
+    /// A file picked for the first message: the bridge checks it and uploads it into the project.
+    func composeAttach(_ file: StagedAttachment, workspaceId: String) {
+        guard canOperate else { return }
+        composeAction(["kind": "attach", "workspaceId": workspaceId, "file": file.json])
+    }
+    func composeDetach(_ localId: String) {
+        composeAction(["kind": "detach", "localId": localId])
+        AttachmentStaging().discard(localId)
     }
     /// Register an existing folder as a project; the receipt lands in `compose.added[requestId]`.
     func addProject(path: String, requestId: String) async -> Bool {

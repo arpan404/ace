@@ -19,16 +19,15 @@ import {
 } from "@ace/ui-core";
 import {
   newThreadAgents,
-  newThreadModelList,
   newThreadProjects,
   selectNewThreadAgent,
   type NewThreadAgents,
-  type NewThreadChoice,
 } from "@ace/ui-core/mobile";
 import { z } from "zod";
 import { submitCommand } from "./commands.ts";
 import type { PatchSink, Preview } from "./agents.ts";
 import { NewThreadAccessReader, knownProvider } from "./new-thread-access.ts";
+import { agentsPatch } from "./new-thread-agents.ts";
 import type { AttachmentTray } from "./thread-attachments.ts";
 
 /*
@@ -356,50 +355,7 @@ export class NewThread {
 
   /** The agents and their models, the one in use (else each account's default) first. */
   #emitAgents(agents: NewThreadAgents): void {
-    const choice: NewThreadChoice = this.#choice;
-    const start = selectNewThreadAgent(agents, {});
-    const current = selectNewThreadAgent(agents, choice);
-    this.#put("compose:agents", {
-      type: "compose.agents",
-      state: "ready",
-      providers: agents.providers.map((row) => {
-        const inUse =
-          current.ok && current.provider === row.provider
-            ? { key: current.model.key, account: current.model.account }
-            : undefined;
-        const list = newThreadModelList(row.models.slice(0, 200), inUse);
-        return {
-          provider: row.provider,
-          name: row.name,
-          ready: row.ready,
-          status: row.status,
-          reason: row.reason ?? null,
-          accounts: row.accounts.slice(0, 16).map((account) => ({
-            id: account.id,
-            label: this.#preview(account.label, 128),
-            usage: this.#preview(account.usage, 128),
-          })),
-          models: list.models.map((model) => ({
-            key: model.key,
-            label: this.#preview(model.label, 128),
-            account: model.account,
-            efforts: model.efforts,
-            defaultEffort: model.defaultEffort ?? null,
-            speeds: model.speeds,
-            defaultSpeed: model.defaultSpeed,
-          })),
-          lead: list.lead,
-        };
-      }),
-      start: start.ok
-        ? {
-            provider: start.provider,
-            model: start.model.key,
-            account: start.model.account,
-            effort: start.effort ?? null,
-          }
-        : null,
-    });
+    this.#put("compose:agents", agentsPatch(agents, this.#choice, this.#preview));
   }
 
   #put(key: string, patch: Record<string, unknown>): void {

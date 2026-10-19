@@ -60,6 +60,36 @@ import Foundation
                                      reason: "Signed out. Sign in on your computer.", accounts: [], models: [])
         #expect(NewThreadGate.blocker(draft, canOperate: true, agent: signedOut) == "Signed out. Sign in on your computer.")
     }
+    @Test func aFirstMessageOfOnlyFilesCanStartButWaitsForTheBridgesReasons() {
+        var draft = NewThreadDraft()
+        draft.projectId = "ace"
+        #expect(NewThreadGate.blocker(draft, canOperate: true, agent: ready) == "Write the first message")
+        #expect(NewThreadGate.blocker(draft, canOperate: true, agent: ready, files: 1) == nil)
+        #expect(NewThreadGate.blocker(draft, canOperate: true, agent: ready, files: 1,
+                                      waits: [nil, "Wait for your files to finish uploading."]) == "Wait for your files to finish uploading.")
+    }
+    @Test func anAgentsLongModelListLeadsWithTheBridgesChoiceAndKeepsTheRestBehindMore() throws {
+        let model = ClientModel(now: { 0 })
+        let row: (String) -> [String: Any] = { key in ["key": key, "label": key, "account": "a", "efforts": [], "defaultEffort": NSNull(),
+                                                       "speeds": [["speed": "standard", "label": "Standard"], ["speed": "fast", "label": "Fast"]], "defaultSpeed": "standard"] }
+        let frame = try JSONSerialization.data(withJSONObject: [
+            ["type": "compose.agents", "state": "ready", "start": NSNull(), "providers": [[
+                "provider": "codex", "name": "Codex", "ready": true, "status": ["label": "Ready", "token": "done"], "reason": NSNull(),
+                "accounts": [], "models": ["in-use", "b", "c", "d", "e", "f"].map(row), "lead": 4,
+            ]]],
+            ["type": "compose.access", "provider": "codex", "state": "ready", "selected": "ask", "label": "Ask", "stricter": NSNull(), "problem": NSNull(),
+             "choices": [["mode": "ask", "label": "Ask", "description": "Asks before edits and commands.", "attention": false]]],
+            ["type": "compose.attachments", "workspaceId": "ace", "blocked": "Wait for your files to finish uploading.",
+             "files": [["id": "photo-1", "name": "a.png", "kind": "image", "bytes": 10, "state": "uploading", "progress": 0.5, "error": ""]]],
+        ])
+        #expect(model.receive(frame))
+        let agent = try #require(model.compose.agents.first)
+        #expect(agent.leading.map(\.key) == ["in-use", "b", "c", "d"])
+        #expect(agent.more.map(\.key) == ["e", "f"])
+        #expect(agent.models.first?.speeds?.map(\.speed) == ["standard", "fast"])
+        #expect(model.compose.access?.selected == "ask")
+        #expect(model.compose.attachments?.blocked == "Wait for your files to finish uploading.")
+    }
     @Test func composePatchesDecodeIntoTheMachinesModel() throws {
         let model = ClientModel(now: { 0 })
         let frame = try JSONSerialization.data(withJSONObject: [

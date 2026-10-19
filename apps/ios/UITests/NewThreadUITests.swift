@@ -50,6 +50,52 @@ import XCTest
         screenshot("newthread-started")
     }
 
+    func testTheFirstMessageOffersSpeedAccessAndFilesAndLongModelListsCollapse() {
+        let app = launch()
+        XCTAssertTrue(app.buttons["inbox.compose"].waitForExistence(timeout: 25))
+        app.buttons["inbox.compose"].tap()
+        XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
+        app.buttons["newThread.project"].tap()
+        XCTAssertTrue(app.buttons["project.ace"].waitForExistence(timeout: 15))
+        app.buttons["project.ace"].tap()
+        let agent = app.buttons["newThread.agent"]
+        XCTAssertTrue(agent.waitForExistence(timeout: 10))
+        agent.tap()
+        // Claude lists 18 models here: four lead, the rest wait behind More models.
+        let claudeModels = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "model.claude."))
+        XCTAssertTrue(claudeModels.firstMatch.waitForExistence(timeout: 15))
+        XCTAssertEqual(claudeModels.count, 4)
+        let more = app.buttons["agent.claude.more"]
+        XCTAssertTrue(more.exists)
+        screenshot("newthread-agents-collapsed")
+        more.tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier == %@", "model.claude.Opus 5")).firstMatch.waitForExistence(timeout: 5))
+        XCTAssertGreaterThan(claudeModels.count, 4)
+        screenshot("newthread-agents-more")
+        // The demonstration model offers faster tiers; it sits behind Codex's More models.
+        for _ in 0..<25 where !app.buttons["agent.codex.more"].isHittable { app.swipeUp() }
+        app.buttons["agent.codex.more"].tap()
+        let tuned = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND identifier CONTAINS[c] %@", "model.codex.", "ultra")).firstMatch
+        for _ in 0..<25 where !tuned.isHittable { app.swipeUp() }
+        tuned.tap()
+        XCTAssertTrue(element(app, "newThread.speed").waitForExistence(timeout: 10))
+        XCTAssertTrue(element(app, "newThread.access").waitForExistence(timeout: 15))
+        XCTAssertTrue(element(app, "newThread.attach").exists)
+        screenshot("newthread-tuning")
+        element(app, "newThread.access").tap()
+        let readOnly = app.buttons["Read-only"]
+        XCTAssertTrue(readOnly.waitForExistence(timeout: 5))
+        screenshot("newthread-access-menu")
+        readOnly.tap()
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Reads and plans")).firstMatch.waitForExistence(timeout: 10))
+        // Bring the row clear of the bottom edge before opening its menu.
+        app.swipeUp()
+        for _ in 0..<6 where !element(app, "newThread.attach").isHittable { app.swipeUp() }
+        element(app, "newThread.attach").tap()
+        XCTAssertTrue(app.buttons["Choose File"].waitForExistence(timeout: 5))
+        screenshot("newthread-attach-menu")
+    }
+
     func testAddingAFolderFromTheComputerSelectsItAsTheProject() {
         let app = launch()
         XCTAssertTrue(app.buttons["inbox.compose"].waitForExistence(timeout: 25))
