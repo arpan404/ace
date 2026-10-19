@@ -2,7 +2,8 @@ import { modelImageGeometry } from "@ace/mcp-server";
 import type { BrowserScreenshotSize } from "@ace/protocol";
 import { z } from "zod";
 import type { BrowserBackendPage, BrowserCdp } from "./backend.ts";
-import { captureClip } from "./model-screenshot.ts";
+import { captureArea, deviceClip } from "./model-screenshot.ts";
+import { pageViewport } from "./viewport-check.ts";
 
 /** The page sizes a multi-size screenshot lays the page out at (`BrowserScreenshotSize`). */
 export const responsiveSizes: Record<
@@ -22,22 +23,7 @@ export interface TabEmulation {
   mobile: boolean;
 }
 
-const Viewport = z.object({
-  result: z.object({
-    value: z.object({ width: z.number(), height: z.number(), scale: z.number().positive() }),
-  }),
-});
 const Data = z.object({ data: z.string().max(64 * 1024 * 1024) });
-
-/** The tab's viewport as its page sees it: CSS size and device pixel ratio. */
-async function viewportOf(cdp: BrowserCdp) {
-  return Viewport.parse(
-    await cdp.send("Runtime.evaluate", {
-      expression: "({ width: innerWidth, height: innerHeight, scale: devicePixelRatio })",
-      returnByValue: true,
-    }),
-  ).result.value;
-}
 
 /** Two frames, so the layout at the new size has painted before it is captured. */
 async function painted(cdp: BrowserCdp): Promise<void> {
@@ -79,7 +65,7 @@ export async function captureAtSizes(
 ): Promise<SizedCapture[]> {
   const cdp = page.cdp;
   options.check();
-  const before = await viewportOf(cdp);
+  const before = await pageViewport(cdp);
   const captures: SizedCapture[] = [];
   try {
     for (const size of new Set(sizes)) {
@@ -113,13 +99,13 @@ async function captureSize(
 ): Promise<Omit<SizedCapture, "size">> {
   let width = device.width;
   let height = device.height;
-  let clip: Record<string, number> | undefined;
+  let clip: ReturnType<typeof deviceClip> | undefined;
   if (options.fullPage) {
-    const page = await captureClip(cdp, { kind: "page" });
+    const { clip: page, zoom } = await captureArea(cdp, { kind: "page" });
     const scale = device.width / page.width;
     width = device.width;
     height = Math.max(1, Math.round(page.height * scale));
-    clip = { x: 0, y: 0, width: page.width, height: page.height, scale };
+    clip = deviceClip(page, zoom, scale);
   }
   const geometry = clip ? modelImageGeometry(width, height) : { width };
   const shoot = async (format: "jpeg" | "png", scale: number) =>
@@ -130,7 +116,7 @@ async function captureSize(
           ...(format === "jpeg" ? { quality: 75 } : {}),
           captureBeyondViewport: options.fullPage,
           // Every device's screen is within the model's image limits as it is.
-          ...(clip ? { clip: { ...clip, scale: (clip["scale"] ?? 1) * scale } } : {}),
+          ...(clip ? { clip: { ...clip, scale: clip.scale * scale } } : {}),
         }),
       ).data,
       "base64",
@@ -162,7 +148,7 @@ async function restore(
     return;
   }
   await cdp.send("Emulation.clearDeviceMetricsOverride");
-  const after = await viewportOf(cdp);
+  const after = await pageViewport(cdp);
   if (
     after.width === before.width &&
     after.height === before.height &&

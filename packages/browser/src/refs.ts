@@ -7,6 +7,7 @@ import { snapshotLine } from "./snapshot-text.ts";
 import { z } from "zod";
 import { withoutSubtree } from "./snapshot-exclusion.ts";
 import { hitPoint, hitTargetFunction } from "./hit-target.ts";
+import { armElementLanding } from "./click-landing.ts";
 import { TypedKeeping, typeKeepingPerson } from "./typing.ts";
 import {
   limitDepth,
@@ -347,7 +348,8 @@ export class SnapshotRefs {
   async target(ref: string, beforeDispatch: () => void) {
     const { rect, point } = hitPoint(await this.call(ref, hitTargetFunction, beforeDispatch));
     const target = this.refs.get(ref);
-    if (!target?.frameId) return { rect, point };
+    // `local`: the point in the element's own document, for `landingProbe`.
+    if (!target?.frameId) return { rect, point, local: point };
     const guard = this.guard(ref);
     const offset = await frameOffset(target.frameId, this.frameSessions, () => {
       beforeDispatch();
@@ -356,7 +358,27 @@ export class SnapshotRefs {
     return {
       rect: { ...rect, x: rect.x + offset.x, y: rect.y + offset.y },
       point: { x: point.x + offset.x, y: point.y + offset.y },
+      local: point,
     };
+  }
+  /**
+   * A probe on `ref` for where the next press lands (`click-landing.ts`); `local` is the point
+   * it is pressed at, in its own document. Undefined when the page couldn't take one.
+   */
+  async landingProbe(ref: string, local: { x: number; y: number }, beforeDispatch: () => void) {
+    const target = this.refs.get(ref);
+    if (target === undefined) throw this.unknownRef();
+    const epoch = this.epoch;
+    const { object } = ResolvedNode.parse(
+      await target.cdp.send("DOM.resolveNode", { backendNodeId: target.backendNodeId }),
+    );
+    try {
+      if (epoch !== this.epoch) throw staleRef();
+      beforeDispatch();
+      return await armElementLanding(target.cdp, object.objectId, local);
+    } finally {
+      await target.cdp.send("Runtime.releaseObject", { objectId: object.objectId }).catch(() => {});
+    }
   }
   async upload(ref: string, files: string[], beforeDispatch: () => void): Promise<void> {
     const target = this.refs.get(ref);
