@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { expect, test } from "vitest";
+import { warmMathNow } from "./math-warm.ts";
 import { Formula } from "./math.tsx";
 import { Markdown } from "./markdown.tsx";
 
@@ -92,11 +93,23 @@ test("streamed math settles into the same output as its whole text", async () =>
   view.unmount();
 });
 
-test("worker-rendered HTML inserts directly with no chunk wait", () => {
-  const view = render(
-    <Formula raw="\\(w\\)" tex="w" display={false} html='<span class="katex">shipped</span>' />,
-  );
-  expect(view.container.querySelector(".katex")?.textContent).toBe("shipped");
+test("a warm formula renders in the same commit with no source frame", async () => {
+  await warmMathNow();
+  const view = render(<Formula raw="\\(n\\)" tex="n" display={false} />);
+  expect(view.container.querySelector(".katex")).not.toBeNull();
+  expect(view.container.querySelector("code")).toBeNull();
+  view.unmount();
+});
+
+test("a streamed formula shows rendered math with no source flash once warm", async () => {
+  await warmMathNow();
+  const stream = "thread/math-warm-commit";
+  const view = render(<Markdown stream={stream} streaming text={"Warm \\(w+1\\).\n\nTail\n"} />);
+  // The loading state is plain text; the first rendered paragraph already
+  // holds math: the formula commits with its block, never as source first.
+  await waitFor(() => expect(view.container.querySelector("p")).not.toBeNull());
+  expect(view.container.querySelector("p")?.querySelector(".katex")).not.toBeNull();
+  expect(view.container.querySelector("code")).toBeNull();
   view.unmount();
 });
 

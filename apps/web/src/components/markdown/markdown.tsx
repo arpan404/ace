@@ -99,15 +99,7 @@ function Inline(props: { token: Token }): ReactNode {
     // back to its source inside `Formula`, never a red error. The key pins one
     // instance to one formula, so a settled formula never re-renders.
     if (token.pending) return token.raw;
-    return (
-      <Formula
-        key={`${token.raw}\n${token.html ?? ""}`}
-        raw={token.raw}
-        tex={token.tex}
-        display={token.display}
-        html={token.html}
-      />
-    );
+    return <Formula key={token.raw} raw={token.raw} tex={token.tex} display={token.display} />;
   }
   if (!isKnown(token)) return token.raw;
   switch (token.type) {

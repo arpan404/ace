@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { createMathCache } from "./math-cache.ts";
+import { createMathCache, mathCache, renderMathCached, setMathRenderer } from "./math-cache.ts";
 
 test("a rendered formula comes back from the cache", () => {
   const cache = createMathCache();
@@ -52,4 +52,32 @@ test("unbounded formulas stay bounded", () => {
   for (let i = 0; i < 10_000; i++) cache.set(i % 2 === 0, `x_{${i}}`, `<span>${i}</span>`);
   expect(cache.size).toBeLessThanOrEqual(1000);
   expect(cache.weight).toBeLessThanOrEqual(2 * 1024 * 1024);
+});
+
+test("without a renderer nothing renders", () => {
+  setMathRenderer(undefined);
+  expect(renderMathCached("unseen-tex", false)).toBeUndefined();
+});
+
+test("a registered renderer fills the shared cache", () => {
+  setMathRenderer((tex) => `<span>${tex}</span>`);
+  try {
+    expect(renderMathCached("shared-tex", false)).toBe("<span>shared-tex</span>");
+    expect(mathCache.get(false, "shared-tex")).toBe("<span>shared-tex</span>");
+  } finally {
+    setMathRenderer(undefined);
+  }
+  // The cache answers after the renderer leaves.
+  expect(renderMathCached("shared-tex", false)).toBe("<span>shared-tex</span>");
+});
+
+test("a throwing renderer never throws its caller", () => {
+  setMathRenderer(() => {
+    throw new Error("bad tex");
+  });
+  try {
+    expect(renderMathCached("bad-tex", true)).toBeUndefined();
+  } finally {
+    setMathRenderer(undefined);
+  }
 });

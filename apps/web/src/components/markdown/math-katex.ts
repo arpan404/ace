@@ -1,16 +1,14 @@
 import "katex/dist/katex.min.css";
 import { renderToString } from "katex";
-import { renderTex } from "./math-render.ts";
+import { setMathRenderer } from "./math-cache.ts";
 
 /*
- * KaTeX on the main thread: loads only with the first message that holds math
- * (`Formula` dynamically imports this module), landing in its own lazy chunk.
- * Pure rendering; the caller (`math.tsx`) caches per (display flag, TeX) across
- * every message. Only KaTeX's own HTML is ever injected, and only with the
- * safety settings in `math-render.ts`.
+ * KaTeX on the main thread, loaded lazily: `Formula` and the idle warm-up
+ * dynamically import this module, so KaTeX (code, CSS and fonts, all bundled
+ * locally) lands in its own lazy chunk and never in the main bundle.
+ * Evaluating the module registers the renderer, after which formulas render
+ * synchronously in their first commit. Only KaTeX's own HTML is ever
+ * injected, and only with the safety settings in `math-render.ts`.
  */
 
-/** `tex` as HTML, or `undefined` when it is not safe to show rendered. */
-export function renderMath(tex: string, displayMode: boolean): string | undefined {
-  return renderTex(renderToString, tex, displayMode);
-}
+setMathRenderer(renderToString);
