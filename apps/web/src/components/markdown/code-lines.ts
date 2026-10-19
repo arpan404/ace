@@ -33,6 +33,16 @@ export function splitLines(tokens: readonly CodeToken[]): CodeToken[][] {
   return lines;
 }
 
+/** Whether a line's tokens spell exactly `text` (a final carriage return aside). */
+export function tokensFit(tokens: readonly { text: string }[], text: string): boolean {
+  let at = 0;
+  for (const token of tokens) {
+    if (!text.startsWith(token.text, at)) return false;
+    at += token.text.length;
+  }
+  return at === text.length || (at === text.length - 1 && text.endsWith("\r"));
+}
+
 export function codeLinesWeight(doc: CodeLines): number {
   if ("plain" in doc) return 64;
   return doc.lines.reduce(
