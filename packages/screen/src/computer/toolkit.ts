@@ -19,12 +19,7 @@ import {
   windowKey,
 } from "./outline.ts";
 import { blockedReason } from "./policy.ts";
-import {
-  computerSchemas,
-  computerToolMetadata,
-  type ComputerAction,
-  type ComputerToolName,
-} from "./schemas.ts";
+import { computerSchemas, computerToolMetadata, type ComputerToolName } from "./schemas.ts";
 import { ComputerActResult, ComputerApps, ComputerState } from "./wire.ts";
 import { z } from "zod";
 
