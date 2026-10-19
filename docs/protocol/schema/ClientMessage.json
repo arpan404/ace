@@ -1989,6 +1989,12 @@
       "type": "object"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/BrowserFilesDropMessage.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/BrowserDownloadReadMessage.json"
+    },
+    {
       "properties": {
         "muted": {
           "type": "boolean"

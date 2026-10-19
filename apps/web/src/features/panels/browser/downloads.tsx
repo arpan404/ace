@@ -1,5 +1,6 @@
 import {
   CopyIcon,
+  DeviceMobileIcon,
   DotsThreeIcon,
   DownloadSimpleIcon,
   FileArchiveIcon,
@@ -19,6 +20,7 @@ import { useDaemonConnection } from "@/boot/connection.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { BrowserDownloadView } from "../sources.ts";
 import { toolbarButton } from "./page-toolbar.tsx";
+import { useSaveDownload } from "./use-save-download.ts";
 
 const states: Record<BrowserDownloadView["state"], string> = {
   pending: "Downloading",
@@ -40,10 +42,15 @@ function useReveal() {
 function DownloadRow(props: {
   download: BrowserDownloadView;
   reveal: ((path: string) => Promise<void>) | undefined;
+  /** Fetch it to this device; absent where the file is already on this computer. */
+  save: ((download: BrowserDownloadView) => void) | undefined;
+  /** How far a save to this device has come, 0 to 1, while one runs. */
+  saving: number | undefined;
 }) {
   const toast = useToast();
-  const { download, reveal } = props;
+  const { download, reveal, saving } = props;
   const path = download.state === "complete" ? download.path : undefined;
+  const save = download.state === "complete" ? props.save : undefined;
   const risky = download.flags.includes("executable");
   return (
     <li className="flex min-h-12 items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent">
@@ -58,7 +65,9 @@ function DownloadRow(props: {
             (download.state === "failed" || download.state === "denied") && "text-status-failed",
           )}
         >
-          {states[download.state]}
+          {saving === undefined
+            ? states[download.state]
+            : `Saving to this device · ${Math.floor(saving * 100)}%`}
           {download.bytes > 0 && ` · ${formatBytes(download.bytes)}`}
           {risky && " · Executable: check it before running"}
         </p>
@@ -80,6 +89,16 @@ function DownloadRow(props: {
           onClick={() =>
             void reveal(path).catch(() => toast.error({ title: "Couldn't show the file" }))
           }
+        />
+      )}
+      {save && (
+        <IconButton
+          icon={DeviceMobileIcon}
+          label={`Save ${download.filename} to this device`}
+          tip="Save to this device"
+          size="sm"
+          disabled={saving !== undefined}
+          onClick={() => save(download)}
         />
       )}
       {path && (
@@ -117,15 +136,17 @@ function DownloadRow(props: {
  * Downloads, in the toolbar's right pill: a ring turns around the arrow while a file arrives,
  * and the popover lists what the thread's tabs downloaded. Files stay in the thread's quarantine
  * on the daemon's machine and never open on their own; Show in Finder works when that machine
- * is this one.
+ * is this one, and anywhere else Save to this device fetches the file over the connection.
  */
 export function DownloadsButton(props: {
+  threadId: string;
   downloads: readonly BrowserDownloadView[];
   /** Opened from elsewhere too (the ⋯ menu's Downloads). */
   open?: boolean;
   onOpenChange?(open: boolean): void;
 }) {
   const reveal = useReveal();
+  const device = useSaveDownload(props.threadId);
   const { downloads } = props;
   const pending = downloads.filter((download) => download.state === "pending").length;
   const label = pending
@@ -173,7 +194,13 @@ export function DownloadsButton(props: {
         ) : (
           <ul aria-label="Downloads" className="flex max-h-80 flex-col overflow-y-auto">
             {downloads.toReversed().map((download) => (
-              <DownloadRow key={download.downloadId} download={download} reveal={reveal} />
+              <DownloadRow
+                key={download.downloadId}
+                download={download}
+                reveal={reveal}
+                save={reveal ? undefined : (each) => void device.save(each)}
+                saving={device.saving.get(download.downloadId)}
+              />
             ))}
           </ul>
         )}

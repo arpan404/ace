@@ -278,6 +278,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
         framed={tools.toolbar}
         zoom={shown.zoom}
         cursor={pageCursor}
+        onDropFiles={(files, at) => void browser.dropFiles(shown.tabId, files, at)}
         menu={chrome.menu}
         dimmed={!online || live.status === "paused"}
       />
@@ -365,6 +366,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
                 />
               )}
               <DownloadsButton
+                threadId={threadId}
                 downloads={live?.downloads ?? []}
                 open={chrome.downloads.open}
                 onOpenChange={chrome.downloads.setOpen}

@@ -408,6 +408,9 @@ export class EmbeddedTabs {
   downloads() {
     return this.downloadsManager.transfers.list();
   }
+  downloadSource(downloadId: string) {
+    return this.downloadsManager.transfers.source(downloadId);
+  }
   stop() {
     this.stopped = true;
     this.downloadsManager.stop();

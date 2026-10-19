@@ -72,7 +72,11 @@ try {
   for (let i = 0; i < iterations; i++)
     for (const piece of service.streamFrame(threadId, frameAt(i))) {
       const envelope = assembler.push(piece);
-      if (envelope && decodeStreamMessage(envelope)?.frame.bytes.length !== jpeg.length)
+      const message = envelope && decodeStreamMessage(envelope);
+      if (
+        message &&
+        (message.kind !== "browser.frame" || message.frame.bytes.length !== jpeg.length)
+      )
         throw new Error("Frame did not round-trip");
     }
   const receiveMicroseconds = ((performance.now() - start) * 1000) / iterations;

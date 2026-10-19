@@ -30,6 +30,8 @@ export const streamMaxBytes = 8 * 1024 * 1024;
 export const streamKinds = {
   /** One JPEG screencast frame of a thread's browser (`stream-frame.ts`). */
   browserFrame: 1,
+  /** A chunk of a thread's browser download, fetched to the person's device (`stream-download.ts`). */
+  browserDownload: 8,
 } as const;
 
 export class StreamEnvelopeError extends Error {

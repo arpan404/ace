@@ -669,6 +669,7 @@ function embeddedTabList(
     dialog: () => tabs.dialog(),
     answer: (id, accept, text) => tabs.answer(id, accept, text),
     downloads: () => tabs.downloads(),
+    downloadSource: (id) => tabs.downloadSource(id),
     proceedCertificate: (id, url) => tabs.proceedCertificate(id, url),
     mute: (id, muted) => tabs.mute(id, muted),
     page: (id) => {

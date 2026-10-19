@@ -1,0 +1,41 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserDownloadRead.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bytes": {
+      "maximum": 1048576,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "done": {
+      "type": "boolean"
+    },
+    "downloadId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "offset": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "size": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "validator": {
+      "$ref": "https://ace.local/protocol/v1/BrowserFileValidator.json"
+    }
+  },
+  "required": [
+    "downloadId",
+    "offset",
+    "bytes",
+    "size",
+    "validator",
+    "done"
+  ],
+  "type": "object"
+}
