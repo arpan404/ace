@@ -1,4 +1,6 @@
 import type { KeyboardEvent } from "react";
+import { matchesChord } from "@/lib/hotkeys.ts";
+import type { Chord } from "@/lib/keymap.ts";
 
 /** The open suggestion list, as the keyboard drives it. */
 export interface KeyList {
@@ -21,15 +23,17 @@ export interface ComposerKeys {
   recall(): boolean;
   /** Esc asks to stop; undefined when there's nothing to stop. */
   stopKey: ((at: number) => void) | undefined;
-  /** Enter; `modified` with ⌘ or Ctrl held. */
-  submit(modified: boolean): void;
+  /** The key that sends the other way (Settings › Keyboard; ⌘↵ by default). */
+  other: Chord;
+  /** Enter, or `other` with `true`. */
+  submit(other: boolean): void;
 }
 
 /**
  * The composer's keyboard, in priority order: IME composition passes through untouched; ⌘Z,
  * ⇧⌘Z and Ctrl+Y walk the composer's history; ⇧↵ breaks the line; an open suggestion list takes
  * the arrows, Home, End, Enter, Tab and Esc; ↑ in an empty composer recalls the last message;
- * Esc asks to stop; Enter sends.
+ * Esc asks to stop; the other send key sends the other way; Enter sends.
  */
 export function composerKeyDown(event: KeyboardEvent<HTMLElement>, keys: ComposerKeys): void {
   if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
@@ -37,12 +41,13 @@ export function composerKeyDown(event: KeyboardEvent<HTMLElement>, keys: Compose
   const letter = key.toLowerCase();
   const modified = event.metaKey || event.ctrlKey;
   const done = () => event.preventDefault();
+  const other = matchesChord(event.nativeEvent, keys.other);
   if (modified && !event.altKey && (letter === "z" || (letter === "y" && !event.metaKey))) {
     done();
     keys.history(letter === "y" || event.shiftKey ? "redo" : "undo");
     return;
   }
-  if (key === "Enter" && event.shiftKey) {
+  if (key === "Enter" && event.shiftKey && !other) {
     done();
     keys.newline();
     return;
@@ -87,8 +92,8 @@ export function composerKeyDown(event: KeyboardEvent<HTMLElement>, keys: Compose
     keys.stopKey(event.timeStamp);
     return;
   }
-  if (key === "Enter") {
+  if (other || key === "Enter") {
     done();
-    keys.submit(modified);
+    keys.submit(other);
   }
 }

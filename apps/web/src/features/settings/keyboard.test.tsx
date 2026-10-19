@@ -114,7 +114,7 @@ test("sequences and plain keys are shown, not recorded; shortcuts say where they
   expect(within(goTo).queryByRole("button", { name: "Go to Home shortcut" })).toBeNull();
   expect(within(goTo).queryByText("Sequence")).toBeNull();
   expect(within(goTo).getAllByText("then").length).toBeGreaterThan(0);
-  const cap = screen.getByLabelText("Send shortcut");
+  const cap = screen.getByLabelText("Stop the working agent shortcut");
   cap.focus();
   expect((await screen.findByRole("tooltip")).textContent).toContain("In the composer");
 });

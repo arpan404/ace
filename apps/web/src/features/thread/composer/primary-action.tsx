@@ -22,17 +22,23 @@ const icons = {
 };
 
 /**
- * What Enter does now, and what ⌘↵ does instead while the agent works. A provider that can't
- * steer only queues, so ⌘↵ isn't offered (UX audit SY-14).
+ * What Enter does now, and what the other send key (⌘↵ unless rebound) does instead: the other
+ * follow-up while the agent works, or `otherHint` where it means something else. A provider
+ * that can't steer only queues, so the other follow-up isn't offered (UX audit SY-14).
  */
-function hint(mode: PrimaryMode, canSteer: boolean): string {
-  const mod = formatKeys("mod+enter");
-  if (mode === "steer") return `Steer into the running turn · ${mod} queues it instead`;
+function hint(
+  mode: PrimaryMode,
+  canSteer: boolean,
+  otherKeys: string,
+  otherHint: string | undefined,
+): string {
+  const other = formatKeys(otherKeys);
+  if (mode === "steer") return `Steer into the running turn · ${other} queues it instead`;
   if (mode === "queue")
     return canSteer
-      ? `Queue for after this turn · ${mod} steers it now`
+      ? `Queue for after this turn · ${other} steers it now`
       : "Queue for after this turn";
-  return "Send";
+  return otherHint ? `Send · ${other} ${otherHint}` : "Send";
 }
 
 /**
@@ -50,13 +56,17 @@ export const PrimaryAction = memo(function PrimaryAction(props: {
   describedBy?: string | undefined;
   /** The provider can steer a running turn; otherwise follow-ups only queue. */
   canSteer?: boolean | undefined;
+  /** The other send key, as bound now. */
+  otherKeys: string;
+  /** What it does when that isn't the other follow-up (New thread). */
+  otherHint?: string | undefined;
   onSend(): void;
 }) {
   const { mode, blocked } = props;
   const Glyph = icons[mode];
   return (
     <Tip
-      label={blocked ?? hint(mode, props.canSteer !== false)}
+      label={blocked ?? hint(mode, props.canSteer !== false, props.otherKeys, props.otherHint)}
       {...(blocked ? {} : { keys: "enter" })}
       side="top"
     >
