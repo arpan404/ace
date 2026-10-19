@@ -46,7 +46,11 @@ export async function readNativeMedia(
       // visualizationWindow wrapper is trusted web output; add the mobile
       // viewport here at the native boundary without touching CSP,
       // sandbox, or nested authored HTML.
-      document: visualizationWindow(html, theme, resolveHtmlMode(html, item.visualization.mode)).replace(
+      document: visualizationWindow(
+        html,
+        theme,
+        resolveHtmlMode(html, item.visualization.mode),
+      ).replace(
         "<head>",
         '<head><meta name="viewport" content="width=device-width, initial-scale=1">',
       ),
