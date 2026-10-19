@@ -25,6 +25,8 @@ import CryptoKit
 }
 
 @MainActor @Observable final class ClientModel {
+    private(set) var hostId: String?
+    @ObservationIgnored let liveActivity: ThreadLiveActivity
     var inbox: [String: ThreadRow] = [:]
     var pending: [String: PendingRow] = [:]
     var connection = "connecting"
@@ -70,11 +72,12 @@ import CryptoKit
 
     init(now: @escaping () -> Double, makeRuntime: @escaping ClientSessionFactory = {
         ClientRuntime(target: $0, storageURL: $1, receive: $2, fail: $3)
-    }) { self.now = now; self.makeRuntime = makeRuntime }
+    }) { self.now = now; self.makeRuntime = makeRuntime; liveActivity = ThreadLiveActivity(now: { Date(timeIntervalSince1970: now() / 1000) }) }
     func connect(target: ConnectionTarget, directory: URL, itemLimit: Int = 200) async {
         connectionEpoch += 1
         let epoch = connectionEpoch
         let closing = retireRuntime()
+        hostId = target.hostId
         inbox = [:]; pending = [:]; thread = nil; inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset()
         inboxLayout = .empty
         machineStatus = nil; providers = nil
@@ -108,6 +111,7 @@ import CryptoKit
             return false
         }
         var reorder = false
+        var activityChanged = false
         for patch in patches {
             patchCount += 1
             switch patch {
@@ -116,9 +120,9 @@ import CryptoKit
                 if let offset = terminal.receive(patch) { action(["type": "terminal.credit", "id": patch.id, "offset": offset]) }
             case .fragment: break // BridgeFrames only returns complete patches.
             case .inboxReset: inbox.removeAll(keepingCapacity: true); inboxLoaded = true
-            case .inbox(let id, let row): inbox[id] = row
+            case .inbox(let id, let row): inbox[id] = row; activityChanged = true
             case .inboxSections(let layout): if inboxLayout != layout { inboxLayout = layout }
-            case .connection(let state): connection = state
+            case .connection(let state): connection = state; activityChanged = true
             case .problem(let notice): problem = notice
             case .machineStatus(let info): machineStatus = info
             case .machineProviders(let info): providers = info
@@ -186,6 +190,7 @@ import CryptoKit
             }
         }
         thread?.screen.commit()
+        if activityChanged, let hostId { liveActivity.update(rows: inbox, hostId: hostId, online: connection == "ready") }
         if reorder, let thread {
             thread.order = thread.positions.keys.filter { thread.items[$0] != nil }.sorted {
                 (thread.positions[$0] ?? 0) < (thread.positions[$1] ?? 0)
@@ -268,6 +273,7 @@ import CryptoKit
     }
     func disconnect() { connectionEpoch += 1; _ = retireRuntime() }
     private func retireRuntime() -> Task<Void, Never>? {
+        if let hostId { liveActivity.update(rows: inbox, hostId: hostId, online: false) }
         services.cancel()
         admissions.cancel()
         approvalSubmissions = [:]; approvalRequests = [:]

@@ -5,6 +5,7 @@ import SwiftUI
 /// wording come from each machine's runtime. A row and its thread belong to their machine.
 struct InboxView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @Bindable var inbox: MachineInbox
     /// Rename, remove and pairing for the Machines sheet; nil for the debug fixture.
     var machines: MachinesModel?
@@ -118,6 +119,19 @@ struct InboxView: View {
             }
         }
         .tint(AceTheme.Colours.foreground)
+        .task(id: scenePhase) {
+            // Foreground reconciliation: renew every live activity's `staleDate` while
+            // the navigation stack is mounted, including its thread destinations. Cancelled on
+            // background or unmount; rows stay truthful and nothing ends here — `update`
+            // only finishes a canonical done row while online.
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                for session in inbox.sessions {
+                    session.client.liveActivity.update(rows: session.client.inbox, hostId: session.hostId, online: session.client.connection == "ready")
+                }
+                try? await Task.sleep(for: .seconds(30))
+            }
+        }
         .alert("Request needs attention", isPresented: Binding(get: { failing != nil }, set: { if !$0 { failing?.client.error = nil } })) {
             Button("OK") { failing?.client.error = nil }
         } message: {

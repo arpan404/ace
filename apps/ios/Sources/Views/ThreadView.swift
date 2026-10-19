@@ -13,6 +13,7 @@ struct ThreadView: View {
     @State private var showFiles = false
     @State private var media: TranscriptRow?
     @State private var showTools = false
+    @State private var activityProblem: String?
     @State private var showChanges = false
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
@@ -112,6 +113,9 @@ struct ThreadView: View {
             .navigationBarTitleDisplayMode(.inline)
             .threadSheets(model: model, thread: thread, openThread: openThread, changes: $showChanges)
             .sheet(isPresented: $showDetails) { details }
+            .alert("Live Activity", isPresented: Binding(get: { activityProblem != nil }, set: { if !$0 { activityProblem = nil } })) {
+                Button("OK") { activityProblem = nil }
+            } message: { Text(activityProblem ?? "") }
             .sheet(isPresented: $showTools) {
                 NavigationStack { ThreadToolsView(model: model, thread: thread, openThread: openThread) }.presentationDetents([.large]).presentationDragIndicator(.visible)
             }
@@ -155,6 +159,12 @@ struct ThreadView: View {
     private var menu: some View {
         Menu {
             Button("Thread tools", systemImage: "wrench.and.screwdriver") { showTools = true }.accessibilityIdentifier("thread.tools")
+            if let metadata, let hostId = model.hostId {
+                Button("Show on Lock Screen", systemImage: "widget.small") {
+                    do { try model.liveActivity.start(row: metadata, hostId: hostId, online: model.connection == "ready") }
+                    catch { activityProblem = error.localizedDescription }
+                }
+            }
             if model.canOperate, screen.controls?.canStop == true {
                 Button("Stop all agents", systemImage: "stop.circle", role: .destructive) { model.stopTree() }.disabled(screen.stopping)
             }
