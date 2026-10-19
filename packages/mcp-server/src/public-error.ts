@@ -50,6 +50,7 @@ export const PublicToolCode = z.enum([
   "not_visible",
   "not_hittable",
   "covered",
+  "viewport_mismatch",
   "unsaved_changes",
   "evaluate_approval_required",
   "storage_restricted",
@@ -282,6 +283,10 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   covered: {
     message: "Another element covers the browser element",
     hint: "An overlay, banner, dialog or sticky header sits over it, so the click would land there. Dismiss or close what covers it, then snapshot again and retry.",
+  },
+  viewport_mismatch: {
+    message: "The tab did not take the requested viewport size",
+    hint: "detail gives the size the page lays out at; screenshots and clicks use that size. The person's browser panel may be holding the tab at its own size. For a one-off look at other widths, call browser_screenshot with sizes.",
   },
   unsaved_changes: {
     message: "The person has unsaved changes on this page",

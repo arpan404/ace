@@ -11,6 +11,8 @@ import { writeFile } from "node:fs/promises";
 import type { BrowserBackendPage } from "./backend.ts";
 import { pngScreenshot, printPdf, screenshotRegion } from "./page-capture.ts";
 import { captureAtSizes } from "./responsive-capture.ts";
+import { expectViewport } from "./viewport-check.ts";
+import { armPointLanding, pressLanding, type LandingProbe } from "./click-landing.ts";
 import { BrowserActionError } from "./action-error.ts";
 import { waitForBrowser } from "./wait.ts";
 import { BrowserOriginError, browserOrigin } from "./policy.ts";
@@ -362,23 +364,30 @@ export async function executeBrowserCommand(
       return context.finishRecording();
     case "click": {
       let point: { x: number; y: number };
+      let probe: LandingProbe | undefined;
       if (command.ref !== undefined) {
         if (command.x !== undefined || command.y !== undefined)
           throw new BrowserActionError("invalid_arguments");
         const dispatch = context.refDispatch(command.ref, actor, signal, generation);
         // Only where the element itself would take the click, once it holds still.
-        point = (await context.refs.target(command.ref, dispatch.prepare)).point;
+        const target = await context.refs.target(command.ref, dispatch.prepare);
+        point = target.point;
         dispatch.send();
+        context.point?.(point);
+        await context.cursor?.point(point, true);
+        probe = await context.refs.landingProbe(command.ref, target.local, dispatch.send);
       } else {
         if (command.x === undefined || command.y === undefined)
           throw new BrowserActionError("invalid_arguments");
         context.check(actor, signal, generation);
         point = { x: command.x, y: command.y };
+        context.point?.(point);
+        await context.cursor?.point(point, true);
+        probe = await armPointLanding(cdp, point);
       }
-      context.point?.(point);
-      await context.cursor?.point(point, true);
       context.beforeInput?.();
-      await clickAt(page, point, command);
+      // A press that reached nothing, or something else, is never reported as done.
+      await pressLanding(probe, command.ref !== undefined, () => clickAt(page, point, command));
       return { ok: true };
     }
     case "fill_form": {
@@ -467,6 +476,8 @@ export async function executeBrowserCommand(
         context.check(actor, signal, generation),
       );
       if (before !== context.view.emulation) context.emit();
+      // An agent's size is real or reported: layout, capture and clicks all follow the page.
+      if (actor.kind === "agent") await expectViewport(cdp, command, context.view.zoom);
       return { ok: true };
     }
     case "emulate":
@@ -474,6 +485,9 @@ export async function executeBrowserCommand(
         context.check(actor, signal, generation),
       );
       context.emit();
+      // A mobile page picks its own layout width (its viewport meta tag): only its screen is set.
+      if (actor.kind === "agent" && !command.mobile)
+        await expectViewport(cdp, command, context.view.zoom);
       return { ok: true };
     case "context_target":
     case "image_data":

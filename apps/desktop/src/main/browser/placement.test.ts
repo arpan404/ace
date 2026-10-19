@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deviceEmulation, PlacementBook, toWindowBounds } from "./placement.ts";
+import { agentEmulation, deviceEmulation, PlacementBook, toWindowBounds } from "./placement.ts";
 
 const panel = { x: 920, y: 120, width: 520, height: 780 };
 const other = { x: 400, y: 80, width: 600, height: 500 };
@@ -179,5 +179,43 @@ describe("device emulation", () => {
         1,
       ),
     ).toEqual({ width: 390, height: 844, deviceScaleFactor: 3, mobile: true, scale: 0.5 });
+  });
+});
+
+// Chromium lays out `floor(emulated DIPs / zoom)` CSS pixels and reports `dpr * zoom`.
+const laidOut = (emulation: { width: number; height: number }, zoom: number) => ({
+  width: Math.floor(emulation.width / zoom),
+  height: Math.floor(emulation.height / zoom),
+});
+
+describe("an agent's size on a zoomed page", () => {
+  const shown = { x: 0, y: 0, width: 1095, height: 684 };
+
+  it("lays the page out at exactly the CSS size asked, whatever the zoom", () => {
+    for (const zoom of [1, 1.1, 1.25, 1.316, 1.5, 2])
+      expect(laidOut(agentEmulation({ width: 1440, height: 900 }, shown, zoom), zoom)).toEqual({
+        width: 1440,
+        height: 900,
+      });
+  });
+
+  it("draws the whole zoomed page inside the panel's box", () => {
+    const emulation = agentEmulation({ width: 1440, height: 900 }, shown, 1.316);
+    expect(emulation.width * emulation.scale).toBeLessThanOrEqual(shown.width);
+    expect(emulation.height * emulation.scale).toBeLessThanOrEqual(shown.height);
+  });
+
+  it("never enlarges a device smaller than the panel", () => {
+    expect(agentEmulation({ width: 390, height: 600 }, shown, 1).scale).toBe(1);
+  });
+
+  it("reports the scale factor the agent asked, and keeps the screen's when it asked none", () => {
+    const asked = agentEmulation({ width: 390, height: 844, deviceScaleFactor: 3 }, shown, 1.25);
+    expect(asked.deviceScaleFactor * 1.25).toBeCloseTo(3, 10);
+    expect(agentEmulation({ width: 800, height: 600 }, shown, 1.25).deviceScaleFactor).toBe(0);
+  });
+
+  it("keeps the agent's mobile choice", () => {
+    expect(agentEmulation({ width: 390, height: 844, mobile: true }, shown, 1).mobile).toBe(true);
   });
 });

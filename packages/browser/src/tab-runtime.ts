@@ -474,7 +474,9 @@ export class TabRuntime {
         // The person came back while this input waited for its turn: it waits again, outside.
         if (!this.lane.quiet()) return personReturned;
         await this.agentSync;
-      }
+      } else if (actor.kind === "agent" && (part.action === "resize" || part.action === "emulate"))
+        // The backend sizes a shown tab for an agent only once it knows the agent uses it.
+        await this.agentSync;
       await this.host.wake(this.id);
       this.readCheck(actor, privateEpoch);
       if (mutatesBrowser(part)) this.check(actor, signal, submittedGeneration, privateEpoch);

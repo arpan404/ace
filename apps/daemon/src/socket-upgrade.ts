@@ -9,8 +9,30 @@ const refuseUpgrade = (socket: Duplex, status: string) =>
   );
 
 /**
- * Admit WebSocket upgrades on `listener`: only `/`, an allowed Origin on loopback, and within
- * the connection and pre-authentication budgets. Admitted sockets reach `connection`.
+ * The daemon's own address on this loopback listener (`http://127.0.0.1:<port>`, `localhost`
+ * or `[::1]`): the origin of the web app it serves itself. Only literal loopback names count,
+ * so a rebound DNS name pointing here is still refused.
+ */
+function ownLoopbackOrigin(origin: string, listener: Server): boolean {
+  const address = listener.address();
+  if (!address || typeof address === "string") return false;
+  try {
+    const url = new URL(origin);
+    return (
+      url.origin === origin &&
+      url.protocol === "http:" &&
+      ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) &&
+      Number(url.port) === address.port
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Admit WebSocket upgrades on `listener`: only `/`, an allowed Origin on loopback (or, when the
+ * daemon serves the web app, its own loopback origin), and within the connection and
+ * pre-authentication budgets. Admitted sockets reach `connection`.
  */
 export function admitUpgrades(
   listener: Server,
@@ -18,6 +40,8 @@ export function admitUpgrades(
   options: {
     wss: WebSocketServer;
     allowedOrigins: ReadonlySet<string>;
+    /** The listener serves the web app (`webRoot`): its page may open the socket. */
+    servesRenderer?: boolean;
     preAuth: PreAuthAdmission;
     full(): boolean;
     remoteSockets: Set<WebSocket>;
@@ -32,7 +56,12 @@ export function admitUpgrades(
     // Loopback shares the HTTP access allowlist. Remote clients authenticate
     // with paired-device tickets, including native clients with URL-derived Origin.
     const origin = request.headers.origin;
-    if (isLocal && origin !== undefined && !options.allowedOrigins.has(origin)) {
+    if (
+      isLocal &&
+      origin !== undefined &&
+      !options.allowedOrigins.has(origin) &&
+      !(options.servesRenderer && ownLoopbackOrigin(origin, listener))
+    ) {
       refuseUpgrade(socket, "403 Forbidden");
       return;
     }
