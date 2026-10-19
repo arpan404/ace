@@ -49,7 +49,8 @@ export const DeferredFileDiffBlock = deferredComponent(() =>
 export const DeferredFileTree = deferredComponent(() =>
   import("./changes/file-tree.tsx").then((module) => module.FileTree),
 );
-export { freshView, type FileView } from "./changes/file-view.ts";
+export { freshView, fileHeight, type FileView } from "./changes/file-view.ts";
+export { useFileViews } from "./changes/file-views.ts";
 export type { LineRange, LineTarget } from "./changes/file-diff.tsx";
 export { bindTerminalEndDelivery } from "./terminal/end-delivery.ts";
 export { useAlwaysShowDevices } from "./browser/device-settings.ts";
