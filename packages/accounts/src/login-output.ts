@@ -37,6 +37,10 @@ export function loginUrl(provider: ProviderKind, candidate: string): string | un
               ...(provider === "acp" || provider === "antigravity"
                 ? [["accounts.google.com", /^\/o\/oauth2\/(?:v2\/auth|auth)\/?$/] as const]
                 : []),
+              // OpenCode's own account (Go, Zen): its device page, with the code filled in.
+              ...(provider === "opencode"
+                ? [["opencode.ai", /^\/console\/device\/?$/] as const]
+                : []),
               ["github.com", /^\/login\/device\/?$/],
               ["auth.openai.com", /^\/codex\/device\/?$/],
             ] as const);
@@ -55,6 +59,7 @@ export function loginUrl(provider: ProviderKind, candidate: string): string | un
     "audience",
     "originator",
     ...(provider === "claude" ? ["code"] : []),
+    ...(provider === "opencode" ? ["user_code"] : []),
     ...(provider === "pi" ? ["agent_name", "device_id", "agent_host_id", "prompt", "code"] : []),
     ...(provider === "acp" || provider === "antigravity"
       ? ["access_type", "prompt", "login_hint", "include_granted_scopes"]
