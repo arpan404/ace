@@ -93,6 +93,53 @@ test("failing checks never offer auto-merge, even where the host would allow it"
   ).toBe("merge");
 });
 
+test("a PR no task is linked to offers the link before the merge, but a draft still offers ready", () => {
+  expect(
+    label({ status: status(), mergeState: mergeState(), method: "squash", linked: false }),
+  ).toBe("Link to merge");
+  expect(
+    label({
+      status: status({ state: "draft" }),
+      mergeState: undefined,
+      method: "squash",
+      linked: false,
+    }),
+  ).toBe("Ready for review");
+});
+
+test("blocking gates turn the merge into Merge blocked, naming them", () => {
+  const blockers = ["Checks: 1 failing · 5 ok", "Reviews: Changes requested"];
+  expect(
+    prPrimaryAction({
+      status: status({ ci: "failure" }),
+      mergeState: mergeState({ canEnable: false }),
+      method: "squash",
+      linked: true,
+      blockers,
+    }),
+  ).toEqual({ kind: "blocked", blockers });
+  expect(
+    label({
+      status: status({ ci: "failure" }),
+      mergeState: mergeState({ canEnable: false }),
+      method: "squash",
+      blockers,
+    }),
+  ).toBe("Merge blocked");
+});
+
+test("where the host allows auto-merge, blocking gates offer auto-merge when ready instead", () => {
+  expect(
+    label({
+      status: status({ ci: "failure" }),
+      mergeState: mergeState({ canEnable: true }),
+      method: "squash",
+      linked: true,
+      blockers: ["Reviews: Changes requested"],
+    }),
+  ).toBe("Auto-merge when ready");
+});
+
 test("armed auto-merge and a queued PR show what GitHub will do", () => {
   expect(
     prPrimaryAction({

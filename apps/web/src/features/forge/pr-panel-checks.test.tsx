@@ -98,12 +98,15 @@ test("checks GitHub couldn't read say so in the PR panel instead of claiming non
   expect(screen.queryByText("No checks reported")).toBeNull();
 });
 
-test("the merge button stays off while the shared merge gate holds it, and turns on once a refresh clears it", async () => {
+test("a failing check blocks the merge with the blocking gate named, and a refresh that clears it offers the merge", async () => {
   const app = open(detail({ ci: "failure", checks: [{ ...running, status: "failure" }] }));
   await openPullRequest(app, { project: "api", number: 42 });
   const panel = within(await screen.findByRole("article", { name: "Pull request #42" }));
-  const merge = await panel.findByRole<HTMLButtonElement>("button", { name: "Squash and merge" });
-  expect(merge.disabled).toBe(true);
+  const blocked = await panel.findByRole<HTMLButtonElement>("button", { name: "Merge blocked" });
+  expect(blocked.disabled).toBe(true);
+  // The tooltip names what blocks it.
+  await userEvent.hover(blocked.parentElement ?? blocked);
+  expect(await screen.findByText(/Checks: 1 failing · 0 ok/, {}, { timeout: 3_000 })).toBeTruthy();
   app.daemon.workspace.setForgeRead(operation, { resource: "prDetail", value: detail() });
   await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Refresh" }));

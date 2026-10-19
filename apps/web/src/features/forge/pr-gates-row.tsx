@@ -12,7 +12,8 @@ import { reviewerOutcomes } from "./pr-summary-model.ts";
 function useEnding(actions: PrActions) {
   const { detail, workspaceId } = actions.context;
   const finished = detail.status.state === "merged" || detail.status.state === "closed";
-  const activity = usePrActivityEvents({ workspaceId, detail });
+  // Only a finished PR's gates read its activity; an open one never waits on it.
+  const activity = usePrActivityEvents({ workspaceId, detail, enabled: finished });
   const now = useNow();
   if (!finished || !activity.data) return { ended: undefined, branchDeleted: undefined };
   const events = activity.data.events;
@@ -32,7 +33,7 @@ function Cell(props: { gate: Gate; loading: boolean; onSelect(key: GateKey): voi
     <button
       type="button"
       onClick={() => props.onSelect(gate.key)}
-      aria-label={`${gate.label}: ${gate.value}`}
+      aria-label={`${gate.label}: ${gate.value}${gate.detail ? `, ${gate.detail}` : ""}`}
       className="flex min-w-0 flex-col gap-0.5 bg-panel py-2 pr-2 pl-4 text-left transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover"
     >
       <span className="text-meta text-subtle-foreground">{gate.label}</span>
@@ -53,13 +54,16 @@ function Cell(props: { gate: Gate; loading: boolean; onSelect(key: GateKey): voi
           />
           <span
             className={cn(
-              "truncate",
+              "min-w-0 break-words",
               gate.tone === "idle" ? "text-muted-foreground" : "text-foreground",
             )}
           >
             {gate.value}
           </span>
         </span>
+      )}
+      {gate.detail && !props.loading && (
+        <span className="pl-3 text-2xs text-subtle-foreground tabular-nums">{gate.detail}</span>
       )}
     </button>
   );

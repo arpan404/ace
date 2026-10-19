@@ -35,7 +35,8 @@ export function usePrMergeState(props: {
   const [pending, setPending] = useState(false);
   const [uncertain, setUncertain] = useState(false);
   const query = useDaemonQuery({
-    queryKey: ["forge", props.workspaceId, ref, "merge-state"],
+    // A new head is a new merge state (checks, mergeability): read it again then, not only on open.
+    queryKey: ["forge", props.workspaceId, ref, "merge-state", props.detail.status.headSha],
     enabled: active,
     retry: false,
     staleTime: 0,

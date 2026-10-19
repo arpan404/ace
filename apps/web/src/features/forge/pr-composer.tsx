@@ -15,6 +15,12 @@ import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.
 import { usePrReview } from "./pr-review-context.tsx";
 import { PrConversationComposer, PrReviewSubmission } from "./pr-review-forms.tsx";
 
+/**
+ * Room every PR tab body leaves under its last row for the floating comment button (30px,
+ * 12px off the bottom) and a gap, so scrolled to the end nothing sits under it.
+ */
+export const composerClearance = "pb-16";
+
 export function PrComposer(props: {
   context: PrWorkspaceContext;
   extensions?: PrWorkspaceExtensions | undefined;

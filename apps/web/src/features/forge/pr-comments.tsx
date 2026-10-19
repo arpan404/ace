@@ -2,13 +2,13 @@ import { useState, type ReactNode } from "react";
 import { ArrowsDownUpIcon, FunnelIcon } from "@phosphor-icons/react";
 import type { ForgeComment, ForgePrStatus } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
-import { Prose } from "@/components/markdown/prose.tsx";
 import { Menu, MenuCheckboxItem, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
 import { cardEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import { PrOwnComment, PrThreadControls } from "./pr-review-forms.tsx";
 import { PrSection } from "./pr-section.tsx";
+import { PrClampedText } from "./pr-clamped.tsx";
 import { conversation, reviewOutcomeLabels, type ReviewOutcome } from "./pr-summary-model.ts";
 
 const page = 10;
@@ -41,7 +41,7 @@ function CardHeader(props: { comment: ForgeComment; children?: ReactNode }) {
   );
 }
 
-function CommentCard(props: { comment: ForgeComment }) {
+function CommentCard(props: { comment: ForgeComment; open: boolean; onToggle(): void }) {
   const { comment } = props;
   return (
     <li className={cn("overflow-hidden rounded-md", cardEdge)}>
@@ -54,7 +54,7 @@ function CommentCard(props: { comment: ForgeComment }) {
       </CardHeader>
       {comment.body.trim() && (
         <div className="space-y-2 px-2.5 py-2">
-          <Prose text={comment.body} className="text-ui leading-normal" />
+          <PrClampedText text={comment.body} open={props.open} onToggle={props.onToggle} />
           <PrOwnComment comment={comment} />
         </div>
       )}
@@ -62,7 +62,12 @@ function CommentCard(props: { comment: ForgeComment }) {
   );
 }
 
-function ThreadCard(props: { thread: ForgePrStatus["reviewThreads"][number]; prKey: string }) {
+function ThreadCard(props: {
+  thread: ForgePrStatus["reviewThreads"][number];
+  prKey: string;
+  isOpen(key: string): boolean;
+  onToggle(key: string): void;
+}) {
   const { thread } = props;
   const [open, setOpen] = useState(!thread.resolved);
   const first = thread.comments[0];
@@ -99,7 +104,11 @@ function ThreadCard(props: { thread: ForgePrStatus["reviewThreads"][number]; prK
                 <span className="font-medium">{comment.author}</span>
                 <PrTime at={comment.createdAt ?? comment.updatedAt} />
               </p>
-              <Prose text={comment.body} className="text-ui leading-normal" />
+              <PrClampedText
+                text={comment.body}
+                open={props.isOpen(`${thread.id}:${comment.id}`)}
+                onToggle={() => props.onToggle(`${thread.id}:${comment.id}`)}
+              />
               <PrOwnComment comment={comment} />
             </div>
           ))}
@@ -124,6 +133,14 @@ export function PrComments(props: { status: ForgePrStatus }) {
   const [bots, setBots] = useState(true);
   const [resolved, setResolved] = useState(true);
   const [limit, setLimit] = useState(page);
+  // Which long comments are open, kept here so cards can remount without folding again.
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+  const toggle = (key: string) =>
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
   const view = conversation(props.status, { bots, resolved, order, limit });
   const prKey = JSON.stringify(props.status.ref);
   const older = view.older > 0 && (
@@ -170,9 +187,20 @@ export function PrComments(props: { status: ForgePrStatus }) {
           <ol className="space-y-2">
             {view.items.map((item) =>
               item.kind === "comment" ? (
-                <CommentCard key={item.key} comment={item.comment} />
+                <CommentCard
+                  key={item.key}
+                  comment={item.comment}
+                  open={expanded.has(item.key)}
+                  onToggle={() => toggle(item.key)}
+                />
               ) : (
-                <ThreadCard key={item.key} thread={item.thread} prKey={prKey} />
+                <ThreadCard
+                  key={item.key}
+                  thread={item.thread}
+                  prKey={prKey}
+                  isOpen={(key) => expanded.has(key)}
+                  onToggle={toggle}
+                />
               ),
             )}
           </ol>

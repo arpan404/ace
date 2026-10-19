@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { ForgeMergeState, type ForgeCheck } from "@ace/protocol";
-import { prGates, type GateFacts } from "./pr-gates.ts";
+import { mergeBlockers, prGates, type GateFacts } from "./pr-gates.ts";
 
 const check = (name: string, status: ForgeCheck["status"]): ForgeCheck => ({
   id: name,
@@ -109,9 +109,42 @@ test("a merged PR shows who merged it, where it went and what became of the bran
       }),
     ),
   ).toEqual({
-    ended: "sam · 41m ago (waiting)",
+    ended: "sam (waiting)",
     into: "main (idle)",
-    checks: "None (idle)",
+    checks: "No checks (idle)",
     branch: "Deleted (idle)",
   });
+});
+
+test("a finished PR's time sits on its own line, so the value stays short enough to show whole", () => {
+  const [ended] = prGates(
+    facts({
+      status: { state: "merged", mergeability: "unknown", ci: "none", checks: [] },
+      ended: { by: "arpan404", ago: "3d ago" },
+    }),
+  );
+  expect(ended?.value).toBe("arpan404");
+  expect(ended?.detail).toBe("3d ago");
+  for (const gate of prGates(facts({ reviewDecision: "CHANGES_REQUESTED" })))
+    expect(gate.value.length).toBeLessThanOrEqual(18);
+});
+
+test("only failing checks and requested changes block a merge", () => {
+  expect(
+    mergeBlockers(
+      prGates(
+        facts({
+          status: {
+            state: "open",
+            mergeability: "mergeable",
+            ci: "failure",
+            checks: [check("links", "failure"), check("lint", "success")],
+          },
+          reviewDecision: "CHANGES_REQUESTED",
+          mergeState: mergeState("BEHIND"),
+        }),
+      ),
+    ),
+  ).toEqual(["Checks: 1 failing · 1 ok", "Reviews: Changes requested"]);
+  expect(mergeBlockers(prGates(facts({ reviewDecision: "REVIEW_REQUIRED" })))).toEqual([]);
 });

@@ -18,6 +18,8 @@ import { PrCodeFile } from "./pr-code-file.tsx";
 import { PrCodeToolbar, type CodeOptions } from "./pr-code-toolbar.tsx";
 import type { PrDiffContext, PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { usePrFilePages } from "./pr-file-pages.ts";
+import { composerClearance } from "./pr-composer.tsx";
+import { cn } from "@/lib/cn.ts";
 import { PrMoreFiles } from "./pr-more-files.tsx";
 import { PrOffDiffThreads } from "./pr-off-diff-threads.tsx";
 import { usePrViewedMarks } from "./pr-viewed-marks.ts";
@@ -194,7 +196,7 @@ function PrCodeRange(
             <div
               ref={scroller}
               data-diff-scroller=""
-              className="min-h-0 min-w-0 flex-1 overflow-auto pb-8"
+              className={cn("min-h-0 min-w-0 flex-1 overflow-auto", composerClearance)}
             >
               <p className="sr-only">
                 {props.commit
