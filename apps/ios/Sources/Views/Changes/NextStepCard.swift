@@ -43,6 +43,8 @@ struct NextStepCard: View {
                     Text(step.blocked ?? step.detail).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                         .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(3)
                 }
+                // The heading wraps rather than truncating when large text needs the height.
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityElement(children: .combine)
             }
             if let outcome {

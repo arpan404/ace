@@ -22,6 +22,7 @@ struct GitMessageSheet: View {
     let initialTitle: String
     let send: (_ action: [String: Any]) -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var subject = ""
     @State private var bodyText = ""
     @State private var reviewers = ""
@@ -39,7 +40,10 @@ struct GitMessageSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField(commit ? "Summary" : "Title", text: $subject)
+                    // At accessibility sizes the subject wraps instead of scrolling out of sight;
+                    // it stays one line of text either way.
+                    TextField(commit ? "Summary" : "Title", text: $subject, axis: typeSize.isAccessibilitySize ? .vertical : .horizontal)
+                        .onChange(of: subject) { _, text in if text.contains("\n") { subject = text.replacingOccurrences(of: "\n", with: " ") } }
                         .focused($focused).accessibilityIdentifier("changes.text")
                     TextField(commit ? "Description (optional)" : "Summary (optional)", text: $bodyText, axis: .vertical)
                         .lineLimit(3...10).accessibilityIdentifier("changes.body")

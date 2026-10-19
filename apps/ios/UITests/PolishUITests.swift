@@ -127,9 +127,9 @@ import XCTest
         XCTAssertTrue(app.descendants(matching: .any)["diff.view"].waitForExistence(timeout: 10))
         try audit(app, "diff")
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(app.buttons["changes.step"].waitForExistence(timeout: 10))
+        XCTAssertTrue(reveal(app.buttons["changes.step"], in: app, up: 8, down: 0))
         app.buttons["changes.step"].tap()
-        XCTAssertTrue(app.textFields["changes.text"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["changes.text"].waitForExistence(timeout: 10))
         try audit(app, "commit-editor")
         app.navigationBars.buttons["Cancel"].tap()
         app.buttons["Done"].firstMatch.tap()
@@ -146,7 +146,7 @@ import XCTest
         app.buttons["inbox.settings"].tap()
         XCTAssertTrue(app.buttons["settings.notifications"].waitForExistence(timeout: 10))
         app.buttons["settings.notifications"].tap()
-        let perMachine = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'notifications.machine.'")).firstMatch
+        let perMachine = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'notifications.machine.'")).firstMatch
         XCTAssertTrue(perMachine.waitForExistence(timeout: 10))
         try audit(app, "notifications")
         if reveal(perMachine, in: app, up: 8, down: 0) {
@@ -173,13 +173,19 @@ import XCTest
         app.navigationBars["Agents"].swipeUp()
         try audit(app, "agents")
         try auditBelow(app, "agents")
+        let stopTask = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'agents.task.stop.'")).firstMatch
+        XCTAssertTrue(reveal(stopTask, in: app, up: 10, down: 0))
+        try audit(app, "agents-tasks")
         app.buttons["Done"].firstMatch.tap()
     }
     private func auditChanges(_ app: XCUIApplication) throws {
         app.buttons["thread.changes"].tap()
-        XCTAssertTrue(app.buttons["changes.step"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.descendants(matching: .any)["changes.totals"].waitForExistence(timeout: 15))
         try audit(app, "changes")
         try auditBelow(app, "changes")
+        // At accessibility sizes the next step ends the list rather than floating over it.
+        XCTAssertTrue(reveal(app.buttons["changes.step"], in: app, up: 8, down: 0))
+        try audit(app, "changes-step")
         app.buttons["Done"].firstMatch.tap()
     }
     private func auditMachines(_ app: XCUIApplication) throws {
@@ -204,7 +210,7 @@ import XCTest
     /// At accessibility sizes a screen's later rows sit below the screen edge; audit them too.
     private func auditBelow(_ app: XCUIApplication, _ name: String) throws {
         guard ProcessInfo.processInfo.environment["ACE_IOS_TEXT_SIZE"]?.contains("Accessibility") == true else { return }
-        app.swipeUp()
+        drag(app, from: 0.5, to: 0.15) // Above a floating card, which doesn't scroll.
         try audit(app, "\(name)-lower")
     }
 
@@ -249,10 +255,10 @@ import XCTest
     }
     /// Swipes until `element` can be tapped: `up` swipes towards later content, then `down`
     /// towards earlier. At accessibility text sizes a row can sit screens away, or exist under a
-    /// bar without being hittable. A row taller than the margin counts once its centre is clear.
+    /// bar without being hittable. A row counts once its centre is clear of the bars.
     @discardableResult private func reveal(_ element: XCUIElement, in app: XCUIApplication, up: Int, down: Int) -> Bool {
         _ = element.waitForExistence(timeout: 3)
-        let clear = app.frame.insetBy(dx: 0, dy: app.frame.height * 0.15)
+        let clear = CGRect(x: 0, y: app.frame.height * 0.15, width: app.frame.width, height: app.frame.height * 0.8)
         let shown = { element.exists && element.isHittable && clear.contains(CGPoint(x: element.frame.midX, y: element.frame.midY)) }
         for _ in 0..<up where !shown() { drag(app, from: 0.7, to: 0.4) }
         for _ in 0..<down where !shown() { drag(app, from: 0.4, to: 0.7) }
@@ -281,6 +287,8 @@ import XCTest
                 || issue.compactDescription.contains("nearly")
                 // A file's name is its label; the audit reads "README.md" as not human-readable.
                 || (element?.identifier.hasPrefix("file.") == true && issue.auditType == .sufficientElementDescription)
+                // So is a diff's title ("process-owner.ts").
+                || (issue.auditType == .sufficientElementDescription && element?.label.range(of: #"^[\w.-]+\.\w+$"#, options: .regularExpression) != nil)
             found.append((exempt ? "exempt " : "ISSUE ") + line)
             if !exempt, let element {
                 let shot = XCTAttachment(screenshot: element.screenshot())

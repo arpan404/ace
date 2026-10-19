@@ -3,13 +3,14 @@ import SwiftUI
 /// One agent in the tree: indent by depth, the shared status word and colour, what it is doing.
 struct AgentRowView: View {
     let row: AgentSheet.Row
+    @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
             Circle().fill(StateStyle.marker(row.status.token))
                 .frame(width: AceTheme.Dimensions.statusDot, height: AceTheme.Dimensions.statusDot)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(row.model.isEmpty ? row.name : "\(row.name) · \(row.model)")
-                    .aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
+                    .aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(typeSize.isAccessibilitySize ? 4 : 2)
                 Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     .foregroundStyle(row.needsYou ? StateStyle.text(row.status.token) : AceTheme.Colours.mutedForeground).lineLimit(4)
             }
@@ -34,15 +35,22 @@ struct TaskRowView: View {
     let task: AgentSheet.BackgroundTask
     let canStop: Bool
     let stop: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
-            Image(systemName: task.kind == "shell" ? "terminal" : "gearshape.2").foregroundStyle(AceTheme.Colours.mutedForeground)
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(task.title).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote).lineLimit(2)
-                Text(task.status.label.capitalized).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    .foregroundStyle(StateStyle.text(task.status.token))
+        // At accessibility sizes Stop goes under the command instead of squeezing it.
+        let stacked = typeSize.isAccessibilitySize
+        let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: AceTheme.Spacing.sm))
+                             : AnyLayout(HStackLayout(spacing: AceTheme.Spacing.sm))
+        layout {
+            HStack(spacing: AceTheme.Spacing.sm) {
+                Image(systemName: task.kind == "shell" ? "terminal" : "gearshape.2").foregroundStyle(AceTheme.Colours.mutedForeground)
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+                    Text(task.title).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote).lineLimit(stacked ? 4 : 2)
+                    Text(task.status.label.capitalized).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                        .foregroundStyle(StateStyle.text(task.status.token))
+                }
             }
-            Spacer(minLength: AceTheme.Spacing.none)
+            if !stacked { Spacer(minLength: AceTheme.Spacing.none) }
             if canStop && task.stoppable {
                 Button("Stop", role: .destructive, action: stop).buttonStyle(.bordered).frame(minHeight: AceTheme.Dimensions.touchTarget)
                     .accessibilityIdentifier("agents.task.stop.\(task.id)")
