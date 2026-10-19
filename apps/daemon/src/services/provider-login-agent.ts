@@ -1,5 +1,6 @@
 import { acpModelInstanceId } from "../acp-model-instance.ts";
 import { acpLoginDriver } from "../provider-login-acp.ts";
+import { acpAgentCli } from "../acp-agent-cli.ts";
 import { antigravityDiscovery, registerAntigravityAccount } from "./antigravity.ts";
 import { antigravityIdentity, createAcpInstance, type ProviderLoginDriver } from "@ace/accounts";
 import type { ServiceContext } from "./types.ts";
@@ -62,6 +63,10 @@ export async function prepareAgentLogin(
       ? await services.accounts.reserveAuthChange(target.instance)
       : () => {};
   const management = services.accountManagement;
+  const ownLogout =
+    target.provider === "acp" && target.instance
+      ? acpAgentCli(registry.get(target.instance)?.instance.acpAgentId)?.logout
+      : undefined;
   const driver = acpLoginDriver({
     provider: target.provider,
     action,
@@ -69,6 +74,7 @@ export async function prepareAgentLogin(
     args: launch?.args ?? (cli && "launch" in cli ? cli.launch.args : []),
     env: launch?.env ?? (cli && "launch" in cli ? cli.launch.env : env),
     cwd: config.dataDir,
+    ...(ownLogout ? { ownLogout } : {}),
     ...(management
       ? { openTerminal: (terminalLaunch) => management.openLoginTerminal(owner, terminalLaunch) }
       : {}),

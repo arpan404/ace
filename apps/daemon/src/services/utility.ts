@@ -7,6 +7,7 @@ import type { CatalogModel, ModelListResult, ProviderKind } from "@ace/protocol"
 import { discoverProvider, findExecutable } from "@ace/provider-kit/discovery";
 import { createUtilityCli, type UtilityCli, type UtilityLaunch } from "../utility-cli.ts";
 import { createUtility } from "../utility-models.ts";
+import { cursorAgentSignedIn } from "../acp-agent-cli.ts";
 import { nameWorktreeBranch, runWorktreeGit } from "../engine/worktree-title.ts";
 import type { ServiceContext } from "./types.ts";
 
@@ -53,6 +54,13 @@ async function locateCli(
         ? "cursor-agent"
         : undefined;
   const path = command ? await findExecutable(command, env) : undefined;
+  // The CLI keeps its own login apart from the SDK's; a signed-out CLI can't draft anything.
+  if (
+    path &&
+    target.provider === "cursor" &&
+    (await cursorAgentSignedIn(path, env, signal)) === false
+  )
+    return undefined;
   return path ? { path, env } : undefined;
 }
 
