@@ -410,13 +410,13 @@ tracks verification and the remaining device work.
   meanings. Profiles store reusable instructions on the phone and include them
   explicitly in a new task's first message.
 - Thread tools include skills and commands, MCP controls, durable conversation
-  branches, a terminal and a remote browser preview. Terminal output acknowledges
+  branches and a terminal. The live browser uses the entry described above. Terminal output acknowledges
   native delivery and resumes by byte offset. Its text renderer supports basic VT
   controls, with 1,000 rows of 80 cells. Lost output resets escape parsing and marks
   the gap. Colour and alternate-screen emulation remain future work.
-- Browser previews refresh still screenshots. View-only phones take screenshots
-  without evaluation and cannot navigate or send input. Live browser streaming and
-  screen/device control remain future work.
+- The live browser from `main` owns JPEG/H.264 frames, input and tab controls.
+  View-only phones can watch while navigation and input remain disabled. The old
+  screenshot-only browser has been removed. Screen/device control remains future work.
 - Published images decode into native image views. Published HTML uses `@ace/html`
   inside a nonpersistent WKWebView, without native message handlers or network access.
 - A thread's menu can start a local Live Activity. Foreground updates use canonical

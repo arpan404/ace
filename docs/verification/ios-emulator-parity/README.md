@@ -22,8 +22,9 @@ No provider sessions or recorder runs were used.
   The renderer has basic VT support and bounded scrollback, not full terminal
   colour or alternate-screen emulation.
 - Thread tools include skills/commands, MCP controls, durable conversation branches
-  and a browser preview. View-only previews skip forbidden evaluation. Browser
-  images remain still screenshots; live streaming is future work.
+  and the live browser merged from `main`. Its binary JPEG/H.264 frames bypass
+  JavaScriptCore; the recovered screenshot-only viewer is removed. View-only
+  navigation and input remain disabled.
 - Published images use native decoding. Published HTML runs through the existing
   shared sandbox in a nonpersistent WKWebView without native message handlers.
 - Local Live Activities use canonical whole-tree status and require a fresh inbox
@@ -102,7 +103,7 @@ plateau remain unverified. Simulator display-link cadence does not prove physica
 presentation FPS. Runtime Lock Screen/Dynamic Island behavior, real browser
 control and real provider sign-in completion still need dedicated verification.
 
-Remote push, background remote activity updates, live browser streaming, full
+Remote push, background remote activity updates, full
 terminal emulation, screen/device control, temporary chats and image-generation
 services remain outside this progress batch. Web-search toggles and completed-test
 chips need authoritative protocol data. Signing, App Store Connect validation and

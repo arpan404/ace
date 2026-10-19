@@ -17,8 +17,10 @@ Terminal output has one native stream at a time. Native delivery returns credit
 with the acknowledged byte offset. Reconnect resumes from that offset; an output
 gap resets escape parsing before rendering the gap marker and replay. The renderer
 bounds scrollback to 1,000 rows of 80 cells. It supports basic text controls rather
-than a complete terminal emulator. Browser controls use still screenshots; live
-frames and screen/device control remain future work.
+than a complete terminal emulator. The live browser follows
+[ADR 0088](0088-remote-browser-view-v2.md), including binary JPEG/H.264 frames and
+view-only input restrictions. The recovered screenshot-only viewer is removed;
+screen/device control remains future work.
 
 Published HTML uses the shared `@ace/html` sandbox in a nonpersistent WKWebView.
 The viewer has no native message handlers. Published images use authenticated

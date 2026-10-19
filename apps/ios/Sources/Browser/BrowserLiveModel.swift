@@ -24,6 +24,15 @@ import Observation
     @ObservationIgnored weak var surface: BrowserPictureSink?
     @ObservationIgnored private var renderer: BrowserRenderer?
     @ObservationIgnored private var generation: Int?
+    /// Open/close lifecycle for queued renderer callbacks: incremented on every open and close,
+    /// captured by each queued present/ack hop and rejected when stale. Separate from `generation`,
+    /// which tracks the daemon's viewer generation.
+    @ObservationIgnored private var openGeneration = 0
+    /// Schedules renderer callbacks onto the main actor. Tests replace it with a queued hop to
+    /// deterministically interleave close/open between the background callback and its main-actor run.
+    @ObservationIgnored var mainHop: @Sendable (@escaping @Sendable () -> Void) -> Void = { work in
+        DispatchQueue.main.async(execute: work)
+    }
     @ObservationIgnored private var visible = true
     /// Acknowledgements held while the app isn't visible: the latest JPEG frame and video chunk.
     @ObservationIgnored private var owed: (frame: BrowserAck?, video: BrowserAck?) = (nil, nil)
@@ -37,17 +46,31 @@ import Observation
     /// Start showing `threadId`'s browser: pictures from `streams` are decoded off the main thread.
     func open(threadId: String, streams: BrowserStreamHub?, ack: @escaping (BrowserAck) -> Void) {
         close(streams: streams)
+        openGeneration &+= 1
+        let fenced = openGeneration
+        let hop = mainHop
         self.threadId = threadId
         sendAck = ack
         let renderer = BrowserRenderer(threadId: threadId, present: { [weak self] picture in
-            DispatchQueue.main.async { MainActor.assumeIsolated { self?.present(picture) } }
+            hop {
+                MainActor.assumeIsolated {
+                    guard let self, self.openGeneration == fenced else { return }
+                    self.present(picture)
+                }
+            }
         }, ack: { [weak self] value in
-            DispatchQueue.main.async { MainActor.assumeIsolated { self?.acknowledge(value) } }
+            hop {
+                MainActor.assumeIsolated {
+                    guard let self, self.openGeneration == fenced else { return }
+                    self.acknowledge(value)
+                }
+            }
         })
         self.renderer = renderer
         streams?.attach { message in renderer.receive(message) }
     }
     func close(streams: BrowserStreamHub?) {
+        openGeneration &+= 1
         streams?.attach(nil)
         renderer?.close()
         renderer = nil
