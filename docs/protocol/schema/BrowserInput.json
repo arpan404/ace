@@ -180,6 +180,61 @@
         "points"
       ],
       "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "ime",
+          "type": "string"
+        },
+        "selectionEnd": {
+          "maximum": 4096,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "selectionStart": {
+          "maximum": 4096,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "text": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "text",
+        "selectionStart",
+        "selectionEnd"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "pick",
+          "type": "string"
+        },
+        "pickerId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "values": {
+          "items": {
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "pickerId"
+      ],
+      "type": "object"
     }
   ]
 }
