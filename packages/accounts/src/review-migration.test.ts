@@ -27,16 +27,15 @@ test.each(["compressed", "malformed", "duplicate"])(
     expect(await hash(join(request.to.homeDir, relative(request.from.homeDir, root)))).toBe(before);
   },
 );
-test("destination ancestor writer locks refuse migration", async () => {
-  const request = await homes("codex");
-  await rollout(request.from.homeDir, 0);
-  await rollout(request.from.homeDir, 3, { forked_from_id: ids[0] });
-  await put(join(request.to.homeDir, "thread-writer-locks", `${ids[0]}.lock`), "locked");
+test("a Claude session lock in the destination refuses migration", async () => {
+  const request = await homes("claude");
+  await put(join(request.from.homeDir, "projects", "-work", `${ids[3]}.jsonl`), "history\n");
+  await put(join(request.to.homeDir, "session-locks", `${ids[3]}.lock`), "locked");
   expect(await migrateSession(request, idle)).toMatchObject({
     status: "refused",
     reason: "Session writer lock exists; stop the CLI before migrating",
   });
-  expect(await readdir(request.to.homeDir)).toEqual(["thread-writer-locks"]);
+  expect(await readdir(request.to.homeDir)).toEqual(["session-locks"]);
 });
 test("provider mismatch refuses even when a matching physical transcript exists", async () => {
   const request = await homes("claude");
@@ -69,6 +68,7 @@ test("lease cleanup failures preserve the published result and report cleanup se
   const source = await rollout(request.from.homeDir, 3);
   const result = await migrateSession(request, {
     acquire: async () => ({
+      status: "held",
       release: async () => {
         throw new Error("cleanup failed");
       },
