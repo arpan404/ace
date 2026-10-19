@@ -30,6 +30,7 @@ export async function startDevices(context: ServiceContext): Promise<void> {
         platform: process.platform,
         home: homedir(),
         env: process.env,
+        toolsDirectory: join(config.dataDir, "tools"),
         ...(services.screen ? { screen: services.screen } : {}),
       }),
       runtime: {

@@ -32,6 +32,8 @@ import { AndroidPlatform } from "./android-platform.ts";
 export type PlatformOptions = SDKOptions & {
   spawn?: typeof spawnSupervised;
   screen?: ScreenManager;
+  /** Where ace keeps downloaded device tools (the pinned scrcpy server), inside ace's home. */
+  toolsDirectory?: string;
 };
 export type ScreenBinding = { sessionId: string; actor: "human" | "agent"; owner: string };
 const Text = z
@@ -117,6 +119,18 @@ export class DevicePlatform {
   }
   watchCaptureTransport(device: Device, serial: string, fail: (error: DeviceError) => void) {
     return this.android.watchCaptureTransport(device, serial, fail);
+  }
+  get toolsDirectory(): string | undefined {
+    return this.options.toolsDirectory;
+  }
+  transportCommand(
+    device: Device,
+    serial: string,
+    args: readonly string[],
+    maxBytes?: number,
+    timeoutMs?: number,
+  ) {
+    return this.android.transportCommand(device, serial, args, maxBytes, timeoutMs);
   }
   captureDimensions(device: Device): Promise<{ width: number; height: number }> {
     if (device.platform !== "android")
