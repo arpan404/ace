@@ -89,6 +89,32 @@ test("ACP default accounts share the user's existing home with distinct agent id
   }
 });
 
+test("an ACP sign-in remembers the agent's method across a restart and sign-out forgets it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-acp-method-"));
+  const path = join(root, "accounts.sqlite");
+  const instance = createAcpInstance({
+    identity: identity("method"),
+    label: "Agent",
+    userHome: root,
+  });
+  let registry = await openRegistry(path);
+  try {
+    await registry.register(instance);
+    registry.recordAcpAuth(instance.id, "logged_in", 1000, "oauth-personal");
+    registry.close();
+    registry = await openRegistry(path);
+    expect(registry.acpSignInMethod(instance.id)).toBe("oauth-personal");
+    // A later confirmation without a method keeps the one the person signed in with.
+    registry.recordAcpAuth(instance.id, "logged_in", 1001);
+    expect(registry.acpSignInMethod(instance.id)).toBe("oauth-personal");
+    registry.recordAcpAuth(instance.id, "logged_out", 1002);
+    expect(registry.acpSignInMethod(instance.id)).toBeUndefined();
+  } finally {
+    registry.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("confirmed ACP sign-in readies its account and sign-out blocks it", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-acp-auth-"));
   const registry = await openRegistry(join(root, "accounts.sqlite"));

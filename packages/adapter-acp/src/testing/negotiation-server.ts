@@ -12,6 +12,8 @@ const config = z
     failSession: z.boolean().default(false),
     subagents: z.boolean().default(false),
     airSubagents: z.boolean().default(false),
+    // Like Antigravity's ACP server: sessions need a sign-in method selected in each process.
+    requireSignIn: z.boolean().default(false),
   })
   .parse(JSON.parse(process.env.ACE_SYNTHETIC_ACP ?? "{}"));
 const Envelope = z
@@ -23,6 +25,7 @@ const Envelope = z
   .passthrough();
 const write = (value: unknown) => process.stdout.write(`${JSON.stringify(value)}\n`);
 let selectorValues = ["model-a", "model-b"];
+let signedIn = false;
 const setup = () =>
   config.noSelectors
     ? {}
@@ -56,7 +59,19 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     write({ id: message.id, error: { code: -1, message: "Synthetic startup failure" } });
     return;
   }
-  if (message.method === "initialize")
+  if (
+    config.requireSignIn &&
+    !signedIn &&
+    (message.method === "session/new" || message.method === "session/load")
+  ) {
+    write({ id: message.id, error: { code: -32000, message: "Authentication required" } });
+    return;
+  }
+  if (message.method === "authenticate") {
+    signedIn = message.params.methodId === "oauth-personal";
+    if (signedIn) result({});
+    else write({ id: message.id, error: { code: -32000, message: "Unknown method" } });
+  } else if (message.method === "initialize")
     result({
       protocolVersion: 1,
       ...(config.airSubagents

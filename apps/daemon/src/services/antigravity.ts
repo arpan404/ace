@@ -49,8 +49,21 @@ export async function antigravityDiscovery(context: ServiceContext, signal?: Abo
     ...(signal ? { signal } : {}),
     ...(command ? { executable: command } : {}),
   });
-  if (context.services.antigravityAuth) delete discovery.error;
+  if (antigravityAuth(context)) delete discovery.error;
   return discovery;
+}
+/**
+ * Antigravity's ACP server keeps its own login, apart from the `agy` CLI's, so ace knows it once
+ * the person signs in through ace: the method it remembers then, and the account row's state.
+ */
+export function antigravityAuth(
+  context: Pick<ServiceContext, "services">,
+): "logged_in" | "logged_out" | undefined {
+  const accounts = context.services.accountRegistry;
+  if (accounts?.acpSignInMethod(antigravityIdentity.instanceId)) return "logged_in";
+  return accounts?.get(antigravityIdentity.instanceId)?.quota.auth === "logged_out"
+    ? "logged_out"
+    : undefined;
 }
 export async function registerAntigravity(
   context: ServiceContext,
@@ -64,6 +77,7 @@ export async function registerAntigravity(
   registry.register(
     createAcpAdapter(antigravityQuirks, {
       command: cli.path,
+      signInMethod: () => signInMethod(context).signInMethod,
       ...(installation && agents
         ? { resolveLaunch: (session) => agents.resolve(installation.metadata, session.env) }
         : {}),
@@ -79,12 +93,17 @@ export async function registerAntigravity(
     args: installation?.args ?? [],
     env: installation?.env ?? {},
     loginRevision: installation?.metadata.installationId ?? cli.version ?? "0",
+    ...signInMethod(context),
   });
   await registerAntigravityAccount(context);
 }
 
 /** The CLI login's account row, where `agy /usage` puts its limits. Never blocks the provider. */
-async function registerAntigravityAccount(context: ServiceContext): Promise<void> {
+function signInMethod(context: Pick<ServiceContext, "services">): { signInMethod?: string } {
+  const method = context.services.accountRegistry?.acpSignInMethod(antigravityIdentity.instanceId);
+  return method ? { signInMethod: method } : {};
+}
+export async function registerAntigravityAccount(context: ServiceContext): Promise<void> {
   const accounts = context.services.accountRegistry;
   if (!accounts) return;
   try {

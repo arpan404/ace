@@ -58,13 +58,18 @@ export function acpLoginDriver(options: {
     exited: Promise<boolean>;
     stop(): Promise<void>;
   };
-}): ProviderLoginDriver {
+}): ProviderLoginDriver & {
+  /** The agent method a completed browser sign-in used, for selecting it again later. */
+  signedInWith(): string | undefined;
+} {
   let process: SupervisedProcess | undefined;
+  let signedInWith: string | undefined;
   let rpc: JsonRpcPeer | undefined;
   let terminal: ReturnType<NonNullable<typeof options.openTerminal>> | undefined;
   let choose: ((choice: string) => boolean) | undefined;
   let pages: SignInPages | undefined;
   return {
+    signedInWith: () => signedInWith,
     input(input: ProviderLoginInput) {
       return "choice" in input && !!choose?.(input.choice);
     },
@@ -253,6 +258,7 @@ export function acpLoginDriver(options: {
         z.object({}).parse(
           await peer.request("authenticate", { methodId }, { signal, timeoutMs: null }),
         );
+        signedInWith = methodId;
         return { success: true };
       } finally {
         choose = undefined;
