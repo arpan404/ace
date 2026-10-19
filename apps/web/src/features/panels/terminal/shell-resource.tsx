@@ -22,7 +22,12 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { readOutputText } from "@/lib/output-read.ts";
 import { useSeconds } from "@/lib/time.ts";
-import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts";
+import {
+  bottomOf,
+  useScopeWorkspace,
+  useWorkspaceActions,
+  type TabViewProps,
+} from "@/lib/workspace/index.ts";
 import { usePanelServices } from "../services.ts";
 import { WithServices } from "../with-services.tsx";
 import { FindBar } from "./find-bar.tsx";
@@ -262,7 +267,8 @@ export function ShellActions(props: TabViewProps) {
 
 function ShellButtons(props: TabViewProps) {
   const { scope, tab } = props;
-  useNewTerminalHotkey(scope);
+  // While the bottom panel shows, its terminal's strip answers ⌃⇧` instead.
+  useNewTerminalHotkey(scope, !bottomOf(useScopeWorkspace(scope)).open);
   const { terminalUi } = usePanelServices();
   return (
     <>

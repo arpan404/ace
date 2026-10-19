@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { clampToBounds, panelBounds, panelFloats } from "./bounds.ts";
+import { bottomBounds, clampToBounds, panelBounds, panelFloats } from "./bounds.ts";
 
 test("beside the column the side panel keeps the column at least 480px wide", () => {
   expect(panelBounds(1076, false)).toEqual({ min: 360, max: 596 });
@@ -22,4 +22,9 @@ test("floating policy uses available room while predicting the crowded sidebar y
   expect(panelFloats(840, false, false)).toBe(false);
   expect(panelFloats(720, false, true)).toBe(false);
   expect(panelFloats(1000, true, true)).toBe(true);
+});
+
+test("the bottom panel leaves the conversation 240px of the screen's height, and never drops below 120px", () => {
+  expect(bottomBounds(900)).toEqual({ min: 120, max: 660 });
+  expect(bottomBounds(300)).toEqual({ min: 120, max: 120 });
 });

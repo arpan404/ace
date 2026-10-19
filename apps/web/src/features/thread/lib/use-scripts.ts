@@ -49,7 +49,8 @@ export function useScripts(thread: ThreadRef) {
 }
 
 /**
- * Run a project script in a terminal tab of the side panel. A script still running goes back to
+ * Run a project script in a terminal tab (the bottom panel's, or the side panel's if Settings
+ * say so; an agent's shell always shows in the side panel). A script still running goes back to
  * its terminal (or the agent's background shell running the same command) instead of starting a
  * second copy fighting the first for its port. The tab showing is the confirmation.
  */

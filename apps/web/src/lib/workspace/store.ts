@@ -2,6 +2,7 @@ import * as z from "zod/mini";
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 import type { WorkspaceDefinition } from "./definition.ts";
 import type { CloseWarning } from "./registry.ts";
+import type { PanelPlace } from "./places.ts";
 import {
   emptyWorkspace,
   seedWorkspace,
@@ -22,6 +23,8 @@ import {
 
 /** The side panel's width a scope without one of its own starts at. */
 export const defaultSize = 520;
+/** The bottom panel's height until the person drags it. */
+export const defaultBottomSize = 300;
 
 /** A closed tab, kept so Reopen closed tab can put it back where it was. */
 export interface ClosedTab {
@@ -33,7 +36,12 @@ const closedCapacity = 10;
 
 const storageKey = "ace.workspace";
 const Persisted = z.object({
-  preferred: z.object({ right: z.number() }),
+  preferred: z.object({
+    right: z.number(),
+    bottom: z.catch(z.optional(z.number().check(z.gte(0), z.lte(10_000))), undefined),
+    /** Where the kinds the bottom panel can hold open: "Terminals open in" (Settings). */
+    place: z.catch(z.optional(z.enum(["side", "bottom"])), undefined),
+  }),
   scopes: z.array(z.tuple([z.string(), ScopeWorkspaceSchema])),
 });
 
@@ -47,6 +55,10 @@ export class WorkspaceStore {
   private readonly listeners = new Map<string, Set<() => void>>();
   private readonly globalListeners = new Set<() => void>();
   private preferredSize: number;
+  private bottomSize: number;
+  private place: PanelPlace;
+  /** The screen showing has room for the bottom panel (not a narrow or touch layout). */
+  private fits = false;
   private focusedScope: string | undefined;
   /** A change was kept in memory only (a drag still moving); the next persist writes it. */
   private dirty = false;
@@ -61,13 +73,11 @@ export class WorkspaceStore {
     this.storage = options.storage;
     this.capacity = options.capacity ?? 64;
     const stored = readJson(this.storage, storageKey, Persisted, undefined);
-    if (stored) {
-      this.preferredSize = stored.preferred.right;
-      for (const [scope, workspace] of stored.scopes.slice(-this.capacity))
-        this.scopes.set(scope, sanitize(workspace));
-    } else {
-      this.preferredSize = defaultSize;
-    }
+    this.preferredSize = stored?.preferred.right ?? defaultSize;
+    this.bottomSize = stored?.preferred.bottom ?? defaultBottomSize;
+    this.place = stored?.preferred.place ?? "bottom";
+    for (const [scope, workspace] of stored?.scopes.slice(-this.capacity) ?? [])
+      this.scopes.set(scope, sanitize(workspace));
   }
 
   /** The scope's workspace; a scope never seen starts from `initial` (not persisted yet). */
@@ -129,10 +139,51 @@ export class WorkspaceStore {
     const rounded = Math.round(size);
     if (this.preferredSize !== rounded) {
       this.preferredSize = rounded;
-      for (const listener of this.globalListeners) listener();
+      this.emitGlobal();
     }
     if (persist) this.save();
     else this.dirty = true;
+  }
+
+  /** The bottom panel's height on this device; set by the last drag of its edge anywhere. */
+  get preferredBottom(): number {
+    return this.bottomSize;
+  }
+
+  setPreferredBottom(size: number, persist = true): void {
+    const rounded = Math.round(size);
+    if (this.bottomSize !== rounded) {
+      this.bottomSize = rounded;
+      this.emitGlobal();
+    }
+    if (persist) this.save();
+    else this.dirty = true;
+  }
+
+  /**
+   * Where the kinds the bottom panel can hold (terminals) open on this device, as the person
+   * chose in Settings. Bottom by default.
+   */
+  get preferredPlace(): PanelPlace {
+    return this.place;
+  }
+
+  setPreferredPlace(place: PanelPlace): void {
+    if (this.place === place) return;
+    this.place = place;
+    this.save();
+    this.emitGlobal();
+  }
+
+  /** Whether the bottom panel has room on the screen showing (memory only; the screen says). */
+  get bottomFits(): boolean {
+    return this.fits;
+  }
+
+  setBottomFits(fits: boolean): void {
+    if (this.fits === fits) return;
+    this.fits = fits;
+    this.emitGlobal();
   }
 
   /** The scope whose screen is showing, for global commands (palette, shortcuts). */
@@ -143,7 +194,7 @@ export class WorkspaceStore {
   setFocused(scope: string | undefined): void {
     if (this.focusedScope === scope) return;
     this.focusedScope = scope;
-    for (const listener of this.globalListeners) listener();
+    this.emitGlobal();
   }
 
   /**
@@ -198,10 +249,14 @@ export class WorkspaceStore {
     };
   }
 
-  /** The preferred width and the focused scope. */
+  /** The preferred sizes and place, whether the bottom panel fits, and the focused scope. */
   subscribeGlobal(listener: () => void): () => void {
     this.globalListeners.add(listener);
     return () => this.globalListeners.delete(listener);
+  }
+
+  private emitGlobal() {
+    for (const listener of this.globalListeners) listener();
   }
 
   private emit(scope: string) {
@@ -222,6 +277,7 @@ export class WorkspaceStore {
   private save() {
     this.dirty = false;
     const scopes = [...this.scopes].filter(([scope]) => !this.seeded.has(scope));
-    writeJson(this.storage, storageKey, { preferred: { right: this.preferredSize }, scopes });
+    const preferred = { right: this.preferredSize, bottom: this.bottomSize, place: this.place };
+    writeJson(this.storage, storageKey, { preferred, scopes });
   }
 }

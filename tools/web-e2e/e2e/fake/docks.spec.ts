@@ -90,26 +90,28 @@ test("full view gives the side panel the work area and Back to the conversation 
   expect(Math.round((await sidePanel(page).boundingBox())?.width ?? 0)).toBe(Math.round(split));
 });
 
-test("⌘J shows the thread's terminal in the side panel, Ctrl+` hides it from inside the shell, and the shell survives", async ({
+test("⌘J shows the thread's terminal in the bottom panel, Ctrl+` hides it from inside the shell, and the shell survives", async ({
   page,
 }) => {
+  const bottomPanel = page.getByRole("region", { name: "Terminal panel" });
   await open(page, "/t/thread-cold-start", "Cap cold-start replay at 200 events");
   await page.keyboard.press("ControlOrMeta+j");
-  await expect(sidePanel(page).getByRole("tab", { name: "zsh", selected: true })).toBeVisible();
-  const terminal = sidePanel(page).getByRole("group", { name: "zsh terminal" });
-  await terminal.click();
+  await expect(bottomPanel.getByRole("tab", { name: "zsh", selected: true })).toBeVisible();
+  await expect(sidePanel(page)).toHaveCount(0);
+  const terminal = bottomPanel.getByRole("group", { name: "zsh terminal" });
+  // It has the keyboard: keys go to the shell as they are typed.
   await page.keyboard.type("pwd");
   await page.keyboard.press("Enter");
   await expect(terminal).toContainText("/Users/dev/ace");
 
-  // The same toggle, pressed while the terminal shows (and has the keyboard), hides the panel.
+  // ⌃`, pressed while the terminal has the keyboard, hides the panel.
   await page.keyboard.press("Control+Backquote");
-  await expect(sidePanel(page)).toHaveCount(0);
+  await expect(bottomPanel).toHaveCount(0);
   // ⌘J again brings back the same shell, with what it printed.
   await page.keyboard.press("ControlOrMeta+j");
-  await expect(sidePanel(page).getByRole("tab", { name: "zsh", selected: true })).toBeVisible();
+  await expect(bottomPanel.getByRole("tab", { name: "zsh", selected: true })).toBeVisible();
   await expect(terminal).toContainText("/Users/dev/ace");
-  await expect(sidePanel(page).getByRole("tab", { name: "zsh" })).toHaveCount(1);
+  await expect(bottomPanel.getByRole("tab", { name: "zsh" })).toHaveCount(1);
 });
 
 test("with five tabs in the side panel, the showing tab stays whole inside the strip", async ({
