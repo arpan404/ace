@@ -73,6 +73,55 @@ test("opening a finished turn reads all its steps from the daemon, in pages", as
   expect(sent.some((text) => text.includes('"type":"turn.steps"'))).toBe(true);
 });
 
+test("a turn that changes while its log is open is read again from its summary's end", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "late", workspaceId: "ace", title: "Late", provider: "codex" });
+  fake.apply("late", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Build it in the background."),
+    ...reads(3),
+    facts.tool("root", "build", {
+      kind: "file.read",
+      title: "Read the build log",
+      detail: { kind: "file.read", path: "build.log" },
+    }),
+    facts.toolDone("root", "build"),
+    facts.message("root", "answer", "assistant", "The build ran."),
+    facts.endTurn("root"),
+  ]);
+  const thread = open(connect(fake), "late");
+  const work = await until(
+    () => rows("thread.block").find((row) => row.kind === "work" && row.ordinal !== null),
+    "a settled head",
+  );
+  const key = native.frames.find(
+    (frame) => frame.type === "thread.block" && frame.row === work,
+  )?.id;
+  thread.handle({ type: "steps.open", ordinal: Number(work.ordinal), block: String(key) });
+  type Step = { text: string };
+  const shown = () =>
+    native.frames
+      .filter((frame) => frame.type === "thread.stepsPage")
+      .flatMap((frame) => frame.rows as Step[])
+      .map((row) => row.text);
+  await until(() => shown().includes("Read the build log"), "the build step");
+  const readsBefore = sent.filter((text) => text.includes('"type":"turn.steps"')).length;
+  // A late result reaches the finished turn: its step changes while the log is open.
+  fake.apply("late", [
+    facts.tool("root", "build", {
+      kind: "file.read",
+      title: "Read the finished build log",
+      detail: { kind: "file.read", path: "build.log" },
+    }),
+  ]);
+  await until(() => shown().includes("Read the finished build log"), "the step read again");
+  expect(sent.filter((text) => text.includes('"type":"turn.steps"')).length).toBeGreaterThan(
+    readsBefore,
+  );
+  expect(sent.some((text) => text.includes('"type":"turns.page"'))).toBe(true);
+});
+
 test("a native subagent's lane groups its own work like the transcript", async () => {
   const fake = fixture();
   fake.createThread({ id: "lane", workspaceId: "ace", title: "Lane", provider: "codex" });

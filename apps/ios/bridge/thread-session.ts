@@ -75,6 +75,7 @@ export class ThreadSession {
     this.#stop = store.observe((keys) => {
       this.#blocks.tap(keys);
       this.#lane?.tap(keys);
+      this.#steps.changed(keys);
       if (keys === "all") void this.#readSetting();
       if (keys === "all" || keys.has("thread") || keys.has("interactions") || keys.has("cursor"))
         this.#controls();
