@@ -102,7 +102,7 @@ struct ThreadView: View {
             .threadSheets(model: model, thread: thread, openThread: openThread)
             .sheet(isPresented: $showDetails) { details }
             .sheet(isPresented: $showFiles) {
-                ThreadFilesSheet(model: model, threadId: thread.id, mention: model.canOperate ? { mention = ComposerMention(path: $0) } : nil)
+                ThreadFilesSheet(model: model, scope: .thread(thread.id), mention: model.canOperate ? { mention = ComposerMention(path: $0) } : nil)
                     .presentationDetents([.large]).presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showModels) {

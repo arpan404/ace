@@ -2,12 +2,13 @@ import SwiftUI
 
 private enum FilesRoute: Hashable { case folder(String), file(String) }
 
-/// The thread's checkout, read-only (`bridge/project-files.ts`): a folder at a time within the
-/// bridge's row cap, search on the computer, and a size-capped preview. "Mention" puts the file
-/// into the thread's composer as `@path`, as the web's mention menu does.
+/// A thread's checkout, or from New thread a project's own folder, read-only
+/// (`bridge/project-files.ts`): a folder at a time within the bridge's row cap, search on the
+/// computer, and a size-capped preview. "Mention" puts the file into the composer as `@path`,
+/// as the web's mention menu does.
 struct ThreadFilesSheet: View {
     let model: ClientModel
-    let threadId: String
+    let scope: FilesScope
     /// Nil on a view-only machine: nothing to send, so no mention.
     let mention: ((String) -> Void)?
     @Environment(\.dismiss) private var dismiss
@@ -36,7 +37,7 @@ struct ThreadFilesSheet: View {
                 }
             }
         }
-        .task { model.filesAction(["kind": "open", "threadId": threadId]) }
+        .task { model.filesAction(scope.open) }
         .task(id: query) {
             guard !query.isEmpty else { return }
             try? await Task.sleep(for: .milliseconds(200))

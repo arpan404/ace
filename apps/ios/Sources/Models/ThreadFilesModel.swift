@@ -1,10 +1,12 @@
 import Foundation
 import Observation
 
-/// One folder of a thread's checkout, within the bridge's row cap (`bridge/project-files.ts`).
+/// One folder of a thread's checkout, or of a project's own folder before any thread exists,
+/// within the bridge's row cap (`bridge/project-files.ts`).
 struct FileListing: Codable, Sendable, Equatable {
     struct Row: Codable, Sendable, Identifiable, Equatable { let path: String; let name: String; let folder: Bool; var id: String { path } }
     let threadId: String?
+    let workspaceId: String?
     let folder: String
     let state: String
     let rows: [Row]
@@ -13,10 +15,10 @@ struct FileListing: Codable, Sendable, Equatable {
     /// The daemon listed only part of the checkout.
     let truncated: Bool
 }
-struct FileSearch: Codable, Sendable, Equatable { let threadId: String; let query: String; let state: String; let paths: [String] }
+struct FileSearch: Codable, Sendable, Equatable { let threadId: String?; let workspaceId: String?; let query: String; let state: String; let paths: [String] }
 /// The start of one file, read-only and size-capped; `truncated` means the computer has the rest.
 struct FilePreview: Codable, Sendable, Equatable {
-    let threadId: String; let path: String; let state: String
+    let threadId: String?; let workspaceId: String?; let path: String; let state: String
     let text: String; let truncated: Bool; let binary: Bool
 }
 
@@ -36,7 +38,20 @@ enum FilesPatch: Decodable, Sendable {
     }
 }
 
-/// The Files sheet's reads for the open thread; folders are kept as visited so Back is instant.
+/// Whose files the Files sheet shows: a thread's checkout, or (from New thread) a project's folder.
+enum FilesScope: Equatable {
+    case thread(String)
+    case project(String)
+    /// The bridge action that reads this scope's top folder.
+    var open: [String: String] {
+        switch self {
+        case .thread(let id): ["kind": "open", "threadId": id]
+        case .project(let id): ["kind": "openProject", "workspaceId": id]
+        }
+    }
+}
+
+/// The Files sheet's reads for the open scope; folders are kept as visited so Back is instant.
 @MainActor @Observable final class ThreadFilesModel {
     var listings: [String: FileListing] = [:]
     var search: FileSearch?
