@@ -2,6 +2,7 @@ import { toolSurface } from "@ace/projection";
 import type { Item } from "@ace/protocol";
 import { displayCommand } from "./step-display.ts";
 import { exploreAction } from "./explore-command.ts";
+import { isToolSearch } from "./tool-search.ts";
 
 /*
  * A work log's steps as rows: consecutive steps of one family by one agent group into one summary
@@ -108,7 +109,8 @@ export function stepFact(item: Item, retried?: ReadonlySet<string>): StepFact | 
     case "file.read":
       return { ...fact, kind: "read", target: detail.path };
     case "search":
-      return { ...fact, kind: "search" };
+      // Loading the agent's own tools is bookkeeping, not a search of the code.
+      return { ...fact, kind: isToolSearch(call) ? "tool" : "search" };
     case "file.edit":
     case "file.write":
     case "file.delete":

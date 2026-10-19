@@ -89,6 +89,7 @@ export * from "./held-range.ts";
 export * from "./search-snippet.ts";
 export * from "./why.ts";
 export * from "./work-log.ts";
+export { isToolSearch, toolSearchRow, type ToolSearchRow } from "./tool-search.ts";
 export * from "./step-groups.ts";
 export * from "./explore-command.ts";
 export * from "./browser-address.ts";

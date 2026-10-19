@@ -39,6 +39,17 @@ test("MCP calls expose the native server, tool and arguments", () => {
     },
   });
 });
+test("a tool search reads as a search of the agent's tools, not of the code", () => {
+  const h = harness();
+  h.init();
+  h.tool("tools", "ToolSearch", { query: "select:mcp__ace__thread_link_pr", max_results: 1 });
+  h.tool("code", "Grep", { pattern: "select:" });
+  const calls = h.items().flatMap((item) => (item.type === "tool_call" ? [item.call.detail] : []));
+  expect(calls).toEqual([
+    { kind: "search", query: "select:mcp__ace__thread_link_pr", scope: "tools" },
+    { kind: "search", query: "select:" },
+  ]);
+});
 test("file reads keep the requested path", () => {
   const h = harness();
   h.init();
