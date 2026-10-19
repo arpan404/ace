@@ -30,6 +30,19 @@ final class ComputerKeyRouteTests: XCTestCase {
     }
 }
 
+final class ComputerChromiumWarmupTests: XCTestCase {
+    func testAChromiumWindowShowingOnlyItsFrameIsLookedAtAgain() {
+        // What an Electron window returns right after its tree is first asked for.
+        let frameOnly = [cuTestNode(1, depth: 0, role: "standard window", axRole: "AXWindow", axActions: []),
+                         cuTestNode(2, role: "group", name: "Electron diag", axRole: "AXGroup", axActions: []),
+                         cuTestNode(3, depth: 2, role: "group", axRole: "AXGroup", axActions: []),
+                         cuTestNode(4, role: "close button"), cuTestNode(5, role: "full screen button"), cuTestNode(6, role: "minimize button")]
+        XCTAssertTrue(cuChromiumTreePending(frameOnly))
+        let loaded = frameOnly + [cuTestNode(7, depth: 3, role: "HTML content", axRole: "AXWebArea", axActions: []), cuTestNode(8, depth: 4, name: "Press me")]
+        XCTAssertFalse(cuChromiumTreePending(loaded))
+    }
+}
+
 final class ComputerPointerDeliveryTests: XCTestCase {
     func testOnScreenWindowsLetTheWindowServerFindTheWindowUnderThePoint() {
         XCTAssertEqual(cuPointerDelivery(onScreen: true, otherSpace: false, minimized: false, hasWindowNumber: true), .windowServer)
