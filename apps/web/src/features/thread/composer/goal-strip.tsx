@@ -1,15 +1,22 @@
 import { goalResumable, goalTitle, goalUsage } from "@ace/ui-core";
 import type { ProviderGoal } from "@ace/protocol";
-import { CaretDownIcon, CaretUpIcon, TargetIcon } from "@phosphor-icons/react";
+import {
+  CaretDownIcon,
+  CaretUpIcon,
+  PauseIcon,
+  PlayIcon,
+  TargetIcon,
+  XIcon,
+} from "@phosphor-icons/react";
 import { useId, useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
-import { Button } from "@/components/ui/button.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useGoalCommand } from "./goal-command.ts";
 
 /**
- * The thread's native goal in the strip: "Pursuing goal · all tests pass · 120K tokens", the
- * chevron at the row's far right, opening to the whole objective, the provider's latest reason
- * it isn't met, and Pause, Resume or Clear where ace can change the goal.
+ * The thread's native goal in the strip: "Pursuing goal · all tests pass · 120K tokens", then,
+ * where ace can change the goal, Pause or Resume and Clear as icons, and the chevron at the
+ * row's far right, opening to the whole objective and the provider's latest reason it isn't met.
  */
 export function GoalStrip(props: {
   threadId: string;
@@ -28,14 +35,15 @@ export function GoalStrip(props: {
     setBusy(true);
     void change(next).finally(() => setBusy(false));
   };
+  const toggle = () => setOpen(!open);
   return (
     <section aria-label="Goal" className="text-xs">
-      <div className="flex h-7 min-w-0 items-center gap-1">
+      <div className="flex h-7 min-w-0 items-center gap-0.5">
         <button
           type="button"
           aria-expanded={open}
           aria-controls={detailsId}
-          onClick={() => setOpen(!open)}
+          onClick={toggle}
           className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-sm px-1 text-muted-foreground focus-ring-inset hover:text-foreground"
         >
           {/* Never a spinner: an active goal can wait between turns while nothing runs. */}
@@ -45,41 +53,48 @@ export function GoalStrip(props: {
           {!open && usage && (
             <span className="shrink-0 text-subtle-foreground tabular-nums">· {usage}</span>
           )}
-          <Icon icon={open ? CaretUpIcon : CaretDownIcon} size={12} className="ml-auto shrink-0" />
         </button>
+        {props.editable && goal.status === "active" && (
+          <IconButton
+            icon={PauseIcon}
+            label="Pause goal"
+            size="sm"
+            disabled={busy}
+            onClick={() => act({ status: "paused" })}
+          />
+        )}
+        {props.editable && goalResumable(goal.status) && (
+          <IconButton
+            icon={PlayIcon}
+            label="Resume goal"
+            size="sm"
+            disabled={busy}
+            onClick={() => act({ status: "active" })}
+          />
+        )}
+        {props.editable && (
+          <IconButton
+            icon={XIcon}
+            label="Clear goal"
+            size="sm"
+            disabled={busy}
+            onClick={() => act("clear")}
+          />
+        )}
+        {/* The row's button opens it from the keyboard; the chevron is the same toggle for a pointer. */}
+        <span
+          aria-hidden
+          onClick={toggle}
+          className="grid size-6 shrink-0 cursor-pointer place-items-center text-muted-foreground hover:text-foreground"
+        >
+          <Icon icon={open ? CaretUpIcon : CaretDownIcon} size={12} />
+        </span>
         {props.indicators}
       </div>
-      <div id={detailsId} hidden={!open} className="space-y-1.5 px-1 pb-1">
+      <div id={detailsId} hidden={!open} className="space-y-1 px-1 pb-1">
         <p className="text-ui break-words whitespace-pre-wrap text-foreground">{goal.objective}</p>
         {goal.lastReason && <p className="text-muted-foreground">Not met yet: {goal.lastReason}</p>}
         {usage && <p className="text-subtle-foreground tabular-nums">{usage}</p>}
-        {props.editable && (
-          <div className="flex items-center gap-1">
-            {goal.status === "active" && (
-              <Button
-                size="xs"
-                variant="ghost"
-                disabled={busy}
-                onClick={() => act({ status: "paused" })}
-              >
-                Pause
-              </Button>
-            )}
-            {goalResumable(goal.status) && (
-              <Button
-                size="xs"
-                variant="ghost"
-                disabled={busy}
-                onClick={() => act({ status: "active" })}
-              >
-                Resume
-              </Button>
-            )}
-            <Button size="xs" variant="ghost" disabled={busy} onClick={() => act("clear")}>
-              Clear goal
-            </Button>
-          </div>
-        )}
       </div>
     </section>
   );

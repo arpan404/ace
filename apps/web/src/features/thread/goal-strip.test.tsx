@@ -40,9 +40,12 @@ test("/goal sets the agent's goal, which the strip shows until it is paused and 
   // A goal, not a message: nothing was sent to the agent as text.
   expect(within(screen.getByRole("feed", { name: "Transcript" })).queryByText(/\/goal/)).toBeNull();
 
-  await userEvent.click(within(goal).getByRole("button", { expanded: false }));
-  await userEvent.click(within(goal).getByRole("button", { name: "Pause" }));
+  // The controls sit on the row itself: no need to open it first.
+  await userEvent.click(within(goal).getByRole("button", { name: "Pause goal" }));
   await waitFor(() => expect(goal.textContent).toContain("Goal paused"));
+  expect(within(goal).queryByRole("button", { name: "Pause goal" })).toBeNull();
+  await userEvent.click(within(goal).getByRole("button", { name: "Resume goal" }));
+  await waitFor(() => expect(goal.textContent).toContain("Pursuing goal"));
   await userEvent.click(within(goal).getByRole("button", { name: "Clear goal" }));
   await waitFor(() => expect(screen.queryByRole("region", { name: "Goal" })).toBeNull());
 });
@@ -65,7 +68,9 @@ test("a goal the provider keeps itself shows with its progress, and /goal goes t
   await userEvent.click(within(goal).getByRole("button", { expanded: false }));
   expect(goal.textContent).toContain("Not met yet: it failed on the seventh run");
   // ace can't change this provider's goal: no controls offer to.
-  expect(within(goal).queryByRole("button", { name: /Pause|Resume|Clear goal/ })).toBeNull();
+  expect(
+    within(goal).queryByRole("button", { name: /Pause goal|Resume goal|Clear goal/ }),
+  ).toBeNull();
 
   const message = screen.getByRole("combobox", { name: "Message" });
   await userEvent.type(message, "/goal ship it{Enter}");
