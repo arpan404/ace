@@ -54,3 +54,21 @@ export function admitUpgrades(
     });
   });
 }
+/** Close every handshake server, reporting the first error once all have closed. */
+export function closeHandshakes(servers: WebSocketServer[], done: (error?: Error) => void): void {
+  let pending = servers.length;
+  let failure: Error | undefined;
+  for (const server of servers)
+    server.close((error) => {
+      failure ??= error;
+      if (--pending === 0) done(failure);
+    });
+}
+/** Shut down every socket the handshake servers still track. */
+export function terminateClients(servers: WebSocketServer[]): void {
+  for (const server of servers)
+    for (const socket of server.clients) {
+      socket.close(1001, "Daemon shutdown");
+      socket.terminate();
+    }
+}

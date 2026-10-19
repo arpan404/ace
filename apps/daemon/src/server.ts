@@ -23,7 +23,7 @@ import { defaultPressure, Outbox } from "./outbox.ts";
 import { SocketInput } from "./socket-input.ts";
 import { CommandLanes } from "./command-lanes.ts";
 import { readCore } from "./socket-reads.ts";
-import { admitUpgrades } from "./socket-upgrade.ts";
+import { admitUpgrades, closeHandshakes, terminateClients } from "./socket-upgrade.ts";
 import { remoteSocketCompression } from "./socket-compression.ts";
 import { enrollNotifications, helloActor } from "./socket-hello.ts";
 import { admitCommand } from "./socket-commands.ts";
@@ -507,44 +507,30 @@ export async function startServer(options: ServerOptions): Promise<{
         stopTimer();
         stopRevocation();
         for (const cleanup of cleanups.values()) cleanup();
-        for (const server of handshakes)
-          for (const socket of server.clients) {
-            socket.close(1001, "Daemon shutdown");
-            socket.terminate();
-          }
+        terminateClients(handshakes);
         void Promise.all([
           closeListener(local),
           ...(remote ? [closeListener(remote)] : []),
           preview?.close(),
           transports?.close(),
           dynamicRemote?.close(),
-        ]).then(
-          () =>
-            closeHandshakes(handshakes, (error) => {
-              void shutdownDeadline(
-                "Socket tasks",
-                Promise.all([Promise.allSettled(serviceTasks), lanes.settled(), disconnects]),
-                runtime.delay,
-                5_000,
-              ).then(() => {
-                if (error) reject(error);
-                else resolve();
-              }, reject);
-            }),
-          reject,
-        );
+        ]).then(() => {
+          // An upgrade can finish while listeners close; ws waits for every client to go.
+          terminateClients(handshakes);
+          closeHandshakes(handshakes, (error) => {
+            void shutdownDeadline(
+              "Socket tasks",
+              Promise.all([Promise.allSettled(serviceTasks), lanes.settled(), disconnects]),
+              runtime.delay,
+              5_000,
+            ).then(() => {
+              if (error) reject(error);
+              else resolve();
+            }, reject);
+          });
+        }, reject);
       });
       return closing;
     },
   };
-}
-/** Close every handshake server, reporting the first error once all have closed. */
-function closeHandshakes(servers: WebSocketServer[], done: (error?: Error) => void): void {
-  let pending = servers.length;
-  let failure: Error | undefined;
-  for (const server of servers)
-    server.close((error) => {
-      failure ??= error;
-      if (--pending === 0) done(failure);
-    });
 }

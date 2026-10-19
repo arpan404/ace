@@ -121,6 +121,7 @@ describe("socket compression", () => {
   it("closes a remote socket whose message inflates past the payload limit", async () => {
     const f = await setup();
     const remote = await remoteSocket(f);
+    expect(remote.socket.extensions).toContain("permessage-deflate");
     const closed = once(remote.socket, "close");
     // About 2 KiB on the wire, 2 MiB once inflated: twice the daemon's message limit.
     remote.socket.send(JSON.stringify({ type: "ping", pad: "a".repeat(2 * 1024 * 1024) }));

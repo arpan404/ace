@@ -19,8 +19,11 @@ offer the extension (browsers, Node `ws` and built-in WebSocket, Apple `URLSessi
 it, and others keep working uncompressed.
 
 - No context takeover in either direction. Each message is compressed alone, so the size of one
-  TLS record says nothing about earlier messages, and zlib state does not grow per socket. The
-  ratio cost is small because only large messages are compressed.
+  TLS record says nothing about earlier messages. The ratio cost is small because only large
+  messages are compressed. A remote socket that has sent a large message keeps its zlib streams
+  (about 300 KiB) until it closes, at most about 75 MB at the 256-socket cap. `ws` runs at most
+  10 deflate jobs at once across all sockets; a message waits behind its own socket's
+  in-flight deflate, which takes milliseconds.
 - Threshold 1 KiB. Live deltas are mostly smaller and are sent as-is.
 - `maxPayload` (1 MiB) bounds the inflated size, so a small compressed frame cannot expand past
   the normal limit; the socket closes with 1009.
