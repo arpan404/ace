@@ -24,6 +24,7 @@ import { SocketInput } from "./socket-input.ts";
 import { CommandLanes } from "./command-lanes.ts";
 import { readCore } from "./socket-reads.ts";
 import { admitUpgrades } from "./socket-upgrade.ts";
+import { remoteSocketCompression } from "./socket-compression.ts";
 import { enrollNotifications, helloActor } from "./socket-hello.ts";
 import { admitCommand } from "./socket-commands.ts";
 import { isPing, closeRecord } from "./socket-liveness.ts";
@@ -112,11 +113,19 @@ export async function startServer(options: ServerOptions): Promise<{
       listener.headersTimeout = 10_000;
     }
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
+  // Remote listeners shake hands here so their sockets negotiate deflate; loopback stays raw.
+  const remoteWss = new WebSocketServer({
+    noServer: true,
+    maxPayload: 1024 * 1024,
+    perMessageDeflate: remoteSocketCompression,
+  });
+  const handshakes = [wss, remoteWss];
   const remoteSockets = new Set<WebSocket>();
   const preAuth = new PreAuthAdmission(options.preAuth ?? {}, runtime.delay);
   const attach = (listener: Server, isLocal: boolean) =>
     admitUpgrades(listener, isLocal, {
-      wss,
+      wss: isLocal ? wss : remoteWss,
+      connected: (socket) => wss.emit("connection", socket, isLocal),
       allowedOrigins: access.allowedOrigins,
       preAuth,
       full: () => cleanups.size >= 256,
@@ -454,7 +463,9 @@ export async function startServer(options: ServerOptions): Promise<{
     stopRevocation();
     await closeListener(local);
     if (remote) await closeListener(remote);
-    await new Promise<void>((resolve) => wss.close(() => resolve()));
+    await Promise.all(
+      handshakes.map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
+    );
     throw error;
   }
   let closing: Promise<void> | undefined;
@@ -496,10 +507,11 @@ export async function startServer(options: ServerOptions): Promise<{
         stopTimer();
         stopRevocation();
         for (const cleanup of cleanups.values()) cleanup();
-        for (const socket of wss.clients) {
-          socket.close(1001, "Daemon shutdown");
-          socket.terminate();
-        }
+        for (const server of handshakes)
+          for (const socket of server.clients) {
+            socket.close(1001, "Daemon shutdown");
+            socket.terminate();
+          }
         void Promise.all([
           closeListener(local),
           ...(remote ? [closeListener(remote)] : []),
@@ -508,7 +520,7 @@ export async function startServer(options: ServerOptions): Promise<{
           dynamicRemote?.close(),
         ]).then(
           () =>
-            wss.close((error) => {
+            closeHandshakes(handshakes, (error) => {
               void shutdownDeadline(
                 "Socket tasks",
                 Promise.all([Promise.allSettled(serviceTasks), lanes.settled(), disconnects]),
@@ -525,4 +537,14 @@ export async function startServer(options: ServerOptions): Promise<{
       return closing;
     },
   };
+}
+/** Close every handshake server, reporting the first error once all have closed. */
+function closeHandshakes(servers: WebSocketServer[], done: (error?: Error) => void): void {
+  let pending = servers.length;
+  let failure: Error | undefined;
+  for (const server of servers)
+    server.close((error) => {
+      failure ??= error;
+      if (--pending === 0) done(failure);
+    });
 }

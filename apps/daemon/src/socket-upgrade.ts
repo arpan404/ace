@@ -10,7 +10,8 @@ const refuseUpgrade = (socket: Duplex, status: string) =>
 
 /**
  * Admit WebSocket upgrades on `listener`: only `/`, an allowed Origin on loopback, and within
- * the connection and pre-authentication budgets. Admitted sockets reach `connection`.
+ * the connection and pre-authentication budgets. `wss` performs the handshake, so it decides
+ * the negotiated extensions for this listener; admitted sockets reach `connected`.
  */
 export function admitUpgrades(
   listener: Server,
@@ -21,6 +22,7 @@ export function admitUpgrades(
     preAuth: PreAuthAdmission;
     full(): boolean;
     remoteSockets: Set<WebSocket>;
+    connected(socket: WebSocket): void;
   },
 ): Server {
   const { wss, preAuth, remoteSockets } = options;
@@ -48,7 +50,7 @@ export function admitUpgrades(
         websocket.once("close", () => remoteSockets.delete(websocket));
       }
       preAuth.track(websocket, kind, address);
-      wss.emit("connection", websocket, isLocal);
+      options.connected(websocket);
     });
   });
 }
