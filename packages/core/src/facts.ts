@@ -18,6 +18,7 @@ import type {
   ToolDetail,
   ThreadStatus,
   ThreadId,
+  ProviderGoal,
 } from "@ace/protocol";
 
 /** Adapter-owned identity, unique within an entity kind and provider process. */
@@ -187,6 +188,8 @@ export type Fact =
   /** Explicit quota recovery; ordinary stream activity is not quota evidence. */
   | { type: "limit.cleared"; agent: Key }
   | { type: "wake.expected"; agent: Key; until: number }
+  /** The provider's native goal changed; null when it was cleared. Only the root agent's counts. */
+  | { type: "goal.updated"; agent: Key; goal: ProviderGoal | null }
   | ({
       type: "usage";
       agent: Key;

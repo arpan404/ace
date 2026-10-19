@@ -8,6 +8,7 @@ const facts = (patch: Partial<StripFacts>): StripFacts => ({
   connection: false,
   stopped: false,
   queue: false,
+  goal: false,
   plan: false,
   ...patch,
 });
@@ -98,4 +99,14 @@ test("a notification opening a request the person already saw takes the slot bac
 test("switching away after a notification opened the thread sticks", () => {
   const now = facts({ requests: ["approval-1"], target: "approval-1", queue: true });
   expect(stripSlot(now, pickStrip("queue", now)).shown).toBe("queue");
+});
+
+test("a goal shows above the task list, which waits as an indicator, and below the queue", () => {
+  const now = facts({ goal: true, plan: true });
+  expect(stripSlot(now, undefined)).toEqual({ shown: "goal", others: ["plan"] });
+  expect(stripSlot(now, pickStrip("plan", now)).shown).toBe("plan");
+  expect(stripSlot({ ...now, queue: true }, undefined)).toEqual({
+    shown: "queue",
+    others: ["goal", "plan"],
+  });
 });

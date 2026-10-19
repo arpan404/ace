@@ -58,6 +58,16 @@
         "execution": {
           "$ref": "https://ace.local/protocol/v1/ExecutionSelection.json"
         },
+        "goal": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/ProviderGoal.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "lineage": {
           "$ref": "https://ace.local/protocol/v1/ThreadLineage.json"
         },

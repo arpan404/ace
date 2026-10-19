@@ -1,3 +1,4 @@
+import { GoalChange } from "./goal.ts";
 import { ForgePrWorktree } from "./forge-worktree.ts";
 import { ForgeIssueCommands, ForgeIssueRef } from "./forge-issues.ts";
 import { ProjectCommands } from "./projects.ts";
@@ -132,6 +133,9 @@ export const CommandPayload = z.discriminatedUnion("type", [
     threadId: ThreadId,
     mode: z.string().min(1).max(256),
   }),
+  /** Set, pause or resume the provider's native goal (Codex). */
+  z.object({ type: z.literal("thread.goal.set"), threadId: ThreadId, change: GoalChange }),
+  z.object({ type: z.literal("thread.goal.clear"), threadId: ThreadId }),
   z.object({
     type: z.literal("interaction.resolve"),
     interactionId: InteractionId,

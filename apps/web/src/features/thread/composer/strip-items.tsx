@@ -9,6 +9,7 @@ import {
   ListChecksIcon,
   PaperPlaneTiltIcon,
   ShieldWarningIcon,
+  TargetIcon,
   TerminalIcon,
   TrayIcon,
   WarningIcon,
@@ -99,11 +100,13 @@ function Indicator(props: { kind: StripKind; counts: StripCounts; onPick(kind: S
                   `${counts.queued} queued`,
                   `Show ${plural(counts.queued, "queued message")}`,
                 ]
-              : [
-                  <Icon key="i" size={12} icon={ListChecksIcon} />,
-                  counts.plan ? `${counts.plan.done}/${counts.plan.total}` : "Tasks",
-                  counts.plan ? `Show tasks, ${planCount(counts.plan)} done` : "Show tasks",
-                ];
+              : props.kind === "goal"
+                ? [<Icon key="i" size={12} icon={TargetIcon} />, "Goal", "Show goal"]
+                : [
+                    <Icon key="i" size={12} icon={ListChecksIcon} />,
+                    counts.plan ? `${counts.plan.done}/${counts.plan.total}` : "Tasks",
+                    counts.plan ? `Show tasks, ${planCount(counts.plan)} done` : "Show tasks",
+                  ];
   return (
     <button
       type="button"

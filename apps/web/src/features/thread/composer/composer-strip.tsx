@@ -1,4 +1,4 @@
-import { useClient, useConnectionState, useInteractions } from "@ace/client-react";
+import { useClient, useConnectionState, useInteractions, useThreadMeta } from "@ace/client-react";
 import type { QueuedMessage, ThreadStatus } from "@ace/protocol";
 import { Suspense, useEffect, useEffectEvent, useState } from "react";
 import { useDaemonConnection } from "@/boot/connection.tsx";
@@ -16,6 +16,7 @@ import { RequestStack } from "./request-stack.tsx";
 import { descendantKey } from "./descendant-card.tsx";
 import { useDescendantRequest } from "./descendant-request.ts";
 import { ConnectionStrip, PlanStrip, StripIndicators, type StripCounts } from "./strip-items.tsx";
+import { GoalStrip } from "./goal-strip.tsx";
 import { pickStrip, stripSlot, type StripFacts } from "./strip-slot.ts";
 import { StripSurface } from "./strip-surface.tsx";
 import { ConfirmStopStrip, StoppedStrip, useStoppedCommands } from "./stop-strips.tsx";
@@ -28,7 +29,8 @@ const noRequests: readonly string[] = [];
  * The one strip above the thread's composer (`stripSlot` decides what it shows): a Stop waiting
  * for its second Esc, the agent's open requests, the person's messages on their way (or that
  * didn't go: the transcript only ever shows the daemon's items), trouble with the connection, background
- * commands a stopped turn left running, the queue, or the main agent's plan, with the others as
+ * commands a stopped turn left running, the queue, the goal the agent is pursuing, or the main
+ * agent's task list, with the others as
  * indicators inside it. Loads after the thread has painted, unless the thread opens on a request.
  */
 export function ComposerStrip(props: {
@@ -66,6 +68,8 @@ export function ComposerStrip(props: {
   );
   const sending = useOutgoing(props.threadId);
   const plan = useShownPlans(props.threadId)[0]?.progress;
+  const thread = useThreadMeta(props.threadId);
+  const goal = thread?.goal;
   const queued = queuedCount(queue, pending);
   const offline = connection === "offline";
   // Reconnecting and offline are said here, so the header stays quiet; anything else (a
@@ -92,6 +96,7 @@ export function ComposerStrip(props: {
     connection: offline || connection === "reconnecting",
     stopped: stopped.length > 0,
     queue: queued > 0 || queue.failed || !!held || !!editing,
+    goal: !!goal,
     plan: !!plan,
   };
   const [pick, setPick] = useState<ReturnType<typeof pickStrip>>();
@@ -148,6 +153,13 @@ export function ComposerStrip(props: {
           onEditInComposer={props.onLeave}
           indicators={indicators}
           onChooseModel={props.onChooseModel}
+        />
+      ) : slot.shown === "goal" && goal ? (
+        <GoalStrip
+          threadId={props.threadId}
+          goal={goal}
+          editable={!!thread?.capabilities?.goals}
+          indicators={indicators}
         />
       ) : plan ? (
         <PlanStrip progress={plan} indicators={indicators} />

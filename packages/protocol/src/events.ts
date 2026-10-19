@@ -1,3 +1,4 @@
+import { ProviderGoal } from "./goal.ts";
 import { PermissionState } from "./permissions.ts";
 import { RunClientUpdated } from "./run-client.ts";
 import { ThreadClientUpdated } from "./thread-client.ts";
@@ -60,6 +61,8 @@ export const EventPayload = z.discriminatedUnion("type", [
     acp: AcpIdentity.optional(),
     status: ThreadStatus.optional(),
     archivedAt: Timestamp.nullable().optional(),
+    /** The provider's goal changed; null when it was cleared. */
+    goal: ProviderGoal.nullable().optional(),
   }),
   z.object({ type: z.literal("agent.created"), agent: Agent }),
   z.object({

@@ -434,6 +434,8 @@ export class AccountService {
                   Promise.reject(new Error("Mode selection unavailable")),
               }
             : {}),
+          ...(session.setGoal ? { setGoal: session.setGoal.bind(session) } : {}),
+          ...(session.clearGoal ? { clearGoal: session.clearGoal.bind(session) } : {}),
           ...(session.mcp ? { mcp: session.mcp } : {}),
           get sessionConfirmed() {
             return session.sessionConfirmed ?? true;

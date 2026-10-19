@@ -54,6 +54,7 @@ export * from "./organizer.ts";
 export * from "./organize-patch.ts";
 export * from "./permissions.ts";
 export * from "./plan.ts";
+export * from "./goal.ts";
 export * from "./profile.ts";
 export * from "./project-badge.ts";
 export type { Brand } from "./brand-art/index.gen.ts";

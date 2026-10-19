@@ -175,6 +175,9 @@ export interface ProviderSession {
   readonly acpSupport?: AcpSessionSupport | undefined;
   setModel?(model: string): Promise<void>;
   setMode?(mode: string): Promise<void>;
+  /** Set, pause or resume the provider's native goal. Providers without goals omit it. */
+  setGoal?(change: import("@ace/protocol").GoalChange): Promise<void>;
+  clearGoal?(): Promise<void>;
   /** Optional engine command correlation for providers with durable admission. */
   send(
     input: ContentPart[],

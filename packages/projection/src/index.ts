@@ -189,6 +189,8 @@ export function updateThread(thread: Thread, event: Event): void {
     }
     if (payload.archivedAt === null) delete thread.archivedAt;
     else if (payload.archivedAt !== undefined) thread.archivedAt = payload.archivedAt;
+    if (payload.goal === null) delete thread.goal;
+    else if (payload.goal !== undefined) thread.goal = structuredCopy(payload.goal);
   }
   if (payload.type === "agent.created" && payload.agent.origin === "root")
     thread.rootAgentId = payload.agent.id;
