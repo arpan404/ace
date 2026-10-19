@@ -86,6 +86,9 @@ Every development command runs its processes side by side with prefixed logs (`d
 | `bun run desktop:package`        | The full platform package (see Packaging)                                                                             |
 | `bun run desktop:rebuild-native` | node-pty compiled for Electron with `@electron/rebuild`                                                               |
 | `bun run desktop:e2e`            | Playwright-for-Electron smoke test against the fake daemon (`ACE_E2E_ELECTRON=1`)                                     |
+| `bun run release:doctor`         | What this Mac has set up for a release: Developer ID, notarization, GitHub CLI ([releasing](docs/releasing.md))       |
+| `bun run release:build <v>`      | A release for this Mac's architecture, signed, notarized and verified, staged under `dist/releases/v<v>`              |
+| `bun run release:publish <v>`    | The staged release as a GitHub release, which installed apps update from                                              |
 | `bun run smoke:real`             | Headless Chromium tour against a protected copy of owner data; [options and fixture mode](tools/real-smoke/README.md) |
 
 **Dev data is isolated.** The dev daemon uses `ACE_HOME=.ace-dev/home` on port 4343, and
@@ -151,8 +154,11 @@ match the host: native code is built for the host, so release CI runs once per a
 matching runner. The build stops, listing each problem, if a required native piece is missing or
 any staged binary is built for another architecture.
 
-- **macOS:** dmg and zip. Signed with `CSC_LINK`/`CSC_NAME` and notarized when `APPLE_API_KEY`,
-  `APPLE_API_KEY_ID` and `APPLE_API_ISSUER` are set. The screen helper ships as
+- **macOS:** dmg and zip (the zip is what Squirrel.Mac updates from). Signed with the
+  Developer ID in the keychain (`CSC_NAME` picks one; `CSC_LINK` in CI) and notarized with
+  whichever notarytool credentials are set: `APPLE_KEYCHAIN_PROFILE`, `APPLE_API_KEY` with
+  `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`, or `APPLE_ID` with `APPLE_APP_SPECIFIC_PASSWORD`
+  and `APPLE_TEAM_ID`. `--unsigned` builds the same package ad-hoc signed. The screen helper ships as
   `Contents/Helpers/AceScreenHelper.app` (`dev.ace.screen-helper`), signed by
   `native/screen-helper/build.sh` and left untouched by the app's signing; its manifest is
   `Contents/Resources/screen-helper-manifest.json`. A full package signs the helper with the
@@ -170,8 +176,11 @@ any staged binary is built for another architecture.
 Each package carries the daemon bundle from `tools/release` (`Resources/daemon`), the pinned Node
 runtime it runs on (`Resources/runtime`, the same one as the standalone archive), node-pty, koffi
 and the other staged runtime packages, `rg` from `@vscode/ripgrep`, and the platform's screen
-helper. Electron's `runAsNode` fuse is off. `ACE_RELEASE_PUBLIC_KEY_FILE` embeds the release
-authority's Ed25519 key for update checks (ADR 0041); without it, update checks fail closed.
+helper. Electron's `runAsNode` fuse is off. A full package also carries the update feed
+(`app-update.yml`), and electron-builder writes `latest*.yml` beside it: the app updates itself
+from GitHub releases ([ADR 0087](docs/adr/0087-desktop-auto-update.md)), and the bundled
+`ace update` hands updates to the app. `ACE_RELEASE_PUBLIC_KEY_FILE` embeds the release
+authority's Ed25519 key in the bundled daemon for standalone installs (ADR 0041).
 
 ## License
 

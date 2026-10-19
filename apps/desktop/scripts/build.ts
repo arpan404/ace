@@ -8,6 +8,7 @@ import { build } from "esbuild";
 import { z } from "zod";
 import { bundleDaemon } from "@ace/release";
 import { stageNodeRuntime } from "@ace/release/node-runtime";
+import { DesktopApp, desktopAppMarker } from "@ace/service/desktop-update";
 import {
   desktop,
   dist,
@@ -24,7 +25,8 @@ import { verifyNatives } from "./verify-natives.ts";
  * Builds everything the packaged app ships, into `apps/desktop/dist`:
  * - `app/`: main, preload, the web renderer and the app's package.json (becomes app.asar);
  * - `daemon/`: the daemon bundle from `@ace/release`, its worker bundles, staged runtime
- *   packages (koffi, playwright-core, the Claude SDK), `descriptor.node` and node-pty;
+ *   packages (koffi, playwright-core, the Claude SDK), `descriptor.node`, node-pty and
+ *   `desktop-app.json` (the app's version, so the bundled `ace update` defers to the app);
  * - `helpers/`: the screen helper for this platform;
  * - `bin/rg`: ripgrep for workspace search;
  * - `runtime/`: the pinned Node runtime the daemon runs on (macOS and Linux).
@@ -84,6 +86,11 @@ await bundleDaemon(repo, daemon, releasePublicKey(process.env));
 await cp(join(app, "renderer"), join(daemon, "web"), { recursive: true });
 await stageNodePty(daemon);
 await copyFile(join(repo, "LICENSE"), join(daemon, "ACE-LICENSE"));
+// The bundled CLI's `ace update` hands the update to the app instead (ADR 0087).
+await writeFile(
+  join(daemon, desktopAppMarker),
+  JSON.stringify(DesktopApp.parse({ version: appVersion })) + "\n",
+);
 
 log("ripgrep");
 await stageRipgrep(join(dist, "bin"));

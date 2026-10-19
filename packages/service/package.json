@@ -6,7 +6,10 @@
   "exports": {
     ".": "./src/index.ts",
     "./home": "./src/home.ts",
-    "./exit-codes": "./src/exit-codes.ts"
+    "./exit-codes": "./src/exit-codes.ts",
+    "./desktop-update": "./src/desktop-update.ts",
+    "./desktop-update-argument": "./src/desktop-update-argument.ts",
+    "./version": "./src/version.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

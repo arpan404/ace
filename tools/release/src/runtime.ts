@@ -31,6 +31,7 @@ import {
 } from "@ace/service";
 import { fileURLToPath } from "node:url";
 import { finished } from "node:stream/promises";
+import { bundledDesktopApp, daemonDirectory, desktopUpdateCli } from "./desktop-update.ts";
 // Build replaces this constant. A source checkout cannot authenticate a public release.
 export const RELEASE_PUBLIC_KEY = "__ACE_RELEASE_PUBLIC_KEY__";
 const sleep = () => new Promise<void>((r) => setTimeout(r, 1000));
@@ -121,6 +122,12 @@ export async function updateCli(args: string[]) {
   const command = z.enum(["check", "apply", "recover"]).parse(args[0]);
   if (args.length > 2 || (args[1] !== undefined && (args[1] !== "--drain" || command !== "apply")))
     throw new Error("Usage: ace update check|apply [--drain]|recover");
+  // Inside the desktop app the app owns the update, daemon included (ADR 0087).
+  const desktop = await bundledDesktopApp(daemonDirectory(import.meta.url));
+  if (desktop) {
+    await desktopUpdateCli(command, desktop, (line) => process.stdout.write(`${line}\n`));
+    return;
+  }
   const root = dataDir(),
     ports = updatePorts();
   if (command !== "check") {
