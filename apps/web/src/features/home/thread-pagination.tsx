@@ -5,28 +5,30 @@ import { useEffect, useState } from "react";
 import { useOrganizerState } from "@/features/organize/index.ts";
 
 const readWindow = (reader: SidebarReader) => reader.window;
-/** Synchronize the shared subscription with the visible collection, then fetch older pages on demand. */
-export function ThreadPagination(props: { settledOpen?: boolean | undefined }) {
+
+/** Keep the shared list subscription on the project filter and the screen (Home or the archive). */
+export function useThreadsWindowSync(): string {
   const client = useClient();
   const { project } = useOrganizerState();
   const archived = useRouterState({ select: (state) => state.location.pathname === "/archived" });
-  const key = `${project ?? ""}:${archived}`;
-  const window = useSidebar(["window"], readWindow);
-  const [request, setRequest] = useState<{ key: string; loading: boolean; error: boolean }>();
   useEffect(() => {
     void client.threadsWindow({
       ...(project ? { project } : {}),
       ...(archived ? { archived: true } : {}),
     });
   }, [client, project, archived]);
+  return `${project ?? ""}:${archived}`;
+}
+
+/** The archive's foot: fetch older archived threads on demand. Home pages inside its list. */
+export function ThreadPagination() {
+  const client = useClient();
+  const key = useThreadsWindowSync();
+  const window = useSidebar(["window"], readWindow);
+  const [request, setRequest] = useState<{ key: string; loading: boolean; error: boolean }>();
   const loading = request?.key === key && request.loading;
   const error = request?.key === key && request.error;
-  if (
-    (archived && props.settledOpen !== undefined) ||
-    !window?.before ||
-    (!archived && props.settledOpen === false)
-  )
-    return null;
+  if (!window?.before) return null;
   const more = async () => {
     if (loading) return;
     setRequest({ key, loading: true, error: false });
