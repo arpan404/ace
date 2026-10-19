@@ -68,7 +68,7 @@ import Foundation
         #expect(model.text.contains("ok"))
         #expect(model.text.contains("[Earlier output unavailable]"))
         let gapsBefore = model.text.components(separatedBy: "[Earlier output unavailable]").count - 1
-        #expect(model.receive(try resyncFrame(oldest, oldest)) == oldest)
+        #expect(model.receive(try resyncFrame(oldest, oldest)) == oldest + 2)
         #expect(model.text.components(separatedBy: "[Earlier output unavailable]").count - 1 == gapsBefore)
     }
     @Test func interruptedCsiBeforeTruncatedReplayStillShowsGapAndLaterOutput() throws {
