@@ -28,5 +28,11 @@ export function writerStore(root: string | undefined) {
         throw error;
       }
     },
+    release(thread: string): void {
+      if (!root) return;
+      const path = join(root, `${encodeURIComponent(thread)}.writer`);
+      if (!owned.delete(path)) return;
+      unlinkSync(path);
+    },
   };
 }

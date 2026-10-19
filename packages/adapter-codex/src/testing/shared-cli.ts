@@ -12,6 +12,10 @@ if (args === "--version") {
   process.exit(0);
 }
 if (args !== "app-server") process.exit(64);
+// Codex keeps an unsubscribed thread loaded for 30 minutes unless told to unload it at once.
+const unloadsAtOnce = argv.some(
+  (arg, index) => argv[index - 1] === "-c" && arg === "thread_unload_delay_secs=0",
+);
 
 const write = (data: unknown) => process.stdout.write(`${JSON.stringify(data)}\n`);
 const stored = historyStore();
@@ -127,7 +131,9 @@ for await (const line of createInterface({ input: process.stdin })) {
       },
     });
   } else if (method === "thread/unsubscribe") {
-    // Unsubscribing does not unload a writer immediately; Codex retains idle threads.
+    // Without the override Codex retains the idle thread, and its writer lock, after this.
+    const thread = str(p["threadId"]);
+    if (unloadsAtOnce && loaded.delete(thread)) writers.release(thread);
     respond({ status: "unsubscribed" });
   } else if (method === "thread/turns/list") respond(stored.page(p));
   else if (method === "thread/loaded/list") respond({ data: [...loaded] });
