@@ -80,6 +80,8 @@ export interface StoreOptions extends Partial<CredentialRuntime> {
   bufferScheduler?: BufferScheduler;
 }
 type Listener = (events: Event[]) => void;
+/** Passes of the search writer (100 ms apart by default) between refreshes of streaming items. */
+const streamingRefreshPasses = 20;
 export class Store {
   readonly devices: Devices;
   readonly workspaceReservations: WorkspaceReservations;
@@ -251,12 +253,17 @@ export class Store {
         },
       });
       this.searchQueries = new SearchQueries(path, options.searchWorkerFactory);
+      let passes = 0;
       this.searchMaintenance = createSearchMaintenance(
         options.searchScheduler ?? scheduleSearch,
         () => {
           if (this.historyWriting) return;
           try {
-            this.search.flush();
+            // Finished items publish on every pass. An item still streaming would otherwise
+            // rewrite its search documents on every pass while its agent writes; it refreshes
+            // once every `streamingRefreshPasses` instead.
+            if (++passes % streamingRefreshPasses === 0) this.search.flush();
+            else this.search.flushCompleted();
           } catch (error) {
             try {
               this.onError(error);
