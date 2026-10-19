@@ -1,20 +1,14 @@
-import { expect, test } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, expect, test } from "vitest";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Client } from "@ace/client";
-import { ClientProvider } from "@ace/client-react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
-import {
-  DeviceId,
-  ForgePrDetail,
-  ForgeLifecycleState,
-  ServerMessage,
-  WorkspaceId,
-} from "@ace/protocol";
-import { memoryStorage } from "@/boot/client.ts";
-import { PrLifecycle } from "./pr-lifecycle.tsx";
+import { ForgeLifecycleState, ForgePrDetail, WorkspaceId } from "@ace/protocol";
+import { workbench } from "@ace/fake-daemon";
+import { harness } from "@/test/harness.tsx";
+import { openPullRequest } from "./test-support.ts";
+
+await import("./pr-panel-tab.tsx");
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "api" } as const;
+const workspaceId = WorkspaceId.parse("api");
 const headSha = "a".repeat(40);
 const detail = ForgePrDetail.parse({
   status: {
@@ -44,110 +38,77 @@ const detail = ForgePrDetail.parse({
   relatedThreads: [],
   relatedThreadsTruncated: false,
 });
+const lifecycle = { op: "forge.pr.lifecycle", workspaceId, repository, number: 42 } as const;
+const state = ForgeLifecycleState.parse({
+  snapshot: {
+    pr: detail.status.ref,
+    id: "PR_42",
+    version: "a".repeat(64),
+    headSha,
+    baseSha: detail.baseSha,
+    state: "open",
+    metadata: {
+      title: detail.status.title,
+      body: detail.body,
+      baseBranch: "main",
+      labels: [],
+      assignees: [],
+    },
+    editableFields: ["body"],
+    actions: ["close"],
+    unsupported: [],
+  },
+  operations: [],
+});
+beforeEach(() => localStorage.clear());
 
-test("an uncertain lifecycle receipt retains metadata text and refreshes its result-check control", async () => {
-  localStorage.clear();
-  const daemon = new FakeDaemon({ clock: () => 1_000 });
-  const operation = {
-    op: "forge.pr.lifecycle",
-    workspaceId: WorkspaceId.parse("api"),
-    repository,
-    number: 42,
-  } as const;
-  const state = ForgeLifecycleState.parse({
-    snapshot: {
-      pr: detail.status.ref,
-      id: "PR_42",
-      version: "a".repeat(64),
-      headSha,
-      baseSha: detail.baseSha,
-      state: "open",
-      metadata: {
-        title: detail.status.title,
-        body: detail.body,
-        baseBranch: "main",
-        labels: [],
-        assignees: [],
-      },
-      editableFields: ["body"],
-      actions: [],
-      unsupported: [],
-    },
-    operations: [],
+test("an uncertain metadata edit keeps its text and holds lifecycle writes until its result is checked", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.detail", workspaceId, number: 42 },
+    { resource: "prDetail", value: detail },
+  );
+  app.daemon.workspace.setForgeRead(lifecycle, { resource: "prLifecycle", value: state });
+  app.daemon.refuseCommands("action_outcome_uncertain", "forge.hosted.lifecycle");
+  await openPullRequest(app, { project: "api", number: 42 });
+  await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit details…" }));
+  const description = await screen.findByRole<HTMLTextAreaElement>("textbox", {
+    name: "PR description",
   });
-  daemon.workspace.setForgeRead(operation, { resource: "prLifecycle", value: state });
-  let ids = 0;
-  const client = new Client({
-    deviceId: DeviceId.parse("review-device"),
-    credential: async () => daemon.token,
-    storage: memoryStorage(),
-    id: () => `review-${++ids}`,
-    random: () => 0.5,
-    scheduler: {
-      set(delay, callback) {
-        const timer = setTimeout(callback, delay);
-        return () => clearTimeout(timer);
-      },
-    },
-    transport: () => {
-      const transport = fakeTransport(daemon);
-      return {
-        ...transport,
-        open(events) {
-          transport.open({
-            ...events,
-            message(text) {
-              const message = ServerMessage.parse(JSON.parse(text));
-              // Script the daemon's reply at the wire boundary, leaving the real client/outbox intact.
-              if (
-                message.type === "commandResult" &&
-                message.error === "unsupported_by_fake_daemon"
-              ) {
-                daemon.workspace.setForgeRead(operation, {
-                  resource: "prLifecycle",
-                  value: {
-                    ...state,
-                    operations: [{ id: message.commandId, kind: "edit", state: "uncertain" }],
-                  },
-                });
-                events.message(JSON.stringify({ ...message, error: "action_outcome_uncertain" }));
-              } else events.message(text);
-            },
-          });
-        },
-      };
-    },
+  await userEvent.clear(description);
+  await userEvent.type(description, "Keep my metadata edit");
+  const save = screen.getByRole<HTMLButtonElement>("button", { name: "Save PR metadata" });
+  await waitFor(() => expect(save.disabled).toBe(false));
+  await userEvent.click(save);
+  expect(
+    await screen.findAllByText(
+      /The daemon lost track of the result: check the checkout or GitHub before retrying/,
+    ),
+  ).not.toHaveLength(0);
+  // The form stays open with the edit.
+  expect(description.value).toBe("Keep my metadata edit");
+  await userEvent.keyboard("{Escape}");
+  // GitHub now reports the write as unresolved: the panel offers to check it and holds others.
+  app.daemon.restoreRequests();
+  app.daemon.workspace.setForgeRead(lifecycle, {
+    resource: "prLifecycle",
+    value: { ...state, operations: [{ id: "edit-1", kind: "edit", state: "uncertain" }] },
   });
-  const query = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  try {
-    await client.start();
-    const view = render(
-      <ClientProvider client={client}>
-        <QueryClientProvider client={query}>
-          <PrLifecycle workspaceId="api" detail={detail} onRefresh={() => {}} />
-        </QueryClientProvider>
-      </ClientProvider>,
-    );
-    await screen.findByText(/Current state: open/);
-    await userEvent.click(screen.getByText("Edit PR metadata"));
-    const description = screen.getByRole<HTMLTextAreaElement>("textbox", {
-      name: "PR description",
-    });
-    await userEvent.clear(description);
-    await userEvent.type(description, "Keep my metadata edit");
-    const save = screen.getByRole<HTMLButtonElement>("button", { name: "Save PR metadata" });
-    await waitFor(() => expect(save.disabled).toBe(false));
-    await userEvent.click(save);
-    expect(
-      await screen.findByText(
-        /The daemon lost track of the result: check the checkout or GitHub before retrying/,
-      ),
-    ).toBeTruthy();
-    expect(await screen.findByRole("button", { name: "Check action result" })).toBeTruthy();
-    expect(description.value).toBe("Keep my metadata edit");
-    view.unmount();
-  } finally {
-    query.clear();
-    await client.close();
-  }
+  await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Refresh" }));
+  const strip = await screen.findByRole("group", { name: "Unconfirmed changes" });
+  expect(within(strip).getByText("Edit pull request · Outcome unknown")).toBeTruthy();
+  expect(within(strip).getByRole("button", { name: "Check action result" })).toBeTruthy();
+  await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
+  const close = await screen.findByRole("menuitem", { name: /^Close pull request/ });
+  expect(close.getAttribute("aria-disabled")).toBe("true");
+  await userEvent.keyboard("{Escape}");
+  // Opened again, the edit not yet confirmed is still there.
+  await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit details…" }));
+  expect(
+    (await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "PR description" })).value,
+  ).toBe("Keep my metadata edit");
 });

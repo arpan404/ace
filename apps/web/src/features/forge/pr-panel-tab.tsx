@@ -29,6 +29,7 @@ export default function PrPanelTab(props: TabViewProps) {
     <PrDetail
       {...data}
       extensions={extensions}
+      hostThreadId={props.scope}
       onState={onState}
       tab={prWorkspaceTab(props.tab.ui?.selected ?? "summary")}
       onTab={(tab) => actions.updateUi(props.tab.key, { selected: tab })}
