@@ -5509,6 +5509,7 @@ Example:
 | action | yes | `"resize"` |  |
 | width | yes | integer | {"minimum":100,"maximum":4096} |
 | height | yes | integer | {"minimum":100,"maximum":4096} |
+| touch | no | boolean |  |
 
 Example:
 
@@ -5516,6 +5517,7 @@ Example:
 {
   "action": "resize",
   "height": 101,
+  "touch": false,
   "width": 108
 }
 ```
@@ -5539,10 +5541,9 @@ Example:
 ```json
 {
   "action": "emulate",
-  "height": 106,
-  "mobile": true,
-  "tabId": "example",
-  "width": 106
+  "height": 100,
+  "userAgent": "example",
+  "width": 105
 }
 ```
 
@@ -5562,8 +5563,7 @@ Example:
 ```json
 {
   "action": "tabs",
-  "label": "example",
-  "tabId": "example"
+  "url": "example"
 }
 ```
 
@@ -5603,7 +5603,7 @@ Example:
 ```json
 {
   "action": "downloads",
-  "operation": "wait",
+  "tabId": "example",
   "timeout": 4
 }
 ```
@@ -6108,13 +6108,15 @@ Example:
 | x | yes | number | {"minimum":-100000,"maximum":100000} |
 | y | yes | number | {"minimum":-100000,"maximum":100000} |
 | button | no | ["none","left","middle","right"] | {"default":"left"} |
+| buttons | no | integer | {"minimum":0,"maximum":7} |
 | clickCount | no | integer | {"default":1,"minimum":0,"maximum":3} |
+| modifiers | no | integer | {"default":0,"minimum":0,"maximum":15} |
 
 Example:
 
 ```json
 {
-  "clickCount": 3,
+  "buttons": 6,
   "event": "mouseMoved",
   "kind": "mouse",
   "x": 2,
@@ -6137,10 +6139,10 @@ Example:
 
 ```json
 {
+  "code": "example",
   "event": "keyUp",
   "key": "example",
-  "kind": "key",
-  "modifiers": 5
+  "kind": "key"
 }
 ```
 
@@ -6153,16 +6155,17 @@ Example:
 | y | yes | number | {"minimum":-100000,"maximum":100000} |
 | deltaX | yes | number | {"minimum":-100000,"maximum":100000} |
 | deltaY | yes | number | {"minimum":-100000,"maximum":100000} |
+| modifiers | no | integer | {"default":0,"minimum":0,"maximum":15} |
 
 Example:
 
 ```json
 {
-  "deltaX": 2,
-  "deltaY": 3,
+  "deltaX": 3,
+  "deltaY": 4,
   "kind": "scroll",
-  "x": 4,
-  "y": 7
+  "x": 7,
+  "y": 2
 }
 ```
 
@@ -6178,7 +6181,7 @@ Example:
 
 ```json
 {
-  "event": "touchMove",
+  "event": "touchStart",
   "kind": "touch",
   "points": []
 }
@@ -6252,8 +6255,8 @@ Example:
 ```json
 {
   "action": "scroll",
-  "x": 1,
-  "y": 6
+  "x": 7,
+  "y": 4
 }
 ```
 
@@ -6308,7 +6311,9 @@ Example:
 
 ```json
 {
-  "background": false,
+  "background": true,
+  "headed": false,
+  "profile": "persistent",
   "threadId": "example",
   "workspaceId": "example"
 }
@@ -6328,7 +6333,7 @@ Example:
 ```json
 {
   "origin": "example",
-  "reason": "approval_required"
+  "reason": "timeout"
 }
 ```
 
@@ -6347,10 +6352,10 @@ Example:
   "images": [
     {
       "data": "example",
-      "height": 2,
+      "height": 3,
       "mimeType": "image/jpeg",
       "size": "desktop",
-      "width": 3
+      "width": 4
     }
   ]
 }
@@ -6391,7 +6396,7 @@ Example:
   "backend": "embedded",
   "pageStateLost": true,
   "reason": "example",
-  "recovery": "pause",
+  "recovery": "headless",
   "threadId": "example",
   "type": "browser.backend.lost",
   "url": "example"
@@ -6412,8 +6417,8 @@ Example:
 
 ```json
 {
-  "phase": "verifying",
-  "received": 7,
+  "phase": "downloading",
+  "received": 1,
   "type": "browser.download.progress",
   "version": "example"
 }
@@ -6434,10 +6439,8 @@ Example:
 
 ```json
 {
-  "error": "example",
   "ok": false,
   "requestId": "example",
-  "result": null,
   "type": "browser.result"
 }
 ```
@@ -6454,13 +6457,13 @@ Example:
 ```json
 {
   "state": {
-    "activeTabId": "example",
-    "blocked": {
-      "origin": "example",
-      "reason": "approval_required"
+    "annotation": {
+      "owner": "example"
     },
-    "closed": false,
-    "tabs": [],
+    "closed": true,
+    "downloads": [],
+    "loading": true,
+    "pageStateLost": true,
     "threadId": "example",
     "url": "example"
   },
@@ -6482,10 +6485,11 @@ Example:
 {
   "frame": {
     "data": "example",
-    "height": 108,
-    "sequence": 0,
-    "timestamp": 6,
-    "width": 100
+    "height": 105,
+    "sequence": 7,
+    "tabId": "example",
+    "timestamp": 8,
+    "width": 103
   },
   "threadId": "example",
   "type": "browser.frame"
@@ -6532,8 +6536,9 @@ Example:
   "data": "example",
   "height": 4,
   "mimeType": "image/jpeg",
-  "size": "desktop",
-  "width": 9
+  "path": "example",
+  "size": "phone",
+  "width": 6
 }
 ```
 
@@ -6569,17 +6574,11 @@ Example:
   "annotation": {
     "owner": "example"
   },
-  "backend": "headless",
-  "closed": true,
-  "loadError": "example",
-  "pageStateLost": true,
-  "recording": {
-    "by": {
-      "agentId": "example",
-      "kind": "page"
-    }
-  },
-  "status": "ready",
+  "backend": "embedded",
+  "closed": false,
+  "downloads": [],
+  "reason": "example",
+  "tabs": [],
   "threadId": "example",
   "url": "example"
 }
@@ -6632,19 +6631,22 @@ Example:
     "touch": true,
     "width": 102
   },
+  "file_chooser": {
+    "chooserId": "example",
+    "multiple": true,
+    "tabId": "example"
+  },
   "inUse": {
     "kind": "page"
   },
   "kept": false,
   "label": "example",
-  "openedBy": {
-    "kind": "human"
-  },
-  "pending_auth": {
-    "authId": "example",
-    "origin": "example",
-    "scheme": "example",
-    "tabId": "example"
+  "pending_dialog": {
+    "defaultPrompt": "example",
+    "dialogId": "example",
+    "message": "example",
+    "tabId": "example",
+    "type": "prompt"
   },
   "playing": true,
   "pointer": {
