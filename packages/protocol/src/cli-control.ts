@@ -6,6 +6,9 @@ import { QueueState } from "./queue.ts";
 import { AgentTaskView } from "./agent-orchestration.ts";
 import { DelegationOutcome } from "./agent-control.ts";
 
+/** The `ace sim` verbs; each is the sim_* MCP tool of the same name. */
+export const CliSimVerb = z.enum(["list", "start", "stop", "ui", "act", "screenshot", "logs"]);
+export type CliSimVerb = z.infer<typeof CliSimVerb>;
 export const CliOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("capabilities") }),
   z.object({
@@ -26,6 +29,13 @@ export const CliOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("thread.tree"), threadId: ThreadId }),
   z.object({ op: z.literal("task.spawn"), parentId: ThreadId, request: DelegationRequest }),
   z.object({ op: z.literal("task.status"), threadId: ThreadId }),
+  /** `ace sim`: one sim_* tool call, for the root agent of `threadId`. Args as the tool takes them. */
+  z.object({
+    op: z.literal("sim"),
+    threadId: ThreadId,
+    verb: CliSimVerb,
+    args: z.record(z.string().max(64), z.unknown()),
+  }),
   z.object({
     op: z.literal("task.cancel"),
     threadId: ThreadId,

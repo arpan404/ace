@@ -1,18 +1,15 @@
 import { z } from "zod";
 import { AppDeviceId } from "@ace/protocol/devices";
-import {
-  ScreenUIAction,
-  ScreenUIActOptions,
-  ScreenUIRef,
-  type ApprovalTarget,
-} from "@ace/protocol";
+import { ScreenUIAction, ScreenUIActOptions, type ApprovalTarget } from "@ace/protocol";
 import { perAction, uiReadShape } from "@ace/screen";
 import { deviceInstallTimeoutMs } from "./action-budget.ts";
+import { simRefPattern } from "./sim-refs.ts";
 
 const simId = AppDeviceId.describe(
   "Simulator or emulator id from sim_list, e.g. ios:<UDID> or android:<serial>.",
 );
 const point = z.number().int().min(0).max(16384);
+export const SimRef = z.string().regex(simRefPattern, "Expected an element ref like @e3");
 
 const SimActFields = z.strictObject({
   simId,
@@ -31,9 +28,11 @@ const SimActFields = z.strictObject({
       "record_stop",
     ])
     .describe(
-      "ui: accessibility action on ref (preferred). tap/long_press: x,y. swipe: x,y to toX,toY. type: text into the focused field. key: key. open_app: appId. open_url: url. install: path. record_start/record_stop: screen recording attached to the thread.",
+      "ui: accessibility action on ref. tap/long_press: ref (preferred) or x,y. type: text, into ref when given, else the focused field. swipe: x,y to toX,toY. key: key. open_app: appId. open_url: url. install: path. record_start/record_stop: screen recording attached to the thread.",
     ),
-  ref: ScreenUIRef.optional().describe("Element ref from sim_ui, for ui."),
+  ref: SimRef.optional().describe(
+    "Element ref from sim_ui, e.g. @e3: required for ui; for tap, long_press and type, instead of x,y.",
+  ),
   uiAction: ScreenUIAction.optional().describe("Accessibility action for ui. Default press."),
   value: ScreenUIActOptions.shape.value.describe(
     "setValue text or boolean, or {dx,dy} for scroll.",
@@ -62,16 +61,18 @@ const SimActFields = z.strictObject({
 });
 const base = ["simId"] as const;
 const none = { required: [], allowed: base };
+type SimActInput = z.infer<typeof SimActFields>;
+const pointed = new Set(["tap", "long_press"]);
 export const SimActArgs = SimActFields.superRefine(
-  perAction<z.infer<typeof SimActFields>>("action", {
+  perAction<SimActInput>("action", {
     ui: { required: ["ref"], allowed: [...base, "ref", "uiAction", "value", "name"] },
-    tap: { required: ["x", "y"], allowed: [...base, "x", "y"] },
-    long_press: { required: ["x", "y"], allowed: [...base, "x", "y", "durationMs"] },
+    tap: { required: [], allowed: [...base, "x", "y", "ref"] },
+    long_press: { required: [], allowed: [...base, "x", "y", "ref", "durationMs"] },
     swipe: {
       required: ["x", "y", "toX", "toY"],
       allowed: [...base, "x", "y", "toX", "toY", "durationMs"],
     },
-    type: { required: ["text"], allowed: [...base, "text"] },
+    type: { required: ["text"], allowed: [...base, "text", "ref"] },
     key: { required: ["key"], allowed: [...base, "key"] },
     open_app: { required: ["appId"], allowed: [...base, "appId"] },
     open_url: { required: ["url"], allowed: [...base, "url"] },
@@ -79,7 +80,16 @@ export const SimActArgs = SimActFields.superRefine(
     record_start: none,
     record_stop: none,
   }),
-);
+).superRefine((value, context) => {
+  if (!pointed.has(value.action)) return;
+  const located = value.x !== undefined || value.y !== undefined;
+  if (value.ref !== undefined ? located : value.x === undefined || value.y === undefined)
+    context.addIssue({
+      code: "custom",
+      path: ["ref"],
+      message: `${value.action} needs either ref or both x and y`,
+    });
+});
 
 export const simSchemas = {
   sim_list: z.strictObject({}),
@@ -132,7 +142,7 @@ export const simToolMetadata: Record<
     riskClass: "read-only",
     timeoutMs: 120_000,
     description:
-      "Read the simulator's accessibility tree with refs, or pass role, name or text to find matching elements. Act with sim_act action ui.",
+      "Read the simulator's accessibility tree, or pass role, name or text to find matching elements. Actionable elements carry refs like @e3 for sim_act.",
   },
   sim_act: {
     title: "Act on simulator",
@@ -140,14 +150,14 @@ export const simToolMetadata: Record<
     // Typing paces each character; installs copy whole app bundles.
     timeoutMs: deviceInstallTimeoutMs + 30_000,
     description:
-      "Act on the simulator: ui on a sim_ui ref (preferred), tap, long_press, swipe, type, key, open_app, open_url, install, or start/stop a recording.",
+      "Act on the simulator: tap, long_press or type on a sim_ui ref (preferred) or a point, ui accessibility actions on a ref, swipe, key, open_app, open_url, install, or start/stop a recording. A ref whose element has gone fails with stale_ref.",
   },
   sim_screenshot: {
     title: "Screenshot simulator",
     riskClass: "read-only",
     timeoutMs: 120_000,
     description:
-      "Visual check of the simulator screen. Costs more tokens than sim_ui. Reports the scale between image pixels and input points.",
+      "Visual check of the simulator screen, with or without the live view. Costs more tokens than sim_ui. Reports the scale between image pixels and input points.",
   },
   sim_logs: {
     title: "Read simulator logs",
