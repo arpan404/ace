@@ -62,6 +62,11 @@ export const SettingsValues = z.object({
    */
   "browser.userChrome.storageReads": z.boolean(),
   /**
+   * Apps agents may not use with computer use, beyond ace's own list (password managers,
+   * terminals, ace itself): bundle ids or app names, matched without regard to case. Global.
+   */
+  "computer.blockedApps": z.array(z.string().min(1).max(200)).max(200),
+  /**
    * This daemon's access for new threads: the mode the person last chose or set in Settings.
    * A thread's own choice and its project's default come first.
    */

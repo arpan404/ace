@@ -170,36 +170,69 @@ and private reconnect.
 
 A human turns computer use on and grants the helper's OS permissions. ace adds no
 per-app approval: the provider's own permission mode decides each call, using the tools'
-MCP annotations. `screen_open_app({bundleId})` launches without activation and acquires
-a background session, returning a `sessionId` and candidate windows. Call it again with
-`windowId` to switch window, `url` for a deep link, or `mode: "foreground"` for real
-cursor and keyboard input (only when the app ignores background input).
-`screen_windows({bundleId})` lists windows. Up to eight distinct macOS apps share one
-helper; `target_busy` identifies the existing holder. Pass `sessionId` when the agent
-controls several apps; cross-agent selection fails.
+MCP annotations. The tool surface depends on the daemon's platform.
 
-`screen_ui_tree({})` reads the bounded accessibility tree; with `role`, `name` or
-`text` it finds matching elements instead. `screen_ui_act({ref, action: "setValue",
-value: "Ada"})` or `screen_ui_act({menu: ["File", "New Window"]})` act semantically.
-Use only actions listed on the node. Action replies include mode, whether synthesized
-input was needed and a fresh settled snapshot.
+### macOS: background engine
 
-`screen_input({action, …})` is the fallback: `click` (x, y), `type` and `paste` (text;
-paste restores the clipboard), `key` (named key plus modifiers) and `scroll` (dx, dy,
-optional x, y). Points are target-window points: divide screenshot pixels by the scale
-`screen_screenshot` reports. Secure text fields refuse typing, keys and paste without
-human session consent. `screen_screenshot` images are capped at 1536 pixels and 1 MiB;
-large images need ffmpeg on the daemon host.
+On macOS agents get three tools, served by `ace-screen-helper --computer`
+([ADR 0087](../adr/0087-background-computer-use-engine.md)). Nothing takes the person's
+focus unless the agent asks for it.
 
-Background input never activates the app or uses HID input. `foreground_required`
-means reopen with `mode: "foreground"`. Every action waits for a bounded UI settle;
-agents do not need to sleep. Minimized or off-display windows report explicit errors.
+- `screen_apps({query?})` lists running apps, plus installed ones matching `query`.
+- `screen_state({app, window?, screenshot?, outline?, find?, full?})` resolves a name or bundle id, launches
+  the app without activating it if needed, waits for its UI to settle and returns the
+  window as an outline: one line per meaningful accessibility element,
+  `<id> <role> (<flags>) <name>, Value: …, Actions: …`, tab-indented by nesting. Ids are
+  stable per caller, so a later look returns a diff (`+` new, `~` changed, ancestors as
+  context, `Removed: 3-5`) or "No change since your last look."; `full: true` returns the
+  whole outline. Windows on other Spaces are found too; `window` picks one by number or
+  title. `outline: false` returns only the screenshot, skipping the tree walk. An app that
+  stops answering accessibility requests yields a partial outline marked "not responding".
+- `screen_act({app, actions, window?, screenshot?, observe?})` runs 1 to 20 steps in order,
+  stops at the first failure (reporting which step failed and that the rest did not run),
+  then returns the settled diff (`observe: false` skips it). Steps: `click` (an id, or x,y
+  screenshot pixels; `button` left/right/middle, `count`, `modifiers`, `hold_ms`), `move`
+  (hover), `type`, `paste` and `key` (each optionally focusing an `id` first; keys take
+  `repeat` and `hold_ms`), `set_value`, `select_text` (`prefix`, `suffix`, `cursor`),
+  `scroll` (`pages` or `pixels`), `scroll_to`, `action`, `menu` (a path, pressed without
+  opening the menu), `focus`, `drag` (from/to as points or ids, `modifiers`), `window`
+  (close, minimize, restore, zoom, fullscreen, raise, move, resize), `wait`, `wait_for`
+  (text or id appears, or `gone`, within `timeout_ms`) `activate` and `if {text|id, gone?, steps?}`, which runs the next `steps` steps (default 1)
+  only if that element is there, otherwise the result lists them as skipped. Cross-field rules (id or x,y; pages or pixels; move needs x,y) are
+  checked before anything runs, with errors the model can act on.
 
-Human takeover removes screen delegation, and agent calls on that app are refused while
-the person holds it. Once they hand it back or release it, the agent resumes (or reacquires
-it with `screen_open_app`). Ending the provider lease releases its delegated control. The global human kill
-switch stops all sessions and blocks reacquisition until enablement is renewed.
-See the [UI wire handoff](background-computer-use.md).
+Clicks by id use accessibility actions (press, focus, select), which work on covered and
+off-screen windows. Keys and typing are posted to the app's process, never to the HID
+stream, so the person's cursor and keyboard are untouched. Screenshots show only the
+window, sized for the model (at most 1568 px on the long edge and about 1.15 MP), and
+their pixels are the coordinate space for x,y. `activate` brings the app forward; it is
+the last resort for apps that ignore background input, typically Electron windows that
+are off screen. Password managers, system authentication prompts, terminals, script
+runners (Script Editor, Automator, Shortcuts) and ace itself are refused before anything
+launches, as are the apps the person lists in Settings › Computer use › Apps agents can't
+use (`computer.blockedApps`, global, admin-only; matched by bundle id or name, any case;
+`packages/screen/src/computer/policy.ts`). ace adds no approval prompts of its own. The
+first look at some apps adds a one-line note on what works there
+(`packages/screen/src/computer/app-notes.ts`).
+
+Each app gets its own helper process, so agents in different apps run in parallel and a
+hung app stalls only its own calls. A stopped call sends `cancel` to that helper, waits up
+to 3 s for the partial reply, then kills only that helper. While a thread's agent looks at
+or acts in an app, the task list shows a quiet cursor mark naming the app
+(`computer.using`, shaped like `browser.browsing`).
+
+### Windows and Linux: session tools
+
+Elsewhere agents use the session tools. `screen_open_app({bundleId})` acquires a session
+and returns a `sessionId` and candidate windows; call it again with `windowId` to switch
+window. `screen_windows` lists windows. `screen_ui_tree({})` reads the bounded
+accessibility tree, or finds elements with `role`, `name` or `text`.
+`screen_ui_act({ref, action, value?})` or `screen_ui_act({menu: [...]})` act
+semantically; `screen_input({action, …})` (`click`, `type`, `paste`, `key`, `scroll`) is
+the fallback in target-window points. `screen_screenshot` is the visual check. Human
+takeover refuses agent calls on that app until the person hands it back; the global
+kill switch stops all sessions. The same session machinery still backs the person's live
+view and simulators on macOS. See the [UI wire handoff](background-computer-use.md).
 
 ## Simulator journey
 
@@ -228,9 +261,9 @@ Not every client lists every tool (ADR 0082). `tools_find({query, limit?, family
 listed everywhere: it ranks the tools this session could call right now (a group that is
 off contributes nothing) and returns each match's name, title, one-line purpose, family,
 effect (`read-only`, `changes` or `destructive`) and full input schema. For example,
-"click a button in Safari" returns `screen_ui_act` and `screen_input` first, with
-`screen_open_app` among the matches, while computer use is on, and none of them while it
-is off; "check page console" returns
+"click a button in Calculator" returns `screen_act` first, with `screen_state` among
+the matches, while computer use is on on macOS (`screen_ui_act` and `screen_input`
+elsewhere), and none of them while it is off; "check page console" returns
 `browser_logs` first. The ranking is lexical and deterministic
 (`packages/mcp-server/src/tool-search.ts`).
 

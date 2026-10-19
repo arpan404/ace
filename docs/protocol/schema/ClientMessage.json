@@ -2125,6 +2125,9 @@
       "$ref": "https://ace.local/protocol/v1/BrowserBrowsingWatch.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ComputerUsingWatch.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ModelsListRequest.json"
     },
     {

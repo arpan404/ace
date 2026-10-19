@@ -1044,6 +1044,9 @@
       "$ref": "https://ace.local/protocol/v1/BrowserBrowsing.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ComputerUsing.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ModelsResult.json"
     },
     {

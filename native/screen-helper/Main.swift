@@ -6,6 +6,7 @@ import Darwin
     @MainActor static func main() async {
         // Before anything else: macOS must attribute permissions to this helper, not its launcher.
         Responsibility.disclaimIfNeeded()
+        if CommandLine.arguments.contains("--computer") { ComputerService.run() }
         let arguments = CommandLine.arguments.filter { $0 != "--inherit-responsibility" }
         guard arguments.count == 3, ["--socket", "--endpoint"].contains(arguments[1]) else { exit(2) }
         let argument = arguments[2]

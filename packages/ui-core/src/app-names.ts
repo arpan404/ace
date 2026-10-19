@@ -28,6 +28,8 @@ const known: Record<string, string> = {
 export function appName(bundleId: string): string {
   const name = known[bundleId.toLowerCase()];
   if (name) return name;
+  // Computer use accepts app names too; a name without dots is already what people read.
+  if (!bundleId.includes(".")) return bundleId;
   const last = bundleId.split(".").findLast(Boolean) ?? bundleId;
   const spaced = last
     .replace(/[-_]+/g, " ")

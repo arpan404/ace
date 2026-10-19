@@ -44,8 +44,6 @@ function useBackToApp(section: boolean) {
  * to app at the foot in its place.
  */
 export function AppSidebar(props: {
-  /** A quiet sign of agents at work (computer use), composed in by the app layer. */
-  status?: ReactNode;
   /** The thread list, the body's content unless a view's list takes it (Settings' pages). */
   threads: ReactNode;
 }) {
@@ -111,7 +109,6 @@ export function AppSidebar(props: {
         className={cn("shrink-0 items-center gap-1 p-2", section ? "hidden" : "flex")}
       >
         <AccountMenu />
-        {props.status}
         <Tip label="Settings" shortcut="settings">
           <Link to="/settings" aria-label="Settings" className={cn(quick, "size-8")}>
             <Icon icon={GearSixIcon} />

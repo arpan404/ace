@@ -1,48 +1,21 @@
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import { useCallback, useSyncExternalStore } from "react";
+import { daemonWatch, type DaemonWatch } from "./daemon-watch.ts";
 
 /*
  * Which threads have an agent working in their browser, as the daemon reports them
  * (`browser.browsing`), for the task list's indicator. One watch per client, asked again on
  * every reconnect; rows read their own thread.
  */
-interface Watch {
-  threads: ReadonlySet<string>;
-  listeners: Set<() => void>;
-}
-const watches = new WeakMap<ClientApi, Watch>();
-let sequence = 0;
+const watches = new WeakMap<ClientApi, DaemonWatch<ReadonlySet<string>>>();
 
-function watch(client: ClientApi): Watch {
-  const existing = watches.get(client);
-  if (existing) return existing;
-  let retry: ReturnType<typeof setTimeout> | undefined;
-  const ask = (attempt = 0) => {
-    clearTimeout(retry);
-    if (client.state !== "ready") return;
-    try {
-      client.send({ type: "browser.browsing.watch", requestId: `browsing-${++sequence}` });
-    } catch {
-      // The service schemas load after the connection; offline, the next connection asks.
-      if (attempt < 20) retry = setTimeout(() => ask(attempt + 1), 250);
-    }
-  };
-  // Kept for the client's life: rows come and go, the set stays current.
-  const current: Watch = { threads: new Set(), listeners: new Set() };
-  watches.set(client, current);
-  const connection = client.connectionState();
-  client.onMessage((message) => {
-    if (message.type !== "browser.browsing") return;
-    current.threads = new Set(message.threads);
-    for (const listener of current.listeners) listener();
+const watch = (client: ClientApi) =>
+  daemonWatch(watches, client, {
+    initial: new Set<string>(),
+    request: (requestId) => ({ type: "browser.browsing.watch", requestId }),
+    read: (message) => (message.type === "browser.browsing" ? new Set(message.threads) : undefined),
   });
-  connection.subscribe(() => {
-    if (connection.getSnapshot() === "ready") ask();
-  });
-  ask();
-  return current;
-}
 
 /** True while an agent works in this thread's browser. */
 export function useThreadBrowsing(threadId: string): boolean {
@@ -55,6 +28,6 @@ export function useThreadBrowsing(threadId: string): boolean {
     },
     [client],
   );
-  const read = () => watches.get(client)?.threads.has(threadId) ?? false;
+  const read = () => watches.get(client)?.value.has(threadId) ?? false;
   return useSyncExternalStore(subscribe, read, read);
 }

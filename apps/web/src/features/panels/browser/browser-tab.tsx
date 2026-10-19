@@ -5,7 +5,6 @@ import { displayAddress, describeBrowserFailure } from "@ace/ui-core";
 import { useEffectEvent, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "@/lib/cn.ts";
 import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts";
-import { reportBrowserControl } from "@/lib/browser-control.ts";
 import { usePanelServices } from "../services.ts";
 import { useLocal } from "../store.ts";
 import { WithServices } from "../with-services.tsx";
@@ -79,25 +78,6 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
   const extensionsOff = useLocal(extensionsHidden, (value) => value);
   const { live, shown, online } = tabs;
   useCursorStyle(source, threadId);
-
-  // The rail's indicator: an agent works in this thread's browser, or the shown tab is private.
-  const working = tabs.tabs.some((tab) => tab.inUse !== undefined);
-  const privately = shown?.private === true;
-  useEffect(() => {
-    reportBrowserControl(
-      threadId,
-      live
-        ? {
-            threadId,
-            url: live.url,
-            agent: working,
-            private: privately,
-            recording: live.recording !== undefined,
-          }
-        : undefined,
-    );
-  }, [threadId, live, working, privately]);
-  useEffect(() => () => reportBrowserControl(threadId, undefined), [threadId]);
 
   // Showing this panel tab shows its daemon tab, here and on the person's other devices. Only
   // showing it asks: when the daemon later shows another tab, the panel follows it instead.

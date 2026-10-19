@@ -12,28 +12,34 @@ const machine = { machine: "Another paired machine's browser (machines); omit fo
 /** A slice of ace's catalogue, in its own words. */
 const catalogue: SearchableTool[] = [
   {
-    name: "screen_open_app",
-    title: "Open native app",
+    name: "screen_apps",
+    title: "List Mac apps",
     family: "ace-computer-use",
     description:
-      "Launch or rejoin a macOS app by bundle id and take a background session the person can watch.",
-    inputSchema: schema({ appId: "The app's bundle id." }),
+      "List Mac apps: the running ones, plus installed ones matching query. Pass a name or bundle id to screen_state.",
+    inputSchema: schema({ query: "Part of a name or bundle id; also searches installed apps." }),
   },
   {
-    name: "screen_ui_act",
-    title: "Act on app element",
+    name: "screen_state",
+    title: "Look at a Mac app",
     family: "ace-computer-use",
     description:
-      "Perform an accessibility action on a ref from screen_ui_tree, or press a menu path. Returns a settled UI snapshot.",
-    inputSchema: schema({ ref: "An element ref from screen_ui_tree." }),
+      "Open a Mac app in the background, without taking the person's focus, and read its window as an outline: one numbered element per line. Ids stay the same between calls, so later looks return only what changed. Add screenshot:true when you need to see layout or images. Then act with screen_act. For websites use browser_open.",
+    inputSchema: schema({
+      app: 'App name or bundle id, e.g. "Calculator" or "com.apple.TextEdit".',
+      screenshot: "Also return a picture of the window.",
+    }),
   },
   {
-    name: "screen_input",
-    title: "Send app input",
+    name: "screen_act",
+    title: "Act in a Mac app",
     family: "ace-computer-use",
     description:
-      "Click, type, paste, press a key or scroll in the app. Prefer screen_ui_act; points are target-window points. Returns a settled UI snapshot.",
-    inputSchema: schema({ action: "click, type, paste, key or scroll." }),
+      "Act in an app in the background, then get what changed. Batch steps that need no look in between. Click by element id; use x,y screenshot pixels only for things missing from the outline. Prefer set_value for fields and menu paths for commands.",
+    inputSchema: schema({
+      app: 'App name or bundle id, e.g. "Calculator" or "com.apple.TextEdit".',
+      actions: "click, type, key, set_value, scroll, menu or activate steps.",
+    }),
   },
   {
     name: "browser_act",
@@ -111,14 +117,14 @@ const catalogue: SearchableTool[] = [
 const names = (query: string, options: SearchOptions = { limit: 5 }) =>
   rankTools(query, catalogue, options).map((tool) => tool.name);
 
-it("clicking a button in a named Mac app finds the computer-use tools first", () => {
-  const found = names("click button in safari");
-  expect(found.slice(0, 2).toSorted()).toEqual(["screen_input", "screen_ui_act"]);
+it("clicking a button in a named Mac app finds the tool that acts in apps first", () => {
+  for (const query of ["click button in safari", "click a button in Calculator"])
+    expect(names(query)[0], query).toBe("screen_act");
 });
 
-it("opening a Mac app by its name finds the tool that opens native apps", () => {
-  expect(names("open safari")[0]).toBe("screen_open_app");
-  expect(names("launch xcode")[0]).toBe("screen_open_app");
+it("opening or reading a Mac app by its name finds the tool that looks at native apps", () => {
+  for (const query of ["open safari", "open Calculator", "read the Calculator window"])
+    expect(names(query)[0], query).toBe("screen_state");
 });
 
 it("running a task on another machine finds delegation and the machine list", () => {
@@ -139,9 +145,9 @@ it("opening, switching or closing a browser tab finds the tab tool, not every pa
   expect(names("read the page structure")[0]).toBe("browser_snapshot");
 });
 
-it("a word's other forms match it: clicked, clicking and clicks all reach the input tools", () => {
+it("a word's other forms match it: clicked, clicking and clicks all reach the app action tool", () => {
   for (const query of ["clicked in the app", "clicking in the app", "clicks in the app"])
-    expect(names(query).slice(0, 2), query).toContain("screen_input");
+    expect(names(query)[0], query).toBe("screen_act");
 });
 
 it("a family filter keeps only that family's tools", () => {

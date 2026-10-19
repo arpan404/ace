@@ -11,7 +11,7 @@ test.each(["codex", "claude", "opencode", "cursor", "pi", "acp"])(
     const registry = new ToolRegistry({ scheduler: nodeScheduler });
     let effects = 0;
     for (const [name, capability] of [
-      ["screen_open_app", "screen"],
+      ["screen_state", "screen"],
       ["sim_list", "devices"],
     ] as const)
       registry.register({
@@ -54,7 +54,7 @@ test.each(["codex", "claude", "opencode", "cursor", "pi", "acp"])(
       "context",
       "tools_find",
     ]);
-    expect(await client.callTool({ name: "screen_open_app", arguments: {} })).toMatchObject({
+    expect(await client.callTool({ name: "screen_state", arguments: {} })).toMatchObject({
       isError: true,
     });
     expect(await client.callTool({ name: "sim_list", arguments: {} })).toMatchObject({
@@ -87,7 +87,7 @@ test.each([
       readOnly = false,
       effects = 0;
     const registry = new ToolRegistry({ scheduler: nodeScheduler });
-    for (const name of ["screen_open_app", "sim_list"])
+    for (const name of ["screen_state", "sim_list"])
       registry.register({
         name,
         capability: name === "sim_list" ? "devices" : "screen",
@@ -161,10 +161,10 @@ test.each([
       await change(() => {
         enabled = true;
       }),
-    ).toEqual(["context", "tools_find", "screen_open_app", "sim_list"]);
+    ).toEqual(["context", "tools_find", "screen_state", "sim_list"]);
     for (const tool of await listed())
       expect(tool.description).not.toContain("ace tools add ace-specific actions");
-    expect(await client.callTool({ name: "screen_open_app", arguments: {} })).not.toMatchObject({
+    expect(await client.callTool({ name: "screen_state", arguments: {} })).not.toMatchObject({
       isError: true,
     });
     // Read-only is the provider's own mode: its permission system decides each call.
@@ -172,7 +172,7 @@ test.each([
       await change(() => {
         readOnly = true;
       }),
-    ).toEqual(["context", "tools_find", "screen_open_app", "sim_list"]);
+    ).toEqual(["context", "tools_find", "screen_state", "sim_list"]);
     expect(await client.callTool({ name: "sim_list", arguments: {} })).not.toMatchObject({
       isError: true,
     });
@@ -182,7 +182,7 @@ test.each([
         enabled = false;
       }),
     ).toEqual(["context", "tools_find"]);
-    expect(await client.callTool({ name: "screen_open_app", arguments: {} })).toMatchObject({
+    expect(await client.callTool({ name: "screen_state", arguments: {} })).toMatchObject({
       isError: true,
     });
     expect(effects).toBe(2);

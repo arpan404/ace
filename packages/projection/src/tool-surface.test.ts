@@ -96,3 +96,20 @@ it("an earlier page's site carries into a step that names none", () => {
   const surfaces = toolSurfaces([browse("click")], new Map([["root", "https://github.com"]]));
   expect(surfaces.get("click")?.icon).toEqual({ kind: "site", origin: "https://github.com" });
 });
+
+const act = (id: string, app: string) =>
+  call(id, {
+    kind: "mcp",
+    server: "ace",
+    tool: "screen_act",
+    arguments: { app, actions: [{ type: "click", id: 1 }] },
+  });
+it("a background computer-use step names its app's icon by bundle id, never by a plain app name", () => {
+  const byId = act("by-id", "com.apple.TextEdit");
+  const byName = act("by-name", "Calculator");
+  expect(byId.type === "tool_call" && toolSurface(byId.call)).toEqual({
+    kind: "computer",
+    icon: { kind: "app", identity: "com.apple.TextEdit" },
+  });
+  expect(byName.type === "tool_call" && toolSurface(byName.call)).toEqual({ kind: "computer" });
+});

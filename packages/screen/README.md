@@ -2,6 +2,60 @@
 
 `@ace/screen` owns macOS and Windows screen sessions without an Electron client. It exposes JPEG streams, human takeover, scoped MCP tools, macOS simulator discovery and bounded recording artifacts. Capture is off by default. The daemon persists the computer use switch in SQLite; controller leases never survive restart. See [Background computer use](../../docs/adr/0067-background-computer-use.md) and the [UI handoff](../../docs/daemon/background-computer-use.md).
 
+## Agent computer use (macOS)
+
+On macOS, agents drive apps through `computerToolkit` (`src/computer/`), not the session
+tools below. It registers `screen_apps`, `screen_state` and `screen_act` over a pool of
+`ace-screen-helper --computer` processes owned by `ComputerClient`
+([ADR 0087](../../docs/adr/0087-background-computer-use-engine.md)): one per target app
+(at most six, least recently used idle one evicted, idle ones exit after five minutes) and
+one shared helper for `hello`, `apps` and `resolve`. Different apps run in parallel; a hung
+app stalls only its own helper.
+
+- Apps launch without activation. Windows on other Spaces are reached through AX remote
+  tokens. Nothing posts to the HID stream or moves the cursor; `activate` is the explicit
+  step that brings an app forward.
+- Observations wait for the UI to settle (AX notifications plus a short quiet interval) and
+  return an outline: one line per meaningful element, with ids that stay stable. The
+  toolkit keeps each caller's last outline per app and returns a diff, or "No change since
+  your last look." (`src/computer/outline.ts`, pure).
+- Clicks by id use AX actions (press, focus, select), so they work off-screen; clicks by
+  x,y are screenshot pixels hit-tested against the outline. Keys and text are posted to the
+  app's process. Menus are pressed by path without opening them.
+- Screenshots are window-only, at most 1568 px on the long edge and about 1.15 MP, so the
+  model sees them unscaled and its pixel coordinates are the ones the helper uses.
+  Actionable elements are tagged with their outline ids on the image.
+- Background apps ignore ⌘ shortcuts and have no key window for first-responder commands.
+  Before keyboard and menu steps the helper makes the target window the app's key window
+  through SkyLight focus records, without activating it (`ComputerFocus.swift`); ⌘
+  shortcuts press their menu item; ⌘A/⌘C/⌘X/⌘V and plain paste edit the focused text
+  through AX. Rich paste (markdown or HTML) goes through the clipboard, which is restored.
+- The person wins: an action refuses while they are using that same app, Esc during agent
+  activity stops it, a locked screen is reported, and the display stays awake while acting.
+  On visible windows a small marker shows where the agent acts (`ComputerOverlay.swift`).
+- Steps (`src/computer/actions.ts`, the source of truth for the action set): click (id or
+  x,y, left/right/middle, count, modifiers, hold), move (hover), type, paste, key (repeat,
+  hold), set_value, select_text, scroll (pages or pixels), scroll_to, action, menu, focus,
+  drag (points or ids, modifiers), window ops, wait, wait_for, activate and `if {text|id, gone?, steps?}`, which runs the next steps only if a
+  matching element is there, else the result says they were skipped.
+- Password managers, authentication prompts, terminals, script runners (Script Editor,
+  Automator, Shortcuts) and ace itself are refused, as are apps the person lists under
+  `computer.blockedApps` (`src/computer/policy.ts`, case-insensitive). Permissions are
+  otherwise provider-native.
+
+The helper speaks JSON lines on stdin/stdout. Requests are `{id, op, ...}` with `op` one of
+`hello` (version, permission facts and capabilities), `apps`, `resolve`, `state`, `act` and
+`cancel {target}`; replies are `{id, ok: true, result}` or `{id, ok: false, error: {code,
+message}}`, where `message` is written for the model. Replies are parsed leniently
+(`src/computer/wire.ts`). Each helper runs one request at a time and answers `cancel` at
+once. When a call is aborted or overruns its deadline, the client sends `cancel`, waits a
+grace period for the reply (an act reports the steps it finished), then kills only that
+app's helper. A reply over the size cap fails its call at once. Helpers start on first use
+and restart after they exit.
+
+The session tools and wire described below remain for the person's live view and takeover,
+for simulators, and as the agent tools on Windows and Linux.
+
 ## Build and enable
 
 On macOS 13 or later:

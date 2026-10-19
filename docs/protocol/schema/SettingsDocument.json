@@ -64,6 +64,15 @@
         "clients.theme": {
           "$ref": "https://ace.local/protocol/v1/JsonValue.json"
         },
+        "computer.blockedApps": {
+          "items": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
         "generation.autoDraftCommits": {
           "type": "boolean"
         },

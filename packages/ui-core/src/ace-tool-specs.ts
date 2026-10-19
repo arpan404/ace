@@ -6,7 +6,8 @@ import { middleTruncate } from "./step-display.ts";
 /*
  * ace's own tools as sentences: one spec per tool name says what it did in each tense ("Pressed
  * ⌘L in Safari", "Pressing ⌘L in Safari", "Press ⌘L in Safari"). Computer use, the browser and
- * devices live here; agent, thread and other ace tools in `ace-tool-specs-ace.ts`. A new tool
+ * devices live here, except computer use's background tools (`ace-tool-specs-computer.ts`);
+ * agent, thread and other ace tools in `ace-tool-specs-ace.ts`. A new tool
  * plugs in with one entry. Pure.
  */
 
