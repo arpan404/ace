@@ -38,7 +38,6 @@ import {
   HostId,
   ThreadId,
   WorkspaceId,
-  Thread,
   type ClientMessage,
   type Command,
   type CommandResult,
@@ -47,7 +46,6 @@ import {
   type InteractionResolution,
   type ItemsPage,
   type ProviderKind,
-  type Capabilities,
   type ThreadView,
   type SubscriptionScope,
   type ThreadListView,
@@ -63,6 +61,7 @@ import { FakeReviewDesk } from "./review-desk.ts";
 import { ThreadHost } from "./thread-host.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
 import { FakeServices } from "./services/index.ts";
+import type { FakeDaemonOptions, ThreadInit } from "./daemon-options.ts";
 import { FakeServicesWire, type FakeWireSession, type ServicesSeed } from "./services-wire.ts";
 import type { FakeMcpWire } from "./mcp-wire.ts";
 import { FakeLongThreadWire } from "./long-thread-wire.ts";
@@ -85,51 +84,7 @@ import { holdOnLimit, isQueueCommand, queueCommand, queuePage } from "./queue-co
 import { forkPointError, mergeFacts, mergeForkError, switchEvents } from "./transitions.ts";
 import { fakeCheckoutPath, fakeWorktreeBase } from "./worktree-base.ts";
 
-export interface FakeDaemonOptions {
-  /** Injected clock for event timestamps and core facts. */
-  clock(): number;
-  /** Keep creation visible for screenshot capture. */
-  worktreeCreationSlow?: boolean;
-  worktreeCreationSchedule?: (callback: () => void, delay: number) => () => void;
-  screenId?(): string;
-  screenSchedule?(callback: () => void, delay: number): () => void;
-  hostId?: string;
-  displayName?: string;
-  version?: string;
-  catalog?: Partial<Pick<FakeServices, "accounts" | "models" | "commands" | "providerStatuses">>;
-  deviceScopes?: Readonly<Record<string, readonly import("@ace/protocol").DeviceScope[]>>;
-  /** Optional finite response for newly created demo threads; tests can step it directly. */
-  threadCompletionSchedule?: (callback: () => void) => void;
-  projectScheduler?: (callback: () => void) => void;
-  /** Credential the hello must present. */
-  token?: string;
-  /** Snapshot item window (ADR 0006 default is 200). */
-  snapshotItems?: number;
-}
-export interface ThreadInit {
-  imported?: Thread["imported"];
-  id: string;
-  workspaceId: string;
-  title: string;
-  provider: ProviderKind;
-  backend?: Thread["backend"];
-  continuation?: Thread["continuation"];
-  details?: Thread["details"];
-  live?: Thread["live"];
-  lineage?: Thread["lineage"];
-  execution?: Thread["execution"];
-  access?: AccessMode;
-  parentThreadId?: string;
-  /** A conversation an agent started is a task from its start, as the daemon records it. */
-  hasSentMessage?: boolean;
-  /** What the thread's provider can do, over the fake's defaults (a provider that reads no images). */
-  capabilities?: Partial<Capabilities>;
-  /**
-   * How long an agent with an open turn may stay silent before core reads it as not responding.
-   * Scripts send no liveness ticks, so by default silence never counts.
-   */
-  silenceMs?: number;
-}
+export type { FakeDaemonOptions, ThreadInit } from "./daemon-options.ts";
 type ResolvedListener = (threadId: string, key: Key, resolution?: InteractionResolution) => void;
 
 /**
