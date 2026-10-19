@@ -61,7 +61,8 @@ import XCTest
         let canvas = app.buttons["Interactive counter"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 20)); canvas.tap()
         let next = app.webViews.buttons["Next"]
-        XCTAssertTrue(next.waitForExistence(timeout: 25)); next.tap()
+        XCTAssertTrue(next.waitForExistence(timeout: 25))
+        XCTAssertGreaterThanOrEqual(next.frame.height, 29); next.tap()
         XCTAssertTrue(app.webViews.staticTexts["Step 2"].waitForExistence(timeout: 10))
         capture("canvas")
     }

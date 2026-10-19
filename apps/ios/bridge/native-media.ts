@@ -41,7 +41,15 @@ export async function readNativeMedia(
     };
     return {
       kind: "html",
-      document: visualizationWindow(html, theme, resolveHtmlMode(html, item.visualization.mode)),
+      // WKWebView uses a 980px desktop layout viewport without a viewport
+      // meta, shrinking canvas content to ~one-third size. The shared
+      // visualizationWindow wrapper is trusted web output; add the mobile
+      // viewport here at the native boundary without touching CSP,
+      // sandbox, or nested authored HTML.
+      document: visualizationWindow(html, theme, resolveHtmlMode(html, item.visualization.mode)).replace(
+        "<head>",
+        '<head><meta name="viewport" content="width=device-width, initial-scale=1">',
+      ),
     };
   }
   if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(result.mimeType))
