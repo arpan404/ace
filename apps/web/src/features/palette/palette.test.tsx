@@ -122,14 +122,15 @@ test("a leading > lists actions only", async () => {
 });
 
 test("on a settled thread, the palette brings it back to the list", async () => {
-  await openApp("/t/thread-bump-codex");
+  const app = await openApp("/t/thread-bump-codex");
   await screen.findByRole("heading", { level: 1, name: "Bump Codex app-server to 0.48" });
   const search = await palette();
   await userEvent.type(search, "Unsettle");
   await userEvent.click(await screen.findByRole("option", { name: /^Unsettle/ }));
-  expect(await screen.findByText("Back in the list · Bump Codex app-server to 0.48")).toBeTruthy();
   expect(await screen.findByRole("link", { name: /^Bump Codex app-server to 0.48/ })).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());
+  const view = app.daemon.snapshot({ kind: "threads" });
+  expect(view?.kind === "threads" && view.threads["thread-bump-codex"]?.settledAt).toBeFalsy();
 });
 
 test("the palette offers no Settle for a thread that is still working", async () => {

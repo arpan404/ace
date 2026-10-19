@@ -67,19 +67,24 @@ test("the thread list and the composer each have a key that focuses them from an
   expect(document.activeElement).toBe(message);
 });
 
-test("⌘Z outside a text field takes back the latest settle; inside one it is the field's", async () => {
+test("⌘Z outside a text field takes back the latest archive; inside one it is the field's", async () => {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/");
-  const list = await screen.findByRole("list", { name: "Threads" });
-  const settle = (
-    await within(list).findAllByRole("button", { name: /^Settle /, hidden: true })
-  )[0];
-  if (!settle) throw new Error("A row must offer Settle");
-  const title = settle.getAttribute("aria-label")?.replace(/^Settle /, "") ?? "";
-  await userEvent.click(settle);
-  const done = `Settled · ${title}`;
+  const archivedAt = () => {
+    const view = app.daemon.snapshot({ kind: "threads" });
+    return view?.kind === "threads" ? view.threads["thread-pdf-locale"]?.archivedAt : undefined;
+  };
+  const threads = await screen.findByRole("navigation", { name: "Threads" });
+  const row = () => within(threads).queryByRole("link", { name: /^Invoice PDF locale fallback/ });
+  const target = await within(threads).findByRole("link", { name: /^Invoice PDF locale fallback/ });
+  await userEvent.pointer({ keys: "[MouseRight]", target });
+  const menu = await screen.findByRole("menu", { name: /^Actions for/ });
+  await userEvent.click(within(menu).getByRole("menuitem", { name: "Archive" }));
+  const done = "Archived · Invoice PDF locale fallback";
   await screen.findByText(done);
+  await waitFor(() => expect(archivedAt()).toBeDefined());
+  await waitFor(() => expect(row()).toBeNull());
 
   // The palette's search is a text field: ⌘Z there is the field's own.
   await userEvent.keyboard("{Control>}k{/Control}");
@@ -88,18 +93,16 @@ test("⌘Z outside a text field takes back the latest settle; inside one it is t
   await waitFor(() => expect(document.activeElement).toBe(field));
   await userEvent.keyboard("{Control>}z{/Control}");
   expect(screen.queryByText(done)).toBeTruthy();
+  expect(archivedAt()).toBeDefined();
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull());
 
   document.getElementById("main")?.focus();
   await userEvent.keyboard("{Control>}z{/Control}");
   await waitFor(() => expect(screen.queryByText(done)).toBeNull());
-  // Back among the threads in hand, with its Settle button again.
-  await waitFor(() =>
-    expect(
-      within(list).getAllByRole("button", { name: `Settle ${title}`, hidden: true }),
-    ).toHaveLength(1),
-  );
+  // Back on the daemon and in the list.
+  await waitFor(() => expect(archivedAt()).toBeUndefined());
+  await waitFor(() => expect(row()).toBeTruthy());
 });
 
 test("⌘. stops the working agent tree from anywhere in the thread", async () => {

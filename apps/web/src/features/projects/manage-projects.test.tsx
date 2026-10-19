@@ -187,7 +187,6 @@ test("an unselected project has Edit, Remove and Open in from its context menu",
     await userEvent.click(within(menu).getByRole("menuitem", { name: "Open in…" }));
     await userEvent.click(await screen.findByRole("menuitem", { name: "Visual Studio Code" }));
     await waitFor(() => expect(launches).toEqual(["vscode://file/fake/docs"]));
-    expect(await screen.findByText("Opened in Visual Studio Code")).toBeTruthy();
   } finally {
     window.open = original;
   }

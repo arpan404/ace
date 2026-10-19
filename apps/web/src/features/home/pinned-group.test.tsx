@@ -64,26 +64,19 @@ test("pinned threads gather under a Pinned heading, each new pin leading the gro
   expect(order()[2]).toBe("Partial refunds double-count tax");
 });
 
-test("P on a focused row pins it, P again unpins it, and Undo puts it back in its place", async () => {
+test("P on a focused row pins it and P again unpins it, for every device", async () => {
   const app = await openHome();
   await pinFromRow(/^Invoice PDF/, "Pin Invoice PDF locale fallback");
   card(/^Backpressure/).focus();
   await userEvent.keyboard("p");
   await waitFor(() => expect(pinnedGroup()[0]).toBe("Backpressure on broadcast fan-out"));
   await waitFor(() => expect(listed(app, "thread-fan-out")?.pinned).toBe(true));
-  const place = listed(app, "thread-fan-out")?.pinOrder;
 
   card(/^Backpressure/).focus();
   await userEvent.keyboard("p");
   await waitFor(() => expect(pinnedGroup()).toEqual(["Invoice PDF locale fallback"]));
-  await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
-  await waitFor(() =>
-    expect(pinnedGroup()).toEqual([
-      "Backpressure on broadcast fan-out",
-      "Invoice PDF locale fallback",
-    ]),
-  );
-  await waitFor(() => expect(listed(app, "thread-fan-out")?.pinOrder).toBe(place));
+  await waitFor(() => expect(listed(app, "thread-fan-out")?.pinned).toBeFalsy());
+  expect(listed(app, "thread-pdf-locale")?.pinned).toBe(true);
 });
 
 test("Space picks a pinned row up, arrows choose its place, Space drops it there for every device", async () => {

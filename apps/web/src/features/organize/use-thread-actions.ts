@@ -5,7 +5,7 @@ import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { CommandRefused, failureMessage, stillAlive, waitingNote } from "@/lib/daemon-command.ts";
-import { describeWake, type OrganizePatch } from "@ace/ui-core";
+import type { OrganizePatch } from "@ace/ui-core";
 import { useArchiveConfirmation, useDeleteConfirmation } from "./delete-confirmation.ts";
 import { runningWork } from "./running-work.ts";
 import { useOrganizeOverlay } from "./overlay.ts";
@@ -38,13 +38,15 @@ export interface ThreadActions {
   unsettle(entry: ThreadTarget): void;
   /** Let the thread settle by itself again, or keep it until settled by hand. */
   setAutoSettle(entry: ThreadTarget, enabled: boolean): void;
-  snooze(entry: ThreadTarget, until: number, now: number): void;
+  snooze(entry: ThreadTarget, until: number): void;
   wake(entry: ThreadTarget): void;
-  /** Pin (leading the group) or unpin (with Undo). */
+  /** Pin (leading the group) or unpin. */
   setPinned(entry: ThreadTarget, pinned: boolean): void;
   /** Pin each thread at its new place: a drop into the Pinned group or a move within it. */
   placePinned(placements: readonly PinPlacement[]): void;
-  /** Pin (leading the group, in list order) or unpin several at once, with one Undo. */
+  /** Put each thread at its new place in the hand-sorted Home list. */
+  placeListed(placements: readonly PinPlacement[]): void;
+  /** Pin (leading the group, in list order) or unpin several at once. */
   setPinnedMany(entries: readonly ThreadTarget[], pinned: boolean): void;
   /** Archive several threads at once, with one Undo. */
   archiveMany(entries: readonly ThreadTarget[]): void;
@@ -59,7 +61,7 @@ export interface ThreadActions {
    * person asks first: stop it too, or keep it running. `leave` runs once it is archived.
    */
   archive(entry: ThreadTarget, leave?: () => void): void;
-  /** Back from the archive to Home, with Undo. */
+  /** Back from the archive to Home. */
   restore(entry: ThreadTarget): void;
   remove(entry: ThreadTarget): void;
   /** An archived thread, deleted now: the person confirmed it, so there is no Undo. */
@@ -83,6 +85,7 @@ type Organize = Extract<
       | "thread.archive"
       | "thread.unarchive"
       | "thread.delete"
+      | "thread.place"
       | "thread.move";
   }
 >;
@@ -107,13 +110,15 @@ interface Action {
 /**
  * Every list action as a durable daemon command (ADR 0057), so the organization follows the
  * person to every device. Each shows its effect at once and undoes it, with a toast saying why,
- * only when the daemon refuses it; offline it waits and applies on reconnect. The reversible
- * ones offer Undo, which sends the opposite command.
+ * only when the daemon refuses it; offline it waits and applies on reconnect. Small changes the
+ * list already shows (settle, snooze, pin, rename, restore) say nothing more. Actions that take
+ * a thread out of sight (archive, move) confirm with a toast offering Undo, which sends the
+ * opposite command.
  *
  * Delete submits the permanent command immediately, including to the durable outbox when
  * offline. Its persistence must not depend on a toast or the lifetime of this window.
- * Unpinning offers Undo too, back to the place the thread had. Moving to another project keeps
- * the pin, as the daemon does, and Undo moves it back. Bulk actions offer one Undo for all,
+ * Moving to another project keeps the pin, as the daemon does, and Undo moves it back. Bulk
+ * actions offer one Undo for all,
  * except delete. The Home context menu and the thread's ⋯ menu both use these, so
  * labels, toasts and Undo match wherever the person acts.
  */
@@ -165,9 +170,6 @@ export function useThreadActions(): ThreadActions {
         return applied;
       });
     };
-    /** Apply now with a toast offering Undo, which runs `undo`. */
-    const reversible = (entry: ThreadTarget, action: Action, done: string, undo: Action) =>
-      reversibleAll([{ entry, action, undo }], done);
     const pin = (entry: ThreadTarget, order?: number): Action => ({
       patch: order === undefined ? { pinned: true } : { pinned: true, pinOrder: order },
       payload: {
@@ -184,12 +186,6 @@ export function useThreadActions(): ThreadActions {
       payload: { type: "thread.pin", threadId: id(entry), pinned: false },
       verb: "Unpin",
       failed: "unpin the thread",
-    });
-    /** Unpinning, undone by pinning again in the place it had. */
-    const unpinStep = (entry: ThreadTarget) => ({
-      entry,
-      action: unpin(entry),
-      undo: pin(entry, entry.pinOrder),
     });
     const count = (n: number) => (n === 1 ? "1 thread" : `${n} threads`);
     const settle = (entry: ThreadTarget): Action => ({
@@ -336,32 +332,23 @@ export function useThreadActions(): ThreadActions {
       failed: "rename the thread",
     });
     return {
-      settle: (entry) =>
-        void reversible(entry, settle(entry), `Settled · ${entry.title}`, unsettle(entry)),
-      unsettle: (entry) =>
-        void reversibleAll(
-          [{ entry, action: unsettle(entry), undo: settle(entry) }],
-          `Back in the list · ${entry.title}`,
-          // Undo puts back the auto-settle that unsettling turned off.
-          () => {
-            if (entry.autoSettle !== false) void act(entry, autoSettle(entry, true));
-          },
-        ),
+      settle: (entry) => void act(entry, settle(entry)),
+      unsettle: (entry) => void act(entry, unsettle(entry)),
       setAutoSettle: (entry, enabled) => void act(entry, autoSettle(entry, enabled)),
-      snooze: (entry, until, now) =>
-        void reversible(
-          entry,
-          snooze(entry, until),
-          `Snoozed — no notifications until ${describeWake(until, now)}`,
-          snooze(entry, entry.snoozedUntil ?? null),
-        ),
+      snooze: (entry, until) => void act(entry, snooze(entry, until)),
       wake: (entry) => void act(entry, snooze(entry, null)),
-      setPinned: (entry, pinned) =>
-        void (pinned
-          ? act(entry, pin(entry))
-          : reversibleAll([unpinStep(entry)], `Unpinned · ${entry.title}`)),
+      setPinned: (entry, pinned) => void act(entry, pinned ? pin(entry) : unpin(entry)),
       placePinned: (placements) => {
         for (const { entry, order } of placements) void act(entry, pin(entry, order));
+      },
+      placeListed: (placements) => {
+        for (const { entry, order } of placements)
+          void act(entry, {
+            patch: { listOrder: order },
+            payload: { type: "thread.place", threadId: id(entry), order },
+            verb: "Move",
+            failed: "move the thread",
+          });
       },
       setPinnedMany: (entries, pinned) => {
         const changing = entries.filter((entry) => (entry.pinned === true) !== pinned);
@@ -374,7 +361,7 @@ export function useThreadActions(): ThreadActions {
           });
           return;
         }
-        void reversibleAll(changing.map(unpinStep), `Unpinned ${count(changing.length)}`);
+        for (const entry of changing) void act(entry, unpin(entry));
       },
       archiveMany: (entries) =>
         void reversibleAll(
@@ -407,12 +394,7 @@ export function useThreadActions(): ThreadActions {
         const trimmed = title.trim();
         if (!trimmed || trimmed === entry.title) return;
         overlay.takeRefusedTitle(entry.id);
-        void reversible(
-          entry,
-          rename(entry, trimmed),
-          `Renamed · ${trimmed}`,
-          rename({ ...entry, title: trimmed }, entry.title),
-        ).then((renamed) => {
+        void act(entry, rename(entry, trimmed)).then((renamed) => {
           // The rename field opens again with what the person typed.
           if (!renamed) overlay.refuseTitle(entry.id, title);
         });
@@ -442,8 +424,7 @@ export function useThreadActions(): ThreadActions {
           },
         });
       },
-      restore: (entry) =>
-        void reversible(entry, restore(entry), `Restored · ${entry.title}`, archive(entry)),
+      restore: (entry) => void act(entry, restore(entry)),
       deleteArchived: (entry) => removeAll([entry], () => `Deleted · ${entry.title}`),
       remove: (entry) => {
         const lease = client.threads();

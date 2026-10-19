@@ -116,6 +116,14 @@ test("a pinned thread's place reaches other devices, survives a re-pin and goes 
   expect(f.store.getThread(f.thread.id)).toMatchObject({ pinned: true, pinOrder: 5000 });
 });
 
+test("placing a thread in the hand-sorted list stores its place and survives a reread", async () => {
+  const f = await setup();
+  await f.command({ type: "thread.place", threadId: f.thread.id, order: 256.5 });
+  expect(f.store.getThread(f.thread.id)).toMatchObject({ listOrder: 256.5 });
+  await f.command({ type: "thread.place", threadId: f.thread.id, order: 12 });
+  expect(f.store.getThread(f.thread.id)?.listOrder).toBe(12);
+});
+
 test("archive is immediate and unarchive survives receipt retries without losing the thread", async () => {
   const f = await setup();
   await f.command({ type: "thread.archive", threadId: f.thread.id }, "archive");

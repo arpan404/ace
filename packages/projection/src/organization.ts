@@ -18,6 +18,7 @@ export const organizationCommands = [
   "thread.unsettle",
   "thread.autoSettle",
   "thread.snooze",
+  "thread.place",
 ] as const;
 
 /**
@@ -48,6 +49,8 @@ export function organizationDecision(
           pinOrder: p.order ?? (thread.pinned ? thread.pinOrder : undefined) ?? at,
         },
       };
+    case "thread.place":
+      return { type: "thread.client.updated", changes: { listOrder: p.order } };
     case "thread.read":
       return { type: "thread.client.updated", changes: { unread: p.unread, readAt: at } };
     case "thread.settle":

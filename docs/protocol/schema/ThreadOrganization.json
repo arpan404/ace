@@ -15,6 +15,10 @@
     "deletedAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
+    "listOrder": {
+      "description": "Place in the Home list when it is ordered by hand (threads.sortBy manual), higher first. Absent: the thread's creation time stands in, so a new thread leads.",
+      "type": "number"
+    },
     "pinOrder": {
       "description": "Place among pinned threads, higher first. Set on pin (the daemon's clock when the command names none, so a new pin leads) and cleared on unpin.",
       "type": "number"
