@@ -11,6 +11,8 @@ export interface VideoPicture {
   height: number;
   codedWidth: number;
   codedHeight: number;
+  /** When the picture was captured (stream ms): page sound plays in step with it. */
+  timestamp: number;
 }
 
 export interface VideoStreamHandlers {
@@ -82,6 +84,7 @@ export class VideoStream {
       height: chunk.height,
       codedWidth: chunk.codedWidth,
       codedHeight: chunk.codedHeight,
+      timestamp: chunk.timestamp,
     });
     try {
       this.#decoder?.decode({ key: chunk.key, sequence: chunk.sequence, bytes: chunk.bytes });

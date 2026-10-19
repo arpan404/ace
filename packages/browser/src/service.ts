@@ -40,7 +40,13 @@ const defaultGlideMs = 220;
 import { PolicyGate } from "./policy-call.ts";
 import { watchWake } from "./wake-watch.ts";
 import { setMaxListeners } from "node:events";
-import { encodeBrowserFrame, encodeBrowserVideo, type BrowserVideoChunk } from "./stream.ts";
+import {
+  encodeBrowserAudio,
+  encodeBrowserFrame,
+  encodeBrowserVideo,
+  type BrowserAudioChunk,
+  type BrowserVideoChunk,
+} from "./stream.ts";
 import { frameBytes } from "./frame-bytes.ts";
 import type { BrowserServiceOptions } from "./service-options.ts";
 import type { PersonRequest } from "./person-requests.ts";
@@ -61,6 +67,7 @@ export class BrowserService {
   private frameMessages = new WeakMap<BrowserFrame, string>();
   private framePieces = new WeakMap<BrowserFrame, readonly Uint8Array[]>();
   private videoPieces = new WeakMap<BrowserVideoChunk, readonly Uint8Array[]>();
+  private audioPieces = new WeakMap<BrowserAudioChunk, readonly Uint8Array[]>();
   private streamIds = 0;
   private now: () => number;
   private id: () => string;
@@ -727,6 +734,17 @@ export class BrowserService {
       const { bytes, ...header } = chunk;
       pieces = encodeBrowserVideo(this.streamIds, threadId, header, bytes);
       this.videoPieces.set(chunk, pieces);
+    }
+    return pieces;
+  }
+  /** One binary encoding of an audio chunk, shared by every listener. */
+  streamAudio(threadId: string, chunk: BrowserAudioChunk): readonly Uint8Array[] {
+    let pieces = this.audioPieces.get(chunk);
+    if (!pieces) {
+      this.streamIds = (this.streamIds + 1) >>> 0;
+      const { bytes, ...header } = chunk;
+      pieces = encodeBrowserAudio(this.streamIds, threadId, header, bytes);
+      this.audioPieces.set(chunk, pieces);
     }
     return pieces;
   }

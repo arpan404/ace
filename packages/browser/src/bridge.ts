@@ -105,6 +105,12 @@ export function connectBrowser(
                     ? sendStream(service.streamVideo(threadId, chunk))
                     : false,
               },
+              audio: {
+                send: (chunk) =>
+                  entry.binary && entry.video !== undefined
+                    ? sendStream(service.streamAudio(threadId, chunk))
+                    : false,
+              },
             }
           : {}),
       },

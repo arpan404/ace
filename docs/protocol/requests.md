@@ -2388,10 +2388,10 @@ Example:
   "threadId": "example",
   "type": "browser.capture",
   "viewport": {
-    "devicePixelRatio": 4,
-    "height": 101,
+    "devicePixelRatio": 2,
+    "height": 108,
     "nativeShown": true,
-    "width": 106
+    "width": 101
   }
 }
 ```
@@ -2410,7 +2410,6 @@ Example:
 ```json
 {
   "requestId": "example",
-  "subscriberId": "example",
   "threadId": "example",
   "type": "browser.unsubscribe"
 }
@@ -2431,11 +2430,11 @@ Example:
 
 ```json
 {
-  "keyframe": true,
   "requestId": "example",
-  "sequence": 5,
+  "sequence": 8,
   "threadId": "example",
-  "type": "browser.ack"
+  "type": "browser.ack",
+  "video": true
 }
 ```
 
@@ -2486,13 +2485,12 @@ Example:
       "sha256": "a66c740729e36a3d8aa8949a4d49da78011a588d67d8ff5654c0e20632c43c12"
     }
   ],
-  "modifiers": 5,
   "requestId": "example",
   "tabId": "example",
   "threadId": "example",
   "type": "browser.files.drop",
   "x": 8,
-  "y": 8
+  "y": 2
 }
 ```
 
