@@ -33,12 +33,12 @@
       "sha256": "4bf83a37423681f24dd7e03f61226fa7e7e5bcd2cf805167bf67471961868340"
     },
     "push.md": {
-      "bytes": 93337,
-      "sha256": "36e193278a3cbcca5cd60d579b1631bc99c46187623c5d54e2b2e2b610c2e037"
+      "bytes": 93284,
+      "sha256": "b3b538bf766e55ed4ca459fc3c55dce5e96012f112b824074351aefb13d2fb1c"
     },
     "requests.md": {
-      "bytes": 84009,
-      "sha256": "0bab653998028fb7fb668694b702073ea7717f2f0be492f108f5e666e119ac5a"
+      "bytes": 84295,
+      "sha256": "ee5dd9bb5e78d1f1e3318e4843188fedbed7e3d781db6e962cdf78599fc22c1f"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -505,8 +505,8 @@
       "sha256": "f576978bfb47205f71703cf98c131577d36638e113aa16d46e13dae175d82b16"
     },
     "schema/BrowserCommand.json": {
-      "bytes": 32100,
-      "sha256": "732fe4e6da0acdb1d7d353a2e5343f14f57f954dd92d8e4f762ed3afd5cec072"
+      "bytes": 32158,
+      "sha256": "27d36e0172a4532a8ae892774f89d802d8868e58d4210ee2d910f65b111c5202"
     },
     "schema/BrowserDialog.json": {
       "bytes": 724,
@@ -533,8 +533,8 @@
       "sha256": "b5c1d8186fd752a9a89d71cb0e1502c29c606787e4c7a26a5d816e5b2af4a79f"
     },
     "schema/BrowserInput.json": {
-      "bytes": 3764,
-      "sha256": "91dc4ca7ffe1c74cf565a1063badabef4d9ecaf61bc9742432a8222cd2b8fea4"
+      "bytes": 4142,
+      "sha256": "217012da3d0b328b2957fc6b205366a94b47a99f2f5751f61dd7671a54f8cfb1"
     },
     "schema/BrowserInteractionAction.json": {
       "bytes": 2412,
@@ -3781,10 +3781,10 @@
       "sha256": "3c00a18ea5c34e708a57c9d0f5d0cdba097745d6b5fc80bd543053d4c1079efc"
     },
     "types.md": {
-      "bytes": 808459,
-      "sha256": "2e6e0bf48e1ff9e89e80c8cd904d3b6497bac49b952e7d5e9e213b304c7910c7"
+      "bytes": 808679,
+      "sha256": "f0264486c6d69f32ccaabf686ba6271649d91637e1353839395efeec4557a4bf"
     }
   },
-  "input": "486f36c85a51912bdfebc4ecef6c3138284178eeca3b56affc2ac217052c2254",
+  "input": "756e065006cde80ae110d72f674c3127d30e4134917d495a851281753ddae409",
   "version": 1
 }

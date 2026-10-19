@@ -26,6 +26,11 @@ const sharing: [KeymapId, KeymapId, string][] = [
   ["fullView", "findInTerminal", "off Apple the terminal takes Ctrl+Shift+F while focused"],
   ["panel.closeTab", "files.delete", "a tab and a file in the tree never have focus together"],
   ["files.move", "devices", "off Apple the file tree takes Ctrl+Shift+M only on a focused file"],
+  [
+    "followUpOther",
+    "startInBackground",
+    "a thread's composer swaps the follow-up; New thread's composer has none to swap",
+  ],
 ];
 const allowed = (a: KeymapId, b: KeymapId) =>
   sharing.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
@@ -111,10 +116,15 @@ test("a key a shortcut still answers through its browser alias can't be given to
 
 test("rebindings of unknown or fixed shortcuts are ignored", () => {
   const resolved = resolveKeymap(
-    { contextMenu: "mod+y", send: "mod+u", "not.a.shortcut": "mod+u", palette: "shift+mod+y" },
+    {
+      contextMenu: "mod+y",
+      reorderQueued: "mod+u",
+      "not.a.shortcut": "mod+u",
+      palette: "shift+mod+y",
+    },
     { apple: true, web: false },
   );
   expect(resolved.contextMenu).toBe("shift+f10");
-  expect(resolved.send).toBe("mod+enter");
+  expect(resolved.reorderQueued).toBe("alt+arrowup");
   expect(resolved.palette).toBe("shift+mod+y");
 });

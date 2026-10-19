@@ -2500,13 +2500,13 @@ Example:
 {
   "input": {
     "button": "left",
+    "clickCount": 0,
     "event": "mousePressed",
     "kind": "mouse",
     "x": 0,
     "y": 9
   },
   "requestId": "example",
-  "tabId": "example",
   "threadId": "example",
   "type": "browser.input"
 }
@@ -2593,10 +2593,12 @@ Example:
 ```json
 {
   "options": {
+    "acpAgentId": "example",
+    "installationId": "example",
     "instance": "example",
     "instanceId": "example",
-    "limit": 2,
-    "provider": "claude"
+    "limit": 4,
+    "offset": 5
   },
   "requestId": "example",
   "type": "models.list"
@@ -2634,9 +2636,10 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "acpAgentId": "example",
+    "imageInput": true,
+    "provider": "opencode",
     "role": "example",
-    "selection": "default"
+    "tier": "example"
   },
   "type": "models.resolve"
 }
@@ -2655,9 +2658,8 @@ Example:
 
 ```json
 {
-  "appState": "foreground",
-  "inputAgeMs": 8,
-  "threadId": "example",
+  "inputAgeMs": 1,
+  "threadId": null,
   "type": "presence.update"
 }
 ```
@@ -2675,8 +2677,9 @@ Example:
 ```json
 {
   "device": {
-    "channel": "websocket",
-    "platform": "web"
+    "channel": "apns",
+    "platform": "phone",
+    "token": "dA207F5b881FE40BBA5aeD81c7B06e67e1ba55d61D6F9A05b1f8ba7929a1e28f"
   },
   "type": "notification.register"
 }
@@ -2693,6 +2696,7 @@ Example:
 
 ```json
 {
+  "requestId": "example",
   "type": "notification.unregister"
 }
 ```
@@ -2724,9 +2728,7 @@ Example:
 
 ```json
 {
-  "preferences": {
-    "agentSays": true
-  },
+  "preferences": {},
   "type": "notification.preferences"
 }
 ```
@@ -2745,7 +2747,7 @@ Example:
 {
   "threadId": "example",
   "type": "notification.snooze",
-  "until": 6
+  "until": 4
 }
 ```
 
@@ -2761,7 +2763,7 @@ Example:
 
 ```json
 {
-  "afterCursor": 5,
+  "afterCursor": 4,
   "requestId": "example",
   "type": "notification.feed"
 }
@@ -2784,9 +2786,10 @@ Example:
 
 ```json
 {
+  "channel": "screen",
   "deviceId": "example",
   "protocolVersion": 1,
-  "token": "example",
+  "ticket": "example",
   "type": "hello"
 }
 ```
@@ -2805,9 +2808,10 @@ Example:
 
 ```json
 {
-  "paced": true,
+  "afterSeq": 7,
   "scope": {
-    "kind": "threads"
+    "kind": "thread",
+    "threadId": "example"
   },
   "subscriptionId": "example",
   "type": "subscribe"
@@ -2845,9 +2849,16 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "mode": "example",
-      "threadId": "example",
-      "type": "thread.mode.set"
+      "from": {
+        "id": "example",
+        "kind": "checkpoint"
+      },
+      "sessionId": "example",
+      "to": {
+        "kind": "commit",
+        "ref": "example"
+      },
+      "type": "review.refresh"
     }
   },
   "type": "command"
@@ -2868,8 +2879,8 @@ Example:
 
 ```json
 {
-  "limit": 2,
-  "offset": 6,
+  "limit": 5,
+  "offset": 1,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -2890,8 +2901,8 @@ Example:
 
 ```json
 {
-  "before": 9,
-  "limit": 4,
+  "before": 3,
+  "limit": 6,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"
@@ -2913,9 +2924,9 @@ Example:
 
 ```json
 {
-  "before": 9,
-  "collection": "interactions",
-  "limit": 3,
+  "before": 8,
+  "collection": "runs",
+  "limit": 6,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"
@@ -2936,7 +2947,7 @@ Example:
 ```json
 {
   "before": {
-    "at": 8,
+    "at": 5,
     "id": "example"
   },
   "requestId": "example",

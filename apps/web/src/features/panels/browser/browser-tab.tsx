@@ -10,6 +10,7 @@ import { useLocal } from "../store.ts";
 import { WithServices } from "../with-services.tsx";
 import { FindPage } from "./find-page.tsx";
 import { AddressBar } from "./address-bar.tsx";
+import { addressTakesFocus } from "./address-focus.ts";
 import { PageDialog } from "./page-dialog.tsx";
 import { PageSignIn } from "./page-sign-in.tsx";
 import { PageFileChooser } from "./page-file-chooser.tsx";
@@ -175,6 +176,24 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
   }, []);
   const focusAddress = () =>
     root.current?.querySelector<HTMLInputElement>('input[aria-label="Address"]')?.focus();
+  // A tab that opens blank starts at its address, unless an agent opened it or the person is
+  // typing elsewhere, in the composer (`addressTakesFocus`). Only as the tab opens.
+  const [openedBlank] = useState(blank);
+  const openFocus = useEffectEvent(() => {
+    const element = root.current;
+    if (
+      element &&
+      addressTakesFocus({
+        openedByAgent: shown?.openedBy?.kind === "agent",
+        active: element.ownerDocument.activeElement,
+        panel: element.closest("[data-panel]") ?? element,
+      })
+    )
+      focusAddress();
+  });
+  useEffect(() => {
+    if (openedBlank) openFocus();
+  }, [openedBlank]);
   const chrome = usePageChrome({
     source,
     threadId,
@@ -306,7 +325,6 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
             loading={page.loading}
             disabled={offline}
             placeholder="Search or enter a URL"
-            autoFocus={blank}
             onGo={page.go}
             lead={<ConnectionMark url={blank ? undefined : shownUrl} />}
             trail={

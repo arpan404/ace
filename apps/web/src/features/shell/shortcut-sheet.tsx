@@ -10,6 +10,7 @@ const scopes: readonly { scope: KeyScope; title: string }[] = [
   { scope: "home", title: "Thread list" },
   { scope: "thread", title: "Thread" },
   { scope: "composer", title: "Composer" },
+  { scope: "newThread", title: "New thread" },
   { scope: "panel", title: "Side panel tabs" },
   { scope: "files", title: "File tree" },
   { scope: "terminal", title: "Terminal" },

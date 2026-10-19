@@ -11,6 +11,7 @@ import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
 import { actionErrorText } from "@ace/ui-core";
 import { readForge } from "./source.ts";
 import { Button } from "@/components/ui/button.tsx";
+import { readFailureText } from "./query-state.tsx";
 const Context = createContext<{
   state?: ForgeReviewState | undefined;
   pending: boolean;
@@ -95,8 +96,13 @@ export function PrReviewWorkspace(props: {
   return (
     <Context value={value}>
       {props.header}
-      {(message || uncertain.length > 0) && (
+      {(message || query.error || uncertain.length > 0) && (
         <div className="shrink-0 space-y-1 px-4 pb-1 text-xs" aria-label="GitHub review status">
+          {query.error && (
+            <p role="status" className="text-muted-foreground">
+              {readFailureText(query.error)}
+            </p>
+          )}
           {message && (
             <p role="status" className="text-muted-foreground">
               {message}

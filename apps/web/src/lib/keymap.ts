@@ -14,6 +14,7 @@ export type KeyScope =
   | "home"
   | "thread"
   | "composer"
+  | "newThread"
   | "panel"
   | "files"
   | "terminal"
@@ -116,8 +117,19 @@ export const keymap = {
   nextTurn: { keys: "shift+alt+mod+arrowdown", label: "Next turn" },
   findInThread: { keys: "mod+f", label: "Search this thread", scope: "thread" },
   settings: { keys: "mod+,", label: "Settings" },
-  // The composer's own keys (Enter sends, ⌘↵ the other of queue or steer). Shown, not rebindable.
-  send: { keys: "mod+enter", label: "Send", scope: "composer", fixed: true },
+  // Enter sends. While the agent works Enter queues or steers (Settings › Threads); this does
+  // the other.
+  followUpOther: {
+    keys: "mod+enter",
+    label: "Queue or steer the other way",
+    scope: "composer",
+  },
+  // New thread: start the thread and stay on New thread, ready for the next one.
+  startInBackground: {
+    keys: "mod+enter",
+    label: "Start a thread without opening it",
+    scope: "newThread",
+  },
   // The first Esc asks in the strip; a second one soon after stops the agent tree.
   stopFromComposer: {
     keys: "escape escape",

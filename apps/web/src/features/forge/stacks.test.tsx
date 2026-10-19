@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { ForgePrDetail, ForgeStackWorkspace, ThreadId, WorkspaceId } from "@ace/protocol";
 import { workbench } from "@ace/fake-daemon";
 import { harness } from "@/test/harness.tsx";
+import { actionErrorText } from "@ace/ui-core";
 import { openPullRequest } from "./test-support.ts";
 
 // The PR tab loads on first use. Load it before any test, so the first one waits only for
@@ -425,3 +426,25 @@ test.each([
     expect(screen.getByRole("heading", { name: "API" })).toBeTruthy();
   },
 );
+
+test("a stack read that fails says why in one sentence with Retry, and Retry loads the stack", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  // Only the PR itself is readable: the daemon answers the stack read with its own code.
+  for (const read of [
+    { op: "forge.pr.detail", workspaceId, number: 42 },
+    { op: "forge.pr.detail", workspaceId, repository, number: 42 },
+  ] as const)
+    app.daemon.workspace.setForgeRead(read, { resource: "prDetail", value: detail(42) });
+  await openPullRequest(app, { project: "api", number: 42 });
+  const section = await screen.findByRole("region", { name: "Pull request stack" });
+  expect(await within(section).findByText(actionErrorText("forge_not_found"))).toBeTruthy();
+  expect(within(section).queryByText(/The daemon couldn't do that/)).toBeNull();
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.stack", workspaceId, repository, threadId, number: 42 },
+    { resource: "prStack", value: stack },
+  );
+  await userEvent.click(within(section).getByRole("button", { name: "Retry" }));
+  expect(await within(section).findByRole("button", { name: "Layer 2: #42 API" })).toBeTruthy();
+  expect(within(section).queryByText(actionErrorText("forge_not_found"))).toBeNull();
+});
