@@ -1,6 +1,6 @@
-import { Item, type Agent, type AgentStatus, type ToolCall } from "@ace/protocol";
+import { Item, type AgentStatus, type ToolCall } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { agentLabel, agentResult, agentStep, agentTask } from "./agent-step.ts";
+import { agentResult, agentStep, agentTask } from "./agent-step.ts";
 
 const call = (patch: Partial<ToolCall> & Pick<ToolCall, "detail">): Item =>
   Item.parse({
@@ -103,16 +103,8 @@ const spawn = call({
     content: [{ type: "text", text: "## Found 4 callers\n\n- timeline.tsx" }],
   },
 });
-const unnamed: Pick<Agent, "origin" | "native" | "name" | "role"> = {
-  origin: "provider_subagent",
-  native: { provider: "claude" },
-};
-
-test("an unnamed subagent is named by the first line of its prompt, never just Subagent", () => {
-  const task = agentTask(spawn);
-  expect(task).toBe("Find every caller of useTurnHead");
-  expect(agentLabel(unnamed, task)).toBe("Find every caller of useTurnHead");
-  expect(agentLabel({ ...unnamed, name: "explorer" }, task)).toBe("explorer");
+test("a subagent's task is the first line of its prompt when its call has no description", () => {
+  expect(agentTask(spawn)).toBe("Find every caller of useTurnHead");
 });
 
 test("a finished subagent's result is the first line of what it handed back", () => {

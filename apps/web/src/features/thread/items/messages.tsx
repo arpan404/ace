@@ -1,6 +1,6 @@
 import type { ThreadReader } from "@ace/client";
 import { useAgent, useItem, useThread } from "@ace/client-react";
-import { formatClock } from "@ace/ui-core";
+import { agentName, formatClock } from "@ace/ui-core";
 import { GitForkIcon } from "@phosphor-icons/react";
 import { lazy, Suspense, useCallback } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -31,13 +31,16 @@ const CopyAnswer = DeferredCopyAnswer.Component;
 export function AssistantMessage(props: { threadId: string; itemId: string; between?: boolean }) {
   const item = useItem(props.threadId, props.itemId);
   const agent = useAgent(props.threadId, item?.agentId ?? "");
+  const subagent = agent && agent.origin !== "root" ? agent : undefined;
+  // The call that started a subagent names it when the agent has no name of its own.
+  const spawn = useItem(props.threadId, subagent?.spawnedBy ?? "");
   // Text left incomplete by a turn that stopped or failed no longer streams.
   const streaming = useStreaming(props.threadId, item);
   const answer = useAnswerText(item);
   const retry = useRetryPoint(props.threadId, props.itemId);
   if (item?.type !== "message") return null;
   const text = answer.text;
-  const name = agent && agent.origin !== "root" ? (agent.name ?? "Subagent") : undefined;
+  const name = subagent ? agentName(subagent, spawn) : undefined;
   const pi = (item.executionSource?.selection.provider ?? agent?.native.provider) === "pi";
   return (
     <div className="group/answer relative min-w-0 font-prose text-prose leading-[1.6] tracking-[-0.005em] wrap-break-word">

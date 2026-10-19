@@ -8,9 +8,14 @@ function register(state: ClaudeState, data: Data, background: boolean): NativeTa
   const merged = { ...prior?.data, ...data };
   const spawn = string(merged["tool_use_id"]);
   const owner = state.toolOwners.get(spawn) ?? prior?.owner ?? state.root;
+  // A subagent goes by the task Claude was given for it ("Fix stale lease"), and its agent type
+  // ("general-purpose") is its role.
   const child =
     merged["task_type"] === "local_agent" && spawn
-      ? state.child(spawn, owner, background, id, prior?.terminalStatus)
+      ? state.child(spawn, owner, background, id, prior?.terminalStatus, {
+          name: string(merged["description"]).trim(),
+          role: string(merged["subagent_type"]).trim(),
+        })
       : prior?.child;
   const task: NativeTask = {
     data: merged,

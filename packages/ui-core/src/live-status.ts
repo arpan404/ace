@@ -1,5 +1,6 @@
 import { pluralCount } from "./counts.ts";
 import type { ThreadRunMetadata, ThreadStatus } from "@ace/protocol";
+import { agentName } from "./agents.ts";
 import { describeWake } from "./snooze.ts";
 import type { Tone } from "./status.ts";
 import { formatClock } from "./time.ts";
@@ -105,7 +106,7 @@ export function threadLiveFact(thread: {
       const request = live?.asking?.[0]?.kind;
       if (request) return { kind: "asking", request };
       const child = live?.askingThreads?.[0];
-      return child ? { kind: "child-asking", agent: child.name ?? "Subagent" } : undefined;
+      return child ? { kind: "child-asking", agent: agentName({ name: child.name }) } : undefined;
     }
     case "limited":
       return { kind: "limited", until: status.until };

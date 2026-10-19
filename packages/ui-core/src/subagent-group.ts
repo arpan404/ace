@@ -122,7 +122,7 @@ export function readSubagentGroup(
       provider: launch?.provider ?? agent?.native.provider,
       model: launch?.model ?? agent?.model,
       machine: launch?.machine?.name,
-      title: launch?.title ?? (agent ? agentName(agent) : (spawn?.call.title ?? "Subagent")),
+      title: launch?.title ?? agentName(agent, spawn),
       state,
       startedAt: launch?.createdAt ?? agent?.createdAt ?? spawn?.createdAt ?? 0,
       endedAt: subagentTerminal(state) ? (end ?? spawn?.call.endedAt) : undefined,
