@@ -28,7 +28,7 @@ const transcripts = z
       ),
     ),
   );
-async function harness(provider: Exclude<ProviderKind, "cursor">, source?: string) {
+async function harness(provider: Exclude<ProviderKind, "cursor">, source?: string, help?: string) {
   const root = await mkdtemp(join(tmpdir(), "ace-login-"));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   const bin = join(root, "bin");
@@ -67,7 +67,7 @@ async function harness(provider: Exclude<ProviderKind, "cursor">, source?: strin
         action,
         command,
         version: transcript?.version ?? "0.85.1",
-        help: transcript?.help ?? "",
+        help: help ?? transcript?.help ?? "",
         cwd: root,
         env: { HOME: root, PATH: bin },
         manager,
@@ -105,6 +105,14 @@ test.each(["codex", "claude"] as const)(
       result: { ok: true, progress: { state: "starting", session: "login-one" } },
     });
     const prompt = await f.wait("awaiting_input");
+    // Claude first asks how to sign in; the subscription keeps its usual arguments.
+    if (prompt.choices?.length)
+      await f.sessions.handle("phone", {
+        type: "provider.login.input",
+        requestId: "method",
+        session: "login-one",
+        input: { choice: "claudeai" },
+      });
     // The initial upstream selector is followed by the CLI's Enter prompt.
     const enter =
       prompt.prompt === "Press Enter to continue."
@@ -169,34 +177,113 @@ test("excessive private CLI output stops the process and returns terminal instru
   expect(JSON.stringify(f.events)).not.toContain("sk-private");
 });
 
-test("Claude's own browser sign-in waits in the browser step and completes when the CLI does", async () => {
-  // Claude Code 2.1.299, scrubbed: it opens the browser itself, then prints its paste-code
-  // fallback link and an unterminated, optional paste prompt while it waits on localhost.
-  const link =
-    "https://claude.com/cai/oauth/authorize?code=true&client_id=synthetic&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Aprofile&code_challenge=fixture&code_challenge_method=S256&state=fixture";
-  const output =
-    "\u0004\b\bOpening browser to sign in\u2026\r\n" +
-    `If the browser didn't open, visit: \u001b]8;;${link}\u0007${link}\u001b]8;;\u0007\r\n` +
-    "Paste code here if prompted > ";
-  const f = await harness(
-    "claude",
-    `const fs = require('node:fs');
-    process.stdout.write(${JSON.stringify(output)});
-    const done = process.env.HOME + '/browser-callback';
-    setInterval(() => { if (fs.existsSync(done)) process.exit(0); }, 20);`,
-  );
+// Claude Code 2.1.302, scrubbed: it runs `$BROWSER <url>` to open the browser itself, then prints
+// its paste-code fallback link and an unterminated paste prompt while it waits on localhost;
+// a `code#state` line on stdin finishes it instead.
+const claudeFallback =
+  "https://claude.com/cai/oauth/authorize?code=true&client_id=synthetic&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Aprofile&code_challenge=fixture&code_challenge_method=S256&state=fixture";
+const claudeOutput =
+  "\u0004\b\bOpening browser to sign in\u2026\r\n" +
+  `If the browser didn't open, visit: \u001b]8;;${claudeFallback}\u0007${claudeFallback}\u001b]8;;\u0007\r\n` +
+  "Paste code here if prompted > ";
+const claudeCli = `const fs = require('node:fs');
+  fs.writeFileSync(process.env.HOME + '/launch', JSON.stringify({args: process.argv.slice(2), browser: process.env.BROWSER ?? null}));
+  process.stdout.write(${JSON.stringify(claudeOutput)});
+  require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
+    const [code, state] = line.trim().split('#');
+    if (!code || !state) { process.stderr.write('Invalid code. Please make sure the full code was copied.\\n'); return; }
+    fs.writeFileSync(process.env.HOME + '/pasted', line.trim()); process.exit(0);
+  });
+  const done = process.env.HOME + '/browser-callback';
+  setInterval(() => { if (fs.existsSync(done)) process.exit(0); }, 20);`;
+
+test("Claude opens its own browser here and completes when the CLI does", async () => {
+  const f = await harness("claude", claudeCli, "auth login --claudeai");
   await f.start();
-  expect(await f.wait("awaiting_browser")).toMatchObject({ state: "awaiting_browser" });
+  await expect
+    .poll(() => f.events.findLast((event) => event.url))
+    .toMatchObject({ state: "awaiting_browser", url: claudeFallback, codeEntry: true });
   await writeFile(join(f.root, "browser-callback"), "");
   await f.wait("succeeded");
   expect(f.events.map((event) => event.state)).not.toContain("failed");
-  expect(JSON.stringify(f.events)).not.toContain("platform.claude.com");
+  // `BROWSER=echo` would stop Claude from opening any browser at all.
+  expect(JSON.parse(await readFile(join(f.root, "launch"), "utf8"))).toEqual({
+    args: ["auth", "login", "--claudeai"],
+    browser: null,
+  });
+});
+
+test("from another device, the code Claude's page shows is pasted back to the CLI and never relayed", async () => {
+  const f = await harness("claude", claudeCli, "auth login --claudeai");
+  await f.start();
+  await expect.poll(() => f.events.findLast((event) => event.url)?.codeEntry).toBe(true);
+  const code = "private-authorization-code#private-state";
+  await expect(
+    f.sessions.handle("phone", {
+      type: "provider.login.input",
+      requestId: "short",
+      session: "login-one",
+      input: { code: "not-a-code" },
+    }),
+  ).rejects.toThrow();
+  await f.sessions.handle("phone", {
+    type: "provider.login.input",
+    requestId: "paste",
+    session: "login-one",
+    input: { code },
+  });
+  await f.wait("succeeded");
+  expect(await readFile(join(f.root, "pasted"), "utf8")).toBe(code);
+  expect(JSON.stringify(f.events)).not.toMatch(/private-authorization-code|private-state/);
+});
+
+test("a pasted code is refused while the CLI isn't waiting for one", async () => {
+  const f = await harness(
+    "codex",
+    "console.log('Open https://auth.openai.com/codex/device'); setInterval(() => {}, 1000);",
+  );
+  await f.start();
+  await f.wait("awaiting_browser");
+  expect(
+    await f.sessions.handle("phone", {
+      type: "provider.login.input",
+      requestId: "paste",
+      session: "login-one",
+      input: { code: "authorization-code#state" },
+    }),
+  ).toMatchObject({ result: { ok: false, error: "invalid_input" } });
+});
+
+test("Claude offers Console and SSO sign-in where its CLI does, then runs the chosen one", async () => {
+  const f = await harness("claude", claudeCli, "auth login --claudeai --console --sso");
+  await f.start();
+  const choose = await f.wait("awaiting_input");
+  expect(choose.choices).toEqual([
+    { id: "claudeai", label: "Claude subscription" },
+    { id: "console", label: "Anthropic Console (API usage billing)" },
+    { id: "sso", label: "Single sign-on (SSO)" },
+  ]);
+  await f.sessions.handle("phone", {
+    type: "provider.login.input",
+    requestId: "method",
+    session: "login-one",
+    input: { choice: "console" },
+  });
+  await expect.poll(() => f.events.findLast((event) => event.url)?.url).toBe(claudeFallback);
+  await writeFile(join(f.root, "browser-callback"), "");
+  await f.wait("succeeded");
+  expect(JSON.parse(await readFile(join(f.root, "launch"), "utf8")).args).toEqual([
+    "auth",
+    "login",
+    "--console",
+  ]);
 });
 
 test("paste-code prompts stop the CLI and return terminal instructions without accepting arbitrary input", async () => {
   const f = await harness(
     "claude",
     "console.log('Paste authorization code:'); setInterval(()=>{},1000);",
+    "auth login --claudeai",
   );
   await f.start();
   expect(await f.wait("failed")).toMatchObject({ manual: { command: "claude auth login" } });

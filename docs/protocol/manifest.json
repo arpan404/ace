@@ -33,8 +33,8 @@
       "sha256": "4bf83a37423681f24dd7e03f61226fa7e7e5bcd2cf805167bf67471961868340"
     },
     "push.md": {
-      "bytes": 94418,
-      "sha256": "5f9a66c2f6802acf46b9ce4ee0af4fad71e783afdcea53b6860be669c4ab853a"
+      "bytes": 93337,
+      "sha256": "36e193278a3cbcca5cd60d579b1631bc99c46187623c5d54e2b2e2b610c2e037"
     },
     "requests.md": {
       "bytes": 84009,
@@ -781,8 +781,8 @@
       "sha256": "3e7a4c587530a9f146e129c677ef4738d2dfae765727e41d4fac458ba2227755"
     },
     "schema/CursorSdkAuth.json": {
-      "bytes": 491,
-      "sha256": "69f233f863568c3aa101348d41253e010aea4e9c47d586156fd1900890eaf099"
+      "bytes": 651,
+      "sha256": "88b45ec936906da2f0e069c54b9c23e1ab6e528a1e0470c0d05f8cbe0c450bb6"
     },
     "schema/DaemonHealth.json": {
       "bytes": 841,
@@ -2329,12 +2329,12 @@
       "sha256": "a413e7ead20aaa3342a6df57d551184fad587b5c4d6a7aa185785991e0795600"
     },
     "schema/ProviderLoginInput.json": {
-      "bytes": 865,
-      "sha256": "cb88f4cf3d69e412d0bda624e7faa72aa92e133a64db99d9dcdccfcb24e2a670"
+      "bytes": 1115,
+      "sha256": "fb350999b59af9ace8984de5efd3902a9c1f2a4d231f930789d00aeb6a10ab97"
     },
     "schema/ProviderLoginProgress.json": {
-      "bytes": 3402,
-      "sha256": "6c1e2a10339522494cace7f5bfb0033cc03dfdf343743bb6bf802d0246e7133f"
+      "bytes": 3473,
+      "sha256": "371d25c6f844743c9abdfdcfd4cacd310220fbdf757940c8fb0d4ceac7b47fdb"
     },
     "schema/ProviderLoginRequest.json": {
       "bytes": 4499,
@@ -2347,6 +2347,10 @@
     "schema/ProviderLoginUnavailableReason.json": {
       "bytes": 245,
       "sha256": "be51ee5f24a618853c981ea8cea5ec65c68161bdd85bd0eb43d5f713f068307a"
+    },
+    "schema/ProviderSignInCode.json": {
+      "bytes": 401,
+      "sha256": "c65573413a90640a93608265c23379437b827e3c474b99e46c60eeca461786ce"
     },
     "schema/ProviderStatus.json": {
       "bytes": 3042,
@@ -3777,10 +3781,10 @@
       "sha256": "3c00a18ea5c34e708a57c9d0f5d0cdba097745d6b5fc80bd543053d4c1079efc"
     },
     "types.md": {
-      "bytes": 806549,
-      "sha256": "bc93b96115abe841e4a56ed2eea32e77bf2309a6cb21ad4613a7b611b50cb9aa"
+      "bytes": 808459,
+      "sha256": "2e6e0bf48e1ff9e89e80c8cd904d3b6497bac49b952e7d5e9e213b304c7910c7"
     }
   },
-  "input": "efb267c7c6ac22e8d1321a2855e27073c669f68403938a6cae5cf9166d541e43",
+  "input": "486f36c85a51912bdfebc4ecef6c3138284178eeca3b56affc2ac217052c2254",
   "version": 1
 }

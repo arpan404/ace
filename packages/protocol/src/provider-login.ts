@@ -18,11 +18,27 @@ export const ProviderApiKey = z
     description:
       "Ephemeral credential handed only to the selected CLI stdin. Never log or persist.",
   });
-/** Non-secret continuation input. API keys use their own message type. */
+/**
+ * The one-time code a provider's sign-in page shows (Claude's is `code#state`), pasted back when
+ * the browser can't reach the CLI on this computer. It only answers the CLI's own prompt.
+ */
+export const ProviderSignInCode = z
+  .string()
+  .min(3)
+  .max(4096)
+  .regex(/^[A-Za-z0-9_-]+#[A-Za-z0-9_-]+$/)
+  .meta({
+    secret: true,
+    "x-ace-secret": true,
+    writeOnly: true,
+    description: "One-time sign-in code handed only to the CLI's own prompt. Never log or persist.",
+  });
+/** Continuation input. API keys use their own message type. */
 export const ProviderLoginInput = z.union([
   z.strictObject({ confirm: z.literal(true) }),
   z.strictObject({ value: z.literal("enter") }),
   z.strictObject({ choice: z.string().regex(/^[a-z0-9_-]{1,64}$/) }),
+  z.strictObject({ code: ProviderSignInCode }),
 ]);
 export type ProviderLoginInput = z.infer<typeof ProviderLoginInput>;
 export const ProviderLoginRequest = z.discriminatedUnion("type", [
@@ -84,6 +100,8 @@ export const ProviderLoginProgress = z.strictObject({
     .max(32)
     .optional(),
   message: z.string().max(256).optional(),
+  /** The CLI takes the code its sign-in page shows, pasted back as `{ code }`. */
+  codeEntry: z.literal(true).optional(),
   hint: z.string().max(1024).optional(),
   manual: z
     .strictObject({

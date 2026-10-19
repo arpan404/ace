@@ -204,6 +204,70 @@ test.each(["open", "xdg-open", "BROWSER"] as const)(
   },
 );
 
+test("Cursor's CLI agent signs in with its own method and its page reaches the person's client", async () => {
+  // cursor-agent 2026.10.01's ACP method and login page, opened through `open` on PATH.
+  const page =
+    "https://cursor.com/loginDeepControl?challenge=Q2hhbGxlbmdl&uuid=0b5d1c2e-3f4a-4b5c-8d6e-7f8091a2b3c4&mode=login&redirectTarget=cli&supportsSelectedTeamLogin=true";
+  const f = await opener({
+    opens: "open",
+    page,
+    methods: [
+      {
+        id: "cursor_login",
+        name: "Cursor Login",
+        description:
+          "Authenticate using existing Cursor login credentials. Run 'agent login' first if not logged in.",
+      },
+    ],
+  });
+  const updates: LoginUpdate[] = [];
+  try {
+    expect(
+      await f.driver.run(new AbortController().signal, (update) => updates.push(update)),
+    ).toEqual({ success: true });
+    expect(updates).toContainEqual({ state: "awaiting_browser", url: page });
+    expect(f.openedHere).toEqual([]);
+    expect(await f.calls()).toEqual(["initialize", "authenticate:cursor_login"]);
+  } finally {
+    await f.close();
+  }
+});
+
+test.each([
+  ["signs out with its own command", 0],
+  ["says how to finish when its own sign-out fails", 1],
+] as const)("an agent whose ACP can't sign out %s", async (_name, exit) => {
+  const home = await mkdtemp(join(tmpdir(), "ace-acp-logout-"));
+  const command = join(home, "cursor-agent");
+  const calls = join(home, "calls");
+  await writeFile(
+    command,
+    `#!${process.execPath}
+require('node:fs').appendFileSync(${JSON.stringify(calls)}, process.argv.slice(2).join(' ') + '\\n');
+process.exit(${exit});
+`,
+    { mode: 0o700 },
+  );
+  const driver = acpLoginDriver({
+    provider: "acp",
+    action: "logout",
+    command,
+    args: ["acp"],
+    env: { HOME: home, PATH: "" },
+    cwd: home,
+    ownLogout: ["logout"],
+  });
+  try {
+    const run = driver.run(new AbortController().signal, () => {});
+    if (exit === 0) await expect(run).resolves.toEqual({ success: true });
+    else await expect(run).rejects.toThrow("Run `cursor-agent logout` in a terminal");
+    // Only the agent's own sign-out ran: no ACP session was opened for it.
+    expect(await readFile(calls, "utf8")).toBe("logout\n");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("a sign-in page ace can't relay opens on this computer and never crosses the wire", async () => {
   const page = "https://example.com/login?session=opaque";
   const f = await opener({ opens: "open", page });

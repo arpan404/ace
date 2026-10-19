@@ -107,7 +107,7 @@ describe("provider discovery", () => {
   it("reports missing binaries independently without probing installed CLIs", async () => {
     const root = await directory();
     expect(await discoverProviders({ env: { PATH: root } })).toEqual({
-      claude: { installed: false, auth: "unknown", loginHint: "claude, then /login" },
+      claude: { installed: false, auth: "unknown", loginHint: "claude auth login" },
       codex: { installed: false, auth: "unknown", loginHint: "codex login" },
       opencode: { installed: false, auth: "unknown", loginHint: "opencode auth login" },
       cursor: { installed: false, auth: "unknown", loginHint: "Sign in to Cursor" },
@@ -122,7 +122,7 @@ describe("provider discovery", () => {
       version: "2.3.4",
       versionCheck: { status: "ok", installed: "2.3.4", required: "2.1.286" },
       auth: "logged_out",
-      loginHint: "claude, then /login",
+      loginHint: "claude auth login",
     });
   });
   it("discovers a Node CLI when its temporary root is inside an ESM package", async () => {

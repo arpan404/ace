@@ -27,7 +27,9 @@ import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import type { ServiceContext } from "./types.ts";
 
 import { apiKeyLoginDriver, apiKeySupport } from "../provider-api-key.ts";
+import { piKeyHandOff } from "../pi-login-driver.ts";
 import { openOpenCodeSignIn } from "@ace/adapter-opencode/sign-in";
+import { openCodexAccount } from "@ace/adapter-codex/account-login";
 import { cursorApiKeyEntry } from "@ace/adapter-cursor/auth";
 
 const cursorSdkMissing =
@@ -263,6 +265,8 @@ export async function prepareProviderLogin(
                     "--device-auth",
                     "--with-api-key",
                     "--claudeai",
+                    "--console",
+                    "--sso",
                     "--no-browser",
                     "--standalone",
                     "--method",
@@ -281,13 +285,18 @@ export async function prepareProviderLogin(
     if (target.method === "api_key" && !supportedKey.supported)
       throw new Error("API key unsupported");
     let openCodeIntegration: string | undefined;
+    let codexAccountLabel: string | undefined;
+    const keyHandOff =
+      target.method === "api_key" && action === "login" && target.provider === "pi"
+        ? await piKeyHandOff(executable, status.version, target.upstream, env)
+        : undefined;
     const driver =
       target.method === "api_key" && action === "login"
         ? apiKeyLoginDriver({
-            command: executable,
-            args: ["login", "--with-api-key"],
+            command: keyHandOff?.command ?? executable,
+            args: keyHandOff?.args ?? ["login", "--with-api-key"],
             cwd: instance.implicit ? config.dataDir : instance.homeDir,
-            env,
+            env: keyHandOff?.env ?? env,
             assertCurrent,
           })
         : cliLoginDriver({
@@ -311,6 +320,20 @@ export async function prepareProviderLogin(
                       cwd: instance.implicit ? config.dataDir : instance.homeDir,
                       signal: signIn,
                     }),
+                }
+              : {}),
+            ...(target.provider === "codex"
+              ? {
+                  codexAccount: (signIn: AbortSignal) =>
+                    openCodexAccount({
+                      executable,
+                      env,
+                      cwd: instance.implicit ? config.dataDir : instance.homeDir,
+                      signal: signIn,
+                    }),
+                  onCodexAccount: (label: string) => {
+                    codexAccountLabel = label;
+                  },
                 }
               : {}),
             manager,
@@ -400,7 +423,7 @@ export async function prepareProviderLogin(
         registry.recordAuth(
           instanceId,
           action === "logout" ? "unknown" : target.method === "api_key" ? "api_key" : "browser",
-          target.method !== "api_key" ? after.accountLabel : undefined,
+          target.method !== "api_key" ? (after.accountLabel ?? codexAccountLabel) : undefined,
         );
         const before = registry.get(instanceId)?.instance.loginRevision;
         registry.ingest(instanceId, {

@@ -140,24 +140,29 @@ export function BrowserStep(props: {
   footer: React.ReactNode;
 }) {
   const { url } = props.progress;
+  // The CLI opened its own page on the computer running ace; this link is its fallback, which
+  // shows a code to paste back, so it opens only when asked.
+  const fallback = props.progress.codeEntry === true;
   const primary = useFocusOnShow<HTMLAnchorElement>();
   // The desktop app opens it as the link arrives; the button then opens it again.
-  const opened = url !== undefined && opensWithoutClick();
+  const opened = url !== undefined && !fallback && opensWithoutClick();
   const claimOpen = useEffectEvent(() => props.claimOpen());
   useEffect(() => {
-    if (url && opensWithoutClick() && claimOpen()) openPage(url);
-  }, [url]);
+    if (url && !fallback && opensWithoutClick() && claimOpen()) openPage(url);
+  }, [url, fallback]);
   return (
     <>
       {!props.compact && (
         <StepTitle
           title="Continue in your browser"
           line={
-            opened
-              ? "The sign-in page is open in your browser. Come back here when you're done."
-              : url
-                ? "Open the sign-in page and finish there. ace picks it up on its own."
-                : "Finish in the browser window that opened. ace picks it up on its own."
+            fallback
+              ? "A sign-in page opened on the computer running ace. Finish there, or open it here and paste the code it shows."
+              : opened
+                ? "The sign-in page is open in your browser. Come back here when you're done."
+                : url
+                  ? "Open the sign-in page and finish there. ace picks it up on its own."
+                  : "Finish in the browser window that opened. ace picks it up on its own."
           }
         />
       )}

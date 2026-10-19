@@ -175,6 +175,10 @@ export type QuotaResetCredits = z.infer<typeof QuotaResetCredits>;
 export const CursorSdkAuth = z.strictObject({
   status: z.enum(["logged-in", "logged-out"]),
   source: z.enum(["environment", "sdk-store", "none"]),
+  /** The signed-in account, as the SDK's own login records it. */
+  email: z.string().min(1).max(256).optional(),
+  /** When the key the SDK login minted stops working, epoch ms. */
+  expiresAt: z.number().finite().nonnegative().optional(),
 });
 export const AccountQuota = z.object({
   auth: z.enum(["logged_in", "logged_out", "unknown"]),

@@ -18,11 +18,13 @@ it("isolates login stores, discards the return key and deletes only the selected
     await writeFile(history, "preserved-checkpoint");
     await writeFile(join(b, "auth.json"), "other-instance-sentinel");
     const notices: string[] = [];
+    const keyNames: (string | undefined)[] = [];
     const boundary: SdkAuthBoundary = {
       sdk: {
         Cursor: {
           auth: {
             async login(options) {
+              keyNames.push(options?.apiKeyName);
               options?.onLoginUrl?.("https://cursor.com/login?challenge=synthetic");
               await writeFile(file, "sentinel-api-key");
               return { apiKey: "sentinel-api-key", apiKeyExpiresAtMs: 9999 };
@@ -33,7 +35,12 @@ it("isolates login stores, discards the return key and deletes only the selected
             async status() {
               try {
                 await access(file);
-                return { status: "logged-in", backendUrl: "https://api.cursor.com" };
+                return {
+                  status: "logged-in",
+                  backendUrl: "https://api.cursor.com",
+                  email: "person@example.com",
+                  apiKeyExpiresAtMs: 9999,
+                };
               } catch {
                 return { status: "logged-out" };
               }
@@ -54,14 +61,23 @@ it("isolates login stores, discards the return key and deletes only the selected
       loginUrl: (url) => {
         notices.push(url);
       },
+      keyName: "ace on studio",
     };
     expect(await cursorAuthInHost("status", boundary)).toEqual({
       status: "logged-out",
       source: "none",
     });
     const loggedIn = await cursorAuthInHost("login", boundary);
-    expect(loggedIn).toEqual({ status: "logged-in", source: "sdk-store" });
+    // Who signed in and when the minted key lapses carry over; the key never does.
+    expect(loggedIn).toEqual({
+      status: "logged-in",
+      source: "sdk-store",
+      email: "person@example.com",
+      expiresAt: 9999,
+    });
     expect(JSON.stringify(loggedIn)).not.toContain("sentinel-api-key");
+    // The minted key is named so the person can find ace's in Cursor's dashboard.
+    expect(keyNames).toEqual(["ace on studio"]);
     expect(notices).toEqual(["https://cursor.com/login?challenge=synthetic"]);
     expect(await cursorAuthInHost("logout", boundary)).toEqual({
       status: "logged-out",
