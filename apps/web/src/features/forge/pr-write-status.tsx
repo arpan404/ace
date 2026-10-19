@@ -74,7 +74,7 @@ export function PrWriteStatus(props: { actions: PrActions; refreshing: boolean }
   ].filter(Boolean);
   if (!rows.length && !worktree.state) return null;
   return (
-    <div aria-label="Unconfirmed changes" className="shrink-0 px-4 pb-1">
+    <div role="group" aria-label="Unconfirmed changes" className="shrink-0 px-4 pb-1">
       {rows}
       {worktree.state && (
         <WorktreeCreationCard
