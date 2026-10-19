@@ -70,6 +70,9 @@ extension CUActor {
                 }
                 if let content = (cuAttribute(element, "AXContents") as? [AXUIElement])?.first.flatMap(cuFrame(of:)),
                    vertical ? content.height <= visible.height + 1 : content.width <= visible.width + 1 {
+                    // A scrolling box inside a web page has no scroll bars in accessibility;
+                    // only the page's own area is seen here. Let a wheel event at it decide.
+                    if !CFEqual(element, start), pointerDelivery != .unavailable, insideWebArea(start) { return nil }
                     return "\(label(element)) already shows all its content; nothing to scroll \(direction)"
                 }
             }
@@ -93,6 +96,16 @@ extension CUActor {
         }
         if percent != nil { session.settler.markChanged() }
         return percent
+    }
+
+    private func insideWebArea(_ element: AXUIElement) -> Bool {
+        var current: AXUIElement? = element
+        for _ in 0..<16 {
+            guard let item = current else { return false }
+            if cuRole(item) == "AXWebArea" { return true }
+            current = parent(item)
+        }
+        return false
     }
 
     func scrollArea(containing element: AXUIElement) -> AXUIElement? {
