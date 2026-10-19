@@ -5,9 +5,12 @@
 ## Agent computer use (macOS)
 
 On macOS, agents drive apps through `computerToolkit` (`src/computer/`), not the session
-tools below. It registers `screen_apps`, `screen_state` and `screen_act` over one
-long-lived `ace-screen-helper --computer` process, owned by `ComputerClient`
-([ADR 0087](../../docs/adr/0087-background-computer-use-engine.md)).
+tools below. It registers `screen_apps`, `screen_state` and `screen_act` over a pool of
+`ace-screen-helper --computer` processes owned by `ComputerClient`
+([ADR 0087](../../docs/adr/0087-background-computer-use-engine.md)): one per target app
+(at most six, least recently used idle one evicted, idle ones exit after five minutes) and
+one shared helper for `hello`, `apps` and `resolve`. Different apps run in parallel; a hung
+app stalls only its own helper.
 
 - Apps launch without activation. Windows on other Spaces are reached through AX remote
   tokens. Nothing posts to the HID stream or moves the cursor; `activate` is the explicit
@@ -30,15 +33,26 @@ long-lived `ace-screen-helper --computer` process, owned by `ComputerClient`
 - The person wins: an action refuses while they are using that same app, Esc during agent
   activity stops it, a locked screen is reported, and the display stays awake while acting.
   On visible windows a small marker shows where the agent acts (`ComputerOverlay.swift`).
-- Password managers, authentication prompts and terminals are refused
-  (`src/computer/policy.ts`). Permissions are otherwise provider-native.
+- Steps (`src/computer/actions.ts`, the source of truth for the action set): click (id or
+  x,y, left/right/middle, count, modifiers, hold), move (hover), type, paste, key (repeat,
+  hold), set_value, select_text, scroll (pages or pixels), scroll_to, action, menu, focus,
+  drag (points or ids, modifiers), window ops, wait, wait_for and activate. Any step may
+  carry `when {text|id, gone?}`: it runs only if a matching element is there, else the
+  result says it was skipped.
+- Password managers, authentication prompts, terminals, script runners (Script Editor,
+  Automator, Shortcuts) and ace itself are refused, as are apps the person lists under
+  `computer.blockedApps` (`src/computer/policy.ts`, case-insensitive). Permissions are
+  otherwise provider-native.
 
 The helper speaks JSON lines on stdin/stdout. Requests are `{id, op, ...}` with `op` one of
-`hello` (version and permission facts), `apps`, `resolve`, `state` and `act`; replies are
-`{id, ok: true, result}` or `{id, ok: false, error: {code, message}}`, where `message` is
-written for the model. Replies are parsed leniently (`src/computer/wire.ts`). The client
-starts the helper on first use and replaces it after it exits or a request times out, so a
-hung app costs one failed call.
+`hello` (version, permission facts and capabilities), `apps`, `resolve`, `state`, `act` and
+`cancel {target}`; replies are `{id, ok: true, result}` or `{id, ok: false, error: {code,
+message}}`, where `message` is written for the model. Replies are parsed leniently
+(`src/computer/wire.ts`). Each helper runs one request at a time and answers `cancel` at
+once. When a call is aborted or overruns its deadline, the client sends `cancel`, waits a
+grace period for the reply (an act reports the steps it finished), then kills only that
+app's helper. A reply over the size cap fails its call at once. Helpers start on first use
+and restart after they exit.
 
 The session tools and wire described below remain for the person's live view and takeover,
 for simulators, and as the agent tools on Windows and Linux.

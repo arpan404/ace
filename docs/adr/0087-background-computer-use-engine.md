@@ -130,3 +130,58 @@ first use and replaces it after it exits or a request times out.
   screenshots and x,y clicks.
 - Tests and fixtures that name the session tools describe the non-macOS surface;
   `apps/daemon/src/testing/provider-mcp-proof.ts` still exercises `screen_ui_act`.
+
+## Amendment 2026-10-18
+
+Follow-up work on the same day, toward parity with other agents' computer use and speed.
+
+**Process pool.** One helper serialised every app: a hung app stalled every agent, and a
+timeout killed work in unrelated apps. `ComputerClient` now runs one
+`ace-screen-helper --computer` per target app (at most six; the least recently used idle
+one is evicted; idle helpers exit after five minutes) plus one shared helper for `hello`,
+`apps` and `resolve`. Clocks and timers are injected. Clipboard transactions take a
+cross-process lock so two helpers never interleave a paste.
+
+**Cancel.** The wire gains `cancel {target}`, answered at once outside the helper's serial
+queue; the target stops at its next check point (between steps, and every 50 ms inside
+typing, key repeats, `wait` and `wait_for`) and replies with the steps it finished and
+`error.code: "cancelled"`. An aborted call sends `cancel`, waits 3 s for that reply, then
+kills only that app's helper (SIGTERM, so the helper restores a borrowed clipboard). An
+overrun deadline does the same. A reply over the size cap fails its call at once instead
+of waiting for the deadline. Every request has its own bound inside the helper (an AX
+messaging timeout of at most 1 s and hard walk and settle deadlines): a hung app yields a
+partial outline marked `notResponding`, never a dead helper.
+
+**Actions.** Clicks take `button: middle`, `modifiers` and `hold_ms`, and x,y clicks
+hit-test in true z-order; `move` hovers; `type`, `paste` and `key` may focus an `id` first;
+`key` takes `hold_ms` and maps keys through the current keyboard layout; `select_text`
+takes `suffix`; `scroll` takes `pixels` or `pages`; `scroll_to`, `drag` between ids or
+points with modifiers, and `window` (close, minimize, restore, zoom, fullscreen, raise,
+move, resize) are new. The zod schema in `@ace/screen` is the source of truth and checks
+cross-field rules before anything runs.
+
+**`when` and `wait_for`.** Any step may carry `when {text|id, gone?}`: it runs only if such
+an element exists then, otherwise it is reported as skipped, not failed. `wait_for` re-reads
+the window until text or an element appears (or goes). Together they let one batch handle
+a dialog that may or may not appear, and replace look-act-look round trips.
+
+**Speed.** `screen_state {outline: false}` returns a screenshot without walking the tree.
+`screen_act {observe: false}` skips the settled look. The toolkit resolves an app name once
+per caller and caches the bundle id (dropped on `app_not_found`), so a look or action is
+one helper round trip. Requests to different apps run in parallel.
+
+**Policy.** Lookups are case-insensitive. ace's own desktop app (`dev.ace.app`) is refused
+so agents cannot answer its approvals; Script Editor, Automator and Shortcuts are refused
+because they run shell commands, like terminals; more terminals are listed. The person can
+add apps (bundle ids or names) in Settings › Computer use › Apps agents can't use
+(`computer.blockedApps`, global and admin-only, so an agent cannot loosen it).
+
+**Visibility.** The task list shows a quiet cursor mark on a thread whose agent is using
+Mac apps, naming them, from the calls in flight with a short linger
+(`computer.using.watch`, shaped like `browser.browsing.watch`).
+
+**Deferred.** Background engines for Windows and Linux (they keep the session tools);
+operating while the Mac is locked; per-app approval prompts, which are intentionally not
+done: ace never gates its own tools, and the provider's permission mode decides each call
+(ADR 0086). ace's web UI open in a browser is not covered by the block list; agents are
+told to use browser tools for web pages.

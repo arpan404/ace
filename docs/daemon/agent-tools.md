@@ -179,20 +179,28 @@ On macOS agents get three tools, served by `ace-screen-helper --computer`
 focus unless the agent asks for it.
 
 - `screen_apps({query?})` lists running apps, plus installed ones matching `query`.
-- `screen_state({app, window?, screenshot?, full?})` resolves a name or bundle id, launches
+- `screen_state({app, window?, screenshot?, outline?, find?, full?})` resolves a name or bundle id, launches
   the app without activating it if needed, waits for its UI to settle and returns the
   window as an outline: one line per meaningful accessibility element,
   `<id> <role> (<flags>) <name>, Value: …, Actions: …`, tab-indented by nesting. Ids are
   stable per caller, so a later look returns a diff (`+` new, `~` changed, ancestors as
   context, `Removed: 3-5`) or "No change since your last look."; `full: true` returns the
   whole outline. Windows on other Spaces are found too; `window` picks one by number or
-  title.
-- `screen_act({app, actions, window?, screenshot?})` runs 1 to 20 steps in order, stops at
-  the first failure (reporting which step failed and that the rest did not run), then
-  returns the settled diff. Steps: `click` (an id, or x,y screenshot pixels hit-tested
-  against the outline), `type`, `key` (named keys and chords such as `cmd+s`),
-  `set_value`, `select_text`, `scroll`, `action` (an element's listed action), `menu` (a
-  path, pressed without opening the menu), `focus`, `drag`, `wait` and `activate`.
+  title. `outline: false` returns only the screenshot, skipping the tree walk. An app that
+  stops answering accessibility requests yields a partial outline marked "not responding".
+- `screen_act({app, actions, window?, screenshot?, observe?})` runs 1 to 20 steps in order,
+  stops at the first failure (reporting which step failed and that the rest did not run),
+  then returns the settled diff (`observe: false` skips it). Steps: `click` (an id, or x,y
+  screenshot pixels; `button` left/right/middle, `count`, `modifiers`, `hold_ms`), `move`
+  (hover), `type`, `paste` and `key` (each optionally focusing an `id` first; keys take
+  `repeat` and `hold_ms`), `set_value`, `select_text` (`prefix`, `suffix`, `cursor`),
+  `scroll` (`pages` or `pixels`), `scroll_to`, `action`, `menu` (a path, pressed without
+  opening the menu), `focus`, `drag` (from/to as points or ids, `modifiers`), `window`
+  (close, minimize, restore, zoom, fullscreen, raise, move, resize), `wait`, `wait_for`
+  (text or id appears, or `gone`, within `timeout_ms`) and `activate`. Every step may carry
+  `when {text|id, gone?}`: it runs only if that element is there, otherwise the result
+  lists it as skipped. Cross-field rules (id or x,y; pages or pixels; move needs x,y) are
+  checked before anything runs, with errors the model can act on.
 
 Clicks by id use accessibility actions (press, focus, select), which work on covered and
 off-screen windows. Keys and typing are posted to the app's process, never to the HID
@@ -200,10 +208,19 @@ stream, so the person's cursor and keyboard are untouched. Screenshots show only
 window, sized for the model (at most 1568 px on the long edge and about 1.15 MP), and
 their pixels are the coordinate space for x,y. `activate` brings the app forward; it is
 the last resort for apps that ignore background input, typically Electron windows that
-are off screen. Password managers, system authentication prompts and terminals are
-refused before anything launches (`packages/screen/src/computer/policy.ts`). The first
-look at some apps adds a one-line note on what works there
+are off screen. Password managers, system authentication prompts, terminals, script
+runners (Script Editor, Automator, Shortcuts) and ace itself are refused before anything
+launches, as are the apps the person lists in Settings › Computer use › Apps agents can't
+use (`computer.blockedApps`, global, admin-only; matched by bundle id or name, any case;
+`packages/screen/src/computer/policy.ts`). ace adds no approval prompts of its own. The
+first look at some apps adds a one-line note on what works there
 (`packages/screen/src/computer/app-notes.ts`).
+
+Each app gets its own helper process, so agents in different apps run in parallel and a
+hung app stalls only its own calls. A stopped call sends `cancel` to that helper, waits up
+to 3 s for the partial reply, then kills only that helper. While a thread's agent looks at
+or acts in an app, the task list shows a quiet cursor mark naming the app
+(`computer.using`, shaped like `browser.browsing`).
 
 ### Windows and Linux: session tools
 

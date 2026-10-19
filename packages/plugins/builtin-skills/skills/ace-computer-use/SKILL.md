@@ -28,15 +28,27 @@ Ids stay the same between looks, so later results are a diff: `+` lines are new,
 
 ### Choosing an action
 
-- **Click by id**: `{"type":"click","id":15}`. It presses the element directly, even when the window is covered or on another Space. `count: 2` double-clicks; `button: "right"` opens the context menu.
-- **Click by x,y** only for things missing from the outline (canvases, images). The coordinates are pixels of the screenshot ace returned, nothing else.
-- **Fields**: `set_value` replaces a field's whole value in one step and is the most reliable. `type` types at the caret, like a keyboard, for apps that react to keystrokes (search-as-you-type, chat boxes). `select_text` selects a passage, or with `cursor` places the caret before or after it, so the next `type` edits in place.
+- **Click by id**: `{"type":"click","id":15}`. It presses the element directly, even when the window is covered or on another Space. `count: 2` double-clicks; `button: "right"` opens the context menu, `"middle"` middle-clicks; `modifiers: ["cmd"]` ⌘-clicks (also `shift`, `alt`, `ctrl`, `fn`); `hold_ms` long-presses.
+- **Click by x,y** only for things missing from the outline (canvases, images). The coordinates are pixels of the latest screenshot of that window, nothing else; take a new one after the window changes.
+- **Hover**: `{"type":"move","id":15}` shows tooltips and hover menus.
+- **Fields**: `set_value` replaces a field's whole value in one step and is the most reliable. `type` types at the caret, like a keyboard, for apps that react to keystrokes (search-as-you-type, chat boxes); give it an `id` to focus that field first. `select_text` selects a passage (`prefix` or `suffix` tell repeats apart), or with `cursor` places the caret before or after it, so the next `type` edits in place.
 - **Long or formatted text**: `{"type":"paste","text":"…","format":"markdown"}` keeps headings, lists, bold and links (`html` works too). The person's clipboard is put back afterwards. In a background app rich paste may land as plain text; the result says so.
-- **Keys**: `{"type":"key","key":"cmd+s"}`, `"Return"`, `"Escape"`, `"Down"` with `repeat`. In a background app, ⌘ shortcuts run their menu item, and ⌘A/⌘C/⌘X/⌘V edit the focused text directly.
+- **Keys**: `{"type":"key","key":"cmd+s"}`, `"Return"`, `"Escape"`, `"Down"` with `repeat`, `hold_ms` to hold, `id` to focus first. In a background app, ⌘ shortcuts run their menu item, and ⌘A/⌘C/⌘X/⌘V edit the focused text directly. After you copy, the result quotes what was copied.
 - **Menus**: `{"type":"menu","path":["File","Export…"]}` runs a menu command without opening the menu. Prefer it to shortcuts when you know the path; the `Menu bar:` line of a full outline names the top-level menus.
-- **Other**: `scroll` (an id or a point, with `direction`), `action` for an element's listed `Actions`, `focus`, `drag`, `wait`.
+- **Windows**: `{"type":"window","op":"resize","width":900,"height":600}`; also `close`, `minimize`, `restore`, `zoom`, `fullscreen`, `raise` and `move` (`x`, `y` in screen points). It acts on the window you looked at.
+- **Other**: `scroll` (an id or a point, `direction`, and `pages` or `pixels`), `scroll_to {id}` to bring an element into view, `action` for an element's listed `Actions`, `focus`, `drag` (`from` and `to` as `[x, y]` or `{"id": n}`, with `modifiers`), `wait`.
 
-Add `screenshot: true` to `screen_state` or `screen_act` when the outline does not show what you need: layout, images, colours, or a canvas you must click into. The image is the window alone, with each clickable element tagged by its outline id, so you can click by id what you found by sight. In a large window, `screen_state {app, find: "Invoice"}` lists only matching elements with their parents.
+### Fewer round trips
+
+Each look costs a turn. Batch every step whose outcome you can predict, and let the batch check for itself:
+
+- `{"type":"wait_for","text":"Saved"}` waits until that text appears (`gone: true`: until it goes, `id` for an element), up to `timeout_ms` (default 5000), instead of looking again.
+- `when` on any step runs it only if the element is there now, so one batch can handle a dialog that may or may not show: `{"type":"click","id":31,"when":{"text":"Replace"}}`. A step whose condition is not met is listed as skipped, not failed.
+- `observe: false` on `screen_act` skips the look afterwards when your next call looks anyway. `screen_state {app, outline: false, screenshot: true}` is the fastest look when only the picture matters.
+
+Add `screenshot: true` to `screen_state` or `screen_act` when the outline does not show what you need: layout, images, colours, or a canvas you must click into. The image is the window alone, with each clickable element tagged by its outline id, so you can click by id what you found by sight. In a large window, `screen_state {app, find: "Invoice"}` lists only matching elements with their parents. "<App> is not responding" means the app is busy: the outline may be partial, so wait or look again.
+
+If your call is stopped, the batch stops at its next step; work already done stays done, so look before you retry.
 
 The person can watch: on a visible window a small marker shows where you act, and pressing Esc while you act stops you. `stopped_by_person` means stop and ask how to continue; `person_active` means they are using that app right now, so wait a few seconds or work elsewhere.
 
@@ -46,7 +58,7 @@ Some apps ignore background input. Electron and Chromium apps (Slack, Discord, V
 
 ### Limits
 
-- Password managers, system authentication prompts and terminals are refused. Ask the person to do those steps, and use your shell for commands.
+- Password managers, system authentication prompts, terminals, Script Editor, Automator, Shortcuts, ace itself and any app the person has listed are refused. Ask the person to do those steps, use your shell for commands, and never look for another way into a refused app.
 - Ask the person before anything irreversible they did not ask for in so many words: sending a message or email, posting, buying, deleting, changing system settings. Read back what you will send.
 - On Windows and Linux ace offers the older session tools instead (`screen_open_app`, `screen_ui_tree`, `screen_ui_act`, `screen_input`); their descriptions say how to use them.
 
