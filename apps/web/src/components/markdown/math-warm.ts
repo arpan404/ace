@@ -8,9 +8,12 @@ import size2Regular from "katex/dist/fonts/KaTeX_Size2-Regular.woff2?url";
  * Warming KaTeX before the first formula needs it. The chunk, its CSS and the
  * few woff2 fonts common math uses preload at idle, after the app is already
  * interactive — never on the critical startup path, and never on mobile or a
- * metered connection (`saveData`, very slow links). The moment the streaming
- * parser first sees a math delimiter it warms at once instead of waiting for
- * idle, still before the formula's block settles.
+ * metered connection (`saveData`, very slow links). App boot schedules it
+ * once the shell has rendered; the thread route schedules it alongside the
+ * markdown chunk so the two downloads overlap; prose schedules it as a
+ * backstop. Scheduling is idempotent: the first trigger wins. The moment the
+ * streaming parser first sees a math delimiter it warms at once instead of
+ * waiting for idle, still before the formula's block settles.
  */
 
 /** The woff2 fonts common math (`\frac`, `\boxed`, super/subscripts) uses. */
@@ -67,19 +70,38 @@ export interface IdleScheduler {
 
 /**
  * Run `work` once the page is idle (`timeoutMs` bounds the wait), or shortly
- * after interactivity where there is no idle callback. Returns a cancel.
+ * after interactivity where there is no idle callback. A `setTimeout` safety
+ * net races the idle callback and cancels it: where idle callbacks never fire
+ * (ace's own browser has that bug), the timeout still runs the work.
+ * Whichever fires first wins; cancel stops both. Returns a cancel.
  */
 export function scheduleWhenIdle(
   scheduler: IdleScheduler,
   work: () => void,
   timeoutMs = 3000,
 ): () => void {
+  let settled = false;
+  let idleId: number | undefined;
+  let timerId: ReturnType<typeof setTimeout> | undefined;
+  const cancel = () => {
+    settled = true;
+    if (idleId !== undefined) scheduler.cancelIdle?.(idleId);
+    if (timerId !== undefined) scheduler.clearTimeout(timerId);
+  };
+  const run = () => {
+    if (settled) return;
+    settled = true;
+    if (idleId !== undefined) scheduler.cancelIdle?.(idleId);
+    if (timerId !== undefined) scheduler.clearTimeout(timerId);
+    work();
+  };
   if (scheduler.requestIdleCallback) {
-    const id = scheduler.requestIdleCallback(work, { timeout: timeoutMs });
-    return () => scheduler.cancelIdle?.(id);
+    idleId = scheduler.requestIdleCallback(run, { timeout: timeoutMs });
+    timerId = scheduler.setTimeout(run, timeoutMs);
+  } else {
+    timerId = scheduler.setTimeout(run, 1200);
   }
-  const id = scheduler.setTimeout(work, 1200);
-  return () => scheduler.clearTimeout(id);
+  return cancel;
 }
 
 const realScheduler = (): IdleScheduler => ({
@@ -145,11 +167,16 @@ const defaultEnvironment = (): ScheduledWarmEnvironment => ({
 /**
  * Warm KaTeX at idle, or not at all on mobile/metered links. The dynamic
  * import keeps KaTeX out of the initial bundle; this only schedules it.
+ * Idempotent: boot, prose and the thread route all trigger it, and only the
+ * first schedules. A gated-out call schedules nothing and consumes nothing.
  */
+let warmupScheduled = false;
 export function scheduleMathWarmup(
   environment?: Partial<ScheduledWarmEnvironment> | undefined,
 ): () => void {
   const full = { ...defaultEnvironment(), ...environment };
+  if (warmupScheduled) return () => {};
   if (!shouldWarmMath(full.hints ?? {}) || !full.scheduler) return () => {};
+  warmupScheduled = true;
   return scheduleWhenIdle(full.scheduler, () => void warmMathNow(full));
 }

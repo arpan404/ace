@@ -18,26 +18,80 @@ test("metered and mobile links never warm", () => {
   expect(shouldWarmMath({ mobile: true })).toBe(false);
 });
 
-test("idle work runs when the page is idle and can be cancelled", () => {
-  const scheduled = new Map<number, () => void>();
-  let next = 0;
-  const scheduler: IdleScheduler = {
-    requestIdleCallback: (work) => {
-      const id = ++next;
-      scheduled.set(id, work);
-      return id;
+/** A scheduler whose idle callbacks and timers only fire when the test fires them. */
+const toTimerId = (id: number) => id as unknown as ReturnType<typeof setTimeout>;
+const fromTimerId = (id: ReturnType<typeof setTimeout>) => id as unknown as number;
+function manualScheduler() {
+  const idle = new Map<number, () => void>();
+  const timers = new Map<number, () => void>();
+  let next = 1;
+  return {
+    scheduler: {
+      requestIdleCallback: (work: () => void) => {
+        const id = next++;
+        idle.set(id, work);
+        return id;
+      },
+      cancelIdle: (id: number) => void idle.delete(id),
+      setTimeout: (work: () => void) => {
+        const id = next++;
+        timers.set(id, work);
+        return toTimerId(id);
+      },
+      clearTimeout: (id: ReturnType<typeof setTimeout>) => void timers.delete(fromTimerId(id)),
+    } satisfies IdleScheduler,
+    fireIdle: (id = 1) => idle.get(id)?.(),
+    fireTimers: () => {
+      const runs = [...timers.values()];
+      timers.clear();
+      for (const run of runs) run();
     },
-    cancelIdle: (id) => void scheduled.delete(id),
-    setTimeout: (work) => setTimeout(work, 0),
-    clearTimeout: (id) => clearTimeout(id),
+    get pendingIdle() {
+      return idle.size;
+    },
+    get pendingTimers() {
+      return timers.size;
+    },
   };
+}
+
+test("idle work runs when the page is idle and can be cancelled", () => {
+  const clock = manualScheduler();
   const work = vi.fn();
-  const cancel = scheduleWhenIdle(scheduler, work, 3000);
+  const cancel = scheduleWhenIdle(clock.scheduler, work, 3000);
   expect(work).not.toHaveBeenCalled();
-  scheduled.get(1)?.();
+  // The safety net is armed alongside the idle callback.
+  expect(clock.pendingIdle).toBe(1);
+  expect(clock.pendingTimers).toBe(1);
+  clock.fireIdle();
   expect(work).toHaveBeenCalledTimes(1);
+  // The idle callback won: its safety net is gone.
+  expect(clock.pendingIdle).toBe(0);
+  expect(clock.pendingTimers).toBe(0);
   cancel();
-  expect(scheduled.has(1)).toBe(false);
+});
+
+test("a cancelled warm-up never runs, idle or timeout", () => {
+  const clock = manualScheduler();
+  const work = vi.fn();
+  const cancel = scheduleWhenIdle(clock.scheduler, work, 3000);
+  cancel();
+  clock.fireIdle();
+  clock.fireTimers();
+  expect(work).not.toHaveBeenCalled();
+});
+
+test("the safety net fires when idle callbacks never come", () => {
+  const clock = manualScheduler();
+  const work = vi.fn();
+  scheduleWhenIdle(clock.scheduler, work, 3000);
+  // Idle never fires (ace's own browser has that bug): the timeout still runs the work, once.
+  clock.fireTimers();
+  expect(work).toHaveBeenCalledTimes(1);
+  clock.fireIdle();
+  expect(work).toHaveBeenCalledTimes(1);
+  expect(clock.pendingIdle).toBe(0);
+  expect(clock.pendingTimers).toBe(0);
 });
 
 test("without an idle callback the work still runs, shortly after interactivity", () => {
@@ -130,4 +184,53 @@ test("the preloaded fonts are the few common woff2 files", () => {
 
 test("hints reflect the platform", () => {
   expect(readWarmHints()).toEqual({});
+});
+
+/** A fresh warm module, so scheduling-once tests never share state. */
+async function freshWarm() {
+  vi.resetModules();
+  return import("./math-warm.ts");
+}
+
+test("booting the app shell schedules exactly one warm-up", async () => {
+  const warm = await freshWarm();
+  const clock = manualScheduler();
+  const importMath = vi.fn(async () => ({}));
+  const trigger = {
+    scheduler: clock.scheduler,
+    hints: {},
+    importMath,
+    document: undefined,
+    fonts: undefined,
+  };
+  // Boot triggers, then prose and the thread route trigger: only the first schedules.
+  warm.scheduleMathWarmup(trigger);
+  warm.scheduleMathWarmup({ ...trigger });
+  warm.scheduleMathWarmup({ ...trigger });
+  expect(clock.pendingIdle).toBe(1);
+  expect(clock.pendingTimers).toBe(1);
+  clock.fireIdle();
+  expect(importMath).toHaveBeenCalledTimes(1);
+  expect(clock.pendingIdle).toBe(0);
+  expect(clock.pendingTimers).toBe(0);
+});
+
+test("a gated-out trigger schedules nothing and consumes nothing", async () => {
+  const warm = await freshWarm();
+  const clock = manualScheduler();
+  const importMath = vi.fn(async () => ({}));
+  const trigger = {
+    scheduler: clock.scheduler,
+    hints: { saveData: true },
+    importMath,
+    document: undefined,
+    fonts: undefined,
+  };
+  warm.scheduleMathWarmup(trigger);
+  expect(clock.pendingIdle).toBe(0);
+  expect(clock.pendingTimers).toBe(0);
+  warm.scheduleMathWarmup({ ...trigger, hints: {} });
+  expect(clock.pendingIdle).toBe(1);
+  clock.fireIdle();
+  expect(importMath).toHaveBeenCalledTimes(1);
 });
