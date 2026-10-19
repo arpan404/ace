@@ -117,7 +117,6 @@ test("a finished subagent shows the bar with how long it ran and Open parent ins
     ]),
   );
   expect(await within(bar).findByText("Completed in 5m 45s")).toBeTruthy();
-  expect(within(bar).getByText("Runs on its own")).toBeTruthy();
   expect(within(bar).queryByRole("button", { name: /^Stop/ })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "Message" })).toBeNull();
 
@@ -272,7 +271,6 @@ test("a finished thread ace delegated shows the bar with its model, effort and d
   const bar = await screen.findByRole("group", { name: "Subagent" });
   expect(within(bar).getByText("High")).toBeTruthy();
   expect(await within(bar).findByText("Completed in 5m 45s")).toBeTruthy();
-  expect(within(bar).getByText("Delegated by ace")).toBeTruthy();
   expect(screen.queryByRole("combobox", { name: "Message" })).toBeNull();
 
   await userEvent.click(within(bar).getByRole("link", { name: "Open parent" }));

@@ -28,6 +28,8 @@ export function StopAgent(props: {
   subagents: number;
   /** Its own turn may have ended while descendants or background work remain live. */
   pending?: boolean;
+  /** Outlined on its own (the agent tree); ghost among a bar's other quiet actions. */
+  variant?: "secondary" | "ghost";
   className?: string;
   /** In the tree: reached with Delete or S rather than Tab. */
   inTree?: boolean;
@@ -60,7 +62,7 @@ export function StopAgent(props: {
   const button = (
     <Button
       size="sm"
-      variant="secondary"
+      variant={props.variant ?? "secondary"}
       disabled={stopping}
       aria-label={stopping ? undefined : label}
       {...(props.inTree ? { "data-stop": "", tabIndex: -1 } : {})}
