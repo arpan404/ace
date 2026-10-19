@@ -12,24 +12,30 @@ tools below. It registers `screen_apps`, `screen_state` and `screen_act` over a 
 one shared helper for `hello`, `apps` and `resolve`. Different apps run in parallel; a hung
 app stalls only its own helper.
 
-- Apps launch without activation. Windows on other Spaces are reached through AX remote
-  tokens. Nothing posts to the HID stream or moves the cursor; `activate` is the explicit
-  step that brings an app forward.
+- Apps launch without activation. Windows on other Spaces are reached through the app's
+  main and focused window, then AX remote tokens. Nothing posts to the HID stream or moves
+  the cursor; `activate` is the explicit step that brings an app forward.
 - Observations wait for the UI to settle (AX notifications plus a short quiet interval) and
   return an outline: one line per meaningful element, with ids that stay stable. The
   toolkit keeps each caller's last outline per app and returns a diff, or "No change since
   your last look." (`src/computer/outline.ts`, pure).
 - Clicks by id use AX actions (press, focus, select), so they work off-screen; clicks by
   x,y are screenshot pixels hit-tested against the outline. Keys and text are posted to the
-  app's process. Menus are pressed by path without opening them.
+  app's process. Menus are pressed by path without opening them. Mouse and wheel events for
+  a window on another Space or behind a full-screen app name that window and carry the point
+  in its own coordinates (`cuAddressToWindow`), since nothing is under the point there; hover
+  effects that track the real pointer do not show there.
 - Screenshots are window-only, at most 1568 px on the long edge and about 1.15 MP, so the
   model sees them unscaled and its pixel coordinates are the ones the helper uses.
   Actionable elements are tagged with their outline ids on the image.
 - Background apps ignore ⌘ shortcuts and have no key window for first-responder commands.
-  Before keyboard and menu steps the helper makes the target window the app's key window
-  through SkyLight focus records, without activating it (`ComputerFocus.swift`); ⌘
-  shortcuts press their menu item; ⌘A/⌘C/⌘X/⌘V and plain paste edit the focused text
-  through AX. Rich paste (markdown or HTML) goes through the clipboard, which is restored.
+  Before keyboard, menu and mouse steps the helper makes the target window the app's key
+  window without activating it: through SkyLight focus records for a window on screen
+  (`ComputerFocus.swift`), and for a window on another Space by telling the app alone that
+  it is active, undone when the request ends (`ComputerInnerActivation.swift`). ⌘ shortcuts
+  press their menu item; ⌘A/⌘C/⌘X/⌘V and plain paste edit the focused text through AX, or
+  run the app's own Copy, Cut and Paste when it was activated inside. Rich paste (markdown
+  or HTML) goes through the clipboard, which is restored.
 - The person wins: an action refuses while they are using that same app, Esc during agent
   activity stops it, a locked screen is reported, and the display stays awake while acting.
   On visible windows a small marker shows where the agent acts (`ComputerOverlay.swift`).

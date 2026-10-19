@@ -173,6 +173,39 @@ a dialog that may or may not appear, and replace look-act-look round trips.
 per caller and caches the bundle id (dropped on `app_not_found`), so a look or action is
 one helper round trip. Requests to different apps run in parallel.
 
+**Windows on other Spaces.** A window on another Space or behind a full-screen app was
+reachable by AX but not usable: the SkyLight focus records have no effect there, so
+first-responder menu commands, the ⌘ shortcuts bound to them and rich paste did nothing,
+and posted mouse events arrived with no window. Measured live (TextEdit, Calculator, an
+AppKit and an Electron test window, all behind a full-screen app):
+
+- AppKit takes the key window, main window and first responder from its own "application
+  activated" event. For such a window the helper posts that event to the app's process only,
+  makes the window main through AX, and posts "application deactivated" when the request
+  ends, unless the person brought the app forward meanwhile. The window server is never
+  told: the frontmost app, menu bar owner, Space and the person's keyboard stayed unchanged
+  in every run. `AXFrontmost` reports the app's own belief and confirms it took. Copy, Cut,
+  Paste, Bold, Save… and their shortcuts then work, Copy and Paste through the app's own
+  commands (keeping formatting), and rich paste lands formatted. On-screen windows keep the
+  focus records. While activated inside, the app behaves as focused: Electron pages get
+  focus and blur events, and an app's own windows on the current Space would draw as active
+  for the length of the batch.
+- The window server fills an event's window number and window-local location only when it
+  routes by position. Mouse and wheel events for such a window now carry both (the window
+  location through `CGEventSetWindowLocation`), so x,y clicks, double clicks, drags, right
+  and middle clicks and wheel scrolling land. Hover does not: AppKit tracking areas and
+  Chromium follow the real pointer, so `move` says hover effects may not show.
+- A window opened while its app sits on another Space is never listed in `AXWindows` and has
+  no AX token until something asks for it; the app's `AXMainWindow` and `AXFocusedWindow`
+  return it, and are checked before the token scan.
+- Chromium builds its tree a moment after `AXManualAccessibility` is set; the first look
+  re-walks until a web area appears (the old six-node check passed on the window's own
+  buttons). Safari pages in windows not shown for a while expose no web content (the web
+  view has no children while its process is alive); the screenshot and x,y clicks work.
+
+Hidden apps and minimized windows are unchanged: no Space holds them, so pointer steps
+refuse with a message to restore the window first.
+
 **Policy.** Lookups are case-insensitive. ace's own desktop app (`dev.ace.app`) is refused
 so agents cannot answer its approvals; Script Editor, Automator and Shortcuts are refused
 because they run shell commands, like terminals; more terminals are listed. The person can

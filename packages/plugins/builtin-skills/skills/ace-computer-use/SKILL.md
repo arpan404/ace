@@ -29,10 +29,10 @@ Ids stay the same between looks, so later results are a diff: `+` lines are new,
 ### Choosing an action
 
 - **Click by id**: `{"type":"click","id":15}`. It presses the element directly, even when the window is covered or on another Space. `count: 2` double-clicks; `button: "right"` opens the context menu, `"middle"` middle-clicks; `modifiers: ["cmd"]` ⌘-clicks (also `shift`, `alt`, `ctrl`, `fn`); `hold_ms` long-presses.
-- **Click by x,y** only for things missing from the outline (canvases, images). The coordinates are pixels of the latest screenshot of that window, nothing else; take a new one after the window changes.
-- **Hover**: `{"type":"move","id":15}` shows tooltips and hover menus.
+- **Click by x,y** only for things missing from the outline (canvases, images, web pages whose content the outline lacks). The coordinates are pixels of the latest screenshot of that window, nothing else; take a new one after the window changes. This works on windows on another Space or behind a full-screen app too, as do drags and wheel scrolling.
+- **Hover**: `{"type":"move","id":15}` shows tooltips and hover menus. On a window on another Space or behind a full-screen app, hover effects usually do not show (they follow the person's real pointer); the result says so.
 - **Fields**: `set_value` replaces a field's whole value in one step and is the most reliable. `type` types at the caret, like a keyboard, for apps that react to keystrokes (search-as-you-type, chat boxes); give it an `id` to focus that field first. `select_text` selects a passage (`prefix` or `suffix` tell repeats apart), or with `cursor` places the caret before or after it, so the next `type` edits in place.
-- **Long or formatted text**: `{"type":"paste","text":"…","format":"markdown"}` keeps headings, lists, bold and links (`html` works too). The person's clipboard is put back afterwards. In a background app rich paste may land as plain text; the result says so.
+- **Long or formatted text**: `{"type":"paste","text":"…","format":"markdown"}` keeps headings, lists, bold and links (`html` works too). The person's clipboard is put back afterwards. If an app ignores the rich paste it lands as plain text; the result says so.
 - **Keys**: `{"type":"key","key":"cmd+s"}`, `"Return"`, `"Escape"`, `"Down"` with `repeat`, `hold_ms` to hold, `id` to focus first. In a background app, ⌘ shortcuts run their menu item, and ⌘A/⌘C/⌘X/⌘V edit the focused text directly. After you copy, the result quotes what was copied.
 - **Menus**: `{"type":"menu","path":["File","Export…"]}` runs a menu command without opening the menu. Prefer it to shortcuts when you know the path; the `Menu bar:` line of a full outline names the top-level menus.
 - **Windows**: `{"type":"window","op":"resize","width":900,"height":600}`; also `close`, `minimize`, `restore`, `zoom`, `fullscreen`, `raise` and `move` (`x`, `y` in screen points). It acts on the window you looked at.
@@ -54,7 +54,9 @@ The person can watch: on a visible window a small marker shows where you act, an
 
 ### When background input does not work
 
-Some apps ignore background input. Electron and Chromium apps (Slack, Discord, VS Code) often do while their window is off-screen, minimised or on another Space. If an action reports success but nothing changed, look again with a screenshot, then add `{"type":"activate"}` as the first step and retry. `activate` brings the app to the front and interrupts the person: use it only after background actions failed, and say that you did.
+Windows on another Space or behind a full-screen app work like visible ones: menus, shortcuts, typing, rich paste, clicks, drags and scrolling, without switching the person's Space. A minimised window takes no mouse input; restore it with `window {op: "restore"}` first. Safari pages in a window the person has not looked at for a while may show no page content in the outline: use a screenshot and x,y clicks there.
+
+Some apps still ignore background input. If an action reports success but nothing changed, look again with a screenshot, then add `{"type":"activate"}` as the first step and retry. `activate` brings the app to the front and interrupts the person: use it only after background actions failed, and say that you did.
 
 ### Limits
 
