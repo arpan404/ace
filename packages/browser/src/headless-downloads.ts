@@ -13,7 +13,7 @@ interface Download {
   createReadStream(): Promise<Readable | null>;
 }
 import type { BrowserDownload } from "@ace/protocol";
-import type { BackendOpen } from "./backend.ts";
+import type { BackendOpen, DownloadSource } from "./backend.ts";
 import { PolicyGate } from "./policy-call.ts";
 
 export function downloadFlags(filename: string, mimeType: string): BrowserDownload["flags"] {
@@ -55,6 +55,16 @@ export class HeadlessDownloads {
   }
   list(): BrowserDownload[] {
     return this.entries.map((entry) => ({ ...entry }));
+  }
+  /** Quarantined copies of finished downloads, by download id. */
+  private sources = new Map<string, DownloadSource>();
+  /**
+   * A finished download's quarantined copy, which only this session wrote (never the copy in
+   * the person's downloads folder, which anyone may have changed since).
+   */
+  source(downloadId: string): DownloadSource | undefined {
+    const source = this.sources.get(downloadId);
+    return source ? { ...source } : undefined;
   }
   async allowed(url: string): Promise<boolean> {
     if (this.privateMode) return false;
@@ -159,6 +169,13 @@ export class HeadlessDownloads {
               : undefined;
             entry.state = "complete";
             entry.path = saved ?? path;
+            this.sources.set(entry.downloadId, {
+              path,
+              bytes: entry.bytes,
+              filename,
+              mimeType,
+              flags: entry.flags,
+            });
           } finally {
             // PolicyGate can return on cancellation before this work settles.
             // The publisher owns these bytes until it acknowledges or rejects.

@@ -100,6 +100,7 @@ export function PrPrimaryButton(props: {
       tone={primary.kind === "resolve" ? "danger" : "default"}
       disabled={props.blocked !== undefined || props.working}
       aria-label={shown}
+      data-pr-primary=""
       onClick={() => {
         if (twoPress && !confirming) return setConfirming(true);
         setConfirming(false);

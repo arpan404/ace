@@ -16,6 +16,8 @@ import {
 import { synthesizedStatus } from "./catalog/git-status.ts";
 import { scriptOutput } from "./catalog/scripts.ts";
 import { FakeForgeWire } from "./forge-wire.ts";
+import { FakePrCatalog } from "./pr-catalog-wire.ts";
+import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
 import { emptyIssueList, FakeIssueWire } from "./issue-wire.ts";
 import { FakeTerminals } from "./terminals.ts";
 import { FakeGitStates } from "./git-states.ts";
@@ -58,6 +60,11 @@ export class FakeWorkspaceWire {
     outcome: "succeeded" | "uncertain" | "unsent" | "busy" | "unauthorized" | "invalid" | "unknown",
   ): void {
     this.issues.setOutcome(outcome);
+  }
+  private pullRequests = new FakePrCatalog();
+  /** Whole pull requests the fake app's PR panel can open (`pullRequestDetails`). */
+  seedPullRequests(fixtures: readonly PullRequestFixture[]): void {
+    this.pullRequests.seed(fixtures);
   }
   setForgeRead(operation: ForgeBrowserOperation, result: ForgeBrowserResult): void {
     this.forgeReads.set(JSON.stringify(operation), ForgeBrowserResult.parse(result));
@@ -171,6 +178,16 @@ export class FakeWorkspaceWire {
         },
       });
     }
+    const catalogued =
+      op.op.startsWith("forge.pr.") && !this.forgeReads.has(JSON.stringify(op))
+        ? this.pullRequests.read(op)
+        : undefined;
+    if (catalogued)
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: { kind: "forge", data: catalogued },
+      });
     if (op.op === "forge.pr.merge-state" && !this.forgeReads.has(JSON.stringify(op))) {
       const value = this.forge.mergeState(op.workspaceId, op.repository, op.number);
       return ServerMessage.parse({

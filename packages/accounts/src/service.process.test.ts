@@ -1,12 +1,12 @@
 import { afterEach, expect, test } from "vitest";
 import { readdir, realpath } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { ThreadId } from "@ace/protocol";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import type { ProviderAdapter, SessionContext } from "@ace/engine-api";
 import { quotaPayload } from "./test-support.ts";
 import { AccountService, openRegistry } from "./index.ts";
-import { cleanup, homes, idle, rollout } from "./test-support.ts";
+import { cleanup, hash, homes, idle, rollout } from "./test-support.ts";
 afterEach(cleanup);
 const context: SessionContext = {
   threadId: ThreadId.parse("thread"),
@@ -95,21 +95,6 @@ test("adapter sessions preserve live native IDs, assigned environments and isola
       expect(registry.summaries(1000).find((a) => a.id === request.to.id)?.availability).toBe(
         "unknown",
       );
-      expect(
-        await service.handle({
-          type: "accounts.migrate",
-          requestId: "m",
-          provider: "codex",
-          nativeSessionId: request.nativeSessionId,
-          from: request.from.id,
-          to: request.to.id,
-        }),
-      ).toMatchObject({
-        result: {
-          status: "refused",
-          reason: "Source or destination has an active writer or migration",
-        },
-      });
     } finally {
       await opened.session.close("shutdown");
     }
@@ -117,70 +102,89 @@ test("adapter sessions preserve live native IDs, assigned environments and isola
     registry.close();
   }
 });
-test("default migration refuses independent-writer uncertainty and verified offline safety can publish", async () => {
+const wire = (request: Awaited<ReturnType<typeof homes>>) => ({
+  type: "accounts.migrate",
+  requestId: "m",
+  provider: request.provider,
+  nativeSessionId: request.nativeSessionId,
+  from: request.from.id,
+  to: request.to.id,
+});
+const unused = {
+  capabilities: () => {
+    throw new Error("unused");
+  },
+  createTranslator: () => {
+    throw new Error("unused");
+  },
+};
+test("without a provider lease a session hands over instead of copying, and with one it copies", async () => {
   const request = await homes("codex");
   await rollout(request.from.homeDir, 3);
   const registry = await openRegistry(join(request.to.homeDir, "accounts.sqlite"));
   await registry.register(request.from);
   await registry.register(request.to);
   const options = { registry, now: () => 1, timeZone: "UTC", env: {} };
-  const wire = {
-    type: "accounts.migrate",
-    requestId: "m",
-    provider: "codex",
-    nativeSessionId: request.nativeSessionId,
-    from: request.from.id,
-    to: request.to.id,
-  };
   try {
-    expect(await new AccountService(options).handle(wire)).toMatchObject({
-      result: {
-        status: "refused",
-        reason: "Source or destination is live, or exclusive quiescence cannot be proven",
-      },
+    expect(await new AccountService(options).handle(wire(request))).toMatchObject({
+      result: { status: "unsupported" },
     });
-    expect(await new AccountService({ ...options, safety: idle }).handle(wire)).toMatchObject({
-      result: { status: "migrated", copiedFiles: 1 },
-    });
+    expect(await readdir(request.to.homeDir)).toEqual(["accounts.sqlite"]);
+    expect(
+      await new AccountService({ ...options, safety: idle }).handle(wire(request)),
+    ).toMatchObject({ result: { status: "migrated", copiedFiles: 1 } });
   } finally {
     registry.close();
   }
 });
 test.each(["codex", "claude", "opencode", "pi"] as const)(
-  "a normal %s CLI login on either side reports native history as unsupported and is never written",
+  "a normal %s CLI login is never written as the destination of a switch",
   async (provider) => {
-    for (const side of ["from", "to"] as const) {
-      const request = await homes(provider);
-      const registry = await openRegistry(join(request.to.homeDir, "accounts.sqlite"));
-      try {
-        for (const end of ["from", "to"] as const)
-          await registry.register(
-            end === side ? { ...request[end], implicit: true, env: {} } : request[end],
-          );
-        const before = await readdir(request[side].homeDir);
-        const result = await new AccountService({
-          registry,
-          now: () => 1,
-          timeZone: "UTC",
-          env: {},
-          safety: idle,
-        }).handle({
-          type: "accounts.migrate",
-          requestId: "m",
-          provider,
-          nativeSessionId: request.nativeSessionId,
-          from: request.from.id,
-          to: request.to.id,
-        });
-        expect(result).toMatchObject({ result: { status: "unsupported" } });
-        expect(await readdir(request[side].homeDir)).toEqual(before);
-      } finally {
-        registry.close();
-      }
+    const request = await homes(provider);
+    if (provider === "codex") await rollout(request.from.homeDir, 3);
+    const registry = await openRegistry(join(request.from.homeDir, "accounts.sqlite"));
+    try {
+      await registry.register(request.from);
+      await registry.register({ ...request.to, implicit: true, env: {} });
+      const result = await new AccountService({
+        registry,
+        now: () => 1,
+        timeZone: "UTC",
+        env: {},
+        safety: idle,
+      }).handle(wire(request));
+      expect(result).toMatchObject({ result: { status: "unsupported" } });
+      expect(await readdir(request.to.homeDir)).toEqual([]);
+    } finally {
+      registry.close();
     }
   },
 );
-test("concurrent migration and new adapter starts cannot enter homes under a lease", async () => {
+test("a normal Codex CLI login is copied from, under the lease, without changing its files", async () => {
+  const request = await homes("codex");
+  const source = await rollout(request.from.homeDir, 3);
+  const before = await hash(source);
+  const registry = await openRegistry(join(request.to.homeDir, "accounts.sqlite"));
+  try {
+    await registry.register({ ...request.from, implicit: true, env: {} });
+    await registry.register(request.to);
+    const result = await new AccountService({
+      registry,
+      now: () => 1,
+      timeZone: "UTC",
+      env: {},
+      safety: idle,
+    }).handle(wire(request));
+    expect(result).toMatchObject({ result: { status: "migrated", copiedFiles: 1 } });
+    expect(await hash(source)).toBe(before);
+    expect(await hash(join(request.to.homeDir, relative(request.from.homeDir, source)))).toBe(
+      before,
+    );
+  } finally {
+    registry.close();
+  }
+});
+test("while a copy runs, other threads keep opening sessions on both accounts and a sign-in waits", async () => {
   const request = await homes("codex");
   await rollout(request.from.homeDir, 3);
   const registry = await openRegistry(join(request.to.homeDir, "accounts.sqlite"));
@@ -197,53 +201,47 @@ test("concurrent migration and new adapter starts cannot enter homes under a lea
       acquire: async () => {
         acquired();
         await barrier;
-        return { release: async () => {} };
+        return { status: "held", release: async () => {} };
       },
     },
   });
-  const wire = {
-    type: "accounts.migrate",
-    requestId: "m",
+  const adapter: ProviderAdapter = {
     provider: "codex",
-    nativeSessionId: request.nativeSessionId,
-    from: request.from.id,
-    to: request.to.id,
+    ...unused,
+    openSession: async () => ({
+      nativeSessionId: "neighbour",
+      send: async () => {},
+      interrupt: async () => {},
+      resolve: async () => {},
+      stopTask: async () => {},
+      close: async () => {},
+    }),
   };
-  const first = service.handle(wire);
+  const copying = service.handle(wire(request));
   try {
     await ready;
-    expect(await service.handle(wire)).toMatchObject({
-      result: {
-        status: "refused",
-        reason: "Source or destination has an active writer or migration",
-      },
-    });
-    const adapter: ProviderAdapter = {
-      provider: "codex",
-      capabilities: () => {
-        throw new Error("unused");
-      },
-      createTranslator: () => {
-        throw new Error("unused");
-      },
-      openSession: async () => {
-        throw new Error("Unexpected launch");
-      },
-    };
-    await expect(
-      service.openSession(adapter, context, {
-        instanceId: request.to.id,
+    for (const instanceId of [request.from.id, request.to.id]) {
+      const opened = await service.openSession(adapter, context, {
+        instanceId,
         role: "worker",
         estimatedLoad: 1,
-      }),
-    ).rejects.toThrow("Instance is migrating");
+      });
+      expect(opened.instanceId).toBe(instanceId);
+      await opened.session.close("idle");
+    }
+    await expect(service.reserveAuthChange(request.from.id)).rejects.toThrow(
+      "A thread is moving to or from this account",
+    );
+    grant();
+    expect(await copying).toMatchObject({ result: { status: "migrated" } });
+    (await service.reserveAuthChange(request.from.id))();
   } finally {
     grant();
-    await first;
+    await copying;
     registry.close();
   }
 });
-test("failed lease release keeps both instances blocked after successful publication", async () => {
+test("a switch during a sign-in on either account is refused without copying", async () => {
   const request = await homes("codex");
   await rollout(request.from.homeDir, 3);
   const registry = await openRegistry(join(request.to.homeDir, "accounts.sqlite"));
@@ -254,32 +252,16 @@ test("failed lease release keeps both instances blocked after successful publica
     now: () => 1,
     timeZone: "UTC",
     env: {},
-    safety: {
-      acquire: async () => ({
-        release: async () => {
-          throw new Error("Not released");
-        },
-      }),
-    },
+    safety: idle,
   });
-  const wire = {
-    type: "accounts.migrate",
-    requestId: "m",
-    provider: "codex",
-    nativeSessionId: request.nativeSessionId,
-    from: request.from.id,
-    to: request.to.id,
-  };
   try {
-    expect(await service.handle(wire)).toMatchObject({
-      result: { status: "migrated", cleanupWarnings: ["lease_release_failed"] },
+    const release = await service.reserveAuthChange(request.to.id);
+    expect(await service.handle(wire(request))).toMatchObject({
+      result: { status: "refused", reason: expect.stringContaining("signing in") },
     });
-    expect(await service.handle(wire)).toMatchObject({
-      result: {
-        status: "refused",
-        reason: "Source or destination has an active writer or migration",
-      },
-    });
+    expect(await readdir(request.to.homeDir)).toEqual(["accounts.sqlite"]);
+    release();
+    expect(await service.handle(wire(request))).toMatchObject({ result: { status: "migrated" } });
   } finally {
     registry.close();
   }

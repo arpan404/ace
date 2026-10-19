@@ -32,6 +32,8 @@ export const streamKinds = {
   browserFrame: 1,
   /** One encoded video chunk of a thread's browser (`stream-video.ts`, ADR 0088). */
   browserVideo: 2,
+  /** A chunk of a thread's browser download, fetched to the person's device (`stream-download.ts`). */
+  browserDownload: 8,
 } as const;
 
 export class StreamEnvelopeError extends Error {

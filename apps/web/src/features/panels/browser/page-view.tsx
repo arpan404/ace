@@ -31,6 +31,8 @@ import { localCursor } from "./local-echo.ts";
 import { useLocalEcho } from "./use-local-echo.ts";
 import { LocalEchoOverlay } from "./local-echo-overlay.tsx";
 import { useTouchInput, useTouchScreen } from "./use-touch-input.ts";
+import { useFileDrop } from "./use-file-drop.tsx";
+import type { DropPoint } from "./use-browser-features.ts";
 
 /**
  * The page itself, edge to edge in the panel: the screencast frame on the panel's own surface,
@@ -61,6 +63,8 @@ export function PageView(props: {
   dimmed?: boolean;
   /** The page's cursor shape under the person's pointer (a CSS keyword); the arrow if absent. */
   cursor?: string | undefined;
+  /** Files from this device dropped on the page, at a point in its CSS pixels. */
+  onDropFiles?: ((files: File[], at: DropPoint) => void) | undefined;
 }) {
   const { frame } = props;
   const tabId = props.tab?.tabId;
@@ -96,6 +100,10 @@ export function PageView(props: {
       y: Math.round((event.clientY - (box?.top ?? 0)) * scale),
     };
   };
+  const fileDrop = useFileDrop(
+    point,
+    props.interactive && !props.nativeShown ? props.onDropFiles : undefined,
+  );
   const send = (event: "mousePressed" | "mouseReleased") => (mouse: MouseEvent<HTMLElement>) => {
     if (mouse.button > 2) return;
     // A right click opens ace's menu; with ⇧ it goes to the page (its own menus).
@@ -256,6 +264,7 @@ export function PageView(props: {
       onKeyDown={live ? onKey("keyDown") : undefined}
       onKeyUp={live ? onKey("keyUp") : undefined}
       onPaste={live ? paste : undefined}
+      {...fileDrop.handlers}
       style={live ? { cursor: localCursor(props.cursor) } : undefined}
       className={cn(
         className,
@@ -266,6 +275,7 @@ export function PageView(props: {
     >
       {image}
       {image && live && <LocalEchoOverlay ripples={echo.ripples} onSettled={echo.settled} />}
+      {fileDrop.indicator}
       {image && props.tab?.inUse && props.tab.pointer && !inPage && (
         <AgentCursor
           // It measures the picture it was given: a switch between JPEG and video is a new one.

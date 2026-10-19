@@ -1,10 +1,9 @@
 import { useMemo, useState } from "react";
 import type { ForgePrDetail } from "@ace/protocol";
 import { GitPullRequestIcon } from "@phosphor-icons/react";
-import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { LongRows } from "@/components/virtual-rows.tsx";
 import { QueryState } from "./query-state.tsx";
-import { readForge } from "./source.ts";
+import { usePrActivityEvents } from "./pr-activity-events.ts";
 import { usePrCommits } from "./pr-commits.tsx";
 import { prTimelineItems } from "./pr-timeline.ts";
 import { PrTimelineRow, type TimelineExpansion } from "./pr-timeline-rows.tsx";
@@ -18,43 +17,7 @@ export function PrActivity(props: {
 }) {
   const ref = props.detail.status.ref;
   const commits = usePrCommits({ ...props, repository: ref.repository });
-  const activity = useDaemonQuery({
-    queryKey: [
-      "forge",
-      props.workspaceId,
-      ref,
-      "workspace-activity",
-      props.detail.updatedAt,
-      props.detail.status.headSha,
-    ],
-    retry: false,
-    read: async (client, signal) => {
-      const events: import("@ace/protocol/forge-browser").ForgeActivity[] = [];
-      let page: number | undefined = 1;
-      let truncated = false;
-      while (page !== undefined) {
-        const result = await readForge(
-          client,
-          {
-            op: "forge.pr.activity",
-            workspaceId: props.workspaceId,
-            repository: ref.repository,
-            number: ref.number,
-            page,
-          },
-          signal,
-        );
-        if (result.resource !== "prActivity") throw new Error("No activity response.");
-        events.push(...result.events);
-        truncated ||= result.truncated;
-        page =
-          result.nextPage && result.nextPage > page && result.nextPage <= 120
-            ? result.nextPage
-            : undefined;
-      }
-      return { events, truncated };
-    },
-  });
+  const activity = usePrActivityEvents(props);
   const rows = useMemo(
     () =>
       prTimelineItems(

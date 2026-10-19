@@ -62,6 +62,14 @@ export interface BackendLog {
   type: string;
   text: string;
 }
+/** Where a finished download's quarantined copy is, and what it was when it finished. */
+export interface DownloadSource {
+  path: string;
+  bytes: number;
+  filename: string;
+  mimeType: string;
+  flags: BrowserDownload["flags"];
+}
 /** A tab to bring back when a thread's browser reopens, such as after a daemon restart. */
 export interface BackendRestoreTab {
   tabId: string;
@@ -143,6 +151,11 @@ export interface BrowserBackendTabs {
    * browser saves them itself, ADR 0084): asking for them fails at once with `not_supported`.
    */
   downloads?(): BrowserDownload[];
+  /**
+   * A finished download's quarantined copy, for the person to fetch to their device. Only this
+   * thread's own downloads are found; absent where the backend keeps no copy.
+   */
+  downloadSource?(downloadId: string): DownloadSource | undefined;
   /**
    * The tab whose page opened this one (a popup the backend adopted as a tab of its own). The
    * new tab counts as opened by whoever drove its opener.

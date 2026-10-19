@@ -6,6 +6,8 @@ import {
   type StreamEnvelope,
 } from "./stream-envelope.ts";
 import { decodeBrowserVideo, type BrowserVideoChunk } from "./stream-video.ts";
+import { decodeDownloadChunk, type DownloadChunkMessage } from "./stream-download.ts";
+export { downloadBusy, encodeDownloadChunk, type DownloadChunkMessage } from "./stream-download.ts";
 
 /*
  * The portable stream surface (`@ace/browser/stream`): the envelope, the browser frame kind's
@@ -36,10 +38,11 @@ const text = (bytes: Uint8Array) => new TextDecoder("utf-8", { fatal: true }).de
 
 /** A frame as it arrives in binary: `BrowserFrame` with the JPEG's bytes instead of base64. */
 export type BrowserFrameBytes = Omit<BrowserFrame, "data"> & { bytes: Uint8Array };
-/** A decoded stream message: a JPEG frame or an encoded video chunk. */
+/** A decoded stream message: a JPEG frame, an encoded video chunk or a download chunk. */
 export type StreamMessage =
   | { kind: "browser.frame"; threadId: ThreadId; frame: BrowserFrameBytes }
-  | { kind: "browser.video"; threadId: ThreadId; chunk: BrowserVideoChunk };
+  | { kind: "browser.video"; threadId: ThreadId; chunk: BrowserVideoChunk }
+  | DownloadChunkMessage;
 
 const FrameHeader = BrowserFrame.omit({ data: true });
 
@@ -97,5 +100,7 @@ export function decodeStreamMessage(envelope: StreamEnvelope): StreamMessage | u
     return decodeFrame(envelope.meta, envelope.payload);
   if (envelope.kind === streamKinds.browserVideo)
     return { kind: "browser.video", ...decodeBrowserVideo(envelope.meta, envelope.payload) };
+  if (envelope.kind === streamKinds.browserDownload)
+    return decodeDownloadChunk(envelope.meta, envelope.payload);
   return undefined;
 }

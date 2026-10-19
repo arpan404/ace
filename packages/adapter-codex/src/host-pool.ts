@@ -5,6 +5,7 @@ import { CodexHost, type ChannelHandlers, type CodexChannel } from "./host.ts";
 import type { CodexRuntime } from "./runtime.ts";
 import type { CodexSessionContext } from "./session-context.ts";
 import type { InitializeParams } from "./generated/InitializeParams.ts";
+import { unloadClosedThreads } from "./thread-lease.ts";
 
 /** A shared app-server with no sessions stays up this long for the next one. */
 export const defaultHostIdleMs = 10 * 60_000;
@@ -127,7 +128,7 @@ function startHost(
         spawn: (flow, dropped) =>
           io.spawn({
             command,
-            args: [...(ctx.builtinSkills?.args ?? []), "app-server"],
+            args: [...(ctx.builtinSkills?.args ?? []), ...unloadClosedThreads, "app-server"],
             // A shared process outlives any one workspace; threads carry their own cwd.
             cwd: dedicated ? ctx.cwd : io.homeDir(),
             outputFlow: flow,

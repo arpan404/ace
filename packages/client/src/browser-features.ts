@@ -131,6 +131,31 @@ export class BrowserFeaturesClient {
       options,
     );
   }
+  /**
+   * The person's files (thread attachments) dropped on the tab's page at a point in its CSS
+   * pixels: the page gets them as a native drop there.
+   */
+  dropFiles(
+    threadId: string,
+    tabId: string,
+    point: { x: number; y: number; modifiers?: number },
+    files: readonly { sha256: string; name: string }[],
+    options?: RequestOptions,
+  ) {
+    return this.read(
+      {
+        type: "browser.files.drop",
+        threadId: ThreadId.parse(threadId),
+        tabId,
+        x: Math.max(0, point.x),
+        y: Math.max(0, point.y),
+        modifiers: point.modifiers ?? 0,
+        files: [...files],
+      },
+      BrowserState,
+      options,
+    );
+  }
   /** Turn a tab's sound off or on; it stays that way until the person changes it. */
   muteTab(threadId: string, tabId: string, muted: boolean, options?: RequestOptions) {
     return this.read(

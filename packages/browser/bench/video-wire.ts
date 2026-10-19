@@ -62,7 +62,8 @@ function viewer(connectionId: string, video: boolean) {
         if (counting) tally.bytes += piece.length;
         const envelope = assembler.push(piece);
         const message = envelope && decodeStreamMessage(envelope);
-        if (!message) continue;
+        if (!message || (message.kind !== "browser.frame" && message.kind !== "browser.video"))
+          continue;
         const sequence =
           message.kind === "browser.video" ? message.chunk.sequence : message.frame.sequence;
         const isVideo = message.kind === "browser.video";

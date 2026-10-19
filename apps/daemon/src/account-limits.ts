@@ -1,13 +1,7 @@
 import type { AccountRegistry } from "@ace/accounts";
-import { instanceEnv } from "@ace/accounts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
-import {
-  defaultProviderExecutable,
-  findExecutable,
-  type DiscoveryOptions,
-} from "@ace/provider-kit/discovery";
-import type { ProviderInstance } from "@ace/protocol/accounts";
-import { configuredProviderDiscovery } from "./provider-discovery.ts";
+import type { DiscoveryOptions } from "@ace/provider-kit/discovery";
+import { accountExecutable, type AccountConfiguration } from "./account-executable.ts";
 
 /**
  * Reads one account's limits without a model turn, through its own CLI: Codex's
@@ -45,12 +39,7 @@ export async function refreshCliLimits(options: {
   now(): number;
   signal: AbortSignal;
   discovery?: DiscoveryOptions | undefined;
-  configuration?:
-    | ((
-        provider: ProviderInstance["provider"],
-        instance?: string,
-      ) => { enabled?: boolean | undefined; binaryPath?: string | undefined })
-    | undefined;
+  configuration?: AccountConfiguration | undefined;
   read?: ReadCliUsage | undefined;
   onError?: ((instance: string, error: unknown) => void) | undefined;
 }): Promise<void> {
@@ -68,16 +57,7 @@ export async function refreshCliLimits(options: {
   await Promise.all(
     accounts.map(async ({ instance }) => {
       try {
-        const discovery = configuredProviderDiscovery(
-          provider,
-          options.configuration?.(provider, instance.id).binaryPath,
-          options.discovery,
-        );
-        const env = instanceEnv(instance, options.env);
-        const executable = await findExecutable(
-          discovery.overrides?.[provider] ?? defaultProviderExecutable(provider),
-          env,
-        );
+        const { executable, env } = await accountExecutable(instance, provider, options);
         // A CLI that isn't installed has no limits to read, and that is no error.
         if (!executable) return;
         const result = await read({ executable, env, cwd: options.cwd, signal: options.signal });

@@ -59,6 +59,7 @@ export { retrySend } from "./send-retry.ts";
 export { readServerQueue } from "./queue-read.ts";
 
 export { BrowserFeaturesClient } from "./browser-features.ts";
+export { deviceDownloadMax, fetchBrowserDownload } from "./browser-download.ts";
 export { DeviceClient, DeviceClientError } from "@ace/devices/client";
 export type {
   DeviceClientSnapshot,

@@ -18,7 +18,9 @@ export const ids = [
   "33333333-3333-4333-8333-333333333333",
   "44444444-4444-4444-8444-444444444444",
 ];
-export const idle: MigrationSafety = { acquire: async () => ({ release: async () => {} }) };
+export const idle: MigrationSafety = {
+  acquire: async () => ({ status: "held", release: async () => {} }),
+};
 const roots: string[] = [];
 export async function temp() {
   const path = await mkdtemp(join(tmpdir(), "ace-accounts-"));

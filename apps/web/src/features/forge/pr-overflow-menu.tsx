@@ -310,8 +310,26 @@ export function PrOverflowMenu(props: {
         )}
         <MenuSeparator />
         <MenuGroup>
-          <MenuItem icon={icon(ArrowSquareOutIcon)} onClick={() => openOnGitHub(status.url)}>
+          <MenuItem
+            icon={icon(ArrowSquareOutIcon)}
+            keys="o"
+            resolve={false}
+            onClick={() => openOnGitHub(status.url)}
+          >
             Open on GitHub
+          </MenuItem>
+          <MenuItem
+            icon={icon(CopyIcon)}
+            keys="c"
+            resolve={false}
+            onClick={() =>
+              copy(
+                `gh pr checkout ${status.ref.number} --repo ${status.ref.repository.host}/${status.ref.repository.owner}/${status.ref.repository.name}`,
+                "Checkout command copied",
+              )
+            }
+          >
+            Copy checkout command
           </MenuItem>
           <MenuItem icon={icon(CopyIcon)} onClick={() => copy(status.url, "Link copied")}>
             Copy link

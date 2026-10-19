@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode, type UIEvent } from "react";
+import { useEffect, useState, type KeyboardEvent, type ReactNode, type UIEvent } from "react";
 import { useConnectionState } from "@ace/client-react";
 import { ChatCircleIcon, GitCommitIcon, ArrowsDownUpIcon } from "@phosphor-icons/react";
 import { useQueryClient, type Query } from "@tanstack/react-query";
@@ -17,12 +17,17 @@ import { whenIdle } from "@/lib/idle.ts";
 import { useFreshSinceReconnect } from "./query-state.tsx";
 import { readForge } from "./source.ts";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
-import { PrReviewWorkspace } from "./pr-review-context.tsx";
+import { PrReviewWorkspace, usePrReview } from "./pr-review-context.tsx";
 import { usePrActions } from "./pr-actions.ts";
 import { PrOverflowMenu } from "./pr-overflow-menu.tsx";
 import { PrDialogs, type PrDialog } from "./pr-dialogs.tsx";
 import { PrWriteStatus } from "./pr-write-status.tsx";
 import { PrFailure, PrGhost } from "./pr-detail-states.tsx";
+import { PrGatesRow } from "./pr-gates-row.tsx";
+import { prShortcut } from "./pr-shortcuts.ts";
+import { useToast } from "@/components/ui/toast.tsx";
+import { openExternal } from "@/boot/open-external.ts";
+import type { GateKey } from "./pr-gates.ts";
 
 export type PrTab = "summary" | "timeline" | "code";
 
@@ -91,6 +96,18 @@ function PrTabs(props: {
   );
 }
 
+/** The Summary tab's context: how many files are marked viewed, else the checks in a line. */
+function SummaryContext(props: { detail: ForgePrDetail }) {
+  const viewed = usePrReview()?.state?.viewed;
+  if (!viewed) return <PrChecksPill status={props.detail.status} />;
+  const count = viewed.filter((file) => file.state.toUpperCase() === "VIEWED").length;
+  return (
+    <span className="text-xs text-muted-foreground tabular-nums">
+      {`${count} / ${props.detail.changedFiles} viewed`}
+    </span>
+  );
+}
+
 function PrDetailLoaded(props: {
   context: PrWorkspaceContext;
   tab: PrTab;
@@ -110,6 +127,28 @@ function PrDetailLoaded(props: {
     hostThreadId: props.hostThreadId,
   });
   const [dialog, setDialog] = useState<PrDialog>();
+  const [behindOpen, setBehindOpen] = useState(false);
+  const [revealChecks, setRevealChecks] = useState(0);
+  const [codeFocus, setCodeFocus] = useState<{ path: string; seq: number }>();
+  const openCode = (path?: string) => {
+    props.onTab("code");
+    if (path) setCodeFocus((current) => ({ path, seq: (current?.seq ?? 0) + 1 }));
+  };
+  // A gate jumps to its detail: the checks, the reviewers, the conflicts, the update menu.
+  const onGate = (key: GateKey) => {
+    if (key === "checks") {
+      props.onTab("summary");
+      setRevealChecks((n) => n + 1);
+    } else if (key === "reviews") {
+      props.onTab("summary");
+      document
+        .getElementById("pr-reviewers")
+        ?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+    } else if (key === "conflicts" && actions.primary.kind === "resolve") void actions.runPrimary();
+    else if (key === "branch" && actions.mergeState.state?.mergeState === "BEHIND")
+      setBehindOpen(true);
+    else if (key === "ended") props.onTab("timeline");
+  };
   const [order, setOrder] = useState<"newest" | "oldest">("newest");
   // Each tab keeps its own fold: scrolled down in Code, the header stays folded there only.
   const [condensed, setCondensed] = useState<Record<PrTab, boolean>>({
@@ -125,111 +164,146 @@ function PrDetailLoaded(props: {
       return next === was ? current : { ...current, [tab]: next };
     });
   const refresh = () => void actions.refresh();
+  const toast = useToast();
+  const status = detail.status;
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const shortcut = prShortcut(event);
+    if (!shortcut) return;
+    event.preventDefault();
+    if (shortcut === "summary" || shortcut === "timeline" || shortcut === "code")
+      props.onTab(shortcut);
+    else if (shortcut === "open")
+      void openExternal(status.url).catch(() => toast.error({ title: "Couldn't open GitHub" }));
+    else if (shortcut === "copy-checkout") {
+      const repository = status.ref.repository;
+      void navigator.clipboard
+        ?.writeText(
+          `gh pr checkout ${status.ref.number} --repo ${repository.host}/${repository.owner}/${repository.name}`,
+        )
+        .then(() => toast.add({ title: "Checkout command copied" }));
+    } else
+      event.currentTarget
+        .querySelector<HTMLButtonElement>("[data-pr-primary]:not(:disabled)")
+        ?.click();
+  };
   const editable = !!actions.lifecycle.snapshot?.editableFields.length;
   const canRequestReview = detail.status.state === "open" && actions.threadId !== undefined;
   return (
-    <PrReviewWorkspace
-      key={JSON.stringify(detail.status.ref)}
-      workspaceId={context.workspaceId}
-      detail={detail}
-      disabled={context.disabled}
-      onRefresh={refresh}
-      header={
-        <>
-          <PrHeader
-            actions={actions}
-            extensions={props.extensions}
-            condensed={condensed[props.tab]}
-            onBack={props.onBack}
-            onOpen={props.onOpen}
-            menu={
-              <PrOverflowMenu
-                actions={actions}
+    // Shortcuts work anywhere in the panel; `contents` keeps the layout the article's.
+    <div role="presentation" className="contents" onKeyDown={onKeyDown}>
+      <PrReviewWorkspace
+        key={JSON.stringify(detail.status.ref)}
+        workspaceId={context.workspaceId}
+        detail={detail}
+        disabled={context.disabled}
+        onRefresh={refresh}
+        header={
+          <>
+            <PrHeader
+              actions={actions}
+              extensions={props.extensions}
+              condensed={condensed[props.tab]}
+              behindOpen={behindOpen}
+              onBehindOpen={setBehindOpen}
+              gates={<PrGatesRow actions={actions} onSelect={onGate} />}
+              onBack={props.onBack}
+              onOpen={props.onOpen}
+              menu={
+                <PrOverflowMenu
+                  actions={actions}
+                  extensions={props.extensions}
+                  hostThreadId={props.hostThreadId}
+                  refreshing={props.refreshing}
+                  onRefresh={refresh}
+                  onEdit={() => setDialog("edit")}
+                  onRevert={() => setDialog("revert")}
+                  onRequestReview={() => setDialog("review")}
+                />
+              }
+            />
+            {props.refreshFailed && (
+              <p role="status" className="flex items-center gap-2 px-4 pb-1 text-xs">
+                <span className="min-w-0 truncate text-muted-foreground">
+                  {`Couldn't refresh: ${props.refreshFailed}`}
+                </span>
+                <Button size="xs" onClick={refresh}>
+                  Retry
+                </Button>
+              </p>
+            )}
+            <PrWriteStatus actions={actions} refreshing={props.refreshing} />
+          </>
+        }
+      >
+        <PrTabs
+          tab={props.tab}
+          onTab={props.onTab}
+          onScroll={onScroll}
+          context={{
+            summary: <SummaryContext detail={detail} />,
+            timeline: (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span
+                  aria-label={`${detail.status.comments.length} comments`}
+                  className="inline-flex items-center gap-1 tabular-nums"
+                >
+                  <ChatCircleIcon aria-hidden size={14} />
+                  {detail.status.comments.length}
+                </span>
+                <span
+                  aria-label={`${detail.commits} commits`}
+                  className="inline-flex items-center gap-1 tabular-nums"
+                >
+                  <GitCommitIcon aria-hidden size={14} />
+                  {detail.commits}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => setOrder(order === "newest" ? "oldest" : "newest")}
+                >
+                  <ArrowsDownUpIcon aria-hidden size={14} />
+                  {order === "newest" ? "Newest first" : "Oldest first"}
+                </Button>
+              </div>
+            ),
+            code: null,
+          }}
+          panels={{
+            summary: (
+              <PrSummary
+                context={context}
                 extensions={props.extensions}
                 hostThreadId={props.hostThreadId}
+                stack={actions.stack}
                 refreshing={props.refreshing}
+                revealChecks={revealChecks}
                 onRefresh={refresh}
-                onEdit={() => setDialog("edit")}
-                onRevert={() => setDialog("revert")}
-                onRequestReview={() => setDialog("review")}
+                onOpen={props.onOpen}
+                onOpenCode={openCode}
+                onRequestReview={canRequestReview ? () => setDialog("review") : undefined}
+                onEdit={editable ? () => setDialog("edit") : undefined}
               />
-            }
-          />
-          {props.refreshFailed && (
-            <p role="status" className="flex items-center gap-2 px-4 pb-1 text-xs">
-              <span className="min-w-0 truncate text-muted-foreground">
-                {`Couldn't refresh: ${props.refreshFailed}`}
-              </span>
-              <Button size="xs" onClick={refresh}>
-                Retry
-              </Button>
-            </p>
-          )}
-          <PrWriteStatus actions={actions} refreshing={props.refreshing} />
-        </>
-      }
-    >
-      <PrTabs
-        tab={props.tab}
-        onTab={props.onTab}
-        onScroll={onScroll}
-        context={{
-          summary: <PrChecksPill status={detail.status} />,
-          timeline: (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span
-                aria-label={`${detail.status.comments.length} comments`}
-                className="inline-flex items-center gap-1 tabular-nums"
-              >
-                <ChatCircleIcon aria-hidden size={14} />
-                {detail.status.comments.length}
-              </span>
-              <span
-                aria-label={`${detail.commits} commits`}
-                className="inline-flex items-center gap-1 tabular-nums"
-              >
-                <GitCommitIcon aria-hidden size={14} />
-                {detail.commits}
-              </span>
-              <Button
-                variant="ghost"
-                size="xs"
-                onClick={() => setOrder(order === "newest" ? "oldest" : "newest")}
-              >
-                <ArrowsDownUpIcon aria-hidden size={14} />
-                {order === "newest" ? "Newest first" : "Oldest first"}
-              </Button>
-            </div>
-          ),
-          code: null,
-        }}
-        panels={{
-          summary: (
-            <PrSummary
-              context={context}
-              extensions={props.extensions}
-              refreshing={props.refreshing}
-              onRefresh={refresh}
-              onOpen={props.onOpen}
-              onRequestReview={canRequestReview ? () => setDialog("review") : undefined}
-              onEdit={editable ? () => setDialog("edit") : undefined}
-            />
-          ),
-          timeline: <PrActivity workspaceId={context.workspaceId} detail={detail} order={order} />,
-          code: (
-            <PrFiles
-              workspaceId={context.workspaceId}
-              repository={detail.status.ref.repository}
-              detail={detail}
-              context={context}
-              extensions={props.extensions}
-            />
-          ),
-        }}
-      />
-      <PrComposer context={context} extensions={props.extensions} />
-      <PrDialogs actions={actions} open={dialog} onClose={() => setDialog(undefined)} />
-    </PrReviewWorkspace>
+            ),
+            timeline: (
+              <PrActivity workspaceId={context.workspaceId} detail={detail} order={order} />
+            ),
+            code: (
+              <PrFiles
+                workspaceId={context.workspaceId}
+                repository={detail.status.ref.repository}
+                detail={detail}
+                context={context}
+                extensions={props.extensions}
+                focus={codeFocus}
+              />
+            ),
+          }}
+        />
+        <PrComposer context={context} extensions={props.extensions} />
+        <PrDialogs actions={actions} open={dialog} onClose={() => setDialog(undefined)} />
+      </PrReviewWorkspace>
+    </div>
   );
 }
 

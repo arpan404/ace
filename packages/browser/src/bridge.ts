@@ -4,11 +4,13 @@ import {
   BrowserClientMessage,
   type BrowserCaptureViewport,
   type BrowserVideoRequest,
+  type BrowserDownloadRead,
   type BrowserServerMessage,
   type DeviceScope,
 } from "@ace/protocol";
 import type { BrowserService } from "./service.ts";
 import type { CaptureViewer } from "./fanout.ts";
+import { downloadBusy, encodeDownloadChunk } from "./stream-download.ts";
 
 type BrowserAccess = Extract<DeviceScope, "read" | "operate">;
 
@@ -37,7 +39,10 @@ function requiredAccess(message: BrowserClientMessage): BrowserAccess {
     ].includes(message.command.action)
   )
     return "read";
-  if (["browser.tabs.list", "browser.downloads.list"].includes(message.type)) return "read";
+  if (
+    ["browser.tabs.list", "browser.downloads.list", "browser.download.read"].includes(message.type)
+  )
+    return "read";
   return "operate";
 }
 
@@ -118,6 +123,8 @@ export function connectBrowser(
   });
   let pending = 0;
   let closed = false;
+  // Download chunks' stream message ids, apart from the service's frame ids.
+  let streamId = 0x80000000;
   return {
     async handle(raw) {
       const message = BrowserClientMessage.parse(raw);
@@ -247,6 +254,57 @@ export function connectBrowser(
                 })),
               }),
             );
+            break;
+          }
+          case "browser.files.drop": {
+            const open = options.attachment;
+            if (!open) throw new Error("Dropping files is unavailable here");
+            respond(
+              await service.dropFiles(
+                threadId,
+                {
+                  tabId: message.tabId,
+                  x: message.x,
+                  y: message.y,
+                  modifiers: message.modifiers,
+                  files: message.files.map((file) => ({
+                    name: file.name,
+                    open: () => open(threadId, file.sha256),
+                  })),
+                },
+                options.connectionId,
+              ),
+            );
+            break;
+          }
+          case "browser.download.read": {
+            if (!sendStream) throw new Error("Fetching downloads needs binary messages");
+            const read = await service.readDownload(
+              threadId,
+              message.downloadId,
+              message.offset,
+              message.length,
+              message.validator,
+            );
+            if (closed) break;
+            streamId = (streamId + 1) >>> 0;
+            const pieces = encodeDownloadChunk(streamId, {
+              threadId: ThreadId.parse(threadId),
+              downloadId: message.downloadId,
+              offset: message.offset,
+              size: read.size,
+              bytes: read.bytes,
+            });
+            // The connection is backed up (frames, other chunks): the client asks again shortly.
+            if (!sendStream(pieces)) throw new Error(downloadBusy);
+            respond({
+              downloadId: message.downloadId,
+              offset: message.offset,
+              bytes: read.bytes.length,
+              size: read.size,
+              validator: read.validator,
+              done: message.offset + read.bytes.length >= read.size,
+            } satisfies BrowserDownloadRead);
             break;
           }
           case "browser.tabs.mute":
