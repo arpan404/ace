@@ -29,11 +29,9 @@ async function fork() {
     "Fork",
   );
   await userEvent.click(await screen.findByRole("option", { name: /Fork from the last turn/ }));
-  const dialog = await screen.findByRole("dialog", { name: "Fork from here" });
-  const title = within(dialog).getByRole("textbox", { name: "Title" });
-  await userEvent.clear(title);
-  await userEvent.type(title, "Try another model");
-  await userEvent.click(within(dialog).getByRole("button", { name: /^Fork model:/ }));
+  // The fork opens as a thread of its own, ready for its first message.
+  await screen.findByRole("heading", { name: "Document the router (fork)", level: 1 });
+  await userEvent.click(await screen.findByRole("button", { name: /^Fork model:/ }));
   const picker = await screen.findByRole("dialog", { name: "Fork model" });
   await chooseSource(picker, "Codex · Personal");
   await userEvent.type(
@@ -44,11 +42,12 @@ async function fork() {
     await within(picker).findByRole("option", { name: /^GPT-5 Codex, Codex · Personal$/ }),
   );
   await userEvent.type(
-    within(dialog).getByRole("textbox", { name: "First message of the fork" }),
+    await screen.findByRole("combobox", { name: "Message" }),
+    "Try the simpler approach{Enter}",
+  );
+  await within(await screen.findByRole("feed", { name: "Transcript" })).findByText(
     "Try the simpler approach",
   );
-  await userEvent.click(within(dialog).getByRole("button", { name: "Fork" }));
-  await screen.findByRole("heading", { name: "Try another model", level: 1 });
   const view = app.daemon.snapshot({ kind: "threads" });
   const child =
     view?.kind === "threads"
@@ -91,7 +90,7 @@ async function openMerge() {
   return screen.findByRole("dialog", { name: "Bring back to parent" });
 }
 
-test("a named fork runs on the chosen model and links back to its parent", async () => {
+test("a fork runs on the model picked before its first message and links back to its parent", async () => {
   const { app, child } = await fork();
   expect(child.provider).toBe("codex");
   expect(child.execution?.model).toBe("gpt-5-codex");
@@ -100,7 +99,7 @@ test("a named fork runs on the chosen model and links back to its parent", async
   const parent = await banner().findByRole("link", { name: "Document the router" });
   await userEvent.click(parent);
   await screen.findByRole("heading", { level: 1, name: "Document the router" });
-  expect(banner().queryByRole("link", { name: "Try another model" })).toBeNull();
+  expect(banner().queryByRole("link", { name: "Document the router (fork)" })).toBeNull();
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-router") });
   expect(view?.kind === "thread" && view.thread.status.state).toBe("done");
 });
@@ -108,7 +107,7 @@ test("a named fork runs on the chosen model and links back to its parent", async
 test("a thread's header names its project before the title, and a fork's names its parent, a link to it", async () => {
   await fork();
   const parent = await banner().findByRole("link", { name: "Document the router" });
-  const forkTitle = banner().getByRole("heading", { level: 1, name: "Try another model" });
+  const forkTitle = banner().getByRole("heading", { level: 1, name: "Document the router (fork)" });
   expect(precedes(parent, forkTitle)).toBe(true);
   expect(banner().queryByText("docs-site")).toBeNull();
 
@@ -146,7 +145,7 @@ test("bringing a summary and code changes back shows the fork's name and edited 
   await userEvent.click(within(dialog).getByRole("button", { name: "Bring back" }));
   await screen.findByRole("heading", { level: 1, name: "Document the router" });
   expect(await screen.findByText("Merged from", { exact: false })).toBeTruthy();
-  expect(screen.getByRole("link", { name: "Try another model" })).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Document the router (fork)" })).toBeTruthy();
   expect(screen.getByText("· Code changes included")).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Show summary" }));
   expect(await screen.findByText("One table is easier to maintain.")).toBeTruthy();

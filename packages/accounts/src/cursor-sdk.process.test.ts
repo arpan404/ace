@@ -152,12 +152,7 @@ createInterface({input:process.stdin}).on('line',(line)=>{
         from: "b",
         to: "a",
       }),
-    ).toMatchObject({
-      result: {
-        status: "refused",
-        reason: "Source or destination has an active writer or migration",
-      },
-    });
+    ).toMatchObject({ result: { status: "unsupported" } });
   } finally {
     await bound.close();
     registry.close();

@@ -58,7 +58,8 @@ export const draftsKey = "ace.composer.drafts";
 const recentKey = "ace.composer.recent";
 const recentPerProject = 6;
 const recentProjects = 16;
-const isPreparation = (id: string) => id.startsWith("new:[");
+/** New thread's preparations and unsent forks are listed as drafts, so they are never evicted. */
+const isPreparation = (id: string) => id.startsWith("new:[") || id.startsWith("fork:");
 
 // Quota refusals keep the latest copy for this page, including across composer unmounts.
 // Keys stay isolated by storage boundary so one host or test cannot recover another's draft.

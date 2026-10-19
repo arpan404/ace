@@ -1,6 +1,6 @@
 import { useInteractions, useThreadError, useThreadMeta } from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
-import { lazy, Suspense, use, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   loadThreadBrowser,
   threadWorkspace,
@@ -15,7 +15,7 @@ import { useFileDrop } from "./composer/file-drop.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import type { ThreadRef } from "./sources/index.ts";
-import { ForkOpener } from "./transitions/fork-opener.ts";
+import { ForkOpener, useOpenFork } from "./transitions/fork-opener.ts";
 import { ThreadLoadError } from "./thread-load-error.tsx";
 import { SyncingNote, ThreadLoading } from "./thread-loading.tsx";
 import { useLatestForkPoint } from "./transitions/use-fork-point.ts";
@@ -39,9 +39,6 @@ const MergeDialog = lazy(() =>
 /** The Changes header's git action: loaded with the Changes tab that draws it. */
 const ThreadGitAction = lazy(() =>
   import("./header/git-action.tsx").then((m) => ({ default: m.ThreadGitAction })),
-);
-const ForkDialog = lazy(() =>
-  import("./transitions/fork-dialog.tsx").then((m) => ({ default: m.ForkDialog })),
 );
 import { InlineRenameField } from "@/features/organize/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
@@ -131,40 +128,31 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [merging, setMerging] = useState(false);
   const [renaming, setRenaming] = useState(false);
-  const [forking, setForking] = useState<ForkPoint>();
-  // An edit of the person's message forks with its text as the first message.
-  const [forkText, setForkText] = useState<string>();
-  const openFork = (point: ForkPoint, text?: string) => {
-    setForkText(text);
-    setForking(point);
-  };
-  const closeFork = () => {
-    setForking(undefined);
-    setForkText(undefined);
-  };
   const id = props.threadId;
+  const openForkOf = useOpenFork();
+  const openFork = useCallback((point: ForkPoint) => openForkOf(id, point), [openForkOf, id]);
   const outer = useThreadParts();
   const forkPoint = useLatestForkPoint(id);
   const parts = useMemo(
     () => ({
       ...outer,
-      fork: forkPoint && (() => setForking(forkPoint)),
+      fork: forkPoint && (() => openFork(forkPoint)),
       gitAction: ThreadGitAction,
     }),
-    [outer, forkPoint],
+    [outer, forkPoint, openFork],
   );
   const { setScreenActions } = useLayout();
   const screenActions = useMemo(
     () => ({
       scope: id,
       rename: () => setRenaming(true),
-      fork: forkPoint ? () => setForking(forkPoint) : undefined,
+      fork: forkPoint ? () => openFork(forkPoint) : undefined,
       merge: meta?.lineage ? () => setMerging(true) : undefined,
       attachments: () => setAttachmentsOpen(true),
       find: () => findInThread(nav),
       turns: () => nav.setTurnsOpen(!nav.turnsOpen),
     }),
-    [id, forkPoint, nav, meta?.lineage],
+    [id, forkPoint, openFork, nav, meta?.lineage],
   );
   useEffect(() => {
     setScreenActions(screenActions);
@@ -215,7 +203,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
                   onAttachments={() => setAttachmentsOpen(true)}
                   thread={thread}
                   onRename={() => setRenaming(true)}
-                  onFork={setForking}
+                  onFork={openFork}
                   onMerge={() => setMerging(true)}
                 />
               </Suspense>
@@ -283,9 +271,6 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
               <AttachmentsSheet thread={thread} onClose={() => setAttachmentsOpen(false)} />
             )}
             {merging && thread && <MergeDialog thread={thread} onClose={() => setMerging(false)} />}
-            {forking && thread && (
-              <ForkDialog thread={thread} point={forking} text={forkText} onClose={closeFork} />
-            )}
           </Suspense>
         </Screen>
       </WorkCardContext>

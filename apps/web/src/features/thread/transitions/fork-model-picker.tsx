@@ -6,7 +6,8 @@ import {
   recordedChoice,
 } from "@ace/ui-core";
 import { useState } from "react";
-import { Button } from "@/components/ui/button.tsx";
+import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
+import { chipControl } from "../composer/composer-styles.ts";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { ModelPickerPanel } from "@/features/model-picker/index.ts";
 import { useModelChoices, useModelCatalogState } from "@/features/models/index.ts";
@@ -23,15 +24,25 @@ export function ForkModelPicker(props: {
   const statuses = useProviderStatuses();
   const [open, setOpen] = useState(false);
   const current = currentModelChoice(choices, props.selection);
-  const shown = props.selection?.model ? (current ?? recordedChoice(props.selection)) : undefined;
+  // What the parent runs, its provider's default when it names no model.
+  const shown = current ?? (props.selection?.model ? recordedChoice(props.selection) : undefined);
   const models = pickerModelsFromChoices(choices, () => "This account has reached its limit");
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
-        render={<Button type="button" variant="ghost" disabled={props.disabled} />}
+        render={<button type="button" disabled={props.disabled} className={chipControl} />}
         aria-label={`Fork model: ${shown?.model ?? "Same as parent"}`}
       >
-        Model · {shown?.model ?? "Same as parent"}
+        {props.selection && (
+          <ProviderIcon
+            provider={props.selection.provider}
+            model={props.selection.model}
+            size={14}
+            decorative
+            className="shrink-0"
+          />
+        )}
+        <span className="truncate">{shown?.model ?? "Same as parent"}</span>
       </PopoverTrigger>
       <PopoverContent aria-label="Fork model" className="overflow-hidden p-0">
         <ModelPickerPanel

@@ -2,8 +2,6 @@ import { afterEach, expect, test } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { mkdir, writeFile, readFile, access, realpath } from "node:fs/promises";
 import { join } from "node:path";
-import { spawn } from "node:child_process";
-import { once } from "node:events";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import type { SessionContext } from "@ace/engine-api";
 import { Capabilities } from "@ace/protocol";
@@ -44,23 +42,17 @@ function encodedContext(context: SessionContext): SessionContext {
     },
   };
 }
-for (const scenario of [
-  "offline",
-  "native_lock",
-  "external_writer",
-  "unverified",
-  "cli_source",
-  "cli_destination",
-] as const) {
-  // A normal CLI login can't share native history, so the move hands the conversation over.
-  const handoff = scenario === "cli_source" || scenario === "cli_destination";
-  const refused = scenario !== "offline" && !handoff;
+for (const scenario of ["offline", "cli_source", "busy", "no_lease", "cli_destination"] as const) {
+  // Without a provider lease, or into a normal CLI login, the move hands the conversation over.
+  const handoff = scenario === "no_lease" || scenario === "cli_destination";
+  // Another process has the session open: nothing changes and the move can be retried.
+  const refused = scenario === "busy";
   test(
     handoff
       ? `moving off a usage limit with ${scenario} opens a fresh session with the conversation and keeps queued order`
       : refused
-        ? `native migration refuses ${scenario} and preserves source history and binding`
-        : "native migration copies history before resuming the destination through the accounts service",
+        ? "a move while another process has the session open is refused and keeps source history and binding"
+        : `moving off a usage limit copies history (${scenario}) before the destination continues it`,
     async () => {
       const frames = scriptFrames(),
         ports: RecoveryPorts = {};
@@ -104,21 +96,8 @@ for (const scenario of [
       const relative = join("sessions", `rollout-${nativeId}.jsonl`);
       const history = `${JSON.stringify({ type: "session_meta", payload: { id: nativeId } })}\n${JSON.stringify({ type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "synthetic durable history" }] } })}\n`;
       await writeFile(join(source, relative), history);
-      if (scenario === "native_lock") {
-        await mkdir(join(source, "thread-writer-locks"));
-        await writeFile(join(source, "thread-writer-locks", `${nativeId}.lock`), "external writer");
-      }
-      const writer =
-        scenario === "external_writer"
-          ? spawn(
-              process.execPath,
-              ["-e", "process.stdout.write('ready');setInterval(() => {}, 1000)"],
-              { stdio: ["ignore", "pipe", "pipe"] },
-            )
-          : undefined;
       const registry = new AccountRegistry(new DatabaseSync(join(h.home, "accounts.sqlite")));
       try {
-        if (writer) await once(writer.stdout, "data");
         await registry.register({
           ...createInstance({ id: "account-a", provider: "codex", label: "A", homeDir: source }),
           ...(scenario === "cli_source" ? { implicit: true, env: {} } : {}),
@@ -127,24 +106,20 @@ for (const scenario of [
           ...createInstance({ id: "account-b", provider: "codex", label: "B", homeDir: target }),
           ...(scenario === "cli_destination" ? { implicit: true, env: {} } : {}),
         });
-        // The independent exclusion boundary is injected, with a real outside writer
-        // in the refusal case. No production lease can be inferred from ace shutdown.
+        // The provider's writer lock is injected; the daemon's Codex lease has its own test.
         const accounts = new AccountService({
           registry,
           now: h.clock.now,
           timeZone: "UTC",
           env: {},
-          ...(scenario === "unverified" || handoff
+          ...(scenario === "no_lease"
             ? {}
             : {
                 safety: {
-                  acquire: async () => {
-                    if (writer?.pid !== undefined) {
-                      process.kill(writer.pid, 0);
-                      return undefined;
-                    }
-                    return { release: async () => {} };
-                  },
+                  acquire: async () =>
+                    scenario === "busy"
+                      ? { status: "busy", reason: "Another Codex process has it open" }
+                      : { status: "held", release: async () => {} },
                 },
               }),
         });
@@ -298,11 +273,6 @@ for (const scenario of [
       } finally {
         await h.engine.close();
         registry.close();
-        if (writer) {
-          const exited = once(writer, "exit");
-          writer.kill();
-          await exited;
-        }
       }
     },
   );
