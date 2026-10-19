@@ -62,7 +62,7 @@ const panel = () => within(screen.getByRole("article", { name: "Pull request #42
 
 /** Open the ⋯ menu and find one of its rows. */
 async function menuItem(name: string | RegExp) {
-  await userEvent.click(screen.getByRole("button", { name: "Pull request actions" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
   return screen.findByRole("menuitem", { name });
 }
 const disabled = (item: HTMLElement) => item.getAttribute("aria-disabled") === "true";
@@ -171,8 +171,8 @@ test("a clear refusal shows its reason and leaves the merge-state controls usabl
   app.daemon.refuseCommands("forge_rate_limit", "forge.pr.merge-state.change");
   await userEvent.click(enable);
   expect(
-    await screen.findByText("GitHub's rate limit was reached: wait a few minutes, then retry."),
-  ).toBeTruthy();
+    await screen.findAllByText("GitHub's rate limit was reached: wait a few minutes, then retry."),
+  ).not.toHaveLength(0);
   const again = await menuItem(/^Enable auto-merge/);
   await waitFor(() => expect(disabled(again)).toBe(false));
 });

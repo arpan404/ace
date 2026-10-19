@@ -83,10 +83,10 @@ test("an uncertain metadata edit keeps its text and holds lifecycle writes until
   await waitFor(() => expect(save.disabled).toBe(false));
   await userEvent.click(save);
   expect(
-    await screen.findByText(
+    await screen.findAllByText(
       /The daemon lost track of the result: check the checkout or GitHub before retrying/,
     ),
-  ).toBeTruthy();
+  ).not.toHaveLength(0);
   // The form stays open with the edit.
   expect(description.value).toBe("Keep my metadata edit");
   await userEvent.keyboard("{Escape}");
@@ -96,17 +96,17 @@ test("an uncertain metadata edit keeps its text and holds lifecycle writes until
     resource: "prLifecycle",
     value: { ...state, operations: [{ id: "edit-1", kind: "edit", state: "uncertain" }] },
   });
-  await userEvent.click(screen.getByRole("button", { name: "Pull request actions" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Refresh" }));
   const strip = await screen.findByRole("group", { name: "Unconfirmed changes" });
   expect(within(strip).getByText("Edit pull request · Outcome unknown")).toBeTruthy();
   expect(within(strip).getByRole("button", { name: "Check action result" })).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: "Pull request actions" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
   const close = await screen.findByRole("menuitem", { name: /^Close pull request/ });
   expect(close.getAttribute("aria-disabled")).toBe("true");
   await userEvent.keyboard("{Escape}");
   // Opened again, the edit not yet confirmed is still there.
-  await userEvent.click(screen.getByRole("button", { name: "Pull request actions" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Edit details…" }));
   expect(
     (await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "PR description" })).value,

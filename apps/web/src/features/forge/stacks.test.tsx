@@ -203,7 +203,7 @@ test("a refreshed uncertain request blocks another merge and remains visible aft
       },
     },
   );
-  await userEvent.click(screen.getByRole("button", { name: "Pull request actions" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Refresh" }));
   const refreshed = await openStack();
   expect(
@@ -436,8 +436,18 @@ test("a stack read that fails says why in one sentence with Retry, and Retry loa
     { op: "forge.pr.detail", workspaceId, repository, number: 42 },
   ] as const)
     app.daemon.workspace.setForgeRead(read, { resource: "prDetail", value: detail(42) });
+  // GitHub says the PR is a layer, so the header offers its stack.
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.stack-memberships", workspaceId, repository, numbers: [42] },
+    {
+      resource: "prStackMemberships",
+      value: [
+        { number: 42, stack: { id: "STACK_2", number: 2, trunk: "main", size: 3, position: 2 } },
+      ],
+    },
+  );
   await openPullRequest(app, { project: "api", number: 42 });
-  const section = await screen.findByRole("region", { name: "Pull request stack" });
+  const section = await openStack();
   expect(await within(section).findByText(actionErrorText("forge_not_found"))).toBeTruthy();
   expect(within(section).queryByText(/The daemon couldn't do that/)).toBeNull();
   app.daemon.workspace.setForgeRead(

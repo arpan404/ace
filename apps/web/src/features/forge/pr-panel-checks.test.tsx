@@ -105,7 +105,7 @@ test("the merge button stays off while the shared merge gate holds it, and turns
   const merge = await panel.findByRole<HTMLButtonElement>("button", { name: "Squash and merge" });
   expect(merge.disabled).toBe(true);
   app.daemon.workspace.setForgeRead(operation, { resource: "prDetail", value: detail() });
-  await userEvent.click(screen.getByRole("button", { name: "Pull request actions" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Refresh" }));
   await waitFor(() =>
     expect(

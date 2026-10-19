@@ -93,7 +93,7 @@ const panelOpen = () => screen.findByRole("article", { name: "Pull request #42" 
 
 /** Open the ⋯ menu and find one of its rows. */
 async function menuItem(name: string | RegExp) {
-  await userEvent.click(screen.getByRole("button", { name: "Pull request actions" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
   return screen.findByRole("menuitem", { name });
 }
 
@@ -400,7 +400,9 @@ test("a refused metadata write keeps its text and shows the daemon refusal", asy
   await userEvent.clear(body);
   await userEvent.type(body, "Retain my description");
   await userEvent.click(screen.getByRole("button", { name: "Save PR metadata" }));
-  expect(await screen.findByText("This daemon can't do that yet: update the daemon.")).toBeTruthy();
+  expect(
+    await screen.findAllByText("This daemon can't do that yet: update the daemon."),
+  ).not.toHaveLength(0);
   expect(body.value).toBe("Retain my description");
 });
 
@@ -453,11 +455,12 @@ test("Refresh in the ⋯ menu reloads metadata and permissions when title, head 
     },
   });
   await userEvent.click(await menuItem("Refresh"));
-  await userEvent.click(screen.getByRole("button", { name: "Pull request actions" }));
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  const edit = await menuItem("Edit details…");
   await waitFor(() =>
     expect(screen.queryByRole("menuitem", { name: /^Close pull request/ })).toBeNull(),
   );
-  await userEvent.click(screen.getByRole("menuitem", { name: "Edit details…" }));
+  await userEvent.click(edit);
   expect(
     (await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "PR description" })).value,
   ).toBe("Changed externally");
@@ -552,6 +555,8 @@ test("a refused GitHub review shows the daemon refusal and retains the unsent su
   });
   await userEvent.type(summary, "Keep my unsent review");
   await userEvent.click(screen.getByRole("button", { name: "Submit comment review" }));
-  expect(await screen.findByText("This daemon can't do that yet: update the daemon.")).toBeTruthy();
+  expect(
+    await screen.findAllByText("This daemon can't do that yet: update the daemon."),
+  ).not.toHaveLength(0);
   expect(summary.value).toBe("Keep my unsent review");
 });

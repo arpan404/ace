@@ -10,8 +10,7 @@ import {
   type Icon,
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button.tsx";
-import { Tip } from "@/components/ui/tooltip.tsx";
-import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip.tsx";
 import { cardEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { prPrimaryLabel, type PrPrimary } from "./pr-primary-action.ts";
@@ -111,6 +110,22 @@ export function PrPrimaryButton(props: {
       <span className={label}>{shown}</span>
     </Button>
   );
-  if (props.blocked) return <DisabledReason reason={props.blocked}>{button}</DisabledReason>;
-  return <Tip label={shown}>{button}</Tip>;
+  // One wrapper whether or not it's blocked, so the button keeps its identity as state changes.
+  // Blocked, the wrapper takes focus so its reason still reaches the keyboard.
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so a blocked button's reason reaches the keyboard
+            tabIndex={props.blocked ? 0 : undefined}
+            className="inline-flex rounded-sm focus-ring"
+          />
+        }
+      >
+        {button}
+      </TooltipTrigger>
+      <TooltipContent>{props.blocked ?? shown}</TooltipContent>
+    </Tooltip>
+  );
 }
