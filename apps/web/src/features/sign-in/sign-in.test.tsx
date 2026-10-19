@@ -106,6 +106,32 @@ test("in the desktop app a browser sign-in opens its page by itself, once", asyn
   await waitFor(() => expect(opened).toHaveLength(2));
 }, 30_000);
 
+test("Claude's fallback code is pasted in the dialog and finishes sign-in, with no second page opened", async () => {
+  const opened: string[] = [];
+  Reflect.set(globalThis, "ace", {
+    shell: { openExternal: async (url: string) => void opened.push(url) },
+  });
+  const user = userEvent.setup();
+  const app = harness();
+  app.daemon.services.providerLogin.scenarios.claude = "paste_code";
+  stage(app, "claude", { auth: "logged_out" });
+  const list = await providersList(app);
+  await user.click(await within(list).findByRole("button", { name: "Sign in" }));
+  const dialog = await screen.findByRole("dialog", { name: "Sign in to Claude Code" });
+  expect(await within(dialog).findByText(/opened on the computer running ace/)).toBeTruthy();
+  // Claude opened its own page here; its fallback opens only when asked.
+  expect(within(dialog).getByRole("link", { name: /open sign-in page/i })).toBeTruthy();
+  expect(opened).toEqual([]);
+  const field = within(dialog).getByLabelText("Got a code instead?");
+  const submit = within(dialog).getByRole("button", { name: "Continue" });
+  await user.type(field, "only-half-of-it");
+  await user.click(submit);
+  expect((await within(dialog).findByRole("alert")).textContent).toContain("Copy the whole code");
+  await user.type(field, "authorization-code#state");
+  await user.click(submit);
+  expect(await screen.findByText("Signed in to Claude Code")).toBeTruthy();
+}, 30_000);
+
 test.each([
   ["GitHub Copilot", "github-copilot"],
   ["OpenCode Go", "opencode-go"],

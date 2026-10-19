@@ -40,6 +40,18 @@
         "choice"
       ],
       "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "https://ace.local/protocol/v1/ProviderSignInCode.json"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "type": "object"
     }
   ]
 }

@@ -20,6 +20,7 @@ import {
   Waiting,
 } from "./login-parts.tsx";
 import { ApiKeyStep } from "./api-key-step.tsx";
+import { PasteCodeStep } from "./paste-code-step.tsx";
 import { AgentLoginTerminal, ManualSteps } from "./manual-steps.tsx";
 
 /*
@@ -111,6 +112,14 @@ export function LoginBody(props: {
     case "awaiting_code_entry": {
       const footer = (
         <>
+          {progress.codeEntry && (
+            <PasteCodeStep
+              name={name}
+              disabled={view.sending}
+              onSubmit={(code) => login.submitCode(code)}
+            />
+          )}
+          {progress.message && <Notice text={progress.message} />}
           {notice && <Notice text={notice} />}
           <ChallengeFooter url={progress.url} cancel={cancel} />
         </>

@@ -1,0 +1,12 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProviderSignInCode.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One-time sign-in code handed only to the CLI's own prompt. Never log or persist.",
+  "maxLength": 4096,
+  "minLength": 3,
+  "pattern": "^[A-Za-z0-9_-]+#[A-Za-z0-9_-]+$",
+  "secret": true,
+  "type": "string",
+  "writeOnly": true,
+  "x-ace-secret": true
+}

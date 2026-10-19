@@ -264,6 +264,8 @@ export async function prepareProviderLogin(
                     "--device-auth",
                     "--with-api-key",
                     "--claudeai",
+                    "--console",
+                    "--sso",
                     "--no-browser",
                     "--standalone",
                     "--method",
