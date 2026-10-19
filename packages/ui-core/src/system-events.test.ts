@@ -111,14 +111,14 @@ test("delegation results parse into one row per child", () => {
 });
 
 test("a settled delegation summarizes as a finished count", () => {
-  const completed = (threadId: string) => ({
-    threadId,
+  const completed = {
+    threadId: "t1",
     outcome: "completed" as const,
     result: "ok",
     truncated: false,
-  });
-  expect(settledSummary([completed("t1")])).toBe("1 agent finished");
-  expect(settledSummary([completed("t1"), completed("t2")])).toBe("2 agents finished");
+  };
+  expect(settledSummary([completed])).toBe("1 agent finished");
+  expect(settledSummary([completed, { ...completed, threadId: "t2" }])).toBe("2 agents finished");
   expect(settledSummary([])).toBeUndefined();
 });
 
