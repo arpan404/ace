@@ -391,6 +391,17 @@ function bumpCodex(): Scenario {
           endTurn("root"),
         ],
       },
+      {
+        kind: "update",
+        changes: {
+          goal: {
+            objective: "Codex app-server 0.48 with every recorded fixture passing",
+            status: "complete",
+            tokensUsed: 412_000,
+            timeUsedSeconds: 2_290,
+          },
+        },
+      },
     ],
   };
 }

@@ -1,6 +1,7 @@
 import { CodexExitDiagnostic } from "./exit-diagnostic.ts";
 import { answerEchoes } from "./answer-echo.ts";
 import { confirmModel } from "./model.ts";
+import { codexGoal } from "./goal.ts";
 import { unknownBuffers, RecentSet } from "./retention.ts";
 import type { Fact, Key } from "@ace/core";
 import type { ThreadId, RunTrigger } from "@ace/protocol";
@@ -500,8 +501,15 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     } else if (method === "thread/settings/updated") {
       agent.mode = str(obj(p["collaborationMode"])["mode"], agent.mode);
       confirmModel(agent, p["model"], facts);
-    } else if (method.startsWith("thread/goal/")) agent.pendingTrigger = "goal";
-    else if (method === "thread/queue/changed") agent.pendingTrigger = "queue";
+    } else if (method.startsWith("thread/goal/")) {
+      agent.pendingTrigger = "goal";
+      if (method === "thread/goal/cleared")
+        facts.push({ type: "goal.updated", agent: agent.key, goal: null });
+      else if (method === "thread/goal/updated") {
+        const goal = codexGoal(p["goal"]);
+        if (goal) facts.push({ type: "goal.updated", agent: agent.key, goal });
+      }
+    } else if (method === "thread/queue/changed") agent.pendingTrigger = "queue";
     else if (method === "thread/tokenUsage/updated") {
       const tokenUsage = obj(p["tokenUsage"]);
       const usage = obj(tokenUsage["last"]);

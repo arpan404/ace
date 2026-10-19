@@ -138,6 +138,7 @@ export class EventWriter {
               permission: thread.permission,
               titleSource: thread.titleSource,
               queue: thread.queue,
+              goal: thread.goal,
             }),
             thread.id,
           );

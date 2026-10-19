@@ -4,7 +4,7 @@
  * its second Esc (it answers the key just pressed, and lasts only a moment), a request needing
  * the person, then the person's messages on their way (or that didn't go), then trouble with
  * the connection, then background commands a stopped turn left
- * running, then the queue, then plan progress. The person can switch the slot to any present
+ * running, then the queue, then the goal the agent is pursuing, then its task list. The person can switch the slot to any present
  * item; a request that arrives after that, or one a notification opens, takes it back. Pure.
  */
 export const stripPriority = [
@@ -14,6 +14,7 @@ export const stripPriority = [
   "connection",
   "stopped",
   "queue",
+  "goal",
   "plan",
 ] as const;
 export type StripKind = (typeof stripPriority)[number];
@@ -32,6 +33,8 @@ export interface StripFacts {
   /** The turn was stopped and background commands it started still run. */
   stopped: boolean;
   queue: boolean;
+  /** The provider has a native goal set on the thread. */
+  goal: boolean;
   plan: boolean;
 }
 

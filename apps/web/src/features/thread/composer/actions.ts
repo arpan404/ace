@@ -22,7 +22,8 @@ export async function composerAction(
   if (action === "files") return ports.files();
   if (action === "project") return ports.project();
   if (action === "model") return ports.model();
-  if (action === "goal") return ports.insert("Keep working toward this goal: ");
+  // The composer sends `/goal <objective>` as the provider's native goal (`parseGoalCommand`).
+  if (action === "goal") return ports.insert("/goal ");
   if (action === "plan") {
     if (ports.thread.provider !== "claude")
       throw new Error("Plan mode isn't available for this provider.");

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { codexGoalCommands } from "./goal.ts";
 import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import { accessModeOffers, codexAccessAvailable } from "@ace/provider-kit/access-modes";
 import { codexCapabilities } from "./capabilities.ts";
@@ -613,6 +614,7 @@ export async function openCodexSession(
     },
     close: lifetime.close,
     mcp: codexMcpControls(request, nativeSessionId, ctx.signal),
+    ...codexGoalCommands(request, nativeSessionId, assertOpen),
     ...commandsFor(nativeSessionId, assertOpen),
   };
 }

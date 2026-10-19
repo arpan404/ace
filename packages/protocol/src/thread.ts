@@ -1,4 +1,5 @@
 import { QueueState } from "./queue.ts";
+import { ProviderGoal } from "./goal.ts";
 import { AgentError } from "./agent.ts";
 import { ThreadStatus } from "./thread-status.ts";
 import { PermissionState, PermissionMode } from "./permissions.ts";
@@ -84,6 +85,8 @@ export const Thread = z.object({
   workspaceId: WorkspaceId,
   title: z.string(),
   queue: QueueState.optional(),
+  /** The provider-native goal the thread is pursuing, while one is set. */
+  goal: ProviderGoal.optional(),
   titleSource: z.enum(["provisional", "provider", "generated", "person", "agent"]).optional(),
   provider: ProviderKind,
   backend: z.enum(["acp", "cursor-sdk"]).optional(),

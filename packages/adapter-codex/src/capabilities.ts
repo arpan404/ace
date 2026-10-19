@@ -27,6 +27,7 @@ export function codexCapabilities(cli: DiscoveryResult): Capabilities {
     forkPoints: supported ? ["turn", "end"] : [],
     subagentTranscripts: supported,
     backgroundTaskControl: supported,
+    goals: supported,
     backgroundVisibility: supported ? "full" : "none",
     planMode: supported,
     tokenUsage: supported,

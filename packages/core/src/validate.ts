@@ -16,6 +16,7 @@ import {
   RawPayload,
   RunTrigger,
   PermissionMode,
+  ProviderGoal,
   Timestamp,
   ThreadId,
   ThreadStatus,
@@ -77,6 +78,7 @@ const allowed: Record<Fact["type"], string[]> = {
   "retry.cleared": ["agent"],
   "limit.cleared": ["agent"],
   "wake.expected": ["agent", "until"],
+  "goal.updated": ["agent", "goal"],
   "context.sample": ["agent", "usedTokens", "windowTokens", "sessionId", "model"],
   usage: [
     "agent",
@@ -327,6 +329,8 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
       );
     case "wake.expected":
       return Timestamp.safeParse(fact.until).success;
+    case "goal.updated":
+      return fact.goal === null || ProviderGoal.safeParse(fact.goal).success;
     case "context.sample":
       return EventPayload.safeParse({ ...fact, type: "context.sampled", agentId }).success;
     case "usage":

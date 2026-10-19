@@ -72,6 +72,8 @@ const refusals: Record<string, string> = {
   acp_account_fixed:
     "An agent can't move to another account. Switch to another agent from the model picker.",
   model_unavailable: "That model isn't available. Pick another model and try again.",
+  unsupported_goal: "This agent can't keep a goal across turns. Describe it in a message instead.",
+  goal_not_found: "There's no goal to change.",
   not_implemented: "ace on this machine can't do that yet.",
   forbidden: "This device isn't allowed to do that.",
   // The client asked after a command with no receipt and the daemon had no record of it.

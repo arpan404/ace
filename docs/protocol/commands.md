@@ -1870,6 +1870,42 @@ Example:
 }
 ```
 
+### thread.goal.set
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"thread.goal.set"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| change | yes | [GoalChange.json](schema/GoalChange.json) |  |
+
+Example:
+
+```json
+{
+  "change": {
+    "objective": "N"
+  },
+  "threadId": "example",
+  "type": "thread.goal.set"
+}
+```
+
+### thread.goal.clear
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"thread.goal.clear"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+
+Example:
+
+```json
+{
+  "threadId": "example",
+  "type": "thread.goal.clear"
+}
+```
+
 ### interaction.resolve
 
 | Field | Required | Type | Constraints |
@@ -1944,19 +1980,62 @@ Example:
 
 ```json
 {
+  "code": "example",
   "commandId": "example",
   "detail": "example",
-  "issue": {
-    "number": 10,
-    "repository": {
-      "forge": "gitlab",
-      "host": "cnJIi",
-      "name": "NnYV_3XWcoU",
-      "owner": "-sPhnMd/jrTPVck7/6SWt/ASyA/3Zs-ibin1zv/lNDmROW/XTG05CM8LhZ/kRYLzlex/Qf-9wkkMq/ZEh1/ypy"
+  "error": "example",
+  "forkThreadId": "example",
+  "health": {
+    "activeSessions": 6,
+    "at": 7,
+    "eventLoop": {
+      "maxMs": 1,
+      "meanMs": null,
+      "p99Ms": null
+    },
+    "logs": {
+      "dropped": 4,
+      "failed": 9,
+      "queued": 8
+    },
+    "memory": {
+      "heapTotalBytes": 9,
+      "heapUsedBytes": 3,
+      "rssBytes": 9
+    },
+    "openHandles": 7,
+    "queues": {},
+    "sqlite": {
+      "pageBytes": null,
+      "walBytes": 3
     }
   },
-  "ok": true,
-  "remoteHead": "649122bc2e002a039fcaa287859f220177110b8fb45419442bee2e6c",
-  "terminalId": "example"
+  "inspection": {
+    "git": {
+      "branch": "example",
+      "defaultBranch": "example",
+      "remotes": [],
+      "root": "example"
+    },
+    "path": "example",
+    "suggestedRepoRoot": "example"
+  },
+  "issueAction": {
+    "action": "edit",
+    "error": "example",
+    "id": "example",
+    "state": "pending"
+  },
+  "ok": false,
+  "review": {
+    "comments": [],
+    "intentId": "example",
+    "reply": {
+      "commentId": "example",
+      "id": "example",
+      "text": "example"
+    }
+  },
+  "title": "example"
 }
 ```
