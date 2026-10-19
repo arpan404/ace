@@ -159,6 +159,12 @@ export function handleQueue(
         dependencies.repo.backend(p.threadId) === "cursor-sdk"
       )
         return fail("sdk_account_migration_unsupported");
+      if (
+        p.type === "thread.limit" &&
+        p.action === "migrate_now" &&
+        dependencies.repo.store.getThread(p.threadId)?.provider === "acp"
+      )
+        return fail("acp_account_fixed");
       if (p.type === "thread.limit" && p.action === "migrate_now" && !dependencies.ports.moveTarget)
         return fail("migration_unavailable");
       if (

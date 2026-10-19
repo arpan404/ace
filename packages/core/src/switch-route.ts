@@ -19,7 +19,8 @@ export interface SwitchSide {
  * - `new_thread`: a Cursor SDK checkpoint is pinned to its thread and account (ADR 0043), so
  *   leaving Cursor or changing its account continues in a portable fork; this thread is kept.
  * - `unsupported`: an ACP agent needs the registered identity a thread is created with, so an
- *   existing thread of another provider can't move to one.
+ *   existing thread of another provider can't move to one, and an ACP thread keeps its agent's
+ *   one login: another account is another agent.
  */
 export type SwitchRoute = "in_place" | "new_thread" | "unsupported";
 
@@ -30,6 +31,7 @@ function otherAccount(current: SwitchSide, next: SwitchSide): boolean {
 export function switchRoute(current: SwitchSide, next: SwitchSide): SwitchRoute {
   if (next.provider === "acp" && current.provider !== "acp") return "unsupported";
   const accountChanged = otherAccount(current, next);
+  if (current.provider === "acp" && next.provider === "acp" && accountChanged) return "unsupported";
   if (current.backend === "cursor-sdk" && (next.provider !== current.provider || accountChanged))
     return "new_thread";
   if (current.provider === "cursor" && next.provider === "cursor" && accountChanged)

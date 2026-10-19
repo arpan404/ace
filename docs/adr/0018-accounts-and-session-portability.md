@@ -262,6 +262,12 @@ usage-limit "Move to" action, is one thread transition with one decision:
    resumes it with only what happened since; otherwise a fresh session gets the
    conversation-first handoff. The handoff marker replaces one still waiting for delivery.
 
+By provider: Codex and Claude managed accounts copy native history (Codex forks the copy);
+their normal CLI logins, OpenCode and Pi continue through the handoff. Cursor account changes
+still continue in a new thread (ADR 0043). An ACP agent runs on the one login of its
+installation, so an ACP thread refuses another account (`acp_account_fixed`) for switches and
+limit moves alike; the picker shows those accounts as "Starts new threads only".
+
 A usage-limit move commits the binding, the handoff and the cleared limit together. Replayed
 after a restart, it is not made again: a named account is already bound, and an automatic move
 finds nothing limited.

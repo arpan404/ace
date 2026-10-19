@@ -29,8 +29,9 @@ export function resolveSwitch(
   const fallback = running(repo, id);
   const selection = repo.transitions.selection(id, fallback, requested);
   const current = repo.transitions.get(id).selection ?? fallback;
-  if (switchRoute({ ...current, backend: repo.backend(id) }, selection) === "new_thread")
-    return "switch_requires_new_thread";
+  const route = switchRoute({ ...current, backend: repo.backend(id) }, selection);
+  if (route === "new_thread") return "switch_requires_new_thread";
+  if (route === "unsupported") return "acp_account_fixed";
   if (Object.keys(selection.options).length && !capabilities(selection.provider).sessionOptions)
     return "provider_options_unsupported";
   // Last selection wins while queued; an in-flight transition cannot be overwritten.

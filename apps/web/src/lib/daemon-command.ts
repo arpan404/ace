@@ -69,6 +69,8 @@ const refusals: Record<string, string> = {
   switch_requires_new_thread:
     "Cursor keeps this conversation on its own account. Send your next message to continue in a new thread with this context.",
   acp_identity_required: "That agent starts new threads only. Start a new thread to use it.",
+  acp_account_fixed:
+    "This agent keeps the login it was set up with. Start a new thread to use another agent.",
   model_unavailable: "That model isn't available. Pick another model and try again.",
   not_implemented: "ace on this machine can't do that yet.",
   forbidden: "This device isn't allowed to do that.",

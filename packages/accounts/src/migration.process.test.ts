@@ -169,7 +169,7 @@ test("symlinked sidechains and destination directories are refused", async () =>
   expect((await readdir(codex.to.homeDir)).filter((name) => name.startsWith(".ace"))).toEqual([]);
 });
 test("unsupported providers return a reason and invalid IDs never reach filesystem planning", async () => {
-  for (const provider of ["cursor", "opencode"] as const)
+  for (const provider of ["cursor", "opencode", "pi"] as const)
     expect(await migrateSession(await homes(provider), idle)).toMatchObject({
       status: "unsupported",
     });

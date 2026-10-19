@@ -12,7 +12,7 @@ import { validateCitations } from "./transition-history.ts";
 import { abandonReturn, planCrossProvider, type CrossProviderPlan } from "./provider-return.ts";
 import { routeAccountChange } from "./account-route.ts";
 import { admitTransitionMetadata } from "./transition-state.ts";
-import { switchNeedsNewThread } from "./failure-copy.ts";
+import { acpAccountFixed, switchNeedsNewThread } from "./failure-copy.ts";
 import { switchRoute } from "@ace/core";
 /**
  * What a cross-provider switch carries, rendered: about 8k tokens. Enough for the opening ask,
@@ -140,8 +140,9 @@ export class ThreadTransitions {
     // Existing SDK stores are pinned to the thread and account. Entering the SDK uses a fresh
     // session; leaving it or changing accounts continues in a portable fork (clients route the
     // next message there). Admission refuses these; a switch queued before then lands here.
-    if (switchRoute({ ...current, backend }, selection) === "new_thread")
-      throw new Error(switchNeedsNewThread);
+    const route = switchRoute({ ...current, backend }, selection);
+    if (route === "new_thread") throw new Error(switchNeedsNewThread);
+    if (route === "unsupported") throw new Error(acpAccountFixed);
     if (
       !crossProvider &&
       !crossAccount &&
