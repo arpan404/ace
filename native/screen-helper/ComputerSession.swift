@@ -2,110 +2,189 @@ import AppKit
 import ApplicationServices
 
 /// What the helper remembers about one app between calls: element ids, the chosen window,
-/// the last walk's geometry for coordinate clicks and the last screenshot's scale.
+/// stable window numbers, the last walk and the last screenshot's geometry.
 @MainActor final class CUAppSession {
     let app: NSRunningApplication
     let pid: pid_t
     let element: AXUIElement
     let registry = CUElementRegistry()
     let settler: CUSettler
-    var window: CUWindow?
-    var lastNodes: [CUNode] = []
-    var screenshotScale: Double?
+    let windows: CUWindowLister
+    /// The chosen window. Choosing another window forgets the screenshot geometry.
+    var window: CUWindow? {
+        didSet { if let shot, shot.window != window?.number { self.shot = nil } }
+    }
+    private(set) var lastNodes: [CUNode] = []
+    private var nodeIndex: [Int: Int] = [:]
+    /// The latest screenshot of the chosen window; pixel coordinates refer to it.
+    private(set) var shot: CUShotGeometry?
+    /// The app stopped answering during the last listing or walk.
+    private(set) var notResponding = false
+    let chromium: Bool
+    /// Chromium trees appear a moment after first being asked for; wait once, the first time.
+    var chromiumWarmed = false
+    private var setManualAccessibility = false
+    private var menuBar: (titles: [String], at: UInt64)?
+    private var madeKey: CGWindowID?
+    private(set) var lastUsed = cuNow()
 
     init(app: NSRunningApplication) {
         self.app = app
         pid = app.processIdentifier
         element = AXUIElementCreateApplication(pid)
-        settler = CUSettler(pid: pid)
-        AXUIElementSetMessagingTimeout(element, 1.5)
+        AXUIElementSetMessagingTimeout(element, cuAXTimeout)
+        settler = CUSettler(pid: pid, application: element)
+        windows = CUWindowLister(pid: pid, application: element)
+        chromium = cuIsChromiumFamily(bundleId: app.bundleIdentifier, frameworks: cuBundleFrameworks(app.bundleURL))
         // Chromium and Electron build their accessibility tree only for clients that ask.
-        AXUIElementSetAttributeValue(element, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        // Never set AXEnhancedUserInterface: it is VoiceOver's flag and breaks window animations.
+        if chromium, (cuAttribute(element, "AXManualAccessibility") as? Bool) != true {
+            setManualAccessibility = AXUIElementSetAttributeValue(element, "AXManualAccessibility" as CFString, kCFBooleanTrue) == .success
+        }
     }
 
     var name: String { app.localizedName ?? app.bundleIdentifier ?? "app" }
 
-    /// Makes the chosen window the app's key window without bringing the app forward.
+    /// Called at the start of every request on this app.
+    func beginRequest() {
+        lastUsed = cuNow()
+        madeKey = nil
+    }
+
+    /// Undoes what the helper changed in the app. Called when the session is dropped and at exit.
+    func close() {
+        settler.close()
+        if setManualAccessibility, !app.isTerminated {
+            AXUIElementSetAttributeValue(element, "AXManualAccessibility" as CFString, kCFBooleanFalse)
+        }
+        setManualAccessibility = false
+    }
+
+    /// Makes the window that should receive keys the app's key window without bringing the
+    /// app forward: a dialog, sheet or panel over the chosen window, else the chosen window.
     /// A frontmost app already routes keys itself, so it is left alone.
     func makeKey() {
-        guard !app.isActive, let number = window?.number else { return }
-        if cuFocusWithoutActivating(pid: pid, window: number) { usleep(30_000) }
+        guard !app.isActive, let chosen = window?.number else { return }
+        let target = cuKeyTarget(application: element, chosen: chosen)
+        if madeKey == target.window, target.focused == target.window { return }
+        if cuFocusWithoutActivating(pid: pid, window: target.window) {
+            madeKey = target.window
+            usleep(30_000)
+        }
     }
 
-    /// Keep the chosen window while it exists; otherwise the main, focused or first window.
-    func chooseWindow(_ selector: Any?) throws -> [CUWindow] {
-        let windows = cuWindows(pid: pid)
-        if let index = (selector as? NSNumber)?.intValue {
-            guard index >= 1, index <= windows.count else { throw CUError("window_not_found", "\(name) has \(windows.count) window(s); pass window 1–\(windows.count).") }
-            window = windows[index - 1]
-            return windows
-        }
-        if let title = selector as? String, !title.isEmpty {
-            guard let match = windows.first(where: { $0.title.localizedCaseInsensitiveContains(title) }) else {
-                throw CUError("window_not_found", "No \(name) window title contains \"\(title)\". Windows: \(windows.map { "\"\($0.title)\"" }.joined(separator: ", ")).")
+    /// Keep the chosen window while it exists; otherwise the focused, main, or a visible window.
+    /// A window number is the stable `index` shown in observations.
+    func chooseWindow(_ selector: Any?, deadline: UInt64 = cuNow() + 1_500_000_000) throws -> [CUWindow] {
+        let number = (selector as? NSNumber)?.intValue
+        let title = (selector as? String).flatMap { $0.isEmpty ? nil : $0 }
+        var listed = windows.list(findRemote: false, deadline: deadline)
+        let missing = (number.map { wanted in !listed.windows.contains { $0.index == wanted } } ?? false)
+            || (title.map { wanted in !listed.windows.contains { $0.title.localizedCaseInsensitiveContains(wanted) } } ?? false)
+        if !listed.notResponding, listed.windows.isEmpty || missing { listed = windows.list(findRemote: true, deadline: deadline) }
+        notResponding = listed.notResponding
+        let all = listed.windows
+        let numbers = all.map { String($0.index) }.joined(separator: ", ")
+        if let number {
+            guard let match = all.first(where: { $0.index == number }) else {
+                throw CUError("window_not_found", all.isEmpty ? "\(name) has no open window." : "\(name) has no window \(number); its windows are \(numbers).")
             }
             window = match
-            return windows
+            return all
         }
-        if let current = window, let same = windows.first(where: { CFEqual($0.element, current.element) }) { window = same; return windows }
-        let focused = cuAttribute(element, "AXFocusedWindow").map { $0 as! AXUIElement }
-        window = windows.first(where: { focused != nil && CFEqual($0.element, focused!) })
-            ?? windows.first(where: { $0.main })
-            ?? windows.first(where: { !$0.minimized })
-            ?? windows.first
-        return windows
+        if let title {
+            guard let match = all.first(where: { $0.title.localizedCaseInsensitiveContains(title) }) else {
+                throw CUError("window_not_found", "No \(name) window title contains \"\(title)\". Windows: \(all.map { "\($0.index) \"\($0.title)\"" }.joined(separator: ", ")).")
+            }
+            window = match
+            return all
+        }
+        if let current = window, let same = all.first(where: { CFEqual($0.element, current.element) }) { window = same; return all }
+        let focused = cuElementAttribute(element, "AXFocusedWindow")
+        window = all.first(where: { focused != nil && CFEqual($0.element, focused!) })
+            ?? all.first(where: { $0.main && ($0.onScreen || $0.otherSpace) })
+            ?? all.first(where: { $0.onScreen })
+            ?? all.first(where: { $0.otherSpace })
+            ?? all.first(where: { $0.minimized })
+            // A hidden app's windows are all off screen; never otherwise fall back to one.
+            ?? (app.isHidden ? all.first : nil)
+        return all
     }
 
-    /// Walks the chosen window, any open menus, and reports focus and the menu bar.
-    func observe(windows: [CUWindow]) -> CUObject {
+    /// Walks the chosen window and any open menus, updating ids and the node index.
+    @discardableResult
+    func walk(deadline: UInt64) -> CUTree {
         registry.beginWalk()
-        let walker = CUTreeWalker(registry: registry)
-        if let window { walker.walk(window.element, depth: 0) }
-        for menu in cuOpenMenus(element) { walker.walk(menu, depth: 0) }
+        let walker = CUTreeWalker(registry: registry, deadline: deadline)
+        if let window {
+            var context = CUWalkContext()
+            if !window.minimized { context.visible = window.frame }
+            walker.walk(window.element, depth: 0, context: context)
+        }
+        if !walker.tree.notResponding { for menu in cuOpenMenus(element) { walker.walk(menu, depth: 0) } }
         registry.prune()
         lastNodes = walker.tree.nodes
-        var result: CUObject = [
-            "app": ["name": name, "bundleId": app.bundleIdentifier ?? "", "pid": Int(pid), "active": app.isActive, "hidden": app.isHidden],
-            "windows": windows.enumerated().map { index, item -> CUObject in
-                var entry: CUObject = ["index": index + 1, "title": item.title, "onScreen": item.onScreen]
-                if item.minimized { entry["minimized"] = true }
-                if let window, CFEqual(item.element, window.element) { entry["current"] = true }
-                return entry
-            },
-            "nodes": walker.tree.nodes.map { $0.json(origin: window?.frame.origin ?? .zero) },
-            "truncated": walker.tree.truncated,
-            "menuBar": cuMenuBarTitles(element),
-        ]
-        if let window { result["window"] = ["title": window.title, "width": Int(window.frame.width), "height": Int(window.frame.height), "onScreen": window.onScreen] }
-        if let focused = cuAttribute(element, "AXFocusedUIElement") {
-            let focusedElement = focused as! AXUIElement
-            var entry: CUObject = ["role": cuAttribute(focusedElement, "AXRoleDescription") as? String ?? cuRole(focusedElement)]
-            if let id = registry.existingId(for: focusedElement) { entry["id"] = id }
-            if let title = cuClip((cuAttribute(focusedElement, "AXTitle") as? String) ?? (cuAttribute(focusedElement, "AXDescription") as? String), 120) { entry["name"] = title }
-            if let selected = cuClip(cuAttribute(focusedElement, "AXSelectedText") as? String, 500), cuRole(focusedElement) != "AXSecureTextField" { entry["selectedText"] = selected }
-            result["focused"] = entry
+        nodeIndex = Dictionary(lastNodes.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+        if walker.tree.notResponding { notResponding = true }
+        return walker.tree
+    }
+
+    /// A fresh bounded walk of the current window, for `wait_for` and `when` conditions.
+    func refreshNodes() -> [CUNode] {
+        if let current = window, let frame = cuFrame(of: current.element) {
+            window = CUWindow(element: current.element, number: current.number, title: current.title, frame: frame, onScreen: current.onScreen,
+                              minimized: current.minimized, main: current.main, index: current.index, subrole: current.subrole, otherSpace: current.otherSpace)
         }
-        return result
+        return walk(deadline: cuNow() + 1_500_000_000).nodes
+    }
+
+    /// The outline node for an element, nil if the last walk did not include it.
+    func node(for element: AXUIElement) -> CUNode? {
+        guard let id = registry.existingId(for: element), let index = nodeIndex[id], index < lastNodes.count else { return nil }
+        return lastNodes[index]
+    }
+
+    /// The topmost element of this app at a global screen point (true z-order).
+    func element(atScreen point: CGPoint) -> AXUIElement? {
+        var hit: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(element, Float(point.x), Float(point.y), &hit) == .success else { return nil }
+        return hit
+    }
+
+    /// Remembers the screenshot just taken of the chosen window.
+    func recordScreenshot(scale: Double) {
+        guard let window, let number = window.number else { return }
+        shot = CUShotGeometry(window: number, size: window.frame.size, scale: scale)
+    }
+
+    /// Maps screenshot pixels to global screen points using the latest screenshot of the
+    /// current window, against the window's current frame.
+    func screenPoint(fromPixel pixel: CGPoint) throws -> CGPoint {
+        guard let current = window else { throw CUError("no_window", "\(name) has no open window to click in.") }
+        let frame = cuFrame(of: current.element) ?? current.frame
+        return try cuMapPixel(pixel, shot: shot, window: current.number, frame: frame)
     }
 
     /// Converts screenshot pixels to a global screen point inside the chosen window.
-    func globalPoint(x: Double, y: Double) throws -> CGPoint {
-        guard let window else { throw CUError("no_window", "\(name) has no open window to click in.") }
-        guard let scale = screenshotScale else {
-            throw CUError("no_screenshot", "Coordinates refer to a screenshot. Observe with screenshot:true first, or click an element id instead.")
-        }
-        let point = CGPoint(x: window.frame.minX + x / scale, y: window.frame.minY + y / scale)
-        guard window.frame.contains(point) else {
-            throw CUError("outside_window", "(\(Int(x)), \(Int(y))) is outside the screenshot (\(Int(window.frame.width * scale))×\(Int(window.frame.height * scale))).")
-        }
-        return point
-    }
+    func globalPoint(x: Double, y: Double) throws -> CGPoint { try screenPoint(fromPixel: CGPoint(x: x, y: y)) }
 
     /// The smallest element from the last observation under a point, preferring ones that act.
+    /// Ignores z-order; prefer `element(atScreen:)`.
     func hitTest(_ point: CGPoint) -> CUNode? {
         let containing = lastNodes.filter { $0.frame?.contains(point) == true }
         func area(_ node: CUNode) -> CGFloat { (node.frame?.width ?? 0) * (node.frame?.height ?? 0) }
         let acting = containing.filter { $0.axActions.contains("AXPress") || cuTextInputRoles.contains($0.axRole) || ["AXRow", "AXCell", "AXOutlineRow", "AXLink"].contains($0.axRole) }
         return (acting.isEmpty ? containing : acting).min { area($0) < area($1) }
     }
+
+    /// Top-level menu titles, re-read at most every few seconds.
+    func menuBarTitles() -> [String] {
+        let now = cuNow()
+        if let menuBar, now - menuBar.at < 5_000_000_000 { return menuBar.titles }
+        let titles = cuMenuBarTitles(element)
+        menuBar = (titles, now)
+        return titles
+    }
+
+    func forgetMenuBar() { menuBar = nil }
 }
