@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { ConversationRail } from "./conversation-rail.tsx";
+import type { RailHighlightTime } from "./use-rail-highlight.ts";
 
 const markers = [
   { id: "first", ordinal: 1, label: "Audit login" },
@@ -12,7 +13,7 @@ const markers = [
 
 const preview = (id: string) => <p>Preview {id}</p>;
 
-function Rail({ single = false }: { single?: boolean }) {
+function Rail({ single = false, time }: { single?: boolean; time?: RailHighlightTime }) {
   const [selected, setSelected] = useState("");
   return (
     <>
@@ -21,20 +22,95 @@ function Rail({ single = false }: { single?: boolean }) {
         height={400}
         onJump={setSelected}
         renderPreview={preview}
+        time={time}
       />
       <output aria-label="Selected turn">{selected}</output>
     </>
   );
 }
 
-test("hovering a tick never pops a preview, and a click jumps to its turn", async () => {
-  render(<Rail />);
+/** A clock and timers the test moves by hand. */
+function fakeClock() {
+  let clock = 0;
+  let pending: { at: number; run: () => void } | undefined;
+  const time: RailHighlightTime = {
+    now: () => clock,
+    after(ms, run) {
+      const timer = { at: clock + ms, run };
+      pending = timer;
+      return () => {
+        if (pending === timer) pending = undefined;
+      };
+    },
+  };
+  return {
+    time,
+    at(moment: number) {
+      clock = moment;
+    },
+    wait(ms: number) {
+      clock += ms;
+      const timer = pending;
+      if (timer && timer.at <= clock) {
+        pending = undefined;
+        act(() => timer.run());
+      }
+    },
+  };
+}
+
+const tickNamed = (name: string) => screen.getByRole("button", { name });
+
+test("resting on a tick previews its turn, and a quick sweep past opens nothing", async () => {
+  const clock = fakeClock();
+  render(<Rail time={clock.time} />);
   const user = userEvent.setup();
-  const target = screen.getByRole("button", { name: "Fix retry" });
-  await user.hover(target);
+  for (const name of ["Audit login", "Fix retry", "Run tests"]) {
+    await user.hover(tickNamed(name));
+    clock.wait(60);
+  }
   expect(screen.queryByText(/Preview/)).toBeNull();
-  await user.click(target);
+  clock.wait(100);
+  expect(screen.getByText("Preview third")).toBeTruthy();
+});
+
+test("with a card open, moving to another tick switches it at once", async () => {
+  const clock = fakeClock();
+  render(<Rail time={clock.time} />);
+  const user = userEvent.setup();
+  await user.hover(tickNamed("Audit login"));
+  clock.wait(200);
+  expect(screen.getByText("Preview first")).toBeTruthy();
+  await user.hover(tickNamed("Fix retry"));
+  expect(screen.getByText("Preview second")).toBeTruthy();
+  expect(screen.queryByText("Preview first")).toBeNull();
+});
+
+test("leaving the rail closes the preview, though a slip straight back keeps it open", async () => {
+  const clock = fakeClock();
+  render(<Rail time={clock.time} />);
+  const user = userEvent.setup();
+  await user.hover(tickNamed("Fix retry"));
+  clock.wait(200);
+  await user.unhover(tickNamed("Fix retry"));
+  clock.wait(40);
+  expect(screen.getByText("Preview second")).toBeTruthy();
+  await user.hover(tickNamed("Run tests"));
+  expect(screen.getByText("Preview third")).toBeTruthy();
+  await user.unhover(tickNamed("Run tests"));
+  clock.wait(200);
+  expect(screen.queryByText(/Preview/)).toBeNull();
+});
+
+test("a click jumps to its turn and leaves no card behind", async () => {
+  const clock = fakeClock();
+  render(<Rail time={clock.time} />);
+  const user = userEvent.setup();
+  await user.hover(tickNamed("Fix retry"));
+  clock.wait(200);
+  await user.click(tickNamed("Fix retry"));
   expect(screen.getByLabelText("Selected turn").textContent).toBe("second");
+  clock.wait(500);
   expect(screen.queryByText(/Preview/)).toBeNull();
 });
 
@@ -105,16 +181,50 @@ test("every turn on screen draws as bright as the reader's, and the rest stay di
   expect(second.getAttribute("aria-current")).toBeNull();
 });
 
-test("hovering a tick brightens it without resizing any tick", async () => {
+test("hovering a tick brightens it", async () => {
   render(<Rail />);
   const user = userEvent.setup();
+  const resting = colourOf(tickNamed("Fix retry"));
+  await user.hover(tickNamed("Fix retry"));
+  expect(colourOf(tickNamed("Fix retry"))).not.toBe(resting);
+});
+
+/** How much longer than at rest a tick draws. */
+function lengthOf(button: HTMLElement): number {
+  const value = button.querySelector("span")?.style.getPropertyValue("--tick-scale");
+  return value ? Number(value) : 1;
+}
+
+test("ticks nearest the pointer grow most, follow it, and relax when it leaves; none moves", () => {
+  const nine = Array.from({ length: 9 }, (_, index) => ({
+    id: String(index + 1),
+    ordinal: index + 1,
+    label: `Turn ${index + 1}`,
+  }));
+  render(
+    <ConversationRail markers={nine} height={400} onJump={() => {}} renderPreview={preview} />,
+  );
+  const rail = screen.getByRole("navigation", { name: "Conversation turns" });
   const buttons = screen.getAllByRole("button");
-  const before = buttons.map(sizeOf);
-  const resting = buttons.map(colourOf);
-  const target = screen.getByRole("button", { name: "Fix retry" });
-  await user.hover(target);
-  expect(colourOf(target)).not.toBe(resting[1]);
-  expect(buttons.map(sizeOf)).toEqual(before);
+  const tops = buttons.map((button) => button.style.top);
+  // Nine ticks 8 px apart: the fifth sits 32 px down the rail.
+  fireEvent.pointerMove(rail, { clientY: 32 });
+  const lengths = buttons.map(lengthOf);
+  const peak = Math.max(...lengths);
+  expect(lengths[4]).toBe(peak);
+  expect(peak).toBeGreaterThan(1);
+  expect(lengths[3]).toBeLessThan(peak);
+  expect(lengths[3]).toBeGreaterThan(1);
+  expect(lengths[3]).toBeCloseTo(lengths[5] ?? 0);
+  expect(lengths[2]).toBeLessThan(lengths[3] ?? 0);
+  expect(lengths[0]).toBe(1);
+  expect(lengths[8]).toBe(1);
+  fireEvent.pointerMove(rail, { clientY: 0 });
+  expect(lengthOf(buttons[0] ?? rail)).toBe(peak);
+  expect(lengthOf(buttons[4] ?? rail)).toBeLessThan(peak);
+  expect(buttons.map((button) => button.style.top)).toEqual(tops);
+  fireEvent.pointerLeave(rail);
+  expect(buttons.map(lengthOf)).toEqual(buttons.map(() => 1));
 });
 
 /** A transcript whose scroll position and clock the test moves by hand. */
@@ -122,34 +232,16 @@ function fakeTranscript() {
   const element = document.createElement("div");
   let top = 0;
   Object.defineProperty(element, "scrollTop", { get: () => top });
-  let clock = 0;
-  let pending: { at: number; run: () => void } | undefined;
-  const time = {
-    now: () => clock,
-    after(ms: number, run: () => void) {
-      const timer = { at: clock + ms, run };
-      pending = timer;
-      return () => {
-        if (pending === timer) pending = undefined;
-      };
-    },
-  };
+  const clock = fakeClock();
   return {
     ref: { current: element },
-    time,
+    time: clock.time,
     scrollTo(position: number, at: number) {
-      clock = at;
+      clock.at(at);
       top = position;
       act(() => void element.dispatchEvent(new Event("scroll")));
     },
-    wait(ms: number) {
-      clock += ms;
-      const timer = pending;
-      if (timer && timer.at <= clock) {
-        pending = undefined;
-        act(() => timer.run());
-      }
-    },
+    wait: clock.wait,
   };
 }
 
