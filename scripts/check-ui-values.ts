@@ -30,7 +30,7 @@ const liveKeyframes = new Set([
   "aperture-swing",
   "aperture-drift",
   "aperture-ratchet",
-  "fx-agent-pulse",
+  "fx-agent-sweep",
   "fx-breathe",
   "fx-sweep",
 ]);
