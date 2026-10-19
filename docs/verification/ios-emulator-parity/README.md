@@ -7,9 +7,9 @@ No provider sessions or recorder runs were used.
 
 ## Changes
 
-- Canonical inbox labels distinguish questions, approvals and child waits. Project
-  badges, a visible thread header, file-count chips and native tool shortcuts are
-  available. Completed-test chips still need authoritative result metadata.
+- Canonical inbox labels distinguish questions, approvals and child waits. Quiet
+  project metadata, a compact thread header, file-count chips and native tool
+  shortcuts are available. Completed-test chips still need authoritative result metadata.
 - Machine screens use the selected SDK connection for preferences, usage, prompt
   files, provider sign-in and automations. Sign-in handles the CLI's Enter prompt.
   Cron edits preserve expression, time zone and schedule anchor. Phone profiles
@@ -38,6 +38,28 @@ No provider sessions or recorder runs were used.
 
 [ADR 0089](../../adr/0089-ios-native-tools-and-local-activities.md) records the service
 boundary, local activity decision and limits.
+
+## Phone layout cleanup
+
+The inbox uses flat rows with one project label, quieter branch metadata and no
+section-wide status tint. The wordmark has no control background. View-only
+machines hide both task entries, and their notice is a single short label.
+
+Thread title and canonical status share the navigation bar, with Agents and the
+options menu beside them. Changes and Terminal remain in that menu. At
+accessibility sizes, status moves below the bar so it can expand. The read-only
+footer is opaque, and transcript rows use the phone palette consistently.
+
+The model picker has its own row above the message field. Attachment and tuning
+errors sit below their controls. Delegated completion uses a compact count on
+both delivery paths, preserving failed and cancelled outcomes without showing
+machine input as a user message.
+
+Five simulator UI cases passed for inbox/thread rendering, the keyboard,
+Terminal, Agents and Changes. The final spacing pass is verified by the focused
+inbox/keyboard rerun below. Sixteen shared/bridge delegation tests passed. Source
+review found no remaining layout or access issues. Large-text layout was reviewed
+in source; this pass does not claim a fresh large-text runtime audit.
 
 ## Verification
 
