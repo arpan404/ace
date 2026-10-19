@@ -1,9 +1,7 @@
 import { afterEach, expect, test } from "vitest";
 import { readdir, readFile, symlink, mkdir } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { spawn } from "node:child_process";
-import { once } from "node:events";
-import { migrateSession } from "./index.ts";
+import { migrateSession, noMigrationLease } from "./index.ts";
 import { ids, idle, homes, rollout, hash, put, cleanup } from "./test-support.ts";
 afterEach(cleanup);
 
@@ -38,11 +36,11 @@ test("Codex also copies session metadata root and parent-thread references", asy
   await rollout(request.from.homeDir, 3, { session_id: ids[0], parent_thread_id: ids[1] });
   expect(await migrateSession(request, idle)).toMatchObject({ status: "migrated", copiedFiles: 3 });
 });
-test("missing ancestors and cyclic lineage refuse before publishing any files", async () => {
+test("a missing fork parent hands over and a cyclic lineage refuses, before publishing any files", async () => {
   const request = await homes("codex");
   await rollout(request.from.homeDir, 3, { forked_from_id: ids[2] });
   expect(await migrateSession(request, idle)).toMatchObject({
-    status: "refused",
+    status: "unsupported",
     reason: "Missing session or ancestor rollout",
   });
   expect(await readdir(request.to.homeDir)).toEqual([]);
@@ -52,60 +50,58 @@ test("missing ancestors and cyclic lineage refuse before publishing any files", 
     reason: "Cyclic session lineage",
   });
 });
-test("paginated history is reported unsupported without copying account-wide databases", async () => {
+test("a spawning thread that is gone doesn't stop the copy of a session it started", async () => {
   const request = await homes("codex");
-  await rollout(request.from.homeDir, 3, {
-    history_mode: "paginated",
-    history_base: { thread_id: ids[0] },
-  });
-  await put(join(request.from.homeDir, "thread_history_1.sqlite"), "not safe to copy");
-  expect(await migrateSession(request, idle)).toMatchObject({ status: "unsupported" });
-  expect(await readdir(request.to.homeDir)).toEqual([]);
+  await rollout(request.from.homeDir, 3, { parent_thread_id: ids[1] });
+  expect(await migrateSession(request, idle)).toMatchObject({ status: "migrated", copiedFiles: 1 });
 });
-test("a writer lock on any ancestor refuses migration and is left unchanged", async () => {
+test("a paginated fork copies with the base it reads through and no account-wide database", async () => {
+  const request = await homes("codex");
+  const base = await rollout(request.from.homeDir, 0, { history_mode: "paginated" });
+  const fork = await rollout(request.from.homeDir, 3, {
+    history_mode: "paginated",
+    history_base: { thread_id: ids[0], end_ordinal_exclusive: 2, end_byte_offset: 400 },
+  });
+  await put(join(request.from.homeDir, "state_5.sqlite"), "account-wide index");
+  expect(await migrateSession(request, idle)).toMatchObject({
+    status: "migrated",
+    action: "fork",
+    copiedFiles: 2,
+  });
+  for (const file of [base, fork])
+    expect(await hash(join(request.to.homeDir, relative(request.from.homeDir, file)))).toBe(
+      await hash(file),
+    );
+  expect(await readdir(request.to.homeDir)).toEqual(["sessions"]);
+});
+test("a Codex lock file left by a writer that exited doesn't block a copy the lease holds", async () => {
   const request = await homes("codex");
   await rollout(request.from.homeDir, 0);
   await rollout(request.from.homeDir, 3, { forked_from_id: ids[0] });
   const lock = await put(
-    join(request.from.homeDir, "thread-writer-locks", `${ids[0]}.lock`),
-    "live-or-stale",
+    join(request.from.homeDir, "thread-writer-locks", `${ids[3]}.lock`),
+    "stale",
   );
-  expect(await migrateSession(request, idle)).toMatchObject({ status: "refused" });
-  expect(await readFile(lock, "utf8")).toBe("live-or-stale");
-  expect(await readdir(request.to.homeDir)).toEqual([]);
+  expect(await migrateSession(request, idle)).toMatchObject({ status: "migrated", copiedFiles: 2 });
+  expect(await readFile(lock, "utf8")).toBe("stale");
 });
-test("a caller lease refuses its live process even without a writer lock", async () => {
+test("a session another process has open is refused with nothing copied and the lease untouched", async () => {
+  const request = await homes("codex");
+  const source = await rollout(request.from.homeDir, 3);
+  const before = await hash(source);
+  expect(
+    await migrateSession(request, {
+      acquire: async () => ({ status: "busy", reason: "Another Codex process has it open" }),
+    }),
+  ).toEqual({ status: "refused", reason: "Another Codex process has it open" });
+  expect(await readdir(request.to.homeDir)).toEqual([]);
+  expect(await hash(source)).toBe(before);
+});
+test("a provider without a lease reports unsupported, so the thread hands over", async () => {
   const request = await homes("claude");
   await put(join(request.from.homeDir, "projects", "-work", `${ids[3]}.jsonl`), "synthetic\n");
-  const child = spawn(
-    process.execPath,
-    ["-e", "process.stdout.write('ready');process.stdin.resume()"],
-    { stdio: ["pipe", "pipe", "pipe"] },
-  );
-  try {
-    await once(child.stdout, "data");
-    const pid = child.pid;
-    const result = await migrateSession(request, {
-      acquire: async () => {
-        if (pid !== undefined) {
-          try {
-            process.kill(pid, 0);
-            return undefined;
-          } catch {}
-        }
-        return { release: async () => {} };
-      },
-    });
-    expect(result).toMatchObject({
-      status: "refused",
-      reason: "Source or destination is live, or exclusive quiescence cannot be proven",
-    });
-    expect(await readdir(request.to.homeDir)).toEqual([]);
-  } finally {
-    const exit = once(child, "exit");
-    child.kill();
-    await exit;
-  }
+  expect(await migrateSession(request, noMigrationLease)).toMatchObject({ status: "unsupported" });
+  expect(await readdir(request.to.homeDir)).toEqual([]);
 });
 test("Claude preserves the root JSONL and every subagent sidechain and metadata file", async () => {
   const request = await homes("claude");
@@ -131,7 +127,7 @@ test("Claude preserves the root JSONL and every subagent sidechain and metadata 
     ),
   ).toEqual(before);
 });
-test("destination collisions leave both copies unchanged and release the lease", async () => {
+test("a different session already under the ID in the destination hands over, leaving both copies and releasing the lease", async () => {
   const request = await homes("codex");
   const source = await rollout(request.from.homeDir, 3);
   const target = await put(
@@ -142,12 +138,16 @@ test("destination collisions leave both copies unchanged and release the lease",
   let released = false;
   const result = await migrateSession(request, {
     acquire: async () => ({
+      status: "held",
       release: async () => {
         released = true;
       },
     }),
   });
-  expect(result).toMatchObject({ status: "refused", reason: "Destination session already exists" });
+  expect(result).toMatchObject({
+    status: "unsupported",
+    reason: "Destination session already exists",
+  });
   expect(await readFile(target, "utf8")).toBe("existing destination");
   await expect(hash(source)).resolves.toBe(sourceBefore);
   expect(released).toBe(true);
