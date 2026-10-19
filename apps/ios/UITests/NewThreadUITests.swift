@@ -31,6 +31,8 @@ import XCTest
         let worktree = app.switches["newThread.worktree"]
         if worktree.waitForExistence(timeout: 10), worktree.isEnabled { worktree.switches.firstMatch.tap() }
         let message = element(app, "newThread.message")
+        // Speed and access rows can push the message below the fold.
+        for _ in 0..<6 where !message.waitForExistence(timeout: 2) || !message.isHittable { app.swipeUp() }
         XCTAssertTrue(message.waitForExistence(timeout: 5))
         message.tap()
         message.typeText("Tighten the outbox retry ")
