@@ -2,62 +2,53 @@ import AppKit
 import ApplicationServices
 
 /// `ace-screen-helper --computer`: the agent computer-use engine. Requests run one at a time on
-/// the main thread, whose run loop also delivers accessibility notifications.
+/// the main thread, whose run loop also delivers accessibility notifications. `cancel` is
+/// answered on the stdin thread, outside that queue (see ComputerServiceIO.swift).
 @MainActor final class ComputerService {
     private var sessions: [pid_t: CUAppSession] = [:]
     private let catalog = CUAppCatalog()
     private var tail: Task<Void, Never>?
     private let overlay = CUOverlay()
     private let awake = CUAwake()
+    nonisolated let cancellations = CUCancellations()
+    nonisolated let stop = CUStopSignal()
 
-    static func run() -> Never {
-        let service = ComputerService()
-        // Accessory: no Dock icon or app switcher entry, but it may show the agent marker.
-        NSApplication.shared.setActivationPolicy(.accessory)
-        service.overlay.start()
-        Thread.detachNewThread {
-            var pending = Data()
-            var buffer = [UInt8](repeating: 0, count: 65_536)
-            while true {
-                let count = read(STDIN_FILENO, &buffer, buffer.count)
-                if count <= 0 { exit(0) }
-                for byte in buffer.prefix(count) {
-                    if byte == 10 {
-                        let line = pending
-                        pending.removeAll(keepingCapacity: true)
-                        DispatchQueue.main.async { MainActor.assumeIsolated { service.enqueue(line) } }
-                    } else {
-                        pending.append(byte)
-                        if pending.count > 4 * 1024 * 1024 { exit(2) }
-                    }
-                }
-            }
-        }
-        RunLoop.main.run()
-        exit(0)
-    }
+    static let capabilities = [
+        "click", "move", "type", "paste", "key", "set_value", "select_text", "scroll", "scroll_to", "action", "menu", "focus",
+        "drag", "window", "wait", "wait_for", "activate", "cancel", "outline_off", "when",
+    ]
 
-    private func enqueue(_ line: Data) {
-        guard let request = (try? JSONSerialization.jsonObject(with: line)) as? CUObject, let id = request.string("id") else { return }
+    func enqueue(id: String, request: CUObject) {
         let previous = tail
         tail = Task { @MainActor in
             await previous?.value
-            do { CUOutput.shared.reply(id, result: try await self.handle(request)) }
-            catch { CUOutput.shared.reply(id, error: error) }
+            defer { self.cancellations.finish(id) }
+            do {
+                if self.cancellations.isCancelled(id) { throw CUError("cancelled", cuCancelledMessage) }
+                CUOutput.shared.reply(id, result: try await self.handle(request, id: id))
+            } catch { CUOutput.shared.reply(id, error: error) }
         }
     }
 
-    private func handle(_ request: CUObject) async throws -> CUObject {
+    /// Puts back what the helper changed (a clipboard mid-paste, Chromium accessibility) and exits.
+    func shutdown(_ code: Int32) -> Never {
+        CUClipboard.restorePending()
+        for session in sessions.values { session.close() }
+        exit(code)
+    }
+
+    private func handle(_ request: CUObject, id: String) async throws -> CUObject {
         switch request.string("op") {
-        case "hello": return ["version": 1, "accessibility": AXIsProcessTrusted(), "screenRecording": CGPreflightScreenCaptureAccess()]
+        case "hello":
+            return ["version": 2, "accessibility": AXIsProcessTrusted(), "screenRecording": CGPreflightScreenCaptureAccess(), "capabilities": Self.capabilities]
         case "apps": return apps(query: request.string("query"))
         case "resolve":
             let resolved = try catalog.resolve(request.string("app") ?? "")
-            let id = resolved.running?.bundleIdentifier ?? resolved.installed?.bundleId ?? ""
-            let name = resolved.running?.localizedName ?? resolved.installed?.name ?? id
-            return ["bundleId": id, "name": name, "running": resolved.running != nil]
-        case "state": return try await state(request)
-        case "act": return try await act(request)
+            let bundleId = resolved.running?.bundleIdentifier ?? resolved.installed?.bundleId ?? ""
+            let name = resolved.running?.localizedName ?? resolved.installed?.name ?? bundleId
+            return ["bundleId": bundleId, "name": name, "running": resolved.running != nil]
+        case "state": return try await state(request, id: id)
+        case "act": return try await act(request, id: id)
         default: throw CUError("bad_request", "Unknown op.")
         }
     }
@@ -78,7 +69,7 @@ import ApplicationServices
             return ["name": name, "bundleId": id, "running": true, "active": app.isActive]
         }
         let installedRows: [CUObject] = catalog.installed()
-            .filter { !runningIds.contains($0.bundleId) && matches($0.name, $0.bundleId) }
+            .filter { !runningIds.contains($0.bundleId) && (wanted.isEmpty || $0.matches(partially: wanted) || $0.bundleId.lowercased().contains(wanted)) }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .prefix(wanted.isEmpty ? 0 : 50)
             .map { ["name": $0.name, "bundleId": $0.bundleId, "running": false] }
@@ -97,89 +88,104 @@ import ApplicationServices
             launched = true
         }
         guard let app = running else { throw CUError("app_not_found", "\(query) could not be found.") }
-        for (pid, session) in sessions where session.app.isTerminated { session.settler.close(); sessions.removeValue(forKey: pid) }
+        // Drop sessions of apps that quit or went unused, undoing what they changed.
+        let now = cuNow()
+        for (pid, session) in sessions where session.app.isTerminated || (pid != app.processIdentifier && now - session.lastUsed > 600_000_000_000) {
+            session.close()
+            sessions.removeValue(forKey: pid)
+        }
         if let existing = sessions[app.processIdentifier] { return (existing, launched) }
         let created = CUAppSession(app: app)
         sessions[app.processIdentifier] = created
         return (created, launched)
     }
 
-    private func state(_ request: CUObject) async throws -> CUObject {
-        let (session, launched) = try await session(for: request.string("app") ?? "", launch: true)
-        if launched {
-            // A fresh launch shows its first window shortly after it finishes launching.
-            for _ in 0..<40 where cuWindows(pid: session.pid).isEmpty { try? await Task.sleep(nanoseconds: 100_000_000) }
-            await session.settler.settle(minimumMs: 300, quietMs: 300, maximumMs: 3_000)
+    /// The check long-running work calls: cancellation and Esc on every call, the slower
+    /// system facts (lock, the person using this app) at most every 100 ms.
+    private func checkpoint(id: String, session: CUAppSession, acting: Bool) -> CUCheckpoint {
+        let cancellations = self.cancellations, stop = self.stop
+        var throttle = CUThrottle(intervalNs: 100_000_000)
+        return CUCheckpoint {
+            if cancellations.isCancelled(id) { throw CUError("cancelled", cuCancelledMessage) }
+            guard acting else { return }
+            let stopRequested = stop.stopRequested
+            guard stopRequested || throttle.due(now: cuNow()) else { return }
+            let facts = MainActor.assumeIsolated {
+                CUGuardFacts(locked: cuScreenLocked(), appFrontmost: session.app.isActive, secondsSinceHumanInput: cuSecondsSinceHumanInput(), stopRequested: stopRequested)
+            }
+            try cuGuard(facts, app: session.name)
         }
-        let windows = try session.chooseWindow(request["window"])
-        return try await observation(session, windows: windows, screenshot: request.bool("screenshot") ?? false, marks: request.bool("marks") ?? true, launched: launched)
     }
 
-    private func observation(_ session: CUAppSession, windows: [CUWindow], screenshot: Bool, marks: Bool = true, launched: Bool = false) async throws -> CUObject {
-        var result = session.observe(windows: windows)
+    private func state(_ request: CUObject, id: String) async throws -> CUObject {
+        let started = cuNow()
+        let (session, launched) = try await session(for: request.string("app") ?? "", launch: true)
+        session.beginRequest()
+        let check = checkpoint(id: id, session: session, acting: false)
+        if launched {
+            // A fresh launch shows its first window shortly after it finishes launching.
+            _ = await session.settler.waitForWindow(timeoutMs: 5_000) { ((cuAttribute(session.element, "AXWindows") as? [AXUIElement]) ?? []).isEmpty == false }
+            try check.check()
+            await session.settler.settle(minimumMs: 150, quietMs: 200, maximumMs: 1_500)
+        }
+        try check.check()
+        let windows = try session.chooseWindow(request["window"], deadline: cuNow() + 1_500_000_000)
+        var result = await session.observation(windows: windows, screenshot: request.bool("screenshot") ?? false, outline: request.bool("outline") ?? true,
+                                               marks: request.bool("marks") ?? true, deadline: cuNow() + 4_000_000_000)
+        try check.check()
         if launched { result["launched"] = true }
-        // Chromium builds its tree a moment after the first request; look once more.
-        if (result["nodes"] as? [Any])?.count ?? 0 < 6, session.window != nil {
-            AXUIElementSetAttributeValue(session.element, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
-            await session.settler.settle(minimumMs: 800, quietMs: 300, maximumMs: 2_500)
-            result = session.observe(windows: cuWindows(pid: session.pid))
-            if launched { result["launched"] = true }
-        }
-        if screenshot {
-            guard let number = session.window?.number else { throw CUError("no_window", "\(session.name) has no window to capture.") }
-            if session.window?.minimized == true { throw CUError("window_minimized", "The window is minimized, so it can't be captured. Use the outline, or ask the person to restore it.") }
-            do {
-                let nodes = session.lastNodes, frame = session.window?.frame ?? .zero
-                let image = try await cuCaptureWindow(number, marks: { scale in marks ? cuMarks(nodes: nodes, window: frame, scale: scale) : [] })
-                session.screenshotScale = image.scale
-                result["screenshot"] = ["jpeg": image.jpeg.base64EncodedString(), "width": image.width, "height": image.height]
-            } catch {
-                // The outline is still useful; say why there is no picture.
-                let fault = error as? CUError
-                result["screenshotError"] = fault?.message ?? "macOS would not capture this window (\((error as NSError).localizedDescription))."
-            }
-        }
+        result["elapsedMs"] = Int((cuNow() - started) / 1_000_000)
         return result
     }
 
-    private func act(_ request: CUObject) async throws -> CUObject {
+    private func act(_ request: CUObject, id: String) async throws -> CUObject {
+        let started = cuNow()
         let (session, _) = try await session(for: request.string("app") ?? "", launch: false)
+        session.beginRequest()
+        // Settling never stretches a batch past a minute, however many steps it has.
+        session.settler.deadline = started + 60_000_000_000
+        defer { session.settler.deadline = nil }
         if session.window == nil || request["window"] != nil { _ = try session.chooseWindow(request["window"]) }
-        let focusedBefore = cuAttribute(session.element, "AXFocusedWindow")
+        let focusedBefore = cuElementAttribute(session.element, "AXFocusedWindow")
+        stop.begin()
+        defer { stop.end() }
+        let check = checkpoint(id: id, session: session, acting: true)
         var actor = CUActor(session: session)
         let overlay = self.overlay
         actor.indicate = { point in overlay.show(at: point) }
+        actor.checkpoint = check.check
         var done: [String] = []
         var failure: CUObject?
         awake.hold()
         defer { awake.release() }
-        for (index, action) in request.objects("actions").enumerated() {
-            overlay.acting()
+        let actions = request.objects("actions")
+        for (index, action) in actions.enumerated() {
             do {
-                let facts = CUGuardFacts(locked: cuScreenLocked(), appFrontmost: session.app.isActive,
-                                         secondsSinceHumanInput: cuSecondsSinceHumanInput(), stopRequested: overlay.stopRequested)
-                do { try cuGuard(facts, app: session.name) } catch { _ = overlay.consumeStop(); throw error }
+                try check.check()
                 done.append(try await actor.run(action))
-                overlay.acting()
-            }
-            catch {
+            } catch {
                 let fault = error as? CUError ?? CUError("internal", String(describing: error))
                 failure = ["index": index, "code": fault.code, "message": fault.message]
                 break
             }
-            if index < request.objects("actions").count - 1 { await session.settler.settle(minimumMs: 60, quietMs: 120, maximumMs: 1_500) }
+            if index < actions.count - 1 { await session.settler.settle(minimumMs: 40, quietMs: 100, maximumMs: 1_200) }
         }
         var result: CUObject = ["done": done]
         if let failure { result["error"] = failure }
-        if request.bool("observe") ?? true {
-            await session.settler.settle()
+        let cancelled = cancellations.isCancelled(id)
+        if request.bool("observe") ?? true, !cancelled {
+            await session.settler.settle(minimumMs: 60, quietMs: 150, maximumMs: 2_000)
             // Follow a window or dialog the actions opened.
-            let focusedAfter = cuAttribute(session.element, "AXFocusedWindow")
-            if let focusedAfter, focusedBefore.map({ !CFEqual($0, focusedAfter) }) ?? true { session.window = nil }
+            let focusedAfter = cuElementAttribute(session.element, "AXFocusedWindow")
+            if let focusedAfter, focusedBefore.map({ !CFEqual($0, focusedAfter) }) ?? true {
+                session.window = nil
+                session.forgetMenuBar()
+            }
             let windows = try session.chooseWindow(nil)
-            let observed = try await observation(session, windows: windows, screenshot: request.bool("screenshot") ?? false, marks: request.bool("marks") ?? true)
-            result["state"] = observed
+            result["state"] = await session.observation(windows: windows, screenshot: request.bool("screenshot") ?? false, outline: request.bool("outline") ?? true,
+                                                        marks: request.bool("marks") ?? true, deadline: cuNow() + 4_000_000_000)
         }
+        result["elapsedMs"] = Int((cuNow() - started) / 1_000_000)
         return result
     }
 }

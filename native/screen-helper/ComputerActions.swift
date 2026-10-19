@@ -7,6 +7,7 @@ import ApplicationServices
     let session: CUAppSession
     /// Shows the person where the agent acts, for windows they can see.
     var indicate: (CGPoint) -> Void = { _ in }
+    var checkpoint: () throws -> Void = {}
     var poster: CUPoster { CUPoster(pid: session.pid) }
 
     func run(_ action: CUObject) async throws -> String {
