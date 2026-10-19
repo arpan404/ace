@@ -11,6 +11,13 @@
     "lineage": {
       "$ref": "https://ace.local/protocol/v1/ThreadLineage.json"
     },
+    "providers": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
     "switch": {
       "$ref": "https://ace.local/protocol/v1/ThreadSwitch.json"
     }

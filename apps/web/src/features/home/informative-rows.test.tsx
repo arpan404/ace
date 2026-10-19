@@ -208,3 +208,30 @@ test.each([false, true])(
     expect((await screen.findByLabelText(/^Details for /)).textContent).toContain(name);
   },
 );
+
+test("a row shows the provider it runs on and the one before; past two the rest fold into +N, named on hover", async () => {
+  const app = harness();
+  task(app, "moved", "Move the export to Claude");
+  for (const provider of ["opencode", "pi", "claude"] as const)
+    app.daemon.updateThread("moved", { provider });
+  task(app, "once", "Switch once");
+  app.daemon.updateThread("once", { provider: "claude" });
+  await app.open("/new");
+  const list = await rows();
+
+  const moved = await list.findByRole("link", { name: /^Move the export to Claude/ });
+  const marks = within(moved).getByRole("img", {
+    name: "Claude Code, earlier Pi, OpenCode and Codex",
+  });
+  expect(within(marks).getByText("+2")).toBeTruthy();
+  await userEvent.hover(marks);
+  expect(
+    await screen.findByText("Claude Code, earlier Pi, OpenCode and Codex", {
+      selector: "*:not([role=img])",
+    }),
+  ).toBeTruthy();
+
+  const once = await list.findByRole("link", { name: /^Switch once/ });
+  const pair = within(once).getByRole("img", { name: "Claude Code, earlier Codex" });
+  expect(within(pair).queryByText(/^\+/)).toBeNull();
+});

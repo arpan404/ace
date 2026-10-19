@@ -149,6 +149,11 @@ export const DelegatedBy = ThreadId.meta({
   description: "The thread whose agent delegated this one through ace.",
 });
 export const ThreadTransitionView = z.object({
+  /**
+   * Every provider the thread has run on, oldest first, the current one last. Written when the
+   * provider changes; absent on a thread that never switched.
+   */
+  providers: z.array(ProviderKind).max(8).optional(),
   lineage: ThreadLineage.optional(),
   delegatedBy: DelegatedBy.optional(),
   execution: ExecutionSelection.optional(),

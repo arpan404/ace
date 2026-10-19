@@ -118,5 +118,10 @@ export const Thread = z.object({
   delegatedBy: DelegatedBy.optional(),
   execution: ExecutionSelection.optional(),
   switch: ThreadSwitch.optional(),
+  /**
+   * Every provider the thread has run on, oldest first, the current one last. Written when the
+   * provider changes; absent on a thread that never switched.
+   */
+  providers: z.array(ProviderKind).max(8).optional(),
 });
 export type Thread = z.infer<typeof Thread>;

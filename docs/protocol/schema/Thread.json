@@ -141,6 +141,13 @@
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     },
+    "providers": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
     "queue": {
       "$ref": "https://ace.local/protocol/v1/QueueState.json"
     },

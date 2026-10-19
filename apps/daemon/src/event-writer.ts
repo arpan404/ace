@@ -126,6 +126,7 @@ export class EventWriter {
             thread.rootAgentId ?? null,
             thread.provider,
             JSON.stringify({
+              providers: thread.providers,
               lineage: thread.lineage,
               delegatedBy: thread.delegatedBy,
               execution: thread.execution,

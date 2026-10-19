@@ -10,6 +10,7 @@ import { StatusLabel } from "@/components/status-label.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { useMachines } from "@/lib/machines.ts";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
+import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useThreadBrowsing } from "@/lib/browsing.ts";
@@ -217,21 +218,61 @@ export function RowContext(props: { card: ThreadCard }) {
             </span>
           </Tip>
         )}
-        <span role="img" aria-label={card.providerLabel} className="flex items-center gap-1">
-          {card.subagents > 0 && <span className="tabular-nums">{card.subagents}</span>}
-          {/* A black-and-white mark (OpenAI, OpenCode) takes the row's muted ink beside the
-              machine glyph; coloured marks keep their own colours. */}
-          <ProviderAccountIcon
-            provider={card.provider}
-            acpAgentId={card.acpAgentId}
-            instance={card.account}
-            size={14}
-            decorative
-            className="text-subtle-foreground"
-          />
-        </span>
+        <ProviderMarks card={card} />
       </span>
     </div>
+  );
+}
+
+/** Marks drawn in a row before the rest fold into "+N". */
+const shownProviders = 2;
+
+/**
+ * The provider the thread runs on, with its account, then the providers it ran on before, newest
+ * first and a step quieter. Past two marks the rest fold into "+N"; hovering names them all.
+ */
+function ProviderMarks(props: { card: ThreadCard }) {
+  const { card } = props;
+  const earlier = card.earlierProviders.slice(0, shownProviders - 1);
+  const hidden = card.earlierProviders.length - earlier.length;
+  const marks = (
+    <span
+      role="img"
+      aria-label={
+        card.earlierLabel
+          ? `${card.providerLabel}, earlier ${card.earlierLabel}`
+          : card.providerLabel
+      }
+      className="flex items-center gap-1"
+    >
+      {card.subagents > 0 && <span className="tabular-nums">{card.subagents}</span>}
+      {/* A black-and-white mark (OpenAI, OpenCode) takes the row's muted ink beside the
+          machine glyph; coloured marks keep their own colours. */}
+      <ProviderAccountIcon
+        provider={card.provider}
+        acpAgentId={card.acpAgentId}
+        instance={card.account}
+        size={14}
+        decorative
+        className="text-subtle-foreground"
+      />
+      {earlier.map((provider) => (
+        <ProviderIcon
+          key={provider}
+          provider={provider}
+          size={14}
+          decorative
+          className="text-subtle-foreground opacity-60"
+        />
+      ))}
+      {hidden > 0 && <span className="tabular-nums">+{hidden}</span>}
+    </span>
+  );
+  if (!card.earlierLabel) return marks;
+  return (
+    <Tip label={`${card.providerLabel}, earlier ${card.earlierLabel}`}>
+      <span className="inline-flex">{marks}</span>
+    </Tip>
   );
 }
 

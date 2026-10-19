@@ -162,6 +162,10 @@ export interface ThreadCard {
   subagents: number;
   /** "Codex · 2 subagents running". */
   providerLabel: string;
+  /** Providers the thread ran on before its current one, most recent first. */
+  earlierProviders: ProviderKind[];
+  /** "Codex and Pi"; empty when it never ran elsewhere. */
+  earlierLabel: string;
 }
 
 export interface ThreadCardInput {
@@ -371,5 +375,20 @@ function currentCard(input: ThreadCardInput): ThreadCard {
     acpAgentId: entry.acpAgentId,
     account: entry.execution?.instanceId ?? entry.live?.account,
     providerLabel: providerLabel(providerDisplayName(entry.provider, entry.acpAgentId), subagents),
+    ...providerHistory(entry),
   };
+}
+
+/** The providers a thread ran on before its current one, newest first, and how to say it. */
+export function providerHistory(entry: Pick<ThreadListEntry, "provider" | "providers">): {
+  earlierProviders: ProviderKind[];
+  earlierLabel: string;
+} {
+  const earlierProviders = (entry.providers ?? [])
+    .filter((provider) => provider !== entry.provider)
+    .toReversed();
+  const names = earlierProviders.map((provider) => providerDisplayName(provider));
+  const earlierLabel =
+    names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : (names[0] ?? "");
+  return { earlierProviders, earlierLabel };
 }

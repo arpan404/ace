@@ -141,6 +141,14 @@ function advance(view: { seq: number }, event: DeliveryEvent): ApplyResult {
   view.seq = event.seq;
   return { kind: "applied" };
 }
+/** The thread moved to `next`: it joins the list as the latest, once, keeping the newest 8. */
+export function providersAfterSwitch(
+  used: readonly Thread["provider"][],
+  next: Thread["provider"],
+): Thread["provider"][] {
+  return [...used.filter((provider) => provider !== next), next].slice(-8);
+}
+
 export function updateThread(thread: Thread, event: Event): void {
   if (event.payload.type === "queue.updated") {
     const { type: _type, ...queue } = event.payload;
@@ -168,7 +176,13 @@ export function updateThread(thread: Thread, event: Event): void {
     }
     if (payload.capabilities !== undefined)
       thread.capabilities = structuredCopy(payload.capabilities);
-    if (payload.provider !== undefined) thread.provider = payload.provider;
+    if (payload.provider !== undefined && payload.provider !== thread.provider) {
+      thread.providers = providersAfterSwitch(
+        thread.providers ?? [thread.provider],
+        payload.provider,
+      );
+      thread.provider = payload.provider;
+    }
     if (payload.lineage !== undefined) thread.lineage = structuredCopy(payload.lineage);
     if (payload.delegatedBy !== undefined) thread.delegatedBy = payload.delegatedBy;
     if (payload.execution !== undefined) thread.execution = structuredCopy(payload.execution);
