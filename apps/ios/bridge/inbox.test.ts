@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 const { pumpFrames, pumpTimers } = vi.hoisted(() => {
   let next = 0;
-  const pumpFrames: Record<string, unknown>[][] = [];
-  const pumpTimers = new Map<string, () => void>();
+  const frames: Record<string, unknown>[][] = [];
+  const timers = new Map<string, () => void>();
   Object.assign(globalThis, {
     aceHost: {
       now: () => 0,
@@ -11,18 +11,18 @@ const { pumpFrames, pumpTimers } = vi.hoisted(() => {
       previewHead: (text: string, limit: number) => text.slice(0, limit),
       previewTail: (text: string, limit: number) => text.slice(-limit),
       emit: (frame: string) => {
-        pumpFrames.push(JSON.parse(frame) as Record<string, unknown>[]);
+        frames.push(JSON.parse(frame) as Record<string, unknown>[]);
       },
       timer: (id: string, _delay: number, callback: () => void) => {
-        pumpTimers.set(id, callback);
+        timers.set(id, callback);
       },
       cancelTimer: (id: string) => {
-        pumpTimers.delete(id);
+        timers.delete(id);
       },
       utf8Base64: (text: string) => Buffer.from(text, "utf8").toString("base64"),
     },
   });
-  return { pumpFrames, pumpTimers };
+  return { pumpFrames: frames, pumpTimers: timers };
 });
 
 import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
@@ -126,6 +126,16 @@ function patchesOf<T>(type: string): T[] {
 }
 function lastOf<T>(patches: T[]): T | undefined {
   return patches.length === 0 ? undefined : patches[patches.length - 1];
+}
+
+function lastCachedRow() {
+  const rows = patchesOf<DeliveredInboxRowPatch>("inbox.row").filter(
+    (patch) => patch.id === "cached",
+  );
+  return rows.length === 0 ? undefined : rows[rows.length - 1].row;
+}
+function lastConnection() {
+  return lastOf(patchesOf<DeliveredConnectionPatch>("connection"));
 }
 
 /** Drive the real pump until delivered frames satisfy `cond`: flush, inspect, ack, repeat. */
@@ -458,13 +468,6 @@ describe("inbox confirmation", () => {
     const pump = new PatchPump();
     closers.push(followInbox(client, "mac", pump, clock));
 
-    const lastCachedRow = () => {
-      const rows = patchesOf<DeliveredInboxRowPatch>("inbox.row").filter(
-        (patch) => patch.id === "cached",
-      );
-      return rows.length === 0 ? undefined : rows[rows.length - 1].row;
-    };
-    const lastConnection = () => lastOf(patchesOf<DeliveredConnectionPatch>("connection"));
     await drivePumpUntil(
       pump,
       () => lastCachedRow()?.confirmed === true && lastCachedRow()?.state === "done",
