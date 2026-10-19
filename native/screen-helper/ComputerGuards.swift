@@ -7,10 +7,12 @@ struct CUGuardFacts {
     let appFrontmost: Bool
     let secondsSinceHumanInput: Double
     let stopRequested: Bool
+    var cancelled = false
 }
 
 /// Whether an action may run now. Pure: the person always wins over the agent.
 func cuGuard(_ facts: CUGuardFacts, app: String) throws {
+    if facts.cancelled { throw CUError("cancelled", cuCancelledMessage) }
     if facts.stopRequested {
         throw CUError("stopped_by_person", "The person pressed Esc to stop computer use. Stop acting and ask them how they want to continue.")
     }

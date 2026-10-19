@@ -2,34 +2,13 @@ import AppKit
 
 /// A small marker that glides to where the agent acts on a visible window, so the person can
 /// follow along. It never takes clicks or focus, and the real cursor never moves.
-/// Esc pressed while the agent is acting asks it to stop.
+/// (Esc to stop is `CUEscapeWatcher`.)
 @MainActor final class CUOverlay {
     private var panel: NSPanel?
     private var hide: DispatchWorkItem?
-    private var activeUntil: UInt64 = 0
-    private var monitor: Any?
-    private(set) var stopRequested = false
 
-    func start() {
-        monitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == 53 else { return }
-            MainActor.assumeIsolated {
-                guard let self, DispatchTime.now().uptimeNanoseconds < self.activeUntil else { return }
-                self.stopRequested = true
-            }
-        }
-    }
-
-    /// Marks the agent as acting for a few more seconds: the window in which Esc stops it.
-    func acting() { activeUntil = DispatchTime.now().uptimeNanoseconds + 4_000_000_000 }
-
-    /// Reports a stop once; the next request starts fresh.
-    func consumeStop() -> Bool {
-        defer { stopRequested = false }
-        return stopRequested
-    }
-
-    /// `point` is a global top-left screen point inside an on-screen window.
+    /// `point` is a global top-left screen point inside an on-screen window. AppKit's global
+    /// coordinates are anchored to the primary display, whichever display the window is on.
     func show(at point: CGPoint) {
         guard let primary = NSScreen.screens.first else { return }
         let size: CGFloat = 26

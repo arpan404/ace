@@ -29,3 +29,12 @@ func cuFocusWithoutActivating(pid: pid_t, window: CGWindowID) -> Bool {
     let changed = post(&process, &record)
     return gained == .success && changed == .success
 }
+
+/// The window keys should go to (see `cuKeyWindowTarget`) and the app's focused window now.
+func cuKeyTarget(application: AXUIElement, chosen: CGWindowID) -> (window: CGWindowID, focused: CGWindowID?) {
+    guard let focused = cuElementAttribute(application, "AXFocusedWindow") else { return (chosen, nil) }
+    let number = cuWindowNumber(focused)
+    let attributes = cuFetchStatus(focused, ["AXRole", "AXSubrole"]).0
+    let facts = CUKeyWindowFacts(chosen: chosen, focused: number, focusedSubrole: attributes["AXSubrole"] as? String, focusedRole: attributes["AXRole"] as? String)
+    return (cuKeyWindowTarget(facts), number)
+}
