@@ -6,6 +6,7 @@ import {
   type FilesServerMessage,
   type FileOperation,
   type ThreadId,
+  type WorkspaceId,
 } from "@ace/protocol";
 import type { FilesService } from "./service.ts";
 import { codeOf, FileError, type Download } from "./types.ts";
@@ -45,6 +46,8 @@ export function chunkFilesChannel(options: {
     threadId: ThreadId | undefined,
     scope?: "support",
     operation?: FileOperation,
+    /** A registered project's own folder, for reads before any thread exists. */
+    workspaceId?: WorkspaceId,
   ): Promise<Binding>;
   send(message: FilesServerMessage): void;
 }) {
@@ -186,10 +189,10 @@ export function chunkFilesChannel(options: {
       }
       return;
     }
-    const threadId = message.threadId;
-    if (!threadId && message.scope !== "support")
-      throw new FileError("INVALID_MESSAGE", "Thread scope required");
-    const binding = await options.resolve(threadId, message.scope, message.operation);
+    const { threadId, workspaceId } = message;
+    if (workspaceId !== undefined ? threadId || message.scope : !threadId && !message.scope)
+      throw new FileError("INVALID_MESSAGE", "One thread, project or support scope required");
+    const binding = await options.resolve(threadId, message.scope, message.operation, workspaceId);
     try {
       assertOpening();
       const op = message.operation;

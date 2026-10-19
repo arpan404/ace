@@ -1,4 +1,5 @@
 import { fileExportSource } from "../file-export-source.ts";
+import { projectFilesBinding } from "../project-files-binding.ts";
 import { providerAuthRelay } from "./provider-auth-relay.ts";
 import {
   connectDevices,
@@ -216,7 +217,13 @@ export function attachRelayService(
             }
             void channel.send(message).catch(() => channel.close());
           },
-          async resolve(threadId, scope, operation) {
+          async resolve(threadId, scope, operation, workspaceId) {
+            if (workspaceId !== undefined) {
+              if (!options.threadFiles) throw new Error("Project files unavailable");
+              return projectFilesBinding(options.threadFiles, workspaceId, operation, () =>
+                authorize("read"),
+              );
+            }
             if (scope === "support" && options.supportFiles)
               return {
                 service: options.supportFiles,
@@ -315,7 +322,8 @@ export function attachRelayService(
         message.type === "files.abort" ||
         message.type === "files.pull" ||
         message.type === "files.chunk" ||
-        (message.type === "files.request" && (message.threadId || message.scope === "support")) ||
+        (message.type === "files.request" &&
+          (message.threadId || message.workspaceId || message.scope === "support")) ||
         (message.type === "files.cancel" && message.channel > 0x80000000)
       ) {
         if (!chunks) throw new Error("Scoped files unavailable");
