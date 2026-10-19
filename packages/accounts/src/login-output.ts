@@ -32,6 +32,9 @@ export function loginUrl(provider: ProviderKind, candidate: string): string | un
                 ? [
                     ...claudeEndpoints,
                     ["auth.openai.com", /^\/(?:oauth\/authorize|authorize)\/?$/] as const,
+                    // Pi 1.3's ChatGPT subscription and OpenRouter sign-ins (pi-ai auth/oauth).
+                    ["auth.openai.com", /^\/api\/accounts\/authorize\/?$/] as const,
+                    ["openrouter.ai", /^\/auth\/?$/] as const,
                   ]
                 : []),
               ...(provider === "acp" || provider === "antigravity"
@@ -60,7 +63,20 @@ export function loginUrl(provider: ProviderKind, candidate: string): string | un
     "originator",
     ...(provider === "claude" ? ["code"] : []),
     ...(provider === "opencode" ? ["user_code"] : []),
-    ...(provider === "pi" ? ["agent_name", "device_id", "agent_host_id", "prompt", "code"] : []),
+    ...(provider === "pi"
+      ? [
+          "agent_name",
+          "device_id",
+          "agent_host_id",
+          "prompt",
+          "code",
+          "agent_name_hint",
+          "ext_agent_host_id",
+          "resource",
+          "nonce",
+          "callback_url",
+        ]
+      : []),
     ...(provider === "acp" || provider === "antigravity"
       ? ["access_type", "prompt", "login_hint", "include_granted_scopes"]
       : []),
@@ -71,7 +87,7 @@ export function loginUrl(provider: ProviderKind, candidate: string): string | un
     if (!fields.has(key) || /(?:sk-|ghp_|gho_|eyJ)[A-Za-z0-9_-]{12,}/.test(value)) return;
     if (key === "redirectTarget" && value !== "sdk") return;
     if (key === "code" && value !== "true") return;
-    if (key === "redirect_uri") {
+    if (key === "redirect_uri" || key === "callback_url") {
       let redirect: URL;
       try {
         redirect = new URL(value);

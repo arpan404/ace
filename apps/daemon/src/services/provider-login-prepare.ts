@@ -27,6 +27,7 @@ import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import type { ServiceContext } from "./types.ts";
 
 import { apiKeyLoginDriver, apiKeySupport } from "../provider-api-key.ts";
+import { piKeyHandOff } from "../pi-login-driver.ts";
 import { openOpenCodeSignIn } from "@ace/adapter-opencode/sign-in";
 import { cursorApiKeyEntry } from "@ace/adapter-cursor/auth";
 
@@ -281,13 +282,17 @@ export async function prepareProviderLogin(
     if (target.method === "api_key" && !supportedKey.supported)
       throw new Error("API key unsupported");
     let openCodeIntegration: string | undefined;
+    const keyHandOff =
+      target.method === "api_key" && action === "login" && target.provider === "pi"
+        ? await piKeyHandOff(executable, status.version, target.upstream, env)
+        : undefined;
     const driver =
       target.method === "api_key" && action === "login"
         ? apiKeyLoginDriver({
-            command: executable,
-            args: ["login", "--with-api-key"],
+            command: keyHandOff?.command ?? executable,
+            args: keyHandOff?.args ?? ["login", "--with-api-key"],
             cwd: instance.implicit ? config.dataDir : instance.homeDir,
-            env,
+            env: keyHandOff?.env ?? env,
             assertCurrent,
           })
         : cliLoginDriver({

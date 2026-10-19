@@ -50,6 +50,7 @@ export async function inspectAccountSupport(
     ...(options.signal ? { signal: options.signal } : {}),
   });
   if (!status.path) return apiKeySupport(provider);
+  if (provider === "pi") return apiKeySupport(provider, status.version);
   if (provider !== "codex" && provider !== "opencode") return apiKeySupport(provider);
   try {
     const env = instanceEnv(instance, options.env);
