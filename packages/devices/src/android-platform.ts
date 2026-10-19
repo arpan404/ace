@@ -67,8 +67,8 @@ export class AndroidPlatform {
             spawn,
             after:
               options.after ??
-              ((ms, run) => {
-                const timer = setTimeout(run, ms);
+              ((ms, fire) => {
+                const timer = setTimeout(fire, ms);
                 return () => clearTimeout(timer);
               }),
             install: async (serial, local, remote) => {

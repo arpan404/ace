@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect, it, onTestFinished } from "vitest";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import type { Frame } from "@ace/screen";
+import type { ScreenUINode } from "@ace/protocol";
 import { DevicePlatform, startCapture } from "./index.ts";
 
 // Opt-in: a booted emulator the owner names, e.g. ACE_DEVICE_LIVE_ANDROID_SERIAL=emulator-5554.
@@ -71,9 +72,9 @@ it.skipIf(!serial)(
     await capture.input?.({ kind: "type", text: "héllo 👋" }, () => {});
     await new Promise((resolve) => setTimeout(resolve, 500));
     const texts: string[] = [];
-    const visit = (node: { value?: string; children: unknown[] }) => {
+    const visit = (node: ScreenUINode) => {
       if (node.value) texts.push(node.value);
-      for (const child of node.children) visit(child as typeof node);
+      for (const child of node.children) visit(child);
     };
     for (const node of (await platform.uiTree(device, { maxNodes: 512, maxDepth: 16 })).nodes)
       visit(node);

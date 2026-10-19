@@ -68,7 +68,7 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
     },
   });
   onTestFinished(() => platform.close());
-  const [android] = (await platform.list()).filter((device) => device.platform === "android");
+  const android = (await platform.list()).find((device) => device.platform === "android");
   if (!android) throw new Error("No emulator");
   return {
     platform,

@@ -24,36 +24,37 @@ describe("control messages use the pinned server's byte layout", () => {
       pressure: 1,
     });
     expect(hex(bytes)).toBe(
-      "02" + // inject touch
-        "00" + // ACTION_DOWN
-        "0000000000000001" + // pointer id
-        "00000064" +
-        "000000c8" + // x, y
-        "0438" +
-        "0780" + // frame width, height
-        "ffff" + // pressure 1.0
-        "00000000" +
-        "00000000", // no mouse buttons
+      [
+        "02", // inject touch
+        "00", // ACTION_DOWN
+        "0000000000000001", // pointer id
+        "00000064000000c8", // x, y
+        "04380780", // frame width, height
+        "ffff", // pressure 1.0
+        "0000000000000000", // no mouse buttons
+      ].join(""),
     );
   });
 
   it("text is UTF-8 with a 32-bit length and refuses more than the server accepts", () => {
     expect(hex(encodeControl({ type: "text", text: "testé" }))).toBe(
-      "01" + "00000006" + Buffer.from("testé").toString("hex"),
+      `0100000006${Buffer.from("testé").toString("hex")}`,
     );
     expect(() => encodeControl({ type: "text", text: "a".repeat(301) })).toThrow(RangeError);
   });
 
   it("a keycode carries action, code, repeat and meta state", () => {
     expect(hex(encodeControl({ type: "keycode", action: "up", keycode: 66 }))).toBe(
-      "00" + "01" + "00000042" + "00000000" + "00000000",
+      ["00", "01", "00000042", "00000000", "00000000"].join(""),
     );
   });
 
   it("set clipboard carries its sequence and paste flag ahead of the text", () => {
     expect(
       hex(encodeControl({ type: "setClipboard", sequence: 7n, text: "👋", paste: true })),
-    ).toBe("09" + "0000000000000007" + "01" + "00000004" + Buffer.from("👋").toString("hex"));
+    ).toBe(
+      ["09", "0000000000000007", "01", "00000004", Buffer.from("👋").toString("hex")].join(""),
+    );
   });
 
   it("scroll amounts are signed fixed point over ±16", () => {
@@ -66,7 +67,7 @@ describe("control messages use the pinned server's byte layout", () => {
       dy: -16,
     });
     expect(hex(bytes)).toBe(
-      "03" + "00000104" + "00000402" + "0438" + "0780" + "0000" + "8000" + "00000000",
+      ["03", "00000104", "00000402", "0438", "0780", "0000", "8000", "00000000"].join(""),
     );
   });
 
@@ -78,21 +79,21 @@ describe("control messages use the pinned server's byte layout", () => {
   });
 });
 
-describe("the video socket is split into codec, session and media packets", () => {
-  const media = (flags: number, pts: number, payload: number[]) => {
-    const head = Buffer.alloc(12);
-    head.writeBigUInt64BE((BigInt(flags) << 56n) | BigInt(pts), 0);
-    head.writeUInt32BE(payload.length, 8);
-    return Buffer.concat([head, Buffer.from(payload)]);
-  };
-  const session = (width: number, height: number) => {
-    const head = Buffer.alloc(12);
-    head.writeUInt8(0x80, 0);
-    head.writeUInt32BE(width, 4);
-    head.writeUInt32BE(height, 8);
-    return head;
-  };
+function media(flags: number, pts: number, payload: number[]) {
+  const head = Buffer.alloc(12);
+  head.writeBigUInt64BE((BigInt(flags) << 56n) | BigInt(pts), 0);
+  head.writeUInt32BE(payload.length, 8);
+  return Buffer.concat([head, Buffer.from(payload)]);
+}
+function session(width: number, height: number) {
+  const head = Buffer.alloc(12);
+  head.writeUInt8(0x80, 0);
+  head.writeUInt32BE(width, 4);
+  head.writeUInt32BE(height, 8);
+  return head;
+}
 
+describe("the video socket is split into codec, session and media packets", () => {
   it("reads the same events whether bytes arrive whole or one at a time", () => {
     const stream = Buffer.concat([
       Buffer.from("h264"),

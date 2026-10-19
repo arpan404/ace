@@ -7,6 +7,9 @@ let sequence = 0n;
 const plan = (input: Parameters<typeof scrcpyInputPlan>[0]) =>
   scrcpyInputPlan(input, display, video, () => ++sequence);
 
+const firstFor = (key: "home" | "back" | "rotate" | "enter" | "power" | "recents") =>
+  plan({ kind: "key", key })[0]?.message;
+
 describe("Android input over the scrcpy control socket", () => {
   it("a tap is a finger down and up at the point scaled into the video frame", () => {
     expect(plan({ kind: "tap", x: 100, y: 2000 })).toEqual([
@@ -82,14 +85,12 @@ describe("Android input over the scrcpy control socket", () => {
   });
 
   it("keys map to navigation and system actions", () => {
-    const first = (key: "home" | "back" | "rotate" | "enter" | "power" | "recents") =>
-      plan({ kind: "key", key })[0]?.message;
-    expect(first("home")).toMatchObject({ type: "keycode", keycode: 3 });
-    expect(first("recents")).toMatchObject({ type: "keycode", keycode: 187 });
-    expect(first("power")).toMatchObject({ type: "keycode", keycode: 26 });
-    expect(first("enter")).toMatchObject({ type: "keycode", keycode: 66 });
-    expect(first("back")).toMatchObject({ type: "backOrScreenOn" });
-    expect(first("rotate")).toEqual({ type: "rotate" });
+    expect(firstFor("home")).toMatchObject({ type: "keycode", keycode: 3 });
+    expect(firstFor("recents")).toMatchObject({ type: "keycode", keycode: 187 });
+    expect(firstFor("power")).toMatchObject({ type: "keycode", keycode: 26 });
+    expect(firstFor("enter")).toMatchObject({ type: "keycode", keycode: 66 });
+    expect(firstFor("back")).toMatchObject({ type: "backOrScreenOn" });
+    expect(firstFor("rotate")).toEqual({ type: "rotate" });
   });
 
   it("refuses a point outside the screen instead of injecting it at the edge", () => {

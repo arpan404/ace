@@ -123,7 +123,7 @@ async function fixture() {
     },
   });
   cleanup.push(() => platform.close());
-  const [android] = (await platform.list()).filter((entry) => entry.platform === "android");
+  const android = (await platform.list()).find((entry) => entry.platform === "android");
   if (!android) throw new Error("No emulator");
   const frames: Frame[] = [];
   const failures: unknown[] = [];
