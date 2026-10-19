@@ -35,7 +35,8 @@ final class SystemNotificationCenter: NotificationCenterPort {
         info[NotificationKeys.deny] = alert.denyOption
         info[NotificationKeys.hostId] = alert.hostId
         content.userInfo = info
-        // The stable daemon id is the request identifier, so a repeat replaces rather than stacks.
+        // The stable daemon id, within its machine, is the request identifier, so a repeat
+        // replaces rather than stacks, and another machine's equal id doesn't replace it.
         let request = UNNotificationRequest(identifier: alert.identifier, content: content, trigger: nil)
         try? await UNUserNotificationCenter.current().add(request)
     }
@@ -63,7 +64,7 @@ final class SystemNotificationCenter: NotificationCenterPort {
         await center.post(AlertContent(alert, hostId: hostId))
     }
     func catchUp(cursor: Int, entries: [AlertNotification], retracted: [String]) async {
-        center.withdraw(retracted)
+        center.withdraw(retracted.flatMap { AlertContent.requestIds(retracting: $0, hostId: hostId) })
         let fresh = entries.filter { ledger.admit($0.id) }
         ledger.advance(to: cursor)
         store?.save(ledger)

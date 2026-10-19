@@ -29,6 +29,7 @@ export const WorkerCall = z.discriminatedUnion("method", [
     device: DeviceId.and(z.string().max(200)),
     address: NotificationAddress,
   }),
+  z.object({ method: z.literal("unregister"), device: DeviceId.and(z.string().max(200)) }),
   z.object({ method: z.literal("connectDevice"), device: DeviceId.and(z.string().max(200)) }),
   z.object({
     method: z.literal("preferences"),

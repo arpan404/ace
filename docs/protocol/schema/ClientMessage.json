@@ -2137,6 +2137,9 @@
       "$ref": "https://ace.local/protocol/v1/NotificationRegister.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/NotificationUnregister.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/NotificationConfigRequest.json"
     },
     {

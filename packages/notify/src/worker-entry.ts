@@ -59,6 +59,9 @@ port.on("message", (input: unknown) => {
         case "register":
           service.register(call.device, call.address);
           break;
+        case "unregister":
+          service.unregister(call.device);
+          break;
         case "connectDevice":
           service.connectDevice(call.device);
           break;

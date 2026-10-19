@@ -288,6 +288,10 @@ export class NotificationWorker {
   async register(device: DeviceId, address: unknown): Promise<void> {
     await this.call({ method: "register", device, address: NotificationAddress.parse(address) });
   }
+  /** Stops alerts to this device until it registers again. */
+  async unregister(device: DeviceId): Promise<void> {
+    await this.call({ method: "unregister", device });
+  }
   async getPreferences(device: DeviceId) {
     return NotificationPreferences.parse(
       (await this.call({ method: "getPreferences", device })) ?? {},

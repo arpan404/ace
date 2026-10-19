@@ -100,3 +100,31 @@ it("a phone that reconnects after the thread went back to work is told to withdr
   expect(later.entries).toEqual([]);
   expect(later.retracted).toEqual([shown]);
 });
+
+it("a phone that turns notifications off gets no alerts or catch-up entries until it registers again", async () => {
+  const { client, settle, feed, status } = await phone();
+  client.send({ type: "notification.unregister", requestId: "mute" });
+  expect(await client.next()).toEqual({
+    type: "notification.unregister.result",
+    requestId: "mute",
+  });
+  await status("done");
+  // The pong arrives after any notification frame the tick sent; none comes first.
+  await settle();
+  expect((await feed(0)).entries).toEqual([]);
+  client.send({
+    type: "notification.register",
+    requestId: "unmute",
+    device: { channel: "websocket", platform: "phone" },
+  });
+  expect(await client.next()).toEqual({
+    type: "notification.register.result",
+    requestId: "unmute",
+  });
+  await status("failed");
+  expect(await client.next()).toMatchObject({
+    type: "notification",
+    notification: { status: "failed" },
+  });
+  expect((await feed(0)).entries.map((entry) => entry.notification.status)).toEqual(["failed"]);
+});

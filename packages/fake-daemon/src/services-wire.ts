@@ -221,13 +221,8 @@ export class FakeServicesWire {
             });
             return;
           }
-          if (message.type === "notification.register") {
-            if (message.requestId)
-              emit({ type: "notification.register.result", requestId: message.requestId });
-            return;
-          }
           if (message.type === "notification.preferences") return;
-          if (this.notificationFeed.handle(message, emit)) return;
+          if (this.notificationFeed.handle(message, emit, device)) return;
           if (message.type.startsWith("files.")) {
             await files.handle(message, device);
             return;

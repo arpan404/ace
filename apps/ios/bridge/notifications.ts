@@ -51,7 +51,13 @@ export class NotificationBridge {
   #enabled = false;
   #appState: AppState = "foreground";
   #cursor = 0;
-  #registered = false;
+  /** False until Swift reports on/off; the runtime's default must not unregister a device. */
+  #synced = false;
+  /** What this connection has told the daemon; unknown again after every reconnect. */
+  #daemon: "registered" | "unregistered" | undefined;
+  #connection = 0;
+  /** Register/unregister/catch-up run one at a time, each against the latest on/off state. */
+  #queue: Promise<void> = Promise.resolve();
   #stop: (() => void)[] = [];
   /** How long an action waits for this thread's confirmed state before giving up. */
   readonly detailsMs: number;
@@ -65,7 +71,10 @@ export class NotificationBridge {
     this.#stop.push(
       connection.subscribe(() => {
         if (connection.getSnapshot() === "ready") void this.#connected();
-        else this.#registered = false;
+        else {
+          this.#connection++;
+          this.#daemon = undefined;
+        }
       }),
       client.onMessage((message) => {
         if (message.type === "notification" && this.#enabled) this.#alert(message.notification);
@@ -80,6 +89,7 @@ export class NotificationBridge {
       case "notifications.sync": {
         const changed = action.appState !== this.#appState || action.enabled !== this.#enabled;
         this.#enabled = action.enabled;
+        this.#synced = true;
         this.#appState = action.appState;
         this.#cursor = Math.max(this.#cursor, action.cursor);
         if (this.#client.state === "ready") {
@@ -108,21 +118,34 @@ export class NotificationBridge {
     this.#put("notifications:connected", () => ({ type: "notifications.connected" }));
     await this.#follow();
   }
-  /** Register this phone for socket delivery once per connection, then catch up. */
-  async #follow(): Promise<void> {
-    if (!this.#enabled) return;
-    if (!this.#registered) {
+  #follow(): Promise<void> {
+    this.#queue = this.#queue.then(() => this.#reconcile());
+    return this.#queue;
+  }
+  /**
+   * On: register this phone once per connection, then catch up. Off: unregister once per
+   * connection, so a mute that couldn't be sent, or a registration the daemon kept from an
+   * earlier socket, is undone as soon as the phone reconnects.
+   */
+  async #reconcile(): Promise<void> {
+    if (!this.#synced || this.#client.state !== "ready") return;
+    const want = this.#enabled ? "registered" : "unregistered";
+    if (this.#daemon !== want) {
+      const connection = this.#connection;
       try {
-        await this.#client.request({
-          type: "notification.register",
-          device: { channel: "websocket", platform: "phone" },
-        });
-        this.#registered = true;
+        if (want === "registered")
+          await this.#client.request({
+            type: "notification.register",
+            device: { channel: "websocket", platform: "phone" },
+          });
+        else await this.#client.request({ type: "notification.unregister" });
       } catch {
         return; // The next connection retries; catch-up needs a registered device.
       }
+      if (connection !== this.#connection) return;
+      this.#daemon = want;
     }
-    await this.#catchUp();
+    if (want === "registered") await this.#catchUp();
   }
   /** The daemon stops counting a backgrounded socket as delivered (it may be suspended). */
   #presence(): void {

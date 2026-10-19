@@ -251,6 +251,16 @@ export class NotificationDatabase {
       this.inbox.remove(id);
     });
   }
+  /**
+   * The device asked to stop alerts: like an expired address, it gets no jobs or catch-up
+   * entries until it registers again. Reconnects keep it muted; `connectDevice` only touches it.
+   */
+  unregister(id: DeviceId): void {
+    this.transaction(() => {
+      this.statement("UPDATE devices SET expired=1 WHERE id=? AND revoked=0").run(id);
+      this.statement("DELETE FROM jobs WHERE device=?").run(id);
+    });
+  }
   expireAddress(id: DeviceId, address: NotificationDevice["address"]): boolean {
     return this.transaction(() => {
       const current = this.device(id);

@@ -92,6 +92,25 @@ export function createNotificationsSession({
         }
         return true;
       }
+      if (message.type === "notification.unregister") {
+        const correlation = message.requestId ? { requestId: message.requestId } : {};
+        if (!authorize("read")) {
+          fail("forbidden", "Read scope required", false, correlation);
+          return true;
+        }
+        if (!options.notifications?.unregister) {
+          fail("notifications_unavailable", "Notifications unavailable", false, correlation);
+          return true;
+        }
+        try {
+          await options.notifications.unregister(device);
+          if (message.requestId)
+            send({ type: "notification.unregister.result", requestId: message.requestId });
+        } catch {
+          fail("notification_rejected", "Notification update rejected", false, correlation);
+        }
+        return true;
+      }
       switch (message.type) {
         case "presence.update":
         case "notification.register":

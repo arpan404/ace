@@ -2661,6 +2661,21 @@ Example:
 }
 ```
 
+### notification.unregister
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"notification.unregister"` |  |
+| requestId | no | string | {"minLength":1,"maxLength":200} |
+
+Example:
+
+```json
+{
+  "type": "notification.unregister"
+}
+```
+
 ### notification.config
 
 | Field | Required | Type | Constraints |
@@ -2689,8 +2704,8 @@ Example:
 ```json
 {
   "preferences": {
-    "agentSays": false,
-    "includePreview": false
+    "includePreview": false,
+    "quietHours": null
   },
   "type": "notification.preferences"
 }
@@ -2710,7 +2725,7 @@ Example:
 {
   "threadId": "example",
   "type": "notification.snooze",
-  "until": 6
+  "until": 0
 }
 ```
 
@@ -2726,7 +2741,7 @@ Example:
 
 ```json
 {
-  "afterCursor": 0,
+  "afterCursor": 9,
   "requestId": "example",
   "type": "notification.feed"
 }
@@ -2751,7 +2766,7 @@ Example:
 {
   "deviceId": "example",
   "protocolVersion": 1,
-  "ticket": "example",
+  "token": "example",
   "type": "hello"
 }
 ```
@@ -2770,9 +2785,13 @@ Example:
 
 ```json
 {
-  "paced": false,
+  "afterSeq": 3,
+  "paced": true,
   "scope": {
-    "kind": "threads"
+    "kind": "threads",
+    "window": {
+      "limit": 7
+    }
   },
   "subscriptionId": "example",
   "type": "subscribe"
@@ -2810,9 +2829,8 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "commentId": "example",
-      "sessionId": "example",
-      "type": "review.applySuggestion"
+      "threadId": "example",
+      "type": "thread.settle"
     }
   },
   "type": "command"
@@ -2833,8 +2851,8 @@ Example:
 
 ```json
 {
-  "limit": 5,
-  "offset": 2,
+  "limit": 6,
+  "offset": 1,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -2855,8 +2873,8 @@ Example:
 
 ```json
 {
-  "before": 2,
-  "limit": 4,
+  "before": 8,
+  "limit": 6,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"
@@ -2878,9 +2896,9 @@ Example:
 
 ```json
 {
-  "before": 2,
-  "collection": "runs",
-  "limit": 6,
+  "before": 1,
+  "collection": "interactions",
+  "limit": 10,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"
@@ -2901,7 +2919,7 @@ Example:
 ```json
 {
   "before": {
-    "at": 7,
+    "at": 0,
     "id": "example"
   },
   "requestId": "example",

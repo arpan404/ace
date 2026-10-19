@@ -20,6 +20,17 @@ struct AlertContent: Equatable, Sendable {
     /// The paired machine that raised it; nil only for the debug fixture or tests.
     var hostId: String? = nil
 
+    /// The system request identifier for a daemon alert. Alert ids are unique only within their
+    /// daemon, so the machine is part of it: the same id from two machines is two notifications.
+    static func requestId(_ alertId: String, hostId: String?) -> String {
+        hostId.map { "\($0)|\(alertId)" } ?? alertId
+    }
+    /// What to withdraw for a retracted alert: its id, plus the bare id builds before
+    /// namespacing posted, so an alert shown before an update is still withdrawn.
+    static func requestIds(retracting alertId: String, hostId: String?) -> [String] {
+        let id = requestId(alertId, hostId: hostId)
+        return id == alertId ? [id] : [id, alertId]
+    }
     /// A local notice, not a daemon alert: no buttons, opens the thread.
     static func notice(id: String, threadId: String, title: String, body: String, hostId: String? = nil) -> AlertContent {
         var content = AlertContent(identifier: id, title: title, body: body, threadId: threadId)
@@ -33,7 +44,7 @@ struct AlertContent: Equatable, Sendable {
     }
     init(_ alert: AlertNotification, hostId: String? = nil) {
         self.hostId = hostId
-        identifier = alert.id
+        identifier = Self.requestId(alert.id, hostId: hostId)
         title = alert.title.isEmpty ? "ace" : alert.title
         threadIdentifier = alert.threadId
         threadId = alert.threadId

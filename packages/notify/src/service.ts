@@ -90,6 +90,11 @@ export class NotificationService {
       this.presence.activeDevices(this.options.now()),
     );
   }
+  unregister(id: DeviceId): void {
+    this.database.unregister(id);
+    for (const flight of this.inFlight.values())
+      if (flight.device === id) flight.controller.abort();
+  }
   connectDevice(id: DeviceId): void {
     if (!this.database.device(id))
       this.database.register(

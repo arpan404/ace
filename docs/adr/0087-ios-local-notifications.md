@@ -20,8 +20,18 @@ the foreground can keep its socket open while suspended, so an alert sent there 
 "websocket", platform: "phone" }` on every connection and posts each server `notification`
 message with `UNUserNotificationCenter`. Swift never derives an alert from thread status, so the
 worker's whole-tree rules, burst window, snooze, quiet hours and presence suppression (ADR 0012)
-stay the only alert policy. The stable notification id is the request identifier, so a repeat
-replaces rather than stacks.
+stay the only alert policy. The request identifier is the paired machine's host id plus the
+stable notification id (`<hostId>|<id>`): a repeat replaces rather than stacks, and the same id
+from two machines is two notifications. Retraction withdraws that identifier and the bare id that
+builds before namespacing posted; taps and actions route by the host id in `userInfo`.
+
+**Muting unregisters.** The app can turn alerts off for the whole phone or for one machine. While
+off, the bridge sends `notification.unregister { requestId? }` (read scope) instead of registering,
+once per connection: as soon as the switch flips, and again after every reconnect, so a mute that
+couldn't be sent is applied on the next connection. The daemon keeps the device but marks it like
+an expired address: no delivery jobs, live frames or catch-up entries until it registers again, and
+reconnecting doesn't clear it. Turning alerts back on registers at once; nothing that happened
+while muted is posted later.
 
 **Presence carries app state.** `presence.update` gains an optional `appState: "foreground" |
 "background"`. The app sends `background` when it leaves the foreground. The daemon sends no
