@@ -3,6 +3,8 @@ import { stat, realpath } from "node:fs/promises";
 import { resolve, sep, extname } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { RequestListener } from "node:http";
+import { compressedFiles } from "./compressed-files.ts";
+import { negotiateContentEncoding } from "./content-encoding.ts";
 
 const types: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -15,9 +17,10 @@ const types: Record<string, string> = {
 };
 /** The web app's icons, copied to the build's root from `apps/web/public`. */
 const icons = new Set(["/favicon.svg", "/favicon.png", "/apple-touch-icon.png"]);
-
+const compressible = new Set([".html", ".js", ".css", ".svg"]);
 /** Serve only the shipped renderer. No workspace or user-home files are reachable. */
 export function webHttp(root: string | undefined, next: RequestListener): RequestListener {
+  const compressed = compressedFiles(32 * 1024 * 1024);
   return (request, response) => {
     const path = request.url ?? "";
     if (!root || path.startsWith("/v1/") || path.startsWith("/preview/")) {
@@ -36,11 +39,26 @@ export function webHttp(root: string | undefined, next: RequestListener): Reques
       if (!file.startsWith(directory + sep)) throw new Error("Outside renderer");
       const info = await stat(file);
       if (!info.isFile()) throw new Error("Missing renderer file");
-      response.setHeader("Content-Type", types[extname(file)] ?? "application/octet-stream");
-      response.setHeader("Content-Length", info.size);
+      const extension = extname(file);
+      const encoding =
+        compressible.has(extension) && info.size >= 1024
+          ? negotiateContentEncoding(request.headers["accept-encoding"])
+          : undefined;
+      response.setHeader("Content-Type", types[extension] ?? "application/octet-stream");
       response.setHeader("Cache-Control", "no-store");
       response.setHeader("Referrer-Policy", "no-referrer");
       response.setHeader("X-Content-Type-Options", "nosniff");
+      if (compressible.has(extension)) response.setHeader("Vary", "Accept-Encoding");
+      const body =
+        encoding &&
+        (await compressed(file, encoding, info.size, info.mtimeMs).catch(() => undefined));
+      if (encoding && body) {
+        response.setHeader("Content-Encoding", encoding);
+        response.setHeader("Content-Length", body.length);
+        response.end(request.method === "HEAD" ? undefined : body);
+        return;
+      }
+      response.setHeader("Content-Length", info.size);
       if (request.method === "HEAD") response.end();
       else await pipeline(createReadStream(file), response);
     })().catch(() => {

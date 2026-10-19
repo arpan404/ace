@@ -527,21 +527,21 @@ export async function startServer(options: ServerOptions): Promise<{
           preview?.close(),
           transports?.close(),
           dynamicRemote?.close(),
-        ]).then(
-          () =>
-            closeServers().then((error) => {
-              void shutdownDeadline(
-                "Socket tasks",
-                Promise.all([Promise.allSettled(serviceTasks), lanes.settled(), disconnects]),
-                runtime.delay,
-                5_000,
-              ).then(() => {
-                if (error) reject(error);
-                else resolve();
-              }, reject);
-            }),
-          reject,
-        );
+        ]).then(() => {
+          // An upgrade can finish while listeners close; ws waits for every client to go.
+          for (const server of servers) for (const socket of server.clients) socket.terminate();
+          return closeServers().then((error) => {
+            void shutdownDeadline(
+              "Socket tasks",
+              Promise.all([Promise.allSettled(serviceTasks), lanes.settled(), disconnects]),
+              runtime.delay,
+              5_000,
+            ).then(() => {
+              if (error) reject(error);
+              else resolve();
+            }, reject);
+          });
+        }, reject);
       });
       return closing;
     },
