@@ -25295,12 +25295,12 @@ Example:
 
 [JSON Schema](schema/SearchState.json), input validation.
 
-Type: ["new","working","waiting","needs_you","done","failed","unresponsive"]. See JSON Schema for constraints.
+Type: ["new","working","waiting","needs_you","limited","done","failed","unresponsive"]. See JSON Schema for constraints.
 
 Example:
 
 ```json
-"needs_you"
+"limited"
 ```
 
 ## SearchStatus
