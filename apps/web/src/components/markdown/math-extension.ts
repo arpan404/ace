@@ -3,6 +3,7 @@ import type {
   TokenizerExtensionFunction,
   TokenizerStartFunction,
 } from "marked";
+import type { Token } from "marked";
 
 /*
  * Agent math in prose: inline `\(...\)` and `$...$`, display `\[...\]` and
@@ -26,6 +27,11 @@ export interface MathToken {
   display: boolean;
   /** An opener with no closer yet: show `raw` as text, never KaTeX. */
   pending?: boolean;
+  /**
+   * Rendered HTML, attached by the markdown worker when the formula's block
+   * settled there. `Formula` inserts it directly: no KaTeX work on arrival.
+   */
+  html?: string;
 }
 
 /** Whether a (worker-decoded) token is math this extension produced. */
@@ -34,7 +40,8 @@ export function isMathToken(token: unknown): token is MathToken {
   const candidate = token as Record<string, unknown>;
   if (candidate.type !== "math" || typeof candidate.raw !== "string") return false;
   if (typeof candidate.tex !== "string" || typeof candidate.display !== "boolean") return false;
-  return candidate.pending === undefined || typeof candidate.pending === "boolean";
+  if (candidate.pending !== undefined && typeof candidate.pending !== "boolean") return false;
+  return candidate.html === undefined || typeof candidate.html === "string";
 }
 
 function parenMath(source: string, display: boolean): MathToken | undefined {
@@ -88,10 +95,17 @@ export const mathTokenizer: TokenizerExtensionFunction = (source) => {
   return undefined;
 };
 
+const delimiterPattern = /\\[([]|\$/;
+
 export const mathStart: TokenizerStartFunction = (source) => {
-  const at = source.search(/\\[([]|\$/);
+  const at = source.search(delimiterPattern);
   return at < 0 ? undefined : at;
 };
+
+/** Whether `text` holds a math opener: the streaming parser's warm-up signal. */
+export function hasMathDelimiter(text: string): boolean {
+  return delimiterPattern.test(text);
+}
 
 /** The extension for `Marked.use` and for `new Lexer` options alike. */
 export const mathExtension: TokenizerExtension = {
@@ -100,3 +114,28 @@ export const mathExtension: TokenizerExtension = {
   start: mathStart,
   tokenizer: mathTokenizer,
 };
+
+/**
+ * Every unrendered math span in a token tree: paragraphs, headings and quotes
+ * hold `tokens`, tables hold cells with `tokens`, lists hold items with
+ * `tokens`. Defensive: anything else is skipped, never thrown on.
+ */
+export function collectUnrenderedMath(tokens: readonly Token[]): MathToken[] {
+  const found: MathToken[] = [];
+  const visit = (token: unknown): void => {
+    if (isMathToken(token)) {
+      if (!token.pending && token.html === undefined) found.push(token);
+    }
+    if (typeof token !== "object" || token === null) return;
+    const children = (token as { tokens?: unknown }).tokens;
+    if (Array.isArray(children)) for (const child of children) visit(child);
+    const header = (token as { header?: unknown }).header;
+    if (Array.isArray(header)) for (const cell of header) visit(cell);
+    const rows = (token as { rows?: unknown }).rows;
+    if (Array.isArray(rows)) for (const row of rows) visit(row);
+    const items = (token as { items?: unknown }).items;
+    if (Array.isArray(items)) for (const item of items) visit(item);
+  };
+  for (const token of tokens) visit(token);
+  return found;
+}

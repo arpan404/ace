@@ -86,6 +86,13 @@ test("a block that settled while streaming is never revised: it is already the f
   }
 });
 
+test("a math opener in an append is reported so the page can warm KaTeX", () => {
+  const parser = new BlockStream();
+  expect(parser.push("Plain words.", false).mathSeen).toBe(false);
+  expect(parser.push(" Still \\(x", false).mathSeen).toBe(true);
+  expect(parser.push(" more", false).mathSeen).toBe(false);
+});
+
 test("a reference resolves in an earlier settled block once its definition arrives", () => {
   const pieces = [
     "See [the docs][docs].\n\n",

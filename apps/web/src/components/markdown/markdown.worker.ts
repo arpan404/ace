@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { serveOffThread } from "@/lib/off-thread.ts";
 import { codeLines } from "./code-lines.ts";
+import { renderSettledMath } from "./math-worker.ts";
 import { StreamRegistry } from "./stream-registry.ts";
 
 // Lexing and highlighting for transcript prose and for whole source files, off the main thread
@@ -14,10 +15,13 @@ const Input = z.union([
 const streams = new StreamRegistry(() => performance.now());
 serveOffThread(
   (input) => Input.parse(input),
-  (input) =>
-    "code" in input
-      ? codeLines(input.code, input.lang, input.hash)
-      : "release" in input
-        ? streams.release(input.release)
-        : streams.apply(input),
+  async (input) => {
+    if ("code" in input) return codeLines(input.code, input.lang, input.hash);
+    if ("release" in input) return streams.release(input.release);
+    const reply = streams.apply(input);
+    // Settled formulas render here, once, off the main thread; the main thread
+    // only inserts the shipped HTML.
+    if (!("resync" in reply)) await renderSettledMath(reply.settled);
+    return reply;
+  },
 );

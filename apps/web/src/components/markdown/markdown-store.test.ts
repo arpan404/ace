@@ -7,7 +7,12 @@ import { StreamRegistry, type StreamJob, type StreamReply } from "./stream-regis
  * A store against a real worker registry, with a hand-driven clock and timers, and replies
  * held until the test lets them through, as a busy worker would.
  */
-function harness(interval = 80, parkedWeight?: number, cold?: { total: number; each: number }) {
+function harness(
+  interval = 80,
+  parkedWeight?: number,
+  cold?: { total: number; each: number },
+  onMathSeen?: () => void,
+) {
   let now = 0;
   let registry = new StreamRegistry(() => now);
   const timers: { at: number; run: () => void; live: boolean }[] = [];
@@ -48,6 +53,7 @@ function harness(interval = 80, parkedWeight?: number, cold?: { total: number; e
       };
     },
     interval: () => interval,
+    ...(onMathSeen ? { onMathSeen } : {}),
     ...(parkedWeight === undefined ? {} : { parkedWeight }),
     ...(cold ? { cold } : {}),
   });
@@ -253,6 +259,27 @@ test("unwatched documents are kept by what they hold: the oldest go once the bud
   expect(store.read("a")).toBeUndefined();
   expect(store.read("b")).toBeDefined();
   expect(store.read("c")).toBeDefined();
+});
+
+test("a math opener in an append warms KaTeX before the block settles", async () => {
+  let seen = 0;
+  const math = harness(10, undefined, undefined, () => seen++);
+  math.store.want("m", "Result \\[ x+1", false);
+  await math.reply();
+  expect(seen).toBe(1);
+  math.store.want("m", "Result \\[ x+1 \\]\n\nDone.\n", true);
+  await math.reply();
+  expect(seen).toBe(1);
+});
+
+test("prose without math never warms KaTeX", async () => {
+  let seen = 0;
+  const plain = harness(10, undefined, undefined, () => seen++);
+  plain.store.want("m", "Just words.", false);
+  await plain.reply();
+  plain.store.want("m", "Just words.\n\nMore words.\n", true);
+  await plain.reply();
+  expect(seen).toBe(0);
 });
 
 test("updates come 10 to 20 times a second: slower when they cost more, and when motion is reduced", () => {

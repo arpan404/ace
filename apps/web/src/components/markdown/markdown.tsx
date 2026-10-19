@@ -96,9 +96,18 @@ function Inline(props: { token: Token }): ReactNode {
   const token = props.token;
   if (isMathToken(token)) {
     // An opener still waiting for its closer shows as text; invalid TeX falls
-    // back to its source inside `Formula`, never a red error.
+    // back to its source inside `Formula`, never a red error. The key pins one
+    // instance to one formula, so a settled formula never re-renders.
     if (token.pending) return token.raw;
-    return <Formula raw={token.raw} tex={token.tex} display={token.display} />;
+    return (
+      <Formula
+        key={`${token.raw}\n${token.html ?? ""}`}
+        raw={token.raw}
+        tex={token.tex}
+        display={token.display}
+        html={token.html}
+      />
+    );
   }
   if (!isKnown(token)) return token.raw;
   switch (token.type) {

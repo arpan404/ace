@@ -25,6 +25,8 @@ export type StreamReply =
       open: MarkdownBlock[];
       /** Time this job took here, for the page's update cadence. */
       ms: number;
+      /** This append held a math opener: the page warms KaTeX before the block settles. */
+      mathSeen: boolean;
     }
   /** The stream is unknown here or holds other text: send it whole (`at: 0`). */
   | { resync: true };
@@ -49,7 +51,7 @@ export class StreamRegistry {
     const started = this.now();
     const stream = job.at === 0 ? new BlockStream() : this.streams.get(job.stream);
     if (!stream || stream.length !== job.at) return { resync: true };
-    const { from, settled, open } = stream.push(job.append, job.final);
+    const { from, settled, open, mathSeen } = stream.push(job.append, job.final);
     if (job.final) this.streams.delete(job.stream);
     else this.streams.set(job.stream, stream);
     return {
@@ -57,6 +59,7 @@ export class StreamRegistry {
       settled: settled.map(settledBlock),
       open: open.map((token) => ({ token })),
       ms: this.now() - started,
+      mathSeen,
     };
   }
 }

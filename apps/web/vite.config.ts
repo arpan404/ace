@@ -3,6 +3,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig } from "vite";
 import { cssWithoutLegacyPolyfills } from "./css-polyfills.ts";
+import { katexWoff2 } from "./katex-woff2.ts";
 import { phosphorWeights } from "./icon-weights.ts";
 import { initialChunk, initialPreloads } from "./initial-preloads.ts";
 import { initialBundle } from "./initial-bundle.ts";
@@ -32,6 +33,7 @@ export default defineConfig(({ mode }) => ({
     ...reactPlugins(),
     tailwindcss(),
     cssWithoutLegacyPolyfills(),
+    katexWoff2(),
     phosphorWeights(),
     zodWithoutJsonSchema(),
     zodWithoutMetadata(),

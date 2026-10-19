@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { expect, test } from "vitest";
+import { Formula } from "./math.tsx";
 import { Markdown } from "./markdown.tsx";
 
 test("agent LaTeX renders as math, not as text with eaten backslashes", async () => {
@@ -88,5 +89,45 @@ test("streamed math settles into the same output as its whole text", async () =>
   view.rerender(<Markdown stream={stream} text={text} />);
   await waitFor(() => expect(view.container.textContent).toBe(expected));
   expect(view.container.querySelectorAll(".katex").length).toBe(2);
+  view.unmount();
+});
+
+test("worker-rendered HTML inserts directly with no chunk wait", () => {
+  const view = render(
+    <Formula raw="\\(w\\)" tex="w" display={false} html='<span class="katex">shipped</span>' />,
+  );
+  expect(view.container.querySelector(".katex")?.textContent).toBe("shipped");
+  view.unmount();
+});
+
+test("a repeated formula renders from the cache with no loading state", async () => {
+  const first = render(<Formula raw="\\(q\\)" tex="q" display={false} />);
+  await waitFor(() => expect(first.container.querySelector(".katex")).not.toBeNull());
+  first.unmount();
+  const second = render(<Formula raw="\\(q\\)" tex="q" display={false} />);
+  expect(second.container.querySelector(".katex")).not.toBeNull();
+  expect(second.container.querySelector("code")).toBeNull();
+  second.unmount();
+});
+
+test("a settled formula keeps its rendered output while later text streams in", async () => {
+  const stream = "thread/math-kept";
+  const view = render(<Markdown stream={stream} streaming text={"First \\(a\\).\n\nSecond\n"} />);
+  await waitFor(() => expect(view.container.querySelectorAll(".katex").length).toBe(1));
+  const paragraphs = view.container.querySelectorAll("p");
+  expect(paragraphs).toHaveLength(2);
+  const settled = paragraphs[0];
+  const formula = settled?.querySelector(".katex")?.innerHTML;
+  view.rerender(
+    <Markdown stream={stream} streaming text={"First \\(a\\).\n\nSecond keeps going\n"} />,
+  );
+  await screen.findByText(/keeps going/);
+  view.rerender(
+    <Markdown stream={stream} streaming text={"First \\(a\\).\n\nSecond keeps going\nmore\n"} />,
+  );
+  await screen.findByText(/more/);
+  // The settled block is untouched: the same node with the same rendered math.
+  expect(view.container.querySelectorAll("p")[0]).toBe(settled);
+  expect(settled?.querySelector(".katex")?.innerHTML).toBe(formula);
   view.unmount();
 });
