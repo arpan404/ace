@@ -34,6 +34,7 @@ export const ComputerState = z.looseObject({
         onScreen: z.boolean().optional(),
         minimized: z.boolean().optional(),
         current: z.boolean().optional(),
+        otherSpace: z.boolean().optional(),
       }),
     )
     .default([]),

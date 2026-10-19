@@ -135,7 +135,7 @@ export function stateHeader(state: ComputerState): string {
   if (state.notResponding) lines.push(`${app.name} is not responding; the outline may be partial.`);
   if (windows.length > 1)
     lines.push(
-      `Windows: ${windows.map((entry) => `${entry.index} "${entry.title}"${entry.current ? " (shown)" : ""}${entry.minimized ? " (minimized)" : ""}`).join(", ")}. Pass window to switch.`,
+      `Windows: ${windows.map((entry) => `${entry.index} "${entry.title}"${entry.current ? " (shown)" : ""}${entry.minimized ? " (minimized)" : ""}${entry.otherSpace ? " (another Space)" : ""}`).join(", ")}. Pass window to switch.`,
     );
   return lines.join("\n");
 }
