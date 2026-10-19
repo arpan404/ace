@@ -3,7 +3,7 @@ import { DeadlineIndex, type AgentRecord, type ThreadState, type Fact } from "@a
 import { RunId, type Item, type EventPayload } from "@ace/protocol";
 import { z } from "zod";
 import { recordSchemas } from "./snapshot.ts";
-import { itemMetadata } from "./item-metadata.ts";
+import { itemMetadata, keepsItemMetadata } from "./item-metadata.ts";
 import { RecordBudget, type RecordTransaction } from "./record-cache.ts";
 import { Records } from "./records.ts";
 import { engineSchemaVersion } from "./schema-version.ts";
@@ -159,8 +159,13 @@ export class Snapshot {
           (event.type === "item.delta" && event.itemId === item.id),
       )
     ) {
-      const next = itemMetadata(item);
       const previous = this.metadata.values[fact.item];
+      if (!keepsItemMetadata(item)) {
+        // A copy would equal the item; `prepare` and `streamItem` fall back to the item itself.
+        if (previous !== undefined) delete this.metadata.values[fact.item];
+        return;
+      }
+      const next = itemMetadata(item);
       if (JSON.stringify(next) !== JSON.stringify(previous)) this.metadata.values[fact.item] = next;
     }
   }
