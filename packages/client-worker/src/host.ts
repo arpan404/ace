@@ -236,6 +236,8 @@ class Tab {
   #pendingReset = false;
   #wantsMessages = false;
   #stopMessages: (() => void) | undefined;
+  #wantsStreams = false;
+  #stopStreams: (() => void) | undefined;
   #visible = true;
   #dropped = false;
   #stopLock: (() => void) | undefined;
@@ -292,6 +294,16 @@ class Tab {
       this.#wantsMessages = false;
       this.#stopMessages?.();
       this.#stopMessages = undefined;
+      return;
+    }
+    if (message.t === "watchStreams") {
+      this.#wantsStreams = true;
+      return this.#watchStreams();
+    }
+    if (message.t === "unwatchStreams") {
+      this.#wantsStreams = false;
+      this.#stopStreams?.();
+      this.#stopStreams = undefined;
       return;
     }
     if (message.t === "visible") {
@@ -366,6 +378,7 @@ class Tab {
     }
     this.#entry = entry;
     this.#watchMessages();
+    this.#watchStreams();
     entry.started.then(
       () => this.#post({ t: "attached", idPrefix: entry.client.commandId() }),
       (error: unknown) => this.#post({ t: "attached", error: errorShape(error) }),
@@ -521,6 +534,16 @@ class Tab {
       // At the listener limit the tab misses pushes; its reads still work.
     }
   }
+  #watchStreams(): void {
+    const client = this.#entry?.client;
+    if (!client || !this.#wantsStreams || this.#stopStreams) return;
+    try {
+      // Structured clone copies the bytes per tab; the client's copy stays with the worker.
+      this.#stopStreams = client.onStream((message) => this.#post({ t: "stream", message }));
+    } catch {
+      // At the listener limit the tab misses frames; its reads still work.
+    }
+  }
   async #call(client: Client, call: number, method: string, args: unknown[]) {
     const controller = new AbortController();
     this.#calls.set(call, controller);
@@ -644,6 +667,8 @@ class Tab {
     this.#pendingReset = false;
     this.#stopMessages?.();
     this.#stopMessages = undefined;
+    this.#stopStreams?.();
+    this.#stopStreams = undefined;
     for (const controller of this.#calls.values()) controller.abort();
     for (const call of this.#iterators.keys()) void this.#stop(call);
     this.#flushing?.();

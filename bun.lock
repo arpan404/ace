@@ -443,6 +443,7 @@
     "packages/client": {
       "name": "@ace/client",
       "dependencies": {
+        "@ace/browser": "workspace:*",
         "@ace/devices": "workspace:*",
         "@ace/files": "workspace:*",
         "@ace/projection": "workspace:*",

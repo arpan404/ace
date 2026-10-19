@@ -354,6 +354,9 @@
     },
     {
       "properties": {
+        "binaryFrames": {
+          "type": "boolean"
+        },
         "requestId": {
           "maxLength": 256,
           "minLength": 1,
@@ -370,6 +373,9 @@
         "type": {
           "const": "browser.subscribe",
           "type": "string"
+        },
+        "viewport": {
+          "$ref": "https://ace.local/protocol/v1/BrowserCaptureViewport.json"
         }
       },
       "required": [

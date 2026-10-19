@@ -101,7 +101,7 @@ function pixelSize(data: string): { width: number; height: number } {
 }
 
 it.skipIf(!executablePath)(
-  "a local retina viewer gets DPR-sized pixels while remote demand stays capped",
+  "a retina viewer gets DPR-sized pixels and a DPR 1 viewer only what it shows",
   async () => {
     const f = await fixture();
     await f.navigate();
@@ -131,8 +131,9 @@ it.skipIf(!executablePath)(
     );
     // Human input coordinates must still refer to the CSS viewport, not the JPEG raster.
     expect(received.at(-1)).toMatchObject({ width: 1280, height: 720 });
+    // Over the relay too: the frame follows what the viewer's screen shows, not a fixed cap.
     f.service.configureCapture("thread", "retina", {
-      viewport: { width: 1280, height: 720, devicePixelRatio: 4 },
+      viewport: { width: 1280, height: 720, devicePixelRatio: 1 },
       local: false,
     });
     await vi.waitFor(

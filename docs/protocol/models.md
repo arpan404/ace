@@ -59,36 +59,25 @@ Example:
 ```json
 {
   "acpAgentId": "example",
-  "aliases": [],
-  "contextWindow": 4,
-  "custom": true,
-  "defaultSource": "built-in",
-  "defaultTier": "example",
   "deprecated": false,
   "displayName": "example",
   "efforts": [],
   "family": "example",
-  "hidden": true,
+  "group": "current",
+  "hidden": false,
   "id": "example",
   "inputModalities": [],
   "instance": "example",
   "isDefault": false,
-  "legacy": false,
   "nativeModelId": "example",
   "provider": "codex",
-  "providerEnabled": true,
+  "providerEnabled": false,
   "raw": {
     "json": "example",
-    "truncated": true
+    "truncated": false
   },
   "serviceTiers": [],
-  "sortKey": "example",
-  "source": {
-    "id": "example",
-    "kind": "account",
-    "label": "example",
-    "requiresAuth": false
-  }
+  "tier": "current"
 }
 ```
 
@@ -108,10 +97,10 @@ Example:
 
 ```json
 {
-  "code": "unreachable",
+  "actionId": "provider.sign_in",
+  "code": "timeout",
   "hint": "example",
-  "message": "example",
-  "severity": "info"
+  "message": "example"
 }
 ```
 
@@ -131,7 +120,7 @@ Example:
 {
   "id": "example",
   "label": "example",
-  "level": "minimal"
+  "level": "xhigh"
 }
 ```
 
@@ -151,8 +140,7 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
-  "provider": "antigravity"
+  "installationId": "example"
 }
 ```
 
@@ -183,14 +171,12 @@ Example:
 
 ```json
 {
-  "accessModes": [],
+  "enabled": true,
   "instance": "example",
-  "lastRefreshedAt": 6,
+  "permissionModes": [],
   "provider": "cursor",
-  "refreshing": true,
-  "sources": [],
-  "stale": false,
-  "status": "stale"
+  "refreshing": false,
+  "stale": false
 }
 ```
 
@@ -212,8 +198,8 @@ Example:
 
 ```json
 {
-  "instanceId": "example",
-  "offset": 9
+  "limit": 1,
+  "provider": "claude"
 }
 ```
 
@@ -232,7 +218,8 @@ Example:
 ```json
 {
   "instances": [],
-  "models": []
+  "models": [],
+  "nextOffset": 2
 }
 ```
 
@@ -256,34 +243,37 @@ Example:
 ```json
 {
   "model": {
-    "aliases": [],
-    "contextWindow": 1,
-    "deprecated": false,
+    "custom": false,
+    "defaultTier": "example",
+    "deprecated": true,
+    "detail": "example",
     "displayName": "example",
     "efforts": [],
-    "hidden": true,
+    "hidden": false,
     "id": "example",
     "inputModalities": [],
     "installationId": "example",
     "instance": "example",
-    "isDefault": true,
+    "isDefault": false,
     "isNew": false,
-    "legacy": false,
     "nativeModelId": "example",
-    "provider": "opencode",
-    "providerEnabled": false,
+    "nativeProviderId": "example",
+    "provider": "cursor",
     "raw": {
       "json": "example",
-      "truncated": true
+      "truncated": false
     },
-    "resolvedModelId": "example",
     "serviceTiers": [],
-    "thinkingToggle": true,
+    "sortKey": "example",
     "tier": "current"
   },
   "ok": true,
   "reason": "example",
-  "stale": false
+  "stale": false,
+  "tier": {
+    "id": "example",
+    "name": "example"
+  }
 }
 ```
 
@@ -327,9 +317,8 @@ Example:
 ```json
 {
   "effort": "example",
-  "model": "example",
+  "provider": "codex",
   "role": "example",
-  "selection": "default",
   "tier": "example"
 }
 ```
@@ -348,7 +337,7 @@ Example:
 ```json
 {
   "filter": {
-    "provider": "acp"
+    "instanceId": "example"
   },
   "type": "models.changed"
 }
@@ -368,13 +357,6 @@ Example:
 
 ```json
 {
-  "options": {
-    "acpAgentId": "example",
-    "installationId": "example",
-    "limit": 3,
-    "offset": 1,
-    "provider": "claude"
-  },
   "requestId": "example",
   "type": "models.list"
 }
@@ -397,8 +379,9 @@ Example:
 ```json
 {
   "id": "example",
-  "kind": "account",
+  "kind": "local",
   "label": "example",
+  "requiresAuth": true,
   "service": "opencode_go"
 }
 ```
@@ -419,16 +402,15 @@ Example:
 ```json
 {
   "error": {
-    "code": "timeout",
+    "code": "discovery_failed",
     "hint": "example",
-    "message": "example",
-    "severity": "warning"
+    "message": "example"
   },
   "source": {
     "id": "example",
-    "kind": "local",
+    "kind": "api_key",
     "label": "example",
-    "requiresAuth": false
+    "service": "opencode_go"
   },
   "status": "fresh"
 }
@@ -448,6 +430,9 @@ Example:
 
 ```json
 {
+  "filter": {
+    "provider": "codex"
+  },
   "requestId": "example",
   "type": "models.refresh"
 }
@@ -470,11 +455,10 @@ Example:
   "requestId": "example",
   "roleSpec": {
     "acpAgentId": "example",
-    "model": "example",
-    "preferenceOrder": [],
+    "installationId": "example",
+    "provider": "claude",
     "role": "example",
-    "selection": "strongest",
-    "tier": "example"
+    "selection": "strongest"
   },
   "type": "models.resolve"
 }
@@ -496,36 +480,42 @@ Example:
 {
   "requestId": "example",
   "result": {
+    "effort": "example",
     "model": {
-      "deprecated": true,
-      "detail": "example",
+      "deprecated": false,
       "displayName": "example",
       "efforts": [],
-      "group": "current",
-      "hidden": false,
+      "free": true,
+      "group": "legacy",
+      "hidden": true,
       "id": "example",
       "inputModalities": [],
       "instance": "example",
       "instanceId": "example",
       "isDefault": true,
       "isNew": false,
+      "legacy": true,
+      "modelConfigId": "example",
       "nativeModelId": "example",
       "nativeProviderId": "example",
       "provider": "antigravity",
-      "providerEnabled": false,
+      "providerEnabled": true,
       "raw": {
         "json": "example",
-        "truncated": false
+        "truncated": true
       },
       "selectorMethod": "session/set_config_option",
       "serviceTiers": [],
+      "sortKey": "example",
       "source": {
         "id": "example",
         "kind": "api_key",
         "label": "example",
-        "requiresAuth": true
+        "requiresAuth": false
       },
-      "visibilityReason": "group_hidden"
+      "thinkingToggle": false,
+      "tier": "current",
+      "visibilityReason": "not_favourite"
     },
     "ok": true,
     "reason": "example",
@@ -551,6 +541,8 @@ Example:
 ```json
 {
   "id": "example",
-  "name": "example"
+  "name": "example",
+  "parameters": {},
+  "speed": "fast"
 }
 ```

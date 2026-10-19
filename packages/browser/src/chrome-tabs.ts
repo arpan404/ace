@@ -7,7 +7,7 @@ import { ChromeDownloads } from "./chrome-downloads.ts";
 import type { ChromeInstance } from "./chrome-instance.ts";
 import type { AttachedTarget } from "./chrome-targets.ts";
 import { consoleEntry, consoleEvents } from "./console-entry.ts";
-import { sizeHeadlessTab, type HeadlessDevice } from "./headless-size.ts";
+import { contentsScale, sizeHeadlessTab, type HeadlessDevice } from "./headless-size.ts";
 import { BrowserInspection } from "./inspection.ts";
 import { installOriginGuard } from "./origin-guard.ts";
 import { pageFrames } from "./page-frames.ts";
@@ -57,6 +57,8 @@ interface Tab {
   /** Page zoom (1 is 100%) and the device emulated in place of `viewport`, if any. */
   zoom: number;
   device?: HeadlessDevice | undefined;
+  /** Window pixels per CSS pixel beyond the browser's scale, as last sized (`contentsScale`). */
+  contentsScale?: number | undefined;
   /** An agent uses this tab: its popups reuse the page and beforeunload never prompts. */
   agent: boolean;
   /** Bumped each time the tab gets a new target, so a popup from an old target is refused. */
@@ -102,10 +104,13 @@ export class ChromeTabs {
   readonly inspection: BrowserInspection;
   private request: BackendOpen;
   private deviceScaleFactor: number;
+  /** The density of the screen that last sized the thread's tabs; they render that sharp. */
+  private viewerScale: number;
   private schedule: Schedule;
   constructor(request: BackendOpen, deviceScaleFactor: number, schedule: Schedule) {
     this.request = request;
     this.deviceScaleFactor = deviceScaleFactor;
+    this.viewerScale = deviceScaleFactor;
     this.schedule = schedule;
     this.viewport = { width: 1280, height: 720 };
     this.maxTabs = request.maxTabs ?? threadTabLimit;
@@ -199,28 +204,46 @@ export class ChromeTabs {
   viewportSize(id = this.activeId): { width: number; height: number } {
     return { ...(this.tabs.get(id)?.viewport ?? this.viewport) };
   }
-  /** Sizes one tab; new tabs open at the size last set. */
-  async resize(width: number, height: number, id = this.activeId): Promise<void> {
+  /**
+   * Sizes one tab; new tabs open at the size last set. A viewer's `devicePixelRatio` sets how
+   * sharp the thread's tabs render from now on.
+   */
+  async resize(
+    width: number,
+    height: number,
+    id = this.activeId,
+    devicePixelRatio?: number,
+  ): Promise<void> {
     const tab = this.tabs.get(id);
     if (!tab) throw new Error("Browser tab unavailable");
+    if (devicePixelRatio !== undefined) this.viewerScale = devicePixelRatio;
     this.viewport = { width, height };
     tab.viewport = { width, height };
     tab.device = undefined;
-    await sizeHeadlessTab(tab.cdp, tab, this.deviceScaleFactor);
+    await this.size(tab);
   }
   /** One tab takes a device's size and scale until it is next resized. */
   async emulate(device: HeadlessDevice, id = this.activeId): Promise<void> {
     const tab = this.tabs.get(id);
     if (!tab) throw new Error("Browser tab unavailable");
     tab.device = { ...device };
-    await sizeHeadlessTab(tab.cdp, tab, this.deviceScaleFactor);
+    await this.size(tab);
   }
   /** Page zoom for one tab, kept through resizes, emulation and renderer restarts. */
   async zoom(factor: number, id = this.activeId): Promise<void> {
     const tab = this.tabs.get(id);
     if (!tab) throw new Error("Browser tab unavailable");
     tab.zoom = factor;
-    await sizeHeadlessTab(tab.cdp, tab, this.deviceScaleFactor);
+    await this.size(tab);
+  }
+  /** Window pixels per CSS pixel in a tab's screencast beyond the browser's scale. */
+  captureScale(id = this.activeId): number {
+    return this.tabs.get(id)?.contentsScale ?? 1;
+  }
+  /** Applies a tab's size, zoom and emulation at the thread's viewer density. */
+  private async size(tab: Tab): Promise<void> {
+    await sizeHeadlessTab(tab.cdp, tab, this.deviceScaleFactor, this.viewerScale);
+    tab.contentsScale = contentsScale(tab, this.deviceScaleFactor, this.viewerScale);
   }
   /** The web origins the thread's tabs show now. */
   origins(): string[] {
@@ -586,7 +609,7 @@ export class ChromeTabs {
       // Renderer-side commands wait for a renderer; only the browser-side navigation starts one.
       await tab.cdp.send("Page.navigate", { url: tab.url });
       await tab.cdp.send("Runtime.enable");
-      await sizeHeadlessTab(tab.cdp, tab, this.deviceScaleFactor);
+      await this.size(tab);
       this.request.restarted?.(tab.id);
     })()
       .catch(() => {
@@ -619,7 +642,7 @@ export class ChromeTabs {
       runImmediately: true,
     });
     await tab.cdp.send("Emulation.setFocusEmulationEnabled", { enabled: true });
-    await sizeHeadlessTab(tab.cdp, tab, this.deviceScaleFactor);
+    await this.size(tab);
     tab.guard = await installOriginGuard(
       tab.cdp,
       this.request.allowed,

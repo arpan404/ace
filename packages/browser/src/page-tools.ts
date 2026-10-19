@@ -135,15 +135,27 @@ export async function emulateDevice(
  * events, where the backend can lay a tab out as a device (ace's Chrome).
  */
 export async function resizePage(
-  size: { width: number; height: number; touch?: boolean | undefined },
+  {
+    width,
+    height,
+    touch: touchScreen,
+    devicePixelRatio,
+  }: {
+    width: number;
+    height: number;
+    touch?: boolean | undefined;
+    devicePixelRatio?: number | undefined;
+  },
   actor: Actor,
   page: BrowserBackendPage,
   view: TabView,
   check: () => void,
 ): Promise<void> {
-  const touch = actor.kind === "human" && size.touch === true;
+  const size = { width, height };
+  const touch = actor.kind === "human" && touchScreen === true;
   check();
-  await page.resize(size.width, size.height);
+  // The viewer's density first, so a touch layout below renders that sharp too.
+  await page.resize(width, height, devicePixelRatio);
   if (touch && page.emulate) {
     check();
     // Scale 0 keeps the browser's own device scale, as the plain resize does.

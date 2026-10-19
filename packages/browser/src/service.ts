@@ -40,6 +40,8 @@ const defaultGlideMs = 220;
 import { PolicyGate } from "./policy-call.ts";
 import { watchWake } from "./wake-watch.ts";
 import { setMaxListeners } from "node:events";
+import { encodeBrowserFrame } from "./stream.ts";
+import { frameBytes } from "./frame-bytes.ts";
 import type { BrowserServiceOptions } from "./service-options.ts";
 import type { PersonRequest } from "./person-requests.ts";
 export type { BrowserServiceOptions } from "./service-options.ts";
@@ -56,6 +58,8 @@ export class BrowserService {
   private profiles: BrowserProfiles;
   private subscriptions: BrowserSubscriptions;
   private frameMessages = new WeakMap<BrowserFrame, string>();
+  private framePieces = new WeakMap<BrowserFrame, readonly Uint8Array[]>();
+  private streamIds = 0;
   private now: () => number;
   private id: () => string;
   private closing: Promise<void> | undefined;
@@ -646,6 +650,8 @@ export class BrowserService {
     onBackendEvent?: (
       event: BrowserBackendLost | BrowserAnnotationMessage | BrowserPageMessage,
     ) => void,
+    /** What this viewer shows, known before its first frame so that frame is sized for it. */
+    capture?: import("./fanout.ts").CaptureViewer,
   ): () => void {
     const session = this.get(threadId);
     const stop = this.subscriptions.add(threadId, session.live.fanout, session.state, {
@@ -653,6 +659,7 @@ export class BrowserService {
       sink,
       state: onState,
       ...(onBackendEvent ? { event: onBackendEvent } : {}),
+      ...(capture ? { capture } : {}),
     });
     // A new viewer starts from each tab's current page state, then follows its changes.
     for (const { tabId, page } of session.pageStates())
@@ -686,6 +693,20 @@ export class BrowserService {
       this.frameMessages.set(frame, message);
     }
     return message;
+  }
+  /**
+   * Share one binary encoding (`@ace/browser/stream`) across every viewer of this exact frame:
+   * the JPEG is decoded from base64 once and never re-encoded per viewer.
+   */
+  streamFrame(threadId: string, frame: BrowserFrame): readonly Uint8Array[] {
+    let pieces = this.framePieces.get(frame);
+    if (!pieces) {
+      this.streamIds = (this.streamIds + 1) >>> 0;
+      const { data: _data, ...header } = frame;
+      pieces = encodeBrowserFrame(this.streamIds, threadId, header, frameBytes(frame));
+      this.framePieces.set(frame, pieces);
+    }
+    return pieces;
   }
   private stateObservers = new Set<(state: BrowserState) => void>();
   /** Every thread's browser state as it changes, for daemon-wide views (who is browsing). */

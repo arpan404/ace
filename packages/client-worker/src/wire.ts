@@ -75,6 +75,9 @@ export const TabMessage = z.discriminatedUnion("t", [
   /** Forward the client's uncorrelated service messages (such as `settings.changed`). */
   z.object({ t: z.literal("watchMessages") }),
   z.object({ t: z.literal("unwatchMessages") }),
+  /** Forward the client's binary stream messages (browser frames). */
+  z.object({ t: z.literal("watchStreams") }),
+  z.object({ t: z.literal("unwatchStreams") }),
   /** Hidden tabs keep sidebar status live and catch up on transcript changes when shown. */
   z.object({ t: z.literal("visible"), visible: z.boolean() }),
   z.object({ t: z.literal("ping") }),
@@ -124,6 +127,8 @@ export const WorkerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("intent"), id: z.string(), intent: z.optional(z.unknown()) }),
   /** An uncorrelated service message the worker's client already decoded. */
   z.object({ t: z.literal("message"), message: z.unknown() }),
+  /** A binary stream message (a browser frame's bytes) the worker's client already decoded. */
+  z.object({ t: z.literal("stream"), message: z.unknown() }),
   z.object({ t: z.literal("changes"), leases: z.array(LeaseChanges) }),
   z.object({ t: z.literal("reply"), call: id, value: z.optional(z.unknown()) }),
   z.object({ t: z.literal("failed"), call: id, error: ErrorShape }),

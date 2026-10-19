@@ -201,7 +201,7 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
   services.browser = browser;
 }
 
-import { sendBrowserMessage } from "./browser-transport.ts";
+import { sendBrowserMessage, sendBrowserStream } from "./browser-transport.ts";
 import { connectBrowser } from "@ace/browser";
 import { WebSocket } from "ws";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -225,6 +225,7 @@ export function createBrowserSession(context: SocketContext): SocketService {
       );
     },
     send: (message, serialized) => sendBrowserMessage(socket, message, serialized),
+    sendStream: (pieces) => sendBrowserStream(socket, pieces),
     // Files the person picks for a page's file input, uploaded by this device as attachments.
     attachment: async (threadId, sha256) => {
       const device = context.device();

@@ -41,6 +41,8 @@ import type {
   ThreadSource,
 } from "./api.ts";
 import { Connection, sameConnectionInfo } from "./connection.ts";
+import { StreamMessages } from "./stream-messages.ts";
+import { isStreamPiece, type StreamMessage } from "@ace/browser/stream";
 import { WireCodec, type ServiceWire } from "./wire-codec.ts";
 import { isOneWayMessage, type OneWayMessage } from "./one-way.ts";
 import { Intents, type Intent } from "./intents.ts";
@@ -139,6 +141,16 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   protected closed = false;
   #readMarkers: ReadMarkers;
   #serviceListeners = new Set<(message: ServerMessage) => void>();
+  #streamListeners = new Set<(message: StreamMessage) => void>();
+  #streams = new StreamMessages((message) => {
+    for (const listener of this.#streamListeners) {
+      try {
+        listener(message);
+      } catch {
+        // A consumer cannot break protocol delivery.
+      }
+    }
+  });
   #hostId: string | undefined;
   #binding: Promise<void> | undefined;
   #pendingSendEntries = new Map<string, PendingSend>();
@@ -240,6 +252,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       () => this.notifications.emit(["connection"]),
       () => {
         this.#readMarkers.disconnect();
+        this.#streams.reset();
         this.requests.disconnect();
         this.#subscriptions.disconnect();
         this.#intents.disconnect();
@@ -247,6 +260,10 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         for (const sidebar of this.#collections) sidebar.disconnect();
       },
       (bytes) => {
+        if (isStreamPiece(bytes)) {
+          this.#streams.receive(bytes);
+          return;
+        }
         if (!this.#attachmentStreams) throw new ClientError("protocol");
         this.#attachmentStreams.receive(bytes);
       },
@@ -474,6 +491,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     this.#waitingHints.clear();
     this.#statusChecks.disconnect();
     this.#serviceListeners.clear();
+    this.#streamListeners.clear();
     this.connection.stop();
     return Promise.all([this.#intents.settled(), ...checkpoints]).then(() => {});
   }
@@ -713,6 +731,9 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   ): Promise<ServiceResponse<Q>> {
     const parsed = wire.ClientMessage.safeParse({ ...input, requestId: id });
     if (!parsed.success) return Promise.reject(new ClientError("protocol", "Invalid request"));
+    // Binary frames only where this transport carries binary messages.
+    if (parsed.data.type === "browser.subscribe" && !this.connection.supportsBinary)
+      delete parsed.data.binaryFrames;
     let sent = false;
     return this.requests
       .wait(
@@ -734,6 +755,16 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
           this.connection.send({ type: "files.abort", sourceRequestId: id });
         throw error;
       });
+  }
+  /** Binary stream messages (browser frames); the caller releases it. */
+  onStream(listener: (message: StreamMessage) => void): () => void {
+    if (this.closed) throw new ClientError("offline");
+    if (this.#streamListeners.size >= (this.options.limits?.listeners ?? defaultLimits.listeners))
+      throw new ClientError("limit");
+    this.#streamListeners.add(listener);
+    return () => {
+      this.#streamListeners.delete(listener);
+    };
   }
   /** Uncorrelated service messages (such as `settings.changed`); the caller releases it. */
   onMessage(listener: (message: ServerMessage) => void): () => void {

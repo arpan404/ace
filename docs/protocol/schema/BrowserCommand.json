@@ -576,6 +576,11 @@
           "const": "resize",
           "type": "string"
         },
+        "devicePixelRatio": {
+          "maximum": 4,
+          "minimum": 1,
+          "type": "number"
+        },
         "height": {
           "maximum": 4096,
           "minimum": 100,

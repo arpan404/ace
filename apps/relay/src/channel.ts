@@ -2,12 +2,35 @@ import { ClientMessage, ServerMessage } from "@ace/protocol";
 import type { Transport } from "@ace/secure-channel";
 import { MAX_MESSAGE } from "@ace/secure-channel";
 import type WebSocket from "ws";
+import { deflateRawSync, inflateRawSync } from "node:zlib";
 import { z } from "zod";
 import { FrameReader, sendFrame } from "./socket.ts";
 export type WireMessage = ClientMessage | ServerMessage;
 export const BINARY_MESSAGE_LIMIT = 64 * 1024 + 16;
 export const LOGICAL_MESSAGE_LIMIT = 16 * 1024 * 1024;
 const REKEY_INTERVAL = 1 << 20;
+/**
+ * A fragment's first byte: its message's kind plus 1 on the message's last fragment. Deflated
+ * JSON goes only to a peer that asked for it, so older peers never see kind 4.
+ */
+const fragmentKinds = { json: 0, binary: 2, deflated: 4 } as const;
+type FragmentKind = (typeof fragmentKinds)[keyof typeof fragmentKinds];
+/** Smaller JSON messages gain too little to be worth a deflate. */
+const DEFLATE_THRESHOLD = 1024;
+
+/** A JSON message deflated alone, or undefined when that wouldn't make it smaller. */
+function deflateMessage(json: Uint8Array): Uint8Array | undefined {
+  if (json.length < DEFLATE_THRESHOLD) return undefined;
+  const deflated = deflateRawSync(json, { level: 6 });
+  if (deflated.length < json.length) return deflated;
+  deflated.fill(0);
+  return undefined;
+}
+
+/** Inflate a peer's message, never past the logical message limit. */
+function inflateMessage(deflated: Uint8Array): Uint8Array {
+  return inflateRawSync(deflated, { maxOutputLength: LOGICAL_MESSAGE_LIMIT });
+}
 export interface BinaryChannel {
   sendBinary(frame: Uint8Array): Promise<void>;
   receiveBinary(): Promise<Uint8Array>;
@@ -25,6 +48,11 @@ export interface MessageChannel<Incoming extends WireMessage, Outgoing extends W
   readonly closed: Promise<Error | undefined>;
   readonly bufferedBytes: number;
   readonly bufferedReceiveBytes: number;
+  /**
+   * From now on, deflate each JSON message `allowed` passes, alone (no context carries over),
+   * before it is encrypted. Only for a peer that said it inflates (`hello.compression`).
+   */
+  compress?(allowed: (message: Outgoing) => boolean): void;
 }
 export interface HostChannel extends MessageChannel<ClientMessage, ServerMessage> {
   /** Call only after the daemon verifies the device token in the first hello. */
@@ -79,7 +107,8 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
   };
   socket.once("close", (code) => end(new Error(`Channel connection closed (${code})`)));
   socket.once("error", end);
-  const sendData = async (data: Uint8Array, kind: 0 | 2): Promise<void> => {
+  let compressible: ((message: Outgoing) => boolean) | undefined;
+  const sendData = async (data: Uint8Array, kind: FragmentKind): Promise<void> => {
     if (ended) throw new Error("Channel closed");
     if (data.length > LOGICAL_MESSAGE_LIMIT || pendingBytes + data.length > LOGICAL_MESSAGE_LIMIT)
       throw new Error("Logical message or send queue too large");
@@ -124,14 +153,22 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
       end();
     },
     async send(message) {
-      return sendData(new TextEncoder().encode(JSON.stringify(outgoing.parse(message))), 0);
+      const parsed = outgoing.parse(message);
+      const json = new TextEncoder().encode(JSON.stringify(parsed));
+      const deflated = compressible?.(parsed) ? deflateMessage(json) : undefined;
+      if (!deflated) return sendData(json, fragmentKinds.json);
+      json.fill(0);
+      return sendData(deflated, fragmentKinds.deflated);
+    },
+    compress(allowed) {
+      compressible = allowed;
     },
     async sendBinary(bytes) {
       const data = z.instanceof(Uint8Array).parse(bytes);
       if (!data.length || data.length > BINARY_MESSAGE_LIMIT)
         return Promise.reject(new Error("Binary message too large"));
       // Retain immutable admitted bytes while earlier sends drain.
-      return sendData(Uint8Array.from(data), 2);
+      return sendData(Uint8Array.from(data), fragmentKinds.binary);
     },
     async receiveBinary() {
       const frame = await channel.receiveFrame();
@@ -169,7 +206,7 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
       let jsonBytes: Uint8Array | undefined;
       try {
         let size = 0;
-        let binary: boolean | undefined;
+        let kind: number | undefined;
         while (true) {
           const plain = transport.receive.decrypt(await reader.next());
           chunks.push(plain.subarray(1));
@@ -178,15 +215,16 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
           if (
             plain.length < 2 ||
             flag === undefined ||
-            flag > 3 ||
+            flag > 5 ||
             (flag % 2 === 0 && plain.length !== MAX_MESSAGE - 16)
           )
             throw new Error("Invalid encrypted fragment");
-          const isBinary = flag >= 2;
-          if (binary !== undefined && binary !== isBinary) throw new Error("Mixed fragment kinds");
-          binary = isBinary;
+          const fragmentKind = flag - (flag % 2);
+          if (kind !== undefined && kind !== fragmentKind) throw new Error("Mixed fragment kinds");
+          kind = fragmentKind;
           size += plain.length - 1;
-          if (isBinary && size > BINARY_MESSAGE_LIMIT) throw new Error("Binary message too large");
+          if (kind === fragmentKinds.binary && size > BINARY_MESSAGE_LIMIT)
+            throw new Error("Binary message too large");
           if (size > LOGICAL_MESSAGE_LIMIT) throw new Error("Logical message too large");
           if (flag % 2 === 1) break;
         }
@@ -196,13 +234,18 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
           data.set(chunk, offset);
           offset += chunk.length;
         }
-        if (binary) {
+        if (kind === fragmentKinds.binary) {
           onReceive?.(data);
           return data;
         }
         jsonBytes = data;
+        if (kind === fragmentKinds.deflated) {
+          const inflated = inflateMessage(data);
+          data.fill(0);
+          jsonBytes = inflated;
+        }
         const message = incoming.parse(
-          JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(data)),
+          JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(jsonBytes)),
         );
         onReceive?.(message);
         return message;

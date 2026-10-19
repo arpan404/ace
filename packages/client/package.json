@@ -26,6 +26,7 @@
     "bench:reads": "node bench/reads.ts"
   },
   "dependencies": {
+    "@ace/browser": "workspace:*",
     "@ace/devices": "workspace:*",
     "@ace/files": "workspace:*",
     "@ace/projection": "workspace:*",

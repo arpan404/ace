@@ -374,7 +374,14 @@ export interface PreviewSource {
   stopRecording?(threadId: string): Promise<void>;
   /**
    * Size the page to the pane in CSS pixels (100–4096). `touch`: the pane is on a touch screen,
-   * so the page lays out as a mobile one and gets touch events.
+   * so the page lays out as a mobile one and gets touch events. The page renders as sharp as
+   * the pane's screen (`devicePixelRatio`) where the browser can.
    */
-  resize(threadId: string, width: number, height: number, touch?: boolean): void;
+  resize(
+    threadId: string,
+    width: number,
+    height: number,
+    touch?: boolean,
+    devicePixelRatio?: number,
+  ): void;
 }

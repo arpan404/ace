@@ -63,7 +63,7 @@ export function createScreenSession(context: SocketContext, simulators: Simulato
               reject(new Error("Socket backpressure"));
               return;
             }
-            context.socket.send(packet, { binary: true }, (error) =>
+            context.socket.send(packet, { binary: true, compress: false }, (error) =>
               error ? reject(error) : resolve(),
             );
           }),
