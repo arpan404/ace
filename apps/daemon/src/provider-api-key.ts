@@ -12,6 +12,8 @@ export function apiKeySupport(provider: ProviderKind, version?: string, help = "
     return { supported: true };
   if (provider === "cursor" && version === cliRequirements["cursor-sdk"].minimum)
     return { supported: true };
+  // Pi's SDK stores a provider key through its own `login(provider, "api_key")` prompt.
+  if (provider === "pi" && admitsVersion("pi", version)) return { supported: true };
   return {
     supported: false,
     reason:
@@ -20,7 +22,7 @@ export function apiKeySupport(provider: ProviderKind, version?: string, help = "
         : provider === "claude"
           ? "Claude supports browser login or an environment key/helper, but no reviewed stdin key-storage command."
           : provider === "pi"
-            ? "Pi exposes keys through argv, environment or a user-managed auth file, not a stdin key-storage command."
+            ? "This Pi version can't store a key for ace. Update Pi, or sign in from Pi's own terminal."
             : "The installed runtime has no reviewed stdin API-key credential path.",
   };
 }
