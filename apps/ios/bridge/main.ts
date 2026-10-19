@@ -17,6 +17,8 @@ import { NotificationAction, NotificationBridge } from "./notifications.ts";
 import { Sheets } from "./sheets.ts";
 import { preview } from "./presentation.ts";
 import { ComposeActions } from "./compose-actions.ts";
+import { NativeServices, NativeServiceAction } from "./native-services.ts";
+import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -66,6 +68,8 @@ let historyAbort: AbortController | undefined;
 let machine: MachineProviders | undefined;
 let archive: ArchiveBrowser | undefined;
 let compose: ComposeActions | undefined;
+let services: NativeServices | undefined;
+let terminal: NativeTerminal | undefined;
 const pump = new PatchPump();
 const trust = new TrustMonitor();
 const sheets = new Sheets(pump, preview);
@@ -130,6 +134,8 @@ async function start(json: string): Promise<void> {
   machine = new MachineProviders(client, pump);
   archive = new ArchiveBrowser(client, pump);
   compose = new ComposeActions(client, pump, preview, () => host.now());
+  services = new NativeServices(client, pump);
+  terminal = new NativeTerminal(client, pump);
   await client.start();
 }
 async function hydrate(
@@ -174,6 +180,16 @@ async function hydrate(
 function action(json: string): void {
   try {
     const raw: unknown = JSON.parse(json);
+    const terminalAction = NativeTerminalAction.safeParse(raw);
+    if (terminalAction.success) {
+      terminal?.handle(terminalAction.data);
+      return;
+    }
+    const service = NativeServiceAction.safeParse(raw);
+    if (service.success) {
+      services?.handle(service.data);
+      return;
+    }
     const notice = NotificationAction.safeParse(raw);
     if (notice.success) {
       if (notifications) notifications.handle(notice.data);

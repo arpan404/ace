@@ -1,6 +1,7 @@
 import Foundation
 
 struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
+    struct Diff: Codable, Sendable, Equatable { let files: Int; let additions: Int; let deletions: Int }
     let id: String
     let title: String
     let state: String
@@ -21,6 +22,10 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     let activityAt: Double?
     /// Inbox rows only: when the thread was archived, for the archive browser and read-only opens.
     var archivedAt: Double? = nil
+    var workspaceId: String? = nil
+    var badge: String? = nil
+    var diff: Diff? = nil
+    var testsRunning: Bool? = nil
 }
 struct TranscriptRow: Codable, Sendable, Identifiable, Equatable {
     let id: String
@@ -102,6 +107,8 @@ struct InboxLayout: Codable, Sendable, Equatable {
 }
 
 enum BridgePatch: Decodable, Sendable {
+    case service(ServiceReply)
+    case terminal(TerminalOutputPatch)
     case fragment(BridgeFragment)
     case inboxReset
     case inbox(String, ThreadRow?)
@@ -146,6 +153,8 @@ enum BridgePatch: Decodable, Sendable {
         let type = try box.decode(String.self, forKey: .type)
         func scope() throws -> (String, Int) { (try box.decode(String.self, forKey: .threadId), try box.decode(Int.self, forKey: .epoch)) }
         switch type {
+        case "service.reply": self = .service(try ServiceReply(from: decoder))
+        case "terminal.output": self = .terminal(try TerminalOutputPatch(from: decoder))
         case "fragment": self = .fragment(try BridgeFragment(from: decoder))
         case "inbox.reset": self = .inboxReset
         case "inbox.row": self = .inbox(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(ThreadRow.self, forKey: .row))

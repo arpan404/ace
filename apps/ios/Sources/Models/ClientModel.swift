@@ -50,6 +50,7 @@ import CryptoKit
     /// New thread and Add project on this machine; the open thread's Files sheet.
     let compose = ComposeModel()
     let files = ThreadFilesModel()
+    let terminal = TerminalScreenModel()
     @ObservationIgnored private var generation = 0
     /// Threads left for a child, so going back shows them until their session's first patch.
     @ObservationIgnored private var trail = ThreadTrail()
@@ -59,6 +60,7 @@ import CryptoKit
     @ObservationIgnored private var shutdown: Task<Void, Never>?
     @ObservationIgnored private var frames = BridgeFrames()
     @ObservationIgnored let admissions = CommandAdmissions()
+    @ObservationIgnored let services = NativeServiceCalls()
     @ObservationIgnored var approvalRequests: [String: String] = [:]
     @ObservationIgnored let now: () -> Double
     @ObservationIgnored var metrics: SpikeMetrics?
@@ -109,6 +111,9 @@ import CryptoKit
         for patch in patches {
             patchCount += 1
             switch patch {
+            case .service(let reply): services.receive(reply)
+            case .terminal(let patch):
+                if let offset = terminal.receive(patch) { action(["type": "terminal.credit", "id": patch.id, "offset": offset]) }
             case .fragment: break // BridgeFrames only returns complete patches.
             case .inboxReset: inbox.removeAll(keepingCapacity: true); inboxLoaded = true
             case .inbox(let id, let row): inbox[id] = row
@@ -245,7 +250,7 @@ import CryptoKit
     func inboxRequest(_ value: [String: Any]) { action(["type": "inbox", "action": value, "requestId": admissions.nextId()]) }
     /// `notifications.*` bridge actions (Sources/Notifications).
     @discardableResult func notificationAction(_ value: [String: Any]) -> Bool { action(value) }
-    @discardableResult private func command(_ payload: [String: Any], requestId: String? = nil) -> Bool {
+    @discardableResult func command(_ payload: [String: Any], requestId: String? = nil) -> Bool {
         let dispatched = action(["type": "command", "payload": payload, "requestId": requestId ?? admissions.nextId()])
         if !dispatched { error = "Could not submit the request. Your draft is still available." }
         return dispatched
@@ -263,6 +268,7 @@ import CryptoKit
     }
     func disconnect() { connectionEpoch += 1; _ = retireRuntime() }
     private func retireRuntime() -> Task<Void, Never>? {
+        services.cancel()
         admissions.cancel()
         approvalSubmissions = [:]; approvalRequests = [:]
         guard let runtime else { return shutdown }
