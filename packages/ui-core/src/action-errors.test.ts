@@ -80,6 +80,12 @@ const connection = [
   "maintenance",
   "action_not_dispatched",
   "action_not_observed",
+  // A workspace read the daemon couldn't run, and the client's own request refusals.
+  "workspace_reads_busy",
+  "workspace_reads_unavailable",
+  "forge_read_failed",
+  "limit",
+  "protocol",
   ...[
     "offline",
     "no_commits",

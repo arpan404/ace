@@ -93,7 +93,8 @@ test("a date is set from ace's own date field", async () => {
   const s = stage();
   s.pane.focus();
   s.show({ picker: { pickerId: "picker-2", kind: "date", rect, value: "2026-03-04" } });
-  const day = await screen.findByLabelText("Choose a date");
+  await screen.findByRole("dialog", { name: "Choose a date" });
+  const day = screen.getByLabelText("Date");
   fireEvent.change(day, { target: { value: "2026-05-06" } });
   await userEvent.click(screen.getByRole("button", { name: "Set" }));
   expect(s.sent).toEqual([{ kind: "pick", pickerId: "picker-2", values: ["2026-05-06"] }]);

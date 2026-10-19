@@ -31,6 +31,15 @@ async function viewer() {
     await input({ kind: "mouse", event: "mouseMoved", ...at, button: "none" });
     return at;
   };
+  /** Over the element's words themselves, where a browser shows the I-beam. */
+  const moveToText = async (id: string) => {
+    const at = Box.parse(
+      await f.evaluate(
+        `(() => { const range = document.createRange(); range.selectNodeContents(document.getElementById(${JSON.stringify(id)}).firstChild); const r = range.getClientRects()[0]; return { x: Math.round(r.left + 10), y: Math.round(r.top + r.height / 2) }; })()`,
+      ),
+    );
+    await input({ kind: "mouse", event: "mouseMoved", ...at, button: "none" });
+  };
   const click = async (id: string) => {
     const at = await move(id);
     for (const event of ["mousePressed", "mouseReleased"])
@@ -39,7 +48,7 @@ async function viewer() {
   const value = (id: string) => f.evaluate(`document.getElementById(${JSON.stringify(id)}).value`);
   const log = () =>
     f.evaluate(`[...document.querySelectorAll("#log li")].map((li) => li.textContent)`);
-  return { f, state: () => page, input, move, click, value, log };
+  return { f, state: () => page, input, move, moveToText, click, value, log };
 }
 
 describe.skipIf(!executablePath)("remote view page state", () => {
@@ -47,7 +56,7 @@ describe.skipIf(!executablePath)("remote view page state", () => {
     const v = await viewer();
     await v.move("link");
     await expect.poll(() => v.state().cursor, { timeout: 5_000 }).toBe("pointer");
-    await v.move("prose");
+    await v.moveToText("prose");
     await expect.poll(() => v.state().cursor, { timeout: 5_000 }).toBe("text");
     await v.move("tip");
     await expect

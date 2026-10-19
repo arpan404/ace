@@ -87,8 +87,14 @@ const view = (state: BrowserState): BrowserView => ({
 
 const wireInput = (input: ForwardedInput): BrowserInput => {
   if (input.kind === "mouse")
-    return { ...input, button: input.button ?? "left", clickCount: input.clickCount ?? 1 };
-  if (input.kind === "scroll" || input.kind === "ime") return input;
+    return {
+      ...input,
+      button: input.button ?? "left",
+      clickCount: input.clickCount ?? 1,
+      modifiers: input.modifiers ?? 0,
+    };
+  if (input.kind === "scroll") return { ...input, modifiers: input.modifiers ?? 0 };
+  if (input.kind === "touch" || input.kind === "ime") return input;
   if (input.kind === "pick")
     return {
       kind: "pick",
@@ -729,11 +735,16 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       };
       sendCapture(threadId, watch);
     },
-    resize(threadId, width, height) {
+    resize(threadId, width, height, touch) {
       void request({
         type: "browser.execute",
         threadId: ThreadId.parse(threadId),
-        command: { action: "resize", width: clamp(width), height: clamp(height) },
+        command: {
+          action: "resize",
+          width: clamp(width),
+          height: clamp(height),
+          ...(touch ? { touch } : {}),
+        },
       }).catch(() => {});
     },
   };

@@ -25,6 +25,7 @@ import { executeBrowserCommand, type TabCommand } from "./session-commands.ts";
 import type { TabView } from "./page-tools.ts";
 import { agentScreenshot, type AgentScreenshot } from "./session-images.ts";
 import { sendHumanInput } from "./session-input.ts";
+import { TouchPinch } from "./touch-pinch.ts";
 import type { Actor, SessionOptions } from "./session-options.ts";
 import { SessionQueue, mutatesBrowser, type QueueBudget, type TabHold } from "./session-queue.ts";
 import { personHold, refusesAgent } from "./person-holds.ts";
@@ -98,6 +99,8 @@ export class TabRuntime {
   readonly history: PageHistory;
   /** The device the tab emulates and its zoom, as the last command set them. */
   readonly view: TabView = { emulation: undefined, zoom: 1 };
+  /** The person's two-finger spread in the current touch sequence. */
+  private readonly pinch = new TouchPinch();
   /** Agents' cursors drawn in the page, and the mask over secret fields in captures. */
   readonly cursor: PageCursor;
   /**
@@ -582,7 +585,12 @@ export class TabRuntime {
         await this.interaction.pick(input.pickerId, input.values);
         return;
       }
-      await sendHumanInput(input, this.page.cdp, () => this.check(actor, undefined, generation));
+      await sendHumanInput(
+        input,
+        this.page.cdp,
+        () => this.check(actor, undefined, generation),
+        this.pinch,
+      );
     });
     this.personLane = work.catch(() => {});
     return work;

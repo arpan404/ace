@@ -10,6 +10,7 @@ import { useLocal } from "../store.ts";
 import { WithServices } from "../with-services.tsx";
 import { FindPage } from "./find-page.tsx";
 import { AddressBar } from "./address-bar.tsx";
+import { addressTakesFocus } from "./address-focus.ts";
 import { PageDialog } from "./page-dialog.tsx";
 import { PageSignIn } from "./page-sign-in.tsx";
 import { PageFileChooser } from "./page-file-chooser.tsx";
@@ -33,6 +34,7 @@ import {
 import { PageView } from "./page-view.tsx";
 import { RecordingIndicator } from "./recording-indicator.tsx";
 import { useCursorStyle } from "./use-cursor-style.ts";
+import { usePageCursor } from "./use-page-state.ts";
 import { ConnectionMark } from "./connection-mark.tsx";
 import { useBrowserTab } from "./use-browser-tab.ts";
 import { useBrowserTabs } from "./use-browser-tabs.ts";
@@ -78,6 +80,8 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
   const extensionsOff = useLocal(extensionsHidden, (value) => value);
   const { live, shown, online } = tabs;
   useCursorStyle(source, threadId);
+  /** The cursor shape the shown tab's page reports under the person's pointer. */
+  const pageCursor = usePageCursor(source, threadId, shown?.tabId);
 
   // Showing this panel tab shows its daemon tab, here and on the person's other devices. Only
   // showing it asks: when the daemon later shows another tab, the panel follows it instead.
@@ -175,6 +179,24 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
   }, []);
   const focusAddress = () =>
     root.current?.querySelector<HTMLInputElement>('input[aria-label="Address"]')?.focus();
+  // A tab that opens blank starts at its address, unless an agent opened it or the person is
+  // typing elsewhere, in the composer (`addressTakesFocus`). Only as the tab opens.
+  const [openedBlank] = useState(blank);
+  const openFocus = useEffectEvent(() => {
+    const element = root.current;
+    if (
+      element &&
+      addressTakesFocus({
+        openedByAgent: shown?.openedBy?.kind === "agent",
+        active: element.ownerDocument.activeElement,
+        panel: element.closest("[data-panel]") ?? element,
+      })
+    )
+      focusAddress();
+  });
+  useEffect(() => {
+    if (openedBlank) openFocus();
+  }, [openedBlank]);
   const chrome = usePageChrome({
     source,
     threadId,
@@ -255,6 +277,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
         fit={!tools.toolbar}
         framed={tools.toolbar}
         zoom={shown.zoom}
+        cursor={pageCursor}
         menu={chrome.menu}
         dimmed={!online || live.status === "paused"}
       />
@@ -306,7 +329,6 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
             loading={page.loading}
             disabled={offline}
             placeholder="Search or enter a URL"
-            autoFocus={blank}
             onGo={page.go}
             lead={<ConnectionMark url={blank ? undefined : shownUrl} />}
             trail={

@@ -76,6 +76,8 @@ function DiffExample() {
   );
 }
 
+const viewedBox = () => screen.getByRole("checkbox", { name: "Viewed src/page.ts" });
+
 async function chooseCommit(name: string | RegExp) {
   await userEvent.click(screen.getByRole("combobox", { name: "Commit range" }));
   await userEvent.click(await screen.findByRole("option", { name }));
@@ -159,22 +161,16 @@ test("historical diffs bind annotations, line drafts and viewed marks to the dis
   await userEvent.keyboard("{Enter}");
   await screen.findByText(`Draft ${identity} new:1`);
   await userEvent.click(screen.getByRole("checkbox", { name: "Viewed src/page.ts" }));
-  await waitFor(() =>
-    expect(
-      screen.getByRole<HTMLInputElement>("checkbox", { name: "Viewed src/page.ts" }).checked,
-    ).toBe(true),
-  );
+  await waitFor(() => expect(viewedBox().getAttribute("aria-checked")).toBe("true"));
+  // Marked viewed, the file folds away.
+  expect(screen.queryByText("historical")).toBeNull();
   await chooseCommit("All commits");
   await screen.findByText("current");
-  expect(
-    screen.getByRole<HTMLInputElement>("checkbox", { name: "Viewed src/page.ts" }).checked,
-  ).toBe(false);
+  expect(viewedBox().getAttribute("aria-checked")).toBe("false");
   expect(screen.getByRole("status", { name: "Annotation version" }).textContent).toBe(
     `${detail.baseSha}/${detail.status.headSha}/all`,
   );
   await chooseCommit(/Historical commit/);
-  await screen.findByText("historical");
-  expect(
-    screen.getByRole<HTMLInputElement>("checkbox", { name: "Viewed src/page.ts" }).checked,
-  ).toBe(true);
+  await waitFor(() => expect(viewedBox().getAttribute("aria-checked")).toBe("true"));
+  expect(screen.getByRole("button", { name: /src\/page\.ts/, expanded: false })).toBeTruthy();
 });

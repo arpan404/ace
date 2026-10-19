@@ -75,7 +75,12 @@ export function PageKeyboard(props: {
   const { focus, pane } = props;
   // A different field (or the same one after focus moved away and back) starts empty.
   const fieldKey = focus ? `${focus.type}:${focus.rect.x}:${focus.rect.y}` : "";
+  // A click in the pane focuses the pane; while the page's field still has focus, typing goes
+  // on in the local field (within the tap, so a phone opens its keyboard again).
+  const typing = useRef(fieldKey);
   useEffect(() => {
+    // First, so handing focus back to the pane below doesn't take it again.
+    typing.current = fieldKey;
     const element = field.current;
     const host = pane.current;
     if (!element || !host) return;
@@ -90,12 +95,6 @@ export function PageKeyboard(props: {
       host.focus({ preventScroll: true });
     }
   }, [fieldKey, pane]);
-  // A click in the pane focuses the pane; while the page's field still has focus, typing goes
-  // on in the local field (within the tap, so a phone opens its keyboard again).
-  const typing = useRef(fieldKey);
-  useEffect(() => {
-    typing.current = fieldKey;
-  }, [fieldKey]);
   useEffect(() => {
     const host = pane.current;
     if (!host) return;

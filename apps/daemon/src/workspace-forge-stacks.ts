@@ -157,6 +157,10 @@ export class WorkspaceForgeStacks {
     const entry = this.#find(backend.repository, number);
     const stack = await backend.prStack(number, signal);
     let operation = entry?.operation ?? this.#find(backend.repository, number)?.operation ?? null;
+    // A PR outside any stack, with no recorded stack operation, is simply not in a stack: the
+    // checkout's local stack (and the `gh stack` extension it needs) has nothing to say about it.
+    if (!stack && !operation)
+      return { movedLayers: [], stack: null, local: null, localUnavailable: null, operation };
     let local: ForgeStackWorkspace["local"] = null;
     let localUnavailable: string | null = null;
     try {

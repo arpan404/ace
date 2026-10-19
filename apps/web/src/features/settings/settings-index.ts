@@ -304,6 +304,12 @@ const entries = [
     keywords: ["pip", "floating", "mini player", "video", "float"],
   },
   {
+    id: "browser.revealAgentPages",
+    page: "/settings/browser",
+    title: "Open the browser panel when an agent opens a page",
+    keywords: ["side panel", "auto open", "reveal", "browser_open", "sheet"],
+  },
+  {
     id: "host.displayName",
     page: "/settings/remote",
     title: "Machine name and icon",

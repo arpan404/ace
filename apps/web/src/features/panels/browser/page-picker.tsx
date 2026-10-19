@@ -19,6 +19,16 @@ const names: Record<Picker["kind"], string> = {
   week: "Choose a week",
   color: "Choose a colour",
 };
+/** The field inside the picker, named apart from the picker that holds it. */
+const fields: Record<Picker["kind"], string> = {
+  select: "Option",
+  date: "Date",
+  time: "Time",
+  "datetime-local": "Date and time",
+  month: "Month",
+  week: "Week",
+  color: "Colour",
+};
 
 /**
  * ace's own picker for one the page opened: the select's options, or a date, time or colour
@@ -127,7 +137,7 @@ function ValueField(props: { picker: Picker; onPick(values: readonly string[]): 
     >
       <Input
         type={picker.kind}
-        aria-label={names[picker.kind]}
+        aria-label={fields[picker.kind]}
         value={value}
         min={picker.min}
         max={picker.max}
