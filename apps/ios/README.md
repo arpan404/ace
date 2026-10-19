@@ -302,3 +302,29 @@ background presence and runs approval actions through the SDK outbox. With the f
 `curl -X POST localhost:9841/review/notify -d '{"threadId":"ios-approval"}'` sends an alert and
 `/review/retract -d '{"id":"…"}'` withdraws one. Remote push (APNs, a push gateway) and Live
 Activities are deferred; see the [draft](../../docs/adr/drafts/ios-push-notifications.md).
+
+## Archive, settings and appearance
+
+- **Snooze end while offline.** `inboxStatus(thread, now)` and `inboxNextChange` in
+  `@ace/ui-core/mobile` decide it: a done thread whose snooze has passed reads "Snooze ended" in
+  Done, and `bridge/inbox.ts` arms one timer (injected clock) for the soonest snooze end, so the
+  phone regroups even when the machine that would wake the thread is offline. The fixture's
+  `ios-nap` is snoozed for `ACE_IOS_SPIKE_NAP_MS` (default 90 s); `POST /control {"online":false}`
+  before it ends to see it.
+- **Archive** (inbox footer, or Settings): `bridge/archive.ts` switches that machine's SDK sidebar
+  to its archive window and sends the shared `archivedOrder`, 20 per page. One machine's archive is
+  followed at a time; closing returns to the home window. An archived thread opens read-only with
+  an Unarchive note. The fixture seeds 45 archived threads.
+- **Settings** (gear in the inbox header): app lock on/off (turning it off asks for Face ID or the
+  passcode) and timeout, both remembered; notifications with a per-machine on/off and that
+  machine's own quiet hours and snoozes; Machines and Archived links; version, licences (ace,
+  Apache-2.0; Zod, MIT; no fonts or icon sets are bundled); a diagnostics export
+  (`DiagnosticsReport`) holding codes and counts only, no tokens, device ids, addresses or pins.
+- **App icon and launch screen**: `bun scripts/generate-icon.ts` draws the desktop's ace mark
+  (`apps/desktop/build/icon.svg`) into a light, dark and tinted 1024 icon and writes the
+  `LaunchBackground` colour from the `background` token.
+- **Accessibility**: `PolishUITests.testEveryScreenPassesTheAccessibilityAudit` audits the inbox,
+  New thread, projects, plan and form cards, steps, thread, Agents, Changes, Files, Machines,
+  Settings and Archive. Missing descriptions and small hit areas fail it; every other finding is
+  attached as a report. Set `TEST_RUNNER_ACE_IOS_TEXT_SIZE` to a content size category to run it
+  at another text size, and `xcrun simctl ui <udid> appearance dark` for dark mode.
