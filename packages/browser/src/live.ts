@@ -2,12 +2,21 @@ import { z } from "zod";
 import type { BrowserCdp } from "./backend.ts";
 import type { BrowserFrame } from "@ace/protocol";
 import { Screencast } from "./cdp.ts";
-import { FrameFanout } from "./fanout.ts";
+import { FrameFanout, type CaptureViewer, type FrameSink } from "./fanout.ts";
 import { captureSettings, CapturePressure, sameEncoding } from "./capture-policy.ts";
+import { LiveVideo, type LiveVideoSource } from "./live-video.ts";
 
 const Ack = z.object({ sessionId: z.number().int() });
+/**
+ * The thread's live view: the JPEG screencast every viewer can take (and recordings use), and
+ * video for viewers that ask for it (ADR 0088). A video viewer gets JPEG frames until its first
+ * keyframe, and again whenever its video stops.
+ */
 export class LiveCapture {
   readonly fanout = new FrameFanout();
+  readonly video: LiveVideo;
+  private sinks = new Map<string, FrameSink>();
+  private videoSource: () => LiveVideoSource | undefined;
   private cdp: BrowserCdp;
   private now: () => number;
   private onFrame: (frame: BrowserFrame, epoch: number) => void;
@@ -36,7 +45,14 @@ export class LiveCapture {
      * renders sharper than the browser's own scale (`headless-size.ts`). Frames report CSS size.
      */
     scale: () => number = () => 1,
+    /** The shown tab's video encoder; absent where the backend has none (JPEG only). */
+    videoSource: () => LiveVideoSource | undefined = () => undefined,
   ) {
+    this.videoSource = videoSource;
+    this.video = new LiveVideo({
+      now,
+      playing: (id, playing) => this.fanout.pause(id, playing),
+    });
     this.tab = tab;
     this.scale = scale;
     this.cdp = cdp;
@@ -44,6 +60,31 @@ export class LiveCapture {
     this.onFrame = onFrame;
     this.privacy = privacy;
     this.viewport = viewport;
+  }
+  /** A viewer of the page: JPEG frames, plus video when it asked and its sink takes it. */
+  subscribe(id: string, sink: FrameSink, capture?: CaptureViewer): () => void {
+    const stop = this.fanout.subscribe(id, sink, capture);
+    this.sinks.set(id, sink);
+    this.video.remove(id);
+    if (capture) this.configureVideo(id, sink, capture);
+    return () => {
+      stop();
+      if (this.sinks.get(id) !== sink) return;
+      this.sinks.delete(id);
+      this.video.remove(id);
+    };
+  }
+  /** What a viewer shows changed (`browser.capture`). */
+  configure(id: string, capture: CaptureViewer): void {
+    this.fanout.configure(id, capture);
+    const sink = this.sinks.get(id);
+    if (sink) this.configureVideo(id, sink, capture);
+  }
+  private configureVideo(id: string, sink: FrameSink, capture: CaptureViewer): void {
+    if (sink.video && capture.video) {
+      if (this.video.has(id)) this.video.configure(id, capture);
+      else this.video.add(id, sink.video, capture);
+    } else this.video.remove(id);
   }
   private receive: (raw: unknown) => void = () => {};
   /** The tab this capture shows, fixed when the capture starts on its page. */
@@ -134,8 +175,10 @@ export class LiveCapture {
       this.fanout.publish(frame);
       if (epoch === this.privacy().epoch) this.onFrame(frame, epoch);
     }
+    this.video.attach(this.videoSource(), this.capturing, { ...viewport, scale: dpr });
     this.timer = setInterval(() => {
       this.fanout.flush();
+      if (!this.closed) this.video.tick(this.viewport());
       const now = this.now();
       const load = this.pressure.sample(this.fanout.pressured, now);
       const settings = captureSettings(load, this.fanout.captureViewers);
@@ -173,6 +216,7 @@ export class LiveCapture {
     this.generation++;
     clearInterval(this.timer);
     this.cdp.off("Page.screencastFrame", this.receive);
+    this.video.detach();
     this.fanout.invalidate();
   }
   async replace(cdp: BrowserCdp): Promise<void> {
@@ -191,6 +235,8 @@ export class LiveCapture {
     this.generation++;
     clearInterval(this.timer);
     this.cdp.off("Page.screencastFrame", this.receive);
+    this.video.clear();
+    this.sinks.clear();
     this.fanout.clear();
     await this.cdp.send("Page.stopScreencast").catch(() => {});
   }

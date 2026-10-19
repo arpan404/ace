@@ -1,10 +1,46 @@
 import type { BrowserOpen, BrowserTab, BrowserDownload, BrowserDialog } from "@ace/protocol";
+import type { VideoEncode } from "./video-policy.ts";
 
 /** Opaque CDP results are parsed by their owning operation before use. */
 export interface BrowserCdp {
   send(method: string, params?: Record<string, unknown>): Promise<unknown>;
   on(method: string, listener: (params: unknown) => void): unknown;
   off(method: string, listener: (params: unknown) => void): unknown;
+}
+/** One encoded chunk from an engine's video encoder, for the encode named `encode`. */
+export interface EncodedChunk {
+  encode: string;
+  key: boolean;
+  codec: string;
+  codedWidth: number;
+  codedHeight: number;
+  description?: Uint8Array;
+  bytes: Uint8Array;
+}
+export interface CaptureEvents {
+  chunk(chunk: EncodedChunk): void;
+  /** No encoder configuration worked for this encode. */
+  failed(encode: string): void;
+  /** The capture stopped on its own (the tab closed, the extension went away). */
+  ended(): void;
+}
+/** One tab capture feeding the encodes it is told to run. */
+export interface VideoCaptureHandle {
+  encodes(specs: readonly VideoEncode[]): void;
+  keyframe(encode: string): void;
+  close(): void;
+}
+/** An engine's video encoder (ADR 0088): what a live capture needs to stream a tab as video. */
+export interface VideoHost {
+  /** The codecs (of those asked, in order) the encoder supports at this size. */
+  supported(codecs: readonly string[], width: number, height: number): Promise<string[]>;
+  /** Captures the tab `page` shows, at exactly this many pixels. */
+  open(
+    page: BrowserCdp,
+    width: number,
+    height: number,
+    events: CaptureEvents,
+  ): Promise<VideoCaptureHandle>;
 }
 export interface BackendLog {
   /** The tab that logged the entry, when the backend knows it. */
@@ -177,6 +213,11 @@ export interface BrowserBackendPage {
    * (1 when the page renders at that scale). Absent: always 1.
    */
   captureScale?(): number;
+  /**
+   * The engine's video encoder for this page's tab (ADR 0088). Absent, or undefined: remote
+   * viewers take JPEG frames (the desktop's views, the person's Chrome, private contexts).
+   */
+  video?(): VideoHost | undefined;
   viewport(): { width: number; height: number };
   media(colorScheme: "light" | "dark" | "no-preference"): Promise<void>;
   /**

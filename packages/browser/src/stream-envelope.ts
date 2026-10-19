@@ -1,6 +1,6 @@
 /*
- * The binary stream envelope: how a live stream's messages (a JPEG frame today, encoded video
- * chunks later) cross a socket as binary WebSocket messages instead of base64 inside JSON.
+ * The binary stream envelope: how a live stream's messages (JPEG frames and encoded video
+ * chunks) cross a socket as binary WebSocket messages instead of base64 inside JSON.
  *
  * Sockets and the relay cap one binary message at 64 KiB, so a logical message is cut into
  * pieces. Every piece starts with the same 20-byte prefix (big-endian):
@@ -30,6 +30,8 @@ export const streamMaxBytes = 8 * 1024 * 1024;
 export const streamKinds = {
   /** One JPEG screencast frame of a thread's browser (`stream-frame.ts`). */
   browserFrame: 1,
+  /** One encoded video chunk of a thread's browser (`stream-video.ts`, ADR 0088). */
+  browserVideo: 2,
 } as const;
 
 export class StreamEnvelopeError extends Error {

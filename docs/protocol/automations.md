@@ -30,23 +30,19 @@ Example:
 
 ```json
 {
-  "concurrency": 6,
-  "enabled": false,
+  "concurrency": 1,
+  "enabled": true,
   "id": "example",
   "jitterMs": 6,
   "missedRun": "skip",
-  "model": "example",
   "prompt": "example",
-  "provider": "cursor",
+  "provider": "acp",
   "title": "example",
   "trigger": {
-    "kind": "file",
-    "paths": [
-      "example"
-    ]
+    "kind": "manual"
   },
   "workspace": "example",
-  "worktree": false
+  "worktree": true
 }
 ```
 
@@ -81,7 +77,7 @@ Example:
 
 ```json
 {
-  "before": 6,
+  "before": 3,
   "runs": []
 }
 ```
@@ -99,7 +95,7 @@ Example:
 
 ```json
 {
-  "at": 8,
+  "at": 1,
   "message": "example"
 }
 ```
@@ -121,23 +117,23 @@ Example:
 ```json
 {
   "automation": {
-    "access": "full-access",
-    "concurrency": 1,
+    "concurrency": 3,
     "enabled": false,
     "id": "example",
-    "jitterMs": 8,
+    "jitterMs": 0,
     "missedRun": "skip",
     "prompt": "example",
-    "provider": "acp",
+    "provider": "pi",
     "title": "example",
     "trigger": {
-      "kind": "file",
-      "paths": [
-        "example"
-      ]
+      "event": "review_comment",
+      "kind": "github",
+      "label": "example",
+      "pollIntervalMs": 60007,
+      "repository": "PX38/RLbwl"
     },
     "workspace": "example",
-    "worktree": false
+    "worktree": true
   },
   "requestId": "example",
   "type": "automation.put"
@@ -212,7 +208,7 @@ Example:
 
 ```json
 {
-  "limit": 5,
+  "limit": 4,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -237,10 +233,7 @@ Example:
 
 ```json
 {
-  "inbox": {
-    "before": 7,
-    "runs": []
-  },
+  "error": "example",
   "ok": true,
   "requestId": "example",
   "type": "automation.result"
@@ -270,13 +263,13 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
-  "finishedAt": 2,
   "id": "example",
   "result": "example",
   "startedAt": 1,
-  "status": "failed",
+  "status": "skipped",
+  "threadId": "example",
   "title": "example",
-  "trigger": "file"
+  "trigger": "manual"
 }
 ```
 
@@ -334,7 +327,7 @@ Example:
   "kind": "schedule",
   "schedule": {
     "expression": "example",
-    "kind": "rrule",
+    "kind": "cron",
     "startAt": 0,
     "timezone": "example"
   }
@@ -358,8 +351,9 @@ Example:
 {
   "event": "pr_changed",
   "kind": "github",
-  "pollIntervalMs": 60003,
-  "repository": "LX/rN46P3"
+  "pollIntervalMs": 60007,
+  "pullRequest": 6,
+  "repository": "O6nm0mx/V."
 }
 ```
 

@@ -2342,6 +2342,7 @@ Example:
 | subscriberId | no | string | {"minLength":1,"maxLength":256} |
 | binaryFrames | no | boolean |  |
 | viewport | no | [BrowserCaptureViewport.json](schema/BrowserCaptureViewport.json) |  |
+| video | no | [BrowserVideoRequest.json](schema/BrowserVideoRequest.json) |  |
 
 Example:
 
@@ -2350,7 +2351,12 @@ Example:
   "binaryFrames": true,
   "requestId": "example",
   "threadId": "example",
-  "type": "browser.subscribe"
+  "type": "browser.subscribe",
+  "video": {
+    "codecs": [
+      "wTXBbIjC6U"
+    ]
+  }
 }
 ```
 
@@ -2371,10 +2377,9 @@ Example:
   "threadId": "example",
   "type": "browser.capture",
   "viewport": {
-    "devicePixelRatio": 1,
-    "height": 103,
-    "nativeShown": false,
-    "width": 103
+    "devicePixelRatio": 2,
+    "height": 101,
+    "width": 102
   }
 }
 ```
@@ -2406,15 +2411,19 @@ Example:
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | type | yes | `"browser.ack"` |  |
 | sequence | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| video | no | `true` |  |
+| keyframe | no | `true` |  |
 
 Example:
 
 ```json
 {
+  "keyframe": true,
   "requestId": "example",
-  "sequence": 1,
+  "sequence": 3,
   "threadId": "example",
-  "type": "browser.ack"
+  "type": "browser.ack",
+  "video": true
 }
 ```
 
@@ -2456,7 +2465,7 @@ Example:
 
 ```json
 {
-  "muted": false,
+  "muted": true,
   "requestId": "example",
   "tabId": "example",
   "threadId": "example",
@@ -2478,7 +2487,7 @@ Example:
 
 ```json
 {
-  "private": true,
+  "private": false,
   "requestId": "example",
   "tabId": "example",
   "threadId": "example",
@@ -2501,9 +2510,10 @@ Example:
 ```json
 {
   "input": {
-    "kind": "pick",
-    "pickerId": "example",
-    "values": []
+    "event": "keyDown",
+    "key": "example",
+    "kind": "key",
+    "text": "example"
   },
   "requestId": "example",
   "threadId": "example",
@@ -2608,11 +2618,6 @@ Example:
 
 ```json
 {
-  "filter": {
-    "acpAgentId": "example",
-    "instance": "example",
-    "provider": "claude"
-  },
   "requestId": "example",
   "type": "models.refresh"
 }
@@ -2632,11 +2637,9 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "acpAgentId": "example",
-    "imageInput": true,
-    "instance": "example",
-    "instanceId": "example",
-    "provider": "antigravity",
+    "effort": "example",
+    "installationId": "example",
+    "preferenceOrder": [],
     "role": "example"
   },
   "type": "models.resolve"
@@ -2656,7 +2659,7 @@ Example:
 
 ```json
 {
-  "inputAgeMs": 4,
+  "inputAgeMs": 1,
   "threadId": null,
   "type": "presence.update"
 }
@@ -2675,8 +2678,9 @@ Example:
 ```json
 {
   "device": {
-    "channel": "websocket",
-    "platform": "phone"
+    "channel": "apns",
+    "platform": "phone",
+    "token": "dA207F5b881FE40BBA5aeD81c7B06e67e1ba55d61D6F9A05b1f8ba7929a1e28f"
   },
   "type": "notification.register"
 }
@@ -2725,9 +2729,7 @@ Example:
 
 ```json
 {
-  "preferences": {
-    "agentSays": false
-  },
+  "preferences": {},
   "type": "notification.preferences"
 }
 ```
@@ -2746,7 +2748,7 @@ Example:
 {
   "threadId": "example",
   "type": "notification.snooze",
-  "until": 7
+  "until": 4
 }
 ```
 
@@ -2762,7 +2764,7 @@ Example:
 
 ```json
 {
-  "afterCursor": 6,
+  "afterCursor": 4,
   "requestId": "example",
   "type": "notification.feed"
 }
@@ -2786,10 +2788,9 @@ Example:
 
 ```json
 {
-  "compression": [],
   "deviceId": "example",
   "protocolVersion": 1,
-  "token": "example",
+  "ticket": "example",
   "type": "hello"
 }
 ```
@@ -2808,8 +2809,12 @@ Example:
 
 ```json
 {
+  "afterSeq": 4,
   "scope": {
-    "kind": "threads"
+    "kind": "threads",
+    "window": {
+      "limit": 8
+    }
   },
   "subscriptionId": "example",
   "type": "subscribe"
@@ -2847,10 +2852,8 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "action": "resume_at_reset",
-      "expectedRevision": 8,
       "threadId": "example",
-      "type": "thread.limit"
+      "type": "thread.settle"
     }
   },
   "type": "command"
@@ -2871,8 +2874,8 @@ Example:
 
 ```json
 {
-  "limit": 3,
-  "offset": 8,
+  "limit": 4,
+  "offset": 5,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -2893,8 +2896,8 @@ Example:
 
 ```json
 {
-  "before": 9,
-  "limit": 9,
+  "before": 8,
+  "limit": 6,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"
@@ -2916,9 +2919,9 @@ Example:
 
 ```json
 {
-  "before": 6,
-  "collection": "agents",
-  "limit": 1,
+  "before": 2,
+  "collection": "interactions",
+  "limit": 7,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"
@@ -2939,7 +2942,7 @@ Example:
 ```json
 {
   "before": {
-    "at": 0,
+    "at": 5,
     "id": "example"
   },
   "requestId": "example",

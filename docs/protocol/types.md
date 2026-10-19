@@ -4973,6 +4973,7 @@ Example:
 | subscriberId | no | string | {"minLength":1,"maxLength":256} |
 | binaryFrames | no | boolean |  |
 | viewport | no | [BrowserCaptureViewport.json](schema/BrowserCaptureViewport.json) |  |
+| video | no | [BrowserVideoRequest.json](schema/BrowserVideoRequest.json) |  |
 
 Example:
 
@@ -4980,7 +4981,12 @@ Example:
 {
   "requestId": "example",
   "threadId": "example",
-  "type": "browser.subscribe"
+  "type": "browser.subscribe",
+  "video": {
+    "codecs": [
+      "U09bM"
+    ]
+  }
 }
 ```
 
@@ -5002,13 +5008,12 @@ Example:
   "type": "browser.capture",
   "viewport": {
     "cursor": {
-      "fill": "#F94d6E",
-      "outline": "#51EbC6"
+      "fill": "#951EbC",
+      "outline": "#cdC87B"
     },
-    "devicePixelRatio": 4,
+    "devicePixelRatio": 2,
     "height": 106,
-    "nativeShown": true,
-    "width": 105
+    "width": 103
   }
 }
 ```
@@ -5040,13 +5045,15 @@ Example:
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | type | yes | `"browser.ack"` |  |
 | sequence | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| video | no | `true` |  |
+| keyframe | no | `true` |  |
 
 Example:
 
 ```json
 {
   "requestId": "example",
-  "sequence": 3,
+  "sequence": 0,
   "threadId": "example",
   "type": "browser.ack"
 }
@@ -5112,7 +5119,7 @@ Example:
 
 ```json
 {
-  "private": true,
+  "private": false,
   "requestId": "example",
   "tabId": "example",
   "threadId": "example",
@@ -5135,9 +5142,9 @@ Example:
 ```json
 {
   "input": {
-    "event": "touchMove",
-    "kind": "touch",
-    "points": []
+    "event": "keyDown",
+    "key": "example",
+    "kind": "key"
   },
   "requestId": "example",
   "threadId": "example",
@@ -5196,8 +5203,7 @@ Example:
 
 ```json
 {
-  "action": "navigation_history",
-  "tabId": "example"
+  "action": "navigation_history"
 }
 ```
 
@@ -5229,7 +5235,8 @@ Example:
 ```json
 {
   "action": "history",
-  "direction": "stop"
+  "direction": "stop",
+  "tabId": "example"
 }
 ```
 
@@ -5247,7 +5254,8 @@ Example:
 ```json
 {
   "action": "find_text",
-  "forward": true,
+  "forward": false,
+  "tabId": "example",
   "text": "example"
 }
 ```
@@ -5289,8 +5297,9 @@ Example:
 ```json
 {
   "action": "click",
-  "button": "left",
-  "y": 7
+  "clickCount": 3,
+  "tabId": "example",
+  "x": 7
 }
 ```
 
@@ -5309,6 +5318,7 @@ Example:
 {
   "action": "type",
   "ref": "example",
+  "tabId": "example",
   "text": "example"
 }
 ```
@@ -5346,8 +5356,8 @@ Example:
 ```json
 {
   "action": "scroll",
-  "x": 2,
-  "y": 7
+  "x": 5,
+  "y": 5
 }
 ```
 
@@ -5386,13 +5396,8 @@ Example:
 ```json
 {
   "action": "measure_interaction",
-  "filmstrip": true,
-  "interaction": {
-    "action": "scroll",
-    "x": 5,
-    "y": 5
-  },
-  "observeMs": 9
+  "repeat": 4,
+  "tabId": "example"
 }
 ```
 
@@ -5412,8 +5417,9 @@ Example:
 ```json
 {
   "action": "snapshot",
-  "maxNodes": 7,
-  "ref": "example"
+  "interactiveOnly": false,
+  "ref": "example",
+  "tabId": "example"
 }
 ```
 
@@ -5432,8 +5438,8 @@ Example:
 ```json
 {
   "action": "screenshot",
-  "fullPage": true,
-  "ref": "example"
+  "ref": "example",
+  "tabId": "example"
 }
 ```
 
@@ -5451,7 +5457,8 @@ Example:
 ```json
 {
   "action": "evaluate",
-  "expression": "example"
+  "expression": "example",
+  "tabId": "example"
 }
 ```
 
@@ -5474,9 +5481,9 @@ Example:
 ```json
 {
   "action": "wait_for",
-  "state": "hidden",
-  "tabId": "example",
-  "timeout": 1,
+  "networkIdle": true,
+  "state": "visible",
+  "text": "example",
   "url": "example"
 }
 ```
@@ -5499,8 +5506,7 @@ Example:
 {
   "action": "logs",
   "kind": "console",
-  "limit": 4,
-  "tabId": "example"
+  "limit": 8
 }
 ```
 
@@ -5520,9 +5526,9 @@ Example:
 ```json
 {
   "action": "resize",
-  "height": 104,
+  "height": 107,
   "touch": false,
-  "width": 104
+  "width": 101
 }
 ```
 
@@ -5545,10 +5551,9 @@ Example:
 ```json
 {
   "action": "emulate",
-  "colorScheme": "dark",
-  "height": 100,
-  "tabId": "example",
-  "width": 107
+  "height": 105,
+  "mobile": false,
+  "width": 103
 }
 ```
 
@@ -5568,7 +5573,8 @@ Example:
 ```json
 {
   "action": "tabs",
-  "tabId": "example"
+  "operation": "select",
+  "url": "example"
 }
 ```
 
@@ -5590,7 +5596,8 @@ Example:
       "ref": "example",
       "value": "example"
     }
-  ]
+  ],
+  "tabId": "example"
 }
 ```
 
@@ -5607,9 +5614,7 @@ Example:
 
 ```json
 {
-  "action": "downloads",
-  "tabId": "example",
-  "timeout": 5
+  "action": "downloads"
 }
 ```
 
@@ -5627,7 +5632,8 @@ Example:
 ```json
 {
   "action": "pdf",
-  "landscape": false
+  "landscape": true,
+  "tabId": "example"
 }
 ```
 
@@ -5644,7 +5650,7 @@ Example:
 ```json
 {
   "action": "extensions",
-  "operation": "list"
+  "tabId": "example"
 }
 ```
 
@@ -5665,8 +5671,7 @@ Example:
   "files": [
     "example"
   ],
-  "ref": "example",
-  "tabId": "example"
+  "ref": "example"
 }
 ```
 
@@ -5686,7 +5691,8 @@ Example:
 {
   "accept": true,
   "action": "dialog",
-  "dialogId": "example"
+  "dialogId": "example",
+  "promptText": "example"
 }
 ```
 
@@ -5758,8 +5764,7 @@ Example:
 ```json
 {
   "action": "uncheck",
-  "ref": "example",
-  "tabId": "example"
+  "ref": "example"
 }
 ```
 
@@ -5776,7 +5781,8 @@ Example:
 ```json
 {
   "action": "focus",
-  "ref": "example"
+  "ref": "example",
+  "tabId": "example"
 }
 ```
 
@@ -5795,7 +5801,9 @@ Example:
 ```json
 {
   "action": "find",
-  "exact": false
+  "exact": false,
+  "name": "example",
+  "role": "example"
 }
 ```
 
@@ -5844,8 +5852,7 @@ Example:
 
 ```json
 {
-  "action": "record_stop",
-  "tabId": "example"
+  "action": "record_stop"
 }
 ```
 
@@ -5858,12 +5865,7 @@ Example:
 ```json
 {
   "action": "annotate",
-  "command": {
-    "id": "example",
-    "op": "edit"
-  },
-  "operation": "command",
-  "tabId": "example"
+  "operation": "stop"
 }
 ```
 
@@ -5895,7 +5897,8 @@ Example:
 
 ```json
 {
-  "action": "clear_data"
+  "action": "clear_data",
+  "tabId": "example"
 }
 ```
 
@@ -5928,7 +5931,8 @@ Example:
 ```json
 {
   "action": "context_target",
-  "x": 0,
+  "tabId": "example",
+  "x": 5,
   "y": 6
 }
 ```
@@ -5965,8 +5969,7 @@ Example:
 {
   "action": "annotate_capture",
   "target": {
-    "id": "example",
-    "kind": "annotation"
+    "kind": "page"
   }
 }
 ```
@@ -6025,7 +6028,7 @@ Example:
 
 ```json
 {
-  "bytes": 2,
+  "bytes": 0,
   "downloadId": "example",
   "filename": "example",
   "flags": [],
@@ -6051,8 +6054,9 @@ Example:
 
 ```json
 {
-  "phase": "downloading",
-  "received": 1,
+  "phase": "extracting",
+  "received": 4,
+  "total": 8,
   "type": "browser.download.progress",
   "version": "example"
 }
@@ -6073,7 +6077,7 @@ Example:
 ```json
 {
   "chooserId": "example",
-  "multiple": false,
+  "multiple": true,
   "tabId": "example"
 }
 ```
@@ -6096,10 +6100,10 @@ Example:
 ```json
 {
   "data": "example",
-  "height": 100,
-  "sequence": 4,
-  "timestamp": 0,
-  "width": 108
+  "height": 107,
+  "sequence": 5,
+  "timestamp": 7,
+  "width": 109
 }
 ```
 
@@ -6112,7 +6116,7 @@ Type: ["login","captcha","two_factor","dialog","other"]. See JSON Schema for con
 Example:
 
 ```json
-"dialog"
+"captcha"
 ```
 
 ## BrowserInput
@@ -6136,12 +6140,13 @@ Example:
 
 ```json
 {
-  "button": "middle",
+  "button": "right",
   "clickCount": 1,
-  "event": "mouseReleased",
+  "event": "mousePressed",
   "kind": "mouse",
-  "x": 7,
-  "y": 6
+  "modifiers": 4,
+  "x": 6,
+  "y": 3
 }
 ```
 
@@ -6160,11 +6165,10 @@ Example:
 
 ```json
 {
-  "code": "example",
-  "event": "char",
+  "event": "keyUp",
   "key": "example",
   "kind": "key",
-  "modifiers": 4
+  "modifiers": 2
 }
 ```
 
@@ -6183,12 +6187,11 @@ Example:
 
 ```json
 {
-  "deltaX": 9,
-  "deltaY": 0,
+  "deltaX": 3,
+  "deltaY": 4,
   "kind": "scroll",
-  "modifiers": 6,
-  "x": 4,
-  "y": 3
+  "x": 6,
+  "y": 7
 }
 ```
 
@@ -6204,7 +6207,7 @@ Example:
 
 ```json
 {
-  "event": "touchCancel",
+  "event": "touchEnd",
   "kind": "touch",
   "points": []
 }
@@ -6224,8 +6227,8 @@ Example:
 ```json
 {
   "kind": "ime",
-  "selectionEnd": 4,
-  "selectionStart": 3,
+  "selectionEnd": 5,
+  "selectionStart": 6,
   "text": "example"
 }
 ```
@@ -6315,8 +6318,8 @@ Example:
 ```json
 {
   "action": "scroll",
-  "x": 6,
-  "y": 5
+  "x": 4,
+  "y": 1
 }
 ```
 
@@ -6352,13 +6355,7 @@ Example:
 Example:
 
 ```json
-{
-  "interaction": {
-    "action": "scroll",
-    "x": 4,
-    "y": 6
-  }
-}
+{}
 ```
 
 ## BrowserOpen
@@ -6377,7 +6374,7 @@ Example:
 
 ```json
 {
-  "background": true,
+  "headed": true,
   "threadId": "example",
   "workspaceId": "example"
 }
@@ -6397,7 +6394,7 @@ Example:
 ```json
 {
   "origin": "example",
-  "reason": "invalid_origin"
+  "reason": "timeout"
 }
 ```
 
@@ -6417,12 +6414,12 @@ Example:
 
 ```json
 {
-  "enterKeyHint": "example",
+  "inputMode": "example",
   "rect": {
-    "height": 9,
-    "width": 2,
-    "x": 4,
-    "y": 6
+    "height": 3,
+    "width": 9,
+    "x": 6,
+    "y": 2
   },
   "type": "example"
 }
@@ -6444,17 +6441,25 @@ Example:
 ```json
 {
   "page": {
+    "focus": {
+      "rect": {
+        "height": 7,
+        "width": 4,
+        "x": 7,
+        "y": 0
+      },
+      "type": "example"
+    },
     "picker": {
-      "kind": "week",
-      "max": "example",
+      "kind": "date",
+      "options": [],
       "pickerId": "example",
       "rect": {
-        "height": 4,
-        "width": 7,
-        "x": 0,
-        "y": 4
+        "height": 6,
+        "width": 9,
+        "x": 4,
+        "y": 5
       },
-      "step": "example",
       "value": "example"
     }
   },
@@ -6484,12 +6489,14 @@ Example:
 ```json
 {
   "kind": "color",
+  "min": "example",
+  "options": [],
   "pickerId": "example",
   "rect": {
-    "height": 7,
-    "width": 8,
-    "x": 6,
-    "y": 1
+    "height": 8,
+    "width": 3,
+    "x": 7,
+    "y": 7
   },
   "value": "example"
 }
@@ -6510,9 +6517,9 @@ Example:
 
 ```json
 {
-  "height": 8,
-  "width": 3,
-  "x": 7,
+  "height": 2,
+  "width": 9,
+  "x": 1,
   "y": 7
 }
 ```
@@ -6535,24 +6542,12 @@ Example:
   "focus": {
     "enterKeyHint": "example",
     "rect": {
-      "height": 1,
-      "width": 8,
-      "x": 3,
-      "y": 4
+      "height": 8,
+      "width": 2,
+      "x": 2,
+      "y": 6
     },
     "type": "example"
-  },
-  "picker": {
-    "kind": "date",
-    "min": "example",
-    "pickerId": "example",
-    "rect": {
-      "height": 6,
-      "width": 8,
-      "x": 6,
-      "y": 2
-    },
-    "value": "example"
   }
 }
 ```
@@ -6624,11 +6619,11 @@ Example:
   "images": [
     {
       "data": "example",
-      "height": 1,
+      "height": 3,
       "mimeType": "image/jpeg",
       "path": "example",
-      "size": "phone",
-      "width": 3
+      "size": "desktop",
+      "width": 1
     }
   ]
 }
@@ -6669,7 +6664,7 @@ Example:
   "backend": "embedded",
   "pageStateLost": true,
   "reason": "example",
-  "recovery": "headless",
+  "recovery": "pause",
   "threadId": "example",
   "type": "browser.backend.lost",
   "url": "example"
@@ -6691,7 +6686,8 @@ Example:
 ```json
 {
   "phase": "ready",
-  "received": 3,
+  "received": 9,
+  "total": 8,
   "type": "browser.download.progress",
   "version": "example"
 }
@@ -7094,6 +7090,36 @@ Example:
 }
 ```
 
+## BrowserVideoCodec
+
+[JSON Schema](schema/BrowserVideoCodec.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"Z8D"
+```
+
+## BrowserVideoRequest
+
+[JSON Schema](schema/BrowserVideoRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| codecs | yes | array | {"minItems":1,"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/BrowserVideoCodec.json"}} |
+
+Example:
+
+```json
+{
+  "codecs": [
+    "oKKS"
+  ]
+}
+```
+
 ## Capabilities
 
 [JSON Schema](schema/Capabilities.json), input validation.
@@ -7133,28 +7159,31 @@ Example:
 {
   "accessModes": [],
   "approvals": "interactive",
-  "backgroundTaskControl": false,
-  "backgroundVisibility": "full",
+  "attachmentInput": {
+    "documents": [],
+    "embeddedContext": true,
+    "format": "acp",
+    "maxInlineBytes": 1
+  },
+  "backgroundTaskControl": true,
+  "backgroundVisibility": "none",
   "childFidelity": "full",
   "fork": true,
-  "forkMode": "context-handoff",
   "forkPoints": [],
-  "forkSubagents": true,
-  "goals": true,
-  "imageInput": true,
+  "imageInput": false,
   "interruptCascades": false,
+  "launchOptions": [],
+  "permissionModes": [],
   "permissions": {
     "modes": [],
-    "nativeAutoReview": false,
-    "toolGate": true
+    "nativeAutoReview": true,
+    "toolGate": false
   },
-  "planMode": true,
+  "planMode": false,
   "resume": true,
-  "rewindFiles": false,
-  "sessionOptions": false,
+  "rewindFiles": true,
+  "sessionOptions": true,
   "steer": true,
-  "steerTiming": "after_tool",
-  "steeringMode": "queue",
   "subagentTranscripts": true,
   "tokenUsage": true
 }
@@ -7177,7 +7206,7 @@ Example:
 {
   "entries": [],
   "requestId": "example",
-  "stale": true,
+  "stale": false,
   "type": "catalog.changed"
 }
 ```
@@ -7204,17 +7233,16 @@ Example:
   "description": "example",
   "id": "example",
   "invocation": {
-    "name": "example",
-    "server": "example",
-    "type": "tool"
+    "commandId": "example",
+    "parameters": {},
+    "type": "prompt"
   },
-  "kind": "agent",
+  "kind": "mcp-tool",
   "name": "example",
   "source": {
-    "provider": "codex",
+    "provider": "ace",
     "scope": "global"
-  },
-  "title": "example"
+  }
 }
 ```
 
@@ -7337,6 +7365,7 @@ Example:
 ```json
 {
   "commandId": "example",
+  "parameters": {},
   "type": "prompt"
 }
 ```

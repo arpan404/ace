@@ -1,3 +1,5 @@
+import { videoExtensionId } from "./video-extension.ts";
+
 /**
  * Command line for ace's own Chrome. Pure, so the launch contract is testable without a browser.
  *
@@ -28,6 +30,8 @@ export function chromeArgs(options: {
     "--disable-renderer-backgrounding",
     "--disable-backgrounding-occluded-windows",
     "--mute-audio",
+    // ace's video extension may capture tabs without a click on it (ADR 0088).
+    `--allowlisted-extension-id=${videoExtensionId}`,
     ...(options.platform === "darwin" ? ["--use-mock-keychain"] : []),
     ...(options.platform === "linux" ? ["--password-store=basic"] : []),
     ...(options.deviceScaleFactor === 1

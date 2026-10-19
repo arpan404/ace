@@ -5,10 +5,11 @@ import {
   StreamEnvelopeError,
   type StreamEnvelope,
 } from "./stream-envelope.ts";
+import { decodeBrowserVideo, type BrowserVideoChunk } from "./stream-video.ts";
 
 /*
- * The portable stream surface (`@ace/browser/stream`): the envelope, and the browser frame kind's
- * header. A frame's header carries what `BrowserFrame` carries besides its picture:
+ * The portable stream surface (`@ace/browser/stream`): the envelope, the browser frame kind's
+ * header (below) and the video kind's (`stream-video.ts`). A frame's header carries what `BrowserFrame` carries besides its picture:
  *
  *   0  f64  sequence
  *   8  f64  timestamp
@@ -27,6 +28,7 @@ export {
   streamPieceBytes,
   type StreamEnvelope,
 } from "./stream-envelope.ts";
+export { encodeBrowserVideo, type BrowserVideoChunk } from "./stream-video.ts";
 
 // Made per call (they are cheap): importing this module needs no text codecs.
 const utf8 = (value: string) => new TextEncoder().encode(value);
@@ -34,12 +36,10 @@ const text = (bytes: Uint8Array) => new TextDecoder("utf-8", { fatal: true }).de
 
 /** A frame as it arrives in binary: `BrowserFrame` with the JPEG's bytes instead of base64. */
 export type BrowserFrameBytes = Omit<BrowserFrame, "data"> & { bytes: Uint8Array };
-/** A decoded stream message. Video chunks join this union as their own kind. */
-export type StreamMessage = {
-  kind: "browser.frame";
-  threadId: ThreadId;
-  frame: BrowserFrameBytes;
-};
+/** A decoded stream message: a JPEG frame or an encoded video chunk. */
+export type StreamMessage =
+  | { kind: "browser.frame"; threadId: ThreadId; frame: BrowserFrameBytes }
+  | { kind: "browser.video"; threadId: ThreadId; chunk: BrowserVideoChunk };
 
 const FrameHeader = BrowserFrame.omit({ data: true });
 
@@ -95,5 +95,7 @@ function decodeFrame(meta: Uint8Array, payload: Uint8Array): StreamMessage {
 export function decodeStreamMessage(envelope: StreamEnvelope): StreamMessage | undefined {
   if (envelope.kind === streamKinds.browserFrame)
     return decodeFrame(envelope.meta, envelope.payload);
+  if (envelope.kind === streamKinds.browserVideo)
+    return { kind: "browser.video", ...decodeBrowserVideo(envelope.meta, envelope.payload) };
   return undefined;
 }
