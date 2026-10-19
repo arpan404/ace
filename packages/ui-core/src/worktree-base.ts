@@ -11,11 +11,11 @@ export const sameBase = (a: WorktreeBase | undefined, b: WorktreeBase | undefine
 const usualDefaults = ["main", "master", "trunk", "develop"];
 
 /**
- * The base a new worktree starts from when the person hasn't picked one: the repository's
- * default branch at its freshest. That is the remote's copy (fetched just before the worktree is
- * made) unless the local branch has commits the remote doesn't, in which case the person's own
- * work wins; without a remote copy it is the local branch. With no default branch known, the
- * usual names (main, master…) stand in, then the first branch listed.
+ * The base a new worktree starts from when the person hasn't picked one: the remote's copy of the
+ * repository's default branch (fetched just before the worktree is made), from the remote the
+ * local branch tracks, else `origin`, else any remote that has it. Without a remote copy it is the
+ * local branch. With no default branch known, the usual names (main, master…) stand in, then the
+ * first branch listed.
  */
 export function defaultWorktreeBase(
   refs: readonly BranchRef[],
@@ -31,8 +31,7 @@ export function defaultWorktreeBase(
         refs.find((ref) => ref.remote === upstream.remote && ref.name === upstream.ref)) ??
       refs.find((ref) => ref.remote === "origin" && ref.name === named) ??
       refs.find((ref) => ref.remote && ref.name === named);
-    if (remote?.remote && !(local && (local.ahead ?? 0) > 0))
-      return { ref: remote.name, remote: remote.remote };
+    if (remote?.remote) return { ref: remote.name, remote: remote.remote };
     if (local) return { ref: local.name };
   }
   const first = refs[0];
