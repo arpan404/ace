@@ -94,9 +94,13 @@ As in desktop chat apps: one sidebar (composed in `app/app-shell.tsx`), no rail.
   Its project filter is always visible; with no projects, Add project takes its place.
 - **Home's list** (`features/home`): one flat list of tasks across projects, pinned first, then
   Home order (needs you, work in motion, trouble, the rest, most recent first), then the
-  collapsible Settled section. `homeOrder`, `homeRows` and `homeRowKey` in `@ace/ui-core` build
-  it; threads and the Settled heading have their own key prefixes, so no thread id can take the
-  heading's key. Each row is a three-line card: the project's badge (`projectBadge`: initials on
+  collapsible Snoozed (soonest wake first, each row saying when it wakes) and Settled sections.
+  Those two sit at the sidebar's foot, below the free space, while the list is shorter than the
+  sidebar. Open, Settled shows 10 rows and a "Show N more" row that reveals 25 more (loading older
+  pages as needed); closing it starts again from 10. A closed section still shows the open
+  thread. A settled thread waiting on the person leaves Settled while it waits.
+  `homeOrder`, `homeRows` and `homeRowKey` in `@ace/ui-core` build it; threads and the section
+  headings have their own key prefixes, so no thread id can take a heading's key. Each row is a three-line card: the project's badge (`projectBadge`: initials on
   a tint derived from the project id) and name, then a pin, a snooze and the status pill
   (`taskPill`; a working thread counts its seconds) or the age; the title (medium when it needs
   you or is unread, quiet once done and read); the branch or worktree, the diff or pull request

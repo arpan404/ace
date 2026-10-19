@@ -143,6 +143,28 @@ test("SQL classification and ordering match shared pagination for filters, pins,
   }
 });
 
+test("a settled thread that comes to need the person is listed with the work in hand, not paged as settled", async () => {
+  const f = await seeded();
+  const base = f.entries[0]!;
+  const settledAs = (id: string, patch: Record<string, unknown>) => {
+    const thread = Thread.parse({ ...base, id, activityAt: 5, updatedAt: 5, ...patch });
+    f.store.appendEvents(thread.id, [{ type: "thread.created", thread }], 5);
+  };
+  // Oldest of all: paged last if it were settled, so only the rule can bring it into view.
+  settledAs("asks", { status: { state: "needs_you", interactions: 1 }, settledReason: "manual" });
+  settledAs("failed", { status: { state: "failed" }, settledReason: "manual" });
+  const options = { limit: 20 };
+  const page = f.store.sidebarPage(options);
+  const ids = page.threads.map((entry) => entry.id);
+  expect(ids).toContain("asks");
+  expect(ids).not.toContain("failed");
+  // 55 settled histories and the settled failure; the question is not counted as settled.
+  expect(page.window.total).toBe(56);
+  const shared = sidebarPage(f.store.listThreads(), options);
+  expect(ids).toEqual(shared.threads.map((entry) => entry.id));
+  expect(page.window).toEqual(shared.window);
+});
+
 test("settling active work prunes the older edge of the loaded window and stable cursors do not repeat ties", async () => {
   const f = await seeded();
   const messages: ServerMessage[] = [];
