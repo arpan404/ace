@@ -1,10 +1,13 @@
 import { EncodePacer, EncoderWatchdog } from "../src/video-pacing.ts";
+import { TabAudio } from "./audio.ts";
 
 /*
  * The video extension's offscreen document (ADR 0088): opens a tab capture and encodes it with
- * WebCodecs, once per encode the daemon asks for. The daemon drives it over CDP
- * (`Runtime.evaluate` on this document) and receives every chunk through the CDP binding
- * `aceVideoEvent`: a JSON line, then for a chunk its bytes in base64.
+ * WebCodecs, once per encode the daemon asks for, and its sound as Opus while asked (`audio.ts`).
+ * The daemon drives it over CDP (`Runtime.evaluate` on this document) and receives every chunk
+ * through the CDP binding `aceVideoEvent`: a JSON line, then for a chunk its bytes in base64.
+ * Every chunk says how long ago (`age`, ms) its picture or sound was captured, so the daemon
+ * stamps video and audio on one clock.
  */
 
 interface EncodeSpec {
@@ -44,6 +47,8 @@ interface Capture {
   last: VideoFrame | undefined;
   lastAt: number;
   encoders: Map<string, Encoder>;
+  /** The tab's sound; absent when the capture has no audio track. */
+  audio: TabAudio | undefined;
   stopped: boolean;
 }
 
@@ -113,6 +118,8 @@ async function configure(capture: Capture, entry: Encoder, reason: string): Prom
             codec: entry.spec.codec,
             codedWidth: metadata?.decoderConfig?.codedWidth ?? entry.spec.width,
             codedHeight: metadata?.decoderConfig?.codedHeight ?? entry.spec.height,
+            // Frames are stamped with `now()` as they go in (`encode`).
+            age: Math.max(0, now() - chunk.timestamp / 1000),
             ...(key && entry.description ? { description: entry.description } : {}),
           },
           bytes,
@@ -181,6 +188,7 @@ function stop(id: string): void {
   capture.encoders.clear();
   void capture.reader.cancel().catch(() => {});
   capture.track.stop();
+  capture.audio?.stop();
   capture.last?.close();
   capture.last = undefined;
 }
@@ -219,41 +227,48 @@ Object.assign(globalThis, {
     /** Opens the tab capture `streamId` at exactly this size, replacing capture `id`. */
     async start(id: string, streamId: string, width: number, height: number): Promise<void> {
       stop(id);
-      const stream: unknown = await Reflect.apply(
-        navigator.mediaDevices.getUserMedia,
-        navigator.mediaDevices,
-        [
+      const video = {
+        mandatory: {
+          chromeMediaSource: "tab",
+          chromeMediaSourceId: streamId,
+          minWidth: width,
+          maxWidth: width,
+          minHeight: height,
+          maxHeight: height,
+          maxFrameRate: 30,
+        },
+      };
+      // The tab's sound rides the same capture (ADR 0088, Audio); a capture that can't take it
+      // still streams its picture.
+      const capture = (audio: boolean): Promise<unknown> =>
+        Reflect.apply(navigator.mediaDevices.getUserMedia, navigator.mediaDevices, [
           {
-            audio: false,
-            video: {
-              mandatory: {
-                chromeMediaSource: "tab",
-                chromeMediaSourceId: streamId,
-                minWidth: width,
-                maxWidth: width,
-                minHeight: height,
-                maxHeight: height,
-                maxFrameRate: 30,
-              },
-            },
+            audio: audio
+              ? { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId } }
+              : false,
+            video,
           },
-        ],
-      );
+        ]);
+      const stream: unknown = await capture(true).catch(() => capture(false));
       if (!(stream instanceof MediaStream)) throw new Error("No tab capture");
       const [track] = stream.getVideoTracks();
       if (!track) throw new Error("No tab capture");
-      const capture: Capture = {
+      const [sound] = stream.getAudioTracks();
+      const opened: Capture = {
         id,
         track,
         reader: new MediaStreamTrackProcessor({ track }).readable.getReader(),
         last: undefined,
         lastAt: 0,
         encoders: new Map(),
+        audio: sound
+          ? new TabAudio(sound, (event, bytes) => emit({ ...event, capture: id }, bytes), now)
+          : undefined,
         stopped: false,
       };
-      captures.set(id, capture);
-      void pump(capture).catch((error: unknown) => {
-        if (capture.stopped) return;
+      captures.set(id, opened);
+      void pump(opened).catch((error: unknown) => {
+        if (opened.stopped) return;
         stop(id);
         emit({ t: "ended", capture: id, reason: String(error) });
       });
@@ -283,6 +298,10 @@ Object.assign(globalThis, {
         capture.encoders.set(spec.key, entry);
         void configure(capture, entry, "No encoder supports this codec here");
       }
+    },
+    /** Encode capture `id`'s sound too, or stop; it starts off. */
+    audio(id: string, on: boolean): void {
+      captures.get(id)?.audio?.set(on);
     },
     keyframe(id: string, key: string): void {
       captures.get(id)?.encoders.get(key)?.pacer.requestKeyframe();

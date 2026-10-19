@@ -24,11 +24,16 @@ export const DeviceInput = z.discriminatedUnion("kind", [
     kind: z.literal("pointer"),
     phase: z.enum(["down", "move", "up", "cancel"]),
     ...point,
+    /** Which finger, for multi-touch. Only captures that support multi-touch accept fingers above 0. */
+    pointerId: z.number().int().min(0).max(9).optional(),
   }),
   z.object({ kind: z.literal("longPress"), ...point, durationMs }),
   z.object({ kind: z.literal("swipe"), ...point, toX: point.x, toY: point.y, durationMs }),
   z.object({ kind: z.literal("type"), text: z.string().max(4096) }),
-  z.object({ kind: z.literal("key"), key: z.enum(["home", "back", "rotate", "enter", "power"]) }),
+  z.object({
+    kind: z.literal("key"),
+    key: z.enum(["home", "back", "rotate", "enter", "power", "recents"]),
+  }),
 ]);
 export type DeviceInput = z.infer<typeof DeviceInput>;
 export const DeviceSettings = z.object({

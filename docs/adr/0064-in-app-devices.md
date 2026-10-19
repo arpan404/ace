@@ -33,8 +33,9 @@ Approval replaces the capture session, and the client restarts its live view.
 ## Reuse and transport
 
 iOS inventory and boot reuse `Simulators`; capture and semantic actions use the
-approved Simulator window through `ScreenManager`. There is no private
-CoreSimulator API. Timed gestures extend the helper's existing pointer drag
+approved Simulator window through `ScreenManager`. ace's own code calls no private
+CoreSimulator API; the pinned external `serve-sim` binary does (see "Native Simulator
+transport"), and the window path stays as the public-API fallback. Timed gestures extend the helper's existing pointer drag
 operation, preserving the same target-point coordinates as capture. Direct
 platform callers without a window binding can use detected idb. Unsupported operations return typed errors with a fix
 hint instead of pretending success.
@@ -44,6 +45,16 @@ SDK directory, resolving adb and emulator by absolute path. Bounded simctl and a
 processes implement lifecycle and app operations. Android accessibility dumps map
 to ADR 0011 v2 nodes and refs; actions refresh and validate their target before
 synthesizing input, and report that fallback explicitly.
+
+Update (2026-10-19, #1103): Android capture now speaks the scrcpy protocol with
+ace's own client and the pinned upstream scrcpy-server (Apache-2.0), downloaded on
+first use into ace's home and verified by SHA-256. It is an external, pinned binary
+like serve-sim; ace's code is written from scrcpy's documentation. The device's H.264
+is passed through, input uses scrcpy's control socket (multi-touch, Unicode by paste,
+clipboard, rotation), and UI trees come from ace's own long-running UiAutomation
+helper started with `app_process`. The screenrecord pipeline below remains the
+fallback when the server cannot start, and `uiautomator dump` remains the tree
+fallback.
 
 Android capture uses an owned `adb exec-out screenrecord` H.264 process connected
 with stream backpressure to an owned ffmpeg JPEG decoder. Independent JPEG frames
@@ -177,12 +188,59 @@ fails, and cleans up any session it started.
 
 ### Native Simulator transport
 
-When `serve-sim` is installed on the device's Mac, capture uses its public CLI
-(`--no-preview --quiet <UDID>`), MJPEG framebuffer stream, and persistent
-WebSocket HID channel. `ACE_SERVE_SIM` can select an explicit executable. Install
-with `bun add --global serve-sim@0.1.47`; the desktop daemon includes the user's
-CLI paths. The legacy screen-helper path remains available on Macs without it.
-An explicit missing `ACE_SERVE_SIM` is an error, never a silent fallback.
+When a pinned `serve-sim` is installed on the device's Mac, capture uses its CLI
+(`--no-preview --quiet <UDID>`), its H.264 or MJPEG framebuffer stream, its
+persistent WebSocket HID channel and its accessibility route. `ACE_SERVE_SIM` can
+select an explicit executable. Install with `npm install -g serve-sim@0.1.48`; the
+desktop daemon includes the user's CLI paths. The legacy screen-helper path remains
+available on Macs without it. An explicit missing `ACE_SERVE_SIM` is an error, never
+a silent fallback.
+
+Revised 2026-10-19 (#1102):
+
+- **Preferred and pinned.** serve-sim is the preferred iOS transport. It stays an
+  external binary that ace spawns and supervises; it is never bundled or copied, and
+  ace's own code keeps to public APIs. serve-sim drives private CoreSimulator,
+  SimulatorKit and AccessibilityPlatformTranslation interfaces that move between Xcode
+  releases, and its HTTP routes are not a published API, so ace runs only versions it
+  has checked (`serve-sim-version.ts`: 0.1.47 and 0.1.48; 0.1.48 is the install hint).
+  Capture asks `serve-sim --version` before each start. Any other version falls back to
+  the screen helper, or fails with `tool_missing` naming the pinned version when there
+  is no helper or `ACE_SERVE_SIM` names it explicitly. Moving the pin means re-running
+  `simulator-live.process.test.ts` and the measurements in
+  `docs/device-mirroring-performance.md` on the new version.
+- **H.264 passthrough.** Viewers that negotiate H.264 get `/stream.avcc` as-is: each
+  length-prefixed access unit is re-framed as Annex B, a keyframe led by the SPS/PPS
+  from serve-sim's avcC record, and published with `videoCodec` from that record
+  (`avc1.640033`, High 5.1, on current iPhones). Nothing is decoded or re-encoded, so the
+  frame is the native framebuffer size whatever the viewer's budget; the frame header's
+  height limit is 3840 to admit portrait phones. A keyframe request opens a second
+  subscription (serve-sim starts every subscription with its description and an IDR),
+  switches at that IDR and closes the old one, so the picture never stops. A new avcC
+  record (size change) is honoured at its next IDR. While H.264 is live the MJPEG stream
+  is closed; viewers that need JPEG (no decoder for the profile, screenshots,
+  recordings) get the MJPEG stream through the existing bounded resize path.
+  Clients configure WebCodecs from `videoCodec` and fall back to JPEG only when the
+  decoder reports the configuration unsupported.
+- **Input.** Touches keep the HID socket. A drag or swipe that begins within 2% of a
+  screen edge carries serve-sim's edge flag, so swipe-up-from-bottom goes home; taps
+  never do. Rotation toggles from the orientation serve-sim announces on the socket,
+  because its framebuffer stays portrait. Two-finger touch exists in serve-sim's socket
+  protocol but `DeviceInput` has no multi-touch kind yet, so it isn't exposed.
+- **Accessibility.** `ui.tree`, `ui.find` and `ui.act` on a serve-sim capture read its
+  in-process accessibility bridge (`GET /ax`, a nested tree in points) and map it to
+  ADR 0011 nodes in framebuffer pixels, with refs hashed from the element's path, type,
+  identifier, label and bounds. A ref that no longer resolves in a fresh read is
+  `stale_ref`. `ui.act` taps the centre (or swipes, for scroll) through the HID socket.
+  The SSE push stream serve-sim's preview uses lives in its preview middleware, not in
+  the `--no-preview` helper ace runs, so reads are on demand.
+- **Xcode gates.** Xcode 26 and older use the legacy SimulatorKit HID path. On Xcode 27
+  the Simulator window belongs to Device Hub: serve-sim's keyboard input needs Device
+  Hub frontmost with the target window visible and Accessibility permission for the
+  launching app, and Device Hub can disconnect legacy touch and keyboard services.
+  `serve-sim repair-input -d <udid>` restores them but restarts SpringBoard and closes
+  running apps, so ace never runs it automatically; it is a documented manual repair.
+  serve-sim is Apple Silicon only; Intel Macs use the screen helper.
 
 The adapter validates the announced UDID and loopback endpoints before opening
 any connection. Frame decoding is bounded, retains only the latest immutable

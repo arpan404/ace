@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AndroidInputShell } from "./android-input-shell.ts";
+import { AndroidUiHelpers } from "./android-ui-helper.ts";
 import { AppDevice as DeviceSchema, type AppDevice as Device } from "@ace/protocol/devices";
 import { probeOutput, spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
 import { DeviceError, resolveAndroidSDK, type SDKOptions } from "./sdk.ts";
@@ -20,7 +21,7 @@ export type DeviceCommand = (
   authorize?: () => void,
 ) => Promise<{ stdout: string; stderr: string; code: number | null }>;
 export class AndroidPlatform {
-  private readonly options: SDKOptions;
+  private readonly options: SDKOptions & { toolsDirectory?: string };
   private readonly run: DeviceCommand;
   private readonly spawn: typeof spawnSupervised;
   private readonly emulators = new Map<string, SupervisedProcess>();
@@ -49,10 +50,33 @@ export class AndroidPlatform {
   private closed = false;
   private readonly inputs = new Map<string, AndroidInputShell>();
   private readonly openingInputs = new Map<string, Promise<AndroidInputShell>>();
-  constructor(options: SDKOptions, run: DeviceCommand, spawn = spawnSupervised) {
+  /** ace's own UiAutomation reader; only where ace manages device tools (the daemon). */
+  private readonly uiHelpers: AndroidUiHelpers | undefined;
+  constructor(
+    options: SDKOptions & { toolsDirectory?: string },
+    run: DeviceCommand,
+    spawn = spawnSupervised,
+  ) {
     this.options = options;
     this.run = run;
     this.spawn = spawn;
+    this.uiHelpers =
+      options.toolsDirectory && options.env["ACE_ANDROID_UI_HELPER"] !== "off"
+        ? new AndroidUiHelpers({
+            env: options.env,
+            spawn,
+            after:
+              options.after ??
+              ((ms, fire) => {
+                const timer = setTimeout(fire, ms);
+                return () => clearTimeout(timer);
+              }),
+            install: async (serial, local, remote) => {
+              const { adb } = await this.resolve();
+              await this.run(adb, ["-s", serial, "push", local, remote], 64 * 1024, 30_000);
+            },
+          })
+        : undefined;
   }
   resolve() {
     return resolveAndroidSDK(this.options);
@@ -102,6 +126,10 @@ export class AndroidPlatform {
         void shell.close();
       }
     }
+    this.uiHelpers?.prune((id) => {
+      const current = [...devices.values()].find((device) => device.id === id);
+      return current?.state === "booted" ? current.serial : undefined;
+    });
     const result = [...devices.values()].map((device) =>
       DeviceSchema.parse({
         ...device,
@@ -279,6 +307,18 @@ export class AndroidPlatform {
     const size = androidDimensions(result.stdout);
     return { adb, serial, ...(rotation % 2 ? { width: size.height, height: size.width } : size) };
   }
+  /** One adb command on a capture's transport, refused once that serial names another AVD. */
+  async transportCommand(
+    device: Device,
+    serial: string,
+    args: readonly string[],
+    maxBytes?: number,
+    timeoutMs?: number,
+  ) {
+    const { adb } = await this.resolve();
+    await this.verifyTransport(adb, device, serial);
+    return this.run(adb, ["-s", serial, ...args], maxBytes, timeoutMs);
+  }
   watchCaptureTransport(device: Device, serial: string, fail: (error: DeviceError) => void) {
     if (this.transportWatchers.size >= 4)
       throw new DeviceError(
@@ -297,6 +337,16 @@ export class AndroidPlatform {
   async uiDump(device: Device): Promise<string> {
     const serial = await this.serial(device);
     const { adb } = await this.resolve();
+    if (this.uiHelpers) {
+      try {
+        await this.verifyTransport(adb, device, serial);
+        const xml = await this.uiHelpers.tree(device.id, adb, serial);
+        await this.verifyTransport(adb, device, serial);
+        return xml;
+      } catch {
+        // The helper could not run on this image: uiautomator's own dump still can.
+      }
+    }
     const path = "/data/local/tmp/ace-ui.xml";
     const run = (args: readonly string[], maxBytes: number) =>
       this.run(adb, ["-s", serial, ...args], maxBytes);
@@ -538,6 +588,7 @@ export class AndroidPlatform {
       }),
     );
     await Promise.all([...this.inputs.values()].map((shell) => shell.close()));
+    await this.uiHelpers?.close();
     this.inputs.clear();
     this.emulators.clear();
     this.ownedSerials.clear();

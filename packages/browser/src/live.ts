@@ -83,7 +83,7 @@ export class LiveCapture {
   private configureVideo(id: string, sink: FrameSink, capture: CaptureViewer): void {
     if (sink.video && capture.video) {
       if (this.video.has(id)) this.video.configure(id, capture);
-      else this.video.add(id, sink.video, capture);
+      else this.video.add(id, sink.video, capture, sink.audio);
     } else this.video.remove(id);
   }
   private receive: (raw: unknown) => void = () => {};

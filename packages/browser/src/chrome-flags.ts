@@ -7,8 +7,9 @@ import { videoExtensionId } from "./video-extension.ts";
  * - Extension debugging is what lets the CDP Extensions domain load unpacked extensions later.
  * - Pages render while unseen: ace's tabs live in hidden headless windows that are never focused.
  * - The device scale factor is process-wide: per-tab emulation does not raise screencast resolution.
- * - Sound is off: Chrome has no per-tab mute over CDP, and the screencast carries no audio, so a
- *   page here (an agent's, or one nobody watches) never plays on the daemon's machine.
+ * - No sound reaches the daemon machine's speakers: audio output goes to a fake device, so a page
+ *   here (an agent's, or one nobody watches) is never heard there. Not `--mute-audio`: a muted
+ *   page's sound reaches tab capture as silence, and remote viewers can unmute (ADR 0088, Audio).
  */
 export function chromeArgs(options: {
   profileDir: string;
@@ -29,7 +30,7 @@ export function chromeArgs(options: {
     "--disable-background-timer-throttling",
     "--disable-renderer-backgrounding",
     "--disable-backgrounding-occluded-windows",
-    "--mute-audio",
+    "--disable-audio-output",
     // ace's video extension may capture tabs without a click on it (ADR 0088).
     `--allowlisted-extension-id=${videoExtensionId}`,
     ...(options.platform === "darwin" ? ["--use-mock-keychain"] : []),

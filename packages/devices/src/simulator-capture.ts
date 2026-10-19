@@ -1,11 +1,13 @@
 import { z } from "zod";
 import { framePacket, type Frame } from "@ace/screen";
+import type { ScreenLegacyFrameHeader, ScreenStreamSettings } from "@ace/protocol";
 import type { AppDevice } from "@ace/protocol/devices";
 import type { DeviceCapture } from "./capture.ts";
 import type { DeviceRuntime } from "./runtime.ts";
-import { MjpegDecoder } from "./mjpeg.ts";
 import { SimulatorInput } from "./simulator-input.ts";
-import { SimulatorFrames } from "./simulator-frames.ts";
+import { SimulatorJpeg } from "./simulator-jpeg.ts";
+import { SimulatorH264 } from "./simulator-h264.ts";
+import { simulatorUI } from "./simulator-ui.ts";
 import { nativeId } from "./commands.ts";
 
 const Endpoint = z.object({
@@ -13,6 +15,12 @@ const Endpoint = z.object({
   port: z.number().int().min(1).max(65535),
   streamUrl: z.string().max(4096),
   wsUrl: z.string().max(4096),
+});
+/** serve-sim announces the screen's size and orientation on its control socket (tag 130). */
+const ScreenConfig = z.object({
+  width: z.number().int().positive().max(16384),
+  height: z.number().int().positive().max(16384),
+  orientation: z.string().max(64).optional(),
 });
 function localUrl(value: string, port: number, protocol: string) {
   const url = new URL(value);
@@ -27,8 +35,19 @@ function localUrl(value: string, port: number, protocol: string) {
     throw new Error("Simulator helper returned a non-local endpoint");
   return url;
 }
+/** The device's other serve-sim routes sit beside its announced MJPEG stream. */
+function sibling(stream: URL, name: string): URL {
+  if (!stream.pathname.endsWith("/stream.mjpeg") || stream.search)
+    throw new Error("Simulator helper returned an unexpected stream route");
+  const url = new URL(stream.href);
+  url.pathname = stream.pathname.slice(0, -"stream.mjpeg".length) + name;
+  return url;
+}
 
-/** The public serve-sim CLI owns the native framebuffer and HID connection for this UDID. */
+/**
+ * The public serve-sim CLI owns the native framebuffer, HID and accessibility connection for
+ * this UDID. Viewers that decode H.264 get serve-sim's stream as-is; others get JPEG.
+ */
 export async function simulatorCapture(options: {
   command: string;
   device: AppDevice;
@@ -41,6 +60,7 @@ export async function simulatorCapture(options: {
   failure(error: unknown): void;
 }): Promise<DeviceCapture> {
   const { runtime } = options;
+  const fetcher = runtime.fetch ?? fetch;
   const controller = new AbortController();
   const abort = () => controller.abort();
   options.signal?.addEventListener("abort", abort, { once: true });
@@ -54,12 +74,13 @@ export async function simulatorCapture(options: {
   });
   let stopped = false,
     announced = false,
-    sequence = 0,
-    width = 0,
-    height = 0;
+    sequence = 0;
+  const screen = { width: 0, height: 0, orientation: "portrait" };
+  let mode: "jpeg" | "h264" = "jpeg";
   let terminated = false;
   let input: SimulatorInput | undefined;
-  let frames: SimulatorFrames | undefined;
+  let jpeg: SimulatorJpeg | undefined;
+  let h264: SimulatorH264 | undefined;
   let socket: WebSocket | undefined;
   let closing: Promise<void> | undefined;
   const stop = () =>
@@ -70,7 +91,8 @@ export async function simulatorCapture(options: {
       const released = input?.release();
       const results = await Promise.allSettled([
         Promise.resolve(released).finally(() => socket?.close()),
-        frames?.stop(),
+        jpeg?.stop(),
+        h264?.stop(),
         child.stop({ graceMs: 1500 }),
       ]);
       terminated = true;
@@ -83,6 +105,10 @@ export async function simulatorCapture(options: {
     if (stopped) return;
     options.failure(error);
     void stop().catch(() => {});
+  };
+  const publish = (header: ScreenLegacyFrameHeader, payload: Buffer) => {
+    const packet = framePacket(header, payload);
+    options.publish({ header, payload: packet.subarray(packet.length - payload.length), packet });
   };
   // A reused external serve-sim server exits its CLI normally. Its lifetime remains external.
   void child.exited.then((exit) => {
@@ -121,28 +147,54 @@ export async function simulatorCapture(options: {
   });
   // Drain native diagnostic output without retaining potentially unlimited vendor text.
   child.stderr.on("data", () => {});
-  let reading: Promise<void> | undefined;
+  const startJpeg = async (url: URL) => {
+    const source = new SimulatorJpeg({
+      url,
+      fps: options.fps,
+      fetch: fetcher,
+      now: runtime.now,
+      after: runtime.after,
+      failure: failed,
+      source(width, height) {
+        if (!screen.width) Object.assign(screen, { width, height });
+      },
+      publish(image, scale) {
+        if (stopped || mode !== "jpeg" || jpeg !== source) return;
+        publish(
+          {
+            version: 1,
+            sessionId: options.streamId,
+            sequence: sequence++,
+            timestamp: runtime.now(),
+            width: image.width,
+            height: image.height,
+            scale,
+            codec: "jpeg",
+            bytes: image.bytes.length,
+          },
+          image.bytes,
+        );
+      },
+    });
+    jpeg = source;
+    await source.start();
+    return source;
+  };
   try {
     const value = await endpoint.promise;
     cancel();
     controller.signal.removeEventListener("abort", onAbort);
     controller.signal.throwIfAborted();
-    const url = localUrl(value.streamUrl, value.port, "http:");
-
-    const response = await (runtime.fetch ?? fetch)(url, {
-      signal: controller.signal,
-      redirect: "error",
-    });
-    if (
-      !response.ok ||
-      !response.body ||
-      !response.headers.get("content-type")?.startsWith("multipart/x-mixed-replace")
-    )
-      throw new Error("Simulator framebuffer stream unavailable");
+    const streamUrl = localUrl(value.streamUrl, value.port, "http:");
+    const avccUrl = sibling(streamUrl, "stream.avcc");
+    const axUrl = sibling(streamUrl, "ax");
+    await startJpeg(streamUrl);
     socket = (runtime.socket ?? ((endpointUrl) => new WebSocket(endpointUrl)))(
       localUrl(value.wsUrl, value.port, "ws:").href,
     );
+    socket.binaryType = "arraybuffer";
     const connected = Promise.withResolvers<void>();
+    const sized = Promise.withResolvers<void>();
     const connectTimeout = runtime.after(5000, () =>
       connected.reject(new Error("Simulator control connection timed out")),
     );
@@ -155,63 +207,38 @@ export async function simulatorCapture(options: {
       failed(new Error("Simulator control connection failed"));
     });
     socket.addEventListener("close", () => failed(new Error("Simulator control connection ended")));
+    socket.addEventListener("message", (event: MessageEvent) => {
+      if (!(event.data instanceof ArrayBuffer) || event.data.byteLength > 4096) return;
+      const bytes = Buffer.from(event.data);
+      if (bytes[0] !== 130) return;
+      try {
+        const config = ScreenConfig.safeParse(JSON.parse(bytes.subarray(1).toString("utf8")));
+        if (config.success) {
+          Object.assign(screen, config.data);
+          sized.resolve();
+        }
+      } catch {
+        // Unknown or malformed control messages are ignored; input keeps the last size.
+      }
+    });
     try {
       await connected.promise;
+      // serve-sim names the screen's size on attach; input and accessibility map against it.
+      // Without it the first JPEG's native size stands in.
+      const unsized = runtime.after(1000, () => sized.resolve());
+      await sized.promise.finally(unsized);
     } finally {
       connectTimeout();
       controller.signal.removeEventListener("abort", socketAbort);
     }
     controller.signal.throwIfAborted();
-    const boundary = /boundary=([A-Za-z0-9_-]{1,70})(?:;|$)/.exec(
-      response.headers.get("content-type") ?? "",
-    )?.[1];
-    if (!boundary) throw new Error("Simulator multipart boundary unavailable");
-    frames = new SimulatorFrames({
-      fps: options.fps,
-      now: runtime.now,
-      after: runtime.after,
-      failure: failed,
-      publish(image, scale) {
-        if (stopped) return;
-        const header = {
-          version: 1 as const,
-          sessionId: options.streamId,
-          sequence: sequence++,
-          timestamp: runtime.now(),
-          width: image.width,
-          height: image.height,
-          scale,
-          codec: "jpeg" as const,
-          bytes: image.bytes.length,
-        };
-        const packet = framePacket(header, image.bytes);
-        options.publish({
-          header,
-          payload: packet.subarray(packet.length - image.bytes.length),
-          packet,
-        });
-      },
-    });
-    const decoder = new MjpegDecoder(boundary, (image, w, h) => {
-      width = w;
-      height = h;
-      frames?.push(image, w, h);
-    });
-    const body = response.body;
-    reading = (async () => {
-      for await (const chunk of body) {
-        if (stopped) break;
-        decoder.push(Buffer.from(chunk));
-      }
-      if (!stopped) throw new Error("Simulator framebuffer stream ended");
-    })();
-    void reading.catch(failed);
     input = new SimulatorInput({
       runtime,
       command: options.command,
       device: value.device,
       env: options.env,
-      dimensions: () => ({ width, height }),
+      dimensions: () => screen,
+      orientation: () => screen.orientation,
       send(tag, payload, cleanup) {
         if (socket?.readyState !== WebSocket.OPEN)
           throw new Error("Simulator control connection closed");
@@ -221,7 +248,61 @@ export async function simulatorCapture(options: {
       },
     });
     const nativeInput = input;
-    const nativeFrames = frames;
+    const toH264 = async (): Promise<"jpeg" | "h264"> => {
+      if (h264) return "h264";
+      const source = new SimulatorH264({
+        url: avccUrl,
+        fetch: fetcher,
+        after: runtime.after,
+        failure: failed,
+        publish(payload, keyframe, config) {
+          if (stopped || h264 !== source) return;
+          // The first IDR is the switch: later JPEG frames are dropped from here on.
+          mode = "h264";
+          Object.assign(screen, { width: config.width, height: config.height });
+          publish(
+            {
+              version: 1,
+              sessionId: options.streamId,
+              sequence: sequence++,
+              timestamp: runtime.now(),
+              width: config.width,
+              height: config.height,
+              scale: 1,
+              codec: "h264",
+              keyframe,
+              ...(keyframe ? { videoCodec: config.codec } : {}),
+              bytes: payload.length,
+            },
+            payload,
+          );
+        },
+      });
+      h264 = source;
+      try {
+        await source.start();
+      } catch (error) {
+        // H.264 that won't start leaves viewers on JPEG rather than without a picture.
+        if (h264 === source) h264 = undefined;
+        await source.stop();
+        controller.signal.throwIfAborted();
+        if (stopped) throw error;
+        return "jpeg";
+      }
+      const previous = jpeg;
+      jpeg = undefined;
+      await previous?.stop();
+      return "h264";
+    };
+    const toJpeg = async (settings: ScreenStreamSettings): Promise<"jpeg"> => {
+      const source = jpeg ?? (await startJpeg(streamUrl));
+      mode = "jpeg";
+      const previous = h264;
+      h264 = undefined;
+      await previous?.stop();
+      await source.configure(settings);
+      return "jpeg";
+    };
     return {
       streamId: options.streamId,
       get terminated() {
@@ -229,18 +310,31 @@ export async function simulatorCapture(options: {
       },
       async stop() {
         await stop();
-        await reading?.catch(() => {});
       },
       async configure(settings) {
-        await nativeFrames.configure(settings);
-        return { codec: "jpeg" };
+        controller.signal.throwIfAborted();
+        const codec = settings.codec === "h264" ? await toH264() : await toJpeg(settings);
+        if (codec === "jpeg" && settings.codec === "h264") await toJpeg(settings);
+        return { codec };
       },
-      keyframe: () => nativeFrames.replay(),
+      keyframe: async () => {
+        controller.signal.throwIfAborted();
+        if (mode === "h264" && h264) await h264.keyframe();
+        else await jpeg?.replay();
+      },
       releaseInput: () => nativeInput.release(),
       async input(raw, guard) {
         controller.signal.throwIfAborted();
         await nativeInput.input(raw, guard);
       },
+      ui: simulatorUI({
+        url: axUrl,
+        fetch: fetcher,
+        signal: controller.signal,
+        after: runtime.after,
+        screen: () => screen,
+        input: (raw, guard) => nativeInput.input(raw, guard),
+      }),
     };
   } catch (error) {
     cancel();

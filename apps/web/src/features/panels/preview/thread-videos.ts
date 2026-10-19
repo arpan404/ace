@@ -17,7 +17,7 @@ export interface ThreadVideosOptions {
   seen(threadId: string): boolean;
   /** Whether the thread's view is watched at all. */
   watching(threadId: string): boolean;
-  present(threadId: string, frame: ShownVideo): void;
+  present(threadId: string, frame: ShownVideo, timestamp: number): void;
   ack(threadId: string, sequence: number, keyframe: boolean): void;
 }
 
@@ -106,32 +106,36 @@ export class ThreadVideos {
     const { picture } = video;
     if (!this.#options.watching(threadId)) return picture.close();
     let closed = false;
-    this.#options.present(threadId, {
-      sequence: picture.sequence,
-      src: "",
-      width: video.width,
-      height: video.height,
-      video: {
-        codedWidth: video.codedWidth,
-        codedHeight: video.codedHeight,
-        draw(canvas) {
-          if (closed) return false;
-          const context = canvas.getContext("2d");
-          if (!context) return false;
-          try {
-            picture.draw(context, canvas.width, canvas.height);
-            return true;
-          } catch {
-            return false;
-          }
+    this.#options.present(
+      threadId,
+      {
+        sequence: picture.sequence,
+        src: "",
+        width: video.width,
+        height: video.height,
+        video: {
+          codedWidth: video.codedWidth,
+          codedHeight: video.codedHeight,
+          draw(canvas) {
+            if (closed) return false;
+            const context = canvas.getContext("2d");
+            if (!context) return false;
+            try {
+              picture.draw(context, canvas.width, canvas.height);
+              return true;
+            } catch {
+              return false;
+            }
+          },
+        },
+        release() {
+          if (closed) return;
+          closed = true;
+          picture.close();
         },
       },
-      release() {
-        if (closed) return;
-        closed = true;
-        picture.close();
-      },
-    });
+      video.timestamp,
+    );
     this.#ack(threadId, picture.sequence, false);
   }
 }

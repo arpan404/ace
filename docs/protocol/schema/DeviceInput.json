@@ -41,6 +41,11 @@
           ],
           "type": "string"
         },
+        "pointerId": {
+          "maximum": 9,
+          "minimum": 0,
+          "type": "integer"
+        },
         "x": {
           "maximum": 16384,
           "minimum": 0,
@@ -157,7 +162,8 @@
             "back",
             "rotate",
             "enter",
-            "power"
+            "power",
+            "recents"
           ],
           "type": "string"
         },

@@ -28,10 +28,13 @@ import {
 } from "./commands.ts";
 import { AndroidOperations } from "./android-operations.ts";
 import { AndroidPlatform } from "./android-platform.ts";
+import { deviceScreenshot, emulatorScreenshot, type DeviceShot } from "./one-off-screenshot.ts";
 
 export type PlatformOptions = SDKOptions & {
   spawn?: typeof spawnSupervised;
   screen?: ScreenManager;
+  /** Where ace keeps downloaded device tools (the pinned scrcpy server), inside ace's home. */
+  toolsDirectory?: string;
 };
 export type ScreenBinding = { sessionId: string; actor: "human" | "agent"; owner: string };
 const Text = z
@@ -117,6 +120,18 @@ export class DevicePlatform {
   }
   watchCaptureTransport(device: Device, serial: string, fail: (error: DeviceError) => void) {
     return this.android.watchCaptureTransport(device, serial, fail);
+  }
+  get toolsDirectory(): string | undefined {
+    return this.options.toolsDirectory;
+  }
+  transportCommand(
+    device: Device,
+    serial: string,
+    args: readonly string[],
+    maxBytes?: number,
+    timeoutMs?: number,
+  ) {
+    return this.android.transportCommand(device, serial, args, maxBytes, timeoutMs);
   }
   captureDimensions(device: Device): Promise<{ width: number; height: number }> {
     if (device.platform !== "android")
@@ -246,6 +261,19 @@ export class DevicePlatform {
   async boot(device: Device, authorize?: () => void): Promise<void> {
     if (device.platform === "ios") await this.iosSimulators(authorize).boot(nativeId(device));
     else await this.android.boot(device, authorize);
+  }
+  /** One still of the screen, for when no live view is running. */
+  screenshot(device: Device, authorize?: () => void): Promise<DeviceShot> {
+    return deviceScreenshot(device, {
+      simulator: async (path) => {
+        await this.simctl(device, ["io", "screenshot", "--type=png", path], authorize);
+      },
+      emulator: (path) =>
+        emulatorScreenshot(
+          (args, maxBytes) => this.android.adb(device, args, maxBytes, authorize),
+          path,
+        ),
+    });
   }
   /** Make sure Simulator shows this booted device's window, without taking focus. */
   async showSimulator(device: Device): Promise<void> {
