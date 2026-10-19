@@ -554,3 +554,33 @@ test.each([409, 422])(
     }
   },
 );
+
+test("a PR outside any stack reads as not in a stack, never as a failure or a missing gh extension", async () => {
+  const f = await fixture({
+    graphql: [
+      {
+        body: {
+          data: {
+            repository: { viewerPermission: "ADMIN", pullRequest: { number: 8, stack: null } },
+          },
+        },
+      },
+    ],
+    "stack-view": [{ code: 1 }],
+  });
+  try {
+    expect(await f.read()).toMatchObject({
+      result: {
+        kind: "forge",
+        data: {
+          resource: "prStack",
+          value: { stack: null, local: null, localUnavailable: null, operation: null },
+        },
+      },
+    });
+    // The local stack belongs to a stacked PR; a plain PR never runs `gh stack`.
+    expect((await f.gh.requests()).filter((request) => request.args[0] === "stack")).toEqual([]);
+  } finally {
+    await f.close();
+  }
+});

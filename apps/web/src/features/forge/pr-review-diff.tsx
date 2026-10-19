@@ -83,12 +83,9 @@ export function usePrViewedFile(props: { path: string; headSha: string }) {
 }
 export function PrViewedFile(props: { path: string; headSha: string }) {
   const { file, disabled, change } = usePrViewedFile(props);
-  if (!file)
-    return (
-      <p className="px-3 text-xs text-muted-foreground">
-        GitHub viewed state unavailable; no local-only mark is being shown.
-      </p>
-    );
+  // No GitHub mark yet (still reading, or unreadable): nothing to toggle. The review status line
+  // says once when the marks couldn't be read; no local-only mark is ever shown instead.
+  if (!file) return null;
   return (
     <Button disabled={disabled} onClick={() => void change()}>
       {file.state === "VIEWED"
@@ -100,8 +97,7 @@ export function PrViewedFile(props: { path: string; headSha: string }) {
 
 export function PrViewedCheckbox(props: { path: string; headSha: string; disabled: boolean }) {
   const { file, disabled, change } = usePrViewedFile(props);
-  if (!file)
-    return <p className="px-2 text-xs text-muted-foreground">GitHub viewed state unavailable</p>;
+  if (!file) return null;
   return (
     <label className="flex shrink-0 items-center gap-2 px-2 text-xs text-muted-foreground">
       <input

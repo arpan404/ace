@@ -11,6 +11,7 @@ import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
 import { actionErrorText } from "@ace/ui-core";
 import { readForge } from "./source.ts";
 import { Button } from "@/components/ui/button.tsx";
+import { readFailureText } from "./query-state.tsx";
 const Context = createContext<{
   state?: ForgeReviewState | undefined;
   pending: boolean;
@@ -98,8 +99,9 @@ export function PrReviewWorkspace(props: {
         <Button disabled={!ready || pending} onClick={() => void query.refetch()}>
           Refresh review state
         </Button>
-        {query.error && (
-          <p role="status">GitHub review state is unavailable. Refresh before writing.</p>
+        {query.error && <p role="status">{readFailureText(query.error)}</p>}
+        {query.data?.viewed === null && (
+          <p role="status">GitHub's viewed marks couldn't be read: refresh to load them.</p>
         )}
         {message && <p role="status">{message}</p>}
         {query.data?.operations
