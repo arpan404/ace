@@ -1,4 +1,5 @@
-import { Lexer, type Links, type Token } from "marked";
+import { Lexer, type Links, type MarkedOptions, type Token } from "marked";
+import { hasMathDelimiter, mathStart, mathTokenizer } from "./math-extension.ts";
 
 /*
  * Streamed markdown, parsed paragraph-wise. Text arrives in appends; the parser keeps a settled
@@ -16,7 +17,16 @@ import { Lexer, type Links, type Token } from "marked";
  * autolinks after it): each lex starts from the state the settled head ended in.
  */
 
-const options = { gfm: true, breaks: false } as const;
+const options: MarkedOptions = {
+  gfm: true,
+  breaks: false,
+  extensions: {
+    renderers: {},
+    childTokens: {},
+    inline: [mathTokenizer],
+    startInline: [mathStart],
+  },
+};
 
 function fenceStart(source: string) {
   const match = /^( {0,3})(`{3,}|~{3,})([^\n]*)\n/.exec(source);
@@ -127,6 +137,8 @@ export interface StreamBlocks {
   settled: Token[];
   /** The open blocks after the settled ones. */
   open: Token[];
+  /** Whether this append holds a math opener: warm KaTeX before the block settles. */
+  mathSeen: boolean;
 }
 
 /** One streamed document. Feed it appends; read back what settled and what is still open. */
@@ -285,6 +297,7 @@ export class BlockStream {
     }
     this.tail += text.replace(/\r\n?/g, "\n");
     const tail = this.tail;
+    const mathSeen = hasMathDelimiter(text);
     const boundary = this.newBoundary();
     if (
       !final &&
@@ -293,7 +306,7 @@ export class BlockStream {
       !boundary &&
       (this.previewType === "paragraph" || this.previewType === "table" || fenceStart(tail))
     )
-      return { from: this.count, settled: [], open: this.preview() };
+      return { from: this.count, settled: [], open: this.preview(), mathSeen };
     this.parseAt = Math.max(8192, tail.length * 2);
     let end = tail.length;
     if (!final) {
@@ -316,7 +329,7 @@ export class BlockStream {
       // Geometric reparses discover boundaries; they do not alternate a giant unfinished
       // block between rich and plain rendering. Its rich token is published once it closes.
       if (tail.length > 8192 && (this.previewType === "paragraph" || this.previewType === "table"))
-        return { from: this.count, settled: [], open: this.preview() };
+        return { from: this.count, settled: [], open: this.preview(), mathSeen };
       const open = lex(tail, this.links, this.inline).blocks;
       const first = open[0];
       this.closedPreview = undefined;
@@ -329,7 +342,7 @@ export class BlockStream {
           token: first,
           end: first.raw.length + (first.raw.endsWith("\n") || this.candidateClosed ? 0 : 1),
         };
-      return { from: this.count, settled: [], open };
+      return { from: this.count, settled: [], open, mathSeen };
     }
 
     const source = tail.slice(0, end);
@@ -355,13 +368,13 @@ export class BlockStream {
       const head = lex(this.head, this.links, startState());
       this.inline = head.state;
       this.count = head.blocks.length;
-      return { from: 0, settled: head.blocks, open: this.openBlocks() };
+      return { from: 0, settled: head.blocks, open: this.openBlocks(), mathSeen };
     }
     this.inline = settled.state;
     this.bracketed ||= settled.blocks.some((token) => token.raw.includes("["));
     const from = this.count;
     this.count += settled.blocks.length;
-    return { from, settled: settled.blocks, open: this.openBlocks() };
+    return { from, settled: settled.blocks, open: this.openBlocks(), mathSeen };
   }
 
   private openBlocks(): Token[] {

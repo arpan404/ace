@@ -10,6 +10,8 @@ import { cn } from "@/lib/cn.ts";
 import { useEdgeFade } from "@/lib/edge-fade.ts";
 import type { MarkdownBlock } from "./blocks.ts";
 import type { MarkdownLinks } from "./link-options.ts";
+import { isMathToken } from "./math-extension.ts";
+import { Formula } from "./math.tsx";
 import { CodeBlock } from "./code-block.tsx";
 import { MarkdownLoading } from "./loading.tsx";
 import { useMarkdown } from "./use-markdown.ts";
@@ -92,6 +94,13 @@ function ProseText(props: { text: string }): ReactNode {
 function Inline(props: { token: Token }): ReactNode {
   const links = useContext(Links);
   const token = props.token;
+  if (isMathToken(token)) {
+    // An opener still waiting for its closer shows as text; invalid TeX falls
+    // back to its source inside `Formula`, never a red error. The key pins one
+    // instance to one formula, so a settled formula never re-renders.
+    if (token.pending) return token.raw;
+    return <Formula key={token.raw} raw={token.raw} tex={token.tex} display={token.display} />;
+  }
   if (!isKnown(token)) return token.raw;
   switch (token.type) {
     case "strong":
