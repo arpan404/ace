@@ -6,9 +6,14 @@
  *
  * - every message is compressed on its own: no context carries over from one message to the
  *   next (per-message deflate without context takeover, or a fresh deflate per relayed message);
- * - only the bulk streams below are compressed at all. None of them carries an ace credential
- *   (device tokens, tickets, pairing codes, sign-in links and codes, preview session links,
- *   cookies ace holds); messages that can carry one are never compressed;
+ * - that alone isn't enough: one message holding a secret next to data an attacker influences
+ *   is still exposed. So only transcript and history bulk is compressed: none of it carries an
+ *   ace credential (device tokens, tickets, pairing codes, sign-in links and codes, preview
+ *   session links, cookies ace holds);
+ * - left out on purpose, though large: workspace, source-control, project and repository
+ *   results (git remote URLs can embed tokens, beside command output or env), device state and
+ *   inventory, and every browser message (a tab's URL can carry a token in its query string,
+ *   next to page-controlled titles and text);
  * - frames, screen packets and file bytes are already compressed and go as they are.
  *
  * An allowlist, so a new message type stays uncompressed until someone decides it is safe.
@@ -30,19 +35,7 @@ const compressible = new Set<string>([
   "history.list",
   "catalog.changed",
   "catalog.list.result",
-  "browser.state",
-  "browser.annotation",
-  "browser.browsing",
-  "browser.backend.lost",
-  "devices.state",
-  "devices.inventory",
-  "screen.state",
-  "preview.suggestions",
   "models.result",
-  "projects.result",
-  "repositories.result",
-  "workspace.result",
-  "source-control.result",
   "usage.result",
 ]);
 
