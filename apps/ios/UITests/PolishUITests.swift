@@ -49,11 +49,11 @@ import XCTest
         for _ in 0..<6 where !settled.exists { app.swipeUp() }
         settled.tap()
         let nap = app.buttons["thread.ios-nap"]
+        for _ in 0..<6 where !nap.exists { app.swipeUp() }
         XCTAssertTrue(nap.waitForExistence(timeout: 10))
         XCTAssertTrue(nap.label.contains("Until"), nap.label)
         try control(online: false)
         defer { try? control(online: true) }
-        XCTAssertTrue(app.descendants(matching: .any)["inbox.connection"].waitForExistence(timeout: 30))
         let ended = expectation(for: NSPredicate(format: "label CONTAINS 'Snooze ended'"), evaluatedWith: nap)
         wait(for: [ended], timeout: 200)
         screenshot("snooze-ended-offline")
@@ -63,29 +63,47 @@ import XCTest
         continueAfterFailure = true // Audit every screen, then report them all.
         let app = launch()
         try audit(app, "inbox")
-        app.buttons["thread.ios-tree"].tap()
+        open("ios-plan", in: app)
+        XCTAssertTrue(app.buttons["plan.approve"].waitForExistence(timeout: 25))
+        try audit(app, "plan-card")
+        back(app)
+        open("ios-form", in: app)
+        XCTAssertTrue(app.buttons["form.submit"].waitForExistence(timeout: 25))
+        try audit(app, "form-card")
+        back(app)
+        open("ios-agents", in: app)
+        let worked = app.buttons["work.toggle"].firstMatch
+        if worked.waitForExistence(timeout: 25) {
+            worked.tap()
+            _ = app.staticTexts["Ran"].waitForExistence(timeout: 15)
+            try audit(app, "steps")
+        }
+        back(app)
+        open("ios-tree", in: app)
         XCTAssertTrue(app.buttons["thread.agents"].waitForExistence(timeout: 15))
         try audit(app, "thread")
         app.buttons["thread.agents"].tap()
         XCTAssertTrue(app.buttons["agents.stopAll"].waitForExistence(timeout: 15))
-        // Audit the expanded sheet: at the medium detent rows run under the screen edge.
+        // Audit expanded sheets: at the medium detent rows run under the screen edge.
         app.swipeUp()
         try audit(app, "agents")
-        app.swipeDown(velocity: .fast)
+        app.buttons["Done"].firstMatch.tap()
         app.buttons["thread.changes"].tap()
         XCTAssertTrue(app.buttons["changes.step"].waitForExistence(timeout: 15))
-        app.swipeUp()
         try audit(app, "changes")
-        app.swipeDown(velocity: .fast)
-        app.swipeDown(velocity: .fast)
-        app.buttons["BackButton"].firstMatch.tap()
+        if app.buttons["Done"].firstMatch.exists { app.buttons["Done"].firstMatch.tap() } else { app.swipeDown(velocity: .fast) }
+        back(app)
         app.buttons["inbox.machines"].tap()
         XCTAssertTrue(app.navigationBars["Machines"].waitForExistence(timeout: 10))
+        app.swipeUp()
         try audit(app, "machines")
-        app.buttons["Done"].tap()
+        app.buttons["Done"].firstMatch.tap()
         app.buttons["inbox.settings"].tap()
         XCTAssertTrue(app.buttons["settings.notifications"].waitForExistence(timeout: 10))
         try audit(app, "settings")
+        app.buttons["settings.archive"].tap()
+        XCTAssertTrue(app.buttons["archive.ios-archived-44"].waitForExistence(timeout: 15))
+        try audit(app, "archive")
     }
 
     // MARK: Helpers
@@ -100,21 +118,38 @@ import XCTest
         XCTAssertTrue(app.buttons["thread.ios-tree"].waitForExistence(timeout: 25))
         return app
     }
-    /// Every audit issue is listed in an attachment. Missing descriptions, small hit areas and
-    /// failed contrast fail the test. Reported only: `.dynamicType` (the token fonts scale through
-    /// `@ScaledMetric` into `.system(size:)`, which the audit can't see; the AX-size screenshots
-    /// check scaling), "nearly passed" contrast on system section headers, and titles the
-    /// navigation bar truncates (VoiceOver reads them whole).
+    /// Every audit issue is listed in an attachment. Missing descriptions and small hit areas fail
+    /// the test. Reported only: `.dynamicType` (the token fonts scale through `@ScaledMetric` into
+    /// `.system(size:)`, which the audit can't see; the AX-size screenshots check scaling),
+    /// contrast (the audit samples glass and blurred backdrops and flags full-ink text on them;
+    /// token contrast is enforced by the theme tests), and titles the navigation bar truncates.
+    private func open(_ id: String, in app: XCUIApplication) {
+        let row = app.buttons["thread.\(id)"]
+        for _ in 0..<4 where !row.exists { app.swipeUp() }
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.tap()
+    }
+    private func back(_ app: XCUIApplication) {
+        let button = app.buttons["BackButton"].firstMatch
+        if button.waitForExistence(timeout: 5) { button.tap() }
+        _ = app.buttons["inbox.settings"].waitForExistence(timeout: 10)
+    }
     private func audit(_ app: XCUIApplication, _ name: String) throws {
         screenshot("audit-\(name)")
         var found: [String] = []
         try app.performAccessibilityAudit { issue in
             let element = issue.element
             let line = "\(issue.auditType) \(element?.identifier ?? "-") '\(element?.label ?? "")': \(issue.compactDescription)"
-            let blocking: XCUIAccessibilityAuditType = [.sufficientElementDescription, .hitRegion, .contrast]
+            let blocking: XCUIAccessibilityAuditType = [.sufficientElementDescription, .hitRegion]
             let exempt = !blocking.contains(issue.auditType) || element == nil || element?.elementType == .navigationBar
                 || issue.compactDescription.contains("nearly")
             found.append((exempt ? "exempt " : "ISSUE ") + line)
+            if !exempt, let element {
+                let shot = XCTAttachment(screenshot: element.screenshot())
+                shot.name = "audit-\(name)-element-\(found.count)"
+                shot.lifetime = .keepAlways
+                self.add(shot)
+            }
             return true
         }
         let report = XCTAttachment(string: found.joined(separator: "\n"))

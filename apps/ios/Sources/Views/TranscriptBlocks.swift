@@ -154,15 +154,17 @@ struct WorkBlockView: View {
                                     .monospacedDigit()
                             }
                         } else { Text(work.label) }
-                        if !work.counts.isEmpty { Text("· \(work.counts)").lineLimit(1) }
+                        if !work.counts.isEmpty { Text("· \(work.counts)").lineLimit(2) }
                     } else { Text("Worked") }
                     Spacer(minLength: AceTheme.Spacing.none)
                     Image(systemName: "chevron.right").rotationEffect(.degrees(expanded ? 90 : 0))
                 }
                 .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                .frame(minHeight: AceTheme.Dimensions.touchTarget)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityValue(expanded ? "Expanded" : "Collapsed")
             .accessibilityHint(expanded ? "Hides the steps" : "Shows the steps")
             .accessibilityIdentifier("work.toggle")
             if let work = row.work, work.ongoing, !work.current.isEmpty, !expanded {

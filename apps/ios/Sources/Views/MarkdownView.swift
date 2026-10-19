@@ -34,7 +34,10 @@ struct MarkdownView: View {
                     HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
                         Text(verbatim: ordered ? "\(start + index)." : "•").monospacedDigit().foregroundStyle(AceTheme.Colours.mutedForeground)
                         Text(Markdown.inline(item))
-                    }.aceFont(AceTheme.Typography.body, relativeTo: .body)
+                    }
+                    .aceFont(AceTheme.Typography.body, relativeTo: .body)
+                    // One element per item, so the number is read with its text.
+                    .accessibilityElement(children: .combine)
                 }
             }
         case .quote(let text):

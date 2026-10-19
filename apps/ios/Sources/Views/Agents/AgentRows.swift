@@ -59,8 +59,13 @@ struct BudgetView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
             if let context {
-                LabeledContent("Context", value: "\(TokenCount.short(context.used)) / \(TokenCount.short(context.window))")
-                ProgressView(value: Double(min(context.used, context.window)), total: Double(max(context.window, 1))).tint(AceTheme.Colours.accent)
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
+                    LabeledContent("Context", value: "\(TokenCount.short(context.used)) / \(TokenCount.short(context.window))")
+                    ProgressView(value: Double(min(context.used, context.window)), total: Double(max(context.window, 1))).tint(AceTheme.Colours.accent)
+                        .accessibilityHidden(true)
+                }
+                // The meter repeats the numbers above it; VoiceOver reads them once.
+                .accessibilityElement(children: .combine)
             }
             if let tokens = totals.tokens { LabeledContent("Tokens used", value: TokenCount.short(tokens)) }
             if let cost = totals.costUsd { LabeledContent("Cost", value: cost.formatted(.currency(code: "USD"))) }

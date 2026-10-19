@@ -37,7 +37,7 @@ struct ThreadView: View {
                 ForEach(model.pending.values.filter { $0.threadId == thread.id && $0.state != "delivered" && thread.items["input:\($0.id)"] == nil }.sorted { $0.id < $1.id }) { row in
                     PendingSendRow(row: row, canRetry: model.canOperate) { await model.retrySend(row) }.listRowSeparator(.hidden)
                 }
-                Color.clear.frame(height: AceTheme.Dimensions.border).id("tail").listRowSeparator(.hidden)
+                Color.clear.frame(height: AceTheme.Dimensions.border).id("tail").listRowSeparator(.hidden).accessibilityHidden(true)
             }
             .listStyle(.plain).scrollContentBackground(.hidden)
             .background(AceTheme.Colours.background)
@@ -121,8 +121,7 @@ struct ThreadView: View {
             HStack(spacing: AceTheme.Spacing.xs) {
                 if let status = metadata?.status { StateLabel(status: status) }
                 Text(verbatim: [metadata?.project, metadata?.branch, metadata.map { $0.provider.capitalized }].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
-                    // On the bar's glass: the material's own secondary ink keeps its contrast.
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7)
+                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).minimumScaleFactor(0.7)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
