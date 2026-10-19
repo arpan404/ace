@@ -185,6 +185,29 @@ final class ComputerClippingTests: XCTestCase {
     }
 }
 
+final class ComputerWalkReuseTests: XCTestCase {
+    private let window = CUElementKey(element: AXUIElementCreateApplication(91_001))
+    private let field = CUElementKey(element: AXUIElementCreateApplication(91_002))
+    private let other = CUElementKey(element: AXUIElementCreateApplication(91_003))
+    private func stamp(events: UInt64 = 5, at: UInt64 = 1_000, frame: CGRect = CGRect(x: 0, y: 0, width: 400, height: 300), focused: CUElementKey? = nil) -> CUWalkStamp {
+        CUWalkStamp(events: events, at: at, window: window, frame: frame, focused: focused ?? field)
+    }
+
+    func testARepeatedLookWithNoNotificationReusesTheLastWalk() {
+        XCTAssertTrue(cuWalkStillCurrent(last: stamp(), now: stamp(at: 1_500), maxAgeNs: 1_000, observingEverything: true))
+    }
+
+    func testAnyChangeSignalForcesANewWalk() {
+        let last = stamp()
+        XCTAssertFalse(cuWalkStillCurrent(last: last, now: stamp(events: 6, at: 1_500), maxAgeNs: 1_000, observingEverything: true), "a notification or an agent step")
+        XCTAssertFalse(cuWalkStillCurrent(last: last, now: stamp(at: 1_500, frame: CGRect(x: 0, y: 0, width: 500, height: 300)), maxAgeNs: 1_000, observingEverything: true), "a resize")
+        XCTAssertFalse(cuWalkStillCurrent(last: last, now: stamp(at: 1_500, focused: other), maxAgeNs: 1_000, observingEverything: true), "focus moved")
+        XCTAssertFalse(cuWalkStillCurrent(last: last, now: stamp(at: 3_000), maxAgeNs: 1_000, observingEverything: true), "too old to trust silence")
+        XCTAssertFalse(cuWalkStillCurrent(last: last, now: stamp(at: 1_500), maxAgeNs: 1_000, observingEverything: false), "some notifications are not registered")
+        XCTAssertFalse(cuWalkStillCurrent(last: nil, now: stamp(at: 1_500), maxAgeNs: 1_000, observingEverything: true))
+    }
+}
+
 final class ComputerSettleTests: XCTestCase {
     func testProgressIndicatorsNeverDelaySettling() {
         var noise = CUSettleNoise()
@@ -218,6 +241,19 @@ final class ComputerClipboardTests: XCTestCase {
         XCTAssertFalse(cuShouldRestore(save, boardToken: "t", ownerAlive: true, isMine: false), "another live helper is mid-paste")
         XCTAssertTrue(cuShouldRestore(save, boardToken: "t", ownerAlive: false, isMine: false), "a crashed helper's save heals")
         XCTAssertFalse(cuShouldRestore(save, boardToken: "other", ownerAlive: false, isMine: false))
+    }
+}
+
+final class ComputerPasteImportTests: XCTestCase {
+    func testModelHtmlLosesEverythingThatWouldLoadButKeepsTextAndLinks() {
+        let html = """
+        <p style="background:url(https://x.test/a.png)">Hi <a href="https://example.com">there</a><img src="https://x.test/t.gif"></p>\
+        <iframe src="https://x.test/f"></iframe><script>fetch('https://x.test')</script><link rel="stylesheet" href="https://x.test/s.css">
+        """
+        let offline = cuOfflineHTML(html)
+        XCTAssertFalse(offline.contains("x.test"), offline)
+        XCTAssertTrue(offline.contains(#"href="https://example.com""#))
+        XCTAssertEqual(cuHTMLPlainText(html), "Hi there")
     }
 }
 

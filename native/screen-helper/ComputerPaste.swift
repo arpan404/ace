@@ -19,10 +19,11 @@ func cuPasteContent(_ text: String, format: String) throws -> CUPasteContent {
     }
 }
 
-/// What a rich document reads as plain text, keeping paragraph and list breaks.
+/// What a rich document reads as plain text, keeping paragraph and list breaks. The HTML
+/// comes from the model, so anything WebKit's importer would load is removed first.
 func cuHTMLPlainText(_ html: String) -> String {
     let options: [NSAttributedString.DocumentReadingOptionKey: Any] = [.documentType: NSAttributedString.DocumentType.html, .characterEncoding: String.Encoding.utf8.rawValue]
-    let text = (try? NSAttributedString(data: Data(html.utf8), options: options, documentAttributes: nil).string) ?? html
+    let text = (try? NSAttributedString(data: Data(cuOfflineHTML(html).utf8), options: options, documentAttributes: nil).string) ?? html
     return text.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
@@ -52,7 +53,8 @@ func cuPaste(_ content: CUPasteContent, poster: CUPoster, application: AXUIEleme
     if let file { CUClipboard.pending = (save, file) }
     let before = cuFocusedTextLength(application)
     CUClipboard.writeAgentContent(content, token: save.token, to: board)
-    let paste = CUChord(code: 9, flags: .maskCommand, text: "v")
+    // Layout-aware: the V key is elsewhere on non-US layouts.
+    let paste = (try? cuParseChord("cmd+v")) ?? CUChord(code: 9, flags: .maskCommand, text: "v")
     if let item = cuMenuItem(for: paste, in: application) { AXUIElementPerformAction(item, "AXPress" as CFString) }
     else { poster.chord(paste) }
     await cuWaitForPasteConsumed(application, before: before, settler: settler)
@@ -88,4 +90,23 @@ func cuPaste(_ content: CUPasteContent, poster: CUPoster, application: AXUIEleme
 func cuFocusedTextLength(_ application: AXUIElement) -> Int? {
     guard let focused = cuElementAttribute(application, "AXFocusedUIElement") else { return nil }
     return (cuFetchStatus(focused, ["AXNumberOfCharacters"]).0["AXNumberOfCharacters"] as? NSNumber)?.intValue
+}
+
+/// HTML with nothing that loads: elements that fetch or run (images, frames, media, scripts,
+/// styles, stylesheet links, base and meta refresh) are removed, and resource attributes and
+/// CSS `url()` are dropped. Link targets stay; they are text, never fetched.
+func cuOfflineHTML(_ html: String) -> String {
+    var text = html
+    let paired = "script|style|iframe|frame|frameset|object|video|audio|svg|template|noscript"
+    let replacements: [(String, String)] = [
+        ("(?is)<(\(paired))\\b[^>]*>.*?</\\1\\s*>", ""),
+        ("(?is)<(?:img|image|link|base|meta|embed|source|track|input|iframe|frame|object|video|audio|script|style|picture)\\b[^>]*>", ""),
+        ("(?is)\\s(?:src|srcset|background|poster|data|lowsrc|dynsrc|formaction|xlink:href)\\s*=\\s*(?:\"[^\"]*\"|'[^']*'|[^\\s>]+)", ""),
+        ("(?is)url\\s*\\([^)]*\\)", "none"),
+        ("(?is)@import[^;]*;?", ""),
+    ]
+    for (pattern, replacement) in replacements {
+        text = text.replacingOccurrences(of: pattern, with: replacement, options: .regularExpression)
+    }
+    return text
 }

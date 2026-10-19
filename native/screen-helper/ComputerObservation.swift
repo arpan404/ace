@@ -13,7 +13,7 @@ extension CUAppSession {
         var tree = CUTree()
         let started = cuNow()
         if outline {
-            tree = walk(deadline: deadline)
+            tree = await walkUnlessUnchanged(deadline: deadline)
             if chromium, !chromiumWarmed {
                 chromiumWarmed = true
                 // Chromium builds its tree a moment after first being asked for; look once more.
@@ -29,7 +29,7 @@ extension CUAppSession {
         // Without a fresh walk the ids on screen could name elements that changed; no tags then.
         if screenshot { await attachScreenshot(to: &result, marks: marks && outline) }
         if cuTimingsEnabled {
-            result["timings"] = ["walkMs": cuMs(walked - started), "visited": tree.visited, "fetchMs": cuMs(tree.fetchNs), "actionsMs": cuMs(tree.actionNs), "describeMs": cuMs(described - walked), "screenshotMs": cuMs(cuNow() - described)]
+            result["timings"] = ["walkMs": cuMs(walked - started), "events": Int(settler.events), "visited": tree.visited, "fetchMs": cuMs(tree.fetchNs), "actionsMs": cuMs(tree.actionNs), "describeMs": cuMs(described - walked), "screenshotMs": cuMs(cuNow() - described)]
         }
         return result
     }

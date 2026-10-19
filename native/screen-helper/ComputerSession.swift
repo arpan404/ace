@@ -15,6 +15,8 @@ import ApplicationServices
         didSet { if let shot, shot.window != window?.number { self.shot = nil } }
     }
     private(set) var lastNodes: [CUNode] = []
+    private var lastTree: CUTree?
+    private var lastStamp: CUWalkStamp?
     private var nodeIndex: [Int: Int] = [:]
     /// The latest screenshot of the chosen window; pixel coordinates refer to it.
     private(set) var shot: CUShotGeometry?
@@ -129,9 +131,27 @@ import ApplicationServices
         if !walker.tree.notResponding { for menu in cuOpenMenus(element) { walker.walk(menu, depth: 0) } }
         registry.prune()
         lastNodes = walker.tree.nodes
+        lastTree = walker.tree
+        lastStamp = walker.tree.notResponding || walker.tree.truncated ? nil : stamp(focused: walker.focusedElement)
         nodeIndex = Dictionary(lastNodes.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
         if walker.tree.notResponding { notResponding = true }
         return walker.tree
+    }
+
+    private func stamp(focused: AXUIElement?) -> CUWalkStamp {
+        CUWalkStamp(events: settler.events, at: cuNow(), window: window.map { CUElementKey(element: $0.element) }, frame: window?.frame,
+                     focused: focused.map { CUElementKey(element: $0) })
+    }
+
+    /// The last walk when nothing can have changed since (see `cuWalkStillCurrent`), else a new one.
+    func walkUnlessUnchanged(deadline: UInt64) async -> CUTree {
+        // Let notifications already sent by the app arrive before trusting silence.
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        let now = stamp(focused: cuElementAttribute(element, "AXFocusedUIElement"))
+        if let lastTree, cuWalkStillCurrent(last: lastStamp, now: now, maxAgeNs: 2_000_000_000, observingEverything: settler.observingEverything) {
+            return lastTree
+        }
+        return walk(deadline: deadline)
     }
 
     /// A fresh bounded walk of the current window, for `wait_for` and `when` conditions.
@@ -140,7 +160,11 @@ import ApplicationServices
             window = CUWindow(element: current.element, number: current.number, title: current.title, frame: frame, onScreen: current.onScreen,
                               minimized: current.minimized, main: current.main, index: current.index, subrole: current.subrole, otherSpace: current.otherSpace)
         }
-        return walk(deadline: cuNow() + 1_500_000_000).nodes
+        // Conditions re-check after each settle; when the app sent nothing since the last
+        // walk, that walk still describes the window.
+        let now = stamp(focused: cuElementAttribute(element, "AXFocusedUIElement"))
+        if cuWalkStillCurrent(last: lastStamp, now: now, maxAgeNs: 2_000_000_000, observingEverything: settler.observingEverything) { return lastNodes }
+        return walk(deadline: cuNow() + 1_000_000_000).nodes
     }
 
     /// The outline node for an element, nil if the last walk did not include it.

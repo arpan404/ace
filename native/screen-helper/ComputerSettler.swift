@@ -44,6 +44,10 @@ struct CUSettleNoise {
     private var noise = CUSettleNoise()
     private var roles: [Int: String] = [:]
     private(set) var windowEvents = 0
+    /// Every notification received and every change the helper made, noise included.
+    private(set) var events: UInt64 = 0
+    /// True once every notification is registered, so silence means no change.
+    var observingEverything: Bool { observer != nil && pending.isEmpty }
     /// Uptime after which settling stops waiting, set per request so a long batch stays bounded.
     var deadline: UInt64?
 
@@ -83,6 +87,7 @@ struct CUSettleNoise {
     }
 
     private func received(_ notification: String, from element: AXUIElement) {
+        events &+= 1
         if notification == "AXWindowCreated" || notification == "AXSheetCreated" { windowEvents += 1 }
         let key = Int(bitPattern: UInt(CFHash(element)))
         var role: String?
@@ -98,7 +103,10 @@ struct CUSettleNoise {
         if noise.counts(element: key, notification: notification, role: role, now: now) { lastChange = now }
     }
 
-    func markChanged() { lastChange = DispatchTime.now().uptimeNanoseconds }
+    func markChanged() {
+        lastChange = DispatchTime.now().uptimeNanoseconds
+        events &+= 1
+    }
 
     func settle(minimumMs: UInt64 = 80, quietMs: UInt64 = 150, maximumMs: UInt64 = 2_000) async {
         register()

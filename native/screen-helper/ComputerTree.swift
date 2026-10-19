@@ -33,7 +33,7 @@ struct CUNode {
 let cuTextInputRoles: Set<String> = ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField", "AXSecureTextField"]
 /// Chrome that only restates what scrolling and layout already do; never worth the tokens.
 let cuNoiseRoles: Set<String> = ["AXScrollBar", "AXValueIndicator", "AXRuler", "AXRulerMarker", "AXGrowArea", "AXSplitter", "AXMatte"]
-let cuStructuralRoles: Set<String> = ["AXWindow", "AXSheet", "AXDrawer", "AXMenu", "AXTable", "AXOutline", "AXList", "AXTabGroup", "AXToolbar", "AXWebArea", "AXBrowser", "AXPopover", "AXDialog"]
+let cuStructuralRoles: Set<String> = ["AXWindow", "AXSheet", "AXDrawer", "AXMenu", "AXTable", "AXOutline", "AXList", "AXTabGroup", "AXToolbar", "AXWebArea", "AXBrowser", "AXPopover", "AXDialog", "AXScrollArea"]
 
 let cuExpandableRoles: Set<String> = ["AXDisclosureTriangle", "AXOutlineRow", "AXComboBox", "AXPopUpButton", "AXMenuButton", "AXRow", "AXDisclosure", "AXTreeItem"]
 

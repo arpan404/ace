@@ -66,6 +66,7 @@ struct CUWalkContext {
     private let deadline: UInt64
     /// The app's focused element, read once per walk.
     private let focused: AXUIElement?
+    var focusedElement: AXUIElement? { focused }
 
     init(registry: CUElementRegistry, deadline: UInt64, focused: AXUIElement? = nil) {
         self.registry = registry
