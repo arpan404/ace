@@ -1,10 +1,12 @@
+import { spawn } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { once } from "node:events";
 import { createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { expect, test } from "vitest";
+import { testGitEnvironment } from "@ace/provider-kit/test-isolation";
 import { GitError, GitService, isMutationUnavailable } from "./index.ts";
-import { git, put, repository, scalar, scratch } from "./test-repo.ts";
+import { execute, git, put, repository, scalar, scratch } from "./test-repo.ts";
 
 const service = new GitService({ transportProtocols: ["file"] });
 
@@ -66,6 +68,86 @@ test("branch refs show a local branch behind its upstream and branches only the 
       { name: "main", remote: "origin" },
     ],
   });
+});
+
+/** A commit on top of HEAD whose committer date is `date`. */
+async function commitAt(repo: string, date: string): Promise<string> {
+  const env = { ...testGitEnvironment(), GIT_COMMITTER_DATE: date, GIT_AUTHOR_DATE: date };
+  const { stdout } = await execute(
+    "git",
+    ["commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", date],
+    {
+      cwd: repo,
+      env,
+    },
+  );
+  return stdout.trim();
+}
+
+/** Point many refs at once, as a repository full of agent branches would have them. */
+async function pointRefs(repo: string, refs: Record<string, string>) {
+  const child = spawn("git", ["update-ref", "--stdin"], {
+    cwd: repo,
+    env: testGitEnvironment(),
+    stdio: ["pipe", "ignore", "inherit"],
+  });
+  child.stdin.end(
+    Object.entries(refs)
+      .map(([ref, commit]) => `update ${ref} ${commit}\n`)
+      .join(""),
+  );
+  const [code] = await once(child, "close");
+  expect(code).toBe(0);
+}
+
+/**
+ * A clone with far more branches than one listing carries: 1,100 local and 1,100 remote ones
+ * committed in 2020, origin's `main` at an older commit (2001), and one local and one remote
+ * branch committed in 2030 whose names sort last.
+ */
+async function crowdedClone() {
+  const { clone } = await remoteSetup();
+  const older = await commitAt(clone, "2001-01-01T00:00:00Z");
+  const old = await commitAt(clone, "2020-01-01T00:00:00Z");
+  const newest = await commitAt(clone, "2030-01-01T00:00:00Z");
+  const refs: Record<string, string> = {
+    "refs/remotes/origin/main": older,
+    "refs/heads/zz-newest": newest,
+    "refs/remotes/origin/zz-newest": newest,
+  };
+  for (let index = 0; index < 1100; index += 1) {
+    const name = `ace/agent-${String(index).padStart(4, "0")}`;
+    refs[`refs/heads/${name}`] = old;
+    refs[`refs/remotes/origin/${name}`] = old;
+  }
+  await pointRefs(clone, refs);
+  return clone;
+}
+
+test("the default branch is offered locally and from origin however many branches the repository has", async () => {
+  const clone = await crowdedClone();
+
+  const result = await service.branchRefs(clone);
+
+  expect(result.defaultBranch).toBe("main");
+  expect(result.refs).toContainEqual({ name: "main", remote: "origin" });
+  expect(result.refs).toContainEqual(
+    expect.objectContaining({ name: "main", upstream: "origin/main" }),
+  );
+  expect(result.refs).toHaveLength(1000);
+  expect(result.truncated).toBe(true);
+});
+
+test("with more branches than fit, local and remote branches share the room and the newest are kept", async () => {
+  const clone = await crowdedClone();
+
+  const { refs } = await service.branchRefs(clone);
+
+  const remote = refs.filter((ref) => ref.remote);
+  expect(remote.length).toBe(500);
+  expect(refs.length - remote.length).toBe(500);
+  expect(refs).toContainEqual({ name: "zz-newest" });
+  expect(refs).toContainEqual({ name: "zz-newest", remote: "origin" });
 });
 
 test("fetching a branch moves only its remote-tracking ref, leaving the checkout, other branches and tags alone", async () => {
