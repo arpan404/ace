@@ -157,7 +157,7 @@ export async function migrateSession(
         reason:
           error instanceof MigrationFailure
             ? error.message
-            : "Migration failed validation or filesystem safety checks",
+            : "ace couldn't copy this conversation to that account",
       };
     }
   };

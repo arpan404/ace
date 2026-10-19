@@ -60,7 +60,7 @@ try {
   if (!nativeSessionId) throw new Error("Missing ID");
   const result = await migrateSession(
     { provider: "codex", nativeSessionId, from, to },
-    { acquire: async () => ({ release: async () => {} }) },
+    { acquire: async () => ({ status: "held", release: async () => {} }) },
   );
   if (result.status !== "migrated") throw new Error(JSON.stringify(result));
   // Bare environment and config disable hooks/network services in the synthetic home.

@@ -50,16 +50,16 @@ export async function holdCodexThread(options: ThreadLeaseOptions): Promise<Code
       }
       return {
         held: true,
+        // Stopping the process releases the lock even if unsubscribing failed.
         release: async () => {
-          try {
-            await server.rpc.request(
+          await server.rpc
+            .request(
               "thread/unsubscribe",
               { threadId: options.threadId },
               { signal: options.signal },
-            );
-          } finally {
-            await server.close();
-          }
+            )
+            .catch(() => {});
+          await server.close();
         },
       };
     }
