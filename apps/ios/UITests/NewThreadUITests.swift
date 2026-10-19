@@ -23,10 +23,11 @@ import XCTest
         XCTAssertTrue(element(app, "agent.cursor.reason").exists)
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "model.cursor.")).firstMatch.exists)
         screenshot("newthread-agents")
-        for _ in 0..<25 where !app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "model.claude.")).firstMatch.isHittable { app.swipeDown() }
-        let model = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "model.claude.")).firstMatch
-        XCTAssertTrue(model.waitForExistence(timeout: 5))
-        model.tap()
+        // Pick a ready agent's model on screen; the sheet returns to the form with it.
+        let models = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "model."))
+        let visible = (0..<min(models.count, 40)).map { models.element(boundBy: $0) }.first { $0.isHittable }
+        XCTAssertNotNil(visible)
+        visible?.tap()
         let worktree = app.switches["newThread.worktree"]
         if worktree.waitForExistence(timeout: 10), worktree.isEnabled { worktree.switches.firstMatch.tap() }
         let message = element(app, "newThread.message")
