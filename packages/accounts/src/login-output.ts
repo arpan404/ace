@@ -49,6 +49,8 @@ export function loginUrl(provider: ProviderKind, candidate: string): string | un
     ...(provider === "cursor" || provider === "acp"
       ? ["challenge", "uuid", "mode", "redirect", "redirectTarget"]
       : []),
+    // Cursor's CLI agent (`cursor-agent`, run over ACP) offers team selection on its page.
+    ...(provider === "acp" ? ["supportsSelectedTeamLogin"] : []),
     "client_id",
     "redirect_uri",
     "response_type",
@@ -69,7 +71,10 @@ export function loginUrl(provider: ProviderKind, candidate: string): string | un
   ]);
   for (const [key, value] of url.searchParams) {
     if (!fields.has(key) || /(?:sk-|ghp_|gho_|eyJ)[A-Za-z0-9_-]{12,}/.test(value)) return;
-    if (key === "redirectTarget" && value !== "sdk") return;
+    // The SDK's login returns to it; the Cursor CLI agent's returns to the CLI.
+    if (key === "redirectTarget" && value !== "sdk" && !(provider === "acp" && value === "cli"))
+      return;
+    if (key === "supportsSelectedTeamLogin" && value !== "true") return;
     if (key === "code" && value !== "true") return;
     if (key === "redirect_uri") {
       let redirect: URL;

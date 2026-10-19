@@ -12,6 +12,19 @@ Cursor is one SDK-backed provider under ADR 0043. Sign-in uses
 `@ace/adapter-cursor`, through the accounts-owned SDK driver and its registered
 credential store. There is no Cursor CLI discovery, implicit CLI account or native
 CLI login fallback. Legacy `cursor-cli-default` requests map to the SDK default.
+The SDK login names its key `ace on <host>` in Cursor's dashboard, and its status
+carries the signed-in email (the account's "signed in as") and the key's expiry.
+SDK sign-out only forgets the key on this computer; the key stays valid until it
+expires, and the sign-out message says so.
+
+Cursor's CLI agent (`cursor-agent acp`, installed from the ACP registry as
+`official:cursor`) is a separate ACP login. Its `cursor_login` method opens
+`cursor.com/loginDeepControl?…redirectTarget=cli&supportsSelectedTeamLogin=true`
+through `open` on PATH; the sign-in stand-in captures it and the dialog shows it
+(the allowlist admits `redirectTarget=cli` for ACP agents only). Its ACP has no
+sign-out, so ace runs `cursor-agent logout`, and every provider status check reads
+`cursor-agent status --format json` (`isAuthenticated`) to show it signed in or out.
+Titles and drafts on Cursor check that status before running `cursor-agent --print`.
 
 ## UI contract
 

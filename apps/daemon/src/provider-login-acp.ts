@@ -1,7 +1,13 @@
 import { z } from "zod";
-import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
+import { basename } from "node:path";
+import { probeOutput, spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
 import { JsonRpcPeer } from "@ace/provider-kit/jsonrpc";
-import { loginObservation, loginUrl, type ProviderLoginDriver } from "@ace/accounts";
+import {
+  loginObservation,
+  loginUrl,
+  ProviderLoginFailure,
+  type ProviderLoginDriver,
+} from "@ace/accounts";
 import { signInPages, type SignInPages } from "./sign-in-pages.ts";
 import type { OpenTerminalOptions } from "@ace/terminal";
 import type { ProviderKind, ProviderLoginInput } from "@ace/protocol";
@@ -29,6 +35,10 @@ const Initialization = z.object({
 });
 
 const keyed = /api[ _-]?key|token|credential|password|gateway/i;
+const setup = /api[ _-]?key|gateway/i;
+/** A browser sign-in gets as long as ace's sign-in session lasts. */
+const authenticateMs = 10 * 60_000;
+const ownLogoutMs = 30_000;
 
 /**
  * A method ace can finish: the agent's own sign-in or its interactive terminal. Methods that need
@@ -39,7 +49,9 @@ function signInMethod(method: z.infer<typeof Method>, terminal: boolean): boolea
     return false;
   const meta = method["_meta"];
   if (meta && ("api-key" in meta || "gateway" in meta)) return false;
-  return !keyed.test(`${method.id} ${method.name} ${method.description ?? ""}`);
+  // A description only rules a method out when it asks for a key or gateway: Cursor's own
+  // sign-in says it uses "existing Cursor login credentials".
+  return !keyed.test(`${method.id} ${method.name}`) && !setup.test(method.description ?? "");
 }
 
 /** Only the installed agent performs authentication. No token exchange or credential store. */
@@ -53,6 +65,11 @@ export function acpLoginDriver(options: {
   spawn?: typeof spawnSupervised;
   /** The sign-in process's page opener; tests stand one in so no real browser opens. */
   pages?: (env: NodeJS.ProcessEnv) => Promise<SignInPages>;
+  /**
+   * The installed command's own sign-out arguments, for an agent whose ACP has none (Cursor's
+   * `cursor-agent logout`). Its output is never relayed.
+   */
+  ownLogout?: readonly string[];
   openTerminal?: (launch: OpenTerminalOptions) => {
     id: string;
     exited: Promise<boolean>;
@@ -81,6 +98,23 @@ export function acpLoginDriver(options: {
     },
     async run(signal, emit) {
       signal.throwIfAborted();
+      if (options.action === "logout" && options.ownLogout) {
+        let code: number | null = null;
+        try {
+          ({ code } = await probeOutput(options.command, options.ownLogout, {
+            env: options.env,
+            signal,
+            timeoutMs: ownLogoutMs,
+          }));
+        } catch {
+          signal.throwIfAborted();
+        }
+        if (code !== 0)
+          throw new ProviderLoginFailure(
+            `The agent didn't sign out. Run \`${basename(options.command)} ${options.ownLogout.join(" ")}\` in a terminal, then check again.`,
+          );
+        return { success: true };
+      }
       const opened = await (options.pages ?? signInPages)(options.env);
       pages = opened;
       // Relay a page the client can open (the desktop app opens it, another device links it);
@@ -255,8 +289,9 @@ export function acpLoginDriver(options: {
           state: "awaiting_browser",
           hint: "Complete the installed agent's own browser sign-in.",
         });
+        // Bounded like the sign-in session itself: an agent that never answers can't hold it.
         z.object({}).parse(
-          await peer.request("authenticate", { methodId }, { signal, timeoutMs: null }),
+          await peer.request("authenticate", { methodId }, { signal, timeoutMs: authenticateMs }),
         );
         signedInWith = methodId;
         return { success: true };

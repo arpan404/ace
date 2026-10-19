@@ -3,6 +3,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "email": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "expiresAt": {
+      "minimum": 0,
+      "type": "number"
+    },
     "source": {
       "enum": [
         "environment",

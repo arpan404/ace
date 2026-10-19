@@ -58,6 +58,17 @@ it("inherits launch authentication only for the SDK backend and keeps registry s
       source: "environment",
     });
     expect(registry.summary(b.id, 1)?.quota.cursorSdkAuth).toBeUndefined();
+    // The SDK's own login names who signed in; the account reads as signed in as them.
+    registry.setCursorSdkAuth(b.id, {
+      status: "logged-in",
+      source: "sdk-store",
+      email: "person@example.com",
+      expiresAt: 9999,
+    });
+    expect(registry.summary(b.id, 1)).toMatchObject({
+      signedInAs: "person@example.com",
+      quota: { cursorSdkAuth: { email: "person@example.com", expiresAt: 9999 } },
+    });
     expect(JSON.stringify(registry.summaries(1))).not.toContain("sentinel-sdk-key");
     expect(JSON.stringify(registry.summaries(1))).not.toContain("must-not-store");
   } finally {
