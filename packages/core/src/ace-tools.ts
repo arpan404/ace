@@ -166,7 +166,7 @@ export function privateAceInput(tool: string, input?: unknown): boolean {
 }
 /** Computer-use steps that carry typed, pasted, set or selected text, and those fields. */
 const textSteps: ReadonlySet<unknown> = new Set(["type", "paste", "set_value", "select_text"]);
-const stepSecrets = ["text", "value", "prefix", "suffix"];
+const stepSecrets: ReadonlySet<string> = new Set(["text", "value", "prefix", "suffix"]);
 function privateStep(entry: unknown): boolean {
   const step = record.safeParse(entry).data;
   return step !== undefined && textSteps.has(step["type"]);
@@ -193,7 +193,7 @@ export function redactAceArguments(name: string, value: unknown): unknown {
       return Object.fromEntries(
         Object.entries(step.data).map(([key, child]) => [
           key,
-          stepSecrets.includes(key) ? "[redacted]" : child,
+          stepSecrets.has(key) ? "[redacted]" : child,
         ]),
       );
     });

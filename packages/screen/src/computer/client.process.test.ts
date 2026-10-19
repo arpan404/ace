@@ -75,6 +75,25 @@ it("an app that hung once times out, and the next call to it works on a fresh he
   expect(children.length).toBe(started + 1);
 });
 
+it("an overdue batch reports the steps it finished, then that the app did not respond", async () => {
+  const { call, children } = await world({ client: quick });
+  const slow = await call("screen_act", {
+    app: "Calculator",
+    actions: [
+      { type: "key", key: "Escape" },
+      { type: "wait", ms: 5_000 },
+    ],
+  });
+  expect(slow.result.isError).toBe(true);
+  expect(slow.text).toBe(
+    "1. did key\nThe app did not respond in time (it may be busy or stuck on a dialog). Try again; if it keeps failing, take a screenshot to see what it is showing.",
+  );
+  // It answered the cancel, so its helper stays.
+  const started = children.length;
+  await call("screen_state", { app: "Calculator" });
+  expect(children.length).toBe(started);
+});
+
 it("stopping an act cancels it in the helper, which reports the steps it finished", async () => {
   const { client, logged, children } = await world({ client: quick });
   const stop = new AbortController();
