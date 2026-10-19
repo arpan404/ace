@@ -10,6 +10,20 @@ struct NewThreadEntry: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .safeAreaInset(edge: .bottom) {
+                Button { composing = true } label: {
+                    Label("Start a task", systemImage: "plus")
+                        .aceFont(AceTheme.Typography.body, relativeTo: .body)
+                        .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(AceTheme.Colours.foreground)
+                .floatingGlass()
+                .padding(.horizontal, AceTheme.Dimensions.composerInset)
+                .padding(.bottom, AceTheme.Spacing.sm)
+                .disabled(inbox.sessions.isEmpty)
+                .accessibilityIdentifier("inbox.startTask")
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { composing = true } label: { Image(systemName: "square.and.pencil") }

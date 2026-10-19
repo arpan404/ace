@@ -75,6 +75,9 @@ struct MessageRow: View {
             if let attachments = row.attachments, !attachments.isEmpty {
                 AttachmentChips(attachments: attachments, more: row.moreAttachments ?? 0)
             }
+            Text(Date(timeIntervalSince1970: row.createdAt / 1000), format: .dateTime.hour().minute())
+                .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                .foregroundStyle(AceTheme.Colours.mutedForeground)
             if row.truncated { Text("Showing a bounded preview").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
         }.frame(maxWidth: .infinity, alignment: user ? .trailing : .leading)
     }

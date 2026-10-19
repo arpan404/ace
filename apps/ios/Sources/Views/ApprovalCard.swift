@@ -45,8 +45,7 @@ struct ApprovalCard: View {
         let remaining = approval.remaining
         return HStack(spacing: AceTheme.Spacing.sm) {
             ForEach(approval.verbs) { verb in
-                let words = verb.decision.verb == "always_allow" && !verb.decision.scope.isEmpty ? verb.decision.scope : verb.decision.label
-                button(words, primary: verb.decision.emphasis == "primary") { resolve(verb.option) }
+                button(verb.decision.label, primary: verb.decision.emphasis == "primary") { resolve(verb.option) }
                     .accessibilityLabel(verb.decision.scope.isEmpty ? verb.decision.label : "\(verb.decision.label): \(verb.decision.scope)")
                     .accessibilityIdentifier("approval.\(verb.option.kind)")
             }

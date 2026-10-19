@@ -50,6 +50,9 @@ struct ThreadView: View {
                 if loaded && !scrolledToTail { proxy.scrollTo("tail", anchor: .bottom); scrolledToTail = true }
             }
             .onChange(of: ObjectIdentifier(thread)) { scrolledToTail = false }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                proxy.scrollTo("tail", anchor: .bottom)
+            }
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
                 VStack(spacing: AceTheme.Spacing.none) {
                     // One card at a time above the composer: the oldest open request.
