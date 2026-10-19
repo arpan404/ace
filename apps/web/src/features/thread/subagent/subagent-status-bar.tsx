@@ -1,9 +1,14 @@
+import { useAgent, useThreadMeta } from "@ace/client-react";
 import type { ProviderKind } from "@ace/protocol";
-import { subagentOutcome, type SubagentPhase } from "@ace/ui-core";
+import { agentName, subagentOutcome, type SubagentPhase } from "@ace/ui-core";
 import { ArrowBendLeftUpIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { StatusGlyph } from "@/components/status-glyph.tsx";
+import type { GlyphState } from "@/components/status-glyph-state.ts";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
+import { controlDivider } from "@/components/ui/rules.ts";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { WorkingIndicator } from "@/components/working-indicator.tsx";
 import { cn } from "@/lib/cn.ts";
 import { composerSurface, stripControl } from "../composer/composer-styles.ts";
@@ -14,14 +19,25 @@ export interface ParentLink {
   agentId?: string | undefined;
 }
 
+/** A labelled action in the bar (Continue, Stop, Ask parent to retry). */
+export const barAction = cn(stripControl, "h-7.5 shrink-0 rounded-md text-ui text-foreground");
+
+/** How a phase that has settled, or that waits on someone, is marked beside its words. */
+const outcomeGlyphs: Partial<Record<SubagentPhase, GlyphState>> = {
+  done: "done",
+  failed: "failed",
+  stopped: "stopped",
+  human: "needs-you",
+};
+
 /**
  * What stands in the composer's place under a subagent while nobody is writing to it: who ran
- * it (provider, model, effort), how it went from the daemon's own times, how it runs, and its
- * actions (Stop, Continue, the way back to its parent), each passed in only when it applies.
+ * it (provider, model, effort), how it went from the daemon's own times, and its actions (Stop,
+ * Continue, Fork, the way back to its parent), each passed in only when it applies.
  *
  * It fits its own column, not the window (`@container/subagent-bar`): as the column narrows,
- * how it runs goes first, then the effort, then the actions keep only their icons. The model's
- * name truncates last and never below a few characters.
+ * labelled actions keep only their icons, then the model and effort leave the provider mark
+ * alone, so how it went keeps its words.
  */
 export function SubagentStatusBar(props: {
   provider: ProviderKind;
@@ -31,10 +47,10 @@ export function SubagentStatusBar(props: {
   phase: SubagentPhase;
   startedAt: number;
   endedAt?: number | undefined;
-  runs: string;
   parent?: ParentLink | undefined;
   actions?: ReactNode;
 }) {
+  const glyph = outcomeGlyphs[props.phase];
   return (
     <div className="@container/subagent-bar min-w-0">
       <div
@@ -42,12 +58,12 @@ export function SubagentStatusBar(props: {
         aria-label="Subagent"
         className={cn(
           composerSurface,
-          "relative z-10 flex min-h-12 min-w-0 items-center gap-2 rounded-xl px-2 text-ui",
-          // Narrow, Stop, Continue, Fork and Open parent keep their icons; their names stay spoken.
-          "@max-[30rem]/subagent-bar:gap-1 @max-[30rem]/subagent-bar:[&_[data-slot=stop-label]]:sr-only @max-[30rem]/subagent-bar:[&_[data-slot=action-label]]:sr-only",
+          "relative z-10 flex h-12 min-w-0 items-center gap-2 rounded-xl pr-2 pl-4 text-ui",
+          // Narrow, labelled actions keep their icons; their names stay spoken.
+          "@max-[30rem]/subagent-bar:pl-3 @max-[30rem]/subagent-bar:[&_[data-slot=stop-label]]:sr-only @max-[30rem]/subagent-bar:[&_[data-slot=action-label]]:sr-only",
         )}
       >
-        <span className="flex min-w-12 shrink items-center gap-1.5 pl-2">
+        <span className="flex min-w-4 shrink items-center gap-2">
           <ProviderIcon
             provider={props.provider}
             acpAgentId={props.acpAgentId}
@@ -56,28 +72,28 @@ export function SubagentStatusBar(props: {
             decorative
             className="shrink-0"
           />
-          <span className="min-w-6 truncate font-medium">{props.model}</span>
+          <span className="min-w-6 truncate font-medium @max-[26rem]/subagent-bar:sr-only">
+            {props.model}
+          </span>
           {props.effort && (
-            <span className="shrink-0 text-muted-foreground @max-[26rem]/subagent-bar:hidden">
+            <span className="shrink-0 text-subtle-foreground @max-[26rem]/subagent-bar:hidden">
               {props.effort}
             </span>
           )}
         </span>
+        <span aria-hidden className={controlDivider} />
         {props.phase === "running" ? (
           // The live line's own look: its time ticks through a ref, never a render.
-          <WorkingIndicator
-            from={props.startedAt}
-            className="shrink-0 pl-1 text-muted-foreground"
-          />
+          <WorkingIndicator from={props.startedAt} className="shrink-0 text-muted-foreground" />
         ) : (
-          <span className="min-w-0 shrink truncate pl-1 text-muted-foreground tabular-nums">
-            {subagentOutcome(props.phase, props.startedAt, props.endedAt, props.startedAt)}
+          <span className="flex min-w-0 shrink items-center gap-1.5 text-muted-foreground tabular-nums">
+            {glyph && <StatusGlyph state={glyph} size={12} />}
+            <span className="truncate">
+              {subagentOutcome(props.phase, props.startedAt, props.endedAt, props.startedAt)}
+            </span>
           </span>
         )}
-        <span className="ml-auto flex shrink-0 items-center gap-0.5">
-          <span className="pr-1 text-xs text-subtle-foreground @max-[36rem]/subagent-bar:hidden">
-            {props.runs}
-          </span>
+        <span className="ml-auto flex shrink-0 items-center gap-1">
           {props.actions}
           {props.parent && <BackToParent parent={props.parent} />}
         </span>
@@ -86,29 +102,36 @@ export function SubagentStatusBar(props: {
   );
 }
 
-const backClass = cn(stripControl, "h-8 shrink-0 text-ui text-foreground");
+const backClass =
+  "inline-grid size-7.5 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit hover:bg-accent hover:text-foreground";
 
 function BackToParent(props: { parent: ParentLink }) {
   const { threadId, agentId } = props.parent;
-  const inner = (
-    <>
-      <ArrowBendLeftUpIcon aria-hidden size={15} className="shrink-0" />
-      {/* Narrow, the arrow alone; the model and how it went keep the room. */}
-      <span data-slot="action-label">Open parent</span>
-    </>
-  );
-  return agentId ? (
-    <Link
-      to="/t/$threadId/agents/$agentId"
-      params={{ threadId, agentId }}
-      aria-label="Open parent"
-      className={backClass}
-    >
-      {inner}
-    </Link>
-  ) : (
-    <Link to="/t/$threadId" params={{ threadId }} aria-label="Open parent" className={backClass}>
-      {inner}
-    </Link>
+  const icon = <ArrowBendLeftUpIcon aria-hidden size={16} />;
+  const title = useThreadMeta(threadId)?.title;
+  const agent = useAgent(threadId, agentId ?? "");
+  const name = agentId ? agent && agentName(agent) : title;
+  return (
+    <Tip label={name ? `Back to ${name}` : "Open parent"}>
+      {agentId ? (
+        <Link
+          to="/t/$threadId/agents/$agentId"
+          params={{ threadId, agentId }}
+          aria-label="Open parent"
+          className={backClass}
+        >
+          {icon}
+        </Link>
+      ) : (
+        <Link
+          to="/t/$threadId"
+          params={{ threadId }}
+          aria-label="Open parent"
+          className={backClass}
+        >
+          {icon}
+        </Link>
+      )}
+    </Tip>
   );
 }
