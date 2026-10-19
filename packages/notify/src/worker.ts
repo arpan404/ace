@@ -2,6 +2,7 @@ import { replayGap } from "./replay-gap.ts";
 import { Worker, type WorkerOptions } from "node:worker_threads";
 import {
   NotificationAddress,
+  NotificationFeed,
   NotificationPreferences,
   type Notification,
   type DeviceId,
@@ -10,7 +11,13 @@ import {
   type ThreadId,
 } from "@ace/protocol";
 import type { NotificationTransport } from "./service.ts";
-import { FromWorker, WorkerConfig, ToWorker, type WorkerCall } from "./worker-wire.ts";
+import {
+  FromWorker,
+  WorkerConfig,
+  ToWorker,
+  type WorkerCall,
+  type WorkerValue,
+} from "./worker-wire.ts";
 import { metadata, type MetadataEvent } from "./metadata.ts";
 
 /** A message that claims to be a worker reply: an object with a string `type`. */
@@ -38,7 +45,7 @@ export class NotificationWorker {
   private pending = new Map<
     number,
     {
-      resolve(value: number | import("@ace/protocol").NotificationPreferences | undefined): void;
+      resolve(value: WorkerValue): void;
       reject(error: Error): void;
       bytes: number;
       disconnect: boolean;
@@ -185,10 +192,7 @@ export class NotificationWorker {
       });
     });
   }
-  private call(
-    call: WorkerCall,
-    signal?: AbortSignal,
-  ): Promise<number | import("@ace/protocol").NotificationPreferences | undefined> {
+  private call(call: WorkerCall, signal?: AbortSignal): Promise<WorkerValue> {
     if (signal?.aborted)
       return Promise.reject(new DOMException("Notification operation aborted", "AbortError"));
     if (this.failed) return Promise.reject(this.failed);
@@ -298,6 +302,10 @@ export class NotificationWorker {
   async register(device: DeviceId, address: unknown): Promise<void> {
     await this.call({ method: "register", device, address: NotificationAddress.parse(address) });
   }
+  /** Stops alerts to this device until it registers again. */
+  async unregister(device: DeviceId): Promise<void> {
+    await this.call({ method: "unregister", device });
+  }
   async getPreferences(device: DeviceId) {
     return NotificationPreferences.parse(
       (await this.call({ method: "getPreferences", device })) ?? {},
@@ -318,6 +326,10 @@ export class NotificationWorker {
   }
   async updatePresence(session: string, device: DeviceId, update: PresenceUpdate): Promise<void> {
     await this.call({ method: "presence", session, device, update });
+  }
+  /** Catch-up for a client that missed live delivery while suspended. */
+  async feed(device: DeviceId, afterCursor: number): Promise<NotificationFeed> {
+    return NotificationFeed.parse(await this.call({ method: "feed", device, afterCursor }));
   }
   async disconnect(session: string): Promise<void> {
     await this.call({ method: "disconnect", session });

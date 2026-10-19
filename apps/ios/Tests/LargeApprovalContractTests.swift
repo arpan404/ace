@@ -50,20 +50,20 @@ import Testing
     }
 
     private func manyTarget() throws -> ConnectionTarget {
-        ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:9841")), hostId: "ios-spike-host", deviceId: "ios-contract-device", pin: nil, credential: { "{\"token\":\"ios-spike-token\"}" })
+        ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:\(SpikeFixture.port)")), hostId: "ios-spike-host", deviceId: "ios-contract-device", pin: nil, credential: { "{\"token\":\"ios-spike-token\"}" })
     }
     private func createMany(_ id: String) async throws {
-        var request = URLRequest(url: try #require(URL(string: "http://127.0.0.1:9841/review/many")))
+        var request = URLRequest(url: try #require(URL(string: "http://127.0.0.1:\(SpikeFixture.port)/review/many")))
         request.httpMethod = "POST"
         request.httpBody = try JSONEncoder().encode(CreateScenario(id: id))
         let (_, response) = try await URLSession.shared.data(for: request)
         #expect((response as? HTTPURLResponse)?.statusCode == 200)
     }
     private func verifyResolution(thread: String, interaction: String, option: String) async throws {
-        let (data, _) = try await URLSession.shared.data(from: #require(URL(string: "http://127.0.0.1:9841/state?thread=\(thread)")))
+        let (data, _) = try await URLSession.shared.data(from: #require(URL(string: "http://127.0.0.1:\(SpikeFixture.port)/state?thread=\(thread)")))
         let state = try JSONDecoder().decode(CanonicalState.self, from: data)
         #expect(state.interactions[interaction]?.resolution?.optionId == option)
-        let (health, _) = try await URLSession.shared.data(from: #require(URL(string: "http://127.0.0.1:9841/health")))
+        let (health, _) = try await URLSession.shared.data(from: #require(URL(string: "http://127.0.0.1:\(SpikeFixture.port)/health")))
         #expect(try JSONDecoder().decode(Health.self, from: health).fragmentParts > 0)
     }
     private func untilMany(_ condition: () -> Bool) async throws {

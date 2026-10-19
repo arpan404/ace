@@ -11,7 +11,7 @@ export interface TranscriptRowContent {
   quiet: boolean;
 }
 
-/** What a transcript item shows on Android; HTML visualizations can't render here yet. */
+/** What a transcript item shows on the native apps; HTML visualizations render only on desktop and web. */
 export function transcriptRowContent(item: Item): TranscriptRowContent {
   const row = { text: "", detail: "", user: false, quiet: false };
   if (item.type === "message") {

@@ -1,6 +1,11 @@
 import { expect, test } from "vitest";
 import { accessModeOffers } from "@ace/provider-kit/access-modes";
-import { accessChoices, supportedAccess, threadAccessSummary } from "./permissions.ts";
+import {
+  accessChoices,
+  newThreadAccess,
+  supportedAccess,
+  threadAccessSummary,
+} from "./permissions.ts";
 
 const offers = (provider: "claude" | "opencode" | "cursor") => accessModeOffers({ provider });
 
@@ -58,4 +63,47 @@ test("an Advanced native override reads as Custom", () => {
       { defaultMode: "auto-review" },
     ),
   ).toMatchObject({ label: "Custom", custom: "my-profile", mode: null, stricter: undefined });
+});
+
+test("a new thread runs at the draft's choice, else the project's default, else the daemon's", () => {
+  const base = { daemonDefault: "ask", offers: offers("claude"), provider: "Claude" } as const;
+  expect(newThreadAccess({ ...base, chosen: undefined, projectDefault: undefined }).admitted).toBe(
+    "ask",
+  );
+  const project = newThreadAccess({ ...base, chosen: undefined, projectDefault: "read-only" });
+  expect([project.admitted, project.permission]).toEqual(["read-only", "read-only"]);
+  const chosen = newThreadAccess({ ...base, chosen: "full-access", projectDefault: "read-only" });
+  expect([chosen.admitted, chosen.summary?.label]).toEqual(["full-access", "Full access"]);
+});
+
+test("a new thread never runs looser than asked: it steps down, or Send waits with the reason", () => {
+  const stepped = newThreadAccess({
+    chosen: "auto-review",
+    projectDefault: undefined,
+    daemonDefault: undefined,
+    offers: offers("opencode"),
+    provider: "OpenCode",
+  });
+  expect([stepped.admitted, stepped.problem]).toEqual(["ask", undefined]);
+  const none = newThreadAccess({
+    chosen: "ask",
+    projectDefault: undefined,
+    daemonDefault: undefined,
+    offers: offers("cursor"),
+    provider: "Cursor",
+  });
+  expect(none.permission).toBeUndefined();
+  expect(none.problem).toBe(
+    "Cursor has nothing as strict as Ask. Choose its access before sending.",
+  );
+});
+
+test("before the provider's modes are read only a mode picked here goes with the create", () => {
+  const unread = { offers: [], provider: undefined, projectDefault: "ask" } as const;
+  expect(
+    newThreadAccess({ ...unread, chosen: undefined, daemonDefault: "full-access" }).permission,
+  ).toBeUndefined();
+  expect(
+    newThreadAccess({ ...unread, chosen: "read-only", daemonDefault: undefined }).permission,
+  ).toBe("read-only");
 });

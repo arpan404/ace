@@ -31,9 +31,7 @@ import { useOrganizerState } from "@/features/organize/index.ts";
 import {
   defaultWorktreeBase,
   accessChoices,
-  accessLabel,
-  supportedAccess,
-  threadAccessSummary,
+  newThreadAccess,
   providerNames,
   speedOption,
 } from "@ace/ui-core";
@@ -328,23 +326,18 @@ function PreparationPage(props: {
     remember({ permission: mode });
   };
   const accessModes = useAccessModes(runsOn, undefined, runsOnAccount);
-  const defaultAccess = projectDefaults?.access ?? daemonDefault;
-  const wantedAccess = access ?? defaultAccess;
-  const admittedAccess = wantedAccess
-    ? supportedAccess(wantedAccess, accessModes.offers)
-    : undefined;
-  const accessSummary = threadAccessSummary(
-    { override: access ?? null, effective: admittedAccess ?? null, pending: false },
-    accessModes.offers,
-    {
-      ...(defaultAccess ? { defaultMode: defaultAccess } : {}),
-      provider: runsOn ? providerNames[runsOn] : undefined,
-    },
-  );
-  const noStricterAccess =
-    runsOn && wantedAccess && accessModes.offers.length && !admittedAccess
-      ? `${providerNames[runsOn]} has nothing as strict as ${accessLabel(wantedAccess)}. Choose its access before sending.`
-      : undefined;
+  const {
+    admitted: admittedAccess,
+    summary: accessSummary,
+    problem: noStricterAccess,
+    permission: createAccess,
+  } = newThreadAccess({
+    chosen: access,
+    projectDefault: projectDefaults?.access,
+    daemonDefault,
+    offers: accessModes.offers,
+    provider: runsOn ? providerNames[runsOn] : undefined,
+  });
 
   const remember = (patch: Partial<Preparation> = {}) => {
     const previous = preparation(storage, props.host, draftKey);
@@ -621,7 +614,7 @@ function PreparationPage(props: {
       serviceTier: launchModel.serviceTier,
       // Before the provider's modes are read, only a mode picked here is sent; otherwise the
       // daemon applies the project's or its own default.
-      permission: admittedAccess ?? (accessModes.offers.length ? undefined : access),
+      permission: createAccess,
       input: draft.input,
       text: draft.text,
       context: {

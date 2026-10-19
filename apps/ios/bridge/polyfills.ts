@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { host } from "./host.ts";
 
 // Only the portable SDK's required Web APIs. Encoding and entropy belong to the native host.
@@ -61,6 +62,57 @@ class CancellationController {
     this.signal.abort(reason);
   }
 }
+const URLParts = z.strictObject({
+  protocol: z.string(),
+  username: z.string(),
+  password: z.string(),
+  hostname: z.string(),
+  port: z.string(),
+  pathname: z.string(),
+  search: z.string(),
+  hash: z.string(),
+});
+/** Read-only absolute URLs, enough for the SDK's credential-free endpoint checks. */
+class AbsoluteURL {
+  readonly protocol: string;
+  readonly username: string;
+  readonly password: string;
+  readonly hostname: string;
+  readonly port: string;
+  readonly pathname: string;
+  readonly search: string;
+  readonly hash: string;
+  constructor(input: string, base?: string) {
+    const text = host.parseURL(String(input));
+    if (base !== undefined || !text) throw new TypeError("Invalid URL");
+    const parts = URLParts.parse(JSON.parse(text));
+    this.protocol = parts.protocol;
+    this.username = parts.username;
+    this.password = parts.password;
+    this.hostname = parts.hostname;
+    this.port = parts.port;
+    this.pathname = parts.pathname;
+    this.search = parts.search;
+    this.hash = parts.hash;
+  }
+  get host(): string {
+    return this.port ? `${this.hostname}:${this.port}` : this.hostname;
+  }
+  get origin(): string {
+    return `${this.protocol}//${this.host}`;
+  }
+  get href(): string {
+    const credentials = this.username
+      ? `${this.username}${this.password ? `:${this.password}` : ""}@`
+      : "";
+    return `${this.protocol}//${credentials}${this.host}${this.pathname}${this.search}${this.hash}`;
+  }
+  toString(): string {
+    return this.href;
+  }
+}
+if (typeof globalThis.URL === "undefined") Object.assign(globalThis, { URL: AbsoluteURL });
+
 Object.assign(globalThis, {
   TextEncoder: UTF8Encoder,
   TextDecoder: UTF8Decoder,

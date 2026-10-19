@@ -10,8 +10,26 @@ enum SpikeConfiguration {
         #endif
     }
     static func target() -> ConnectionTarget? {
-        guard enabled, let url = URL(string: "ws://127.0.0.1:9841") else { return nil }
+        // `--spike-port N` lets parallel fixtures share one Mac; loopback only.
+        let arguments = ProcessInfo.processInfo.arguments
+        let port = arguments.firstIndex(of: "--spike-port").flatMap { arguments.indices.contains($0 + 1) ? Int(arguments[$0 + 1]) : nil } ?? 9841
+        guard enabled, (1024...65535).contains(port), let url = URL(string: "ws://127.0.0.1:\(port)") else { return nil }
         return ConnectionTarget(endpoint: url, hostId: "ios-spike-host", deviceId: "ios-spike-device", pin: nil,
                                 credential: { "{\"token\":\"ios-spike-token\"}" })
+    }
+    /// The fixture machines to run at once. `--spike-machines 9852,9863` connects one runtime per
+    /// port to fixtures started with `ACE_IOS_SPIKE_PORT=<port> ACE_IOS_SPIKE_MACHINE=1`, each its
+    /// own host; otherwise the single `target()`.
+    static func targets() -> [(name: String, target: ConnectionTarget)] {
+        guard enabled else { return [] }
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "--spike-machines"), arguments.indices.contains(index + 1) else {
+            return target().map { [("arpan-mbp", $0)] } ?? []
+        }
+        return arguments[index + 1].split(separator: ",").compactMap { Int($0) }.filter { (1024...65535).contains($0) }.compactMap { port in
+            guard let url = URL(string: "ws://127.0.0.1:\(port)") else { return nil }
+            return ("studio-\(port)", ConnectionTarget(endpoint: url, hostId: "ios-spike-host-\(port)", deviceId: "ios-spike-device", pin: nil,
+                                                       credential: { "{\"token\":\"ios-spike-token\"}" }))
+        }
     }
 }

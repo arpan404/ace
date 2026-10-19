@@ -64,6 +64,7 @@ function Ready({ runtime }: { runtime: Runtime }) {
               <View style={{ flex: 1, paddingTop: insets.top }}>
                 <Inbox
                   client={runtime.client}
+                  now={Date.now}
                   machines={() => setMachines(true)}
                   open={(id) =>
                     navigation.push("Thread", {

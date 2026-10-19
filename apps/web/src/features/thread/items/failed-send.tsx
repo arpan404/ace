@@ -2,8 +2,8 @@ import { useContext, useRef, useState } from "react";
 import { TimeContext } from "@/lib/time.ts";
 import { uploadClock } from "@/features/thread/composer/upload-interruption.ts";
 import { baseName, tokensFromInput } from "@ace/ui-core";
+import { retrySend } from "@ace/client";
 import { useClient, useThreadMeta } from "@ace/client-react";
-import { CommandId } from "@ace/protocol";
 import { ArrowClockwiseIcon, PencilSimpleIcon, WarningIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { Icon } from "@/components/icon.tsx";
@@ -137,49 +137,20 @@ export function useSendActions(threadId: string) {
       if (inFlight.current.has(commandId)) return;
       inFlight.current.add(commandId);
       setPending(new Set(inFlight.current));
-      void (async () => {
-        if (payload.type === "thread.send") {
-          let after: CommandId | undefined;
-          let revision: number | undefined;
-          do {
-            const { queue } = await client.request({
-              type: "queue.get",
-              threadId: payload.threadId,
-              limit: 32,
-              ...(after ? { after: CommandId.parse(after), expectedRevision: revision } : {}),
+      void retrySend(client, commandId, payload)
+        .then((outcome) => {
+          if (outcome !== "resent") return;
+          dismissSend(storage, commandId);
+          // A thread.create retried is a new thread start: its pending route moves with it.
+          if (payload.type === "thread.create")
+            void navigate({
+              to: "/t/$threadId",
+              params: { threadId: `pending:${commandId}:retry` },
+              replace: true,
             });
-            revision = queue.revision;
-            if (queue.messages.some((message) => message.id === commandId)) {
-              const result = await client.command({
-                type: "queue.resume",
-                threadId: payload.threadId,
-                expectedRevision: revision,
-              });
-              if (!result.ok) throw new Error(result.error);
-              return;
-            }
-            after = queue.next ?? undefined;
-          } while (after);
-        }
-        const id = `${commandId}:retry`;
-        // A thread.create retried is a new thread start: its pending route moves with it.
-        await client.enqueue(payload, id).then(
-          () => {
-            dismissSend(storage, commandId);
-            if (payload.type === "thread.create")
-              void navigate({
-                to: "/t/$threadId",
-                params: { threadId: `pending:${id}` },
-                replace: true,
-              });
-          },
-          () => {
-            // The replacement is memory-only when its local write fails. Keep the
-            // original durable failure visible through reload until Retry saves.
-            toast.error({ title: "Couldn't send it again", description: "It is still here." });
-          },
-        );
-      })()
+        })
+        // A replacement whose local write fails is memory-only. Keep the original durable
+        // failure visible through reload until Retry saves.
         .catch(() =>
           toast.error({ title: "Couldn't send it again", description: "It is still here." }),
         )

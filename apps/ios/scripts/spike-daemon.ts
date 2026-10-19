@@ -2,24 +2,46 @@ import { FakeDaemon, facts } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 import type { ServerWebSocket } from "bun";
 import { z } from "zod";
-import { ThreadId } from "@ace/protocol";
+import { CommandId, DeviceId, Notification, ThreadId } from "@ace/protocol";
 import { oversizedScenario, approvalRetryScenario } from "./review-scenarios.ts";
 import { manyActions, snapshotFrames } from "./many-actions.ts";
 import { LostReceipt } from "./lost-receipt.ts";
+import { threadScenarios } from "./thread-scenarios.ts";
+import { RequestScenario, requestScenarios, seedRequest } from "./request-scenarios.ts";
+import { queuedTexts } from "./queue-read.ts";
+import { seedSheets } from "./sheet-scenario.ts";
+import { seedArchive } from "./archive-scenario.ts";
+import { seedProjects } from "./project-scenario.ts";
 
+/** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
+const port = z.coerce
+  .number()
+  .int()
+  .min(1024)
+  .max(65535)
+  .parse(process.env.ACE_IOS_SPIKE_PORT ?? 9841);
+
+/**
+ * `ACE_IOS_SPIKE_MACHINE=1` makes this fixture a separate machine with its own host id, for the
+ * app's `--spike-machines`; otherwise it is the usual `ios-spike-host` on any port.
+ */
+const separate = process.env.ACE_IOS_SPIKE_MACHINE === "1";
+const hostId = separate ? `ios-spike-host-${port}` : "ios-spike-host";
+const machineName = separate ? `studio-${port}` : "arpan-mbp";
 const daemon = new FakeDaemon({
   clock: Date.now,
-  hostId: "ios-spike-host",
-  displayName: "arpan-mbp",
+  hostId,
+  displayName: machineName,
   token: "ios-spike-token",
   snapshotItems: 200,
 });
 const details = (branch: string) => ({
   workspace: { id: "ace", name: "ace-next", path: "/tmp/ace-ios-spike" },
   branch,
-  machine: { host: "ios-spike-host", name: "arpan-mbp" },
+  machine: { host: hostId, name: machineName },
 });
 daemon.createThread({
+  hasSentMessage: true,
   id: "ios-stream",
   workspaceId: "ace",
   title: "ace CLI phase 2",
@@ -51,54 +73,7 @@ daemon.apply("ios-stream", [
   ),
 ]);
 daemon.createThread({
-  id: "ios-approval",
-  workspaceId: "ace",
-  title: "Fix the flaky queue test",
-  provider: "codex",
-  details: details("fix/queue"),
-  access: "ask",
-});
-daemon.apply("ios-approval", [
-  facts.rootAgent("codex"),
-  facts.turn("root"),
-  facts.message("root", "ask", "user", "Fix the flaky queue test, then push the branch."),
-  facts.tool("root", "edit", {
-    kind: "file.read",
-    title: "Read queue.test.ts",
-    detail: { kind: "file.read", path: "queue.test.ts" },
-  }),
-  facts.toolDone("root", "edit"),
-  facts.message(
-    "root",
-    "answer",
-    "assistant",
-    "The retry timer used wall-clock time, so a slow CI box could fire it twice. The test now pins the injected clock. All 214 tests pass.",
-  ),
-  facts.tool("root", "push", {
-    kind: "shell",
-    title: "Codex wants to run a command",
-    status: "awaiting_approval",
-    detail: { kind: "shell", command: "git push origin fix/queue" },
-  }),
-  {
-    type: "interaction.opened",
-    agent: "root",
-    interaction: "push",
-    item: "push",
-    blocking: true,
-    request: {
-      kind: "approval",
-      title: "Codex wants to run a command",
-      description: "Publishes 2 commits to GitHub",
-      options: [
-        { id: "deny", label: "Deny", kind: "deny" },
-        { id: "always", label: "Always here", kind: "allow_session" },
-        { id: "allow", label: "Allow", kind: "allow_once" },
-      ],
-    },
-  },
-]);
-daemon.createThread({
+  hasSentMessage: true,
   id: "ios-done",
   workspaceId: "ace",
   title: "Tighten the composer spacing",
@@ -117,6 +92,7 @@ daemon.apply("ios-done", [
   facts.endTurn("root"),
 ]);
 daemon.createThread({
+  hasSentMessage: true,
   id: "ios-tree",
   workspaceId: "ace",
   title: "Review PID-reuse safety",
@@ -130,6 +106,37 @@ daemon.apply("ios-tree", [
   facts.turn("reviewer", "spawn"),
   facts.endTurn("root"),
 ]);
+seedSheets(daemon);
+daemon.createThread({
+  hasSentMessage: true,
+  id: "ios-snoozed",
+  workspaceId: "ace",
+  title: "Release notes for 0.9",
+  provider: "codex",
+  details: details("docs/0.9"),
+});
+daemon.apply("ios-snoozed", [
+  facts.rootAgent("codex"),
+  facts.turn("root"),
+  facts.message("root", "notes", "assistant", "Drafted the 0.9 release notes."),
+  facts.endTurn("root"),
+]);
+// Organization goes through the daemon's own command path, as a client's would.
+daemon.command({
+  id: CommandId.parse("ios-spike-snooze"),
+  deviceId: DeviceId.parse("ios-spike-seed"),
+  payload: {
+    type: "thread.snooze",
+    threadId: ThreadId.parse("ios-snoozed"),
+    until: Date.now() + 3 * 60 * 60 * 1000,
+  },
+});
+
+threadScenarios(daemon, details);
+seedArchive(daemon, Date.now(), Number(process.env.ACE_IOS_SPIKE_NAP_MS ?? 90_000));
+seedProjects(daemon);
+requestScenarios(daemon, details);
+let fresh = 0;
 
 const connections = new Map<ServerWebSocket<undefined>, ReturnType<FakeDaemon["connect"]>>();
 let online = true;
@@ -139,10 +146,35 @@ let snapshots = 0;
 let replays = 0;
 let fragmentParts = 0;
 const Control = z.object({ online: z.boolean() });
+let notices = 0;
+/** A canonical alert for a seeded thread, as the daemon's notify worker would send it. */
+function spikeNotification(threadId: ThreadId, id: string): Notification | undefined {
+  const view = daemon.snapshot({ kind: "thread", threadId });
+  if (view?.kind !== "thread") return undefined;
+  const pending = Object.values(view.interactions).find((entry) => entry.state === "pending");
+  const request = pending?.request.kind === "approval" ? pending.request : undefined;
+  const allow = request?.options.find((option) => option.kind === "allow_once");
+  const deny = request?.options.find((option) => option.kind === "deny");
+  return Notification.parse({
+    id,
+    threadId,
+    title: view.thread.title,
+    status: pending ? "needs_you" : view.thread.status.state === "failed" ? "failed" : "done",
+    ...(pending ? { interactionId: pending.id } : {}),
+    backgroundCount: 0,
+    actions:
+      allow && deny
+        ? [
+            { action: "approve", optionId: allow.id },
+            { action: "deny", optionId: deny.id },
+          ]
+        : [],
+  });
+}
 const lostReceipt = new LostReceipt();
 const server = Bun.serve<undefined>({
   hostname: "127.0.0.1",
-  port: 9841,
+  port,
   async fetch(request, listener) {
     const path = new URL(request.url).pathname;
     if (path === "/review/receipt") {
@@ -176,6 +208,30 @@ const server = Bun.serve<undefined>({
       oversizedScenario(daemon, z.enum(["create", "work", "approval"]).parse(await request.json()));
       return Response.json({ ok: true });
     }
+    // A new thread for one contract test, so answering it never changes another test's thread.
+    if (path === "/review/fresh" && request.method === "POST") {
+      const scenario = RequestScenario.parse(
+        z.object({ scenario: z.string() }).parse(await request.json()).scenario,
+      );
+      const threadId = `ios-fresh-${scenario}-${++fresh}`;
+      seedRequest(daemon, scenario, threadId, details);
+      return Response.json({ threadId });
+    }
+    if (path === "/review/notify" && request.method === "POST") {
+      const input = z
+        .object({ threadId: ThreadId, id: z.string().min(1).max(64).optional() })
+        .parse(await request.json());
+      const notification = spikeNotification(input.threadId, input.id ?? `spike:${++notices}`);
+      if (!notification) return new Response("Unknown thread", { status: 404 });
+      daemon.notify(notification);
+      return Response.json(notification);
+    }
+    if (path === "/review/retract" && request.method === "POST") {
+      daemon.retractNotification(
+        z.object({ id: z.string().min(1).max(64) }).parse(await request.json()).id,
+      );
+      return Response.json({ ok: true });
+    }
     if (path === "/health")
       return Response.json({
         head: daemon.head,
@@ -190,6 +246,13 @@ const server = Bun.serve<undefined>({
       if (!online) for (const socket of connections.keys()) socket.close(1001);
       return Response.json({ online });
     }
+    if (path === "/queue")
+      return Response.json({
+        texts: await queuedTexts(
+          daemon,
+          new URL(request.url).searchParams.get("thread") ?? "ios-stream",
+        ),
+      });
     if (path === "/state")
       return Response.json(
         daemon.snapshot({
@@ -246,5 +309,5 @@ process.on("SIGINT", () => {
   server.stop(true);
 });
 console.log(
-  "iOS spike daemon on ws://127.0.0.1:9841. No provider processes or subscription quota.",
+  `iOS spike daemon on ws://127.0.0.1:${port}. No provider processes or subscription quota.`,
 );

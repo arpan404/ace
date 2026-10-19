@@ -14,33 +14,26 @@ import {
   background,
 } from "./components.tsx";
 import { clickable } from "@expo/ui/jetpack-compose/modifiers";
-import { statusAppearance } from "./status.ts";
+import { inboxSections, inboxStatus, type InboxThread } from "@ace/ui-core/mobile";
+import { displayAppearance } from "./status.ts";
 
 type InboxEntry = { kind: "heading"; id: string; title: string } | { kind: "thread"; id: string };
-const order = ["Needs you", "Working", "Waiting", "Done"];
-function entries(store: SidebarSource): InboxEntry[] {
-  const groups = new Map<string, string[]>();
+/** One daemon for now; rows keep a machine so a merged inbox can tell them apart later. */
+const machineId = "local";
+function inboxThread(store: SidebarSource, id: string): InboxThread | undefined {
+  const entry = store.thread(id);
+  return entry && { key: id, machineId, entry, unconfirmed: store.unconfirmed };
+}
+function entries(store: SidebarSource, now: number): InboxEntry[] {
+  const threads: InboxThread[] = [];
   for (const id of store.ids) {
-    const thread = store.thread(id);
-    if (!thread) continue;
-    const group =
-      thread.status.state === "needs_you"
-        ? "Needs you"
-        : thread.status.state === "working"
-          ? "Working"
-          : thread.status.state === "done"
-            ? "Done"
-            : "Waiting";
-    const list = groups.get(group) ?? [];
-    list.push(id);
-    groups.set(group, list);
+    const thread = inboxThread(store, id);
+    if (thread) threads.push(thread);
   }
   const rows: InboxEntry[] = [];
-  for (const title of order) {
-    const ids = groups.get(title) ?? [];
-    if (!ids.length) continue;
-    rows.push({ kind: "heading", id: `heading:${title}`, title });
-    for (const id of ids) rows.push({ kind: "thread", id });
+  for (const section of inboxSections(threads, [], now)) {
+    rows.push({ kind: "heading", id: `heading:${section.key}`, title: section.label });
+    for (const id of section.keys) rows.push({ kind: "thread", id });
   }
   return rows;
 }
@@ -48,16 +41,27 @@ const InboxRow = memo(function InboxRow({
   id,
   store,
   open,
+  now,
 }: {
   id: string;
   store: SidebarSource;
   open(id: string): void;
+  now(): number;
 }) {
   const theme = useTheme();
-  const selection = useMemo(() => store.select([`thread:${id}`], (r) => r.thread(id)), [store, id]);
-  const thread = useSelection(selection);
-  if (!thread) return null;
-  const status = statusAppearance(thread.status, theme);
+  const selection = useMemo(
+    () =>
+      store.select(
+        [`thread:${id}`, "unconfirmed", "sync"],
+        () => inboxThread(store, id),
+        (a, b) => a?.entry === b?.entry && a?.unconfirmed === b?.unconfirmed,
+      ),
+    [store, id],
+  );
+  const row = useSelection(selection);
+  if (!row) return null;
+  const thread = row.entry;
+  const status = displayAppearance(inboxStatus(row, now()), theme);
   return (
     <View
       style={{
@@ -103,10 +107,12 @@ export function Inbox({
   client,
   open,
   machines,
+  now,
 }: {
   client: ClientApi;
   open(id: string): void;
   machines(): void;
+  now(): number;
 }) {
   const theme = useTheme();
   const lease = useMemo(() => client.threads(), [client]);
@@ -114,11 +120,11 @@ export function Inbox({
   const selection = useMemo(
     () =>
       lease.store.select(
-        ["threads", "ids"],
-        () => entries(lease.store),
+        ["threads", "ids", "unconfirmed", "sync"],
+        () => entries(lease.store, now()),
         (a, b) => a.length === b.length && a.every((v, i) => v.id === b[i]?.id),
       ),
-    [lease],
+    [lease, now],
   );
   const data = useSelection(selection);
   return (
@@ -152,7 +158,7 @@ export function Inbox({
         getItemType={(item) => item.kind}
         renderItem={({ item }) =>
           item.kind === "thread" ? (
-            <InboxRow id={item.id} store={lease.store} open={open} />
+            <InboxRow id={item.id} store={lease.store} open={open} now={now} />
           ) : (
             <View
               style={{

@@ -1361,6 +1361,7 @@ Example:
 | type | yes | `"files.request"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
 | threadId | no | [ThreadId.json](schema/ThreadId.json) |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | scope | no | `"support"` |  |
 | operation | yes | [FileOperation.json](schema/FileOperation.json) |  |
 
@@ -1369,16 +1370,14 @@ Example:
 ```json
 {
   "operation": {
-    "destination": "example",
-    "destinationExpected": null,
     "expected": null,
-    "op": "rename",
+    "op": "delete",
     "path": "example"
   },
   "requestId": "example",
-  "scope": "support",
   "threadId": "example",
-  "type": "files.request"
+  "type": "files.request",
+  "workspaceId": "example"
 }
 ```
 
@@ -2636,11 +2635,13 @@ Example:
 | type | yes | `"presence.update"` |  |
 | threadId | yes | union | {"anyOf":[{"allOf":[{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},{"type":"string","minLength":1,"maxLength":200}]},{"type":"null"}]} |
 | inputAgeMs | yes | integer | {"minimum":0,"maximum":86400000} |
+| appState | no | [AppState.json](schema/AppState.json) |  |
 
 Example:
 
 ```json
 {
+  "appState": "background",
   "inputAgeMs": 9,
   "threadId": null,
   "type": "presence.update"
@@ -2662,10 +2663,26 @@ Example:
   "device": {
     "channel": "apns",
     "platform": "phone",
-    "token": "28fa68CEEa387e57e7BB4541dDfFC40Fd20dEFfe303ff165FA6229Feb9FA4643"
+    "token": "fa68CEEa387e57e7BB4541dDfFC40Fd20dEFfe303ff165FA6229Feb9FA4643bA"
   },
   "requestId": "example",
   "type": "notification.register"
+}
+```
+
+### notification.unregister
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"notification.unregister"` |  |
+| requestId | no | string | {"minLength":1,"maxLength":200} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "notification.unregister"
 }
 ```
 
@@ -2697,9 +2714,8 @@ Example:
 ```json
 {
   "preferences": {
-    "agentSays": false,
     "quietHours": {
-      "endMinute": 3,
+      "endMinute": 7,
       "startMinute": 0,
       "timeZone": "UTC"
     }
@@ -2722,7 +2738,25 @@ Example:
 {
   "threadId": "example",
   "type": "notification.snooze",
-  "until": 7
+  "until": 0
+}
+```
+
+### notification.feed
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"notification.feed"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":200} |
+| afterCursor | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "afterCursor": 6,
+  "requestId": "example",
+  "type": "notification.feed"
 }
 ```
 
@@ -2745,7 +2779,7 @@ Example:
 {
   "deviceId": "example",
   "protocolVersion": 1,
-  "token": "example",
+  "ticket": "example",
   "type": "hello"
 }
 ```
@@ -2764,10 +2798,10 @@ Example:
 
 ```json
 {
-  "afterSeq": 2,
+  "afterSeq": 7,
+  "paced": true,
   "scope": {
-    "kind": "thread",
-    "threadId": "example"
+    "kind": "threads"
   },
   "subscriptionId": "example",
   "type": "subscribe"
@@ -2805,16 +2839,19 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "input": {
-        "account": "E50fV6PIv",
-        "description": "example",
-        "host": "ei10.5j1lw7",
-        "name": "D9VYJ8G.JZM",
-        "owner": "q",
-        "visibility": "public"
+      "source": {
+        "from": {
+          "id": "example",
+          "kind": "checkpoint"
+        },
+        "threadId": "example",
+        "to": {
+          "kind": "commit",
+          "ref": "example"
+        },
+        "workspaceId": "example"
       },
-      "type": "workspace.publish",
-      "workspaceId": "example"
+      "type": "review.open"
     }
   },
   "type": "command"
@@ -2835,8 +2872,8 @@ Example:
 
 ```json
 {
-  "limit": 2,
-  "offset": 7,
+  "limit": 3,
+  "offset": 8,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -2857,8 +2894,8 @@ Example:
 
 ```json
 {
-  "before": 1,
-  "limit": 8,
+  "before": 8,
+  "limit": 4,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"
@@ -2880,9 +2917,9 @@ Example:
 
 ```json
 {
-  "before": 5,
+  "before": 10,
   "collection": "interactions",
-  "limit": 1,
+  "limit": 5,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"
@@ -2903,7 +2940,7 @@ Example:
 ```json
 {
   "before": {
-    "at": 2,
+    "at": 7,
     "id": "example"
   },
   "requestId": "example",

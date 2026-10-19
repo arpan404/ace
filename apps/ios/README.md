@@ -1,8 +1,9 @@
-# Native iOS spike
+# Native iOS app
 
-Phase 0 of #560. SwiftUI runs the shared `@ace/client` SDK in JavaScriptCore on a
-dedicated thread. See [ADR 0074](../../docs/adr/0074-native-ios-client.md) for the
-measured gate and current hold on Phase 1.
+Issue #560. SwiftUI runs the shared `@ace/client` SDK in JavaScriptCore on a dedicated
+thread, one runtime per paired machine. The Phase 0 spike merged on 2026-10-12 and Phase 1
+is built on `ace/ios-mvp`; see [ADR 0074](../../docs/adr/0074-native-ios-client.md). All
+verification so far is in the simulator: real-device performance measurement is still owed.
 
 The [Tailscale roadmap](../../docs/mobile/tailscale-roadmap.md) maps shared features
 and the future native pairing flow for iOS and Android.
@@ -30,7 +31,9 @@ Use one simulator destination and one build at a time. The fixture binds to
 loopback port 9841, invokes no provider CLIs and spends no provider quota. It seeds
 2,000 items, streams 20 deltas per second, opens a shell approval and keeps a child
 working after its root finishes. Restart the fixture before independent screenshot
-or performance runs. Contract sends deliberately add inputs to its history.
+or performance runs. Contract sends deliberately add inputs to its history. The
+streaming thread's turn never ends, so a queued follow-up waits in the daemon queue,
+outside the transcript, as it would on a real daemon; `GET /queue?thread=ID` lists it.
 
 XcodeGen output, generated `Resources/client.js`, build products and xcresult bundles
 are ignored. Run `generate` before opening Xcode. The Swift theme is committed;
@@ -100,14 +103,208 @@ simulator screenshots.
   Additional URL/crypto APIs for future service and encrypted-relay flows need contracts
   before those flows ship.
 
+## Thread screen
+
+`bridge/thread-session.ts` adds, per navigation generation, what the thread screen needs
+beyond item and interaction rows. Transcript blocks come from the web's shared grouping
+(`@ace/ui-core/transcript-blocks`): "Worked for" heads with the shared work counts,
+subagent groups rolled up by whole branch, questions and turn endings. Blocks re-derive on
+membership, run, agent, task or interaction changes, never on a text delta, and each
+changed block is one patch at content priority. Composer controls carry the shared
+steer/queue rule (`followUpDelivery`) and Stop's run fence (`stopFence`); actions send intent
+only, and the bridge builds `thread.send`, `thread.interrupt`, `interaction.resolve`,
+`thread.switch` and failed-send retry (`retrySend`) from the SDK reader. Approval rows name
+the shared Allow once / Always allow / Deny verbs by option index, so large option sets are
+sent once with exact canonical ids.
+
+SwiftUI renders blocks with native Markdown (`Models/Markdown.swift`, SF Mono code blocks),
+collapsible work logs, inline subagent rows (a delegated child thread pushes; a native
+subagent's lane opens a sheet), question and approval cards above the composer, a model
+sheet and the header menu (Stop all agents, Snooze, Archive). The fixture's thread scenarios
+live in `scripts/thread-scenarios.ts`. `ACE_IOS_SPIKE_PORT` moves the fixture, and the app's
+`--spike-port N` argument and `TEST_RUNNER_ACE_IOS_SPIKE_PORT` for tests follow it. TS bridge
+behavior tests run with `bunx vitest run apps/ios/bridge/thread-*.test.ts` (shared harness in
+`bridge/thread-harness.ts`).
+
+Plan reviews, MCP forms and browser requests answer on their own cards
+(`bridge/thread-requests.ts`, validated with the shared `@ace/ui-core` form rules). An opened
+settled "Worked for" log reads its turn's full steps (`turn.steps` through the SDK's bounded
+`TurnStepsCache`), sent in 25-step page patches. While the log is open, a change to one of the
+turn's own items reads the turn's summary (`turns.page`) and holds the turn with its `endSeq`, so
+the cache reads it again only when its copy is older, as the web does. The effort and speed chip follows the web's
+capability rules (`threadTuning`, `followUpTurnOptions` in `@ace/ui-core`); a pick goes with the next
+message only. Photos and files are staged natively (`Sources/Bridge/AttachmentStaging.swift`,
+hashed with CryptoKit); the bridge checks the shared limits and what the agent reads, then uploads
+through `context.request`, pulling one 48 KiB chunk at a time over the `attachment.chunk` host call.
+A message may carry only files (`messageHasContent`, as the web composer allows); refusals use the
+web's wording (`contextErrorMessage`). New thread's picked files are copied into its draft's own
+folder and named in the draft (never a token), so a relaunch puts them back on the message; the
+copies go once the start is saved, or when a file is removed or another project is chosen.
+Thread actions carry their navigation generation (`bridge/thread-route.ts`): a log or lane released
+after its thread was left is dropped, and a submitted action is refused on its own admission.
+A native subagent's lane sheet groups its own blocks (`createBlockReader(agentId)`). Going back from
+a child keeps the parent's last transcript (`ThreadTrail`) until the reopened session's first block.
+Request threads live in `scripts/request-scenarios.ts`; `POST /review/fresh {"scenario": …}` seeds a
+new one per contract test, so suites pass in any order.
+
 ## Scope
 
-The app currently connects through an explicit debug launch argument. Release builds
-cannot use the unpinned loopback fixture. Production targets require WSS and an exact
-QR-confirmed SHA-256 DER SPKI pin; redirects are refused. Actual paired TLS, ticket
-exchange, QR onboarding, Keychain, Face ID, multi-machine UI, questions, Agents and
-Changes remain Phase 1 work. SPKI adapter implementation is present; it has not been
-validated against a real paired daemon in this spike.
+`--spike` (Debug only) connects to the unpinned loopback fixture; release builds require WSS
+and an exact QR-confirmed SHA-256 DER SPKI pin, and refuse redirects. Pairing, Keychain, Face
+ID, several machines, Agents, Changes, Files, New thread and notifications are described
+below. A physical phone over Tailscale and real-device performance are still unverified.
+
+## Inbox
+
+`bridge/inbox.ts` sends each thread row with its status word and colour token, and
+the inbox sections (Needs you, Working, Syncing, Unsent, Done, Snoozed) in order. Both
+come from `@ace/ui-core/mobile`, which Android also uses. Swift filters by search text,
+maps token keys to theme colours and draws the rows. Archive, unarchive (Undo), snooze
+presets and wake go through the SDK's durable outbox. `InboxContractTests` and
+`InboxUITests` exercise the inbox against the fixture.
+
+## Several machines
+
+Every paired machine connects at once, each on its own runtime (VM, socket, outbox
+database, Keychain key), as the web's `MachinePool` gives each machine its own worker.
+Each runtime groups its own threads with `@ace/ui-core/mobile`, which also gives every
+row a rank (`inboxRank`) that depends only on that row. `MergedInbox` orders sections by
+group and rows by rank in UTF-16 order, so the merged inbox matches grouping every
+machine together; the TS tests in `mobile-inbox-merge.test.ts` hold it to that.
+`MachineInbox` keys rows by machine and thread id, routes actions and opened threads to
+the row's machine, and names machines on rows only when more than one is paired. A
+machine that drops gets its own banner and keeps the rows this phone last saw (a copy
+restored from disk and not yet confirmed reads Syncing); the other machines are untouched. Each machine's runtime adds about 48 MiB in the simulator (see the PR).
+
+The header chip opens the Machines sheet: connection word and last seen
+(`bridge/machine-info.ts`, `machineConnection`), access, address, ace version, and the
+coding tools the machine reports (`providers.request` readiness and `accounts.list`,
+worded by `machineProviders`). Rename is local to this phone (`MachineDirectory.rename`);
+remove stops only that machine's runtime, then deletes its credential and database.
+
+`--spike-machines 9852,9863` connects one fixture runtime per port; start each fixture
+with `ACE_IOS_SPIKE_PORT=<port> ACE_IOS_SPIKE_MACHINE=1 bun run spike:daemon` so each is
+its own host. `MachinesUITests` uses those two ports.
+
+## Agents and Changes sheets
+
+The thread header opens two detent sheets (`Views/Agents`, `Views/Changes`). The bridge
+follows each only while its sheet is shown (`bridge/sheets.ts`), and navigation releases both.
+
+- Agents: `agentSheet` in `@ace/ui-core/mobile` shapes the tree depth-first with each
+  agent's tree-aware status (`agentTreeWork`), so a finished root with a working child never
+  reads done. It also carries usage, the root's context meter and background tasks. Trees cap
+  at 100 agents and 30 tasks. Unsettled agents and their ancestors win the cap, and every
+  hidden agent and task is counted. Only entity changes reshape the tree; transcript deltas
+  don't. Stop all, and stopping an agent with subagents, ask first. Stops go through the
+  durable outbox (`thread.interrupt`, cascading), as does `background_task.stop`.
+- Changes: the bridge reads `git.status` (≤500 files), `git.diff` (≤256 KiB) and, for a
+  linked PR, `pr.status`. It keeps these reads only while the sheet is open. It sends at most
+  200 file rows and one file's diff at a time, within 1,500 lines, 1,000 UTF-16 units per
+  line and 96,000 in total. Past that, the view points to the computer. The next step
+  (commit & push, push, create PR, merge) follows the web's `nextGitStep` and `mergeGate`. It
+  runs through the daemon's guarded git and forge commands. A view-only grant
+  (`ClientModel.canOperate`) shows both sheets without their actions.
+
+`scripts/sheet-scenario.ts` seeds the fixture's `ios-tree` thread with a nested subagent
+tree, a running background command, usage, and a three-file diff. The diff includes a
+3,000-line file and a long line. Set `ACE_IOS_SPIKE_PORT` and launch with
+`--spike-port N` to run a fixture beside another agent's.
+
+## New thread, projects and files
+
+The inbox header's compose button opens New thread (`Views/NewThread`). It follows the web's
+New thread: machine (when several are paired), project, an optional new worktree with its base
+(`baseOptions`, `defaultWorktreeBase`), coding agent and model, reasoning effort, speed, access,
+then the first message with any photos or files. The bridge (`bridge/new-thread.ts`) reads
+projects (`workspaces.list`, recent first by thread activity via `newThreadProjects`), the
+machine's agents (`providers.request` readiness, `accounts.list` and the paged `models.list`
+reader shared with the web), and judges each with `newThreadAgents`: one that isn't installed,
+is signed out or needs attention stays listed, disabled, with its reason. The agent picker groups
+models by agent and leads with the model in use (else the account's default); the rest of a long
+list waits behind More models (`newThreadModelList`). Swift tells the bridge what the draft has
+chosen (`choice`), so ordering and access follow it.
+
+- **Speed** offers the tiers the model lists and goes out as `serviceTier`
+  (`selectNewThreadAgent`). **Access** (`bridge/new-thread-access.ts`) reads the daemon's
+  default (`access.defaultMode`) and the chosen account's modes (`permissions.capabilities`),
+  and applies the web's rule, now shared as `newThreadAccess`: the draft's pick, else the
+  project's default, else the daemon's, run as the nearest stricter mode the agent supports. A
+  mode with nothing as strict holds Start with the reason.
+- **First-message files** upload into the project's draft scope (`draft.upload.begin`) through
+  the same `AttachmentTray` as a thread's composer, one 48 KiB chunk at a time. The create
+  carries their `draftId` and hashes, and the new thread takes the scope over, so closing the
+  sheet afterwards releases nothing. A first message of only files can start a thread; one with
+  neither words nor files is refused. Files picked before the app is killed are not kept.
+- Upload and attachment refusals use the web's wording (`contextErrorMessage` in `@ace/ui-core`).
+
+The bridge builds `thread.create` with the web's `createPayload` and admits it through the SDK
+outbox under the draft's own command id, so sending the same draft again, including after the
+app was killed, replays one command. The draft (choices and words, never a token) lives in
+`Application Support/ace/new-thread-draft.json`. Once the receipt names the thread and its row
+arrives, it opens; offline, it waits in Unsent.
+
+`@` mentions insert `@path`, as the web's composer does. Before a thread exists they search a
+device-owned draft scope (`draft.create`, `draft.mention.complete`). Add project searches the
+computer's folders (`fs.recentFolders`, `fs.search`) and registers one with `workspace.add`; a
+computer that refuses this phone's project requests gets "add it on your computer" instead.
+
+A thread's menu opens Files (`bridge/project-files.ts`, `Views/Files`): the daemon's listing of
+the thread's checkout (at most 1,000 paths) shown one folder at a time, 200 rows each with the
+rest counted, search through `mention.complete`, and a read-only SF Mono preview of at most
+128 KiB, 2,000 lines and 96,000 UTF-16 units, past which it says to view the rest on the
+computer. New thread's Browse files opens the same sheet on the chosen project's own folder
+before any thread exists: `files.request` with a `workspaceId` lists, stats and downloads
+read-only inside the registered project root, under the device's read grant (`list`, `stat`
+and `download` only). View-only machines browse but start nothing. `scripts/project-scenario.ts`
+seeds host folders, a 240-file folder and a large log in `ios-done`.
+
+## Pairing with a real daemon
+
+Without `--spike` the app pairs with a real daemon. Scan the QR from `ace pair` (or
+Settings > Remote devices), or paste its link. The confirm screen shows the address,
+grant and fingerprint, and asks for this phone's name. Only scheme, host and port
+leave the link; the code goes in the `/v1/pair` POST body.
+
+- `Sources/Host/PinnedHTTP.swift` and `PinnedSocket.swift` share `PinnedTrust`. It
+  checks the exact SHA-256 DER SPKI pin and the certificate's validity window, with
+  no CA or hostname fallback. Redirects and 3xx responses are refused. Requests are
+  limited to fixed `/v1/` paths with a 1 MiB response cap.
+- The bridge (`bridge/access.ts`, `pairing.ts`, `access-entry.ts`) uses the SDK's
+  `ticketCredential`, `accessResponseError`, protocol schemas and `MachineDirectory`.
+  Every socket attempt exchanges the Keychain token for a fresh `/v1/tickets` ticket.
+  A short-lived pinned connection reads `host.identity` before the machine is stored.
+- Device tokens live only in the Keychain (`AfterFirstUnlockThisDeviceOnly`).
+  A connection runtime may read only its own key. `machines.json` holds non-secret
+  directory metadata; each outbox database is named by host and device identity.
+- Removing a machine awaits its runtime's shutdown and discards its callbacks, then
+  deletes its credential, then its database. Other machines keep running.
+- Face ID or the passcode unlocks the app at launch, and again after 60 seconds in the
+  background. Nothing is read or connected before unlock.
+- Each machine's banner and Machines sheet entry show the SDK's connection problem:
+  unreachable (still retrying), offline, revoked, pin mismatch, or another host. The
+  sheet also marks view-only grants.
+- Local notifications bind to every paired machine's runtime before it connects, each with
+  its own catch-up ledger. Alerts carry their machine, so a tap opens the thread there and
+  Allow/Deny answers that machine. A background refresh connects every paired machine (its
+  grant, Keychain token and outbox) only to catch up on daemon alerts, all within one time
+  budget; it shows no UI, so the app lock still guards the app itself. A view-only pairing
+  never answers Allow/Deny from a notification.
+- A view-only grant replaces the composer with a note, leaves approval choices disabled
+  and drops archive and snooze for that machine's rows. `ClientModel` submits no commands
+  for that machine; the others are unaffected.
+  `NWPathMonitor` reports network changes to the SDK, which owns reconnect.
+
+`bun run e2e:pairing` starts a real daemon with its LAN TLS listener advertised on
+loopback, plus a redirect trap that holds the daemon's own key. It writes
+`/tmp/ace-ios-pairing-e2e/config.json`. With the script running, run
+`-only-testing:AceTests/RealDaemonPairingTests` with `test-without-building`; codes
+expire in five minutes. These tests skip when the config is absent.
+
+## Connection lifecycle
+
+`--spike` (Debug only) keeps the unpinned loopback fixture. Release builds require WSS
+and an exact pin. A real device over Tailscale is still to be verified.
 
 Connection replacement now awaits old-runtime shutdown, clears host-specific views
 and rejects its late updates/errors. Concurrent replacements select the newest
@@ -123,6 +320,46 @@ The thirty Swift tests and this UI test pass with Xcode 26.3 on the iPhone 17 Pr
 iOS 26.3 simulator. These checks do not establish real-device performance, remote
 pairing or daemon-restart durability.
 
-APNs and Live Activity remain Phase 2. No hosted relay, paid Apple service or APNs
-signing credentials are implemented here. The proposed delivery design and approval
-must precede that work.
+## Notifications
+
+Local only ([ADR 0087](../../docs/adr/0087-ios-local-notifications.md)). `Sources/Notifications/`
+posts the daemon's canonical `notification` messages and its `notification.feed` catch-up with
+`UNUserNotificationCenter`; `bridge/notifications.ts` registers the phone (and sends `notification.unregister` while that
+machine's alerts are off), reports foreground or
+background presence and runs approval actions through the SDK outbox. With the fixture running,
+`curl -X POST localhost:9841/review/notify -d '{"threadId":"ios-approval"}'` sends an alert and
+`/review/retract -d '{"id":"…"}'` withdraws one. Remote push (APNs, a push gateway) and Live
+Activities are deferred; see the [draft](../../docs/adr/drafts/ios-push-notifications.md).
+
+## Archive, settings and appearance
+
+- **Snooze end while offline.** `inboxStatus(thread, now)` and `inboxNextChange` in
+  `@ace/ui-core/mobile` decide it: a done thread whose snooze has passed reads "Snooze ended" in
+  Done, and `bridge/inbox.ts` arms one timer (injected clock) for the soonest snooze end, so the
+  phone regroups even when the machine that would wake the thread is offline. The fixture's
+  `ios-nap` is snoozed for `ACE_IOS_SPIKE_NAP_MS` (default 90 s); `POST /control {"online":false}`
+  before it ends to see it.
+- **Archive** (inbox footer, or Settings): `bridge/archive.ts` switches that machine's SDK sidebar
+  to its archive window and sends the shared `archivedOrder`, 20 per page. One machine's archive is
+  followed at a time; closing returns to the home window. An archived thread opens read-only with
+  an Unarchive note. The fixture seeds 45 archived threads.
+- **Settings** (gear in the inbox header): app lock on/off (turning it off asks for Face ID or the
+  passcode) and timeout, both remembered; notifications with a per-machine on/off and that
+  machine's own quiet hours and snoozes; Machines and Archived links; version, licences (ace,
+  Apache-2.0; Zod, MIT; no fonts or icon sets are bundled); a diagnostics export
+  (`DiagnosticsReport`) holding codes and counts only, no tokens, device ids, addresses or pins.
+- **App icon and launch screen**: `bun scripts/generate-icon.ts` draws the desktop's ace mark
+  (`apps/desktop/build/icon.svg`) into a light, dark and tinted 1024 icon and writes the
+  `LaunchBackground` colour from the `background` token.
+- **Accessibility**: `PolishUITests.testEveryScreenPassesTheAccessibilityAudit` audits the inbox,
+  New thread, projects, plan and form cards, steps, thread, Agents, Changes, Files, Machines,
+  Settings and Archive. `testSubScreensPassTheAccessibilityAudit` audits an agent's transcript, a
+  diff, the commit editor, a machine's detail, notification settings per machine and the licences.
+  Missing descriptions and small hit areas fail them; every other finding is attached as a report.
+  Set `TEST_RUNNER_ACE_IOS_TEXT_SIZE` to a content size category to run them at another text size,
+  and `xcrun simctl ui <udid> appearance dark` for dark mode. Both pass at the default size and at
+  `UICTContentSizeCategoryAccessibilityXXXL`. At accessibility sizes they scroll to each target and
+  also audit the rows below the fold, Agents' background tasks and the Changes next step.
+  At accessibility sizes, half-height sheets open full height, and the Changes next step ends the
+  file list instead of floating over it. Rows whose trailing values would squeeze their labels
+  (file counts, provider status and usage, a task's Stop, a machine's Retry) stack them underneath.

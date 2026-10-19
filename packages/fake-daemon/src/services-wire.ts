@@ -3,6 +3,7 @@ import { FakePromptFiles, type PromptSeed } from "./prompt-files.ts";
 import { FakeCatalogWire } from "./catalog-wire.ts";
 import { FakeHistory } from "./history-wire.ts";
 import { FakeMcpWire } from "./mcp-wire.ts";
+import { FakeNotificationFeed } from "./notification-feed.ts";
 import {
   SourceControlPreferences,
   BrowserClientMessage,
@@ -76,6 +77,7 @@ export class FakeServicesWire {
   readonly history: FakeHistory;
   private notificationPublicKey: string | null = null;
   readonly mcp = new FakeMcpWire();
+  readonly notificationFeed = new FakeNotificationFeed();
   readonly browser = new FakeBrowser();
   readonly context: FakeContextWire;
   readonly workspace: FakeWorkspaceWire;
@@ -95,9 +97,13 @@ export class FakeServicesWire {
     this.host = context;
     this.providerStatuses = providerStatuses;
     this.history = new FakeHistory(context);
-    this.files = new FakeFilesWire(context);
+    this.files = new FakeFilesWire(context, (id) => this.workspace.projects.get(id) !== undefined);
     this.settings = settings;
-    this.context = new FakeContextWire(context, (threadId) => this.files.paths(threadId));
+    this.context = new FakeContextWire(
+      context,
+      (threadId) => this.files.paths(threadId),
+      (workspaceId) => this.files.projectPaths(workspaceId),
+    );
     this.workspace = new FakeWorkspaceWire(context);
     this.automations = new FakeAutomationWire(
       context.now,
@@ -219,12 +225,8 @@ export class FakeServicesWire {
             });
             return;
           }
-          if (message.type === "notification.register") {
-            if (message.requestId)
-              emit({ type: "notification.register.result", requestId: message.requestId });
-            return;
-          }
           if (message.type === "notification.preferences") return;
+          if (this.notificationFeed.handle(message, emit, device)) return;
           if (message.type.startsWith("files.")) {
             await files.handle(message, device);
             return;

@@ -11,6 +11,10 @@ export * from "./account-threads.ts";
 export * from "./agents.ts";
 export * from "./arrange.ts";
 export * from "./attachment-fit.ts";
+export * from "./attachment-limits.ts";
+export * from "./context-errors.ts";
+export * from "./turn-options.ts";
+export * from "./elicitation-form.ts";
 export * from "./catalog-ids.ts";
 export * from "./checkout.ts";
 export * from "./action-errors.ts";
@@ -36,6 +40,8 @@ export * from "./held-order.ts";
 export * from "./inline-markdown.ts";
 export * from "./limits.ts";
 export * from "./models.ts";
+export * from "./model-catalog-read.ts";
+export * from "./new-thread-payload.ts";
 export * from "./model-switch-route.ts";
 export * from "./model-picker.ts";
 export * from "./speed.ts";
@@ -108,6 +114,8 @@ export * from "./system-events.ts";
 export * from "./system-input.ts";
 export * from "./approvals.ts";
 export * from "./approval-copy.ts";
+export * from "./follow-up.ts";
+export * from "./stop-fence.ts";
 export {
   composerInput,
   editComposerTokens,

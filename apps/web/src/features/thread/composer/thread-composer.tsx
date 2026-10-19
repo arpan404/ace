@@ -11,11 +11,12 @@ import { ThreadId } from "@ace/protocol";
 import {
   modelLabel,
   providerNames,
-  threadIsRunning,
+  followUpDelivery,
+  isBusy,
   selectionInputs,
   choiceSelection,
   currentModelChoice,
-  resolveEffort,
+  followUpTurnOptions,
   runningSubagents,
   type AttachmentReader,
 } from "@ace/ui-core";
@@ -43,7 +44,7 @@ import { DeferredComposerStrip } from "./deferred-cards.ts";
 import { finishQueueEdit, queueEditSession, saveQueueEdit } from "./queue-edit.ts";
 import { UsageNotice } from "./usage-notice.tsx";
 import { lastSentText } from "./last-sent.ts";
-import { runsOn, changedTurnOptions, selectionIdentity, type PendingTurn } from "./execution.ts";
+import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { clearStop, recordStop, useStopFence, useStopping } from "./stop-state.ts";
 import { useNavigate } from "@tanstack/react-router";
 import { failureMessage } from "@/lib/daemon-command.ts";
@@ -67,11 +68,6 @@ export const stopKeyWindowMs = 1_500;
 
 const pendingQuestion = (interaction: Interaction) =>
   interaction.state === "pending" && interaction.request.kind === "question";
-
-/** The agent is mid-turn or held up: a new message follows up rather than starting a turn. */
-export function isBusy(status: ThreadStatus | undefined): boolean {
-  return threadIsRunning(status) || status?.state === "limited";
-}
 
 /**
  * The thread's composer, on the transcript's column. Enter sends: the message shows as its
@@ -133,30 +129,6 @@ export function ThreadComposer({
   };
 
   const sent = pending?.identity === selectionIdentity(runsOn(meta)) ? pending : undefined;
-  // What a follow-up without options inherits: a switch waiting for the next turn, else what
-  // runs now. Options are sent only where they differ from it.
-  const inherited = runsOn(meta);
-  const pendingModel = currentModelChoice(modelChoices, inherited);
-  const inheritedEffort = resolveEffort(
-    pendingModel?.efforts ?? [],
-    typeof inherited?.options?.["effort"] === "string" ? inherited.options["effort"] : undefined,
-    pendingModel?.defaultEffort,
-  );
-  const pendingEffort =
-    sent &&
-    resolveEffort(
-      pendingModel?.efforts ?? [],
-      typeof sent.options["effort"] === "string" ? sent.options["effort"] : undefined,
-      pendingModel?.defaultEffort,
-    );
-  const pendingOptions = sent && {
-    ...sent.options,
-    ...(pendingEffort !== undefined ? { effort: pendingEffort } : {}),
-  };
-  const followUpOptions = changedTurnOptions(pendingOptions, {
-    ...inherited?.options,
-    ...(inheritedEffort !== undefined ? { effort: inheritedEffort } : {}),
-  });
 
   // A model this thread continues on in a new thread: the next message starts it there.
   const sources = useThreadSources();
@@ -199,26 +171,22 @@ export function ThreadComposer({
     const commandId = crypto.randomUUID();
     // While the agent works the delivery is said outright, so this window knows at once
     // whether the message is a bubble (steered in) or a pill (queued).
-    const other = followUp === "steer" ? "queue" : "steer";
     // A steer always steers: a new model or effort on it takes effect from the next turn.
-    const delivery = busy ? (draft.opposite ? other : (followUp ?? "queue")) : undefined;
-    const selection = runsOn(meta);
-    const model = currentModelChoice(modelChoices, selection);
-    const explicit = sent?.options ?? selection?.options;
-    const effort = resolveEffort(
-      model?.efforts ?? [],
-      typeof explicit?.["effort"] === "string" ? explicit["effort"] : undefined,
-      model?.defaultEffort,
-    );
-    // Steering leaves the running turn intact; its next admission resolves the same default.
-    const options = busy
-      ? followUpOptions
-      : delivery !== "steer" &&
-          effort !== undefined &&
-          (explicit?.["effort"] === undefined ||
-            model?.efforts.includes(String(explicit["effort"])))
-        ? { ...(sent?.options ?? selection?.options), effort }
-        : sent?.options;
+    const delivery = followUpDelivery({
+      status: props.status,
+      canSteer,
+      setting,
+      opposite: draft.opposite,
+    });
+    // What a follow-up without options inherits: a switch waiting for the next turn, else what
+    // runs now. Steering leaves the running turn intact.
+    const options = followUpTurnOptions({
+      thread: meta,
+      choice: currentModelChoice(modelChoices, runsOn(meta)),
+      pending,
+      busy,
+      delivery,
+    });
     const { sendMessage } = await loadSender();
     const ok = await sendMessage({
       client,
