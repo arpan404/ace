@@ -17,7 +17,7 @@ extension CUActor {
         else if let x = action.double("x"), let y = action.double("y") {
             let at = try session.screenPoint(fromPixel: CGPoint(x: x, y: y))
             point = at
-            target = session.element(atScreen: at)
+            target = hitElement(at: at)
         } else { throw CUError("bad_action", "click needs an element id, or x and y from a screenshot.") }
 
         if onScreen, let shown = point ?? target.flatMap(visibleCenter) { indicate(shown) }
@@ -74,6 +74,13 @@ extension CUActor {
         case .selectLine: return selectTextUnit(target, line: true)
         case .post: return nil
         }
+    }
+
+    /// The element under a screen point in true z-order; for a window on another Space, which
+    /// the system cannot hit-test, the outline's answer (sheets and menus on top).
+    func hitElement(at point: CGPoint) -> AXUIElement? {
+        if session.window?.onScreen == true { return session.element(atScreen: point) }
+        return cuHitTest(nodes: session.refreshNodes(), point: point).flatMap { session.registry.element($0) }
     }
 
     /// Pop-up buttons and menu buttons open a menu that tracks keys until it closes.

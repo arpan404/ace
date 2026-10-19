@@ -17,7 +17,7 @@ extension CUActor {
             let at = try session.screenPoint(fromPixel: CGPoint(x: x, y: y))
             point = at
             // On screen, a wheel event at the point is exact; off screen, scroll what is there.
-            if !onScreen { start = session.element(atScreen: at) }
+            if !onScreen { start = hitElement(at: at) }
         } else if let first = session.lastNodes.first(where: { $0.axRole == "AXScrollArea" || $0.axRole == "AXWebArea" }) {
             start = session.registry.element(first.id)
         }
@@ -48,12 +48,15 @@ extension CUActor {
         var current: AXUIElement? = start
         for _ in 0..<8 {
             guard let element = current else { return nil }
-            if pixels == nil, let pages, pages >= 1, cuActionNames(element).contains(byPage) {
-                let count = Int(pages.rounded())
-                for index in 0..<count {
-                    if index > 0 { try checkpoint() }
-                    try await perform(element, byPage)
+            // Some areas list page actions they then refuse; fall back to their bars.
+            if pixels == nil, let pages, pages >= 1, cuActionNames(element).contains(byPage),
+               AXUIElementPerformAction(element, byPage as CFString) == .success {
+                let count = max(1, Int(pages.rounded()))
+                for _ in 1..<count {
+                    try checkpoint()
+                    AXUIElementPerformAction(element, byPage as CFString)
                 }
+                session.settler.markChanged()
                 return "scrolled \(label(element)) \(direction) \(count) page(s)"
             }
             if cuRole(element) == "AXScrollArea", let visible = cuFrame(of: element) {
@@ -62,6 +65,10 @@ extension CUActor {
                 let vertical = direction == "up" || direction == "down"
                 if let percent = moveScrollBar(element, by: vertical ? CGVector(dx: 0, dy: signed) : CGVector(dx: signed, dy: 0)) {
                     return "scrolled \(label(element)) \(direction) to \(percent)%"
+                }
+                if let content = (cuAttribute(element, "AXContents") as? [AXUIElement])?.first.flatMap(cuFrame(of:)),
+                   vertical ? content.height <= visible.height + 1 : content.width <= visible.width + 1 {
+                    return "\(label(element)) already shows all its content; nothing to scroll \(direction)"
                 }
             }
             current = parent(element)

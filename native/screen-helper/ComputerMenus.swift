@@ -36,6 +36,17 @@ func cuWindowButtonAttribute(forCommand title: String) -> String? {
     }
 }
 
+/// Edit menu items that are text commands.
+func cuMenuTextCommand(_ title: String) -> CUTextCommand? {
+    switch cuMenuTitleKey(title) {
+    case "copy": return .copy
+    case "cut": return .cut
+    case "paste": return .paste
+    case "select all": return .selectAll
+    default: return nil
+    }
+}
+
 extension CUActor {
     func windowButton(forCommand title: String) -> AXUIElement? {
         guard let window = session.window?.element, let attribute = cuWindowButtonAttribute(forCommand: title) else { return nil }
@@ -66,6 +77,15 @@ extension CUActor {
             }
             trail.append(item.1)
             if index == path.count - 1 {
+                if cuMenuTitleKey(item.1).hasPrefix("paste"), let focused = focusedElement(), cuIsSecure(focused) {
+                    throw CUError("secure_field", "The focused field is a password field. Ask the person to fill it in themselves.")
+                }
+                // A background app's Edit commands act on no first responder; do them on the text.
+                if !session.app.isActive, let command = cuMenuTextCommand(item.1), let target = CUTextTarget.focused(in: session.element),
+                   let done = await cuRunTextCommand(command, on: target) {
+                    session.settler.markChanged()
+                    return "chose \(trail.joined(separator: " > ")) (\(done))"
+                }
                 if !session.app.isActive, let button = windowButton(forCommand: item.1) {
                     let note = try await perform(button, "AXPress")
                     return "chose \(trail.joined(separator: " > ")) (with the window's button)\(note)"

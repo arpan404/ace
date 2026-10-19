@@ -38,6 +38,23 @@ struct CUMouseEvent: Equatable {
     let delayMs: Int
 }
 
+/// The outline element under a point, for windows the system cannot hit-test (another
+/// Space). A sheet, popover or open menu covering the window takes every point: only its own
+/// elements can be hit, and points outside it hit nothing. Among candidates the smallest
+/// acting element wins.
+func cuHitTest(nodes: [CUNode], point: CGPoint) -> Int? {
+    var candidates = nodes
+    if let top = nodes.lastIndex(where: { ["AXSheet", "AXPopover", "AXMenu"].contains($0.axRole) }) {
+        let depth = nodes[top].depth
+        let end = nodes[(top + 1)...].firstIndex { $0.depth <= depth } ?? nodes.endIndex
+        candidates = Array(nodes[top..<end])
+    }
+    let containing = candidates.filter { $0.frame?.contains(point) == true && $0.axRole != "AXWindow" }
+    func area(_ node: CUNode) -> CGFloat { (node.frame?.width ?? 0) * (node.frame?.height ?? 0) }
+    let acting = containing.filter { $0.axActions.contains("AXPress") || cuTextInputRoles.contains($0.axRole) || ["AXRow", "AXCell", "AXOutlineRow", "AXLink"].contains($0.axRole) }
+    return (acting.isEmpty ? containing : acting).min { area($0) < area($1) }?.id
+}
+
 /// How a click reaches the app.
 enum CUClickRoute: Equatable {
     case press, pressAncestor, open, showMenu, focus, selectRow, selectWord, selectLine, post
@@ -155,6 +172,11 @@ func cuWheelDeltas(direction: String, distance: Double, step: Double = 400) -> [
 /// below or right of view. Zero when it already fits (or cannot fit any better).
 func cuRevealOffset(element: CGRect, visible: CGRect) -> CGVector {
     func axis(_ low: CGFloat, _ high: CGFloat, _ viewLow: CGFloat, _ viewHigh: CGFloat) -> CGFloat {
+        // An element at least as large as the view is in view once it overlaps it.
+        if high - low >= viewHigh - viewLow {
+            if low < viewHigh && high > viewLow { return 0 }
+            return low >= viewHigh ? low - viewLow : high - viewHigh
+        }
         if low < viewLow { return low - viewLow }
         if high > viewHigh { return min(high - viewHigh, low - viewLow) }
         return 0

@@ -44,6 +44,32 @@ final class ComputerClickRouteTests: XCTestCase {
     }
 }
 
+final class ComputerHitTestTests: XCTestCase {
+    private let window = CGRect(x: 0, y: 0, width: 400, height: 300)
+
+    func testTheSmallestActingElementUnderThePointIsHit() {
+        let nodes = [
+            cuTestNode(1, depth: 0, frame: window, axRole: "AXWindow"),
+            cuTestNode(2, frame: CGRect(x: 0, y: 0, width: 200, height: 100), axRole: "AXGroup", axActions: []),
+            cuTestNode(3, depth: 2, frame: CGRect(x: 10, y: 10, width: 60, height: 20)),
+            cuTestNode(4, depth: 3, frame: CGRect(x: 12, y: 12, width: 30, height: 10), axRole: "AXStaticText", axActions: []),
+        ]
+        XCTAssertEqual(cuHitTest(nodes: nodes, point: CGPoint(x: 20, y: 15)), 3)
+        XCTAssertEqual(cuHitTest(nodes: nodes, point: CGPoint(x: 150, y: 80)), 2)
+    }
+
+    func testAnOpenSheetHidesTheWindowBehindIt() {
+        let nodes = [
+            cuTestNode(1, depth: 0, frame: window, axRole: "AXWindow"),
+            cuTestNode(2, frame: CGRect(x: 10, y: 10, width: 60, height: 20)),
+            cuTestNode(3, frame: CGRect(x: 100, y: 0, width: 200, height: 150), axRole: "AXSheet", axActions: []),
+            cuTestNode(4, depth: 2, frame: CGRect(x: 120, y: 100, width: 60, height: 20)),
+        ]
+        XCTAssertEqual(cuHitTest(nodes: nodes, point: CGPoint(x: 130, y: 110)), 4)
+        XCTAssertNil(cuHitTest(nodes: nodes, point: CGPoint(x: 20, y: 15)))
+    }
+}
+
 final class ComputerPointerPlanTests: XCTestCase {
     func testDoubleClicksRaiseTheClickStateAndHoldKeepsTheLastPressDown() {
         let events = cuClickEvents(at: CGPoint(x: 5, y: 5), button: .left, count: 2, holdMs: 700)
@@ -85,6 +111,15 @@ final class ComputerPointerPlanTests: XCTestCase {
         XCTAssertEqual(cuRevealOffset(element: CGRect(x: 10, y: 500, width: 50, height: 20), visible: view), CGVector(dx: 0, dy: 120))
         XCTAssertEqual(cuRevealOffset(element: CGRect(x: 10, y: 40, width: 50, height: 20), visible: view), CGVector(dx: 0, dy: -60))
         XCTAssertEqual(cuRevealOffset(element: CGRect(x: 10, y: 150, width: 50, height: 20), visible: view), CGVector(dx: 0, dy: 0))
+        // Taller than the view: in view once it overlaps, otherwise its near edge comes in.
+        XCTAssertEqual(cuRevealOffset(element: CGRect(x: 10, y: 104, width: 50, height: 900), visible: view), CGVector(dx: 0, dy: 0))
+        XCTAssertEqual(cuRevealOffset(element: CGRect(x: 10, y: 600, width: 50, height: 900), visible: view), CGVector(dx: 0, dy: 500))
+    }
+
+    func testEditMenuTextCommandsAreRecognisedByTitle() {
+        XCTAssertEqual(cuMenuTextCommand("Copy"), .copy)
+        XCTAssertEqual(cuMenuTextCommand("Select All"), .selectAll)
+        XCTAssertNil(cuMenuTextCommand("Copy Style"))
     }
 
     func testDoubleClickSelectsTheWordAroundTheHit() {
