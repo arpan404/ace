@@ -57,6 +57,30 @@ import XCTest
         XCTAssertTrue(app.buttons["approval.allow_session"].waitForExistence(timeout: 25))
         screenshot("thread-approval")
     }
+    /// Leaving a scrolled transcript with a "Worked for" log open tears its views down after the
+    /// thread's session closed; their releases must not surface as a failed request in the inbox.
+    func testBackFromScrolledThreadShowsNoRequestAlert() {
+        let app = launch()
+        for round in 0..<3 {
+            reveal("thread.ios-agents", in: app)
+            app.buttons["thread.ios-agents"].tap()
+            let worked = app.buttons["work.toggle"].firstMatch
+            XCTAssertTrue(worked.waitForExistence(timeout: 25))
+            let transcript = app.collectionViews["transcript"]
+            transcript.swipeDown(velocity: .fast)
+            if round == 0, worked.isHittable { worked.tap() }
+            transcript.swipeUp(velocity: .fast)
+            transcript.swipeDown(velocity: .fast)
+            app.navigationBars.buttons.firstMatch.tap()
+            XCTAssertTrue(app.buttons["thread.ios-agents"].waitForExistence(timeout: 10))
+            let alert = app.alerts["Request needs attention"]
+            if alert.waitForExistence(timeout: 3) {
+                screenshot("back-request-alert")
+                XCTFail("Back from a scrolled thread raised: \(alert.staticTexts.allElementsBoundByIndex.map(\.label))")
+                return
+            }
+        }
+    }
     /// The inbox lists more fixture threads than fit; scroll until the row shows.
     private func reveal(_ identifier: String, in app: XCUIApplication) {
         let row = app.buttons[identifier]

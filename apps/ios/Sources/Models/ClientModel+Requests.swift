@@ -42,7 +42,9 @@ extension ClientModel {
     }
     /// A settled "Worked for" log opened: read its turn's full steps; closed: let them go.
     func openSteps(ordinal: Int, block: String) { threadAction(["type": "steps.open", "ordinal": ordinal, "block": block]) }
-    func closeSteps(ordinal: Int) { threadAction(["type": "steps.close", "ordinal": ordinal]) }
+    /// `epoch` is the generation whose log closed: the view can disappear after the person left
+    /// that thread, and its release must not close another generation's log.
+    func closeSteps(ordinal: Int, epoch: Int? = nil) { releaseAction(["type": "steps.close", "ordinal": ordinal], epoch: epoch) }
     func moreSteps(ordinal: Int) { threadAction(["type": "steps.more", "ordinal": ordinal]) }
     /// A native subagent's lane sheet opened or closed.
     func openLane(_ agentId: String) {
@@ -50,8 +52,10 @@ extension ClientModel {
         thread.screen.lane = LaneModel(agentId: agentId)
         threadAction(["type": "lane.open", "agentId": agentId])
     }
-    func closeLane() {
-        thread?.screen.lane = nil
-        threadAction(["type": "lane.close"])
+    func closeLane(epoch: Int? = nil) {
+        if epoch == nil || thread?.epoch == epoch { thread?.screen.lane = nil }
+        releaseAction(["type": "lane.close"], epoch: epoch)
     }
+    /// Letting go of a read: with no runtime there is nothing to release, so it is never an error.
+    private func releaseAction(_ value: [String: Any], epoch: Int?) { action(threadMessage(value, epoch: epoch)) }
 }

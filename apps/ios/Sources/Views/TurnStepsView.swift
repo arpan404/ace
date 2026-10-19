@@ -4,6 +4,8 @@ import SwiftUI
 @MainActor struct StepsLinks {
     let model: ClientModel
     let screen: ThreadScreenModel
+    /// The generation `screen` belongs to; a log closing after its thread was left releases only that one.
+    let epoch: Int
 }
 
 /// A settled turn's full step list from the daemon (`turn.steps`): a placeholder while it loads,
@@ -39,7 +41,7 @@ struct DaemonSteps: View {
             }
         }
         .onAppear { links.model.openSteps(ordinal: ordinal, block: blockId) }
-        .onDisappear { links.model.closeSteps(ordinal: ordinal) }
+        .onDisappear { links.model.closeSteps(ordinal: ordinal, epoch: links.epoch) }
     }
 }
 
@@ -94,7 +96,7 @@ struct AgentLaneSheet: View {
             }
         }
         .onAppear { model.openLane(entry.agentId) }
-        .onDisappear { model.closeLane() }
+        .onDisappear { model.closeLane(epoch: thread.epoch) }
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
     }
 }

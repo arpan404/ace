@@ -44,11 +44,15 @@ export class Sheets {
     this.#changes?.close();
     this.#changes = undefined;
   }
-  /** False when the action can't be read or no thread is open. */
+  /**
+   * False when the action can't be read or no thread is open. A sheet's close arriving after
+   * its thread was left has nothing left to release, so it succeeds.
+   */
   action(thread: OpenThread | undefined, raw: unknown): boolean {
     const parsed = SheetAction.safeParse(raw);
-    if (!parsed.success || !thread) return false;
+    if (!parsed.success) return false;
     const action = parsed.data;
+    if (!thread) return releases(action);
     switch (action.kind) {
       case "agents":
         this.#agents?.();
@@ -106,4 +110,9 @@ export class Sheets {
         return this.#changes !== undefined;
     }
   }
+}
+
+function releases(action: z.infer<typeof SheetAction>): boolean {
+  if (action.kind === "agents" || action.kind === "changes") return !action.open;
+  return action.kind === "changes.file" && action.path === null;
 }

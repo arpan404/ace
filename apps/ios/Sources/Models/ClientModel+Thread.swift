@@ -61,8 +61,15 @@ extension ClientModel {
         }
     }
     @discardableResult func threadAction(_ value: [String: Any]) -> Bool {
-        let dispatched = action(["type": "thread", "action": value])
+        let dispatched = action(threadMessage(value, epoch: nil))
         if !dispatched { error = "Could not submit the request. Your draft is still available." }
         return dispatched
+    }
+    /// `epoch` names the generation the action is for (the open thread's when nil), so the bridge
+    /// drops a closed thread's late releases instead of applying them to another one.
+    func threadMessage(_ value: [String: Any], epoch: Int?) -> [String: Any] {
+        var message: [String: Any] = ["type": "thread", "action": value]
+        if let epoch = epoch ?? thread?.epoch { message["epoch"] = epoch }
+        return message
     }
 }
