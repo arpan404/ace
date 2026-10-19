@@ -414,6 +414,7 @@
       "devDependencies": {
         "@types/ws": "8.18.1",
         "@types/yauzl": "2.10.3",
+        "esbuild": "0.25.12",
         "ws": "8.22.0",
       },
     },

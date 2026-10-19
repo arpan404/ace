@@ -40,7 +40,7 @@ const defaultGlideMs = 220;
 import { PolicyGate } from "./policy-call.ts";
 import { watchWake } from "./wake-watch.ts";
 import { setMaxListeners } from "node:events";
-import { encodeBrowserFrame } from "./stream.ts";
+import { encodeBrowserFrame, encodeBrowserVideo, type BrowserVideoChunk } from "./stream.ts";
 import { frameBytes } from "./frame-bytes.ts";
 import type { BrowserServiceOptions } from "./service-options.ts";
 import type { PersonRequest } from "./person-requests.ts";
@@ -60,6 +60,7 @@ export class BrowserService {
   private subscriptions: BrowserSubscriptions;
   private frameMessages = new WeakMap<BrowserFrame, string>();
   private framePieces = new WeakMap<BrowserFrame, readonly Uint8Array[]>();
+  private videoPieces = new WeakMap<BrowserVideoChunk, readonly Uint8Array[]>();
   private streamIds = 0;
   private now: () => number;
   private id: () => string;
@@ -471,7 +472,7 @@ export class BrowserService {
       await session.live.start();
       this.sessions.set(options.threadId, session);
       this.generations.set(session, ++this.sequence);
-      this.subscriptions.replace(options.threadId, session.live.fanout);
+      this.subscriptions.replace(options.threadId, session.live);
       this.emit(session.state);
       return session;
     } catch (error) {
@@ -673,7 +674,7 @@ export class BrowserService {
     capture?: import("./fanout.ts").CaptureViewer,
   ): () => void {
     const session = this.get(threadId);
-    const stop = this.subscriptions.add(threadId, session.live.fanout, session.state, {
+    const stop = this.subscriptions.add(threadId, session.live, session.state, {
       connectionId,
       sink,
       state: onState,
@@ -691,7 +692,7 @@ export class BrowserService {
     capture: import("./fanout.ts").CaptureViewer,
   ): void {
     this.subscriptions.configure(threadId, connectionId, capture);
-    this.get(threadId).live.fanout.configure(connectionId, capture);
+    this.get(threadId).live.configure(connectionId, capture);
     const style = capture.viewport.cursor;
     if (
       style &&
@@ -703,6 +704,31 @@ export class BrowserService {
   }
   acknowledge(threadId: string, connectionId: string, sequence: number): void {
     this.get(threadId).live.fanout.acknowledge(connectionId, sequence);
+  }
+  /**
+   * A viewer showed every video chunk up to `sequence` (ADR 0088); `keyframe`: its decoder lost
+   * its place and needs one.
+   */
+  acknowledgeVideo(
+    threadId: string,
+    connectionId: string,
+    sequence: number,
+    keyframe = false,
+  ): void {
+    const video = this.get(threadId).live.video;
+    video.acknowledge(connectionId, sequence);
+    if (keyframe) video.keyframe(connectionId);
+  }
+  /** One binary encoding of a video chunk, shared by every viewer of its encode. */
+  streamVideo(threadId: string, chunk: BrowserVideoChunk): readonly Uint8Array[] {
+    let pieces = this.videoPieces.get(chunk);
+    if (!pieces) {
+      this.streamIds = (this.streamIds + 1) >>> 0;
+      const { bytes, ...header } = chunk;
+      pieces = encodeBrowserVideo(this.streamIds, threadId, header, bytes);
+      this.videoPieces.set(chunk, pieces);
+    }
+    return pieces;
   }
   /** Share one serialization across every viewer of this exact frame. */
   serializeFrame(threadId: string, frame: BrowserFrame): string {

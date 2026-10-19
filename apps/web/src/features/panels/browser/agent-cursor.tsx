@@ -11,7 +11,7 @@ interface Box {
 }
 
 /** Where the page's picture is drawn inside its pane, kept current as the pane resizes. */
-function usePictureBox(picture: RefObject<HTMLImageElement | null>): Box | undefined {
+function usePictureBox(picture: RefObject<HTMLElement | null>): Box | undefined {
   const [box, setBox] = useState<Box>();
   useLayoutEffect(() => {
     const element = picture.current;
@@ -53,7 +53,7 @@ export function AgentCursor(props: {
   pointer: { x: number; y: number; sequence: number };
   /** The page's size in the same pixels as `pointer`. */
   page: { width: number; height: number };
-  picture: RefObject<HTMLImageElement | null>;
+  picture: RefObject<HTMLElement | null>;
 }) {
   const agent = useAgent(props.threadId, props.agentId ?? "");
   const name = agent ? agentName(agent) : "An agent";

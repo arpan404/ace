@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserVideoRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "codecs": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/BrowserVideoCodec.json"
+      },
+      "maxItems": 8,
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "codecs"
+  ],
+  "type": "object"
+}

@@ -4,7 +4,12 @@ import type {
   BrowserPageMessage,
   BrowserState,
 } from "@ace/protocol";
-import type { CaptureViewer, FrameFanout, FrameSink } from "./fanout.ts";
+import type { CaptureViewer, FrameSink } from "./fanout.ts";
+
+/** Where a viewer's frames come from: the live capture (JPEG and, when asked, video). */
+interface FrameSource {
+  subscribe(id: string, sink: FrameSink, capture?: CaptureViewer): () => void;
+}
 
 type Subscriber = {
   connectionId: string;
@@ -32,7 +37,7 @@ export class BrowserSubscriptions {
   }
   add(
     threadId: string,
-    fanout: FrameFanout,
+    fanout: FrameSource,
     state: BrowserState,
     viewer: Omit<Subscriber, "stopFrames">,
   ): () => void {
@@ -65,7 +70,7 @@ export class BrowserSubscriptions {
       if (viewer.connectionId === connectionId) viewer.capture = capture;
     }
   }
-  replace(threadId: string, fanout: FrameFanout): void {
+  replace(threadId: string, fanout: FrameSource): void {
     for (const viewer of this.threads.get(threadId) ?? []) {
       detachFrames(viewer);
       const stop = fanout.subscribe(viewer.connectionId, viewer.sink, viewer.capture);

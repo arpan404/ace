@@ -10,6 +10,7 @@ import { cn } from "@/lib/cn.ts";
 import type { BrowserView, PreviewSource } from "../sources.ts";
 import { useNativeView } from "./native-view.ts";
 import { CoverPicture, useCoverStill } from "./cover-picture.tsx";
+import { FramePicture } from "./frame-picture.tsx";
 import { pageSize } from "./page-size.ts";
 import { clampPip, defaultPipGeometry, type PipGeometry, type PipPage } from "./pip-rules.ts";
 
@@ -147,10 +148,9 @@ export function BrowserPip(props: {
         onClick={native ? undefined : props.onRestore}
       >
         {frame && !placed.shown && (!native || placed.frozen) && (
-          <img
-            src={frame.src}
+          <FramePicture
+            frame={frame}
             alt={`Live view of ${props.page.url}`}
-            draggable={false}
             className="absolute inset-0 size-full object-contain"
           />
         )}

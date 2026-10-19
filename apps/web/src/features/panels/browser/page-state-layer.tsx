@@ -13,7 +13,7 @@ import { PagePicker } from "./page-picker.tsx";
 export function PageStateLayer(props: {
   page: BrowserPageView | undefined;
   pane: RefObject<HTMLElement | null>;
-  picture: RefObject<HTMLImageElement | null>;
+  picture: RefObject<HTMLElement | null>;
   frame: { width: number; height: number };
   forward(input: ForwardedInput): void;
 }) {

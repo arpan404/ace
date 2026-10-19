@@ -13,6 +13,8 @@ import { chromeInput } from "./chrome-input.ts";
 import { ChromeTabs, type TabHost } from "./chrome-tabs.ts";
 import { modelScreenshot } from "./model-screenshot.ts";
 import { clearHeadlessData } from "./browsing-data.ts";
+import { ChromeVideo } from "./chrome-video.ts";
+import type { ChromeInstance } from "./chrome-instance.ts";
 
 export interface ChromeBackendOptions {
   executable(signal: AbortSignal): Promise<string>;
@@ -32,6 +34,8 @@ const Png = z.object({ data: z.string().max(64 * 1024 * 1024) });
 export class ChromeBackend implements BrowserBackend {
   readonly kind = "headless";
   private hosts = new Map<string, ChromeHost>();
+  /** Each running Chrome's video encoder, made when a viewer first asks for video. */
+  private videos = new WeakMap<ChromeInstance, ChromeVideo>();
   private options: ChromeBackendOptions;
   constructor(options: ChromeBackendOptions) {
     this.options = options;
@@ -39,6 +43,21 @@ export class ChromeBackend implements BrowserBackend {
   /** Stops every browser this backend started. Sessions must be closed first. */
   async close(): Promise<void> {
     await Promise.allSettled([...this.hosts.values()].map((host) => host.close()));
+  }
+  private video(instance: ChromeInstance, profileDir: string): ChromeVideo {
+    let video = this.videos.get(instance);
+    if (!video) {
+      const schedule = this.options.cleanup.schedule;
+      video = new ChromeVideo({
+        connection: instance.connection,
+        targets: instance.targets,
+        directory: `${profileDir}-video-extension`,
+        delay: (milliseconds) =>
+          new Promise((resolve) => void schedule(() => resolve(), milliseconds)),
+      });
+      this.videos.set(instance, video);
+    }
+    return video;
   }
   private host(profileDir: string): ChromeHost {
     let host = this.hosts.get(profileDir);
@@ -176,6 +195,9 @@ export class ChromeBackend implements BrowserBackend {
         resize: (width, height, devicePixelRatio) =>
           tabs.resize(width, height, tabId(), devicePixelRatio),
         captureScale: () => tabs.captureScale(tabId()),
+        // A private context is another browser context: the video extension can't see its tabs.
+        video: () =>
+          isolated || !current ? undefined : this.video(current.instance, request.profileDir),
         emulate: (device) => tabs.emulate(device, tabId()),
         zoom: (factor) => tabs.zoom(factor, tabId()),
         clearData: () => clearHeadlessData(cdp(), tabs.origins()),
