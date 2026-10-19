@@ -63,7 +63,8 @@ export function createScreenSession(context: SocketContext, simulators: Simulato
               reject(new Error("Socket backpressure"));
               return;
             }
-            context.socket.send(packet, { binary: true }, (error) =>
+            // Already-encoded video; deflate would cost CPU and save nothing.
+            context.socket.send(packet, { binary: true, compress: false }, (error) =>
               error ? reject(error) : resolve(),
             );
           }),

@@ -126,7 +126,8 @@ export function createDevicesSession(context: SocketContext): SocketService {
           authorize: () => context.connected() && context.authorize("admin"),
           write: (packet) =>
             new Promise<void>((resolve, reject) => {
-              context.socket.send(packet, { binary: true }, (error) =>
+              // Already-encoded video; deflate would cost CPU and save nothing.
+              context.socket.send(packet, { binary: true, compress: false }, (error) =>
                 error ? reject(error) : resolve(),
               );
             }),
