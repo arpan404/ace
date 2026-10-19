@@ -13,7 +13,8 @@ import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useThreadBrowsing } from "@/lib/browsing.ts";
-import { GlobeSimpleIcon } from "@phosphor-icons/react";
+import { useThreadComputerUse } from "@/lib/computer-using.ts";
+import { CursorClickIcon, GlobeSimpleIcon } from "@phosphor-icons/react";
 
 /*
  * Shared row pieces render the card facts. RowTime reads the shared clock for elapsed time;
@@ -58,6 +59,31 @@ export function BrowsingMark(props: { threadId: string }) {
         className="inline-flex shrink-0 text-status-working"
       >
         <GlobeSimpleIcon aria-hidden size={12} />
+      </span>
+    </Tip>
+  );
+}
+
+/** "Calculator", "Calculator and Notes", "Calculator, Notes and 2 more". */
+function appList(apps: readonly string[]): string {
+  if (apps.length <= 2) return apps.join(" and ");
+  return `${apps.slice(0, 2).join(", ")} and ${apps.length - 2} more`;
+}
+
+/** A quiet cursor in the working colour while an agent uses Mac apps for the thread. */
+export function ComputerUseMark(props: { threadId: string }) {
+  const apps = useThreadComputerUse(props.threadId);
+  if (!apps.length) return null;
+  const label = `An agent is using ${appList(apps)}`;
+  return (
+    <Tip label={label}>
+      <span
+        role="img"
+        aria-label={label}
+        data-tone="working"
+        className="inline-flex shrink-0 text-status-working"
+      >
+        <CursorClickIcon aria-hidden size={12} />
       </span>
     </Tip>
   );

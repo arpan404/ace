@@ -152,7 +152,15 @@ export async function startMcp(context: ServiceContext): Promise<void> {
       ...(services.devices ? [devicesToolkit(services.devices)] : []),
       // Agents use the background engine on macOS; other platforms keep the session tools.
       ...(services.computer
-        ? [computerToolkit(services.computer)]
+        ? [
+            computerToolkit(services.computer, {
+              // Read on every call, so a change in Settings applies to the next one.
+              blockedApps: async () =>
+                (await services.settings?.get("computer.blockedApps"))?.value ?? [],
+              using: (threadId, app) =>
+                services.computerUsing?.begin(ThreadId.parse(threadId), app) ?? (() => {}),
+            }),
+          ]
         : services.screen
           ? [screenToolkit(services.screen)]
           : []),
@@ -223,7 +231,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
 }
 
 import type { SocketContext, SocketService } from "./socket.ts";
-import { McpProviderRequest, type McpSources } from "@ace/protocol";
+import { McpProviderRequest, ThreadId, type McpSources } from "@ace/protocol";
 const mcpTypes = new Set<string>(
   McpProviderRequest.options.map((option) => option.shape.type.value),
 );

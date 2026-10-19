@@ -68,6 +68,7 @@ import type { FakeMcpWire } from "./mcp-wire.ts";
 import { FakeLongThreadWire } from "./long-thread-wire.ts";
 import { FakeOutputStore } from "./output-store.ts";
 import type { FakeBrowser } from "./browser.ts";
+import type { FakeComputerUsing } from "./computer-using.ts";
 import type { FakeTerminals } from "./terminals.ts";
 import type { FakeProjects } from "./projects.ts";
 import type { FakeWorkspaceWire } from "./workspace-wire.ts";
@@ -368,6 +369,10 @@ export class FakeDaemon implements Host {
   /** The browser and previews clients reach through `browser.*` and `preview.request`. */
   get browser(): FakeBrowser {
     return this.servicesWire.browser;
+  }
+  /** Which threads' agents use Mac apps (`computer.using`). */
+  get computerUsing(): FakeComputerUsing {
+    return this.servicesWire.computerUsing;
   }
   /**
    * Seed what a long-running daemon's services hold: decks, automations and their runs,

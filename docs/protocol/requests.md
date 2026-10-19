@@ -2556,6 +2556,22 @@ Example:
 }
 ```
 
+### computer.using.watch
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"computer.using.watch"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "computer.using.watch"
+}
+```
+
 ### models.list
 
 | Field | Required | Type | Constraints |

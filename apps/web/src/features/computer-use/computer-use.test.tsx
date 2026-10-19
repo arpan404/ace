@@ -34,6 +34,21 @@ test("turning computer use on and off is what the daemon records", async () => {
   await waitFor(() => expect(app.daemon.screen.enabled).toBe(false));
 });
 
+test("apps the person lists are saved as the apps agents can't use, each once", async () => {
+  const { app } = await openSettings();
+  await app.open("/settings/computer-use");
+  const field = await screen.findByRole("textbox", { name: "Apps agents can't use" });
+  await waitFor(() => expect((field as HTMLInputElement).disabled).toBe(false));
+  await userEvent.type(field, "Messages, com.apple.mail,, messages{Enter}");
+  await waitFor(() =>
+    expect(app.daemon.services.settings.get("computer.blockedApps")).toEqual([
+      "Messages",
+      "com.apple.mail",
+    ]),
+  );
+  expect((field as HTMLInputElement).value).toBe("Messages, com.apple.mail");
+});
+
 test("secure input says what it is from the session menu, and once allowed, on the card", async () => {
   const { app, world } = await openSettings();
   const sessionId = await world.agentApp("com.apple.TextEdit");

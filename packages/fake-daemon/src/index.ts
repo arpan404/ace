@@ -70,6 +70,7 @@ export { FakeProjects } from "./projects.ts";
 export type { FolderSeed } from "./projects.ts";
 export { hostFolders } from "./scenarios/host-folders.ts";
 export { FakeBrowser } from "./browser.ts";
+export { FakeComputerUsing } from "./computer-using.ts";
 export type { BrowserView, ScreenFrame, PreviewServer, ForwardedInput } from "./browser.ts";
 export { seedIndex } from "./scenarios/seed-index.ts";
 export * as facts from "./scenarios/facts.ts";

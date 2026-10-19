@@ -5,8 +5,10 @@ import {
   screenConnection,
   type Simulators,
 } from "@ace/screen";
+import { nodeScheduler } from "@ace/mcp-server";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { ComputerUsingThreads } from "../computer-using.ts";
 import { ScreenSettings } from "../screen-settings.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -38,6 +40,7 @@ export async function startScreen({ config, options, resources, services, store 
     });
     resources.own(() => computer.close());
     services.computer = computer;
+    services.computerUsing = new ComputerUsingThreads({ after: nodeScheduler.after });
   }
 }
 export function createScreenSession(context: SocketContext, simulators: Simulators): SocketService {

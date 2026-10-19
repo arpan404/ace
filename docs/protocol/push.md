@@ -2382,6 +2382,22 @@ Example:
 }
 ```
 
+### computer.using
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"computer.using"` |  |
+| threads | yes | array | {"maxItems":512,"items":{"type":"object","properties":{"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"apps":{"minItems":1,"maxItems":16,"type":"array","items":{"type":"string","minLength":1,"maxLength":200}}},"required":["threadId","apps"]}} |
+
+Example:
+
+```json
+{
+  "threads": [],
+  "type": "computer.using"
+}
+```
+
 ### models.result
 
 | Field | Required | Type | Constraints |

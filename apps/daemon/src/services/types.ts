@@ -68,6 +68,8 @@ export interface Services {
   asks?: import("../asks.ts").Asks;
   /** Threads whose browser an agent works in now (the task list's indicator). */
   browsing?: import("../browsing.ts").BrowsingThreads;
+  /** Threads whose agent uses Mac apps now (the task list's indicator). */
+  computerUsing?: import("../computer-using.ts").ComputerUsingThreads;
   /** `browser_request_help` requests waiting on the person. */
   browserHelp?: import("../browser-help.ts").BrowserHelp;
   devices?: DevicesService;

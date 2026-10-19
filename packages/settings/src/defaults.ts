@@ -43,6 +43,7 @@ export const defaults: SettingsValues = {
   "browser.downloadDir": "",
   "browser.downloadDefault": "",
   "browser.userChrome.storageReads": false,
+  "computer.blockedApps": [],
   "access.defaultMode": "auto-review",
   "access.nativeModes": {},
   "threads.useWorktree": true,

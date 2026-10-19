@@ -17,6 +17,7 @@ import {
 import { commandCatalog, listCommands } from "./services/commands.ts";
 import { FakeFilesWire } from "./files-wire.ts";
 import { FakeBrowser } from "./browser.ts";
+import { FakeComputerUsing } from "./computer-using.ts";
 import { fakeBrowserSession } from "./browser-wire.ts";
 import { FakeTerminalStream } from "./terminal-stream.ts";
 import { fakeHealth } from "./health.ts";
@@ -77,6 +78,7 @@ export class FakeServicesWire {
   private notificationPublicKey: string | null = null;
   readonly mcp = new FakeMcpWire();
   readonly browser = new FakeBrowser();
+  readonly computerUsing = new FakeComputerUsing();
   readonly context: FakeContextWire;
   readonly workspace: FakeWorkspaceWire;
   readonly files: FakeFilesWire;
@@ -167,6 +169,15 @@ export class FakeServicesWire {
       browsing = key;
       emit({ type: "browser.browsing", threads });
     };
+    let stopUsing: (() => void) | undefined;
+    const reportUsing = () =>
+      emit({
+        type: "computer.using",
+        threads: this.computerUsing
+          .threads()
+          .filter((entry) => this.host.thread(entry.threadId))
+          .map((entry) => ({ threadId: ThreadId.parse(entry.threadId), apps: [...entry.apps] })),
+      });
     return {
       authenticated: (device) => {
         owner = device;
@@ -175,6 +186,7 @@ export class FakeServicesWire {
       close: () => {
         closed = true;
         stopBrowsing?.();
+        stopUsing?.();
         catalog.close();
         picker?.abort();
         stopProjects();
@@ -189,6 +201,11 @@ export class FakeServicesWire {
         if (message.type === "browser.browsing.watch") {
           stopBrowsing ??= this.browser.subscribe(() => reportBrowsing(false));
           reportBrowsing(true);
+          return;
+        }
+        if (message.type === "computer.using.watch") {
+          stopUsing ??= this.computerUsing.subscribe(reportUsing);
+          reportUsing();
           return;
         }
         if (message.type === "storage.request") {

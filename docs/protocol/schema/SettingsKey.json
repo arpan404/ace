@@ -33,6 +33,7 @@
     "browser.downloadDir",
     "browser.downloadDefault",
     "browser.userChrome.storageReads",
+    "computer.blockedApps",
     "access.defaultMode",
     "access.nativeModes",
     "threads.useWorktree",

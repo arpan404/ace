@@ -110,6 +110,12 @@ const entries = [
     keywords: ["commit", "draft", "generate"],
   },
   {
+    id: "computer.blockedApps",
+    page: "/settings/computer-use",
+    title: "Apps agents can't use",
+    keywords: ["block", "deny", "computer use", "screen", "apps", "privacy"],
+  },
+  {
     id: "browser.userChrome.storageReads",
     page: "/settings/computer-use",
     title: "Let agents read cookies and site storage",

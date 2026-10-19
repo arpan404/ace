@@ -6,6 +6,7 @@ export * from "./browser.ts";
 export * from "./browser-features.ts";
 export * from "./browser-annotation.ts";
 export * from "./browser-browsing.ts";
+export * from "./computer-using.ts";
 export * from "./browser-backend.ts";
 export * from "./user-browser.ts";
 export * from "./commands.ts";
