@@ -143,7 +143,9 @@ export class ProviderLoginSessions {
           ? reply(existing)
           : failure("busy");
       if (this.jobs.size >= 32) return failure("busy");
-      const lifetime = this.options.lifetimeMs ?? 600_000;
+      // Codex device codes last 15 minutes; a session must outlive the code it shows.
+      const lifetime =
+        this.options.lifetimeMs ?? (request.provider === "codex" ? 900_000 : 600_000);
       const session = this.options.id();
       const job: Job = {
         owner,
