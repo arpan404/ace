@@ -47,6 +47,34 @@ export function deviceEmulation(device: NativeDevice, bounds: Rect, appZoom: num
 }
 
 /**
+ * Chromium emulation for a size an agent asked for in CSS pixels (`resize`, `emulate`), on a
+ * view the panel shows in `bounds` (window DIPs) zoomed by `zoom` (the app's zoom). Emulated
+ * sizes and scale factors are DIPs, which zoom multiplies, so the size grows by the zoom and
+ * the scale factor shrinks by it: the page then lays out at exactly the size asked and reports
+ * the scale factor asked (0 keeps the screen's). The whole device is drawn fitted into the box,
+ * never enlarged. Other emulation fields pass through.
+ */
+export function agentEmulation(
+  device: Record<string, unknown> & { width: number; height: number },
+  bounds: Rect,
+  zoom: number,
+): Record<string, unknown> & {
+  width: number;
+  height: number;
+  deviceScaleFactor: number;
+  scale: number;
+} {
+  const factor = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  // Chromium lays out the whole CSS pixels that fit: round up, so none is lost to rounding.
+  const width = Math.max(1, Math.ceil(device.width * factor));
+  const height = Math.max(1, Math.ceil(device.height * factor));
+  const asked = device["deviceScaleFactor"];
+  const deviceScaleFactor = typeof asked === "number" && asked > 0 ? asked / factor : 0;
+  const scale = Math.min(1, bounds.width / width, bounds.height / height);
+  return { mobile: false, ...device, width, height, deviceScaleFactor, scale };
+}
+
+/**
  * A renderer's box (CSS pixels of its page) in its window's DIPs. Edges are rounded, not
  * sizes, so two boxes that touch in CSS still touch on screen.
  */
