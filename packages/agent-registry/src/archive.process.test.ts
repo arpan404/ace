@@ -1,7 +1,10 @@
 import { expect, test } from "vitest";
 import { pack } from "tar-stream";
 import { gzipSync } from "node:zlib";
-import { readFile, access, mkdir } from "node:fs/promises";
+import { readFile, access, mkdir, stat, truncate, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { extractZip } from "./archives.ts";
 import { join } from "node:path";
 import { registry, temporary, body, sample } from "./testing/support.ts";
 import { digest } from "./index.ts";
@@ -173,3 +176,23 @@ test("archive symlinks cannot redirect subsequent entries into an external direc
     await work.close();
   }
 });
+
+test("a zip with an entry over 256 MiB, as Antigravity's ACP server ships, unpacks in full", async () => {
+  const work = await temporary();
+  try {
+    const source = join(work.root, "source");
+    await mkdir(source);
+    // 281 MB, the size of agy_acp_server.par in Antigravity 1.4.1; zeros keep the zip small.
+    const server = join(source, "agy_acp_server.par");
+    await writeFile(server, "");
+    await truncate(server, 281_000_000);
+    const zip = join(work.root, "server.zip");
+    await promisify(execFile)("/usr/bin/zip", ["-q", zip, "agy_acp_server.par"], { cwd: source });
+    const root = join(work.root, "installed");
+    await mkdir(root);
+    await extractZip(zip, root, new AbortController().signal);
+    expect((await stat(join(root, "agy_acp_server.par"))).size).toBe(281_000_000);
+  } finally {
+    await work.close();
+  }
+}, 60_000);

@@ -6,7 +6,8 @@ import { Transform } from "node:stream";
 import { createGunzip } from "node:zlib";
 import type { ZipFile, Entry } from "yauzl";
 import { contained } from "./plans.ts";
-const maximum = 256 * 1024 * 1024;
+// Bounds a hostile archive, yet fits real agents: Antigravity's ACP server alone unpacks to 281 MB.
+const maximum = 1024 * 1024 * 1024;
 class ExpansionBudget {
   bytes = 0;
   entries = 0;
