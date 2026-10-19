@@ -2,6 +2,7 @@ import type { Item, Thread, ThreadListEntry, Interaction } from "@ace/protocol";
 import { threadAttention } from "@ace/projection";
 import { mobileStatus, transcriptRowContent } from "@ace/ui-core/mobile";
 import type { ThreadReader } from "@ace/client";
+import { projectBadge } from "@ace/ui-core";
 import { host } from "./host.ts";
 
 /** Native Unicode segmentation also replaces ill-formed display text before JSON encoding. */
@@ -12,6 +13,13 @@ export function preview(text: string, limit = 512): string {
 export function threadRow(thread: Thread | ThreadListEntry) {
   return {
     id: thread.id,
+    workspaceId: thread.workspaceId,
+    badge: projectBadge({
+      id: thread.workspaceId,
+      name: thread.details?.workspace?.name ?? thread.workspaceId,
+    }).initials,
+    diff: thread.details?.diff ?? null,
+    testsRunning: thread.status.state === "working" && thread.live?.step === "tests",
     title: preview(thread.title),
     state: thread.status.state,
     status: mobileStatus(thread.status),

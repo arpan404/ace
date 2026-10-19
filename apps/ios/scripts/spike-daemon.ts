@@ -12,6 +12,7 @@ import { queuedTexts } from "./queue-read.ts";
 import { seedSheets } from "./sheet-scenario.ts";
 import { seedArchive } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
+import { seedNativeMedia } from "./media-scenario.ts";
 
 /** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
 const port = z.coerce
@@ -135,6 +136,7 @@ daemon.command({
 threadScenarios(daemon, details);
 seedArchive(daemon, Date.now(), Number(process.env.ACE_IOS_SPIKE_NAP_MS ?? 90_000));
 seedProjects(daemon);
+seedNativeMedia(daemon);
 requestScenarios(daemon, details);
 let fresh = 0;
 

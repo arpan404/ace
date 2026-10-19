@@ -162,7 +162,7 @@ import XCTest
     }
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--spike"]
+        app.launchArguments = ["--spike", "--spike-metrics"]
         app.launch()
         return app
     }

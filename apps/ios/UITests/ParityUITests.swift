@@ -38,6 +38,72 @@ import XCTest
         capture("approval")
     }
 
+    func testNativeTerminalSendsInputAndReceivesOutput() {
+        let app = launch()
+        XCTAssertTrue(app.buttons["thread.ios-approval"].waitForExistence(timeout: 30))
+        app.buttons["thread.ios-approval"].tap()
+        let terminal = app.buttons["thread.terminal"]
+        XCTAssertTrue(terminal.waitForExistence(timeout: 20)); terminal.tap()
+        XCTAssertTrue(app.buttons["New"].waitForExistence(timeout: 10)); app.buttons["New"].tap()
+        let input = app.textFields["terminal.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 10))
+        let enabled = expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: input)
+        wait(for: [enabled], timeout: 15)
+        input.tap(); input.typeText("pwd\n")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "/fake")).firstMatch.waitForExistence(timeout: 15))
+        capture("terminal")
+    }
+
+    func testPublishedCanvasRunsItsInteractionInTheNativeSandbox() {
+        let app = launch()
+        let row = app.buttons["thread.ios-media"]
+        XCTAssertTrue(row.waitForExistence(timeout: 30)); row.tap()
+        let canvas = app.buttons["Interactive counter"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 20)); canvas.tap()
+        let next = app.webViews.buttons["Next"]
+        XCTAssertTrue(next.waitForExistence(timeout: 25)); next.tap()
+        XCTAssertTrue(app.webViews.staticTexts["Step 2"].waitForExistence(timeout: 10))
+        capture("canvas")
+    }
+    func testPublishedImageOpensAsNativePixels() {
+        let app = launch()
+        XCTAssertTrue(app.buttons["thread.ios-media"].waitForExistence(timeout: 30)); app.buttons["thread.ios-media"].tap()
+        let image = app.buttons["Orange fixture image"]
+        XCTAssertTrue(image.waitForExistence(timeout: 20)); image.tap()
+        XCTAssertTrue(app.images["Orange fixture image"].waitForExistence(timeout: 20))
+        capture("image")
+    }
+    func testThreadMcpControlsUpdateCanonicalServerState() {
+        let app = launch()
+        XCTAssertTrue(app.buttons["thread.ios-approval"].waitForExistence(timeout: 30)); app.buttons["thread.ios-approval"].tap()
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 20)); app.buttons["thread.menu"].tap()
+        app.buttons["thread.tools"].tap()
+        XCTAssertTrue(app.buttons["MCP servers"].waitForExistence(timeout: 10)); app.buttons["MCP servers"].tap()
+        XCTAssertTrue(app.staticTexts["Project tools"].waitForExistence(timeout: 20))
+        let toggle = app.buttons["mcp.toggle.Project tools"]
+        let next = toggle.label == "Enable" ? "Disable" : "Enable"
+        toggle.tap()
+        let changed = expectation(for: NSPredicate(format: "label == %@", next), evaluatedWith: toggle)
+        wait(for: [changed], timeout: 15)
+        capture("mcp")
+    }
+
+    func testMachineSettingsAndUsageLoadThroughTheSharedSdk() {
+        let app = launch()
+        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 30)); app.buttons["inbox.settings"].tap()
+        let machine = app.buttons["settings.machine.ios-spike-host"]
+        if !machine.isHittable { app.swipeUp() }
+        XCTAssertTrue(machine.waitForExistence(timeout: 15)); machine.tap()
+        app.buttons["Usage"].tap()
+        XCTAssertTrue(app.staticTexts["Input tokens"].firstMatch.waitForExistence(timeout: 20))
+        XCTAssertFalse(app.descendants(matching: .any)["service.problem"].exists)
+        capture("usage")
+        app.navigationBars.buttons["BackButton"].firstMatch.tap()
+        app.buttons["Threads"].tap()
+        XCTAssertTrue(app.switches["setting.threads.forkOnSwitch"].waitForExistence(timeout: 15))
+        capture("machine-settings")
+    }
+
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]

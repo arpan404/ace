@@ -16,11 +16,11 @@ struct InboxThreadRow: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             lines {
                 HStack(spacing: AceTheme.Spacing.sm) {
-                    Text(String(row.provider.prefix(1)).uppercased())
+                    Text(row.badge ?? "")
                         .aceFont(AceTheme.Typography.label, relativeTo: .caption)
                         .padding(AceTheme.Spacing.xs)
                         .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.small))
-                        .accessibilityLabel(row.provider)
+                        .accessibilityLabel(row.project)
                     Image(systemName: "folder").aceFont(AceTheme.Typography.caption, relativeTo: .caption).accessibilityHidden(true)
                     Text(row.project).aceFont(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(stacked ? nil : 1)
                 }

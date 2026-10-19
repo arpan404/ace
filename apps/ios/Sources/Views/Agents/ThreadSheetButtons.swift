@@ -8,7 +8,8 @@ struct ThreadSheetButtons: ViewModifier {
     /// Pushes an agent that runs as its own ace thread.
     let openThread: ((String) -> Void)?
     @State private var showingAgents = false
-    @State private var showingChanges = false
+    @Binding var showingChanges: Bool
+    @State private var showingTerminal = false
     private var metadata: ThreadRow? { thread.metadata ?? model.inbox[thread.id] }
 
     func body(content: Content) -> some View {
@@ -16,11 +17,16 @@ struct ThreadSheetButtons: ViewModifier {
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button { showingAgents = true } label: {
-                        Label("\(metadata?.agents ?? 1) agents", systemImage: "point.3.connected.trianglepath.dotted")
+                        HStack(spacing: AceTheme.Spacing.xs) {
+                            Image(systemName: "point.3.connected.trianglepath.dotted")
+                            Text((metadata?.agents ?? 1).formatted())
+                        }.accessibilityLabel("\(metadata?.agents ?? 1) agents")
                     }
                     .accessibilityIdentifier("thread.agents")
                     Button { showingChanges = true } label: { Label("Changes", systemImage: "plusminus") }
                         .accessibilityIdentifier("thread.changes")
+                    Button { showingTerminal = true } label: { Label("Terminal", systemImage: "terminal") }
+                        .accessibilityIdentifier("thread.terminal")
                 }
             }
             .sheet(isPresented: $showingAgents) {
@@ -29,11 +35,14 @@ struct ThreadSheetButtons: ViewModifier {
             .sheet(isPresented: $showingChanges) {
                 ChangesSheet(model: model, title: metadata?.title ?? "").presentationDetents([.large]).presentationDragIndicator(.visible)
             }
+            .sheet(isPresented: $showingTerminal) {
+                NavigationStack { TerminalView(model: model, threadId: thread.id) }.presentationDetents([.large]).presentationDragIndicator(.visible)
+            }
     }
 }
 
 extension View {
-    func threadSheets(model: ClientModel, thread: ThreadModel, openThread: ((String) -> Void)? = nil) -> some View {
-        modifier(ThreadSheetButtons(model: model, thread: thread, openThread: openThread))
+    func threadSheets(model: ClientModel, thread: ThreadModel, openThread: ((String) -> Void)? = nil, changes: Binding<Bool>) -> some View {
+        modifier(ThreadSheetButtons(model: model, thread: thread, openThread: openThread, showingChanges: changes))
     }
 }

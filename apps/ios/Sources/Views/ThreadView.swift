@@ -11,6 +11,9 @@ struct ThreadView: View {
     @State private var lane: BlockRow.Agents.Entry?
     @State private var scrolledToTail = false
     @State private var showFiles = false
+    @State private var media: TranscriptRow?
+    @State private var showTools = false
+    @State private var showChanges = false
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
     private var metadata: ThreadRow? { thread.metadata ?? thread.placeholder?.metadata ?? model.inbox[thread.id] }
@@ -29,7 +32,7 @@ struct ThreadView: View {
                 // Back from a child: what this thread last showed stays until its session's first patch.
                 let shown = thread.placeholder ?? thread
                 if !thread.loaded && thread.placeholder == nil { ProgressView("Loading conversation…").listRowSeparator(.hidden) }
-                let links = TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: screen, epoch: thread.epoch))
+                let links = TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: screen, epoch: thread.epoch), openMedia: { media = $0 })
                 ForEach(shown.screen.blockOrder, id: \.self) { id in
                     if let block = shown.screen.blocks[id] {
                         BlockView(block: block, thread: shown, links: links)
@@ -40,6 +43,7 @@ struct ThreadView: View {
                 ForEach(model.pending.values.filter { $0.threadId == thread.id && $0.state != "delivered" && thread.items["input:\($0.id)"] == nil }.sorted { $0.id < $1.id }) { row in
                     PendingSendRow(row: row, canRetry: model.canOperate) { await model.retrySend(row) }.listRowSeparator(.hidden)
                 }
+                ThreadTailChips(metadata: metadata) { showChanges = true }.listRowSeparator(.hidden)
                 Color.clear.frame(height: AceTheme.Dimensions.border).id("tail").listRowSeparator(.hidden).accessibilityHidden(true)
             }
             .listStyle(.plain).scrollContentBackground(.hidden)
@@ -99,12 +103,21 @@ struct ThreadView: View {
                 }
             }
             .toolbar {
-                ToolbarItem(placement: .principal) { header }
                 ToolbarItem(placement: .topBarTrailing) { menu }
             }
+            .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
+                header.padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.sm)
+                    .background(AceTheme.Colours.background)
+            }
             .navigationBarTitleDisplayMode(.inline)
-            .threadSheets(model: model, thread: thread, openThread: openThread)
+            .threadSheets(model: model, thread: thread, openThread: openThread, changes: $showChanges)
             .sheet(isPresented: $showDetails) { details }
+            .sheet(isPresented: $showTools) {
+                NavigationStack { ThreadToolsView(model: model, thread: thread, openThread: openThread) }.presentationDetents([.large]).presentationDragIndicator(.visible)
+            }
+            .sheet(item: $media) { item in
+                NavigationStack { NativeMediaView(model: model, threadId: thread.id, item: item) }.presentationDetents([.large]).presentationDragIndicator(.visible)
+            }
             .sheet(isPresented: $showFiles) {
                 ThreadFilesSheet(model: model, scope: .thread(thread.id), mention: model.canOperate ? { mention = ComposerMention(path: $0) } : nil)
                     .presentationDetents([.large]).presentationDragIndicator(.visible)
@@ -115,7 +128,7 @@ struct ThreadView: View {
             .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
             #if DEBUG
             .overlay(alignment: .topLeading) {
-                if SpikeConfiguration.enabled {
+                if SpikeConfiguration.enabled && ProcessInfo.processInfo.arguments.contains("--spike-metrics") {
                     Text(verbatim: "\(thread.items.count) items · \(model.connection)").aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
                         .padding(AceTheme.Spacing.xs).background(.thinMaterial, in: Capsule()).allowsHitTesting(false)
                         .accessibilityLabel("Loaded transcript").accessibilityValue(String(thread.items.count))
@@ -141,6 +154,7 @@ struct ThreadView: View {
     }
     private var menu: some View {
         Menu {
+            Button("Thread tools", systemImage: "wrench.and.screwdriver") { showTools = true }.accessibilityIdentifier("thread.tools")
             if model.canOperate, screen.controls?.canStop == true {
                 Button("Stop all agents", systemImage: "stop.circle", role: .destructive) { model.stopTree() }.disabled(screen.stopping)
             }
