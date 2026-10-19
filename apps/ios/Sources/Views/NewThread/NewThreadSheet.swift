@@ -82,7 +82,12 @@ struct NewThreadSheet: View {
             guard let client else { return }
             client.composeAction(["kind": "open"])
             client.composeChoice(draft)
-            if let project = draft.projectId { client.composeAction(["kind": "branches", "workspaceId": project]) }
+            if let project = draft.projectId {
+                client.composeAction(["kind": "branches", "workspaceId": project])
+                // Files kept from before a relaunch or a closed sheet go back on the message; the
+                // bridge checks and uploads them again and ignores one it already holds.
+                for file in drafts.restorable { client.composeAttach(file, workspaceId: project) }
+            }
         }
         .onChange(of: draft.projectId) { _, project in
             if let project { client?.composeAction(["kind": "branches", "workspaceId": project]) }
@@ -181,13 +186,16 @@ struct NewThreadSheet: View {
             if !files.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: AceTheme.Spacing.xs) {
-                        ForEach(files) { file in AttachmentChip(file: file) { client?.composeDetach(file.id) } }
+                        ForEach(files) { file in AttachmentChip(file: file) { client?.composeDetach(file.id); drafts.remove(file.id) } }
                     }
                 }
             }
+            // Picked files are kept with the draft, so a relaunch puts them back on the message.
             AttachMenu(stage: { staged in
-                if let client, let project = draft.projectId { client.composeAttach(staged, workspaceId: project) }
-            }, problem: $attachProblem, identifier: "newThread.attach") {
+                guard let client, let project = draft.projectId else { drafts.staging.discard(staged.localId); return }
+                drafts.picked(staged, workspaceId: project)
+                client.composeAttach(staged, workspaceId: project)
+            }, problem: $attachProblem, identifier: "newThread.attach", staging: drafts.staging) {
                 Label("Add photos or files", systemImage: "paperclip").frame(maxWidth: .infinity, alignment: .leading)
             }
             .disabled(draft.projectId == nil || client?.canOperate != true)

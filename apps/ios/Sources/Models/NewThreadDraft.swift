@@ -1,8 +1,9 @@
 import Foundation
 import Observation
 
-/// What the New thread sheet holds between launches: the person's choices and words. It never
-/// holds a token or anything read from the Keychain; the machine is named by its host id.
+/// What the New thread sheet holds between launches: the person's choices, words and picked
+/// files (local copies in app storage, named by id). It never holds a token or anything read
+/// from the Keychain; the machine is named by its host id.
 struct NewThreadDraft: Codable, Equatable, Sendable {
     var machineId: String?
     var projectId: String?
@@ -20,11 +21,15 @@ struct NewThreadDraft: Codable, Equatable, Sendable {
     /// The command id of a send that may already be saved: sending the same draft again replays
     /// that one command instead of starting a second thread. Any edit drops it.
     var commandId: String?
+    /// Files picked for the first message, each in the project it was picked for.
+    var files: [NewThreadFile] = []
 }
 
-/// The draft as a small JSON file, written atomically and protected until first unlock.
+/// The draft as a small JSON file, written atomically and protected until first unlock, with its
+/// picked files' copies in a folder beside it.
 struct NewThreadDraftStore: Sendable {
     let url: URL
+    var files: AttachmentStaging { AttachmentStaging(root: url.deletingPathExtension().appendingPathExtension("files")) }
     static func standard() -> NewThreadDraftStore {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return NewThreadDraftStore(url: base.appendingPathComponent("ace", isDirectory: true).appendingPathComponent("new-thread-draft.json"))
@@ -40,21 +45,41 @@ struct NewThreadDraftStore: Sendable {
     }
 }
 
-/// The sheet's draft: every change is saved at once, so killing the app loses nothing.
+/// The sheet's draft: every change is saved at once, so killing the app loses nothing. A picked
+/// file's copy lives as long as the draft names it: removing it, choosing another project or
+/// machine, or a saved start lets the copy go.
 @MainActor @Observable final class NewThreadDraftModel {
     private(set) var draft: NewThreadDraft
     @ObservationIgnored private let store: NewThreadDraftStore
-    init(store: NewThreadDraftStore) { self.store = store; draft = store.load() }
+    init(store: NewThreadDraftStore) {
+        self.store = store
+        var loaded = store.load()
+        // A copy the system or a crash took can't be sent; a copy no draft names is left over.
+        let staging = store.files
+        loaded.files.removeAll { !staging.holds($0.localId) }
+        staging.sweep(keeping: Set(loaded.files.map(\.localId)))
+        draft = loaded
+    }
 
     func edit(_ change: (inout NewThreadDraft) -> Void) {
         var next = draft
         change(&next)
         next.commandId = draft.commandId
+        // Files go with the project they were picked for.
+        next.files.removeAll { $0.workspaceId != next.projectId }
         guard next != draft else { return }
         next.commandId = nil
-        draft = next
-        store.save(next)
+        commit(next)
     }
+    /// Where the sheet stages a file picked for the first message.
+    var staging: AttachmentStaging { store.files }
+    /// A file staged in `staging` for `workspaceId`'s first message.
+    func picked(_ file: StagedAttachment, workspaceId: String) {
+        edit { $0.files.append(NewThreadFile(file, workspaceId: workspaceId)) }
+    }
+    func remove(_ localId: String) { edit { $0.files.removeAll { $0.localId == localId } } }
+    /// The chosen project's files as the bridge takes them, to put back on the message.
+    var restorable: [StagedAttachment] { draft.files.filter { $0.workspaceId == draft.projectId }.map(\.staged) }
     /// The id this send goes out under, saved before it is dispatched.
     func reserveCommand(make: () -> String) -> String {
         if let id = draft.commandId { return id }
@@ -63,11 +88,21 @@ struct NewThreadDraftStore: Sendable {
         store.save(draft)
         return id
     }
-    /// The start was saved by the SDK: the words go, the choices stay for the next thread.
+    /// The start was saved by the SDK with its files already uploaded: the words and files go,
+    /// the choices stay for the next thread.
     func admitted() {
-        draft.text = ""
-        draft.commandId = nil
-        store.save(draft)
+        var next = draft
+        next.text = ""
+        next.commandId = nil
+        next.files = []
+        commit(next)
+    }
+    /// Saves the draft first, then lets go of the copies it no longer names.
+    private func commit(_ next: NewThreadDraft) {
+        let dropped = Set(draft.files.map(\.localId)).subtracting(next.files.map(\.localId))
+        draft = next
+        store.save(next)
+        for localId in dropped { store.files.discard(localId) }
     }
 }
 

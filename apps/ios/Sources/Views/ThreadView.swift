@@ -29,7 +29,7 @@ struct ThreadView: View {
                 // Back from a child: what this thread last showed stays until its session's first patch.
                 let shown = thread.placeholder ?? thread
                 if !thread.loaded && thread.placeholder == nil { ProgressView("Loading conversation…").listRowSeparator(.hidden) }
-                let links = TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: screen))
+                let links = TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: screen, epoch: thread.epoch))
                 ForEach(shown.screen.blockOrder, id: \.self) { id in
                     if let block = shown.screen.blocks[id] {
                         BlockView(block: block, thread: shown, links: links)

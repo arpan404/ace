@@ -92,6 +92,11 @@ export class ThreadSession {
     void this.#readSetting();
   }
 
+  /** The navigation generation this session serves. */
+  get epoch(): number {
+    return this.#epoch;
+  }
+
   dispose(): void {
     this.#abort.abort();
     this.#stop();

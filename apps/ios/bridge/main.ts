@@ -8,6 +8,7 @@ import { followInbox, inboxAction } from "./inbox.ts";
 import { ArchiveBrowser } from "./archive.ts";
 import { dispatchCommand } from "./commands.ts";
 import { ThreadSession } from "./thread-session.ts";
+import { routeThreadAction } from "./thread-route.ts";
 import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
 import { nativeTransport, socketEvent } from "./socket.ts";
@@ -35,7 +36,12 @@ const Action = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("retry") }),
   z.object({ type: z.literal("machine.refresh") }),
-  z.object({ type: z.literal("thread"), action: z.unknown() }),
+  /** `epoch`: the navigation generation the action was sent for (`thread-route.ts`). */
+  z.object({
+    type: z.literal("thread"),
+    action: z.unknown(),
+    epoch: z.number().int().nonnegative().optional(),
+  }),
   /** The thread's Agents and Changes sheets (`sheets.ts`). */
   z.object({ type: z.literal("sheet"), action: z.unknown() }),
   /** New thread, Add project (`compose-actions.ts`) and a thread's Files sheet. */
@@ -230,8 +236,7 @@ function action(json: string): void {
         void dispatchCommand(client, value.payload, value.requestId, pump);
         break;
       case "thread":
-        if (session) session.handle(value.action);
-        else error();
+        routeThreadAction(session, value.epoch, value.action, (key, read) => pump.put(key, read));
         break;
       case "inbox":
         inboxAction(client, value.action, value.requestId, pump);

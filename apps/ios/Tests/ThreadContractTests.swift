@@ -142,6 +142,26 @@ import Testing
         #expect(steps.contains { $0.step?.verb == "Ran" })
         model.closeSteps(ordinal: ordinal)
     }
+    /// SwiftUI closes an open log on disappear, after Back already ended the thread's session.
+    @Test func anOpenLogClosingAfterGoingBackRaisesNoRequestError() async throws {
+        let (model, root) = try await connected()
+        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
+        model.open("ios-agents")
+        let head = try await until("a settled head with its turn") {
+            model.thread?.screen.blocks.values.first { $0.row.kind == "work" && $0.row.ordinal != nil }
+        }
+        let ordinal = try #require(head.row.ordinal)
+        let epoch = try #require(model.thread?.epoch)
+        model.openSteps(ordinal: ordinal, block: head.id)
+        _ = try await until("the steps") { model.thread?.screen.steps[ordinal]?.header?.state == "ready" ? true : nil }
+        model.back()
+        model.closeSteps(ordinal: ordinal, epoch: epoch)
+        model.closeLane(epoch: epoch)
+        // A later thread's first blocks arrive after anything the releases could have raised.
+        model.open("ios-agents-review")
+        _ = try await until("the next thread") { model.thread?.screen.blockOrder.isEmpty == false ? true : nil }
+        #expect(model.error == nil)
+    }
     private func connected() async throws -> (ClientModel, URL) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let model = ClientModel(now: { 0 })
