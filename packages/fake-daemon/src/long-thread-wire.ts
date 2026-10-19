@@ -373,6 +373,10 @@ function wholeTurns(
   const starts = turns.map((turn) => turn.startSeq).toSorted((a, b) => a - b);
   const own = starts.findLast((start) => start <= firstSeq);
   if (own !== undefined && own > previous) return ids;
-  const next = starts.find((start) => start > firstSeq && start < target);
+  // Keep at least one older item: a turn starting after the newest is the target's own (begun
+  // by a run, before its first item), and cutting there would never move the cursor.
+  const newestOlder = ids.map((id) => creation.get(id) ?? 0).findLast((seq) => seq < target);
+  if (newestOlder === undefined) return ids;
+  const next = starts.find((start) => start > firstSeq && start <= newestOlder);
   return next === undefined ? ids : ids.filter((id) => (creation.get(id) ?? 0) >= next);
 }
