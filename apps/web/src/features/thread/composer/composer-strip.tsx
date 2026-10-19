@@ -159,6 +159,7 @@ export function ComposerStrip(props: {
           threadId={props.threadId}
           goal={goal}
           editable={!!thread?.capabilities?.goals}
+          working={props.status?.state === "working"}
           indicators={indicators}
         />
       ) : plan ? (
