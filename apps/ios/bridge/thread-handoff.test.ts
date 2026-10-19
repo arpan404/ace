@@ -58,12 +58,10 @@ test("a context handoff reaches the phone as a divider naming every model, not a
     label: string;
     from: { provider: string; name: string }[];
     to: { provider: string; name: string };
-    received: string;
   };
   expect(handoff.label).toBe("Context handoff");
   expect(handoff.from.map((side) => side.provider)).toEqual(["codex", "opencode"]);
   expect(handoff.to.provider).toBe("claude");
-  expect(handoff.received).toBe("user: Fix the export");
   expect(row.text).toBe(
     `Context handoff: ${handoff.from.map((side) => side.name).join(", ")} → ${handoff.to.name}`,
   );

@@ -53,8 +53,6 @@ struct HandoffLine: Codable, Sendable, Equatable {
     let to: End
     /// The whole marker as one sentence, for VoiceOver.
     let text: String
-    /// The context the new agent received, readable.
-    let received: String
 }
 struct ApprovalRow: Codable, Sendable, Identifiable {
     struct Option: Codable, Sendable, Identifiable { let id: String; let label: String; let kind: String }

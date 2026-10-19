@@ -60,7 +60,6 @@ function handoffOf(item: Item) {
     from: marker.from.slice(0, 8).map(end),
     to: end(marker.to),
     text: preview(marker.text, 512),
-    received: preview(marker.received, 8192),
   };
 }
 

@@ -1,5 +1,4 @@
 import type { Item, ProviderKind } from "@ace/protocol";
-import { withoutHandoffEnvelope } from "@ace/handoff";
 import { modelLabel, providerNames } from "./providers.ts";
 import { systemInput } from "./system-events.ts";
 
@@ -23,8 +22,6 @@ export interface HandoffMarker {
   to: HandoffEnd;
   /** The whole marker as one sentence, for assistive tech and plain-text rows. */
   text: string;
-  /** The context the new agent received, readable: the excerpts without the preamble. */
-  received: string;
 }
 
 export const handoffLabel = "Context handoff";
@@ -49,18 +46,5 @@ export function handoffMarker(item: Item | undefined): HandoffMarker | undefined
     from,
     to,
     text: names ? `${handoffLabel}: ${names} → ${to.name}` : `${handoffLabel} to ${to.name}`,
-    received: receivedExcerpts(input.text),
   };
-}
-
-/** The excerpts of a rendered handoff, without ace's framing; other text as it is. */
-function receivedExcerpts(text: string): string {
-  if (withoutHandoffEnvelope(text) === undefined) return text;
-  const start = text.indexOf("\n--- item ");
-  const close = text.lastIndexOf("\n</");
-  if (start < 0) return "No earlier messages fit; the agent can read the thread's history.";
-  return text
-    .slice(start + 1, close > start ? close : undefined)
-    .replace(/^--- item [^\n]*\n/gm, "")
-    .trim();
 }

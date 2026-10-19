@@ -602,7 +602,7 @@ const handoffBlock = [
   "</ace_context_handoff>",
 ].join("\n");
 
-test("a provider switch shows a context handoff divider naming each model, opening to what the new agent received", async () => {
+test("a provider switch shows a context handoff divider naming each model and never the context ace sent", async () => {
   const feed = await open(
     thread("thread-handoff", [
       say("before", "assistant", "Looking at the redirect guard."),
@@ -636,8 +636,5 @@ test("a provider switch shows a context handoff divider naming each model, openi
   expect(within(divider).getByText("Opus 4.1")).toBeTruthy();
   expect(within(feed).queryByText(/ace_context_handoff/)).toBeNull();
   expect(within(feed).queryByText("user: Fix the login redirect loop")).toBeNull();
-  await userEvent.click(
-    within(divider).getByRole("button", { name: /Show what the agent received/ }),
-  );
-  expect(within(divider).getByText("user: Fix the login redirect loop")).toBeTruthy();
+  expect(within(divider).queryByRole("button")).toBeNull();
 });

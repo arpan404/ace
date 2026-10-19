@@ -51,7 +51,6 @@ test("a provider switch reads as a handoff from every carried model to the new o
   expect(marker?.from[0]?.name).toBe("GPT-5 Codex");
   expect(marker?.to).toMatchObject({ provider: "claude", name: "Opus 4.1" });
   expect(marker?.text).toBe(`Context handoff: GPT-5 Codex, ${marker?.from[1]?.name} → Opus 4.1`);
-  expect(marker?.received).toBe("user: Fix the export\n\nassistant: Fixed it.");
 });
 
 test("a handoff recorded before source lists names its one previous model", () => {
