@@ -1062,6 +1062,9 @@
       "$ref": "https://ace.local/protocol/v1/NotificationRegisterResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/NotificationUnregisterResult.json"
+    },
+    {
       "properties": {
         "type": {
           "const": "starting",

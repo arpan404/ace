@@ -96,8 +96,51 @@ async function phone() {
   /** Frames are ordered: once this round trip returns, earlier pushes have been handled. */
   const barrier = () => client.request({ type: "notification.config" });
   const of = (type: string) => patches.filter((patch) => patch.type === type);
-  return { daemon, act, sync, resolve, barrier, of, interactions };
+  /** Lets queued register/unregister requests go out, then waits for the daemon to answer. */
+  const settle = async () => {
+    await new Promise((done) => setTimeout(done, 10));
+    await barrier();
+  };
+  return { daemon, act, sync, resolve, barrier, settle, of, interactions };
 }
+
+const lastFeed = (of: (type: string) => Record<string, unknown>[]) =>
+  of("notifications.feed").at(-1);
+
+it("turning a machine's notifications off unregisters at once, and turning them on registers again", async () => {
+  const { daemon, sync, settle, of } = await phone();
+  sync(true);
+  await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(1));
+  sync(false);
+  await settle();
+  // The daemon keeps nothing for a muted phone, so unmuting doesn't post what happened meanwhile.
+  daemon.notify(alert("n:muted"));
+  sync(true);
+  await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(2));
+  expect(lastFeed(of)).toMatchObject({ entries: [] });
+  daemon.notify(alert("n:on"));
+  sync(true);
+  await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(3));
+  expect(lastFeed(of)).toMatchObject({ entries: [{ id: "n:on" }] });
+});
+
+it("a mute that couldn't reach the daemon is sent on reconnect, and the phone doesn't register while muted", async () => {
+  const { daemon, sync, settle, of } = await phone();
+  sync(true);
+  await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(1));
+  daemon.failRequests("notification.unregister");
+  sync(false);
+  await settle();
+  daemon.restoreRequests();
+  daemon.disconnectAll();
+  // The new connection unregisters from what the runtime already knows, before Swift re-syncs.
+  await vi.waitFor(() => expect(of("notifications.connected")).toHaveLength(2));
+  await settle();
+  daemon.notify(alert("n:muted"));
+  sync(true);
+  await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(2));
+  expect(lastFeed(of)).toMatchObject({ entries: [] });
+});
 
 it("posts the daemon's live alerts only while notifications are on", async () => {
   const { daemon, sync, barrier, of } = await phone();

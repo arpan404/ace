@@ -104,6 +104,15 @@ export const NotificationRegisterResult = z.object({
   type: z.literal("notification.register.result"),
   requestId: boundedId,
 });
+/** Stops alerts and catch-up entries for this device until it registers again. */
+export const NotificationUnregister = z.object({
+  type: z.literal("notification.unregister"),
+  requestId: boundedId.optional(),
+});
+export const NotificationUnregisterResult = z.object({
+  type: z.literal("notification.unregister.result"),
+  requestId: boundedId,
+});
 export const NotificationSettings = z.object({
   type: z.literal("notification.preferences"),
   preferences: NotificationPreferences,

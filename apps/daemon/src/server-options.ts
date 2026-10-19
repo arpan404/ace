@@ -142,6 +142,6 @@ export interface ServerOptions {
     NotificationWorker,
     "connectDevice" | "disconnect" | "updatePresence" | "register" | "preferences" | "snooze"
   > &
-    Partial<Pick<NotificationWorker, "revoke" | "getPreferences" | "feed">>;
+    Partial<Pick<NotificationWorker, "revoke" | "getPreferences" | "feed" | "unregister">>;
   onDisconnect?: (deviceId: DeviceId | undefined) => void;
 }
