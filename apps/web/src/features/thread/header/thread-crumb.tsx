@@ -46,7 +46,8 @@ export function SubagentCrumb(props: { threadId: string; parentAgentId: string }
 const crumbLink =
   "focus-ring truncate rounded-sm underline-offset-2 hover:text-foreground hover:underline [-webkit-app-region:no-drag]";
 
-function ParentCrumb(props: { threadId: string }) {
+/** A thread that came out of another names it first, as a link back. */
+export function ParentCrumb(props: { threadId: string }) {
   const parent = useSidebarThread(props.threadId);
   return (
     <Link to="/t/$threadId" params={{ threadId: props.threadId }} className={crumbLink}>

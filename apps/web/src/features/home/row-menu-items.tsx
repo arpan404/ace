@@ -4,23 +4,16 @@ import { GitPullRequestIcon, LinkBreakIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { MenuItem } from "@/components/ui/menu.tsx";
 import { ThreadActionItems } from "@/features/organize/index.ts";
-import { ForkDialog, PrLinksDialog, useLatestForkPoint } from "@/features/thread/index.ts";
+import { PrLinksDialog, useLatestForkPoint, useOpenFork } from "@/features/thread/index.ts";
 
-/** What the row menus open beyond themselves: the pull request links and the fork dialog. */
+/** What the row menus open beyond themselves: the pull request links, and a fork's own thread. */
 export function useRowDialogs(entry: ThreadListEntry) {
   const [prDialog, setPrDialog] = useState<"link" | "unlink">();
-  const [forking, setForking] = useState<ForkPoint>();
-  const dialogs = (
-    <>
-      {prDialog && (
-        <PrLinksDialog thread={entry} kind={prDialog} onClose={() => setPrDialog(undefined)} />
-      )}
-      {forking && (
-        <ForkDialog thread={entry} point={forking} onClose={() => setForking(undefined)} />
-      )}
-    </>
+  const openFork = useOpenFork();
+  const dialogs = prDialog && (
+    <PrLinksDialog thread={entry} kind={prDialog} onClose={() => setPrDialog(undefined)} />
   );
-  return { onPr: setPrDialog, onFork: setForking, dialogs };
+  return { onPr: setPrDialog, onFork: (point: ForkPoint) => openFork(entry.id, point), dialogs };
 }
 
 /**
