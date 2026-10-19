@@ -96,6 +96,11 @@ export const FilesClientMessage = z.discriminatedUnion("type", [
     type: z.literal("files.request"),
     requestId: id,
     threadId: ThreadId.optional(),
+    /**
+     * A registered project's own folder instead of a thread's checkout, before any thread
+     * exists: read-only, and only `list`, `stat` and `download`. Never sent with `threadId`.
+     */
+    workspaceId: WorkspaceId.optional(),
     scope: z.literal("support").optional(),
     operation: FileOperation,
   }),

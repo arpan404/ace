@@ -1,18 +1,31 @@
 import type { ClientCore } from "@ace/client";
 import { downloadFile } from "@ace/client/files";
-import { ThreadId } from "@ace/protocol";
+import { ThreadId, WorkspaceId } from "@ace/protocol";
 import { buildFileTree, isText, type FileTreeNode } from "@ace/ui-core";
 import { z } from "zod";
 import type { PatchSink, Preview } from "./agents.ts";
 
 /*
- * A thread's checkout, read-only, for the Files sheet: the daemon's bounded path listing
- * (`files.request list`, at most 1,000 paths) shown one folder at a time, search through the
- * daemon's own `mention.complete`, and a size-capped text preview. Past a cap the sheet says
- * how much more there is and points to the computer.
+ * A thread's checkout, or a project's own folder before any thread exists (New thread), read-only,
+ * for the Files sheet: the daemon's bounded path listing (`files.request list`, at most 1,000
+ * paths) shown one folder at a time, search through the daemon's own completion, and a
+ * size-capped text preview. Past a cap the sheet says how much more there is and points to the
+ * computer.
  */
 
 export type FilesOwner = Pick<ClientCore, "request" | "state" | "connectionState" | "send">;
+/** A project's file search before a thread exists (`ComposeSearch.complete`). */
+export type ProjectSearch = (
+  workspaceId: string,
+  query: string,
+  limit: number,
+) => Promise<string[]>;
+/** Whose files the sheet shows; patches carry the same key so Swift can tell them apart. */
+type Scope = { threadId: string } | { workspaceId: string };
+const wireScope = (scope: Scope) =>
+  "threadId" in scope
+    ? { threadId: ThreadId.parse(scope.threadId) }
+    : { workspaceId: WorkspaceId.parse(scope.workspaceId) };
 
 /** What one folder, one search and one preview may carry to Swift. */
 export const filesLimits = {
@@ -37,30 +50,41 @@ export class ProjectFiles {
   #owner: FilesOwner;
   #sink: PatchSink;
   #preview: Preview;
-  #threadId: string | undefined;
+  #projectSearch: ProjectSearch;
+  #scope: Scope | undefined;
   #tree: { folders: Map<string, FileTreeNode[]>; truncated: boolean } | undefined;
   #reading: AbortController | undefined;
-  constructor(owner: FilesOwner, sink: PatchSink, preview: Preview) {
+  constructor(owner: FilesOwner, sink: PatchSink, preview: Preview, projectSearch: ProjectSearch) {
     this.#owner = owner;
     this.#sink = sink;
     this.#preview = preview;
+    this.#projectSearch = projectSearch;
   }
 
   /** Read the thread's checkout and show its top folder. */
-  async open(threadId: string): Promise<void> {
+  open(threadId: string): Promise<void> {
+    return this.#open({ threadId });
+  }
+
+  /** Read a project's own folder, before any thread exists, and show its top folder. */
+  openProject(workspaceId: string): Promise<void> {
+    return this.#open({ workspaceId });
+  }
+
+  async #open(scope: Scope): Promise<void> {
     this.close();
-    this.#threadId = threadId;
+    this.#scope = scope;
     this.#listing("", "loading");
     try {
       const reply = await this.#owner.request(
         {
           type: "files.request",
-          threadId: ThreadId.parse(threadId),
+          ...wireScope(scope),
           operation: { op: "list", path: "", limit: filesLimits.listed },
         },
         quiet,
       );
-      if (this.#threadId !== threadId) return;
+      if (this.#scope !== scope) return;
       if (reply.type !== "files.result") throw new Error(reply.type);
       const listing = Listing.parse(reply.value);
       const folders = new Map<string, FileTreeNode[]>();
@@ -72,7 +96,7 @@ export class ProjectFiles {
       this.#tree = { folders, truncated: listing.truncated };
       this.#listing("", "ready");
     } catch {
-      if (this.#threadId === threadId) this.#listing("", "failed");
+      if (this.#scope === scope) this.#listing("", "failed");
     }
   }
 
@@ -82,52 +106,59 @@ export class ProjectFiles {
   }
 
   async search(query: string): Promise<void> {
-    const threadId = this.#threadId;
-    if (!threadId) return;
+    const scope = this.#scope;
+    if (!scope) return;
     const put = (state: string, paths: string[]) =>
       this.#sink.put("files:search", () => ({
         type: "files.search",
-        threadId,
+        ...scope,
         query,
         state,
         paths,
       }));
     put("loading", []);
     try {
-      const reply = await this.#owner.request(
-        {
-          type: "context.request",
-          operation: {
-            op: "mention.complete",
-            threadId: ThreadId.parse(threadId),
-            query: query.slice(0, 128),
-            limit: filesLimits.matches,
-          },
-        },
-        quiet,
-      );
-      if (this.#threadId !== threadId) return;
-      if (reply.result.kind !== "completion") throw new Error(reply.result.kind);
+      const paths = await this.#complete(scope, query);
+      if (this.#scope !== scope) return;
       put(
         "ready",
-        reply.result.paths.slice(0, filesLimits.matches).map((path) => this.#preview(path, 1024)),
+        paths.slice(0, filesLimits.matches).map((path) => this.#preview(path, 1024)),
       );
     } catch {
-      if (this.#threadId === threadId) put("failed", []);
+      if (this.#scope === scope) put("failed", []);
     }
+  }
+
+  async #complete(scope: Scope, query: string): Promise<string[]> {
+    if ("workspaceId" in scope)
+      return this.#projectSearch(scope.workspaceId, query, filesLimits.matches);
+    const reply = await this.#owner.request(
+      {
+        type: "context.request",
+        operation: {
+          op: "mention.complete",
+          threadId: ThreadId.parse(scope.threadId),
+          query: query.slice(0, 128),
+          limit: filesLimits.matches,
+        },
+      },
+      quiet,
+    );
+    if (reply.result.kind !== "completion") throw new Error(reply.result.kind);
+    return reply.result.paths;
   }
 
   /** Read the start of one file: text within the caps, or why it isn't shown. */
   async preview(path: string): Promise<void> {
-    const threadId = this.#threadId;
-    if (!threadId) return;
+    const scope = this.#scope;
+    if (!scope) return;
     this.#reading?.abort();
     const reading = new AbortController();
     this.#reading = reading;
     const put = (fields: Record<string, unknown>) =>
       this.#sink.put("files:preview", () => ({
         type: "files.preview",
-        threadId,
+        ...scope,
         path,
         text: "",
         truncated: false,
@@ -141,7 +172,7 @@ export class ProjectFiles {
       let more = false;
       for await (const chunk of downloadFile(
         this.#owner,
-        { threadId: ThreadId.parse(threadId), op: "download", path, offset: 0 },
+        { ...wireScope(scope), op: "download", path, offset: 0 },
         { signal: reading.signal, timeoutMs: 15_000 },
       )) {
         const room = filesLimits.bytes - read;
@@ -174,18 +205,18 @@ export class ProjectFiles {
   close(): void {
     this.#reading?.abort();
     this.#reading = undefined;
-    this.#threadId = undefined;
+    this.#scope = undefined;
     this.#tree = undefined;
     this.#sink.clear("files:");
   }
 
   #listing(folder: string, state: string): void {
-    const threadId = this.#threadId;
+    const scope = this.#scope;
     const nodes = this.#tree?.folders.get(folder) ?? [];
     const truncated = this.#tree?.truncated ?? false;
     this.#sink.put("files:listing", () => ({
       type: "files.listing",
-      threadId,
+      ...scope,
       folder,
       state: this.#tree && !this.#tree.folders.has(folder) ? "missing" : state,
       rows: nodes.slice(0, filesLimits.rows).map((node) => ({

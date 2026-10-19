@@ -43,19 +43,11 @@ export class ComposeSearch {
       }));
     put("loading", []);
     try {
-      const draftId = await this.draftScope(workspaceId);
-      const reply = await this.#owner.request(
-        {
-          type: "context.request",
-          operation: { op: "draft.mention.complete", draftId, query, limit: mentionLimit },
-        },
-        quiet,
-      );
+      const paths = await this.complete(workspaceId, query, mentionLimit);
       if (generation !== this.#query) return;
-      if (reply.result.kind !== "completion") throw new Error(reply.result.kind);
       put(
         "ready",
-        reply.result.paths.slice(0, mentionLimit).map((path) => this.#preview(path, 1024)),
+        paths.map((path) => this.#preview(path, 1024)),
       );
     } catch {
       if (generation === this.#query) put("failed", []);
@@ -71,6 +63,20 @@ export class ComposeSearch {
     void scope?.draftId.then((id) => {
       if (id === draftId && this.#scope === scope) this.#scope = undefined;
     });
+  }
+
+  /** The daemon's own file search in a project before any thread exists, through the draft. */
+  async complete(workspaceId: string, query: string, limit: number): Promise<string[]> {
+    const draftId = await this.draftScope(workspaceId);
+    const reply = await this.#owner.request(
+      {
+        type: "context.request",
+        operation: { op: "draft.mention.complete", draftId, query: query.slice(0, 128), limit },
+      },
+      quiet,
+    );
+    if (reply.result.kind !== "completion") throw new Error(reply.result.kind);
+    return reply.result.paths.slice(0, limit);
   }
 
   /** Release the draft scope: the sheet closed or moved to another project. */

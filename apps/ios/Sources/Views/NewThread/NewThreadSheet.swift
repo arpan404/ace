@@ -15,6 +15,7 @@ struct NewThreadSheet: View {
     @State private var path: [NewThreadRoute] = []
     @State private var sending = false
     @State private var failure: String?
+    @State private var browsing = false
     private var draft: NewThreadDraft { drafts.draft }
 
     private var machineId: String? {
@@ -75,6 +76,13 @@ struct NewThreadSheet: View {
             if let project { client?.composeAction(["kind": "branches", "workspaceId": project]) }
         }
         .onDisappear { client?.composeAction(["kind": "close"]) }
+        .sheet(isPresented: $browsing) { projectFiles }
+    }
+    /// The chosen project's own folder, read-only, before the thread exists.
+    @ViewBuilder private var projectFiles: some View {
+        if let client, let project = draft.projectId {
+            ThreadFilesSheet(model: client, scope: .project(project), mention: { file in drafts.edit { $0.text = Mention.insert(file, into: $0.text) } })
+        }
     }
 
     private var machineSection: some View {
@@ -102,6 +110,8 @@ struct NewThreadSheet: View {
                     .disabled(branches?.noWorktree != nil || branches?.state != "ready")
                     .accessibilityIdentifier("newThread.worktree")
                 worktreeBase
+                Button { browsing = true } label: { Label("Browse files", systemImage: "folder") }
+                    .accessibilityIdentifier("newThread.files")
             }
         } footer: {
             if draft.worktree && branches?.noWorktree == nil { Text("The thread works on a new branch in its own folder, apart from your checkout.") }

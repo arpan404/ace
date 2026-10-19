@@ -8,8 +8,9 @@ import { ComposeActions } from "./compose-actions.ts";
 import { filesLimits } from "./project-files.ts";
 
 /*
- * A thread's Files sheet over the real SDK and an in-process fake daemon: the daemon's listing
- * shown a folder at a time within the row cap, and previews cut at the byte and text caps.
+ * The Files sheet over the real SDK and an in-process fake daemon, for a thread's checkout and,
+ * from New thread, a project's own folder: the daemon's listing shown a folder at a time within
+ * the row cap, and previews cut at the byte and text caps.
  */
 
 const pump = new PatchPump();
@@ -22,9 +23,15 @@ afterEach(async () => {
   native.frames.length = 0;
 });
 
-async function connect(): Promise<{ owner: ClientCore; compose: ComposeActions }> {
+function withThread(): FakeDaemon {
   const daemon = new FakeDaemon({ clock: Date.now, hostId: "ios-test-host", token: "t" });
   daemon.createThread({ id: "ios-files", workspaceId: "ace", title: "Files", provider: "claude" });
+  return daemon;
+}
+
+async function connect(
+  daemon = withThread(),
+): Promise<{ owner: ClientCore; compose: ComposeActions }> {
   const owner = new ClientCore({
     deviceId: DeviceId.parse("ios-files-test"),
     expectedHostId: HostId.parse("ios-test-host"),
@@ -136,4 +143,61 @@ test("search finds files anywhere in the checkout through the daemon", async () 
     () => latest("files.search")?.state === "ready" && latest("files.search"),
   );
   expect((found.paths as string[]).some((path) => path.endsWith("outbox.ts"))).toBe(true);
+});
+
+/** A daemon with one project added from the computer and no thread anywhere. */
+async function projectOnly() {
+  const daemon = new FakeDaemon({ clock: Date.now, hostId: "ios-test-host", token: "t" });
+  daemon.projects.seedFolders("/home/ada", [{ path: "/home/ada/code/notes", git: true }]);
+  const { owner, compose } = await connect(daemon);
+  compose.compose({ kind: "addProject", path: "/home/ada/code/notes", requestId: "add-notes" });
+  const added = await until(() => latest("compose.added", "add-notes"));
+  const workspaceId = String(added.projectId);
+  daemon.checkouts.seedProject(workspaceId, "docs/guide.md", "# Guide\n\nRead me first.\n");
+  return { daemon, owner, compose, workspaceId };
+}
+
+test("New thread browses a project's own folder and previews a file before any thread exists", async () => {
+  const { owner, compose, workspaceId } = await projectOnly();
+  expect(owner.cachedThreads()?.ids ?? []).toEqual([]);
+  compose.files({ kind: "openProject", workspaceId });
+  const root = await listing("");
+  expect(root.workspaceId).toBe(workspaceId);
+  expect(root.rows).toContainEqual({ path: "docs/", name: "docs", folder: true });
+  compose.files({ kind: "folder", path: "docs/" });
+  expect((await listing("docs/")).rows).toEqual([
+    { path: "docs/guide.md", name: "guide.md", folder: false },
+  ]);
+  compose.files({ kind: "preview", path: "docs/guide.md" });
+  const shown = await until(() => {
+    const patch = latest("files.preview");
+    return patch?.path === "docs/guide.md" && patch.state === "ready" && patch;
+  });
+  expect(shown).toMatchObject({
+    workspaceId,
+    text: "# Guide\n\nRead me first.\n",
+    truncated: false,
+    binary: false,
+  });
+});
+
+test("a project the computer doesn't have shows the folder as unreadable", async () => {
+  const { compose } = await projectOnly();
+  compose.files({ kind: "openProject", workspaceId: "not-a-project" });
+  const failed = await until(() => {
+    const patch = latest("files.listing");
+    return patch?.state === "failed" && patch;
+  });
+  expect(failed).toMatchObject({ workspaceId: "not-a-project", rows: [] });
+});
+
+test("search in a project before any thread exists finds its files through the daemon", async () => {
+  const { compose, workspaceId } = await projectOnly();
+  compose.files({ kind: "openProject", workspaceId });
+  await listing("");
+  compose.files({ kind: "search", query: "guide" });
+  const found = await until(
+    () => latest("files.search")?.state === "ready" && latest("files.search"),
+  );
+  expect(found.paths).toContain("docs/guide.md");
 });

@@ -345,8 +345,8 @@ export class FakeDaemon implements Host {
   get projects(): FakeProjects {
     return this.servicesWire.workspace.projects;
   }
-  /** Threads' checkouts behind `files.request`, for seeding a scenario's files. */
-  get checkouts(): Pick<import("./files-wire.ts").FakeFilesWire, "seed"> {
+  /** Threads' checkouts and projects' own folders behind `files.request`, for seeding files. */
+  get checkouts(): Pick<import("./files-wire.ts").FakeFilesWire, "seed" | "seedProject"> {
     return this.servicesWire.files;
   }
   /** Providers' own MCP servers behind `mcp.provider.sources` and its controls. */

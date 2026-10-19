@@ -11,9 +11,9 @@ async function* downloadChunks(
   input: FileDownloadInput,
   options: RequestOptions,
 ): AsyncGenerator<Uint8Array> {
-  const { threadId, scope, ...operation } = input;
+  const { threadId, workspaceId, scope, ...operation } = input;
   const ready = await client.request(
-    { type: "files.request", threadId, scope, operation },
+    { type: "files.request", threadId, workspaceId, scope, operation },
     options,
   );
   if (ready.type !== "files.ready")

@@ -1357,6 +1357,7 @@ Example:
 | type | yes | `"files.request"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
 | threadId | no | [ThreadId.json](schema/ThreadId.json) |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | scope | no | `"support"` |  |
 | operation | yes | [FileOperation.json](schema/FileOperation.json) |  |
 
@@ -1366,7 +1367,7 @@ Example:
 {
   "operation": {
     "op": "upload.commit",
-    "sha256": "78d538f8760a9cfee6ac2b71fbc8367214b0c0ecc6ebdc376317cecaf3e0781c",
+    "sha256": "8d538f8760a9cfee6ac2b71fbc8367214b0c0ecc6ebdc376317cecaf3e0781cd",
     "uploadId": "example"
   },
   "requestId": "example",
@@ -1386,8 +1387,8 @@ Example:
 
 ```json
 {
-  "channel": 3,
-  "credits": 7,
+  "channel": 8,
+  "credits": 8,
   "type": "files.credit"
 }
 ```
@@ -1403,7 +1404,7 @@ Example:
 
 ```json
 {
-  "channel": 10,
+  "channel": 6,
   "type": "files.cancel"
 }
 ```
@@ -1425,13 +1426,9 @@ Example:
 
 ```json
 {
-  "draft": {
-    "draftId": "example",
-    "provider": "acp",
-    "workspaceId": "example"
-  },
-  "query": "example",
+  "limit": 5,
   "requestId": "example",
+  "threadId": "example",
   "type": "commands.list"
 }
 ```

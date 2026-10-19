@@ -101,6 +101,37 @@ import XCTest
         screenshot("files-mentioned")
     }
 
+    func testNewThreadBrowsesAndPreviewsTheProjectsFolderBeforeAThreadExists() {
+        let app = launch()
+        XCTAssertTrue(app.buttons["inbox.compose"].waitForExistence(timeout: 25))
+        app.buttons["inbox.compose"].tap()
+        XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
+        app.buttons["newThread.project"].tap()
+        XCTAssertTrue(app.buttons["project.ace"].waitForExistence(timeout: 15))
+        app.buttons["project.ace"].tap()
+        let browse = app.buttons["newThread.files"]
+        XCTAssertTrue(browse.waitForExistence(timeout: 10))
+        browse.tap()
+        let docs = app.buttons["file.docs/"]
+        XCTAssertTrue(docs.waitForExistence(timeout: 15))
+        for _ in 0..<10 where !docs.isHittable { app.swipeUp() }
+        screenshot("newthread-files-root")
+        docs.tap()
+        XCTAssertTrue(app.buttons["file.docs/runbook.md"].waitForExistence(timeout: 10))
+        screenshot("newthread-files-folder")
+        app.buttons["file.docs/runbook.md"].tap()
+        let text = element(app, "preview.text")
+        XCTAssertTrue(text.waitForExistence(timeout: 20))
+        XCTAssertTrue(text.label.contains("Relay runbook"))
+        screenshot("newthread-files-preview")
+        XCTAssertTrue(app.buttons["preview.mention"].waitForExistence(timeout: 5))
+        app.buttons["preview.mention"].tap()
+        let message = element(app, "newThread.message")
+        XCTAssertTrue(message.waitForExistence(timeout: 10))
+        XCTAssertTrue((message.value as? String)?.contains("@docs/runbook.md") == true)
+        screenshot("newthread-files-mentioned")
+    }
+
     private func scrollToMore(_ app: XCUIApplication) -> Bool {
         for _ in 0..<30 where !element(app, "files.more").exists { app.swipeUp(velocity: .fast) }
         return element(app, "files.more").exists
