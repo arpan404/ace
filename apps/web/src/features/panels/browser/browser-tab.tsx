@@ -16,6 +16,7 @@ import { PageSignIn } from "./page-sign-in.tsx";
 import { PageFileChooser } from "./page-file-chooser.tsx";
 import { useBrowserFeatures } from "./use-browser-features.ts";
 import { BrowserActions } from "./browser-actions.tsx";
+import { SpeakerButton } from "./speaker-button.tsx";
 import { DownloadsButton } from "./downloads.tsx";
 import { ExtensionsMenu, extensionsHidden } from "./extensions-menu.tsx";
 import { PageNav, PageToolbar, ToolPill } from "./page-toolbar.tsx";
@@ -356,6 +357,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
           <>
             <RecordingIndicator source={source} threadId={threadId} view={live} />
             {watch.watching !== undefined && <WatchButton {...watch} />}
+            <SpeakerButton source={source} threadId={threadId} frame={page.frame} />
             <ToolPill>
               {!extensionsOff && (
                 <ExtensionsMenu
