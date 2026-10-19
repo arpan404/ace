@@ -188,13 +188,16 @@ Rules:
 A screen with a side panel passes `workspace={{ scope, definition }}` to `<Screen>`; the thread
 screen passes its id and `threadWorkspace` (`features/panels/thread-workspace.ts`). A **tab** is
 one opened resource (Changes, a terminal, Logs, a browser page, a file); the **side panel** beside
-the column shows one tab at a time. There is no bottom panel: terminals and Logs are tabs like the
-rest. Hiding the panel keeps its tabs; closing a tab removes one resource. Each scope (thread)
-keeps its own tabs, showing tab, whether the panel shows, its width and full view
-(`lib/workspace`, persisted under `ace.workspace`, the 64 most recently changed threads); the last
-resize anywhere is the width new threads start at. A thread saved by an older build with a bottom
-panel comes back with that panel's tabs (its terminals and Logs) after the side panel's, the one
-that was showing still showing.
+the column shows one tab at a time. Terminals open in the **bottom panel** under the column instead
+(a definition's `bottom` names the kinds it holds; `lib/workspace/places.ts`), unless this device
+chose "Terminals open in: Side panel" (Settings › General). A tab is open in one panel at a time;
+its ⋯ moves a terminal to the other one, shell and output intact. The bottom panel hides where
+the side panel floats or on touch screens; there terminals open beside. Hiding a panel keeps its
+tabs; closing a tab removes one resource. Each scope (thread) keeps its own tabs, showing tab,
+whether each panel shows, the side panel's width and full view (`lib/workspace`, persisted under
+`ace.workspace`, the 64 most recently changed threads); the last resize anywhere is the width new
+threads start at. The bottom panel's height and "Terminals open in" are this device's, kept there
+too.
 
 The shell owns the strip (order, drag and keyboard reorder, close, pin, overflow, the + launcher),
 the width, full view, motion, persistence and shortcuts. A tool declares a
@@ -263,7 +266,7 @@ addresses: the relay has no history or stop commands. Preview is only a thread's
 
 Shortcuts (`lib/keymap.ts`): ⇧⌘B side panel, ⌥⌘O Work, ⇧⌘F full view, ⌥⌘T new tab,
 ⌥⌘W close tab, ⇧⌘] and ⇧⌘[ next and previous tab, and each tool's own (⇧⌘D Changes, ⌃⇧A Agents,
-⌃` or ⌘J Terminal, ⌃⇧B Browser, ⌃⇧P Preview, ⌃⇧M Devices, ⌃⇧L Logs, ⌘P quick open, ⌥⌘S Side chat).
+⌃` or ⌘J Terminal (the bottom panel, shown and focused or hidden), ⌃⇧B Browser, ⌃⇧P Preview, ⌃⇧M Devices, ⌃⇧L Logs, ⌘P quick open, ⌥⌘S Side chat).
 In a browser tab: ⌘L the address, ⌘R reload, ⌘[ and ⌘] back and forward; in a file, ⌘F find. While a
 terminal shows, ⌃⇧` opens another and ⌘F finds in its scrollback.
 

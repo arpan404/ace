@@ -82,8 +82,11 @@ export const keymap = {
   previousTab: { keys: "shift+mod+[", label: "Previous tab" },
   changes: { keys: "shift+mod+d", label: "Changes" },
   agents: { keys: "ctrl+shift+a", label: "Summary" },
-  // ⌘J showed the bottom panel, where terminals lived; it now shows the side panel's terminal.
-  terminal: { keys: "ctrl+`", also: ["mod+j"], label: "Terminal" },
+  // Both follow Settings' "Terminals open in": the bottom terminal panel (shown and focused,
+  // then hidden) or the side panel's terminal. ⌃` also works from inside a shell off Apple,
+  // where Ctrl+J is the shell's.
+  terminal: { keys: "ctrl+`", label: "Terminal" },
+  terminalPanel: { keys: "mod+j", label: "Show or hide the terminal panel" },
   files: { keys: "mod+p", label: "Open a file" },
   browser: { keys: "ctrl+shift+b", label: "Browser" },
   newTerminal: { keys: "ctrl+shift+`", label: "New terminal" },
