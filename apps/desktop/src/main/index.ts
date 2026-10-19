@@ -38,6 +38,7 @@ import { DaemonNetwork } from "./daemon-network.ts";
 import { SettingsStore } from "./settings-store.ts";
 import { checkUserData, desktopUserData, legacyFolders } from "./user-data.ts";
 import { createMainWindow } from "./window/main-window.ts";
+import { applyZoom } from "./window/zoom.ts";
 import {
   disableDnsPrefetching,
   isolateVisualizationSession,
@@ -404,6 +405,9 @@ function main(target: DaemonTarget): void {
               void showLogs().catch((error: unknown) =>
                 log("warn", `Could not show the logs: ${String(error)}`),
               ),
+            // The focused window (a visualization's own window too), else the app window.
+            zoom: (change) =>
+              applyZoom(BrowserWindow.getFocusedWindow()?.webContents ?? contents(), change),
           }),
         ),
       );

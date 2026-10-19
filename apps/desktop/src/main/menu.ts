@@ -1,6 +1,7 @@
 import type { MenuItemConstructorOptions } from "electron";
 import { helpUrl, issuesUrl } from "./links.ts";
 import { keymapAccelerator, shortcuts } from "./shortcuts.ts";
+import type { ZoomChange } from "./window/zoom.ts";
 
 /**
  * Menu items show the shortcut but do not capture it (`registerAccelerator: false`): the key
@@ -17,6 +18,8 @@ export function applicationMenu(options: {
   checkForUpdates(): void;
   openUrl(url: string): void;
   showLogs(): void;
+  /** View › Zoom: the focused window's own page, whichever page inside it has focus. */
+  zoom(change: ZoomChange): void;
 }): MenuItemConstructorOptions[] {
   const mac = options.platform === "darwin";
   const item = (keymapId: string): MenuItemConstructorOptions => {
@@ -31,6 +34,19 @@ export function applicationMenu(options: {
       click: () => options.trigger(keymapId),
     };
   };
+  // Registered, unlike the keymap's items: zoom is the window's, so it must win over a focused
+  // visualization. The native browser page keeps ⌘+ for its own zoom (`pageChord`).
+  const zoom = (
+    label: string,
+    change: ZoomChange,
+    accelerator: string,
+    hidden = false,
+  ): MenuItemConstructorOptions => ({
+    label,
+    accelerator,
+    ...(hidden ? { visible: false, acceleratorWorksWhenHidden: true } : {}),
+    click: () => options.zoom(change),
+  });
   const checkForUpdates: MenuItemConstructorOptions = {
     label: "Check for Updates…",
     click: () => options.checkForUpdates(),
@@ -84,9 +100,11 @@ export function applicationMenu(options: {
         item("terminal"),
         item("terminalPanel"),
         { type: "separator" },
-        { role: "resetZoom" },
-        { role: "zoomIn" },
-        { role: "zoomOut" },
+        zoom("Actual Size", "reset", "CmdOrCtrl+0"),
+        zoom("Zoom In", "in", "CmdOrCtrl+Plus"),
+        // ⌘= is the key people press for zoom in; ⌘+ needs Shift on most layouts.
+        zoom("Zoom In", "in", "CmdOrCtrl+=", true),
+        zoom("Zoom Out", "out", "CmdOrCtrl+-"),
         { type: "separator" },
         { role: "togglefullscreen" },
         ...(options.developer ? [{ role: "toggleDevTools" } as const] : []),
