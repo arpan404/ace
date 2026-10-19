@@ -129,7 +129,8 @@ import XCTest
             app.launchArguments += ["-UIPreferredContentSizeCategoryName", size]
         }
         app.launch()
-        XCTAssertTrue(app.buttons["thread.ios-tree"].waitForExistence(timeout: 25))
+        // At accessibility text sizes the first rows can already fill the screen.
+        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 25))
         return app
     }
     /// Every audit issue is listed in an attachment. Missing descriptions and small hit areas fail

@@ -71,12 +71,15 @@ struct PlanReviewCard: View {
     let answer: ([String: Any]) -> Void
     @State private var revising = false
     @State private var feedback = ""
+    /// The plan's scroll area grows with the text size, so large text still shows a few lines.
+    @ScaledMetric(relativeTo: .body) private var planHeight = AceTheme.Dimensions.touchTarget * 5
     var body: some View {
         let plan = interaction.plan
         VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
             RequestHeader(kind: "Plan review", title: plan?.title ?? "Review the plan")
             if let plan, !plan.summary.isEmpty {
                 Text(plan.summary).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
@@ -88,7 +91,7 @@ struct PlanReviewCard: View {
                     if plan?.truncated == true { Text("The full plan is on your machine").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxHeight: AceTheme.Dimensions.touchTarget * 5)
+            .frame(maxHeight: planHeight)
             .padding(AceTheme.Spacing.md).background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.code))
             .accessibilityIdentifier("plan.body")
             if revising {
