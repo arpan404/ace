@@ -1,5 +1,7 @@
 import { afterEach, expect, test } from "vitest";
 import { facts } from "@ace/fake-daemon";
+import type { Fact } from "@ace/core";
+import { ThreadId } from "@ace/protocol";
 import { connect, fixture, open, reset, rows, until } from "./thread-harness.ts";
 
 /*
@@ -13,7 +15,7 @@ afterEach(reset);
 function settled(
   threadId: string,
   result: { outcome: "completed" | "failed" | "cancelled"; text: string },
-) {
+): Fact {
   return {
     type: "item.upsert",
     agent: "root",
@@ -25,7 +27,7 @@ function settled(
       complete: true,
       results: [
         {
-          threadId,
+          threadId: ThreadId.parse(threadId),
           outcome: result.outcome,
           result: result.text,
           truncated: false,
@@ -77,14 +79,14 @@ test("a failed child keeps the shared count truthful", async () => {
         complete: true,
         results: [
           {
-            threadId: "child-one",
+            threadId: ThreadId.parse("child-one"),
             outcome: "completed",
             result: "Added the export button.",
             truncated: false,
             before: null,
           },
           {
-            threadId: "child-two",
+            threadId: ThreadId.parse("child-two"),
             outcome: "failed",
             result: "Error: quota exhausted for the day.\nRetry tomorrow.",
             truncated: false,
@@ -133,7 +135,7 @@ test("settled results arriving as the agent's message read the same compact way"
         type: "message",
         role: "user",
         complete: true,
-        origin: { kind: "subagent_result", threadIds: ["child-1"] },
+        origin: { kind: "subagent_result", threadIds: [ThreadId.parse("child-1")] },
         parts: [{ type: "text", text: body }],
       },
     },
