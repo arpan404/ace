@@ -2,10 +2,12 @@ import { BrowserOriginError } from "./policy.ts";
 import {
   ThreadId,
   BrowserClientMessage,
+  type BrowserCaptureViewport,
   type BrowserServerMessage,
   type DeviceScope,
 } from "@ace/protocol";
 import type { BrowserService } from "./service.ts";
+import type { CaptureViewer } from "./fanout.ts";
 
 type BrowserAccess = Extract<DeviceScope, "read" | "operate">;
 
@@ -51,6 +53,11 @@ export function connectBrowser(
     ) => boolean;
     send: (message: BrowserServerMessage, serialized?: string) => boolean;
     /**
+     * Sends one frame's binary stream messages (`@ace/browser/stream`), all of them or none;
+     * false is backpressure. Without it, every viewer gets frames as JSON.
+     */
+    sendStream?: (pieces: readonly Uint8Array[]) => boolean;
+    /**
      * Opens a thread attachment this connection uploaded (the files a person picks for a page's
      * file input). Without it, picking files is refused.
      */
@@ -60,23 +67,32 @@ export function connectBrowser(
     ) => Promise<{ chunks: AsyncIterable<Uint8Array>; close(): Promise<void> }>;
   },
 ): { handle(raw: unknown): Promise<void>; close(): void } {
-  type Subscription = { stop(): void; subscribers: Set<string> };
+  /** `binary`: this connection's viewers of the thread take frames as binary stream messages. */
+  type Subscription = { stop(): void; subscribers: Set<string>; binary: boolean };
   const subscriptions = new Map<string, Subscription>();
-  const bind = (threadId: string, entry: Subscription) => {
+  const sendStream = options.sendStream;
+  const bind = (threadId: string, entry: Subscription, capture?: CaptureViewer) => {
     entry.stop = service.subscribe(
       threadId,
       options.connectionId,
       {
         send: (frame) =>
-          options.send(
-            { type: "browser.frame", threadId: ThreadId.parse(threadId), frame },
-            service.serializeFrame(threadId, frame),
-          ),
+          entry.binary && sendStream
+            ? sendStream(service.streamFrame(threadId, frame))
+            : options.send(
+                { type: "browser.frame", threadId: ThreadId.parse(threadId), frame },
+                service.serializeFrame(threadId, frame),
+              ),
       },
       (state) => options.send({ type: "browser.state", state }),
       (event) => options.send(event),
+      capture,
     );
   };
+  const viewer = (viewport: BrowserCaptureViewport): CaptureViewer => ({
+    viewport,
+    local: options.local ?? false,
+  });
   let pending = 0;
   let closed = false;
   return {
@@ -224,18 +240,25 @@ export function connectBrowser(
             break;
           case "browser.subscribe": {
             const subscriber = message.subscriberId ?? "legacy";
+            // The newest subscriber's build decides how frames travel on this connection.
+            const binary = message.binaryFrames === true && sendStream !== undefined;
+            // A viewer that says what it shows gets frames sized for it from the first one.
+            const capture = message.viewport ? viewer(message.viewport) : undefined;
             let entry = subscriptions.get(threadId);
             if (entry) {
               if (entry.subscribers.size >= 64 && !entry.subscribers.has(subscriber))
                 throw new Error("Browser subscriber limit");
+              entry.binary = binary;
+              if (capture) service.configureCapture(threadId, options.connectionId, capture);
               options.send({ type: "browser.state", state: service.state(threadId) });
               service.replayFrame(threadId, options.connectionId);
               entry.subscribers.add(subscriber);
             } else {
               if (subscriptions.size >= 8) throw new Error("Browser subscription limit");
-              entry = { subscribers: new Set([subscriber]), stop() {} };
-              bind(threadId, entry);
+              entry = { subscribers: new Set([subscriber]), stop() {}, binary };
+              bind(threadId, entry, capture);
               subscriptions.set(threadId, entry);
+              if (capture) service.configureCapture(threadId, options.connectionId, capture);
             }
             respond(null);
             break;
@@ -252,10 +275,7 @@ export function connectBrowser(
           }
           case "browser.capture":
             if (!subscriptions.has(threadId)) throw new Error("Browser viewer is not subscribed");
-            service.configureCapture(threadId, options.connectionId, {
-              viewport: message.viewport,
-              local: options.local ?? false,
-            });
+            service.configureCapture(threadId, options.connectionId, viewer(message.viewport));
             respond(null);
             break;
           case "browser.ack":
