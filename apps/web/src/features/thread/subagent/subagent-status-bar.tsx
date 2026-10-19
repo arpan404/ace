@@ -43,7 +43,7 @@ export function SubagentStatusBar(props: {
         className={cn(
           composerSurface,
           "relative z-10 flex min-h-12 min-w-0 items-center gap-2 rounded-xl px-2 text-ui",
-          // Narrow, Stop, Continue and Open parent keep their icons; their names stay spoken.
+          // Narrow, Stop, Continue, Fork and Open parent keep their icons; their names stay spoken.
           "@max-[30rem]/subagent-bar:gap-1 @max-[30rem]/subagent-bar:[&_[data-slot=stop-label]]:sr-only @max-[30rem]/subagent-bar:[&_[data-slot=action-label]]:sr-only",
         )}
       >

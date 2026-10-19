@@ -10,7 +10,7 @@ import {
   subagentEnded,
   subagentPhase,
 } from "@ace/ui-core";
-import { ArrowBendDownRightIcon } from "@phosphor-icons/react";
+import { ArrowBendDownRightIcon, GitForkIcon } from "@phosphor-icons/react";
 import { useCallback, useState, type ReactNode } from "react";
 import type { AgentFacts } from "@/lib/agent-facts.ts";
 import { cn } from "@/lib/cn.ts";
@@ -24,12 +24,18 @@ import { SubagentStatusBar } from "./subagent-status-bar.tsx";
 /**
  * The bottom of a thread: its composer (`children`), unless ace delegated it and its whole tree
  * has ended. Then a status bar says how it went and leads back to the thread that delegated
- * it; ace still delivers a follow-up to it, so Continue brings the composer back.
+ * it; ace still delivers a follow-up to it, so Continue brings the composer back, and Fork takes
+ * the conversation over as a thread of its own.
  */
-export function DelegateBottom(props: { thread: Thread; children: ReactNode }) {
+export function DelegateBottom(props: {
+  thread: Thread;
+  /** Opens the fork dialog at the latest finished turn; absent until a turn finishes. */
+  onFork: (() => void) | undefined;
+  children: ReactNode;
+}) {
   const parentThreadId = props.thread.delegatedBy;
   return parentThreadId ? (
-    <Delegated thread={props.thread} parentThreadId={parentThreadId}>
+    <Delegated thread={props.thread} parentThreadId={parentThreadId} onFork={props.onFork}>
       {props.children}
     </Delegated>
   ) : (
@@ -37,7 +43,12 @@ export function DelegateBottom(props: { thread: Thread; children: ReactNode }) {
   );
 }
 
-function Delegated(props: { thread: Thread; parentThreadId: string; children: ReactNode }) {
+function Delegated(props: {
+  thread: Thread;
+  parentThreadId: string;
+  onFork: (() => void) | undefined;
+  children: ReactNode;
+}) {
   const { thread } = props;
   const rootId = thread.rootAgentId ?? "";
   const root = useAgent(thread.id, rootId);
@@ -69,14 +80,27 @@ function Delegated(props: { thread: Thread; parentThreadId: string; children: Re
         runs="Delegated by ace"
         parent={{ threadId: props.parentThreadId }}
         actions={
-          <button
-            type="button"
-            onClick={() => setContinued(end ?? 0)}
-            className={cn(stripControl, "h-8 shrink-0 text-ui text-foreground")}
-          >
-            <ArrowBendDownRightIcon aria-hidden size={15} className="shrink-0" />
-            <span data-slot="action-label">Continue</span>
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => setContinued(end ?? 0)}
+              className={cn(stripControl, "h-8 shrink-0 text-ui text-foreground")}
+            >
+              <ArrowBendDownRightIcon aria-hidden size={15} className="shrink-0" />
+              <span data-slot="action-label">Continue</span>
+            </button>
+            {props.onFork ? (
+              <button
+                type="button"
+                aria-label="Fork from the last turn"
+                onClick={props.onFork}
+                className={cn(stripControl, "h-8 shrink-0 text-ui text-foreground")}
+              >
+                <GitForkIcon aria-hidden size={15} className="shrink-0" />
+                <span data-slot="action-label">Fork</span>
+              </button>
+            ) : null}
+          </>
         }
       />
     </ComposerDock>
