@@ -1,4 +1,5 @@
-import { Lexer, type Links, type Token } from "marked";
+import { Lexer, type Links, type MarkedOptions, type Token } from "marked";
+import { mathStart, mathTokenizer } from "./math-extension.ts";
 
 /*
  * Streamed markdown, parsed paragraph-wise. Text arrives in appends; the parser keeps a settled
@@ -16,7 +17,16 @@ import { Lexer, type Links, type Token } from "marked";
  * autolinks after it): each lex starts from the state the settled head ended in.
  */
 
-const options = { gfm: true, breaks: false } as const;
+const options: MarkedOptions = {
+  gfm: true,
+  breaks: false,
+  extensions: {
+    renderers: {},
+    childTokens: {},
+    inline: [mathTokenizer],
+    startInline: [mathStart],
+  },
+};
 
 function fenceStart(source: string) {
   const match = /^( {0,3})(`{3,}|~{3,})([^\n]*)\n/.exec(source);
