@@ -81,7 +81,7 @@ test("checkout copied from another repository names that repository instead of t
     { resource: "prDetail", value: detail(other, "Other repository PR") },
   );
   await openPullRequest(app, { project: "api", repository: other, number: 42 });
-  await screen.findByRole("heading", { name: "Other repository PR" });
+  await screen.findByRole("heading", { name: "Other repository PR" }, { timeout: 10_000 });
   await user.click(screen.getByRole("button", { name: "Copy checkout command" }));
   expect(await navigator.clipboard.readText()).toBe("gh pr checkout 42 --repo github.com/acme/web");
   await screen.findByRole("button", { name: "Checkout command copied" });

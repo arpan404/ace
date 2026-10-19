@@ -236,17 +236,19 @@ export function PrHeader(props: {
             {!props.condensed && <PrTitle actions={actions} condensed={false} />}
             <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
               <PrAvatar name={detail.author} url={detail.authorAvatarUrl} />
-              <span className="truncate text-foreground">{detail.author}</span>
+              <span className="max-w-32 shrink-0 truncate text-foreground">{detail.author}</span>
               <span aria-hidden className="text-subtle-foreground">
                 ·
               </span>
-              <PrTime at={detail.updatedAt} prefix="updated " />
+              <span className="shrink-0 whitespace-nowrap">
+                <PrTime at={detail.updatedAt} prefix="updated " />
+              </span>
               <button
                 type="button"
                 aria-label={copied ? "Checkout command copied" : "Copy checkout command"}
                 onClick={() => copy(checkout)}
                 title={checkout}
-                className="ml-auto max-w-[55%] truncate rounded-xs bg-accent px-1.5 py-0.5 font-mono text-xs text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit hover:bg-hover hover:text-foreground"
+                className="ml-auto min-w-0 truncate rounded-xs bg-accent px-1.5 py-0.5 font-mono text-xs text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit hover:bg-hover hover:text-foreground"
               >
                 {copied ? "Copied" : checkout}
               </button>

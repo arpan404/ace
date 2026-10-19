@@ -70,7 +70,9 @@ export function PrPeople(props: {
                       outcome ? band[outcome] : "bg-panel",
                     )}
                   >
-                    <PrAvatar name={name} url={detail.reviewerAvatars?.[name]} />
+                    <span className="inline-flex rounded-full bg-panel">
+                      <PrAvatar name={name} url={detail.reviewerAvatars?.[name]} />
+                    </span>
                   </span>
                 </Tip>
               );

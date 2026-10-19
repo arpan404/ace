@@ -27,7 +27,7 @@ export interface GateFacts {
   baseBranch: string;
   /** Each reviewer's latest verdict. */
   outcomes: ReadonlyMap<string, ReviewOutcome>;
-  /** How it ended, from the PR's activity, when known. */
+  /** How it ended, from the PR's activity, when known (`ago`: "3d ago"). */
   ended?: { by?: string | undefined; ago?: string | undefined } | undefined;
   /** Whether the head branch was deleted after it ended, when known. */
   branchDeleted?: boolean | undefined;
@@ -97,7 +97,7 @@ export function prGates(facts: GateFacts): Gate[] {
         label: merged ? "Merged" : "Closed",
         // Who, then when on a line of its own, so neither is cut short.
         value: facts.ended?.by ?? (merged ? "Merged" : "Closed"),
-        detail: facts.ended?.ago ? `${facts.ended.ago} ago` : undefined,
+        detail: facts.ended?.ago,
         tone: merged ? "waiting" : "failed",
       },
       { key: "into", label: "Into", value: facts.baseBranch, tone: "idle" },

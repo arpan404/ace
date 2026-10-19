@@ -120,7 +120,7 @@ test("a finished PR's time sits on its own line, so the value stays short enough
   const [ended] = prGates(
     facts({
       status: { state: "merged", mergeability: "unknown", ci: "none", checks: [] },
-      ended: { by: "arpan404", ago: "3d" },
+      ended: { by: "arpan404", ago: "3d ago" },
     }),
   );
   expect(ended?.value).toBe("arpan404");
