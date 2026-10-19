@@ -133,32 +133,35 @@ export function PrComments(props: { status: ForgePrStatus }) {
   );
   return (
     <PrSection
-      title={`Comments (${view.total})`}
+      title="Comments"
+      count={view.total}
       action={
-        <>
-          <Menu>
-            <MenuTrigger render={<Button variant="ghost" size="xs" />}>
-              <FunnelIcon aria-hidden size={14} />
-              {view.filtered ? `${view.filtered} hidden` : "Filter"}
-            </MenuTrigger>
-            <MenuContent align="end">
-              <MenuCheckboxItem checked={bots} onCheckedChange={setBots}>
-                Bot comments
-              </MenuCheckboxItem>
-              <MenuCheckboxItem checked={resolved} onCheckedChange={setResolved}>
-                Resolved and dismissed
-              </MenuCheckboxItem>
-            </MenuContent>
-          </Menu>
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={() => setOrder(order === "newest" ? "oldest" : "newest")}
-          >
-            <ArrowsDownUpIcon aria-hidden size={14} />
-            {order === "newest" ? "Newest first" : "Oldest first"}
-          </Button>
-        </>
+        view.total > 0 && (
+          <>
+            <Menu>
+              <MenuTrigger render={<Button variant="ghost" size="xs" />}>
+                <FunnelIcon aria-hidden size={14} />
+                {view.filtered ? `${view.filtered} hidden` : "Filter"}
+              </MenuTrigger>
+              <MenuContent align="end">
+                <MenuCheckboxItem checked={bots} onCheckedChange={setBots}>
+                  Bot comments
+                </MenuCheckboxItem>
+                <MenuCheckboxItem checked={resolved} onCheckedChange={setResolved}>
+                  Resolved and dismissed
+                </MenuCheckboxItem>
+              </MenuContent>
+            </Menu>
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={() => setOrder(order === "newest" ? "oldest" : "newest")}
+            >
+              <ArrowsDownUpIcon aria-hidden size={14} />
+              {order === "newest" ? "Newest first" : "Oldest first"}
+            </Button>
+          </>
+        )
       }
     >
       {view.items.length ? (

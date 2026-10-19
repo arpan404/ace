@@ -1,4 +1,4 @@
-import { Suspense, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { ForgeFile, ForgePrDetail, ForgeRepository } from "@ace/protocol";
 import { useFileChanges } from "@/lib/diffs/use-file-diffs.ts";
 import { useScopeWorkspace } from "@/lib/workspace/index.ts";
@@ -40,6 +40,8 @@ interface PrFilesProps {
   detail: ForgePrDetail;
   context: PrWorkspaceContext;
   extensions?: PrWorkspaceExtensions | undefined;
+  /** A file to scroll to (the Summary's Changes); a new `seq` asks again. */
+  focus?: { path: string; seq: number } | undefined;
 }
 
 /**
@@ -115,6 +117,15 @@ function PrCodeRange(
     if (block) block.scrollIntoView?.({ block: "start" });
     else blocks.current?.scrollToIndex(index);
   };
+  // A file picked elsewhere (the Summary's Changes) opens here once its page has loaded.
+  const focused = useRef(0);
+  const focus = props.focus;
+  const ready = files.some((file) => file.path === focus?.path);
+  useEffect(() => {
+    if (!focus || !ready || focused.current === focus.seq) return;
+    focused.current = focus.seq;
+    jump(focus.path);
+  });
   const complete = pages.more === "done";
   const caveats = codeCaveats({
     viewed: marks.availability,

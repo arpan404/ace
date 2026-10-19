@@ -1,6 +1,12 @@
 import { expect, test } from "vitest";
 import { ForgeComment, type ForgePrStatus } from "@ace/protocol";
-import { conversation, reviewerOutcomes } from "./pr-summary-model.ts";
+import {
+  attentionItems,
+  biggestFiles,
+  conversation,
+  fixRequest,
+  reviewerOutcomes,
+} from "./pr-summary-model.ts";
 
 const comment = (
   id: number,
@@ -87,4 +93,51 @@ test("only the newest page shows, in either order, with the older ones counted",
   const oldest = conversation({ comments, reviewThreads: [] }, { ...all, order: "oldest" });
   expect(ids(oldest)[0]).toBe("issue:4");
   expect(ids(oldest).at(-1)).toBe("issue:13");
+});
+
+test("changes at a glance keeps the biggest files, split into folder and name, scaled to the biggest", () => {
+  const files = biggestFiles(
+    [
+      { path: "README.md", additions: 1, deletions: 1 },
+      { path: "src/pdf/render.ts", additions: 80, deletions: 20 },
+      { path: "src/locale.ts", additions: 40, deletions: 10 },
+    ],
+    2,
+  );
+  expect(files.map((file) => [file.directory, file.name, file.scale])).toEqual([
+    ["src/pdf/", "render.ts", 1],
+    ["src/", "locale.ts", 0.5],
+  ]);
+});
+
+test("needs attention lists failing checks, then open review threads, and nothing settled", () => {
+  const failing = {
+    id: "links",
+    name: "links",
+    status: "failure" as const,
+    conclusion: "failure",
+    completedAt: "2026-01-02",
+    jobId: null,
+    url: "https://ci/links",
+  };
+  const passing = { ...failing, id: "lint", name: "lint", status: "success" as const };
+  const items = attentionItems({
+    checks: [passing, failing],
+    reviewThreads: [
+      thread("open", false, [comment(7, "mira", "2026-01-03", { body: "Which port?\nMore" })]),
+      thread("done", true, [comment(8, "sam", "2026-01-04")]),
+    ],
+  });
+  expect(items.map((item) => [item.key, item.title, item.detail])).toEqual([
+    ["check:links", "links", "failure"],
+    ["thread:open", "Which port?", "src/a.ts:3"],
+  ]);
+  const [check, review] = items;
+  if (!check || !review) throw new Error("expected two items");
+  expect(fixRequest(check, { number: 31, url: "https://pr/31" })).toContain(
+    'The check "links" fails on PR #31 (https://ci/links)',
+  );
+  expect(fixRequest(review, { number: 31, url: "https://pr/31" })).toContain(
+    "Address mira's review comment on src/a.ts:3 in PR #31:\n\n> Which port?\n> More",
+  );
 });

@@ -83,6 +83,16 @@ test("running checks offer auto-merge only when the host allows enabling it", ()
   ).toBe("merge");
 });
 
+test("failing checks never offer auto-merge, even where the host would allow it", () => {
+  expect(
+    prPrimaryAction({
+      status: status({ ci: "failure" }),
+      mergeState: mergeState(),
+      method: "squash",
+    }).kind,
+  ).toBe("merge");
+});
+
 test("armed auto-merge and a queued PR show what GitHub will do", () => {
   expect(
     prPrimaryAction({
