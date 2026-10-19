@@ -3,10 +3,11 @@ import { createWritingCli } from "../source-control-cli.ts";
 import type { CreationProgress } from "../creation-progress.ts";
 import { loadHostId } from "../local-files.ts";
 import { computerName } from "../computer-name.ts";
-import { actionErrorCode } from "../action-errors.ts";
+import { actionErrorCode, readErrorCode } from "../action-errors.ts";
 import { logError } from "@ace/diagnostics";
 import { WorkspaceRefresh } from "../workspace-refresh.ts";
 import { RefreshTimeout } from "../workspace-refresh-deadline.ts";
+import { WorkspaceReadQueue } from "../workspace-read-queue.ts";
 import { PullRequestAutoLink } from "../pr-auto-link.ts";
 import {
   ThreadId,
@@ -143,13 +144,15 @@ export async function startWorkspaceActions({
 }
 export function createWorkspaceActionsSession(context: SocketContext): SocketService {
   const { options, authorize, send, canReadThread, connected, tasks } = context;
-  let reads = 0;
+  // A burst beyond eight running reads waits its turn; only a full backlog is refused.
+  const reads = new WorkspaceReadQueue(8, 64);
   const lifetime = new AbortController();
   const generations = new Map<string, { threadId: string; controller: AbortController }>();
   const preparations = new Set<CreationProgress>();
   return {
     close() {
       lifetime.abort();
+      reads.close();
       for (const entry of generations.values()) entry.controller.abort();
       generations.clear();
       for (const progress of preparations) if (!progress.action) progress.stop("cancel");
@@ -309,41 +312,54 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
         });
         return true;
       }
-      if (!options.workspaceActions || reads >= 8) {
+      const runtime = options.workspaceActions;
+      const refuse = (code: string) => {
+        if (op.op.startsWith("forge.")) options.warn?.("Forge read failed", { op: op.op, code });
         send({
           type: "workspace.result",
           requestId: message.requestId,
-          result: { kind: "error", code: reads >= 8 ? "busy" : "unavailable" },
+          result: { kind: "error", code },
         });
+      };
+      if (!runtime) {
+        refuse("workspace_reads_unavailable");
         return true;
       }
-      reads++;
       const controller = new AbortController();
       if (op.op === "git.draft.generate")
         generations.set(op.input.generationId, { threadId: op.threadId, controller });
-      const task = options.workspaceActions
-        .read(message, AbortSignal.any([lifetime.signal, controller.signal]))
-        .then((result) => {
-          if (
-            connected() &&
-            authorize(scope) &&
-            (!("threadId" in op) || op.threadId === undefined || canReadThread(op.threadId))
-          )
-            send(WorkspaceActionResult.parse(result));
-        })
-        .catch((error: unknown) =>
-          send({
-            type: "workspace.result",
-            requestId: message.requestId,
-            result: { kind: "error", code: actionErrorCode(error) },
-          }),
-        )
-        .finally(() => {
-          reads--;
-          if (op.op === "git.draft.generate") generations.delete(op.input.generationId);
-        });
-      tasks.add(task);
-      void task.finally(() => tasks.delete(task));
+      const read = () => {
+        const task = runtime
+          .read(message, AbortSignal.any([lifetime.signal, controller.signal]))
+          .then((result) => {
+            if (
+              connected() &&
+              authorize(scope) &&
+              (!("threadId" in op) || op.threadId === undefined || canReadThread(op.threadId))
+            )
+              send(WorkspaceActionResult.parse(result));
+          })
+          .catch((error: unknown) => {
+            const code = readErrorCode(op.op, error);
+            if (op.op.startsWith("forge."))
+              options.warn?.("Forge read failed", { op: op.op, code, error: logError(error) });
+            send({
+              type: "workspace.result",
+              requestId: message.requestId,
+              result: { kind: "error", code },
+            });
+          })
+          .finally(() => {
+            if (op.op === "git.draft.generate") generations.delete(op.input.generationId);
+          });
+        tasks.add(task);
+        void task.finally(() => tasks.delete(task));
+        return task;
+      };
+      if (!reads.admit(read)) {
+        if (op.op === "git.draft.generate") generations.delete(op.input.generationId);
+        refuse("workspace_reads_busy");
+      }
       return true;
     },
   };
