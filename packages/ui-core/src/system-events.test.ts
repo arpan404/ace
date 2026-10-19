@@ -5,6 +5,7 @@ import {
   noticeInput,
   parseDelegationResults,
   repeatsEarlierEvent,
+  settledSummary,
   systemInput,
   taskPrompt,
 } from "./system-events.ts";
@@ -107,6 +108,50 @@ test("delegation results parse into one row per child", () => {
     { threadId: "t1", outcome: "completed", result: "Added greet()" },
     { threadId: "t2", outcome: "failed" },
   ]);
+});
+
+test("a settled delegation summarizes as a finished count", () => {
+  const completed = (threadId: string) => ({
+    threadId,
+    outcome: "completed" as const,
+    result: "ok",
+    truncated: false,
+  });
+  expect(settledSummary([completed("t1")])).toBe("1 agent finished");
+  expect(settledSummary([completed("t1"), completed("t2")])).toBe("2 agents finished");
+  expect(settledSummary([])).toBeUndefined();
+});
+
+test("a failed child stays truthful in the settled summary", () => {
+  const failed = {
+    threadId: "t2",
+    outcome: "failed" as const,
+    result: "quota spent",
+    truncated: false,
+  };
+  const completed = {
+    threadId: "t1",
+    outcome: "completed" as const,
+    result: "ok",
+    truncated: false,
+  };
+  expect(settledSummary([failed])).toBe("1 agent failed");
+  expect(settledSummary([completed, failed])).toBe("1 failed of 2 agents");
+  expect(settledSummary([failed, { ...failed, threadId: "t3" }])).toBe("2 failed of 2 agents");
+});
+
+test("a cancelled child stays truthful in the settled summary", () => {
+  const cancelled = { threadId: "t2", outcome: "cancelled" as const, result: "", truncated: false };
+  const failed = { threadId: "t3", outcome: "failed" as const, result: "boom", truncated: false };
+  const completed = {
+    threadId: "t1",
+    outcome: "completed" as const,
+    result: "ok",
+    truncated: false,
+  };
+  expect(settledSummary([cancelled])).toBe("1 agent cancelled");
+  expect(settledSummary([completed, cancelled])).toBe("1 cancelled of 2 agents");
+  expect(settledSummary([completed, failed, cancelled])).toBe("1 failed, 1 cancelled of 3 agents");
 });
 
 test("a delegated task prompt splits into its role and task", () => {
