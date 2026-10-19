@@ -204,6 +204,9 @@ export class AccountRegistry {
     if (!account || account.instance.provider !== "cursor")
       throw new Error("Unknown Cursor instance");
     this.updateQuota.run(JSON.stringify({ ...account.quota, cursorSdkAuth: status }), id);
+    // The SDK login's own record of who signed in reads as the account's "signed in as".
+    if (status.email && account.instance.signedInAs !== status.email)
+      this.recordAuth(id, account.instance.authMethod ?? "browser", status.email);
   }
   selectedCursorSdk(): string | undefined {
     return this.selectedProvider("cursor");

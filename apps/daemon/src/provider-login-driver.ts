@@ -1,4 +1,6 @@
 import { openCodeLoginDriver } from "./opencode-login-driver.ts";
+import { codexLoginDriver } from "./codex-login-driver.ts";
+import { admitsVersion } from "@ace/provider-kit/cli-requirements";
 import { piLoginDriver, piLoginChoices, type PiLoginOptions } from "./pi-login-driver.ts";
 import {
   loginArgs,
@@ -67,6 +69,11 @@ export interface CliLoginOptions {
   openCodeSignIn?(
     signal: AbortSignal,
   ): Promise<import("@ace/adapter-opencode/sign-in").OpenCodeSignIn>;
+  /** Codex's app-server for a ChatGPT sign-in in ace's dialog. */
+  codexAccount?(
+    signal: AbortSignal,
+  ): Promise<import("@ace/adapter-codex/account-login").CodexAccount>;
+  onCodexAccount?(label: string): void;
 }
 /**
  * How Claude Code can sign in, as its installed help offers: a Claude subscription first, then
@@ -105,6 +112,15 @@ export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
       ...options,
       ...(options.openCodeSignIn ? { signIn: options.openCodeSignIn } : {}),
     });
+  if (provider === "codex" && action === "login" && options.codexAccount) {
+    const { codexAccount, onCodexAccount, ...terminal } = options;
+    return codexLoginDriver({
+      account: codexAccount,
+      fallback: cliLoginDriver(terminal),
+      ...(onCodexAccount ? { onAccount: onCodexAccount } : {}),
+      ...(options.assertCurrent ? { assertCurrent: options.assertCurrent } : {}),
+    });
+  }
   const manual = manualLogin(provider, action, options.instance);
   let live: ReturnType<TerminalManager["openLiveTerminal"]> | undefined;
   let enter: (() => void) | undefined;
@@ -136,12 +152,11 @@ export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
     async run(signal, emit) {
       signal.throwIfAborted();
       if (provider === "acp" || provider === "antigravity") return { success: false, manual };
-      const supportedVersion = provider === "codex" ? /^(?:0|1)\.\d+\.\d+$/ : /^2\.\d+\.\d+$/;
-      if (
-        !options.version ||
-        !supportedVersion.test(options.version) ||
-        !new RegExp(`\\b${action}\\b`).test(help)
-      )
+      const supportedVersion =
+        provider === "codex"
+          ? admitsVersion("codex", options.version)
+          : /^2\.\d+\.\d+$/.test(options.version ?? "");
+      if (!options.version || !supportedVersion || !new RegExp(`\\b${action}\\b`).test(help))
         return { success: false, manual };
       const args = action === "login" ? loginArgs(provider) : logoutArgs(provider);
       if (action === "login" && provider === "codex" && help.includes("--device-auth"))

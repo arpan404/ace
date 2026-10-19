@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./usage-read": "./src/usage-read.ts"
+    "./usage-read": "./src/usage-read.ts",
+    "./account-login": "./src/account-login.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

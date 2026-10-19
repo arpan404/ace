@@ -12,6 +12,19 @@ Cursor is one SDK-backed provider under ADR 0043. Sign-in uses
 `@ace/adapter-cursor`, through the accounts-owned SDK driver and its registered
 credential store. There is no Cursor CLI discovery, implicit CLI account or native
 CLI login fallback. Legacy `cursor-cli-default` requests map to the SDK default.
+The SDK login names its key `ace on <host>` in Cursor's dashboard, and its status
+carries the signed-in email (the account's "signed in as") and the key's expiry.
+SDK sign-out only forgets the key on this computer; the key stays valid until it
+expires, and the sign-out message says so.
+
+Cursor's CLI agent (`cursor-agent acp`, installed from the ACP registry as
+`official:cursor`) is a separate ACP login. Its `cursor_login` method opens
+`cursor.com/loginDeepControl?…redirectTarget=cli&supportsSelectedTeamLogin=true`
+through `open` on PATH; the sign-in stand-in captures it and the dialog shows it
+(the allowlist admits `redirectTarget=cli` for ACP agents only). Its ACP has no
+sign-out, so ace runs `cursor-agent logout`, and every provider status check reads
+`cursor-agent status --format json` (`isAuthenticated`) to show it signed in or out.
+Titles and drafts on Cursor check that status before running `cursor-agent --print`.
 
 ## UI contract
 
@@ -57,7 +70,14 @@ A `provider.login.progress` push contains `progress`, with:
 | `manual?`                                    | `{ action: "open_terminal", command, instruction, instance?, terminalId? }`                                              |
 
 Open `url` on the **client's device**, after the person requests it. Do not call the
-daemon browser service for sign-in. Codex prefers `--device-auth` when advertised.
+daemon browser service for sign-in. Codex signs in through a short-lived `codex app-server`:
+`account/login/start` with `chatgptDeviceCode` first (its `verificationUrl` and `userCode`);
+when Codex refuses it or reports the device sign-in failed (device codes are off until the
+person enables them in ChatGPT's security settings), `chatgpt` follows (its `authUrl`, whose
+callback is this computer). `account/login/completed` ends the sign-in, `account/login/cancel`
+cancels it, and `account/read` labels the account with its email. A Codex whose app-server
+can't start a ChatGPT login runs `codex login --device-auth` in a terminal as before. Codex
+sessions last 15 minutes, as its device codes do.
 Native CLI browser suppression uses `--no-browser` when advertised and `BROWSER=echo`;
 CLI releases that bypass those conventions still control their own browser behavior.
 The SDK host already sets `openBrowser: false`.
@@ -109,7 +129,7 @@ available through this native-provider service.
 
 | Provider    | Supervised path                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Fallback                                                                                                |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Codex       | `codex login`, device auth when advertised; `codex logout`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Unsupported help/version or input prompt                                                                |
+| Codex       | app-server `account/login/start` (device code, then browser); `codex logout`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Unsupported help/version or input prompt                                                                |
 | Claude Code | `claude auth login` with a choice of Claude subscription (`--claudeai`), Anthropic Console (`--console`) or SSO (`--sso`), each offered only when the installed help lists it; `claude auth logout`. Claude opens its own browser on the computer running ace (`$BROWSER` is left alone; it is what Claude runs). Its fallback link, whose redirect is Claude's own paste-code page (`https://platform.claude.com/oauth/code/callback`), is relayed, and the `code#state` that page shows can be pasted back from any client (`provider.login.input` `{ code }`, accepted only while `codeEntry` is set): the daemon writes it to Claude's own prompt and never stores or logs it. | A raw "paste authorization code" prompt, key input or unsupported setup                                 |
 | OpenCode v2 | ace starts a private `opencode serve` and offers the integrations it lists. A browser (OAuth) method runs in the dialog: OpenCode returns the page and code (Go and Zen through the OpenCode account device login, GitHub Copilot, ChatGPT), ace relays a reviewed page and polls the attempt. Keys, form fields that need typing, unreviewed pages and logout open `opencode auth login --standalone <integration> [--method <id>]` in the dialog's terminal, which also takes over when the server can't start.                                                                                                                                                                  | ace never reads or stores an OpenCode credential; it reads integration methods and attempt status only. |
 | Pi          | Installed SDK OAuth for ChatGPT/Codex, Claude and GitHub Copilot; native SDK logout                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Other provider runs `pi` in an owner-scoped embedded PTY                                                |
