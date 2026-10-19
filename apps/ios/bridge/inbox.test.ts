@@ -132,7 +132,7 @@ function lastCachedRow() {
   const rows = patchesOf<DeliveredInboxRowPatch>("inbox.row").filter(
     (patch) => patch.id === "cached",
   );
-  return rows.length === 0 ? undefined : rows[rows.length - 1].row;
+  return rows.at(-1)?.row;
 }
 function lastConnection() {
   return lastOf(patchesOf<DeliveredConnectionPatch>("connection"));
