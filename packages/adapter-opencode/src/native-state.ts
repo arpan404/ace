@@ -101,8 +101,9 @@ export class NativeState {
         fidelity: "full",
         cwd: directory,
         native: { provider: "opencode", nativeId: id },
-        name: string(p.title),
-        role: string(p.agent),
+        // A session update without a title or agent leaves the known name and role in place.
+        ...(string(p.title) ? { name: string(p.title) } : {}),
+        ...(string(p.agent) ? { role: string(p.agent) } : {}),
         ...(model ? { model } : {}),
       },
       ...(this.disconnected ? [{ type: "agent.disconnected" as const, agent: this.key(id) }] : []),

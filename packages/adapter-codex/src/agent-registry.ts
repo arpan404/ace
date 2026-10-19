@@ -94,6 +94,10 @@ export function createAgentRegistry(config: {
       });
     }
     if (parent) {
+      // Codex names a child by its nickname or the last part of its path ("count_src_lines").
+      // A spawn call carries neither; it leaves the name unsaid rather than blank.
+      const name = str(p["agentNickname"]) || (str(p["agentPath"]).split("/").at(-1) ?? "");
+      const role = str(p["agentRole"]);
       agent.parent = parent;
       agents.get(parent)?.children.add(id);
       facts.push({
@@ -109,7 +113,8 @@ export function createAgentRegistry(config: {
           ...(typeof p["agentPath"] === "string" ? { path: p["agentPath"] } : {}),
         },
         cwd: str(p["cwd"], config.getCwd()),
-        name: str(p["agentNickname"], str(p["agentPath"]).split("/").at(-1) ?? id),
+        ...(name ? { name } : {}),
+        ...(role ? { role } : {}),
       });
     }
     if (p["status"]) {

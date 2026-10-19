@@ -1,5 +1,6 @@
-import type { Agent, AgentStatus, Interaction, Item } from "@ace/protocol";
-import { agentName, describeActivity } from "./agents.ts";
+import type { AgentStatus, Interaction, Item } from "@ace/protocol";
+import { describeActivity } from "./agents.ts";
+import { clip, firstLine } from "./line-text.ts";
 import { displayCommand } from "./step-display.ts";
 import { resultLead } from "./system-events.ts";
 import { mcpToolLabel } from "./tool-labels.ts";
@@ -11,19 +12,6 @@ import { mcpToolLabel } from "./tool-labels.ts";
  */
 
 const fileName = (path: string) => path.split(/[/\\]/).findLast(Boolean) ?? path;
-
-function clip(text: string, max: number): string {
-  const line = text.replace(/\s+/g, " ").trim();
-  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
-}
-
-function firstLine(text: string | undefined): string | undefined {
-  const line = text
-    ?.split("\n")
-    .map((part) => part.trim())
-    .find(Boolean);
-  return line ? clip(line, 120) : undefined;
-}
 
 /** "a.ts", "a.ts and b.ts", "a.ts and 2 more". */
 function files(paths: readonly string[]): string {
@@ -43,18 +31,6 @@ export function agentTask(spawn: Item | undefined): string | undefined {
   if (detail.kind === "agent.spawn")
     return firstLine(detail.description) ?? firstLine(detail.prompt) ?? firstLine(spawn.call.title);
   return firstLine(spawn.call.title);
-}
-
-/**
- * The name an agent goes by: its own name or role, else its task, so an unnamed subagent reads
- * as what it was asked to do rather than "Subagent". The main agent is its provider.
- */
-export function agentLabel(
-  agent: Pick<Agent, "origin" | "native" | "name" | "role">,
-  task: string | undefined,
-): string {
-  if (agent.origin === "root") return agentName(agent);
-  return agent.name ?? agent.role ?? task ?? agentName(agent);
 }
 
 /** The first line of what a finished agent handed back, from its delegation or spawning call. */

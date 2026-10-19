@@ -288,3 +288,74 @@ test("appending unrelated output does no historical or membership reads for 50 m
     for (const stop of stops) stop();
   }
 });
+
+const unnamed = (id: string) => {
+  const { name: _name, ...rest } = agent(id, { state: "working", activity: "thinking" });
+  return Agent.parse({ ...rest, native: { provider: "claude" } });
+};
+const agentCall = (id: string, detail: Record<string, string>) =>
+  Item.parse({
+    id: `spawn-${id}`,
+    agentId: "root",
+    type: "tool_call",
+    createdAt: 1000,
+    complete: false,
+    call: {
+      id: `spawn-${id}`,
+      agentId: "root",
+      kind: "agent.spawn",
+      title: "Agent",
+      detail: { kind: "agent.spawn", childAgentId: id, ...detail },
+      status: "running",
+      startedAt: 1000,
+      raw: [],
+    },
+  });
+
+test("a Claude Agent-tool subagent is titled by its description in the subagent group", () => {
+  const ids = ["engine", "actions", "client"];
+  const descriptions = [
+    "Swift engine core + speed",
+    "Swift actions + input features",
+    "TS client pool, schemas, policy, docs",
+  ];
+  const reader = store(
+    ids.map(unnamed),
+    ids.map((id, index) =>
+      agentCall(id, {
+        description: descriptions[index] ?? "",
+        agentType: "general-purpose",
+        prompt: "Build it",
+      }),
+    ),
+  );
+  const titles = readSubagentGroup(
+    reader,
+    ids.map((id) => `spawn-${id}`),
+  ).value.map((entry) => entry.title);
+  expect(titles).toEqual(descriptions);
+});
+
+test("a subagent group row falls back to the agent type, then the prompt, never just Subagent", () => {
+  const reader = store(
+    [unnamed("typed"), unnamed("prompted")],
+    [
+      agentCall("typed", { agentType: "general-purpose", prompt: "Look around" }),
+      agentCall("prompted", { prompt: "Audit the migration shards\nthen report" }),
+    ],
+  );
+  const titles = readSubagentGroup(reader, ["spawn-typed", "spawn-prompted"]).value.map(
+    (entry) => entry.title,
+  );
+  expect(titles).toEqual(["general-purpose", "Audit the migration shards"]);
+});
+
+test("a named subagent keeps its own name in the subagent group", () => {
+  const reader = store(
+    [agent("review", { state: "working", activity: "thinking" })],
+    [agentCall("review", { description: "Review the build" })],
+  );
+  expect(readSubagentGroup(reader, ["spawn-review"]).value.map((entry) => entry.title)).toEqual([
+    "review",
+  ]);
+});

@@ -1,6 +1,7 @@
 import { useInteractions, useThread, useThreadMeta } from "@ace/client-react";
 import type { ThreadReader } from "@ace/client";
 import type { Interaction } from "@ace/protocol";
+import { agentName } from "@ace/ui-core";
 import { useCallback } from "react";
 
 /**
@@ -22,7 +23,7 @@ export interface DescendantRequest {
 /** A delegated child the thread waits on, from the daemon's live hints. */
 function useAskingChild(threadId: string | undefined) {
   const child = useThreadMeta(threadId)?.live?.askingThreads?.[0];
-  return child ? { id: child.id, name: child.name ?? "Subagent" } : undefined;
+  return child ? { id: child.id, name: agentName({ name: child.name }) } : undefined;
 }
 
 /** A request the person can answer in place: an approval needs choices to offer. */

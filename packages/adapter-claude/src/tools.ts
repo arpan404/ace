@@ -74,7 +74,12 @@ export function toolDetail(name: string, value: unknown): ToolDetailDraft {
         arguments: value,
       };
     case "agent.spawn":
-      return { kind, description: string(input["description"]), prompt: string(input["prompt"]) };
+      return {
+        kind,
+        description: string(input["description"]),
+        prompt: string(input["prompt"]),
+        ...(string(input["subagent_type"]) ? { agentType: string(input["subagent_type"]) } : {}),
+      };
     case "agent.message":
       return { kind, message: string(input["message"]) };
     case "todo":
