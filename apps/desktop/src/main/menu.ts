@@ -82,6 +82,7 @@ export function applicationMenu(options: {
         item("agents"),
         item("changes"),
         item("terminal"),
+        item("terminalPanel"),
         { type: "separator" },
         { role: "resetZoom" },
         { role: "zoomIn" },

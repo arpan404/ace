@@ -1,13 +1,21 @@
 import { useClient } from "@ace/client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import { fileLanguage } from "@ace/ui-core";
 import { SourceView, sourceGutter } from "./source-view.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import type { FileContent } from "./checkout-source.ts";
 import { checkoutError } from "./checkout-source.ts";
 import { fileManagement } from "./file-management-source.ts";
-import { useCheckoutSource } from "./use-checkout.ts";
+import { useCheckoutSource, useSettled } from "./use-checkout.ts";
+
+/** The tab (and with it the stored workspace) gets the typed text once typing pauses this long. */
+const keepAfter = 400;
+const countLines = (text: string) => {
+  let lines = 1;
+  for (let at = text.indexOf("\n"); at >= 0; at = text.indexOf("\n", at + 1)) lines++;
+  return lines;
+};
 
 export interface FileDraft {
   text: string;
@@ -28,8 +36,17 @@ export function TextEditor(props: {
   const [busy, setBusy] = useState(false);
   const [conflict, setConflict] = useState<string>();
   const [error, setError] = useState<string>();
-  const lines = props.draft.text.split("\n").length;
-  const dirty = props.draft.text !== props.draft.original;
+  // The text lives here while it is typed. The tab's data is stored with the whole workspace,
+  // so handing it each keystroke would serialize every tab of every thread per key.
+  const [text, setText] = useState(props.draft.text);
+  const settled = useSettled(text, keepAfter);
+  const keep = (next: string) => {
+    if (next !== props.draft.text) props.onChange({ ...props.draft, text: next });
+  };
+  const keepSettled = useEffectEvent(keep);
+  useEffect(() => keepSettled(settled), [settled]);
+  const lines = countLines(text);
+  const dirty = text !== props.draft.original;
   useEffect(() => {
     if (!dirty) return;
     const warn = (event: BeforeUnloadEvent) => {
@@ -38,6 +55,12 @@ export function TextEditor(props: {
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
+  // Leaving the editor (another tab, the page going away) keeps what was typed at once.
+  const flush = useEffectEvent(() => keep(text));
+  useEffect(() => {
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
+  }, []);
   const save = async (expected = props.draft.version) => {
     if (busy) return;
     setBusy(true);
@@ -48,13 +71,13 @@ export function TextEditor(props: {
         op: "write",
         path: props.path,
         expected,
-        text: props.draft.text,
+        text,
       });
       if (!result.version) throw new Error("Couldn't confirm the saved file. Refresh to check it.");
       props.onSaved({
         kind: "text",
-        text: props.draft.text,
-        size: new TextEncoder().encode(props.draft.text).length,
+        text,
+        size: new TextEncoder().encode(text).length,
         version: result.version,
       });
       void queries.invalidateQueries({ queryKey: ["checkout"] });
@@ -108,10 +131,11 @@ export function TextEditor(props: {
         <div className="relative grid min-h-full min-w-full">
           <div aria-hidden className="pointer-events-none col-start-1 row-start-1">
             <SourceView
-              text={props.draft.text + (props.draft.text.endsWith("\n") ? "\n" : "")}
+              text={text + (text.endsWith("\n") ? "\n" : "")}
               lang={fileLanguage(props.path)}
               wrap={false}
               label={`Editing source of ${props.path}`}
+              highlightDelay={keepAfter}
             />
           </div>
           <textarea
@@ -120,8 +144,15 @@ export function TextEditor(props: {
             aria-label={`Edit ${props.path}`}
             spellCheck={false}
             disabled={busy}
-            value={props.draft.text}
-            onChange={(event) => props.onChange({ ...props.draft, text: event.target.value })}
+            value={text}
+            onChange={(event) => {
+              const next = event.target.value;
+              setText(next);
+              // The tab's close warning reads the draft: it learns at once that it is edited.
+              if ((next !== props.draft.original) !== (props.draft.text !== props.draft.original))
+                keep(next);
+            }}
+            onBlur={() => keep(text)}
             onKeyDown={(event) => {
               if ((event.metaKey || event.ctrlKey) && event.key === "s") {
                 event.preventDefault();

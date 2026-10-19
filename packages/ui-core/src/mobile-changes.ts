@@ -1,6 +1,7 @@
 import type { ForgePrStatus, GitStatusFile, ThreadDetails } from "@ace/protocol";
 import { checkoutNote, checkoutOf, nextGitStep } from "./checkout.ts";
 import { readDiffText } from "./diff.ts";
+import { patchSections } from "./git-patch.ts";
 import { ciLine, mergeGate, mergeMethods } from "./pull-request.ts";
 
 /*
@@ -54,41 +55,12 @@ export function changesSummary(
   };
 }
 
-const headerPath = (line: string) => {
-  const path = line.slice(4).split("\t")[0]?.trim() ?? "";
-  return path === "/dev/null" ? undefined : path.replace(/^[ab]\//, "");
-};
-
 /**
  * A `git diff` patch split by file: each path (the new one, or the old one for a deletion) to
  * its own section. Sections are slices of the patch, so this holds no more than the patch does.
  */
 export function patchFiles(patch: string): Map<string, string> {
-  const sections = new Map<string, string>();
-  const starts: number[] = [];
-  if (patch.startsWith("diff --git ")) starts.push(0);
-  for (
-    let at = patch.indexOf("\ndiff --git ");
-    at !== -1;
-    at = patch.indexOf("\ndiff --git ", at + 1)
-  )
-    starts.push(at + 1);
-  starts.forEach((start, index) => {
-    const section = patch.slice(start, starts[index + 1] ?? patch.length);
-    let path: string | undefined;
-    let removed: string | undefined;
-    for (const line of section.split("\n", 12)) {
-      if (line.startsWith("+++ ")) path = headerPath(line);
-      else if (line.startsWith("--- ")) removed = headerPath(line);
-      else if (line.startsWith("rename to ")) path ??= line.slice(10);
-      else if (line.startsWith("@@")) break;
-    }
-    // A file with no hunks (mode change, binary) names itself only in the `diff --git` line.
-    const named = /^diff --git a\/(.+) b\/(.+)$/.exec(section.slice(0, section.indexOf("\n")));
-    const key = path ?? removed ?? named?.[2];
-    if (key && !sections.has(key)) sections.set(key, section);
-  });
-  return sections;
+  return new Map(patchSections(patch).map((section) => [section.path, section.text]));
 }
 
 export interface MobileDiffLine {

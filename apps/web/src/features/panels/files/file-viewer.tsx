@@ -10,7 +10,7 @@ import {
   WarningCircleIcon,
   WifiSlashIcon,
 } from "@phosphor-icons/react";
-import { fileLanguage, isMarkdownPath, pathParts } from "@ace/ui-core";
+import { fileLanguage, isMarkdownPath, pathParts, type LineMark } from "@ace/ui-core";
 import { useConnectionState } from "@ace/client-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Prose } from "@/components/markdown/prose.tsx";
@@ -95,6 +95,8 @@ export function FileViewer(props: {
   source: boolean;
   find: { query: string; hit: FindHit | undefined } | undefined;
   line: number | undefined;
+  /** Lines changed since the last commit. */
+  marks?: ReadonlyMap<number, LineMark> | undefined;
   onMention?: ((mention: import("@ace/protocol").Mention) => void) | undefined;
   onRetry(): void;
   onDownload(): void;
@@ -187,11 +189,13 @@ export function FileViewer(props: {
         );
       const source = (
         <SourceView
+          key={props.path}
           text={content.text}
           lang={fileLanguage(props.path)}
           wrap={props.wrap}
           find={props.find}
           line={props.line}
+          marks={props.marks}
           label={`Source of ${props.path}`}
         />
       );

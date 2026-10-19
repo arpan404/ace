@@ -1,4 +1,4 @@
-/** The side panel's model, store and tab-kind registry. See apps/web/README.md. */
+/** The side and bottom panels' model, store and tab-kind registry. See apps/web/README.md. */
 export type { OpenTab, WorkspaceActions } from "./actions.ts";
 export { useWorkspaceCommands, type WorkspaceCommand } from "./commands.ts";
 export {
@@ -30,13 +30,18 @@ export {
   type TabViewProps,
 } from "./registry.ts";
 export {
+  PanelPlaceContext,
+  useBottomFits,
+  useBottomHeight,
   useFocusedScope,
+  usePreferredPlace,
   usePreferredSize,
   useScopeWorkspace,
   useWorkspaceActions,
   useWorkspaceStore,
 } from "./react.tsx";
-export { defaultSize, WorkspaceStore, type ClosedTab } from "./store.ts";
+export { defaultBottomSize, defaultSize, WorkspaceStore, type ClosedTab } from "./store.ts";
+export { allTabs, bottomOf, isShowing, locateTab, placeOf, type PanelPlace } from "./places.ts";
 
 export { fileTab, fileTabId } from "./file-tab.ts";
 export { tabDragType } from "./drag.ts";

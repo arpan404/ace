@@ -2,10 +2,8 @@ import {
   activateTab,
   closeTab,
   cycleTab,
-  findTab,
   moveTab,
   openTab,
-  replaceTab,
   setExpanded,
   setPanelOpen,
   setPanelSize,
@@ -17,6 +15,17 @@ import {
   type WorkspaceTab,
   type TabUiState,
 } from "./model.ts";
+import {
+  atKey,
+  bottomOf,
+  locateTab,
+  moveToPlace,
+  openIn,
+  placeOf,
+  replaceAt,
+  setBottomOpen,
+  type PanelPlace,
+} from "./places.ts";
 import type { ClosingTab } from "./registry.ts";
 import type { WorkspaceStore } from "./store.ts";
 
@@ -63,9 +72,28 @@ export interface WorkspaceActions {
   setBottomSize(size: number, persist: boolean): void;
   /** Live while dragging; `persist` when the gesture ends. Also becomes the preferred width. */
   setSize(size: number, persist: boolean): void;
+  /** Show or hide the bottom panel. Showing an empty one opens its first kind (a terminal). */
+  setBottomOpen(open: boolean): void;
+  toggleBottom(): void;
+  /** Move a tab to the other panel and show it there; what it shows carries on. */
+  moveTo(key: string, place: PanelPlace): void;
+  /** Where `toggleKind(kind)` acts now. */
+  placeFor(kind: string): PanelPlace;
+  /** The bottom panel's height on this device: live while dragging, `persist` at the end. */
+  setBottomHeight(size: number, persist: boolean): void;
 }
 
-export function workspaceActions(store: WorkspaceStore, scope: string): WorkspaceActions {
+/**
+ * One scope's actions. `here` is the panel asking (its own views and buttons): a new tab of a
+ * kind the bottom panel holds opens in that panel. Elsewhere ("auto": the header, palette,
+ * shortcuts) it opens where the person chose in Settings, while the screen has room for it.
+ * Actions on an open tab act wherever that tab is.
+ */
+export function workspaceActions(
+  store: WorkspaceStore,
+  scope: string,
+  here: PanelPlace | "auto" = "auto",
+): WorkspaceActions {
   const change = (fn: (workspace: ScopeWorkspace) => ScopeWorkspace, persist = true) =>
     store.update(scope, fn, { persist });
   const definition = () => store.definition(scope);
@@ -89,6 +117,29 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
       .map((tab) => Number(tab.id) || 0);
     return { kind, id: String(Math.max(0, ...taken) + 1) };
   };
+  const holdsBottom = (kind: string) =>
+    store.bottomFits && (definition()?.bottom?.kinds.includes(kind) ?? false);
+  /** Where a new tab of `kind` opens. */
+  const placeForNew = (kind: string): PanelPlace => {
+    if (!holdsBottom(kind)) return "side";
+    return here === "auto" ? store.preferredPlace : here;
+  };
+  /** What an empty bottom panel opens when shown. */
+  const bottomFill = () => {
+    const kind = definition()?.bottom?.kinds[0];
+    return kind ? request({ kind }) : undefined;
+  };
+  const placeFor = (kind: string): PanelPlace => {
+    if (placeForNew(kind) === "bottom") return "bottom";
+    // They open beside, but the bottom panel holds some and the side panel none: go there.
+    const workspace = store.get(scope);
+    const beside = workspace.tabs.some((tab) => tab.kind === kind);
+    return holdsBottom(kind) && !beside && bottomOf(workspace).tabs.length ? "bottom" : "side";
+  };
+  const toggleBottom = () =>
+    withKinds(() =>
+      change((workspace) => setBottomOpen(workspace, !bottomOf(workspace).open, bottomFill())),
+    );
   /** Showing an empty panel opens something to show: the initial tabs, or the launcher. */
   const show = () =>
     change((workspace) => {
@@ -116,7 +167,7 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
     const workspace = store.get(scope);
     const byKind = new Map<string, ClosingTab[]>();
     for (const key of keys) {
-      const where = findTab(workspace, key);
+      const where = locateTab(workspace, key);
       if (!where) continue;
       const { tab } = where;
       const list = byKind.get(tab.kind) ?? [];
@@ -137,15 +188,20 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
   const closeNow = (keys: readonly string[], focus?: string) => {
     const before = store.get(scope);
     const gone = keys.flatMap((key) => {
-      const found = findTab(before, key);
+      const found = locateTab(before, key);
       if (!found || definition()?.kind(found.tab.kind)?.prepareClose?.(scope, found.tab) === false)
         return [];
       return [found];
     });
     if (!gone.length) return false;
     change((workspace) => {
-      const next = gone.reduce((each, { tab }) => closeTab(each, tab.key), workspace);
-      return focus && findTab(next, focus) ? activateTab(next, focus) : next;
+      const next = gone.reduce(
+        (each, { tab }) => atKey(each, tab.key, (group) => closeTab(group, tab.key)),
+        workspace,
+      );
+      return focus && placeOf(next, focus)
+        ? atKey(next, focus, (group) => activateTab(group, focus))
+        : next;
     });
     for (const { tab, index } of gone) closed(tab, index);
     return true;
@@ -158,7 +214,7 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
    */
   const guardedClose = (keys: readonly string[], focus?: string): Promise<boolean> => {
     const attempt = (): boolean | Promise<boolean> => {
-      const present = keys.filter((key) => findTab(store.get(scope), key));
+      const present = keys.filter((key) => placeOf(store.get(scope), key));
       if (!present.length) return false;
       const warning = warningFor(present);
       if (!warning) return closeNow(present, focus);
@@ -170,19 +226,22 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
   };
   const actions: WorkspaceActions = {
     open: (open, options) =>
-      withKinds(() => change((workspace) => openTab(workspace, request(open), options))),
-    toggleKind: (kind) =>
       withKinds(() =>
+        change((workspace) => openIn(workspace, placeForNew(open.kind), request(open), options)),
+      ),
+    toggleKind: (kind) =>
+      withKinds(() => {
+        if (placeFor(kind) === "bottom") return toggleBottom();
         change((workspace) => {
           const existing = workspace.tabs.find((tab) => tab.kind === kind);
           const shown = workspace.open ? shownTab(workspace) : undefined;
           if (!existing && shown && shown.kind === definition()?.launcher)
-            return replaceTab(workspace, shown.key, request({ kind }));
-          if (!existing) return openTab(workspace, request({ kind }));
+            return replaceAt(workspace, shown.key, request({ kind }));
+          if (!existing) return openIn(workspace, "side", request({ kind }));
           const showing = workspace.open && shownTab(workspace)?.key === existing.key;
           return showing ? setPanelOpen(workspace, false) : activateTab(workspace, existing.key);
-        }),
-      ),
+        });
+      }),
     shortcut: (kind) =>
       withKinds(() => {
         const handler = definition()?.kind(kind)?.onShortcut;
@@ -194,14 +253,17 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
         const fresh = launcher(workspace);
         return fresh ? openTab(workspace, fresh) : workspace;
       }),
-    activate: (key) => change((workspace) => activateTab(workspace, key)),
+    activate: (key) =>
+      change((workspace) => atKey(workspace, key, (group) => activateTab(group, key))),
     close: (key) => guardedClose([key]),
     closeOthers: (key) => {
-      if (!findTab(store.get(scope), key)) return Promise.resolve(false);
+      const workspace = store.get(scope);
+      const place = placeOf(workspace, key);
+      if (!place) return Promise.resolve(false);
       // Exactly the tabs beside it now; what opens while the question is asked stays.
-      const others = store
-        .get(scope)
-        .tabs.filter((tab) => !tab.pinned && tab.key !== key)
+      const group = place === "side" ? workspace : bottomOf(workspace);
+      const others = group.tabs
+        .filter((tab) => !tab.pinned && tab.key !== key)
         .map((tab) => tab.key);
       return guardedClose(others, key);
     },
@@ -210,7 +272,7 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
       const back = store.takeClosed(scope, ({ tab }) => {
         const kind = current?.kind(tab.kind);
         if (current && !kind) return false;
-        if (findTab(store.get(scope), tab.key)) return false;
+        if (placeOf(store.get(scope), tab.key)) return false;
         return kind?.reopenable?.(scope, tab) ?? true;
       });
       if (!back) return false;
@@ -227,15 +289,20 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
       });
       return true;
     },
-    move: (key, toIndex) => change((workspace) => moveTab(workspace, key, toIndex)),
-    setPinned: (key, pinned) => change((workspace) => setTabPinned(workspace, key, pinned)),
+    move: (key, toIndex) =>
+      change((workspace) => atKey(workspace, key, (group) => moveTab(group, key, toIndex))),
+    setPinned: (key, pinned) =>
+      change((workspace) => atKey(workspace, key, (group) => setTabPinned(group, key, pinned))),
     replace: (key, next) =>
-      withKinds(() => change((workspace) => replaceTab(workspace, key, request(next)))),
-    update: (key, patch) => change((workspace) => updateTab(workspace, key, patch)),
+      withKinds(() => change((workspace) => replaceAt(workspace, key, request(next)))),
+    update: (key, patch) =>
+      change((workspace) => atKey(workspace, key, (group) => updateTab(group, key, patch))),
     updateUi: (key, patch) =>
       change((workspace) => {
-        const tab = findTab(workspace, key)?.tab;
-        return tab ? updateTab(workspace, key, { ui: { ...tab.ui, ...patch } }) : workspace;
+        const tab = locateTab(workspace, key)?.tab;
+        if (!tab) return workspace;
+        const ui = { ...tab.ui, ...patch };
+        return atKey(workspace, key, (group) => updateTab(group, key, { ui }));
       }),
     cycle: (delta) => change((workspace) => cycleTab(workspace, delta)),
     setOpen: (open) => (open ? show() : change((workspace) => setPanelOpen(workspace, false))),
@@ -259,6 +326,12 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
       change((workspace) => setPanelSize(workspace, size), persist);
       store.setPreferred(size, persist);
     },
+    setBottomOpen: (open) =>
+      withKinds(() => change((workspace) => setBottomOpen(workspace, open, bottomFill()))),
+    toggleBottom,
+    moveTo: (key, place) => change((workspace) => moveToPlace(workspace, key, place)),
+    placeFor,
+    setBottomHeight: (size, persist) => store.setPreferredBottom(size, persist),
   };
   return actions;
 }

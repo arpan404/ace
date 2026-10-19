@@ -260,20 +260,19 @@ test("walkthrough of the workspace and composer", async ({ page }) => {
     .click();
   await beat(1200);
 
-  // The terminal: ⌘J shows it in the side panel; a new shell, then the panel hidden and a
-  // terminal shown again with ⌘J.
+  // The terminal: ⌘J shows it in the bottom panel; a new shell, then the panel hidden and
+  // shown again with ⌘J.
+  const terminals = page.getByRole("region", { name: "Terminal panel" });
   await page.keyboard.press("ControlOrMeta+j");
-  await panel.getByRole("tab", { name: "zsh", selected: true }).waitFor();
+  await terminals.getByRole("tab", { name: "zsh", selected: true }).waitFor();
   await beat(600);
-  await panel.getByRole("button", { name: /^Terminal sessions/ }).click();
-  await beat(500);
-  await page.getByRole("menuitem", { name: /^New terminal/ }).click();
-  await panel.getByRole("tab", { name: "zsh 2", selected: true }).waitFor();
-  await panel.getByRole("group", { name: "zsh 2 terminal" }).click();
+  await terminals.getByRole("button", { name: "New terminal" }).click();
+  await terminals.getByRole("tab", { name: "zsh 2", selected: true }).waitFor();
+  await terminals.getByRole("group", { name: "zsh 2 terminal" }).click();
   await page.keyboard.type("git status", { delay: 40 });
   await page.keyboard.press("Enter");
   await beat(1200);
-  await panel.getByRole("button", { name: "Right panel" }).click();
+  await page.keyboard.press("ControlOrMeta+j");
   await beat(700);
   await page.keyboard.press("ControlOrMeta+j");
   await beat(1000);

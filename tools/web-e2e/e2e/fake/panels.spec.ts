@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { terminalsInSidePanel } from "./terminal-place.ts";
 
 async function openColdStart(page: Page) {
   await page.goto("/t/thread-cold-start");
@@ -38,6 +39,7 @@ async function newTerminal(page: Page) {
 test("⌘J's terminal picks up the thread's shell, New terminal opens another and an agent's shell shows read-only", async ({
   page,
 }) => {
+  await terminalsInSidePanel(page);
   await openColdStart(page);
   await page.keyboard.press("ControlOrMeta+j");
   const panel = page.getByRole("region", { name: "Thread panel" });
@@ -64,6 +66,7 @@ test("⌘J's terminal picks up the thread's shell, New terminal opens another an
 test("inside a terminal, Ctrl keys reach the shell instead of ace's shortcuts, and Find searches it", async ({
   page,
 }) => {
+  await terminalsInSidePanel(page);
   await openColdStart(page);
   await page.keyboard.press("ControlOrMeta+j");
   const panel = page.getByRole("region", { name: "Thread panel" });
