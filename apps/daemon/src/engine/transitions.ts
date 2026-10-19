@@ -170,7 +170,7 @@ export class ThreadTransitions {
       });
     if (crossAccount) {
       await this.sessions.close(actor, "idle");
-      const route = await routeAccountChange(this.repo, actor.id, {
+      const continuation = await routeAccountChange(this.repo, actor.id, {
         from: current,
         to: selection,
         nativeSessionId,
@@ -180,10 +180,10 @@ export class ThreadTransitions {
         budget: switchHandoffBytes,
         migrate: (request) => this.io.migrate({ provider: selection.provider, ...request }),
       });
-      if (route.kind === "copied") {
-        nativeSessionId = route.nativeSessionId;
-        migratedFork = route.fork;
-      } else if (route.kind === "handoff") plan = route.plan;
+      if (continuation.kind === "copied") {
+        nativeSessionId = continuation.nativeSessionId;
+        migratedFork = continuation.fork;
+      } else if (continuation.kind === "handoff") plan = continuation.plan;
     } else if (!crossProvider && actor.session?.configure) {
       try {
         await actor.session.configure(selection);
