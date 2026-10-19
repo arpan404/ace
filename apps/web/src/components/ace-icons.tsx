@@ -2,6 +2,7 @@ import { forwardRef, useId, type SVGProps } from "react";
 import type { IconProps } from "@phosphor-icons/react";
 import { agentCursorOutline, agentCursorPath, agentCursorTip } from "@ace/design-tokens/glyphs";
 import { cn } from "@/lib/cn.ts";
+import { AceWings } from "./ace-mark.tsx";
 
 /*
  * ace's own glyphs. They take Phosphor's props and weights (`regular` outlined, `fill` solid) so
@@ -124,6 +125,23 @@ export const AgentCursorIcon = forwardRef<SVGSVGElement, IconProps>(function Age
         strokeWidth={agentCursorOutline}
         strokeLinejoin="round"
       />
+    </svg>
+  );
+});
+
+/**
+ * ace's own tools: the ace mark, solid at every weight, a little inside the 24 box so its filled
+ * wings sit level with Phosphor's outlined glyphs in a row of steps.
+ */
+export const AceToolIcon = forwardRef<SVGSVGElement, IconProps>(function AceToolIcon(
+  { weight: _weight, color, ...svg },
+  ref,
+) {
+  return (
+    <svg ref={ref} {...frame(svg)}>
+      <g fill={color ?? "currentColor"} transform="translate(2.16 3.06) scale(0.82)">
+        <AceWings />
+      </g>
     </svg>
   );
 });
