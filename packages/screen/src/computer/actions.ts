@@ -22,17 +22,18 @@ const holdMs = z
   .optional()
   .describe("Keep it pressed this long (long press).");
 
+// Repeated in every step's schema, so it carries one short description and no others.
 const when = z
   .strictObject({
-    text: z.string().min(1).max(200).optional().describe("Text in an element's line."),
-    id: id.optional(),
-    gone: z.boolean().optional().describe("Run only if it is not there."),
+    text: z.string().min(1).max(200).optional(),
+    id: z.number().int().min(1).optional(),
+    gone: z.boolean().optional(),
   })
   .refine((value) => value.text !== undefined || value.id !== undefined, {
     message: "when needs text or id",
   })
   .optional()
-  .describe("Run this step only if a matching element is there now; otherwise skip it.");
+  .describe("Run only if an element with this text or id is there now (gone: is not); else skip.");
 
 /** A step object: its fields plus the optional `when` guard every step accepts. */
 const step = <T extends string, S extends z.ZodRawShape>(type: T, shape: S) =>
