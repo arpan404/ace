@@ -100,19 +100,58 @@ it("the helper's own explanation of a failed step reaches the model, with what a
   );
 });
 
-it("a step whose condition is not met is skipped, not failed, and does not count as input", async () => {
+it("steps an if does not hold for are skipped, not failed, and do not count as input", async () => {
   const { call } = await world();
   await call("screen_state", { app: "Calculator" });
   const acted = await call("screen_act", {
     app: "Calculator",
     actions: [
-      { type: "type", text: "1", when: { text: "Save changes?" } },
-      { type: "click", id: 23, when: { text: "7" } },
+      { type: "if", text: "Save changes?" },
+      { type: "type", text: "1" },
+      { type: "if", text: "7" },
+      { type: "click", id: 23 },
     ],
   });
   expect(acted.result.isError).toBeFalsy();
-  expect(acted.text).toContain("1. skipped type: condition not met\n2. did click");
+  // Lines keep the model's own step numbers; the if steps themselves report nothing.
+  expect(acted.text).toContain("2. skipped type: condition not met\n4. did click");
   expect(acted.text).not.toContain("That had no visible effect");
+});
+
+it("an if guards as many steps as it says, and a malformed if is refused before acting", async () => {
+  const { call } = await world();
+  await call("screen_state", { app: "Calculator" });
+  const guarded = await call("screen_act", {
+    app: "Calculator",
+    actions: [
+      { type: "if", text: "Save changes?", steps: 2 },
+      { type: "type", text: "1" },
+      { type: "type", text: "2" },
+      { type: "click", id: 23 },
+    ],
+  });
+  expect(guarded.text).toContain(
+    "2. skipped type: condition not met\n3. skipped type: condition not met\n4. did click",
+  );
+  const overrun = await call("screen_act", {
+    app: "Calculator",
+    actions: [
+      { type: "click", id: 23 },
+      { type: "if", text: "7", steps: 2 },
+      { type: "type", text: "1" },
+    ],
+  });
+  expect(overrun.result.isError).toBe(true);
+  expect(overrun.text).toContain("guards 2 steps, but fewer follow it");
+  const nested = await call("screen_act", {
+    app: "Calculator",
+    actions: [
+      { type: "if", text: "7", steps: 2 },
+      { type: "if", text: "8" },
+      { type: "type", text: "1" },
+    ],
+  });
+  expect(nested.text).toContain("inside the steps of an earlier if");
 });
 
 it("an app that stopped responding is named, and the timing the helper reports stays out", async () => {

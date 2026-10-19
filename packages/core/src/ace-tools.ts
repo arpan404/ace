@@ -185,7 +185,7 @@ export function redactAceArguments(name: string, value: unknown): unknown {
       ["text", "value", "html", "title", "promptText"].includes(key) ? "[redacted]" : child,
     ]),
   );
-  // Search text (wait_for, a step's when) stays visible: it is what the agent looks for.
+  // Search text (wait_for, if) stays visible: it is what the agent looks for.
   if (Array.isArray(redacted.actions))
     redacted.actions = redacted.actions.map((entry) => {
       const step = record.safeParse(entry);

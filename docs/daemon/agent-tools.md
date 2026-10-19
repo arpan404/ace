@@ -197,9 +197,8 @@ focus unless the agent asks for it.
   `scroll` (`pages` or `pixels`), `scroll_to`, `action`, `menu` (a path, pressed without
   opening the menu), `focus`, `drag` (from/to as points or ids, `modifiers`), `window`
   (close, minimize, restore, zoom, fullscreen, raise, move, resize), `wait`, `wait_for`
-  (text or id appears, or `gone`, within `timeout_ms`) and `activate`. Every step may carry
-  `when {text|id, gone?}`: it runs only if that element is there, otherwise the result
-  lists it as skipped. Cross-field rules (id or x,y; pages or pixels; move needs x,y) are
+  (text or id appears, or `gone`, within `timeout_ms`) `activate` and `if {text|id, gone?, steps?}`, which runs the next `steps` steps (default 1)
+  only if that element is there, otherwise the result lists them as skipped. Cross-field rules (id or x,y; pages or pixels; move needs x,y) are
   checked before anything runs, with errors the model can act on.
 
 Clicks by id use accessibility actions (press, focus, select), which work on covered and

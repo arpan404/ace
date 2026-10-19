@@ -4,6 +4,7 @@
  */
 import type { Toolkit, ToolContext } from "@ace/mcp-server";
 import { actLog, ranSteps, sentInput } from "./act-log.ts";
+import { expandConditions, type WireAction } from "./conditions.ts";
 import { appNote } from "./app-notes.ts";
 import { ComputerError, type ComputerClient } from "./client.ts";
 import { ComputerMemory, type ResolvedApp } from "./memory.ts";
@@ -65,7 +66,7 @@ export function computerToolkit(
   const describe = (
     state: ComputerState,
     key: string,
-    view: { full?: boolean; find?: string; ran?: readonly ComputerAction[] } = {},
+    view: { full?: boolean; find?: string; ran?: readonly WireAction[] } = {},
   ): Content => {
     const lines = outlineLines(state.nodes);
     const windowId = windowKey(state);
@@ -186,12 +187,13 @@ export function computerToolkit(
           "app_not_running",
           `${resolved.name} is not running. Call screen_state first to open it.`,
         );
+      const expanded = expandConditions(actions);
       let result: ComputerActResult;
       try {
         result = ComputerActResult.parse(
           await use(resolved, context, "act", {
             app: resolved.bundleId,
-            actions,
+            actions: expanded.wire,
             ...(window !== undefined ? { window } : {}),
             screenshot: !!screenshot,
             ...(observe === false ? { observe: false } : {}),
@@ -207,18 +209,21 @@ export function computerToolkit(
             content: [
               {
                 type: "text",
-                text: [...actLog(actions, { done: partial.data.done }), error.message].join("\n"),
+                text: [
+                  ...actLog(actions, expanded, { done: partial.data.done }),
+                  error.message,
+                ].join("\n"),
               },
             ],
           };
         throw error;
       }
-      const log = actLog(actions, result).join("\n");
+      const log = actLog(actions, expanded, result).join("\n");
       // A batch that stopped early failed, even when some steps ran.
       const failed = result.error ? { isError: true } : {};
       if (!result.state) return { content: [{ type: "text", text: log }], ...failed };
       const observed = describe(result.state, `${callerOf(context)}/${result.state.app.bundleId}`, {
-        ran: ranSteps(actions, result.done),
+        ran: ranSteps(expanded.wire, result.done),
       });
       return {
         content: [{ type: "text", text: `${log}\n\n${textOf(observed)}` }, ...observed.slice(1)],

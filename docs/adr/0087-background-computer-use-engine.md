@@ -160,8 +160,11 @@ points with modifiers, and `window` (close, minimize, restore, zoom, fullscreen,
 move, resize) are new. The zod schema in `@ace/screen` is the source of truth and checks
 cross-field rules before anything runs.
 
-**`when` and `wait_for`.** Any step may carry `when {text|id, gone?}`: it runs only if such
-an element exists then, otherwise it is reported as skipped, not failed. `wait_for` re-reads
+**`if` and `wait_for`.** An `if {text|id, gone?, steps?}` step guards the next `steps`
+steps (default 1): they run only if such an element exists then, otherwise they are reported
+as skipped, not failed. The toolkit moves each `if` onto its steps as a `when` before the
+helper sees them, so the model's schema carries one guard type instead of a guard on every
+step (about 7 KB less schema per load). `wait_for` re-reads
 the window until text or an element appears (or goes). Together they let one batch handle
 a dialog that may or may not appear, and replace look-act-look round trips.
 

@@ -36,9 +36,8 @@ app stalls only its own helper.
 - Steps (`src/computer/actions.ts`, the source of truth for the action set): click (id or
   x,y, left/right/middle, count, modifiers, hold), move (hover), type, paste, key (repeat,
   hold), set_value, select_text, scroll (pages or pixels), scroll_to, action, menu, focus,
-  drag (points or ids, modifiers), window ops, wait, wait_for and activate. Any step may
-  carry `when {text|id, gone?}`: it runs only if a matching element is there, else the
-  result says it was skipped.
+  drag (points or ids, modifiers), window ops, wait, wait_for, activate and `if {text|id, gone?, steps?}`, which runs the next steps only if a
+  matching element is there, else the result says they were skipped.
 - Password managers, authentication prompts, terminals, script runners (Script Editor,
   Automator, Shortcuts) and ace itself are refused, as are apps the person lists under
   `computer.blockedApps` (`src/computer/policy.ts`, case-insensitive). Permissions are

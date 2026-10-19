@@ -43,7 +43,7 @@ Ids stay the same between looks, so later results are a diff: `+` lines are new,
 Each look costs a turn. Batch every step whose outcome you can predict, and let the batch check for itself:
 
 - `{"type":"wait_for","text":"Saved"}` waits until that text appears (`gone: true`: until it goes, `id` for an element), up to `timeout_ms` (default 5000), instead of looking again.
-- `when` on any step runs it only if the element is there now, so one batch can handle a dialog that may or may not show: `{"type":"click","id":31,"when":{"text":"Replace"}}`. A step whose condition is not met is listed as skipped, not failed.
+- An `if` step runs the next steps only if the element is there now, so one batch can handle a dialog that may or may not show: `{"type":"if","text":"Replace"},{"type":"click","id":31}`. `steps: 2` guards two steps; `gone: true` inverts it. Skipped steps are listed as skipped, not failed.
 - `observe: false` on `screen_act` skips the look afterwards when your next call looks anyway. `screen_state {app, outline: false, screenshot: true}` is the fastest look when only the picture matters.
 
 Add `screenshot: true` to `screen_state` or `screen_act` when the outline does not show what you need: layout, images, colours, or a canvas you must click into. The image is the window alone, with each clickable element tagged by its outline id, so you can click by id what you found by sight. In a large window, `screen_state {app, find: "Invoice"}` lists only matching elements with their parents. "<App> is not responding" means the app is busy: the outline may be partial, so wait or look again.

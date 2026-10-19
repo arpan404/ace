@@ -22,22 +22,9 @@ const holdMs = z
   .optional()
   .describe("Keep it pressed this long (long press).");
 
-// Repeated in every step's schema, so it carries one short description and no others.
-const when = z
-  .strictObject({
-    text: z.string().min(1).max(200).optional(),
-    id: z.number().int().min(1).optional(),
-    gone: z.boolean().optional(),
-  })
-  .refine((value) => value.text !== undefined || value.id !== undefined, {
-    message: "when needs text or id",
-  })
-  .optional()
-  .describe("Run only if an element with this text or id is there now (gone: is not); else skip.");
-
-/** A step object: its fields plus the optional `when` guard every step accepts. */
+/** A step object: its type and fields. */
 const step = <T extends string, S extends z.ZodRawShape>(type: T, shape: S) =>
-  z.strictObject({ type: z.literal(type), ...shape, when });
+  z.strictObject({ type: z.literal(type), ...shape });
 
 type Located = { id?: number | undefined; x?: number | undefined; y?: number | undefined };
 
@@ -179,5 +166,24 @@ export const ComputerAction = z.discriminatedUnion("type", [
       context.addIssue({ code: "custom", message: "wait_for needs text or id" });
   }),
   step("activate", {}),
+  step("if", {
+    text: z.string().min(1).max(200).optional().describe("Text in an element's line."),
+    id: id.optional(),
+    gone: z.boolean().optional().describe("True: run them only if it is not there."),
+    steps: z
+      .number()
+      .int()
+      .min(1)
+      .max(19)
+      .optional()
+      .describe("How many steps it guards; default 1."),
+  })
+    .describe(
+      "Run the next steps only if an element with this text or id is there now; else skip them.",
+    )
+    .superRefine((value, context) => {
+      if (value.text === undefined && value.id === undefined)
+        context.addIssue({ code: "custom", message: "if needs text or id" });
+    }),
 ]);
 export type ComputerAction = z.infer<typeof ComputerAction>;
