@@ -9,6 +9,7 @@ import {
   type BrowserTab,
   type BrowserTabActor,
   type BrowserTabLifecycle,
+  type BrowserPageState,
 } from "@ace/protocol";
 import { BrowserActionError } from "./action-error.ts";
 import { AnnotationSession } from "./annotation-session.ts";
@@ -34,6 +35,7 @@ import { waitsForPerson, type CollaborationTiming } from "./collaboration.ts";
 import { AgentInputLane, personReturned } from "./agent-input-lane.ts";
 import { fillFieldByField } from "./typing.ts";
 import { PageCursor } from "./page-cursor.ts";
+import { PageInteraction } from "./page-interaction.ts";
 import { defaultCursorStyle } from "@ace/browser-annotate";
 
 /** What a tab needs from the thread browser that holds it. */
@@ -65,6 +67,8 @@ export interface TabHost {
   annotation(connectionId: string, event: BrowserAnnotationEvent): void;
   /** An agent recording runs in this browser: new tabs start hidden and masked too. */
   recording?(): boolean;
+  /** The tab's page state for remote views changed (`browser.page`). */
+  pageState?(tabId: string, page: BrowserPageState): void;
 }
 export interface TabMeta {
   openedBy?: BrowserTabActor | undefined;
@@ -99,6 +103,11 @@ export class TabRuntime {
   private readonly pinch = new TouchPinch();
   /** Agents' cursors drawn in the page, and the mask over secret fields in captures. */
   readonly cursor: PageCursor;
+  /**
+   * The focused field, open picker, cursor shape and tooltip a remote view draws. Only ace's
+   * own headless pages have it: elsewhere the person uses the page's own pickers natively.
+   */
+  readonly interaction: PageInteraction | undefined;
   /** When the person last used this tab (collaboration clock); -Infinity: never. */
   humanAt = -Infinity;
   /**
@@ -163,6 +172,13 @@ export class TabRuntime {
       async () => [await this.annotation.hostNode(), await this.cursor.hostNode()],
     );
     this.identity = new PageIdentity(() => host.emit());
+    this.interaction =
+      host.options.backendKind === "headless"
+        ? new PageInteraction(
+            (page) => host.pageState?.(id, page),
+            () => `${id}-picker-${host.options.id()}`,
+          )
+        : undefined;
     this.history = new PageHistory(() => host.emit(), host.options.navigationClock);
     this.watchIdentity();
   }
@@ -183,6 +199,7 @@ export class TabRuntime {
     if (this.identityWaits) return;
     this.identity.watch(page.cdp);
     this.history.watch(page.cdp);
+    this.interaction?.watch(page.cdp);
   }
   get page(): BrowserBackendPage {
     return this.host.page(this.id);
@@ -266,6 +283,7 @@ export class TabRuntime {
     this.stopInUse?.();
     this.identity.close();
     this.history.close();
+    this.interaction?.close();
     this.annotation.end("stopped");
     this.cursor.close();
     return this.settled();
@@ -562,6 +580,11 @@ export class TabRuntime {
       // ⌘+ / ⌘- / ⌘0 zoom the page, as in a browser; the page never sees them.
       if (zoom) {
         if (input.kind === "key" && input.event === "keyDown") await this.zoomStep(zoom);
+        return;
+      }
+      if (input.kind === "pick") {
+        if (!this.interaction) throw new BrowserActionError("not_supported");
+        await this.interaction.pick(input.pickerId, input.values);
         return;
       }
       await sendHumanInput(

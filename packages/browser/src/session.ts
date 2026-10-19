@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { NavigationPolicies } from "./policy-waits.ts";
 import { BrowserActionError } from "./action-error.ts";
 import type { BackendLog, BrowserBackendSession, PopupTarget } from "./backend.ts";
-import type { BrowserAnnotationEvent, BrowserOriginBlock } from "@ace/protocol";
+import type { BrowserAnnotationEvent, BrowserOriginBlock, BrowserPageState } from "@ace/protocol";
 import { BrowserCommand, type BrowserArtifact, type BrowserState } from "@ace/protocol";
 import { LiveCapture } from "./live.ts";
 import { SessionLogs } from "./logs.ts";
@@ -202,7 +202,15 @@ export class BrowserSession {
       recording: () => this.recordings.active,
       annotation: (connectionId: string, event: BrowserAnnotationEvent) =>
         this.options.annotation?.(connectionId, event),
+      pageState: (tabId, page) => this.options.pageState?.(tabId, page),
     };
+  }
+  /** Each tab's page state for remote views, for a viewer that just subscribed. */
+  pageStates(): { tabId: string; page: BrowserPageState }[] {
+    return this.tabs.all().flatMap((tab) => {
+      const page = tab.interaction?.state;
+      return page && Object.keys(page).length ? [{ tabId: tab.id, page }] : [];
+    });
   }
   get state(): BrowserState {
     const viewed = this.tabs.viewed();

@@ -28,6 +28,7 @@ import { daemonAnnotate } from "./daemon-annotate.ts";
 import { decodeFrame, type FrameDecoder } from "./frames.ts";
 import { SuggestionStore } from "./preview-suggestions.ts";
 import { readBrowserLogs } from "./browser-logs.ts";
+import { PageStates } from "./page-states.ts";
 
 /** How often a watched thread without a browser asks again, and re-reads its dev servers. */
 const retryMs = 5_000;
@@ -93,7 +94,13 @@ const wireInput = (input: ForwardedInput): BrowserInput => {
       modifiers: input.modifiers ?? 0,
     };
   if (input.kind === "scroll") return { ...input, modifiers: input.modifiers ?? 0 };
-  if (input.kind === "touch") return input;
+  if (input.kind === "touch" || input.kind === "ime") return input;
+  if (input.kind === "pick")
+    return {
+      kind: "pick",
+      pickerId: input.pickerId,
+      ...(input.values ? { values: [...input.values] } : {}),
+    };
   return {
     kind: "key",
     event: input.event,
@@ -187,6 +194,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     stills.set(threadId, kept);
   };
   const servers = new Map<string, readonly PreviewServer[]>();
+  /** Each tab's page state: focused field, picker, cursor shape, tooltip. */
+  const pages = new PageStates();
   const suggestions = new SuggestionStore();
   const watches = new Map<string, Watch>();
   /** Threads no view shows any more, oldest first; their state goes past `keptThreads`. */
@@ -210,6 +219,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     for (const still of stills.get(threadId)?.values() ?? []) still.release();
     stills.delete(threadId);
     views.delete(threadId);
+    pages.delete(threadId);
     servers.delete(threadId);
     suggestions.delete(threadId);
   };
@@ -219,6 +229,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     watch.owed = undefined;
     frames.get(threadId)?.release();
     frames.delete(threadId);
+    // The next subscription sends every tab's page state again.
+    pages.delete(threadId);
   };
   const requestId = () => `browser-${++requests}`;
   const call = async (
@@ -402,7 +414,17 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           });
       }
       views.set(state.threadId, view(state));
+      if (state.tabs)
+        pages.keep(
+          state.threadId,
+          state.tabs.map((tab) => tab.tabId),
+        );
       changed(state.threadId);
+      return;
+    }
+    if (message.type === "browser.page") {
+      if (!watches.has(message.threadId)) return;
+      if (pages.set(message.threadId, message.tabId, message.page)) changed(message.threadId);
       return;
     }
     if (message.type !== "browser.frame") return;
@@ -469,6 +491,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       watches.clear();
       for (const threadId of new Set([...frames.keys(), ...stills.keys()])) release(threadId);
       views.clear();
+      pages.clear();
       servers.clear();
       suggestions.clear();
       unwatched.clear();
@@ -527,6 +550,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       }
     },
     view: (threadId) => views.get(threadId),
+    page: (threadId, tabId) => pages.get(threadId, tabId),
     frame: (threadId) => frames.get(threadId),
     still: (threadId, tabId) => stills.get(threadId)?.get(tabId),
     servers: (threadId) => servers.get(threadId) ?? [],
