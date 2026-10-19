@@ -117,7 +117,8 @@ import XCTest
             explorer.tap()
             XCTAssertTrue(app.descendants(matching: .any)["agents.transcript"].waitForExistence(timeout: 15))
             try audit(app, "agent-transcript")
-            app.buttons["BackButton"].firstMatch.tap()
+            // The thread behind the sheet has its own back button; use the sheet's.
+            app.navigationBars["Explorer"].buttons["BackButton"].tap()
         }
         app.buttons["Done"].firstMatch.tap()
         app.buttons["thread.changes"].tap()
@@ -131,7 +132,9 @@ import XCTest
         app.buttons["changes.step"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["changes.text"].waitForExistence(timeout: 10))
         try audit(app, "commit-editor")
-        app.navigationBars.buttons["Cancel"].tap()
+        // At the default size the audit can close the half-height editor itself.
+        let cancel = app.buttons["Cancel"].firstMatch
+        if cancel.waitForExistence(timeout: 3) { cancel.tap() }
         app.buttons["Done"].firstMatch.tap()
         back(app)
         app.buttons["inbox.machines"].tap()
@@ -289,6 +292,9 @@ import XCTest
                 || (element?.identifier.hasPrefix("file.") == true && issue.auditType == .sufficientElementDescription)
                 // So is a diff's title ("process-owner.ts").
                 || (issue.auditType == .sufficientElementDescription && element?.label.range(of: #"^[\w.-]+\.\w+$"#, options: .regularExpression) != nil)
+                // Diff lines are selectable text, not controls; a 44-pt row per code line would
+                // break the diff's density.
+                || (issue.auditType == .hitRegion && element?.label.range(of: #"^(Added|Removed|Unchanged) line \d+:"#, options: .regularExpression) != nil)
             found.append((exempt ? "exempt " : "ISSUE ") + line)
             if !exempt, let element {
                 let shot = XCTAttachment(screenshot: element.screenshot())

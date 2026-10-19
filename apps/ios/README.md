@@ -325,6 +325,13 @@ Activities are deferred; see the [draft](../../docs/adr/drafts/ios-push-notifica
   `LaunchBackground` colour from the `background` token.
 - **Accessibility**: `PolishUITests.testEveryScreenPassesTheAccessibilityAudit` audits the inbox,
   New thread, projects, plan and form cards, steps, thread, Agents, Changes, Files, Machines,
-  Settings and Archive. Missing descriptions and small hit areas fail it; every other finding is
-  attached as a report. Set `TEST_RUNNER_ACE_IOS_TEXT_SIZE` to a content size category to run it
-  at another text size, and `xcrun simctl ui <udid> appearance dark` for dark mode.
+  Settings and Archive. `testSubScreensPassTheAccessibilityAudit` audits an agent's transcript, a
+  diff, the commit editor, a machine's detail, notification settings per machine and the licences.
+  Missing descriptions and small hit areas fail them; every other finding is attached as a report.
+  Set `TEST_RUNNER_ACE_IOS_TEXT_SIZE` to a content size category to run them at another text size,
+  and `xcrun simctl ui <udid> appearance dark` for dark mode. Both pass at the default size and at
+  `UICTContentSizeCategoryAccessibilityXXXL`. At accessibility sizes they scroll to each target and
+  also audit the rows below the fold, Agents' background tasks and the Changes next step.
+  At accessibility sizes, half-height sheets open full height, and the Changes next step ends the
+  file list instead of floating over it. Rows whose trailing values would squeeze their labels
+  (file counts, provider status and usage, a task's Stop, a machine's Retry) stack them underneath.
