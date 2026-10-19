@@ -90,6 +90,11 @@
       ],
       "type": "string"
     },
+    "since": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
     "sourceThreadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
     },

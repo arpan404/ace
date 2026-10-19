@@ -85,6 +85,11 @@ export const PortableHandoff = z.object({
   policy: z.enum(["recent-complete-items", "conversation-first"]),
   /** The distinct models whose work the carried history holds, oldest first. */
   sources: z.array(HandoffModel).max(8).optional(),
+  /**
+   * A return to a provider that resumes its own earlier session: the excerpts cover only what
+   * happened after this event cutoff, which that session already holds everything before.
+   */
+  since: z.number().int().nonnegative().optional(),
   excerpts: z.array(z.object({ citation: HandoffCitation, text: z.string().max(8192) })).max(200),
   omittedItems: z.number().int().nonnegative(),
   history: z.object({

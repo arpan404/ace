@@ -185,3 +185,24 @@ test("quoted history cannot end the block early, so only the person's words rema
   expect(withoutHandoffEnvelope(`${renderHandoff(result)}\n\nShip it`)).toBe("Ship it");
   expect(withoutHandoffEnvelope("Ship it")).toBeUndefined();
 });
+
+test("a provider resuming its own session is told only what happened while it was away", () => {
+  const result = selectHandoff(
+    {
+      threadId,
+      throughSeq: 60,
+      totalItems: 2,
+      since: 40,
+      items: [
+        message("ask", "user", "Now add tests"),
+        message("answer", "assistant", "Added them.", { executionSource: by("claude", "opus") }),
+      ],
+    },
+    4096,
+  );
+  const text = renderHandoff(result);
+  expect(result.since).toBe(40);
+  expect(text).toContain("You are resuming this conversation. While you were away, opus on claude");
+  expect(text).toContain("Your own history already holds everything before that.");
+  expect(text).not.toContain("worked on before you");
+});

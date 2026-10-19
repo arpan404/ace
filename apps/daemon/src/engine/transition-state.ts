@@ -2,6 +2,7 @@ import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import { NativeSessionId } from "@ace/protocol";
 import { z } from "zod";
 import { HandoffAccess } from "../handoff-access.ts";
+import { ProviderSessions } from "./provider-sessions.ts";
 import type { Store } from "../store.ts";
 import {
   ExecutionSelection,
@@ -21,6 +22,11 @@ const Metadata = z.object({
   handoff: PortableHandoff.optional(),
   /** The transcript marker of `handoff` while it waits for delivery. */
   marker: z.string().min(1).max(512).optional(),
+  /**
+   * A return to a provider resumes its earlier session with only what happened since; if that
+   * session is gone, this full handoff goes to a fresh one instead.
+   */
+  fallback: PortableHandoff.optional(),
   /** Merge summaries are message-sized; an entry also carries their citations and escaping. */
   context: z
     .array(z.string().max(2 * maxMessageBytes))
@@ -39,9 +45,12 @@ export function admitTransitionMetadata(input: unknown): TransitionMetadata {
 export class TransitionState {
   private store: Store;
   readonly history: HandoffAccess;
+  /** Native sessions a provider left behind, resumed when the thread returns to it. */
+  readonly left: ProviderSessions;
   constructor(store: Store) {
     this.store = store;
     this.history = new HandoffAccess(store);
+    this.left = new ProviderSessions(store);
     store.atomic((_db) =>
       _db.exec(`
       CREATE TABLE IF NOT EXISTS engine_transitions (

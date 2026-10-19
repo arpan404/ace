@@ -181,6 +181,19 @@ Decisions:
   persisted with the switch and rendered deterministically, so delivery after a restart sends
   the same text exactly once.
 
-Not changed: returning to a provider still starts a fresh session with portable context. The
-alternative is resuming that provider's earlier native session and sending only the runs since
-it last ran. That needs per-provider native session memory and is a separate decision.
+- **Returning to a provider resumes its session.** When a provider leaves a thread, ace records
+  its native session, its account and backend, and the event cutoff at which it left (in
+  `engine_provider_sessions`, at most 16 per thread). When the thread switches back to that
+  provider on the same account and backend, and the provider can resume:
+  - its own session is resumed;
+  - only the items after that cutoff are handed over, with a "you are resuming" preamble and
+    the manifest's `since` set;
+  - if nothing happened in between, no block is sent and no marker is written.
+
+  An undelivered handoff meant for another provider is dropped on any provider switch.
+
+- **A lost session falls back automatically.** If the provider no longer has the session
+  (`resume_unavailable`), ace forgets it, clears the thread's native session and opens once more
+  as a fresh session with the full conversation-first handoff. That handoff is computed and stored
+  with the switch, and the marker is updated to name every model carried. Any other open failure
+  is reported as before.

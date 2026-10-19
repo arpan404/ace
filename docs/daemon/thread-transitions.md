@@ -44,8 +44,11 @@ plus `recommendation: "delegate"` for client warnings. That context is a
 in front of the next message. It holds the latest ask and answer, the opening
 ask, then recent items, and names the `handoff_read` call for the rest. The
 transcript gets one marker item whose `origin.sources` lists the models whose
-work was carried. A second switch before delivery replaces the marker (ADR 0051,
-amendment of 2026-10-19). An account switch
+work was carried. A second switch before delivery replaces the marker. Returning
+to a provider the thread ran on before resumes that provider's own native session
+and hands over only what happened since it left. If that session is gone, the
+thread falls back to a fresh session with the full handoff (ADR 0051, amendment
+of 2026-10-19). An account switch
 closes the source session, migrates its native history and lineage through the
 accounts service, then resumes or forks according to the migration result.
 Unsupported formats and unavailable writer-exclusion leases fail visibly. The

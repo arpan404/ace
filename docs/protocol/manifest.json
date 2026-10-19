@@ -2089,8 +2089,8 @@
       "sha256": "c2d7d5d6e78eb3f2f496a89ddfbc91e237231edc08dea1b5b133ed30b5bc3128"
     },
     "schema/PortableHandoff.json": {
-      "bytes": 2724,
-      "sha256": "4d0519e03d2e2ec1531d3c60336808d6965234b8d9d510fec514c0e1d16f2f91"
+      "bytes": 2825,
+      "sha256": "3666cbfaf472566f644110a193c032fb1d99dc44072a81a81206bbd3329e532b"
     },
     "schema/PosixSessionsSchema.json": {
       "bytes": 501,
@@ -3765,10 +3765,10 @@
       "sha256": "3c00a18ea5c34e708a57c9d0f5d0cdba097745d6b5fc80bd543053d4c1079efc"
     },
     "types.md": {
-      "bytes": 801383,
-      "sha256": "bee33959cdf6ac32c84c2421fec245a91ef32f07bab6d652028f8d430eb203a3"
+      "bytes": 804960,
+      "sha256": "870ee79b693dd4758317f2ead5ba0e0657d8ae4c333a5bbcdd729c48879b59e1"
     }
   },
-  "input": "2c6caa6ec0acc6ecb381175dc286e6e27f62fa6c0c8c4b57fd3c90affc69c407",
+  "input": "d061ce72cc27ff7ff875b82b90cd73d7172dfab57da65be304a9ff62a506d7ef",
   "version": 1
 }

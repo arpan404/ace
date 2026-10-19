@@ -8,7 +8,8 @@ import type { AdapterRegistry } from "./registry.ts";
 import type { NativeFork } from "./transition-state.ts";
 import type { z } from "zod";
 import type { Sessions } from "./sessions.ts";
-import { handoff, validateCitations } from "./transition-history.ts";
+import { validateCitations } from "./transition-history.ts";
+import { abandonReturn, planCrossProvider } from "./provider-return.ts";
 import { admitTransitionMetadata } from "./transition-state.ts";
 import { switchNeedsNewThread } from "./failure-copy.ts";
 import { switchRoute } from "@ace/core";
@@ -146,15 +147,17 @@ export class ThreadTransitions {
     )
       throw new Error("Provider cannot continue its native session");
     this.repo.transitions.admitModel(actor.id, selection);
-    const portable = crossProvider
-      ? handoff(
-          this.repo,
-          actor.id,
-          this.repo.store.headSeq(),
-          switchHandoffBytes,
-          current.provider,
-        )
+    const plan = crossProvider
+      ? planCrossProvider(this.repo, actor.id, {
+          from: current,
+          to: selection,
+          resumable: capabilities.resume,
+          backend: entry.adapter.backend,
+          budget: switchHandoffBytes,
+        })
       : undefined;
+    const portable = plan?.handoff;
+    const resumed = plan?.resume;
     let nativeSessionId = metadata.nativeSessionId;
     let migratedFork: z.infer<typeof NativeFork> | undefined;
     if (crossAccount) {
@@ -218,25 +221,29 @@ export class ThreadTransitions {
           "UPDATE engine_sessions SET model=?,instance_id=?,native_session_id=?,backend=? WHERE thread_id=?",
         ).run(
           selection.model ?? null,
-          selection.instanceId ?? null,
-          crossProvider || migratedFork ? null : (nativeSessionId ?? null),
+          resumed?.instanceId ?? selection.instanceId ?? null,
+          crossProvider
+            ? (resumed?.nativeSessionId ?? null)
+            : migratedFork
+              ? null
+              : (nativeSessionId ?? null),
           crossProvider ? (entry.adapter.backend ?? null) : (backend ?? null),
           actor.id,
         );
+        // A provider switch replaces any handoff still waiting for delivery; a model change
+        // within the provider keeps it for the new model.
+        const waitingHandoff = crossProvider ? portable : previous.handoff;
         const marker = portable ? `handoff:${intent.command.id}` : previous.marker;
         this.repo.transitions.set(actor.id, {
           selection,
           context: previous.context,
           ...(migratedFork ? { fork: migratedFork } : {}),
-          ...(portable
-            ? { handoff: portable }
-            : previous.handoff
-              ? { handoff: previous.handoff }
-              : {}),
-          ...(marker && (portable ?? previous.handoff) ? { marker } : {}),
+          ...(waitingHandoff ? { handoff: waitingHandoff } : {}),
+          ...(marker && waitingHandoff ? { marker } : {}),
+          ...(plan?.fallback ? { fallback: plan.fallback } : {}),
         });
         const waiting = this.repo.requireState(actor.id).items[previous.marker ?? ""];
-        if (!portable && previous.handoff && previous.marker && waiting?.type === "message")
+        if (!crossProvider && previous.handoff && previous.marker && waiting?.type === "message")
           // A model change before the handoff is delivered: its marker names the new target.
           this.repo.syntheticInput(
             actor.id,
@@ -248,11 +255,11 @@ export class ThreadTransitions {
             },
             this.now(),
           );
+        // A handoff the agent never received is replaced, not stacked: its marker goes, and any
+        // new one names the models whose work is actually carried.
+        if (crossProvider && previous.marker)
+          this.repo.removeInputItem(actor.id, previous.marker, this.now());
         if (portable) {
-          // A handoff the agent never received is replaced, not stacked: its marker goes, and
-          // the new one names the models whose work is actually carried.
-          if (previous.handoff && previous.marker)
-            this.repo.removeInputItem(actor.id, previous.marker, this.now());
           this.repo.syntheticInput(
             actor.id,
             `handoff:${intent.command.id}`,
@@ -300,7 +307,13 @@ export class ThreadTransitions {
             cwd: metadata.cwd,
             native: {
               provider: selection.provider,
-              ...(crossProvider || !nativeSessionId ? {} : { nativeId: nativeSessionId }),
+              ...(crossProvider
+                ? resumed
+                  ? { nativeId: resumed.nativeSessionId }
+                  : {}
+                : nativeSessionId
+                  ? { nativeId: nativeSessionId }
+                  : {}),
             },
             ...(selection.model ? { model: selection.model } : {}),
           },
@@ -311,6 +324,16 @@ export class ThreadTransitions {
               .filter(([, record]) => record.limited)
               .map(([agent]) => ({ type: "limit.cleared" as const, agent })),
           );
+        // The provider leaving keeps its session for a return; it holds everything written so
+        // far, this switch's own marker included.
+        if (crossProvider && metadata.nativeSessionId)
+          this.repo.transitions.left.leave(actor.id, {
+            provider: current.provider,
+            ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
+            ...(backend ? { backend } : {}),
+            nativeSessionId: metadata.nativeSessionId,
+            throughSeq: this.repo.store.headSeq(),
+          });
       });
     } catch (error) {
       this.repo.evict(actor.id);
@@ -359,6 +382,10 @@ export class ThreadTransitions {
       },
     });
   }
+  /** A resumed return found its session gone: true when the thread now opens fresh instead. */
+  abandonReturn(id: ThreadId, error: unknown): boolean {
+    return abandonReturn(this.repo, id, error, this.now());
+  }
   async freezeForkSource(source: ThreadId, fork: ThreadId): Promise<void> {
     const metadata = this.repo.transitions.get(fork);
     if (metadata.fork?.point.type !== "end") return;
@@ -370,6 +397,7 @@ export class ThreadTransitions {
     const metadata = this.repo.transitions.get(id);
     delete metadata.handoff;
     delete metadata.marker;
+    delete metadata.fallback;
     metadata.context = [];
     this.repo.transitions.set(id, metadata);
   }

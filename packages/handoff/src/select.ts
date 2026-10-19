@@ -20,6 +20,8 @@ export interface HandoffSource {
    */
   opening?: Item | undefined;
   origin?: PortableHandoff["origin"];
+  /** The recipient resumes its own session, which holds everything up to this cutoff. */
+  since?: number | undefined;
 }
 
 const maxExcerpt = 8192;
@@ -162,6 +164,7 @@ export function selectHandoff(source: HandoffSource, budgetBytes: number): Porta
     lossy: true,
     policy: "conversation-first",
     ...(sources.length ? { sources } : {}),
+    ...(source.since === undefined ? {} : { since: source.since }),
     excerpts: [],
     omittedItems: source.totalItems,
     history: {

@@ -48,9 +48,20 @@ export async function executeIntent(
     try {
       await sessions.open(actor);
     } catch (error) {
-      throw new DeliveryNotStarted(error instanceof Error ? error.message : String(error), {
-        cause: error,
-      });
+      // A provider returning to the thread resumes the session it left; if that is gone, it
+      // opens once more as a fresh session with the full handoff.
+      let failure = error;
+      if (transitions.abandonReturn(actor.id, error))
+        try {
+          await sessions.open(actor);
+          failure = undefined;
+        } catch (retry) {
+          failure = retry;
+        }
+      if (failure !== undefined)
+        throw new DeliveryNotStarted(failure instanceof Error ? failure.message : String(failure), {
+          cause: failure,
+        });
     }
     await repo.store.writable();
     if (repo.cancelled(intent.id)) throw new DeliveryDeferred("Cancelled before delivery");

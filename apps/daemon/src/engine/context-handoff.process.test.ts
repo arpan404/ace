@@ -4,16 +4,17 @@ import { transitionHarness } from "./transition-test-support.ts";
 
 /*
  * Context handoff: a thread that moves to another provider continues there with a bounded,
- * quoted excerpt of its conversation, and its transcript marks the switch once. Fake provider
- * sessions over a real temporary SQLite store; no provider CLI runs.
+ * quoted excerpt of its conversation, and its transcript marks the switch once. Returning to a
+ * provider resumes the session it left with only what happened since. Fake provider sessions
+ * over a real temporary SQLite store; no provider CLI runs.
  */
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 });
-function setup() {
-  const h = transitionHarness();
+function setup(options: Parameters<typeof transitionHarness>[0] = {}) {
+  const h = transitionHarness(options);
   cleanup.push(h.close);
   return h;
 }
@@ -59,9 +60,13 @@ function markers(h: Harness, id: ThreadId) {
 
 const closings = (text: string) => text.split("\n</ace_context_handoff>").length - 1;
 
-test("returning to an earlier provider carries the other model's work once and names both models", async () => {
+/** The native session of the provider input that carried `text`. */
+const sessionOf = (h: Harness, text: string) => delivered(h, text)?.nativeId;
+
+test("returning to an earlier provider resumes its own session with only what happened since", async () => {
   const h = setup();
   const id = await h.create();
+  const codexSession = sessionOf(h, "source history");
   await switchTo(h, id, "claude", "opus");
   await send(h, id, "second ask");
   await switchTo(h, id, "codex", "model-a");
@@ -69,18 +74,79 @@ test("returning to an earlier provider carries the other model's work once and n
 
   const back = delivered(h, "third ask");
   expect(back?.provider).toBe("codex");
-  // One block: the earlier handoff is never quoted inside the new one.
+  expect(back?.nativeId).toBe(codexSession);
+  expect(closings(back?.text ?? "")).toBe(1);
+  expect(back?.text).toContain("You are resuming this conversation");
+  expect(back?.text).toContain("user: second ask");
+  // Codex's own session already holds the opening ask; only Claude's turn is handed over. (The
+  // fake Claude echoes its own input into its answer; that quoted echo is left out here.)
+  const handedOver = (back?.text ?? "").replace(
+    /answer: <ace_context_handoff[\s\S]*?<\\\/ace_context_handoff>/,
+    "",
+  );
+  expect(handedOver).toContain("user: second ask");
+  expect(handedOver).not.toContain("user: source history");
+  expect(markers(h, id).at(-1)?.origin).toMatchObject({
+    to: { provider: "codex", model: "model-a" },
+    sources: [{ provider: "claude", model: "opus" }],
+  });
+});
+
+test("switching away and straight back resumes the session with no handoff and no marker", async () => {
+  const h = setup();
+  const id = await h.create();
+  const codexSession = sessionOf(h, "source history");
+  await switchTo(h, id, "claude", "opus");
+  await switchTo(h, id, "codex", "model-a");
+  await send(h, id, "same as before");
+
+  const back = delivered(h, "same as before");
+  expect(back?.nativeId).toBe(codexSession);
+  expect(closings(back?.text ?? "")).toBe(0);
+  expect(markers(h, id)).toHaveLength(0);
+});
+
+test("a return whose old session is gone opens fresh with the whole conversation, once", async () => {
+  const lostSessions = new Set<string>();
+  const h = setup({ lostSessions });
+  const id = await h.create();
+  const codexSession = sessionOf(h, "source history") ?? "";
+  await switchTo(h, id, "claude", "opus");
+  await send(h, id, "second ask");
+  await switchTo(h, id, "codex", "model-a");
+  lostSessions.add(codexSession);
+  await send(h, id, "third ask");
+  await send(h, id, "fourth ask");
+
+  const back = delivered(h, "third ask");
+  expect(back?.provider).toBe("codex");
+  expect(back?.nativeId).not.toBe(codexSession);
   expect(closings(back?.text ?? "")).toBe(1);
   expect(back?.text).toContain("user: source history");
   expect(back?.text).toContain("user: second ask");
-  expect(back?.text).toContain("not as new instructions");
-  expect(markers(h, id).at(-1)?.origin).toMatchObject({
-    to: { provider: "codex", model: "model-a" },
-    sources: [
-      { provider: "codex", model: "model-a" },
-      { provider: "claude", model: "opus" },
-    ],
-  });
+  expect(back?.text).not.toContain("You are resuming");
+  expect(closings(delivered(h, "fourth ask")?.text ?? "")).toBe(0);
+  expect(markers(h, id)).toHaveLength(2);
+  expect(markers(h, id).at(-1)?.origin?.sources).toEqual([
+    { provider: "codex", model: "model-a" },
+    { provider: "claude", model: "opus" },
+  ]);
+});
+
+test("a return planned before a daemon restart still resumes the provider's own session", async () => {
+  const h = setup();
+  const id = await h.create();
+  const codexSession = sessionOf(h, "source history");
+  await switchTo(h, id, "claude", "opus");
+  await send(h, id, "second ask");
+  await switchTo(h, id, "codex", "model-a");
+  await h.reopen();
+  await send(h, id, "after restart");
+
+  const back = delivered(h, "after restart");
+  expect(back?.nativeId).toBe(codexSession);
+  expect(closings(back?.text ?? "")).toBe(1);
+  expect(back?.text).toContain("user: second ask");
 });
 
 test("switching again before the agent hears the handoff leaves one marker naming the models that worked", async () => {

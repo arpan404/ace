@@ -38,6 +38,8 @@ export function transitionHarness(
     /** A root interrupt ends the running turn, as a real provider's would. */
     interruptEndsTurn?: boolean;
     closeFails?: boolean;
+    /** Native sessions the provider no longer has: resuming one fails as a real CLI would. */
+    lostSessions?: Set<string>;
     configureFails?: boolean;
     maxActiveThreads?: number;
     beforeFork?(context: SessionContext): Promise<void>;
@@ -118,6 +120,11 @@ export function transitionHarness(
         }),
       createTranslator: () => ({ translate: frames.translate, tick: () => [] }),
       async openSession(context) {
+        if (context.resume && options.lostSessions?.has(context.resume.nativeSessionId))
+          throw Object.assign(new Error("No conversation found"), {
+            code: "session_not_found",
+            detail: "No conversation found with that session ID",
+          });
         if (context.fork) await options.beforeFork?.(context);
         const nativeId =
           context.resume?.nativeSessionId ??
