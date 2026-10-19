@@ -8,6 +8,7 @@ import {
   type Item,
   type ThreadId,
 } from "@ace/protocol";
+import type { ClientApi } from "./api.ts";
 import { setup, ready, when, itemText } from "./test-support.ts";
 
 let cleanup: (() => Promise<void>) | undefined;
@@ -125,6 +126,134 @@ test("older pages never split a turn", async () => {
     for (let n = 0; n < size; n++) expected.push(`reply-${index + 1}-${n}`);
   }
   expect(read.map((item) => item.id)).toEqual(expected);
+});
+
+/** A root run with `size` replies; an ask (`prompt`) or a carried-on message may come first. */
+function run(
+  threadId: ThreadId,
+  ordinal: number,
+  options: {
+    size: number;
+    trigger: "user" | "background_completion" | "restart" | "subagent_result";
+    turn?: number;
+    before?: EventPayload;
+  },
+): EventPayload[] {
+  const runId = RunId.parse(`run-${ordinal}`);
+  return [
+    ...(options.before ? [options.before] : []),
+    {
+      type: "run.started",
+      run: {
+        id: runId,
+        threadId,
+        agentId: root,
+        ordinal,
+        ...(options.turn === undefined ? {} : { turn: options.turn }),
+        trigger: options.trigger,
+        state: "active",
+        startedAt: ordinal,
+      },
+    },
+    ...Array.from({ length: options.size }, (_, n) =>
+      message(`reply-${ordinal}-${n}`, "assistant"),
+    ),
+    { type: "run.ended", runId, state: "completed", endedAt: ordinal },
+  ];
+}
+const carried = (id: string, kind: "restart" | "subagent_result", text: string): EventPayload => {
+  const created = message(id, "user", text);
+  if (created.type !== "item.created" || created.item.type !== "message") return created;
+  return { ...created, item: { ...created.item, origin: { kind } } };
+};
+
+/** Reads a thread back from its newest item in whole-turn pages, as the history window does. */
+async function readBack(
+  client: Pick<ClientApi, "itemsWindow">,
+  threadId: ThreadId,
+  newestId: string,
+) {
+  const newest = await client.itemsWindow({
+    threadId,
+    itemId: ItemId.parse(newestId),
+    before: 0,
+    after: 0,
+  });
+  const read: Item[] = [...newest.items];
+  let cursor = newest.itemsBefore;
+  let pages = 0;
+  while (cursor !== null && pages++ < 40) {
+    const page = await client.itemsWindow({
+      threadId,
+      aroundSeq: cursor,
+      before: 199,
+      after: 0,
+      wholeTurns: true,
+    });
+    // Every read before the thread's start brings older items and ends where the last began.
+    expect(page.items.at(-1)?.id).toBe(read[0]?.id);
+    expect(page.items.length).toBeGreaterThan(1);
+    expect(page.items.length).toBeLessThanOrEqual(200);
+    read.unshift(...page.items.slice(0, -1));
+    expect(page.itemsBefore === null || page.itemsBefore < cursor).toBe(true);
+    cursor = page.itemsBefore;
+  }
+  return read.map((item) => item.id);
+}
+
+// Mutation cases: cutting at the newest turn's own start when it begins with a run rather than a
+// message (the read keeps only the item it was read before and the cursor never moves); dropping
+// the older part of a turn larger than the read.
+test("older pages keep loading past turns that no person's message starts", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  const id = h.thread.id;
+  h.daemon.store.appendEvents(id, [rootAgent(id, h.directory)]);
+  // Recorded before turns were numbered: every root run is its own turn (`turn` absent), so a
+  // run the agent started itself opens a turn at its run, before its first item.
+  h.daemon.store.appendEvents(id, turn(id, 1, 250));
+  h.daemon.store.appendEvents(id, run(id, 2, { size: 230, trigger: "background_completion" }));
+  h.daemon.store.appendEvents(
+    id,
+    run(id, 3, {
+      size: 210,
+      trigger: "restart",
+      before: carried("continue-3", "restart", "Continue"),
+    }),
+  );
+  h.daemon.store.appendEvents(
+    id,
+    run(id, 4, {
+      size: 40,
+      trigger: "subagent_result",
+      before: carried("result-4", "subagent_result", "[ace-origin:delegation.settled:x]"),
+    }),
+  );
+  // Recorded after: turns are asks. Agent-started runs join the ask's turn, and a run the person
+  // started in the provider's own CLI opens one with no message in ace.
+  h.daemon.store.appendEvents(id, [message("prompt-5", "user")]);
+  h.daemon.store.appendEvents(id, run(id, 5, { size: 120, trigger: "user", turn: 5 }));
+  h.daemon.store.appendEvents(
+    id,
+    run(id, 6, { size: 150, trigger: "background_completion", turn: 5 }),
+  );
+  h.daemon.store.appendEvents(id, run(id, 7, { size: 30, trigger: "user", turn: 6 }));
+  const { client } = h.make();
+  await ready(client);
+  const expected = [
+    "prompt-1",
+    ...Array.from({ length: 250 }, (_, n) => `reply-1-${n}`),
+    ...Array.from({ length: 230 }, (_, n) => `reply-2-${n}`),
+    "continue-3",
+    ...Array.from({ length: 210 }, (_, n) => `reply-3-${n}`),
+    "result-4",
+    ...Array.from({ length: 40 }, (_, n) => `reply-4-${n}`),
+    "prompt-5",
+    ...Array.from({ length: 120 }, (_, n) => `reply-5-${n}`),
+    ...Array.from({ length: 150 }, (_, n) => `reply-6-${n}`),
+    ...Array.from({ length: 30 }, (_, n) => `reply-7-${n}`),
+  ];
+  expect(await readBack(client, id, "reply-7-29")).toEqual(expected);
 });
 
 // Mutation cases: resubscribing without the held cursor after a gap; replacing the store with

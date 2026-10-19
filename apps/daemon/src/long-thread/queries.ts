@@ -125,6 +125,8 @@ export class LongThreadQueries {
    * A window whose older items come in whole turns: it starts where the oldest turn that
    * starts inside its older part starts, so no turn is split at its older edge. When one turn
    * fills the whole older part, the budgets cut it and the cursor still says more is older.
+   * The cut keeps at least one older item, so every read before the thread's start moves the
+   * cursor, whatever its turns start with (an ask, or a run the agent started itself).
    */
   private wholeTurns<
     W extends {
@@ -154,11 +156,20 @@ export class LongThreadQueries {
       .get(window.threadId, firstSeq);
     if (own?.start_seq != null && Number(own.start_seq) > Number(previous?.created_seq ?? 0))
       return window;
+    // The cut must keep at least one older item: a turn starting after the newest of them is
+    // the target's own (one that began with a run event, before its first item), and cutting
+    // there would return only the target with an unmoved cursor, so paging older never ends.
+    let newestOlder: number | undefined;
+    for (const item of window.items) {
+      const seq = window.itemSeqs[item.id];
+      if (seq !== undefined && seq < window.targetSeq) newestOlder = seq;
+    }
+    if (newestOlder === undefined) return window;
     const row = data
       .sql(
-        "SELECT start_seq FROM long_turns WHERE thread_id=? AND start_seq>? AND start_seq<? ORDER BY start_seq LIMIT 1",
+        "SELECT start_seq FROM long_turns WHERE thread_id=? AND start_seq>? AND start_seq<=? ORDER BY start_seq LIMIT 1",
       )
-      .get(window.threadId, firstSeq, window.targetSeq);
+      .get(window.threadId, firstSeq, newestOlder);
     const start = row?.start_seq == null ? undefined : Number(row.start_seq);
     if (start === undefined) return window;
     const items = window.items.filter((item) => (window.itemSeqs[item.id] ?? 0) >= start);

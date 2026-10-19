@@ -173,3 +173,23 @@ windows all treat the ask and its answers as one turn.
 - **Known gap.** When a provider emits a person's message only after the run it started and with
   a trigger that does not say so (`unknown`), the run joins the current turn. ace's own sends
   always index the message before the run, so this only affects provider-native input.
+
+## Whole-turn reads always move (2026-10-18)
+
+Owner report: in a long Claude thread the transcript stopped at "Worked for 1m 3s" and an agent
+reply with no message above it, and scrolling up loaded nothing more. Cause: a turn that no
+item starts (a run the agent started itself under the old one-turn-per-run rule, or a run the
+person started in the provider's own CLI) begins at its `run.started` sequence, before its first
+item. An older read is aimed at that first item. When the turn before it filled the whole older
+part of the read (a single turn larger than the read, which is more common now that agent-started
+runs join the ask's turn), the only turn start between the read's first item and its target was
+the target's own. The whole-turn cut kept only the target, and the reply's cursor was the one the
+read was made from, so every later read returned the same single item.
+
+- A whole-turn cut keeps at least one item older than the target. It cuts only at a turn start
+  at or before the newest older item; with none there, the older part is one turn larger than the
+  read and the budgets cut it (the existing rule). Every older read before the thread's start
+  moves the cursor, whatever its turns begin with.
+- No index repair is needed: `long_turns.start_seq` stays the sequence of the event that opened
+  the turn, for old-rule and new-rule turns alike. The fake daemon applies the same cut; the soak
+  already chose turns by membership and was not affected.
