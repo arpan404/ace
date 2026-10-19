@@ -11,6 +11,8 @@ struct HostServices: Sendable {
     var now: @Sendable () -> Date = { Date() }
     /// Photos and files staged for the next message (`AttachmentStaging`).
     var attachments = AttachmentStaging()
+    /// New thread's first-message files, kept with its draft across launches.
+    var draftAttachments = NewThreadDraftStore.standard().files
 
     /// A machine's connection may read its own device token and nothing else.
     static func connection(_ target: ConnectionTarget) -> HostServices {
@@ -46,7 +48,8 @@ struct HostServices: Sendable {
             return ""
         case "attachment.chunk":
             let read = try JSONDecoder().decode(ChunkRead.self, from: input)
-            return try attachments.chunk(read.localId, offset: read.offset, limit: read.limit)
+            let staging = attachments.holds(read.localId) ? attachments : draftAttachments
+            return try staging.chunk(read.localId, offset: read.offset, limit: read.limit)
         case "access.result":
             guard let result else { throw HostError.unsupported }
             result(String(decoding: input, as: UTF8.self))

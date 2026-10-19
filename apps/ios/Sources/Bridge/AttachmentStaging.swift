@@ -14,7 +14,9 @@ struct StagedAttachment: Sendable, Equatable {
 /// Files staged for the next message. A picked file is copied into the app's own temporary
 /// directory under a random id and hashed as it streams; the bridge pulls at most one 48 KiB chunk
 /// at a time (`attachment.chunk`), so a large file never sits in JavaScript whole. Staged copies
-/// go when removed from the message, or with the system's temporary-file cleanup.
+/// go when removed from the message, or with the system's temporary-file cleanup. New thread's
+/// first-message files stage in the draft's own folder instead (`NewThreadDraftStore.files`), so
+/// they survive a relaunch until the start is saved or they are discarded.
 struct AttachmentStaging: Sendable {
     static let chunkLimit = 48 * 1024
     var root = FileManager.default.temporaryDirectory.appendingPathComponent("ace-attachments", isDirectory: true)
@@ -43,6 +45,13 @@ struct AttachmentStaging: Sendable {
     func discard(_ localId: String) {
         guard valid(localId) else { return }
         try? FileManager.default.removeItem(at: url(localId))
+    }
+    /// Whether a staged copy is still here to read.
+    func holds(_ localId: String) -> Bool { valid(localId) && FileManager.default.fileExists(atPath: url(localId).path) }
+    /// Removes every staged copy but `keeping`.
+    func sweep(keeping: Set<String>) {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
+        for name in names where !keeping.contains(name) { try? FileManager.default.removeItem(at: root.appendingPathComponent(name)) }
     }
 
     private func url(_ localId: String) -> URL { root.appendingPathComponent(localId) }

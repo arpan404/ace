@@ -10,6 +10,8 @@ struct AttachMenu<Title: View>: View {
     /// Why the last pick couldn't be read; nil when it could.
     @Binding var problem: String?
     var identifier = "composer.attach"
+    /// Where picked bytes are copied: the temporary folder, or New thread's draft folder.
+    var staging = AttachmentStaging()
     @ViewBuilder var title: () -> Title
     @State private var photos: [PhotosPickerItem] = []
     @State private var choosingPhotos = false
@@ -45,17 +47,17 @@ struct AttachMenu<Title: View>: View {
         let type = item.supportedContentTypes.first { $0.conforms(to: .image) } ?? .jpeg
         guard let data = try? await item.loadTransferable(type: Data.self) else { problem = "Couldn't read that photo."; return }
         let name = "Photo.\(type.preferredFilenameExtension ?? "jpg")"
-        await staged { try AttachmentStaging().stage(data: data, name: name, mimeType: type.preferredMIMEType ?? "image/jpeg") }
+        await staged { [staging] in try staging.stage(data: data, name: name, mimeType: type.preferredMIMEType ?? "image/jpeg") }
     }
     private func stageCamera(_ image: UIImage) async {
         guard let data = image.jpegData(compressionQuality: 0.85) else { return }
-        await staged { try AttachmentStaging().stage(data: data, name: "Photo.jpg", mimeType: "image/jpeg") }
+        await staged { [staging] in try staging.stage(data: data, name: "Photo.jpg", mimeType: "image/jpeg") }
     }
     private func stageFile(_ url: URL) async {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         let type = UTType(filenameExtension: url.pathExtension)
-        await staged { try AttachmentStaging().stage(copying: url, name: url.lastPathComponent, mimeType: type?.preferredMIMEType ?? "application/octet-stream") }
+        await staged { [staging] in try staging.stage(copying: url, name: url.lastPathComponent, mimeType: type?.preferredMIMEType ?? "application/octet-stream") }
     }
     /// Copies and hashes off the main actor; the bridge then decides whether it can go.
     private func staged(_ work: @escaping @Sendable () throws -> StagedAttachment) async {

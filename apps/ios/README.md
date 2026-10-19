@@ -137,7 +137,11 @@ message only. Photos and files are staged natively (`Sources/Bridge/AttachmentSt
 hashed with CryptoKit); the bridge checks the shared limits and what the agent reads, then uploads
 through `context.request`, pulling one 48 KiB chunk at a time over the `attachment.chunk` host call.
 A message may carry only files (`messageHasContent`, as the web composer allows); refusals use the
-web's wording (`contextErrorMessage`).
+web's wording (`contextErrorMessage`). New thread's picked files are copied into its draft's own
+folder and named in the draft (never a token), so a relaunch puts them back on the message; the
+copies go once the start is saved, or when a file is removed or another project is chosen.
+Thread actions carry their navigation generation (`bridge/thread-route.ts`): a log or lane released
+after its thread was left is dropped, and a submitted action is refused on its own admission.
 A native subagent's lane sheet groups its own blocks (`createBlockReader(agentId)`). Going back from
 a child keeps the parent's last transcript (`ThreadTrail`) until the reopened session's first block.
 Request threads live in `scripts/request-scenarios.ts`; `POST /review/fresh {"scenario": …}` seeds a
