@@ -164,6 +164,9 @@ export function FileDiffBlock(props: {
           </button>
           {props.actions}
         </div>
+        {open && !file.rows.length && (
+          <p className="px-3.5 py-2 text-xs text-subtle-foreground">No text changes to show.</p>
+        )}
         {open && renderer !== "dom" && !asText && (
           <Suspense fallback={<Spinner label="Loading the diff renderer" className="m-3.5" />}>
             <GpuDiff

@@ -45,3 +45,18 @@ export function useCodeLines(code: string | undefined, lang: string | undefined)
   const result = cached ?? (done?.hash === hash ? done : undefined);
   return result && "lines" in result ? result : undefined;
 }
+
+/**
+ * Like `useCodeLines`, but while new text is being highlighted the lines built for the text
+ * shown before stay: an editor keeps its colours as you type. Lines may then belong to an older
+ * text, so a caller checks each line still matches before drawing its tokens (`tokensFit`).
+ */
+export function useLatestCodeLines(code: string | undefined, lang: string | undefined) {
+  const current = useCodeLines(code, lang);
+  const [latest, setLatest] = useState(current);
+  useEffect(() => {
+    // oxlint-disable-next-line react-compiler/set-state-in-effect -- keeps the last result shown.
+    if (current) setLatest(current);
+  }, [current]);
+  return current ?? latest;
+}
