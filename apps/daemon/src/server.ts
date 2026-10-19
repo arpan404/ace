@@ -33,6 +33,7 @@ import { remoteRuntime } from "./remote-runtime.ts";
 export type { ServerOptions } from "./server-options.ts";
 import type { ServerOptions } from "./server-options.ts";
 import { computerName } from "./computer-name.ts";
+import { remoteDeflate } from "./compression-policy.ts";
 export async function startServer(options: ServerOptions): Promise<{
   relayHostId?: string | undefined;
   maintenance: MaintenanceGate;
@@ -112,11 +113,28 @@ export async function startServer(options: ServerOptions): Promise<{
       listener.headersTimeout = 10_000;
     }
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
+  // Remote peers (LAN, Tailscale) get per-message deflate, each message alone; loopback doesn't.
+  const remoteWss = new WebSocketServer({
+    noServer: true,
+    maxPayload: 1024 * 1024,
+    perMessageDeflate: remoteDeflate,
+  });
+  const servers = [wss, remoteWss];
+  /** Both socket servers closed; the first error either reported. */
+  const closeServers = async () =>
+    (
+      await Promise.all(
+        servers.map(
+          (server) =>
+            new Promise<Error | undefined>((resolve) => server.close((error) => resolve(error))),
+        ),
+      )
+    ).find((error) => error !== undefined);
   const remoteSockets = new Set<WebSocket>();
   const preAuth = new PreAuthAdmission(options.preAuth ?? {}, runtime.delay);
   const attach = (listener: Server, isLocal: boolean) =>
     admitUpgrades(listener, isLocal, {
-      wss,
+      wss: isLocal ? wss : remoteWss,
       allowedOrigins: access.allowedOrigins,
       preAuth,
       full: () => cleanups.size >= 256,
@@ -149,7 +167,7 @@ export async function startServer(options: ServerOptions): Promise<{
   const backgrounded = new WeakSet<WebSocket>();
   const encoder = new WireEncoder();
   const ticks = new Map<WebSocket, () => void>();
-  wss.on("connection", (socket, isLocal: boolean) => {
+  const connected = (socket: WebSocket, isLocal: boolean) => {
     socket.on("error", (error) => {
       options.log?.(error);
       // A protocol error (an oversized frame is 1009) already started a close with its code;
@@ -403,7 +421,8 @@ export async function startServer(options: ServerOptions): Promise<{
         return true;
       },
     );
-  });
+  };
+  for (const server of servers) server.on("connection", connected);
   const stopTimer = runtime.every(
     () => {
       for (const tick of ticks.values()) {
@@ -454,7 +473,7 @@ export async function startServer(options: ServerOptions): Promise<{
     stopRevocation();
     await closeListener(local);
     if (remote) await closeListener(remote);
-    await new Promise<void>((resolve) => wss.close(() => resolve()));
+    await closeServers();
     throw error;
   }
   let closing: Promise<void> | undefined;
@@ -496,10 +515,11 @@ export async function startServer(options: ServerOptions): Promise<{
         stopTimer();
         stopRevocation();
         for (const cleanup of cleanups.values()) cleanup();
-        for (const socket of wss.clients) {
-          socket.close(1001, "Daemon shutdown");
-          socket.terminate();
-        }
+        for (const server of servers)
+          for (const socket of server.clients) {
+            socket.close(1001, "Daemon shutdown");
+            socket.terminate();
+          }
         void Promise.all([
           closeListener(local),
           ...(remote ? [closeListener(remote)] : []),
@@ -508,7 +528,7 @@ export async function startServer(options: ServerOptions): Promise<{
           dynamicRemote?.close(),
         ]).then(
           () =>
-            wss.close((error) => {
+            closeServers().then((error) => {
               void shutdownDeadline(
                 "Socket tasks",
                 Promise.all([Promise.allSettled(serviceTasks), lanes.settled(), disconnects]),

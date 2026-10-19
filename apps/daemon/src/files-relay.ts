@@ -1,6 +1,7 @@
 import { connectHostToRelay, type HostChannel } from "@ace/relay";
 import { randomUUID } from "node:crypto";
 import { attachRelayService, type RelayServices } from "./services/relay-channel.ts";
+import { mayCompress } from "./compression-policy.ts";
 import { HostId } from "@ace/protocol";
 import type { KeyPair } from "@ace/secure-channel";
 import { allows, type Devices } from "./devices.ts";
@@ -47,6 +48,9 @@ export async function startFilesRelay(
         }
         channel.authorize();
         clients.set(channel, device.id);
+        // Sign-in traffic carries codes and links: that channel never compresses anything.
+        if (hello.compression?.includes("deflate-raw") && hello.channel !== "provider_auth")
+          channel.compress?.((message) => mayCompress(message.type));
         let session: ReturnType<typeof attachRelayService>;
         try {
           // `options` is passed as is, never spread: its service fields may read live state.

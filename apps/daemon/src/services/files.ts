@@ -144,7 +144,7 @@ export function createFilesSession(context: SocketContext): SocketService {
             reject(new Error("Attachment channel disconnected or full"));
             return;
           }
-          context.socket.send(bytes, { binary: true }, (error) =>
+          context.socket.send(bytes, { binary: true, compress: false }, (error) =>
             error ? reject(error) : resolve(),
           );
         });
