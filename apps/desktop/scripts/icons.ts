@@ -3,17 +3,19 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appEnvironment, desktop, electronBinary } from "./common.ts";
+import { appEnvironment, desktop, electronBinary, repo } from "./common.ts";
 
 /**
- * Renders the app and tray icons from their SVG masters in `apps/desktop/build`:
+ * Renders the app, tray and web icons from their SVG masters:
  *
  *   node apps/desktop/scripts/icons.ts
  *
  * - `build/icon.icns` (macOS, through an `.iconset` and `iconutil`) and `build/icon.png`
  *   (1024 px; electron-builder derives the Windows and Linux icons from it);
  * - `resources/trayTemplate.png` and `trayTemplate@2x.png`: black and alpha only, which macOS
- *   treats as a template image and tints for the menu bar.
+ *   treats as a template image and tints for the menu bar;
+ * - the web app's `public/favicon.png` (from `public/favicon.svg`, for browsers without SVG
+ *   favicons) and `public/apple-touch-icon.png` (from `brand/apple-touch-icon.svg`).
  *
  * The installed Electron rasterizes: each size is drawn from the vector at that size, never
  * scaled down from a larger bitmap. The outputs are committed; rerun this after editing an SVG.
@@ -28,6 +30,7 @@ interface Job {
 
 const build = join(desktop, "build");
 const resources = join(desktop, "resources");
+const web = join(repo, "apps", "web");
 
 /** The `.iconset` names `iconutil` expects, with each file's pixel size. */
 const iconset: Array<[name: string, size: number]> = [16, 32, 128, 256, 512].flatMap((points) => [
@@ -104,6 +107,8 @@ const work = await mkdtemp(join(tmpdir(), "ace-icons-"));
 try {
   const icon = await readFile(join(build, "icon.svg"), "utf8");
   const tray = await readFile(join(build, "tray.svg"), "utf8");
+  const favicon = await readFile(join(web, "public", "favicon.svg"), "utf8");
+  const touch = await readFile(join(web, "brand", "apple-touch-icon.svg"), "utf8");
   const set = join(work, "icon.iconset");
   const jobs: Job[] = [
     ...iconset.map(([name, size]) => ({
@@ -115,6 +120,8 @@ try {
     { svg: icon, size: 1024, out: join(build, "icon.png"), template: false },
     { svg: tray, size: 18, out: join(resources, "trayTemplate.png"), template: true },
     { svg: tray, size: 36, out: join(resources, "trayTemplate@2x.png"), template: true },
+    { svg: favicon, size: 64, out: join(web, "public", "favicon.png"), template: false },
+    { svg: touch, size: 180, out: join(web, "public", "apple-touch-icon.png"), template: false },
   ];
   await rasterize(jobs, work);
   execFileSync("iconutil", ["-c", "icns", set, "-o", join(build, "icon.icns")], {
