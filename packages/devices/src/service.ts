@@ -449,27 +449,33 @@ export class DevicesService {
         return await this.screenshot(session.device.id, actor);
       case "ui.tree":
         return this.ui(session, actor, () =>
-          session.capture?.screenSessionId && this.options.screen
-            ? this.options.screen.uiTree(session.capture.screenSessionId, operation)
-            : this.options.platform.uiTree(session.device, operation),
+          session.capture?.ui
+            ? session.capture.ui.tree(operation)
+            : session.capture?.screenSessionId && this.options.screen
+              ? this.options.screen.uiTree(session.capture.screenSessionId, operation)
+              : this.options.platform.uiTree(session.device, operation),
         );
       case "ui.find":
         return this.ui(session, actor, () =>
-          session.capture?.screenSessionId && this.options.screen
-            ? this.options.screen.uiFind(session.capture.screenSessionId, operation)
-            : this.options.platform.uiFind(session.device, operation),
+          session.capture?.ui
+            ? session.capture.ui.find(operation)
+            : session.capture?.screenSessionId && this.options.screen
+              ? this.options.screen.uiFind(session.capture.screenSessionId, operation)
+              : this.options.platform.uiFind(session.device, operation),
         );
       case "ui.act":
         return this.enqueue(session, actor, (guard) =>
-          session.capture?.screenSessionId && this.options.screen
-            ? this.options.screen.uiAct(
-                session.capture.screenSessionId,
-                actor.kind,
-                operation,
-                actor.owner,
-                guard,
-              )
-            : this.options.platform.uiAct(session.device, operation, guard),
+          session.capture?.ui
+            ? session.capture.ui.act(operation, guard)
+            : session.capture?.screenSessionId && this.options.screen
+              ? this.options.screen.uiAct(
+                  session.capture.screenSessionId,
+                  actor.kind,
+                  operation,
+                  actor.owner,
+                  guard,
+                )
+              : this.options.platform.uiAct(session.device, operation, guard),
         );
       case "logs.start":
         await this.startLogs(session, actor, () => viewer?.guard());

@@ -2730,7 +2730,7 @@
     },
     "schema/ScreenLegacyFrameHeader.json": {
       "bytes": 1377,
-      "sha256": "143c0b6eea88048880866eedc63b835ddd56a7e0c15d23d2ce4da691246c1100"
+      "sha256": "93be3d9bfd281aa77a79372d42149d084e03bf6baf1eee0002dce96ecffdab10"
     },
     "schema/ScreenMeasurementAction.json": {
       "bytes": 3148,
@@ -2854,7 +2854,7 @@
     },
     "schema/ScreenV2FrameHeader.json": {
       "bytes": 1543,
-      "sha256": "4b572fec354cc9da0e74e3483048768e2b8fee089b3889dbdf1069a102104f58"
+      "sha256": "0f311cf192050561f9b7749cd58f3af02a443fb613d4d35ede4669490cee541e"
     },
     "schema/SearchErrorResponse.json": {
       "bytes": 560,
@@ -3842,9 +3842,9 @@
     },
     "types.md": {
       "bytes": 819600,
-      "sha256": "37b4c125a1f6c5c3b6c21fbc4f81c04526e786ecbc5d0cdc267d60832e903aef"
+      "sha256": "eb1ae888ae402bcc6bf0d4559f6be3e31bba3cd71ccc1e70fb0a29616d172c6a"
     }
   },
-  "input": "d28383c2cb9d5e6cc699c518652f9b249cdca9ec5718b435f48ce13cf9be5686",
+  "input": "c1743d9a691b8424411883620dac157b8ab9132f038082b1c19aeb4185cba92e",
   "version": 1
 }
