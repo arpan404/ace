@@ -1,9 +1,12 @@
 import { goalResumable, goalTitle, goalUsage } from "@ace/ui-core";
+import { useThread } from "@ace/client-react";
+import type { ThreadReader } from "@ace/client";
 import type { ProviderGoal } from "@ace/protocol";
 import { CaretDownIcon, CaretUpIcon, TargetIcon, XIcon } from "@phosphor-icons/react";
 import { useId, useLayoutEffect, useState, type ReactNode } from "react";
 import { PauseBarsIcon, ResumeIcon } from "@/components/ace-icons.tsx";
 import { Icon } from "@/components/icon.tsx";
+import { cn } from "@/lib/cn.ts";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useGoalCommand } from "./goal-command.ts";
 
@@ -18,6 +21,8 @@ export function GoalStrip(props: {
   goal: ProviderGoal;
   /** ace can set, pause and clear this provider's goals (Codex); Claude's are its own `/goal`. */
   editable: boolean;
+  /** The thread is working right now: an active goal's title sweeps, as a live step's does. */
+  working: boolean;
   indicators: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -26,6 +31,9 @@ export function GoalStrip(props: {
   const change = useGoalCommand(props.threadId);
   const { goal } = props;
   const usage = goalUsage(goal);
+  const sweeping = props.working && goal.status === "active";
+  // Like "Thinking": each new step the agent takes plays the sweep again.
+  const step = useThread(props.threadId, ["order"], newestItem);
   const act = (next: Parameters<typeof change>[0]) => {
     setBusy(true);
     void change(next).finally(() => setBusy(false));
@@ -37,7 +45,14 @@ export function GoalStrip(props: {
     <>
       {/* Never a spinner: an active goal can wait between turns while nothing runs. */}
       <Icon icon={TargetIcon} size={12} className="shrink-0" />
-      <span className="shrink-0 text-foreground">{goalTitle(goal.status)}</span>
+      {/* Only while work runs, never on an active goal waiting between turns; each new step
+          remounts the sweep, which plays its three passes again. */}
+      <span
+        key={sweeping ? `sweep:${step ?? ""}` : "still"}
+        className={cn("shrink-0", sweeping ? "step-shimmer" : "text-foreground")}
+      >
+        {goalTitle(goal.status)}
+      </span>
       {!open && (
         <span ref={objective} className="min-w-0 truncate">
           {goal.objective}
@@ -131,3 +146,5 @@ function useClipped(text: string): [boolean, (element: HTMLElement | null) => vo
   }, [element, text]);
   return [clipped, setElement];
 }
+
+const newestItem = (reader: ThreadReader) => reader.order.at(-1);
