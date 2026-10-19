@@ -8,6 +8,8 @@ import type { Actor } from "./session-options.ts";
 export interface TabView {
   emulation: BrowserTabEmulation | undefined;
   zoom: number;
+  /** The person's last resize came from a touch screen: the page has touch events on. */
+  touchScreen?: boolean | undefined;
 }
 
 /** The longest page source returned; a longer document is cut there. */
@@ -110,6 +112,7 @@ export async function emulateDevice(
   }
   check();
   await page.cdp.send("Emulation.setTouchEmulationEnabled", { enabled: command.touch });
+  view.touchScreen = false;
   check();
   await page.media(command.colorScheme);
   // An empty override gives the browser its own user agent back.
@@ -127,31 +130,52 @@ export async function emulateDevice(
 
 /**
  * A plain resize. An agent's is a size the person's view should show; the person's own puts
- * the page back on the pane's size, so touch and user agent go back to the browser's own.
+ * the page back on the pane's size, so touch and user agent go back to the browser's own. A
+ * person on a touch screen (`touch`) gets the pane's size as a mobile viewport with touch
+ * events, where the backend can lay a tab out as a device (ace's Chrome).
  */
 export async function resizePage(
   {
     width,
     height,
+    touch: touchScreen,
     devicePixelRatio,
-  }: { width: number; height: number; devicePixelRatio?: number | undefined },
+  }: {
+    width: number;
+    height: number;
+    touch?: boolean | undefined;
+    devicePixelRatio?: number | undefined;
+  },
   actor: Actor,
   page: BrowserBackendPage,
   view: TabView,
   check: () => void,
 ): Promise<void> {
   const size = { width, height };
+  const touch = actor.kind === "human" && touchScreen === true;
   check();
+  // The viewer's density first, so a touch layout below renders that sharp too.
   await page.resize(width, height, devicePixelRatio);
-  const previous = view.emulation;
-  if (previous?.touch) {
+  if (touch && page.emulate) {
     check();
-    await page.cdp.send("Emulation.setTouchEmulationEnabled", { enabled: false });
+    // Scale 0 keeps the browser's own device scale, as the plain resize does.
+    await page.emulate({
+      width: size.width,
+      height: size.height,
+      deviceScaleFactor: 0,
+      mobile: true,
+    });
+  }
+  const previous = view.emulation;
+  if (touch !== (previous?.touch === true || view.touchScreen === true)) {
+    check();
+    await page.cdp.send("Emulation.setTouchEmulationEnabled", { enabled: touch });
   }
   if (previous?.userAgent !== undefined) {
     check();
     await page.cdp.send("Emulation.setUserAgentOverride", { userAgent: "" });
   }
+  view.touchScreen = touch;
   view.emulation =
     actor.kind === "agent"
       ? { ...size, deviceScaleFactor: 1, mobile: false, touch: false, by: "agent" }

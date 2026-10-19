@@ -23,7 +23,9 @@ test("the shortcut sheet groups shortcuts by where they work and says what Escap
   expect(groups).toEqual(expect.arrayContaining(["Everywhere", "Composer", "Escape"]));
   // A scope is its group's heading, never a tag glued to a label.
   const composer = within(sheet).getByRole("region", { name: "Composer" });
-  expect(within(composer).getByText("Send").textContent).toBe("Send");
+  expect(within(composer).getByText("Queue or steer the other way")).toBeTruthy();
+  const newThread = within(sheet).getByRole("region", { name: "New thread" });
+  expect(within(newThread).getByText("Start a thread without opening it")).toBeTruthy();
   const escape = within(sheet).getByRole("region", { name: "Escape" });
   expect(escape.textContent).toContain("Stop the working agent from an empty composer");
   expect(escape.textContent).toContain("Close a dialog, menu or popover");
@@ -131,11 +133,11 @@ test("the terminal's find shows the key the terminal takes, which can't be chang
 test("fixed keys are listed but can't be recorded or reset", async () => {
   await harness().open("/settings/keyboard");
   await recorder("Command palette");
-  for (const label of ["Send", "Find in a terminal or log"]) {
+  for (const label of ["Move a queued message up or down", "Find in a terminal or log"]) {
     expect(screen.queryByRole("button", { name: `${label} shortcut` })).toBeNull();
     expect(screen.queryByRole("button", { name: `Actions for ${label}` })).toBeNull();
   }
-  await userEvent.hover(screen.getByLabelText("Send shortcut"));
+  await userEvent.hover(screen.getByLabelText("Move a queued message up or down shortcut"));
   expect(await screen.findByRole("tooltip", { name: /Can't be changed/ })).toBeTruthy();
 });
 

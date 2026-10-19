@@ -3,6 +3,8 @@ import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import type { ComposerDraft } from "@ace/ui-core";
 import { useId, useImperativeHandle, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "@/lib/cn.ts";
+import { useKeys } from "@/lib/keybindings.ts";
+import { parseChord } from "@/lib/keymap.ts";
 import { useHandheld } from "@/lib/breakpoints.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import type { AddHandle } from "./add-button.tsx";
@@ -247,6 +249,7 @@ function ComposerBody({
     submit(false),
   );
   const canStop = props.busy && !!props.onStop;
+  const otherKeys = useKeys(props.otherSend?.shortcut ?? "followUpOther");
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) =>
     composerKeyDown(event, {
       list:
@@ -269,7 +272,9 @@ function ComposerBody({
       history: step,
       recall,
       stopKey: canStop && !props.stopping ? props.onStopKey : undefined,
-      submit: (modified) => submit(modified && props.canSteer !== false),
+      other: parseChord(otherKeys),
+      // Without a follow-up to swap, the other key still sends where it has a meaning here.
+      submit: (other) => submit(other && (!!props.otherSend || props.canSteer !== false)),
     });
   // A steer always goes in now, a running command included: the daemon interrupts it if needed.
   const mode = !props.busy ? "send" : props.followUp !== "steer" ? "queue" : "steer";
@@ -390,6 +395,8 @@ function ComposerBody({
               blocked={blocked}
               off={!!off}
               canSteer={props.canSteer !== false}
+              otherKeys={otherKeys}
+              otherHint={props.otherSend?.hint}
               describedBy={props.unavailable?.describedBy ?? props.sendBlocked?.describedBy}
               canStop={canStop && empty}
               stopping={!!props.stopping}

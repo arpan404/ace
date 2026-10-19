@@ -14,6 +14,7 @@ import { BrowserActionError } from "./action-error.ts";
 import type { BrowserCdp } from "./backend.ts";
 import { evaluateInWorld } from "./annotation-install.ts";
 import { imageSize } from "./image-size.ts";
+import { deviceClip, pageZoom } from "./model-screenshot.ts";
 
 const Viewport = z.object({
   pageX: z.number().finite(),
@@ -116,6 +117,8 @@ export async function captureAnnotation(
     };
     formats = [{ format: "png" }, { format: "jpeg", quality: 85 }, { format: "jpeg", quality: 60 }];
   }
+  // The clip goes in DIPs: a zoomed page's capture is not cut short.
+  clip = deviceClip(clip, await pageZoom(cdp), clip.scale);
   await evaluateInWorld(cdp, contextId, annotationPrepareCaptureExpression, { awaitPromise: true });
   try {
     return await shoot(cdp, clip, formats);

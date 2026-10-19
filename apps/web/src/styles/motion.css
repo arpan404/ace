@@ -121,6 +121,13 @@
     pointer-events: none;
     animation: fx-sink-out var(--motion-exit) var(--ease-exit) both;
   }
+  /* A tap or click on a remote page, shown before its frame arrives: a ring grows and fades. */
+  .fx-tap-ripple {
+    animation: fx-tap-ripple var(--motion-slow) var(--ease-out) both;
+  }
+  :root[data-reduce-motion] .fx-tap-ripple {
+    animation-name: fx-tap-fade;
+  }
   /* Counts and badges that change: a small pop, never a bounce. */
   .fx-pop {
     animation: fx-pop var(--motion-base) var(--ease-spring) both;
@@ -201,6 +208,20 @@
   from {
     opacity: 0;
     transform: scale(0.6);
+  }
+}
+@keyframes fx-tap-ripple {
+  from {
+    transform: scale(0.4);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+@keyframes fx-tap-fade {
+  to {
+    opacity: 0;
   }
 }
 

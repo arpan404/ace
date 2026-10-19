@@ -35,16 +35,18 @@ export const maxSourceScale = 3;
 
 /**
  * How many window pixels stand for one CSS pixel of the pane: 1 at the browser's own scale,
- * more for a denser screen. Device emulation keeps its own scale and the window's size.
+ * more for a denser screen. An emulated device with its own scale keeps it and the window's
+ * size; one that keeps the browser's scale (a touch pane's mobile layout) follows the viewer.
  */
 export function contentsScale(
   metrics: HeadlessMetrics,
   browserScale: number,
   viewerScale = browserScale,
 ): number {
-  if (metrics.device) return 1;
+  if (metrics.device?.deviceScaleFactor) return 1;
+  const base = metrics.device ?? metrics.viewport;
   // No sharper than the largest frame the capture sends (`capture-policy.ts`).
-  const longest = Math.max(metrics.viewport.width, metrics.viewport.height);
+  const longest = Math.max(base.width, base.height);
   const wanted = Math.min(maxSourceScale, viewerScale, longestFrameSide / longest);
   return Math.max(browserScale, wanted) / browserScale;
 }

@@ -7,7 +7,11 @@ import { Input } from "@/components/ui/input.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
-import { useAlwaysShowDevices, useAutomaticPip } from "@/features/panels/index.ts";
+import {
+  useAlwaysShowDevices,
+  useAutomaticPip,
+  useRevealAgentPages,
+} from "@/features/panels/index.ts";
 import { settingKeys } from "./data/setting-keys.ts";
 import { useDesktopPreferences } from "./data/desktop-preferences.ts";
 import { useSetting, useSettingControl, useSettingWrite } from "./data/use-settings.ts";
@@ -85,6 +89,7 @@ export function BrowserSettings() {
   const folders = desktopFolders();
   const [always, setAlways] = useAlwaysShowDevices();
   const [automaticPip, setAutomaticPip] = useAutomaticPip();
+  const [revealPages, setRevealPages] = useRevealAgentPages();
   const appFolder = desktop.value?.browserDownloads ?? null;
   return (
     <>
@@ -212,6 +217,9 @@ export function BrowserSettings() {
           inline
         >
           <Switch id="browser-pip" checked={automaticPip} onCheckedChange={setAutomaticPip} />
+        </SettingRow>
+        <SettingRow {...settingRow("browser.revealAgentPages")} htmlFor="browser-reveal" inline>
+          <Switch id="browser-reveal" checked={revealPages} onCheckedChange={setRevealPages} />
         </SettingRow>
       </SettingSection>
     </>

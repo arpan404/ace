@@ -226,7 +226,11 @@ export type ForwardedInput =
       x: number;
       y: number;
       button?: "none" | "left" | "middle" | "right";
+      /** Buttons held, as a mask: left 1, right 2, middle 4. */
+      buttons?: number;
       clickCount?: number;
+      /** Keys held: Alt 1, Ctrl 2, Meta 4, Shift 8. */
+      modifiers?: number;
     }
   | {
       kind: "key";
@@ -236,7 +240,13 @@ export type ForwardedInput =
       code?: string;
       modifiers?: number;
     }
-  | { kind: "scroll"; x: number; y: number; deltaX: number; deltaY: number };
+  | { kind: "scroll"; x: number; y: number; deltaX: number; deltaY: number; modifiers?: number }
+  | {
+      kind: "touch";
+      event: "touchStart" | "touchMove" | "touchEnd" | "touchCancel";
+      /** Every finger down, in page pixels; `id` (0–9) stays with its finger. */
+      points: { x: number; y: number; id: number }[];
+    };
 
 /** How far the daemon's Chromium download has got (`browser.download.progress`). */
 export interface BrowserDownload {
@@ -347,8 +357,15 @@ export interface PreviewSource {
   /** Stop the recording that runs in the thread's browser; its file joins the thread. */
   stopRecording?(threadId: string): Promise<void>;
   /**
-   * Size the page to the pane in CSS pixels (100–4096), rendered as sharp as the pane's screen
-   * (`devicePixelRatio`) where the browser can.
+   * Size the page to the pane in CSS pixels (100–4096). `touch`: the pane is on a touch screen,
+   * so the page lays out as a mobile one and gets touch events. The page renders as sharp as
+   * the pane's screen (`devicePixelRatio`) where the browser can.
    */
-  resize(threadId: string, width: number, height: number, devicePixelRatio?: number): void;
+  resize(
+    threadId: string,
+    width: number,
+    height: number,
+    touch?: boolean,
+    devicePixelRatio?: number,
+  ): void;
 }

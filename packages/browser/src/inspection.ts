@@ -53,7 +53,14 @@ export class BrowserInspection {
   }
   private requests = new Map<
     string,
-    { cdp: BrowserCdp; url: string; method?: string | undefined; startedAt?: number | undefined }
+    {
+      cdp: BrowserCdp;
+      url: string;
+      method?: string | undefined;
+      startedAt?: number | undefined;
+      /** A stream that stays open while the page lives (EventSource, an event stream). */
+      lasting?: boolean;
+    }
   >();
   private responses = new Map<string, Response>();
   private stops = new Map<BrowserCdp, (() => void)[]>();
@@ -78,6 +85,7 @@ export class BrowserInspection {
           requestId: z.string(),
           request: z.object({ url: z.string(), method: z.string().max(32).optional() }),
           timestamp: z.number().finite().optional(),
+          type: z.string().max(64).optional().catch(undefined),
         })
         .safeParse(raw);
       if (!parsed.success) return;
@@ -87,6 +95,7 @@ export class BrowserInspection {
         url: redactBrowserUrl(parsed.data.request.url),
         method: parsed.data.request.method,
         startedAt: parsed.data.timestamp,
+        lasting: parsed.data.type === "EventSource" || parsed.data.type === "WebSocket",
       });
     });
     bind("Network.loadingFailed", (raw) => {
@@ -128,6 +137,7 @@ export class BrowserInspection {
         key = `${tabId}:${requestId}`;
       const request = this.requests.get(key);
       if (!request) return;
+      if (/^text\/event-stream\b/i.test(response.mimeType)) request.lasting = true;
       if (this.responses.size >= 200)
         this.responses.delete(this.responses.keys().next().value ?? "");
       this.responses.set(key, {
@@ -197,14 +207,16 @@ export class BrowserInspection {
     }
   }
   /**
-   * Requests of `tabId` sent and not yet finished or failed, as far as inspection saw them. It
+   * Ids of the requests of `tabId` sent and not yet finished or failed, as far as inspection saw
+   * them, without the streams a page keeps open while it lives (EventSource, event streams). It
    * sees none while a private tab turned inspection off.
    */
-  pending(tabId: string): number {
+  pending(tabId: string): string[] {
     const prefix = `${tabId}:`;
-    let count = 0;
-    for (const key of this.requests.keys()) if (key.startsWith(prefix)) count++;
-    return count;
+    const ids: string[] = [];
+    for (const [key, request] of this.requests)
+      if (key.startsWith(prefix) && !request.lasting) ids.push(key);
+    return ids;
   }
   private enable(cdp: BrowserCdp): Promise<unknown> {
     return cdp.send("Network.enable", {

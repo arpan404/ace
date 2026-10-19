@@ -86,8 +86,14 @@ const view = (state: BrowserState): BrowserView => ({
 
 const wireInput = (input: ForwardedInput): BrowserInput => {
   if (input.kind === "mouse")
-    return { ...input, button: input.button ?? "left", clickCount: input.clickCount ?? 1 };
-  if (input.kind === "scroll") return input;
+    return {
+      ...input,
+      button: input.button ?? "left",
+      clickCount: input.clickCount ?? 1,
+      modifiers: input.modifiers ?? 0,
+    };
+  if (input.kind === "scroll") return { ...input, modifiers: input.modifiers ?? 0 };
+  if (input.kind === "touch") return input;
   return {
     kind: "key",
     event: input.event,
@@ -745,7 +751,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       });
       sendCapture(threadId, watches.get(threadId));
     },
-    resize(threadId, width, height, devicePixelRatio) {
+    resize(threadId, width, height, touch, devicePixelRatio) {
       void request({
         type: "browser.execute",
         threadId: ThreadId.parse(threadId),
@@ -753,6 +759,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           action: "resize",
           width: clamp(width),
           height: clamp(height),
+          ...(touch ? { touch } : {}),
           ...(devicePixelRatio === undefined
             ? {}
             : { devicePixelRatio: Math.min(4, Math.max(1, devicePixelRatio)) }),

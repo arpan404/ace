@@ -35,6 +35,16 @@ describe("the page renders as sharp as the viewer's screen", () => {
     expect(framePixels(contents.width, 2)).toBe(1200);
   });
 
+  it("a touch pane's mobile layout, which keeps the browser's scale, still renders at 3x", () => {
+    const metrics = {
+      viewport: { width: 390, height: 800 },
+      device: { width: 390, height: 800, deviceScaleFactor: 0, mobile: true },
+    };
+    const { override, contents } = headlessOverride(metrics, 2, 3);
+    expect(override).toMatchObject({ width: 390, deviceScaleFactor: 3, mobile: true });
+    expect(framePixels(contents.width, 2)).toBe(1170);
+  });
+
   it("an emulated device keeps its own scale and window", () => {
     const metrics = {
       viewport: { width: 1280, height: 720 },

@@ -94,7 +94,7 @@ test("a phone asks for binary frames with its pane's size, and shows and ACKs a 
   preview.dispose();
 });
 
-test("the controlling pane's screen density goes with its resize", async () => {
+test("a touch pane's screen density goes with its resize, alongside its touch layout", async () => {
   const daemon = new FakeDaemon({ clock: () => 1000 });
   new ScenarioPlayer(daemon, failingSubagent()).step();
   const client = fakeClient(daemon);
@@ -105,12 +105,18 @@ test("the controlling pane's screen density goes with its resize", async () => {
     schedule: () => () => {},
     visibility: { visible: () => true, watch: () => () => {} },
   });
-  preview.resize("thread-settings", 390, 800, 3);
+  preview.resize("thread-settings", 390, 800, true, 3);
   await waitFor(() =>
     expect(wire.requests).toContainEqual(
       expect.objectContaining({
         type: "browser.execute",
-        command: { action: "resize", width: 390, height: 800, devicePixelRatio: 3 },
+        command: {
+          action: "resize",
+          width: 390,
+          height: 800,
+          touch: true,
+          devicePixelRatio: 3,
+        },
       }),
     ),
   );

@@ -120,8 +120,8 @@ function useDraftThreadRef(
  * ⌘N: pick a project, a model and account, how actions get approved, where it runs (a new
  * worktree from a local or remote branch, or the local checkout), and describe the work. Enter
  * opens the thread at once, with the message as its first bubble, while the daemon creates it
- * (and its worktree). Mentions, files and slash commands work before then, in a draft scope on
- * the daemon.
+ * (and its worktree); ⌘↵ (Settings › Keyboard) starts it and stays here for the next one.
+ * Mentions, files and slash commands work before then, in a draft scope on the daemon.
  */
 
 export function NewThreadPage(props: {
@@ -601,29 +601,32 @@ function PreparationPage(props: {
     scope.adopt();
     // Its first bubble shows the files as they were attached, until the daemon echoes them.
     void draft.files.settled.then((ready) => rememberAttachments(draft.files.local, ready));
-    const sent = await create({
-      project,
-      draftKey,
-      pullRequest: prSource.selection,
-      issue: issueSource.ref,
-      scope: launchModel.scope,
-      model: launchModel.model,
-      mode: resolved.mode,
-      base,
-      effort: launchModel.effort,
-      serviceTier: launchModel.serviceTier,
-      // Before the provider's modes are read, only a mode picked here is sent; otherwise the
-      // daemon applies the project's or its own default.
-      permission: createAccess,
-      input: draft.input,
-      text: draft.text,
-      context: {
-        ...(draftId ? { draftId } : {}),
-        items: draft.threadRefs,
-        mentions: draft.mentions,
-        attachments: draft.attachments,
+    const sent = await create(
+      {
+        project,
+        draftKey,
+        pullRequest: prSource.selection,
+        issue: issueSource.ref,
+        scope: launchModel.scope,
+        model: launchModel.model,
+        mode: resolved.mode,
+        base,
+        effort: launchModel.effort,
+        serviceTier: launchModel.serviceTier,
+        // Before the provider's modes are read, only a mode picked here is sent; otherwise the
+        // daemon applies the project's or its own default.
+        permission: createAccess,
+        input: draft.input,
+        text: draft.text,
+        context: {
+          ...(draftId ? { draftId } : {}),
+          items: draft.threadRefs,
+          mentions: draft.mentions,
+          attachments: draft.attachments,
+        },
       },
-    });
+      draft.opposite ? "stay" : "open",
+    );
     submitting.current = false;
     const current = preparation(storage, props.host, draftKey);
     const content = readDraft(storage, draftKey);
@@ -780,6 +783,7 @@ function PreparationPage(props: {
                   : undefined
               }
               onSubmit={send}
+              otherSend={{ shortcut: "startInBackground", hint: "starts it without opening" }}
               autoFocus
               placeholder="Describe a task"
               // Nothing renders below the composer. Its one strip above holds the project and

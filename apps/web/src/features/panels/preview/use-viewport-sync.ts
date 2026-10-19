@@ -9,12 +9,14 @@ const settle = 150;
  * rather than as a scaled-down picture. Sends the size once on mount (and whenever `active`
  * turns on, e.g. when the full view closes and the pane takes over again), then debounced on
  * every resize. A backend that can't resize keeps its size, and the frame is scaled to fit.
+ * `touch` says the pane is on a touch screen; a change of it is sent as a new size.
  */
 export function useViewportSync(
   source: PreviewSource,
   threadId: string,
   pane: RefObject<HTMLElement | null>,
   active: boolean,
+  touch = false,
 ): void {
   const last = useRef("");
   useLayoutEffect(() => {
@@ -27,10 +29,10 @@ export function useViewportSync(
       // Hidden (a background tab, a collapsed panel): keep the page as it is.
       if (width <= 0 || height <= 0) return;
       const dpr = window.devicePixelRatio || 1;
-      const key = `${width}x${height}@${dpr}`;
+      const key = `${width}x${height}@${dpr}${touch ? " touch" : ""}`;
       if (key === last.current) return;
       last.current = key;
-      source.resize(threadId, width, height, dpr);
+      source.resize(threadId, width, height, touch, dpr);
     };
     send();
     if (typeof ResizeObserver === "undefined") return;
@@ -44,5 +46,5 @@ export function useViewportSync(
       clearTimeout(timer);
       observer.disconnect();
     };
-  }, [source, threadId, pane, active]);
+  }, [source, threadId, pane, active, touch]);
 }

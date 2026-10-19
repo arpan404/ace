@@ -54,6 +54,15 @@ export function actionErrorCode(error: unknown): string {
   return "action_failed";
 }
 
+/**
+ * A failed workspace read's public code. A forge read that fails for a reason without its own
+ * code still says it was GitHub that couldn't be read, never the daemon's general failure.
+ */
+export function readErrorCode(op: string, error: unknown): string {
+  const code = actionErrorCode(error);
+  return code === "action_failed" && op.startsWith("forge.") ? "forge_read_failed" : code;
+}
+
 /** A rejected push's remote-tracking revision, which a person may lease a force push to. */
 export function rejectedRemoteHead(error: unknown): string | undefined {
   if (!(error instanceof GitError) || error.code !== "push_rejected") return undefined;

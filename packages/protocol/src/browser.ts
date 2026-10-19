@@ -202,6 +202,11 @@ export const BrowserCommand = z.discriminatedUnion("action", [
     width: dimension,
     height: dimension,
     /**
+     * Person-only: the pane is on a touch screen. The page lays out as a phone's or tablet's
+     * (the mobile flag) and gets touch events; agents' resizes ignore it.
+     */
+    touch: z.boolean().optional(),
+    /**
      * The resizing viewer's device pixel ratio: ace's Chrome renders the page that sharp, up to
      * 3, so a high-density screen gets pixels instead of an upscaled picture.
      */
@@ -318,7 +323,14 @@ export const BrowserInput = z.discriminatedUnion("kind", [
     x: coordinate,
     y: coordinate,
     button: z.enum(["none", "left", "middle", "right"]).default("left"),
+    /**
+     * The buttons held during the event, as a bit mask (left 1, right 2, middle 4); absent: the
+     * one `button` names, none on release.
+     */
+    buttons: z.number().int().min(0).max(7).optional(),
     clickCount: z.number().int().min(0).max(3).default(1),
+    /** Keys held during the event: Alt 1, Ctrl 2, Meta 4, Shift 8. */
+    modifiers: z.number().int().min(0).max(15).default(0),
   }),
   z.object({
     kind: z.literal("key"),
@@ -334,6 +346,8 @@ export const BrowserInput = z.discriminatedUnion("kind", [
     y: coordinate,
     deltaX: coordinate,
     deltaY: coordinate,
+    /** Keys held during the event: Alt 1, Ctrl 2, Meta 4, Shift 8. */
+    modifiers: z.number().int().min(0).max(15).default(0),
   }),
   z.object({
     kind: z.literal("touch"),

@@ -3,49 +3,14 @@ import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } fr
 import { VirtualRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { DiffLayout } from "./diff-layout.ts";
-import { fileHeight } from "./file-diff.tsx";
 import { FileTree } from "./file-tree.tsx";
-import { freshView, type FileView } from "./file-view.ts";
+import { fileHeight, type FileView } from "./file-view.ts";
+import type { useFileViews } from "./file-views.ts";
+
+export { useFileViews } from "./file-views.ts";
 
 /** Past this many rows across the files shown, only the files near the viewport mount. */
 const virtualRowsAbove = 2_000;
-/** A file viewed at its current version starts folded; one object, so its block stays memoized. */
-const foldedView: FileView = { ...freshView, open: false };
-const noVersions: ReadonlyMap<string, string> = new Map();
-
-/**
- * How each file shows (open, folds expanded), kept by path and version so a file scrolled out
- * of a long list and back keeps it, and a new version of the file starts fresh. Files in
- * `folded` start collapsed; anything opened by hand stays as left.
- */
-export function useFileViews(
-  files: readonly FileDiff[],
-  versions: ReadonlyMap<string, string> = noVersions,
-  folded?: ReadonlySet<string>,
-) {
-  const [views, setViews] = useState<ReadonlyMap<string, { version: string; view: FileView }>>(
-    () => new Map(),
-  );
-  const versionOf = (path: string) => versions.get(path) ?? "";
-  const viewOf = (file: FileDiff): FileView => {
-    const kept = views.get(file.path);
-    if (kept && kept.version === versionOf(file.path)) return kept.view;
-    return folded?.has(file.path) ? foldedView : freshView;
-  };
-  const setView = (path: string, next: FileView) =>
-    setViews((previous) => new Map(previous).set(path, { version: versionOf(path), view: next }));
-  const allCollapsed = files.length > 0 && files.every((file) => !viewOf(file).open);
-  const collapseAll = (fold: boolean) =>
-    setViews(
-      new Map(
-        files.map((file) => [
-          file.path,
-          { version: versionOf(file.path), view: { ...viewOf(file), open: !fold } },
-        ]),
-      ),
-    );
-  return { viewOf, setView, allCollapsed, collapseAll };
-}
 
 export interface DiffJump {
   /** Prefix of each file block's element id: `${anchor}-${index}`. */
