@@ -2,7 +2,7 @@ import { ForgePrWorktree } from "./forge-worktree.ts";
 import { AccessRequest } from "./permissions.ts";
 import { z } from "zod";
 import { WorktreeBase } from "./worktree-base.ts";
-import { AgentId, ThreadId, Timestamp, WorkspaceId, InteractionId } from "./ids.ts";
+import { AgentId, ItemId, ThreadId, Timestamp, WorkspaceId, InteractionId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
 import { InteractionResolution } from "./interactions.ts";
 import { AcpIdentity } from "./agent-registry.ts";
@@ -172,18 +172,36 @@ export const ThreadStartOperation = z.strictObject({
   title: z.string().min(1).max(256),
   text: MessageText,
   workspace: AgentWorkspace,
+  /** Another local project, by id, name or folder path. Omitted: the caller's own project. */
+  project: z.string().min(1).max(4096).optional(),
   ...AgentSelection.shape,
   /** Omitted: the caller's own provider, resolved by the daemon before the thread starts. */
   provider: ProviderKind.optional(),
 });
 export type ThreadStartOperation = z.infer<typeof ThreadStartOperation>;
+/** An agent's fork of a thread: a new thread with its history, given a different direction. */
+export const ThreadForkOperation = z.strictObject({
+  op: z.literal("thread.fork"),
+  threadId: ThreadId,
+  requestId: key,
+  /** The fork's first message: what it should try. */
+  text: MessageText,
+  title: z.string().min(1).max(256).optional(),
+  /** Fork after this finished run. Omitted: the latest finished run. */
+  runId: key.optional(),
+  /** Another model of the thread's provider. Omitted: the thread's own. */
+  model: z.string().min(1).max(256).optional(),
+  effort: z.string().min(1).max(64).optional(),
+});
+export type ThreadForkOperation = z.infer<typeof ThreadForkOperation>;
 export const AgentConversationRecord = z.object({
   threadId: ThreadId,
   ownerThreadId: ThreadId,
   ownerAgentId: AgentId,
   rootId: ThreadId,
   createdAt: Timestamp,
-  request: ThreadStartOperation,
+  /** How the agent opened it: a new thread, or a fork of one. */
+  request: z.discriminatedUnion("op", [ThreadStartOperation, ThreadForkOperation]),
 });
 export type AgentConversationRecord = z.infer<typeof AgentConversationRecord>;
 /**
@@ -213,7 +231,12 @@ export const AgentAutomationRequest = z.discriminatedUnion("type", [
 ]);
 export type AgentAutomationRequest = z.infer<typeof AgentAutomationRequest>;
 export const AgentControlOperation = z.discriminatedUnion("op", [
-  z.strictObject({ op: z.literal("threads.list"), ...ThreadListInput.shape }),
+  z.strictObject({
+    op: z.literal("threads.list"),
+    ...ThreadListInput.shape,
+    /** Another local project, by id, name or folder path. Omitted: the caller's own project. */
+    project: z.string().min(1).max(4096).optional(),
+  }),
   ThreadStartOperation,
   z.strictObject({
     op: z.literal("thread.configure"),
@@ -277,13 +300,17 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     limit: z.number().int().min(1).max(50).default(20),
   }),
   z.strictObject({ op: z.literal("thread.interrupt"), threadId: ThreadId, requestId: key }),
+  ThreadForkOperation,
   z.strictObject({
-    op: z.literal("thread.fork"),
+    op: z.literal("thread.merge"),
+    /** The fork whose result goes back into the thread it was forked from. */
     threadId: ThreadId,
     requestId: key,
-    runId: key.optional(),
+    /** What the fork found or did, standing on its own for the other thread's agent. */
+    summary: MessageText,
+    /** Fork items the summary rests on. Omitted: the fork's latest answer. */
+    itemIds: z.array(ItemId).min(1).max(100).optional(),
   }),
-  z.strictObject({ op: z.literal("thread.merge"), threadId: ThreadId, requestId: key }),
   z.strictObject({
     op: z.literal("queue.edit"),
     threadId: ThreadId,
@@ -296,6 +323,20 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     threadId: ThreadId,
     requestId: key,
     entryIds: z.array(key).min(1).max(64),
+  }),
+  z.strictObject({ op: z.literal("queue.list"), threadId: ThreadId }),
+  z.strictObject({
+    op: z.literal("queue.cancel"),
+    threadId: ThreadId,
+    requestId: key,
+    entryId: key,
+  }),
+  /** Deliver a queued message now, into the running turn, as the person's Steer does. */
+  z.strictObject({
+    op: z.literal("queue.steer"),
+    threadId: ThreadId,
+    requestId: key,
+    entryId: key,
   }),
   z.strictObject({
     op: z.literal("question.answer"),
@@ -345,6 +386,13 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     }),
   z.strictObject({ op: z.literal("thread.list_prs") }),
   z.strictObject({ op: z.literal("thread.settle"), threadId: ThreadId }),
+  z.strictObject({ op: z.literal("thread.unsettle"), threadId: ThreadId }),
+  /** This machine's projects, matched by name or path; empty query lists recent ones first. */
+  z.strictObject({
+    op: z.literal("projects.list"),
+    query: z.string().max(256).default(""),
+    limit: z.number().int().min(1).max(50).default(20),
+  }),
   z.strictObject({
     op: z.literal("thread.snooze"),
     threadId: ThreadId,

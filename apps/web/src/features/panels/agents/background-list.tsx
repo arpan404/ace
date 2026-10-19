@@ -51,24 +51,39 @@ function TaskRow(props: { threadId: string; taskId: string }) {
     <li
       aria-label={`${task.title}: ${taskState(task)}`}
       className={cn(
-        "group/task flex min-h-8 flex-wrap items-center gap-2 pr-1 pl-2",
+        "group/task flex min-h-8 flex-wrap items-start gap-2 py-1.5 pr-1 pl-2",
         capsule,
         arrival,
       )}
     >
-      <CapsuleGlyph state="background" />
-      <button
-        type="button"
-        className="focus-ring min-w-0 shrink truncate rounded-sm font-mono text-xs"
-        onClick={show}
-        aria-label={`Show ${command} output`}
-      >
-        {command}
-      </button>
-      <CapsuleMeta className="flex-1 tabular-nums">
-        {end - task.startedAt >= 1000 ? `${formatSpan(task.startedAt, end)} · ` : ""}
-        {taskState(task)}
-      </CapsuleMeta>
+      <span className="flex h-5 shrink-0 items-center">
+        <CapsuleGlyph state="background" />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex h-5 min-w-0 items-center gap-2 text-ui">
+          <span className="min-w-0 flex-1 truncate font-medium">{task.title}</span>
+          {end - task.startedAt >= 1000 && (
+            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+              {formatSpan(task.startedAt, end)}
+            </span>
+          )}
+        </span>
+        <CapsuleMeta>
+          {/* A task named for its command doesn't say it twice: its state opens the output. */}
+          {command === task.title ? "" : `${taskState(task)} `}
+          <button
+            type="button"
+            className={cn(
+              "focus-ring min-w-0 truncate rounded-sm hover:text-foreground",
+              command !== task.title && "font-mono",
+            )}
+            onClick={show}
+            aria-label={`Show ${command} output`}
+          >
+            {command === task.title ? taskState(task) : command}
+          </button>
+        </CapsuleMeta>
+      </span>
       <span className={onHover}>
         <IconButton icon={TerminalWindowIcon} label="Open in terminal" size="sm" onClick={show} />
         {task.stoppable && (

@@ -271,14 +271,8 @@ function ComposerBody({
       stopKey: canStop && !props.stopping ? props.onStopKey : undefined,
       submit: (modified) => submit(modified && props.canSteer !== false),
     });
-  // The visible action agrees with the engine's tool boundary, retaining steering intent.
-  const mode = !props.busy
-    ? "send"
-    : props.followUp !== "steer"
-      ? "queue"
-      : props.steerPending
-        ? "steer-pending"
-        : "steer";
+  // A steer always goes in now, a running command included: the daemon interrupts it if needed.
+  const mode = !props.busy ? "send" : props.followUp !== "steer" ? "queue" : "steer";
   const placeholder =
     props.unavailable?.short ??
     (compact ? (props.shortPlaceholder ?? props.placeholder) : props.placeholder) ??

@@ -1,15 +1,22 @@
 import type { AgentOrigin, AgentStatus, ThreadStatus } from "@ace/protocol";
 import { agentThreadStatus, turnIsSettled } from "@ace/projection";
 
-/** Ownership decisions depend only on durable facts read by the writer's I/O shell. */
+/**
+ * Ownership decisions depend only on durable facts read by the writer's I/O shell.
+ * `rootUserMessage` is a root message that opens a turn (`startsTurn`); `boundUserMessage` is
+ * any root user-role message, which belongs to the turn of the run that took it, even when it
+ * was first indexed ahead of that run.
+ */
 export function itemTurnOrdinal(facts: {
   existingOrdinal: number | undefined;
   runOrdinal: number | undefined;
   fallbackOrdinal: number;
   rootUserMessage: boolean;
+  boundUserMessage: boolean;
   headOrdinal: number;
   currentTurn: { hasRootRun: boolean; hasInitiatingPreview: boolean } | undefined;
 }): number {
+  if (facts.boundUserMessage && facts.runOrdinal !== undefined) return facts.runOrdinal;
   if (facts.existingOrdinal !== undefined) return facts.existingOrdinal;
   if (facts.runOrdinal !== undefined) return facts.runOrdinal;
   if (
@@ -34,6 +41,7 @@ export function createdAgentTurnOrdinal(facts: {
     : (facts.spawnedByOrdinal ?? facts.parentOrdinal ?? facts.currentOrdinal);
 }
 
+/** A root run's turn comes from the run (`Run.turn`, ADR 0062); several runs share one turn. */
 export function startedRunTurnOrdinal(facts: {
   root: boolean;
   providerOrdinal: number | undefined;

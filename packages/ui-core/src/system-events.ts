@@ -1,4 +1,5 @@
 import { withoutPortableHandoff } from "@ace/projection";
+import { stripAceOriginMarker } from "@ace/native-session/user-text";
 import type { Item, ProviderKind } from "@ace/protocol";
 import { modelLabel, providerNames } from "./providers.ts";
 import {
@@ -80,9 +81,10 @@ function isDelegationResult(text: string): boolean {
  * ("Role: …") or a handoff needs its `origin`, since a person can type those shapes.
  */
 function knownInput(text: string): InputKind | undefined {
-  if (isRestart(text)) return "restart";
-  if (text === limitResume) return "limit_resume";
-  if (isDelegationResult(text)) return "subagent_result";
+  const stripped = stripAceOriginMarker(text.trim()).trim();
+  if (isRestart(stripped)) return "restart";
+  if (stripped === limitResume) return "limit_resume";
+  if (isDelegationResult(stripped)) return "subagent_result";
   return undefined;
 }
 

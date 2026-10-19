@@ -1,3 +1,4 @@
+import { replayGap } from "./replay-gap.ts";
 import { chmodSync } from "node:fs";
 import { DatabaseSync, type StatementSync } from "@ace/provider-kit/sqlite";
 import { z } from "zod";
@@ -116,10 +117,10 @@ export class NotificationDatabase {
   ): void {
     this.transaction(() => {
       let cursor = this.cursor();
-      if (coverage && coverage.afterSeq > cursor) throw new Error("Notification replay gap");
+      if (coverage && coverage.afterSeq > cursor) throw new Error(replayGap);
       for (const event of events) {
         if (event.seq <= cursor) continue;
-        if (!coverage && event.seq !== cursor + 1) throw new Error("Notification replay gap");
+        if (!coverage && event.seq !== cursor + 1) throw new Error(replayGap);
         cursor = event.seq;
         if (event.threadId.length > 200) throw new Error("Thread id too long");
         if (event.payload.type === "thread.client.updated") {

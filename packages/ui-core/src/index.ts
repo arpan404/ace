@@ -73,6 +73,11 @@ export * from "./turn-activity.ts";
 export * from "./thread-ledger.ts";
 export * from "./turn-ordinals.ts";
 export * from "./turn-digest.ts";
+export * from "./agent-changes.ts";
+export * from "./agent-step.ts";
+export * from "./catch-up.ts";
+export * from "./check-runs.ts";
+export * from "./needs-you.ts";
 export * from "./jump-window.ts";
 export * from "./held-range.ts";
 export * from "./search-snippet.ts";
@@ -138,7 +143,11 @@ export {
   type RowAttention,
   type RowAttentionInput,
 } from "./row-attention.ts";
-export { sanitizeUserText } from "@ace/native-session/user-text";
+export {
+  sanitizeUserText,
+  stripAceOriginMarker,
+  hasAceOriginMarker,
+} from "@ace/native-session/user-text";
 export { stripAnsi } from "./notice-text.ts";
 export {
   subagentState,

@@ -1,7 +1,7 @@
 /**
  * An interactive learning page an agent published with html_render: a binary search
- * explainer with a target slider, a step-through and a quick check. It uses only the theme
- * variables ace passes in, so it follows every theme and mode.
+ * explainer with a target slider, a step-through and a quick check. Its controls and type come
+ * from ace's style kit and its colours from the theme variables, so it follows every theme.
  */
 export const explainerHtml = `<!doctype html>
 <html lang="en">
@@ -10,13 +10,9 @@ export const explainerHtml = `<!doctype html>
 <title>Binary search, step by step</title>
 <style>
   :root { --cell: 34px; }
-  body { font: 14px/1.5 var(--font-sans); color: var(--foreground); }
-  h2 { font-size: 15px; margin: 0 0 2px; font-weight: 600; }
-  p { margin: 0; }
-  .lede { color: var(--muted-foreground); margin-bottom: 14px; }
-  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 12px; }
-  label { color: var(--muted-foreground); font-size: 13px; }
-  input[type=range] { accent-color: var(--accent); width: min(260px, 100%); }
+  h2 { font-size: 15px; margin-bottom: 2px; }
+  .row { gap: 10px 14px; margin-bottom: 12px; }
+  input[type=range] { width: min(260px, 100%); }
   .target { font: 600 13px var(--font-mono); padding: 1px 8px; border-radius: 999px; background: var(--muted); }
   .cells { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 4px; margin: 6px 0 4px; }
   .cell { height: var(--cell); display: grid; place-items: center; border-radius: calc(var(--radius) - 4px);
@@ -29,12 +25,6 @@ export const explainerHtml = `<!doctype html>
     font: 10px var(--font-mono); color: var(--muted-foreground); text-align: center; }
   .note { min-height: 44px; padding: 10px 12px; border-radius: var(--radius); background: var(--muted); margin: 10px 0 12px; }
   .note b { font-weight: 600; }
-  button { font: inherit; font-size: 13px; color: var(--foreground); background: transparent; border: 1px solid var(--border);
-    border-radius: calc(var(--radius) - 2px); padding: 4px 12px; cursor: pointer; }
-  button:hover:not(:disabled) { background: var(--muted); }
-  button:disabled { opacity: .45; cursor: default; }
-  button.primary { background: var(--primary); color: var(--primary-foreground); border-color: transparent; }
-  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .counter { color: var(--muted-foreground); font-size: 13px; margin-left: auto; font-variant-numeric: tabular-nums; }
   .compare { display: grid; grid-template-columns: 92px 1fr 34px; gap: 6px 10px; align-items: center; font-size: 13px; margin-top: 4px; }
   .bar { height: 8px; border-radius: 999px; background: var(--chart-1); transition: width .25s; }
@@ -50,7 +40,7 @@ export const explainerHtml = `<!doctype html>
 </head>
 <body>
 <h2>Binary search halves the list every step</h2>
-<p class="lede">Pick a number to find, then step through. Each step looks at the middle and throws away the half that can't hold it.</p>
+<p class="lead">Pick a number to find, then step through. Each step looks at the middle and throws away the half that can't hold it.</p>
 <div class="row">
   <label for="target">Find</label>
   <input id="target" type="range" min="0" max="15" value="14" aria-describedby="target-value">

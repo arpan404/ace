@@ -611,6 +611,26 @@
     },
     {
       "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.autoSettle",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "enabled"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },

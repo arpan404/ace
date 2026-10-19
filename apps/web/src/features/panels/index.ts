@@ -10,6 +10,7 @@ export { ThreadPartsProvider, useThreadParts, type ThreadParts } from "./agents/
 /** A thread's agent work, and the subagent view's Stop. */
 export { useTreeWork } from "./agents/use-tree-work.ts";
 export { StopAgent } from "./agents/stop-agent.tsx";
+export { useAgentIdentity } from "./agents/agent-identity.ts";
 export { countSubagents, findAgentNode } from "./agents/subagents.ts";
 export { disposePanelServices, findRunningTerminal, useRunningTerminalNames } from "./services.ts";
 export {

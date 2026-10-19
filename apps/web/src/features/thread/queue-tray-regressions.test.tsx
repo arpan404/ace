@@ -4,13 +4,20 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { resetQueueEdits } from "./composer/queue-edit.ts";
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+  localStorage.clear();
+  resetQueueEdits();
+});
 const threadId = ThreadId.parse("thread-replay-cursor");
 const rows = () =>
   within(screen.getByRole("list", { name: "Queued messages" })).getAllByRole("listitem");
 const queue = async (app: ReturnType<typeof harness>) =>
   (await app.client.request({ type: "queue.get", threadId })).queue;
+
+/** The message box; it remounts when a queued message is put in it to edit. */
+const messageBox = () => screen.getByRole("combobox", { name: "Message" });
 
 test("Steer accepts a running root turn before its first transcript item", async () => {
   const app = harness();
@@ -104,79 +111,60 @@ test("a queued message reaches the agent when the root's turn ends while subagen
   }
 });
 
-test.each(["save", "take back"])(
-  "an edit moved beyond the visible page can still %s",
-  async (action) => {
-    const app = harness();
-    app.play(replayCursor()).runThrough("finding");
-    await app.open(`/t/${threadId}`);
-    await screen.findByRole("combobox", { name: "Message" });
-    await act(async () => {
-      for (let index = 0; index < 17; index++)
-        await app.client.command(
-          {
-            type: "thread.send",
-            threadId,
-            input: [{ type: "text", text: `Saved ${index}` }],
-            delivery: "queue",
-          },
-          {},
-          `hidden-edit-${index}`,
-        );
-    });
-    await waitFor(() => expect(rows()).toHaveLength(16));
-    const tray = screen.getByRole("list", { name: "Queued messages" });
-    const row = within(tray).getAllByRole("listitem")[15];
-    if (!row) throw new Error("no last visible row");
-    const edit = within(row).getByRole("button", { name: "Edit queued message" });
-    await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
-    await userEvent.click(edit);
-    const editor = await screen.findByRole("textbox", { name: "Queued message text" });
-    const before = await queue(app);
-    const entry = before.messages[15];
-    const last = before.messages[16];
-    if (!entry || !last) throw new Error("missing saved rows");
-    await act(async () => {
+test("an edit moved beyond the visible page can still be saved from the composer", async () => {
+  const app = harness();
+  app.play(replayCursor()).runThrough("finding");
+  await app.open(`/t/${threadId}`);
+  await screen.findByRole("combobox", { name: "Message" });
+  await act(async () => {
+    for (let index = 0; index < 17; index++)
       await app.client.command(
         {
-          type: "queue.move",
+          type: "thread.send",
           threadId,
-          messageId: entry.id,
-          after: last.id,
-          expectedRevision: before.revision,
+          input: [{ type: "text", text: `Saved ${index}` }],
+          delivery: "queue",
         },
         {},
-        "another-device-move",
+        `hidden-edit-${index}`,
       );
-    });
-    await waitFor(() => expect(within(tray).queryByText("Saved 15")).toBeNull());
-    expect(
-      screen.queryByText("This message has left the queue. Your edits are still here to copy."),
-    ).toBeNull();
-    expect(screen.getByRole("button", { name: "Save changes" }).hasAttribute("disabled")).toBe(
-      false,
+  });
+  await waitFor(() => expect(rows()).toHaveLength(16));
+  const tray = screen.getByRole("list", { name: "Queued messages" });
+  const row = within(tray).getAllByRole("listitem")[15];
+  if (!row) throw new Error("no last visible row");
+  const edit = within(row).getByRole("button", { name: "Edit queued message" });
+  await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
+  await userEvent.click(edit);
+  await waitFor(() => expect(messageBox().textContent).toBe("Saved 15"));
+  const before = await queue(app);
+  const entry = before.messages[15];
+  const last = before.messages[16];
+  if (!entry || !last) throw new Error("missing saved rows");
+  await act(async () => {
+    await app.client.command(
+      {
+        type: "queue.move",
+        threadId,
+        messageId: entry.id,
+        after: last.id,
+        expectedRevision: before.revision,
+      },
+      {},
+      "another-device-move",
     );
-    expect(
-      screen.getByRole("button", { name: "Take back to composer" }).hasAttribute("disabled"),
-    ).toBe(false);
-    if (action === "save") {
-      await userEvent.clear(editor);
-      await userEvent.type(editor, "Revised hidden message");
-      await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
-      await waitFor(async () =>
-        expect((await queue(app)).messages.at(-1)?.input).toEqual([
-          { type: "text", text: "Revised hidden message" },
-        ]),
-      );
-    } else {
-      await userEvent.click(screen.getByRole("button", { name: "Take back to composer" }));
-      await waitFor(() =>
-        expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe("Saved 15"),
-      );
-      expect((await queue(app)).messages.some((message) => message.id === entry.id)).toBe(false);
-    }
-  },
-);
+  });
+  await waitFor(() => expect(within(tray).queryByText("Saved 15")).toBeNull());
+  // Still queued, only out of sight: Cancel stays reachable and Enter still saves.
+  expect(await screen.findByText("Editing a message further down the queue.")).toBeTruthy();
+  await userEvent.clear(messageBox());
+  await userEvent.type(messageBox(), "Revised hidden message{Enter}");
+  await waitFor(async () =>
+    expect((await queue(app)).messages.at(-1)?.input).toEqual([
+      { type: "text", text: "Revised hidden message" },
+    ]),
+  );
+});
 
 test("a pending keyboard reorder preserves focus deliberately moved to the composer", async () => {
   const app = harness();

@@ -36,6 +36,7 @@ export function setup(
   models?: import("@ace/models").ModelCatalogApi,
   engineLimits?: Partial<import("../engine/limits.ts").EngineLimits>,
   providerEnabled?: import("./delegations.ts").DelegationDependencies["providerEnabled"],
+  steer = false,
 ) {
   const home = path ? join(path, "..") : mkdtempSync(join(tmpdir(), "ace-control-"));
   if (!path) homes.push(home);
@@ -59,12 +60,12 @@ export function setup(
   const inputs = new Map<ThreadId, string[]>();
   const inputMessages = new Map<
     ThreadId,
-    { commandId: string; nativeId: string; origin?: "ace" }[]
+    { commandId: string; nativeId: string; origin?: "ace"; delivery?: "steer" | "queue" }[]
   >();
   const contexts = new Map<ThreadId, SessionContext>();
   const registry = new AdapterRegistry();
   const capabilities = Capabilities.parse({
-    steer: false,
+    steer,
     interruptCascades: false,
     resume: true,
     fork: false,
@@ -142,6 +143,7 @@ export function setup(
                   commandId,
                   nativeId: `scripted:${commandId}`,
                   ...(origin ? { origin } : {}),
+                  delivery,
                 };
                 ctx.onInputMessage?.(message);
                 inputMessages.set(ctx.threadId, [

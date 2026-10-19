@@ -5,8 +5,6 @@ import {
   useThreadMeta,
   useThreadStore,
 } from "@ace/client-react";
-import { useAgentFacts } from "@/lib/use-agent-facts.ts";
-import type { AgentFacts } from "@/lib/agent-facts.ts";
 import { useComposerActions } from "./composer-actions.ts";
 import type { Interaction, ThreadStatus } from "@ace/protocol";
 import { ThreadId } from "@ace/protocol";
@@ -21,7 +19,7 @@ import {
   runningSubagents,
   type AttachmentReader,
 } from "@ace/ui-core";
-import { Suspense, useCallback, useContext, useEffect, useRef, useState, type Ref } from "react";
+import { Suspense, useContext, useEffect, useRef, useState, type Ref } from "react";
 import { TimeContext } from "@/lib/time.ts";
 import { uploadClock } from "@/features/thread/composer/upload-interruption.ts";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -42,6 +40,7 @@ import {
   DeferredPermissionControl,
 } from "./deferred-parts.tsx";
 import { DeferredComposerStrip } from "./deferred-cards.ts";
+import { finishQueueEdit, queueEditSession, saveQueueEdit } from "./queue-edit.ts";
 import { UsageNotice } from "./usage-notice.tsx";
 import { lastSentText } from "./last-sent.ts";
 import { runsOn, changedTurnOptions, selectionIdentity, type PendingTurn } from "./execution.ts";
@@ -107,16 +106,7 @@ export function ThreadComposer({
   });
   // Steering needs a provider that says it can take input mid-turn; otherwise (or while its
   // capabilities are unknown) a follow-up queues (SY-14).
-  const rootId = meta?.rootAgentId ?? "";
-  const commandState = useCallback(
-    (facts: AgentFacts) => ({
-      value: facts.hasRunningCommand(rootId),
-      watch: [`command:${rootId}`, `work:${rootId}`],
-    }),
-    [rootId],
-  );
   const canSteer = meta?.capabilities?.steer === true;
-  const steerPending = useAgentFacts(props.thread.id, commandState, Object.is) ?? false;
   const followUp = canSteer ? setting : "queue";
   const busy = isBusy(props.status);
   const [pickerRequest, requestPicker] = useState(0);
@@ -204,6 +194,7 @@ export function ThreadComposer({
 
   const submit = async (draft: Draft) => {
     if (continuing) return continueThread(draft, continuing);
+    if (queueEditSession(props.thread.id)) return saveEdit(draft);
     // Never send options picked for another selection; the controls are re-checking them.
     const commandId = crypto.randomUUID();
     // While the agent works the delivery is said outright, so this window knows at once
@@ -242,6 +233,29 @@ export function ThreadComposer({
     });
     if (ok && sent) setSpent({ commandId, turn: sent });
     return ok;
+  };
+
+  /**
+   * Enter while a queued message is open in the composer saves its new words to the queue, then
+   * brings back what the person had been writing. Only words change: its files stay as they were.
+   */
+  const saveEdit = async (draft: Draft) => {
+    const editing = props.thread.id;
+    const outcome = await saveQueueEdit(editing, draft.text);
+    if (outcome === "saved") {
+      draft.files.release();
+      finishQueueEdit(editing);
+      return true;
+    }
+    if (outcome === "gone") {
+      toast.add({
+        title: "That message already left the queue",
+        description: "Your edit is back in the composer.",
+      });
+      // After the composer has its edited words back.
+      setTimeout(() => finishQueueEdit(editing), 0);
+    }
+    return false;
   };
 
   useEffect(() => void loadSender(), []);
@@ -346,7 +360,6 @@ export function ThreadComposer({
         keepsAttachments
         busy={busy}
         followUp={followUp}
-        steerPending={steerPending}
         canSteer={canSteer}
         onSubmit={submit}
         recall={() => (transcript ? lastSentText(transcript) : undefined)}

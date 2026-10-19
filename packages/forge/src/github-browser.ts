@@ -24,7 +24,10 @@ const stateQuery = {
   draft: "is:open draft:true",
   closed: "is:closed is:unmerged",
   merged: "is:merged",
+  active: "is:open",
 };
+/** The states a list counts: each PR falls in exactly one. */
+const countedStates = ["open", "draft", "closed", "merged"] as const;
 /** Literal words cannot change repository scope through GitHub search qualifiers. */
 export function prSearchQuery(repository: ForgeRepository, query: ForgePrSearch): string {
   return [
@@ -38,6 +41,8 @@ export function prSearchQuery(repository: ForgeRepository, query: ForgePrSearch)
       .map((word) => JSON.stringify(word)),
     ...(query.author ? [`author:${query.author}`] : []),
     ...(query.reviewer ? [`review-requested:${query.reviewer}`] : []),
+    // GitHub's combined status of the head commit, check runs included.
+    ...(query.ci === "failure" ? ["status:failure"] : []),
   ].join(" ");
 }
 const Counts = z.object({
@@ -131,7 +136,7 @@ export class GitHubBrowser {
       SearchPage,
       (await this.#api.request(`search/issues?${params}`, signal)).body,
     );
-    const fields = Object.keys(stateQuery).map((state) => {
+    const fields = countedStates.map((state) => {
       const selected = ForgePrSearch.parse({ ...query, state });
       return `${state}: search(type: ISSUE, query: ${JSON.stringify(prSearchQuery(this.#repository, selected))}, first: 1) { issueCount }`;
     });

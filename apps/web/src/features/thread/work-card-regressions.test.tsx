@@ -98,7 +98,7 @@ test("tree folds and Summary scroll position survive a remount", async () => {
   await userEvent.keyboard("{ArrowLeft}");
   const scroll = card.querySelector<HTMLElement>("[data-work-scroll]");
   if (!scroll) throw new Error("Missing card scroll region");
-  scroll.scrollTop = 450;
+  scroll.scrollTop = 150;
   fireEvent.scroll(scroll);
   fireEvent(scroll, new Event("scrollend"));
   view.unmount();
@@ -110,7 +110,7 @@ test("tree folds and Summary scroll position survive a remount", async () => {
       .getAttribute("aria-expanded"),
   ).toBe("false");
   act(() => resized.forEach((notify) => notify()));
-  expect(restored.querySelector<HTMLElement>("[data-work-scroll]")?.scrollTop).toBe(450);
+  expect(restored.querySelector<HTMLElement>("[data-work-scroll]")?.scrollTop).toBe(150);
 });
 
 test("cached work is marked last seen until the connection is fresh again", async () => {

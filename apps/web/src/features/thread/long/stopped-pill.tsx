@@ -16,10 +16,10 @@ const stopOf = (reader: ThreadReader) =>
     : undefined;
 
 /**
- * A stopped turn as a pill in the Jump to live spot, never an item in the queue's strip:
+ * A stopped turn as a pill in the Scroll to end spot, never an item in the queue's strip:
  * "Stopped by a restart · Continue". Continue sends one continuation; a message the person sends
  * instead simply starts the next turn. Nothing continues by itself, and the pill leaves as soon
- * as a turn runs. With Jump to live showing too, it sits just above it.
+ * as a turn runs. With Scroll to end showing too, it sits just above it.
  */
 export function StoppedPill(props: { threadId: string; raised: boolean }) {
   const client = useClient();

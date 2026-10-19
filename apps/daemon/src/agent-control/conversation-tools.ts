@@ -5,7 +5,9 @@ import type {
   McpAttribution,
   ThreadStartOperation,
 } from "@ace/protocol";
+import { WorkspaceId } from "@ace/protocol";
 import type { Store } from "../store.ts";
+import { resolveProject } from "./projects.ts";
 import type { DelegationService } from "./delegations.ts";
 
 export type ConversationStartPort = (
@@ -31,15 +33,27 @@ export async function conversationTool(
   }
   if (operation.op !== "threads.list") return undefined;
   const parent = store.getThread(caller.threadId);
-  if (!parent || (operation.workspaceId && operation.workspaceId !== parent.workspaceId))
-    return { ok: false, code: "forbidden" };
+  if (!parent) return { ok: false, code: "forbidden" };
+  let workspaceId = operation.workspaceId ?? parent.workspaceId;
+  if (operation.project) {
+    const target = resolveProject(store, operation.project);
+    if (!target.ok) return { ok: false, code: target.code, hint: target.hint };
+    workspaceId = WorkspaceId.parse(target.project.id);
+  }
+  // Another project's threads are the person's to show, to an agent acting for them.
+  if (workspaceId !== parent.workspaceId && !service.actsForPerson(caller))
+    return {
+      ok: false,
+      code: "forbidden",
+      hint: "Other projects' threads need full access; ask the person to raise this thread's access.",
+    };
   let limit = operation.limit;
   for (;;) {
     const data = await store.searchQueries.query({
       text: operation.query,
       scope: "threads",
       mode: "tokens",
-      filters: { workspaceId: parent.workspaceId },
+      filters: { workspaceId },
       limit,
       ...(operation.cursor ? { cursor: operation.cursor } : {}),
     });

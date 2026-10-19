@@ -115,6 +115,8 @@ export type Fact =
       agent: Key;
       nativeTurnId?: string;
       outcome: "completed" | "interrupted" | "failed";
+      /** The engine interrupted this turn so the person's steer reached the model now. */
+      endedBy?: "steer";
       trigger?: RunTrigger;
       error?: AgentError;
       /** Historical settlement records outcomes without applying current quota policy. */

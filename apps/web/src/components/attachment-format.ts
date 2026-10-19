@@ -254,6 +254,14 @@ export function tileSize(image: Pick<ShownImage, "width" | "height">): {
   return fitWithin(image, 320, 240);
 }
 
+/** An image an agent posted in its reply: shown large, never past its own size. */
+export function postedImageSize(image: Pick<ShownImage, "width" | "height">): {
+  width: number;
+  height: number;
+} {
+  return fitWithin(image, 640, 480);
+}
+
 function fitWithin(
   image: Pick<ShownImage, "width" | "height">,
   maxWidth: number,

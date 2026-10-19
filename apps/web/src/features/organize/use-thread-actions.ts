@@ -22,6 +22,8 @@ export interface ThreadTarget {
   pinned?: boolean | undefined;
   /** Its place among pinned threads, so Undo puts an unpinned thread back where it was. */
   pinOrder?: number | undefined;
+  /** False when the thread never settles by itself. */
+  autoSettle?: false | undefined;
 }
 
 /** A pinned thread's new place, from a drag or a keyboard move (`placePinned`). */
@@ -32,7 +34,10 @@ export interface PinPlacement {
 
 export interface ThreadActions {
   settle(entry: ThreadTarget): void;
+  /** Unsettle, which also keeps it from settling by itself again. */
   unsettle(entry: ThreadTarget): void;
+  /** Let the thread settle by itself again, or keep it until settled by hand. */
+  setAutoSettle(entry: ThreadTarget, enabled: boolean): void;
   snooze(entry: ThreadTarget, until: number): void;
   wake(entry: ThreadTarget): void;
   /** Pin (leading the group) or unpin. */
@@ -72,6 +77,7 @@ type Organize = Extract<
     type:
       | "thread.settle"
       | "thread.unsettle"
+      | "thread.autoSettle"
       | "thread.snooze"
       | "thread.pin"
       | "thread.read"
@@ -189,10 +195,16 @@ export function useThreadActions(): ThreadActions {
       failed: "settle the thread",
     });
     const unsettle = (entry: ThreadTarget): Action => ({
-      patch: { settled: false },
+      patch: { settled: false, autoSettle: false },
       payload: { type: "thread.unsettle", threadId: id(entry) },
       verb: "Unsettle",
       failed: "unsettle the thread",
+    });
+    const autoSettle = (entry: ThreadTarget, enabled: boolean): Action => ({
+      patch: { autoSettle: enabled },
+      payload: { type: "thread.autoSettle", threadId: id(entry), enabled },
+      verb: enabled ? "Turn on auto-settle" : "Turn off auto-settle",
+      failed: enabled ? "turn on auto-settle" : "turn off auto-settle",
     });
     const snooze = (entry: ThreadTarget, until: number | null): Action => ({
       patch: { snoozedUntil: until },
@@ -322,6 +334,7 @@ export function useThreadActions(): ThreadActions {
     return {
       settle: (entry) => void act(entry, settle(entry)),
       unsettle: (entry) => void act(entry, unsettle(entry)),
+      setAutoSettle: (entry, enabled) => void act(entry, autoSettle(entry, enabled)),
       snooze: (entry, until) => void act(entry, snooze(entry, until)),
       wake: (entry) => void act(entry, snooze(entry, null)),
       setPinned: (entry, pinned) => void act(entry, pinned ? pin(entry) : unpin(entry)),

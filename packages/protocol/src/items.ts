@@ -1,4 +1,5 @@
 import { HtmlVisualization } from "./html.ts";
+import { SharedImage } from "./image-share.ts";
 import { CatalogMention } from "./extension-catalog.ts";
 import { StepMeasurement } from "./interaction-measurement.ts";
 import { ProviderErrorDetails } from "./provider-error-details.ts";
@@ -83,6 +84,11 @@ export const AgentItem = z.discriminatedUnion("type", [
   ItemBase.extend({
     type: z.literal("html"),
     visualization: HtmlVisualization,
+    raw: z.array(RawPayload).default([]),
+  }),
+  ItemBase.extend({
+    type: z.literal("image"),
+    image: SharedImage,
     raw: z.array(RawPayload).default([]),
   }),
   ItemBase.extend({

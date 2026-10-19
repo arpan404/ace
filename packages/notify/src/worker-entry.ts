@@ -86,8 +86,9 @@ port.on("message", (input: unknown) => {
       }
       port.postMessage({ type: "result", id, ok: true, ...(value === undefined ? {} : { value }) });
       if (call.method === "close") port.close();
-    } catch {
-      port.postMessage({ type: "result", id, ok: false });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Notification call failed";
+      port.postMessage({ type: "result", id, ok: false, error: reason.slice(0, 256) });
     }
   })();
 });

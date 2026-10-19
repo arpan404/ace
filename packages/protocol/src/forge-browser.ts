@@ -11,7 +11,10 @@ const text = z.string().max(65_536);
 const sha = z.string().regex(/^[a-fA-F0-9]{40,64}$/);
 export const ForgePageInput = z.object({ page: z.number().int().min(1).max(120).default(1) });
 export const ForgePrSearch = z.object({
-  state: z.enum(["open", "draft", "closed", "merged"]).default("open"),
+  /** `open` leaves drafts out; `active` is every open PR, drafts included. */
+  state: z.enum(["open", "draft", "closed", "merged", "active"]).default("open"),
+  /** `failure`: only PRs whose head commit's checks failed. */
+  ci: z.enum(["any", "failure"]).default("any"),
   search: z.string().max(256).default(""),
   author: z
     .string()

@@ -1,10 +1,11 @@
 import { useClient, useConnectionState, useInteractions } from "@ace/client-react";
 import type { QueuedMessage, ThreadStatus } from "@ace/protocol";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useEffectEvent, useState } from "react";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useClaimConnectionNotice } from "@/features/shell/index.ts";
 import { useShownPlans } from "@/lib/use-plans.ts";
 import { failedHead, withoutMessage } from "./failed-head.ts";
+import { withoutAgentPending, withoutAgentResults } from "./queued-agent-result.ts";
 import { stoppedHold } from "@ace/ui-core";
 import { useHeldQueue } from "./queue-notice.tsx";
 import { QueueStrip } from "./queue-strip.tsx";
@@ -18,6 +19,7 @@ import { ConnectionStrip, PlanStrip, StripIndicators, type StripCounts } from ".
 import { pickStrip, stripSlot, type StripFacts } from "./strip-slot.ts";
 import { StripSurface } from "./strip-surface.tsx";
 import { ConfirmStopStrip, StoppedStrip, useStoppedCommands } from "./stop-strips.tsx";
+import { registerQueueEditSaver, useQueueEdit } from "./queue-edit.ts";
 import { useQueue } from "./use-queue.ts";
 
 const noRequests: readonly string[] = [];
@@ -48,15 +50,19 @@ export function ComposerStrip(props: {
   const requests = descendant ? [descendantKey(descendant), ...own] : own;
   const connection = useConnectionState();
   const all = useQueue(props.threadId);
-  const allHeld = useHeldQueue(props.threadId, props.status, all);
+  // Agent results go straight to the conversation, never the strip: keep them out of its count.
+  const noAgents = withoutAgentResults(all);
+  const allHeld = useHeldQueue(props.threadId, props.status, noAgents);
   // A message that wasn't sent is in the transcript with its reason; the strip lists the rest.
-  const failed = failedHead(allHeld, all);
-  const queue = withoutMessage(all, failed?.id);
+  const failed = failedHead(allHeld, noAgents);
+  const queue = withoutMessage(noAgents, failed?.id);
   // A failed send is in the transcript; a stopped turn is the pill over the composer.
   const held =
     allHeld?.notice.kind === "not_sent" || stoppedHold(allHeld?.notice) ? undefined : allHeld;
-  const pending = useQueuedPending(props.threadId, all.page, all.retained).filter(
-    (message) => message.id !== failed?.id,
+  const pending = withoutAgentPending(
+    useQueuedPending(props.threadId, noAgents.page, noAgents.retained).filter(
+      (message) => message.id !== failed?.id,
+    ),
   );
   const sending = useOutgoing(props.threadId);
   const plan = useShownPlans(props.threadId)[0]?.progress;
@@ -66,9 +72,18 @@ export function ComposerStrip(props: {
   // fatal error) is the header's.
   useClaimConnectionNotice(offline || connection === "reconnecting");
   const stopped = useStoppedCommands(props.threadId);
-  // An open edit keeps the queue in the slot even once its message leaves the queue, so the
-  // editor can say so and keep the person's wording.
-  const [editing, setEditing] = useState<QueuedMessage>();
+  // A queued message edited in the composer keeps the queue in the slot, with its Cancel.
+  const editing = useQueueEdit(props.threadId);
+  // The composer saves an edit through these controls, so the pill shows it at once.
+  const saveEdit = useEffectEvent(async (message: QueuedMessage, text: string) => {
+    const current = all.allMessages.find((entry) => entry.id === message.id);
+    if (!current || current.state === "uncertain") return "gone" as const;
+    return (await all.edit(current, text)) ? ("saved" as const) : ("failed" as const);
+  });
+  useEffect(
+    () => registerQueueEditSaver(props.threadId, (message, text) => saveEdit(message, text)),
+    [props.threadId],
+  );
   const facts: StripFacts = {
     confirmStop: !!props.confirmStop,
     requests,
@@ -130,8 +145,7 @@ export function ComposerStrip(props: {
           queue={queue}
           pending={pending}
           held={held}
-          editing={editing}
-          onEdit={setEditing}
+          onEditInComposer={props.onLeave}
           indicators={indicators}
           onChooseModel={props.onChooseModel}
         />

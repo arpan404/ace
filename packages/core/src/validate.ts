@@ -49,7 +49,7 @@ const allowed: Record<Fact["type"], string[]> = {
   "input.admitted": ["agent", "nativeInputId", "commandId"],
   "input.consumed": ["agent", "nativeInputIds"],
   "turn.started": ["agent", "nativeTurnId", "trigger", "permissionMode"],
-  "turn.ended": ["agent", "nativeTurnId", "outcome", "trigger", "error", "historical"],
+  "turn.ended": ["agent", "nativeTurnId", "outcome", "endedBy", "trigger", "error", "historical"],
   activity: ["agent", "activity", "detail"],
   "item.upsert": ["agent", "item", "draft"],
   "item.reconciled": ["agent", "item", "draft"],
@@ -258,6 +258,8 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
     case "turn.ended":
       return (
         oneOf(fact.outcome, ["completed", "failed", "interrupted"]) &&
+        (fact.endedBy === undefined ||
+          (fact.endedBy === "steer" && fact.outcome === "interrupted")) &&
         (fact.historical === undefined || typeof fact.historical === "boolean") &&
         (fact.trigger === undefined || RunTrigger.safeParse(fact.trigger).success) &&
         (fact.error === undefined || validData(AgentStatus, { state: "failed", error: fact.error }))

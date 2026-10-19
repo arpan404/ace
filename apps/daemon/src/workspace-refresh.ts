@@ -3,11 +3,16 @@ import type { Store } from "./store.ts";
 import type { WorkspaceRuntime } from "./workspace-runtime.ts";
 import { organizerSchedule, type OrganizerSchedule } from "./thread-organizer.ts";
 import { HeadWatch, headStamp } from "./workspace-head-watch.ts";
+import { deadlineOf, type Deadline } from "./workspace-refresh-deadline.ts";
 
 /** Quiet threads nobody is viewing still notice outside edits and commits, at a slow cadence. */
 const settledCadenceMs = 600_000;
-/** How often threads with an open terminal are checked for a commit or checkout. */
+/** How often watched checkouts are checked for a commit or checkout (file stamps, no Git). */
 const headCadenceMs = 5_000;
+/** The longest one background read may take before the sweep moves on without it. */
+const readDeadlineMs = 30_000;
+/** Agents commit and switch branches from their own shells, which ace sees no event for. */
+const activeStates = new Set<Thread["status"]["state"]>(["working", "waiting", "needs_you"]);
 
 /** No agent work can be changing the checkout: nothing runs, waits or asks. */
 const quietStates = new Set<Thread["status"]["state"]>(["done", "new", "failed", "limited"]);
@@ -39,7 +44,22 @@ export class WorkspaceRefresh {
     now: () => number,
     schedule: OrganizerSchedule = organizerSchedule,
     report: (error: unknown) => void = () => {},
+    deadline: Deadline = deadlineOf(readDeadlineMs),
   ) {
+    // Threads whose agents may be moving their checkout, kept from status events: the watch
+    // reads this set every few seconds and never queries the store for it.
+    const active = new Set<ThreadId>(
+      privateStore.atomic((db) =>
+        db
+          .prepare(
+            `SELECT id FROM threads WHERE json_extract(status,'$.state') IN (${[...activeStates]
+              .map(() => "?")
+              .join(",")}) AND json_extract(client,'$.deletedAt') IS NULL`,
+          )
+          .all(...activeStates)
+          .map((row) => ThreadId.parse(row.id)),
+      ),
+    );
     privateStore.atomic((db) =>
       db.exec(`CREATE TABLE IF NOT EXISTS workspace_refresh(thread_id TEXT PRIMARY KEY, due INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS workspace_refresh_due ON workspace_refresh(due);
@@ -56,6 +76,14 @@ export class WorkspaceRefresh {
     this.stop = privateStore.subscribe((events) => {
       for (const event of events) {
         const p = event.payload;
+        const status =
+          p.type === "thread.updated"
+            ? p.status
+            : p.type === "thread.created"
+              ? p.thread.status
+              : undefined;
+        if (status && activeStates.has(status.state)) active.add(event.threadId);
+        else if (status) active.delete(event.threadId);
         if (
           p.type === "thread.created" ||
           p.type === "thread.updated" ||
@@ -65,6 +93,18 @@ export class WorkspaceRefresh {
           dirty(event.threadId);
       }
     });
+    // A read abandoned at its deadline may still be running. Until it ends, its thread is skipped
+    // rather than queued behind it again, so one stuck checkout costs one deadline, not one a sweep.
+    const reading = new Set<ThreadId>();
+    const readDetails = async (id: ThreadId): Promise<boolean> => {
+      if (reading.has(id)) return false;
+      reading.add(id);
+      await deadline(
+        runtime.details(id).finally(() => reading.delete(id)),
+        "details",
+      );
+      return true;
+    };
     // A failed sweep, including one that finds the store busy, is reported and tried again
     // next cycle. It never rejects into the timer, where it would end the daemon.
     const sweepAndArm = () => {
@@ -113,7 +153,7 @@ export class WorkspaceRefresh {
           continue;
         }
         try {
-          await runtime.details(id);
+          if (!(await readDetails(id))) continue;
           if (thread.details?.linkedPrs?.length || thread.details?.linkedPr)
             refresh.push({ id, cwd: runtime.root(id) });
           const current = privateStore.getThread(id);
@@ -129,7 +169,7 @@ export class WorkspaceRefresh {
       }
       if (refresh.length && !this.closed) {
         try {
-          await runtime.forge.refresh(refresh);
+          await deadline(runtime.forge.refresh(refresh), "pull requests");
         } catch (error) {
           report(error);
         }
@@ -137,15 +177,19 @@ export class WorkspaceRefresh {
     };
     sweepAndArm();
     const heads = new HeadWatch(async (id) => headStamp(runtime.root(id)));
+    // Checkouts that can move without a thread event: a terminal's, an agent's at work, and any
+    // a client is looking at. Each check stats three files, so watching them costs almost nothing.
+    const watched = () => [
+      ...new Set([...runtime.terminalThreads(), ...privateStore.viewedThreads(), ...active]),
+    ];
     const watch = () => {
       if (this.closed) return;
       this.cancelHeads = schedule(headCadenceMs, () => {
-        void heads
-          .changed(runtime.terminalThreads())
+        void deadline(heads.changed(watched()), "checkout stamps")
           .then(async (moved) => {
             for (const id of moved) {
               if (this.closed) return;
-              await runtime.details(id).catch(report);
+              await readDetails(id).catch(report);
             }
           })
           .catch(report)

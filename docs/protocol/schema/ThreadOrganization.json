@@ -5,6 +5,10 @@
     "activityAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
+    "autoSettle": {
+      "const": false,
+      "type": "boolean"
+    },
     "autoSettleAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
@@ -24,6 +28,10 @@
     },
     "readAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "settleWhenDone": {
+      "const": true,
+      "type": "boolean"
     },
     "settledAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"

@@ -12,6 +12,17 @@
           "minimum": 0,
           "type": "integer"
         },
+        "autoSettle": {
+          "anyOf": [
+            {
+              "const": false,
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "autoSettleAt": {
           "anyOf": [
             {
@@ -54,6 +65,17 @@
         },
         "readAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "settleWhenDone": {
+          "anyOf": [
+            {
+              "const": true,
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "settledAt": {
           "anyOf": [

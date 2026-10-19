@@ -152,7 +152,7 @@ test("deletion hides a quiescent thread while preserving replay coverage", async
   });
 });
 
-test("inactivity settles only done trees at the daemon deadline and unsettle starts a new deadline", async () => {
+test("inactivity settles only done trees at the daemon deadline; unsettled stays until auto-settle is turned back on", async () => {
   let now = 1000;
   const f = await setup(() => now);
   const organizer = new ThreadOrganizer(
@@ -178,12 +178,14 @@ test("inactivity settles only done trees at the daemon deadline and unsettle sta
   });
   await f.command({ type: "thread.unsettle", threadId: f.thread.id });
   await organizer.sweep();
-  expect(f.store.getThread(f.thread.id)?.settledAt).toBeUndefined();
-  expect(f.store.getThread(f.thread.id)?.autoSettleAt).toBe(now + 86_400_000);
-  now += 86_400_000 - 1;
+  now += 3 * 86_400_000;
   await organizer.sweep();
   expect(f.store.getThread(f.thread.id)?.settledAt).toBeUndefined();
-  now++;
+  await f.command({ type: "thread.autoSettle", threadId: f.thread.id, enabled: false });
+  await organizer.sweep();
+  expect(f.store.getThread(f.thread.id)?.settledAt).toBeUndefined();
+  // Back on, the inactivity window counts from the unsettle, three days ago.
+  await f.command({ type: "thread.autoSettle", threadId: f.thread.id, enabled: true });
   await organizer.sweep();
   expect(f.store.getThread(f.thread.id)).toMatchObject({
     settledAt: now,

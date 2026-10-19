@@ -6,6 +6,7 @@ import { computerName } from "../computer-name.ts";
 import { actionErrorCode } from "../action-errors.ts";
 import { logError } from "@ace/diagnostics";
 import { WorkspaceRefresh } from "../workspace-refresh.ts";
+import { RefreshTimeout } from "../workspace-refresh-deadline.ts";
 import { PullRequestAutoLink } from "../pr-auto-link.ts";
 import {
   ThreadId,
@@ -126,9 +127,18 @@ export async function startWorkspaceActions({
     log.log("debug", "Created pull request could not be linked", logError(error)),
   );
   resources.own(() => prLinks.close());
-  const refresh = new WorkspaceRefresh(store, workspace, now, undefined, (error) =>
-    log.log("debug", "Workspace metadata unavailable", logError(error)),
-  );
+  // A read that times out means something hangs (a Git or forge call); say so once per kind
+  // of read, so a stuck checkout is visible without repeating every minute.
+  const timedOut = new Set<string>();
+  const refresh = new WorkspaceRefresh(store, workspace, now, undefined, (error) => {
+    const first = error instanceof RefreshTimeout && !timedOut.has(error.step);
+    if (error instanceof RefreshTimeout) timedOut.add(error.step);
+    log.log(
+      first ? "warn" : "debug",
+      first ? "Workspace refresh read timed out" : "Workspace metadata unavailable",
+      logError(error),
+    );
+  });
   resources.own(() => refresh.close());
 }
 export function createWorkspaceActionsSession(context: SocketContext): SocketService {

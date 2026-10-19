@@ -128,7 +128,7 @@ export function attachmentsHttp(
           variant = match[3] === "thumbnail" ? "thumbnail" : "original";
         // Authorize and validate ownership even for HEAD and conditional requests.
         const first = await budget.wait(read(device.id, thread, hash, variant, 0, 65536, allowed));
-        const etag = `"${hash}-${variant}-v1"`;
+        const etag = `"${hash}-${variant}-v2"`;
         response.setHeader("ETag", etag);
         response.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
         response.setHeader("Content-Type", first.mimeType);

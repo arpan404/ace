@@ -1,3 +1,4 @@
+import { replayGap } from "./replay-gap.ts";
 import type {
   DeviceId,
   Event,
@@ -53,25 +54,26 @@ export class NotificationService {
     const first = events[0],
       last = events.at(-1);
     if (!first || !last) return;
-    for (let i = 1; i < events.length; i++) {
-      if (events[i]?.seq !== (events[i - 1]?.seq ?? 0) + 1)
-        throw new Error("Notification replay gap");
-    }
+    // With coverage the caller read every event that exists in the range: holes are events
+    // deleted with their thread. Without it the batch must have none.
+    if (!coverage)
+      for (let i = 1; i < events.length; i++) {
+        if (events[i]?.seq !== (events[i - 1]?.seq ?? 0) + 1) throw new Error(replayGap);
+      }
+    let after = coverage?.afterSeq ?? first.seq - 1;
     for (let i = 0; i < events.length; i += 256) {
       const page = events.slice(i, i + 256),
-        begin = page[0],
         end = page.at(-1);
-      if (!begin || !end) continue;
+      if (!end) continue;
+      const through = i + 256 >= events.length ? (coverage?.throughSeq ?? end.seq) : end.seq;
       this.ingestMetadata(
         page.flatMap((event) => {
           const projected = metadata(event);
           return projected ? [projected] : [];
         }),
-        {
-          afterSeq: i === 0 ? (coverage?.afterSeq ?? begin.seq - 1) : begin.seq - 1,
-          throughSeq: i + 256 >= events.length ? (coverage?.throughSeq ?? end.seq) : end.seq,
-        },
+        { afterSeq: after, throughSeq: through },
       );
+      after = through;
     }
   }
   /** Parsed bounded events, used by the worker I/O boundary. */
@@ -204,7 +206,10 @@ export class NotificationService {
 export function attachNotifications(
   service: Pick<NotificationService, "drain"> & {
     cursor(): number | Promise<number>;
-    ingest(events: readonly Event[]): void | Promise<void>;
+    ingest(
+      events: readonly Event[],
+      coverage?: { afterSeq: number; throughSeq: number },
+    ): void | Promise<void>;
   },
   log: NotificationLog,
   onError: (error: unknown) => void,
@@ -212,6 +217,13 @@ export function attachNotifications(
   let running: Promise<void> | undefined;
   let closed = false;
   const ingestions = new Set<Promise<void>>();
+  // Live batches follow on from the cursor. One that does not (replay is behind) pauses live
+  // ingestion quietly: replay reads those events in order and resumes it at the head of the log.
+  let live = true;
+  const failed = (error: unknown) => {
+    live = false;
+    if (!(error instanceof Error && error.message.includes(replayGap))) onError(error);
+  };
   const replay = async () => {
     // Bounded work per tick; startup callers can tick until cursor reaches head.
     for (let page = 0; page < 16; page++) {
@@ -219,20 +231,27 @@ export function attachNotifications(
       const cursor = await service.cursor();
       if (closed) return false;
       const events = log.readEvents({ afterSeq: cursor, limit: 256 });
-      if (!events.length) return true;
-      await service.ingest(events);
+      const last = events.at(-1);
+      if (!last) {
+        live = true;
+        return true;
+      }
+      // These are every event that still exists after the cursor. A thread's deletion removes
+      // its events from the log, so missing numbers in between are covered, not pending.
+      await service.ingest(events, { afterSeq: cursor, throughSeq: last.seq });
     }
     return false;
   };
   const stop = log.subscribe((events) => {
+    if (!live) return;
     try {
       const ingested = service.ingest(events);
       if (ingested instanceof Promise) {
-        const pending = ingested.catch(onError).finally(() => ingestions.delete(pending));
+        const pending = ingested.catch(failed).finally(() => ingestions.delete(pending));
         ingestions.add(pending);
       }
     } catch (error) {
-      onError(error);
+      failed(error);
     }
   });
   return {

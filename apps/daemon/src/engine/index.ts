@@ -35,12 +35,9 @@ import { IntentDelivery } from "./intent-delivery.ts";
 import { ThreadTransitions, type TransitionIO } from "./transitions.ts";
 import { Sessions } from "./sessions.ts";
 import { randomUUID } from "node:crypto";
-import {
-  deriveThreadStatus,
-  readyForChildResults,
-  hasRunningForegroundCommand,
-  type IdSource,
-} from "@ace/core";
+import { deriveThreadStatus, readyForChildResults, type IdSource } from "@ace/core";
+import { SteerLane } from "./steer-lane.ts";
+import { rootRun } from "./steer-yield.ts";
 import type { CommandHandler } from "../commands.ts";
 import type { Store } from "../store.ts";
 import type { AgentId, Thread, Command, QueueSnapshot, QueueGet } from "@ace/protocol";
@@ -135,6 +132,7 @@ export class Engine {
   private sends: IntentWorkers;
   private controls: IntentWorkers;
   private steering: IntentWorkers;
+  private steerLane: SteerLane;
   private sessions: Sessions;
   private recovery: Recovery;
   private meters: ContextMeters;
@@ -273,6 +271,14 @@ export class Engine {
         }
       },
       isSteer: (intent) => this.isSteer(intent),
+    });
+    this.steerLane = new SteerLane({
+      repo: this.repo,
+      registry: this.registry,
+      actor: (id) => this.actors.get(id),
+      deliver: (actor, intent) => this.delivery.run(actor, intent),
+      wake: (id) => this.wake(id),
+      report: this.report,
     });
     this.meters = new ContextMeters(store, options.recovery?.contextWindow);
     this.liveness = new ThreadLiveness({
@@ -439,6 +445,46 @@ export class Engine {
   }
   capabilities(provider: ProviderKind, backend?: import("@ace/engine-api").ProviderBackend) {
     return structuredClone(this.registry.get(provider, backend).capabilities);
+  }
+  /**
+   * Whether this thread's provider can steer mid-turn. Delegated child results
+   * use it to decide steer (inject now) versus queue (wait for the turn end).
+   * Providers differ: codex/claude/cursor/opencode/pi steer, acp never does,
+   * and old CLIs without support report steer false.
+   */
+  supportsSteering(id: ThreadId): boolean {
+    const thread = this.repo.store.getThread(id);
+    if (!thread) return false;
+    const provider = thread.provider;
+    if (!this.registry.has(provider)) return false;
+    const effective =
+      thread.effectiveCapabilities ??
+      thread.capabilities ??
+      this.registry.get(provider).capabilities;
+    if (!effective.steer) return false;
+    // Backend-specific capability (e.g. cursor-sdk vs acp) wins when present.
+    try {
+      return (
+        this.repo.store.getThread(id)?.effectiveCapabilities ??
+        this.registry.get(provider, this.repo.backend(id)).capabilities
+      ).steer;
+    } catch {
+      return effective.steer;
+    }
+  }
+  /**
+   * Daemon-owned child results run before the person's queued messages. A
+   * result completes work the parent already started; the person's follow-ups
+   * were typed without seeing it, so they run after the parent incorporates it.
+   * Position 0 keeps every subagent result ahead of person input (ordered by id
+   * among themselves) without bumping the queue revision clients edit against.
+   */
+  prioritizeSubagentResult(id: ThreadId, commandId: import("@ace/protocol").CommandId): void {
+    this.repo.store.atomic(() => {
+      this.repo.store
+        .statement("UPDATE intents SET position=0 WHERE thread_id=? AND command_id=?")
+        .run(id, commandId);
+    });
   }
   /** Trusted spawn boundary for delegation. Receipt identity is caller-owned. */
   spawn(
@@ -1274,7 +1320,8 @@ export class Engine {
     const intent =
       first && ["thread.switch", "thread.merge"].includes(first.kind)
         ? this.repo.pending.childResult(actor.id)
-        : first && this.isSteer(first)
+        : // A steer joins the running turn on its own lane; with no turn running it goes first.
+          first && this.isSteer(first) && rootRun(this.repo.requireState(actor.id))
           ? this.repo.pending.queuedMessage(actor.id)
           : first;
     if (
@@ -1308,43 +1355,14 @@ export class Engine {
     actor.schedule();
   }
   private isSteer(intent: IntentHeader): boolean {
-    if (
-      intent.kind !== "thread.send" ||
-      intent.delivery !== "steer" ||
-      this.repo.pending.hasSelection(intent.id)
-    )
-      return false;
-    if (this.repo.transitions.guarded(intent.threadId)) return false;
-    const state = this.repo.requireState(intent.threadId);
-    if (hasRunningForegroundCommand(state)) return false;
-    if (
-      this.repo.pending.transition(intent.threadId) &&
-      // The steer itself counts once claimed; delivery re-checks it after the claim.
-      (this.repo.pending.runningBesides(intent.threadId, intent.id) || this.repo.quiescent(state))
-    )
-      return false;
-    return (
-      Boolean(this.actors.get(intent.threadId)?.session) &&
-      !this.repo.queue.get(intent.threadId).paused &&
-      !this.repo.queue.get(intent.threadId).limited &&
-      !this.repo.pending.recovering(intent.threadId) &&
-      this.registry.has(state.config.provider) &&
-      (
-        this.actors.get(intent.threadId)?.effectiveCapabilities ??
-        this.registry.get(state.config.provider, this.repo.backend(intent.threadId)).capabilities
-      ).steer
-    );
+    return this.steerLane.isSteer(intent);
   }
   private async steer(actor: ThreadActor): Promise<void> {
     await actor.flush();
     if (actor.poisoned || this.closing || this.repo.cleaning(actor.id) || !actor.session) return;
     const queue = this.repo.queue.get(actor.id);
     if (queue.paused || queue.limited) return;
-    const intent = this.repo.pending.steerMessage(actor.id);
-    if (intent && this.isSteer(intent)) {
-      await this.delivery.run(actor, intent);
-      this.wake(actor.id);
-    }
+    await this.steerLane.run(actor);
   }
   /** Read the original JSON bytes of an oversized raw payload's data envelope. */
   readRawBlob(id: string): Uint8Array | undefined {

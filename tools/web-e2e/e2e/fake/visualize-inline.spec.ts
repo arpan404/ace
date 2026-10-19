@@ -5,7 +5,9 @@ const title = "Binary search, step by step";
 async function openExplainer(page: Page) {
   await page.emulateMedia({ colorScheme: "dark" });
   await page.goto("/t/thread-explainer");
-  const section = page.getByRole("region", { name: title });
+  const section = page
+    .getByRole("feed", { name: "Transcript" })
+    .getByRole("region", { name: title });
   const content = section.frameLocator("iframe").frameLocator("iframe");
   await expect(content.getByRole("heading", { name: /Binary search halves/ })).toBeVisible();
   return { section, content };
@@ -69,13 +71,49 @@ test("a theme change reaches the running page without reloading it", async ({ pa
 
 test("the page's actions stay hidden until the pointer or focus is on it", async ({ page }) => {
   const { section } = await openExplainer(page);
-  const open = section.getByRole("button", { name: "Open in window" });
+  const open = section.getByRole("button", { name: "Full screen" });
   // The row of actions fades as one; no button is ever drawn on its own.
   const actions = open.locator("xpath=..");
   await page.mouse.move(5, 5);
   await expect(actions).toHaveCSS("opacity", "0");
   await section.hover();
   await expect(actions).toHaveCSS("opacity", "1");
-  for (const name of ["Open in window", "Full screen", "Copy source", "Download"])
+  for (const name of ["Full screen", "Copy source", "Download"])
     await expect(actions.getByRole("button", { name })).toBeVisible();
+});
+
+test("plain markup takes ace's own look: a page's button is styled like the app's", async ({
+  page,
+}) => {
+  const { content } = await openExplainer(page);
+  const next = content.getByRole("button", { name: "Next step" });
+  // Not the browser's default control: the app's corner and font, no outset border.
+  await expect(next).not.toHaveCSS("border-style", "outset");
+  const radius = await next.evaluate((button) => getComputedStyle(button).borderTopLeftRadius);
+  expect(Number.parseFloat(radius)).toBeGreaterThanOrEqual(6);
+  const appFont = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
+  await expect(next).toHaveCSS("font-family", appFont);
+});
+
+test("Full screen shows the same running page beside the conversation", async ({ page }) => {
+  const { section } = await openExplainer(page);
+  await section.hover();
+  await section.getByRole("button", { name: "Full screen" }).click();
+  const panel = page
+    .getByRole("region", { name: "Thread panel" })
+    .getByRole("region", { name: title });
+  const content = panel.frameLocator("iframe").frameLocator("iframe");
+  await expect(content.getByRole("heading", { name: /Binary search halves/ })).toBeVisible();
+  // It runs on its own, and fills the panel rather than fitting its content.
+  await content.getByRole("button", { name: "Next step" }).click();
+  await expect(content.getByText("Step 1 of 4")).toBeVisible();
+  const [frame, box] = await Promise.all([
+    panel.locator("iframe").boundingBox(),
+    panel.boundingBox(),
+  ]);
+  expect((frame?.height ?? 0) / (box?.height ?? 1)).toBeGreaterThan(0.8);
+  // Opening it again shows the tab already open.
+  await section.hover();
+  await section.getByRole("button", { name: "Full screen" }).click();
+  await expect(page.getByRole("tab", { name: title })).toHaveCount(1);
 });

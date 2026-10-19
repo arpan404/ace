@@ -5,7 +5,7 @@ import { StepSlider } from "@/components/ui/step-slider.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { ModelControlActions, ModelControlView } from "./control-view.ts";
-import { isDeepReasoning, reasoningDescription } from "./reasoning-level.ts";
+import { isDeepReasoning, reasoningDescription, showsAceMark } from "./reasoning-level.ts";
 import { SpeedGlyph } from "./speed-glyph.tsx";
 
 const iconButton =
@@ -19,8 +19,8 @@ export function tunable(view: Pick<ModelControlView, "efforts" | "speeds">): boo
 /**
  * The model popover's first pane: speed on the left (one icon per tier the catalog offers), the
  * effort in the accent with the model under it (which opens the picker), Reset on the right, and
- * the effort slider over the model's own levels with its default stop marked. Ultra and Max get
- * the deep-reasoning thumb.
+ * the effort slider over the model's own levels with its default stop marked. Ultra, ultrathink
+ * and Max get the deep-reasoning thumb; only Ultra and ultrathink carry the ace mark on it.
  */
 export function TunePane(props: {
   view: ModelControlView;
@@ -115,6 +115,7 @@ export function TunePane(props: {
             quietFocus
             gradient
             deepReasoning={deep}
+            aceMark={showsAceMark(view.effort, efforts)}
             disabled={!!view.effortReason}
             className="py-0.5"
             onValueChange={(next) => {

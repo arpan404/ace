@@ -6,7 +6,7 @@ import {
   DownloadSimpleIcon,
   XIcon,
 } from "@phosphor-icons/react";
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { buttonVariants, Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
@@ -56,6 +56,7 @@ export function Lightbox(props: {
           }}
           className="fixed inset-0 z-[101] flex flex-col text-foreground outline-none"
         >
+          <PopupFocus />
           <header className="flex items-center gap-3 px-4 py-3">
             <div className="min-w-0 flex-1">
               <DialogPrimitive.Title className="truncate text-ui font-medium">
@@ -96,6 +97,30 @@ export function Lightbox(props: {
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
   );
+}
+
+/*
+ * Focuses the popup in a layout effect, so focus is inside the dialog before Base UI hides
+ * the page behind it. Base UI's FloatingFocusManager applies aria-hidden to everything
+ * outside in a passive effect but moves `initialFocus` on a later frame; without this the
+ * thumbnail still holds focus while its ancestor takes aria-hidden and Chromium blocks it
+ * ("Blocked aria-hidden on an element because its descendant retained focus"). This sits
+ * inside the popup because Base UI mounts its portal a commit after the lightbox does, so a
+ * layout effect on the lightbox itself runs while the popup ref is still null. Once focus is
+ * inside the popup this never touches it again, so stepping and the header buttons keep it.
+ */
+function PopupFocus() {
+  const marker = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    // The popup is the closest dialog ancestor of this marker; the forwarded popup ref
+    // can't be used here because Base UI attaches it after this effect runs.
+    const node = marker.current?.closest<HTMLElement>('[role="dialog"]');
+    if (!node || node.hidden || !node.isConnected) return;
+    const active = node.ownerDocument.activeElement;
+    if (active && node.contains(active)) return;
+    node.focus({ preventScroll: true });
+  });
+  return <span ref={marker} hidden />;
 }
 
 /** Download and Copy image, once the full image is here. */

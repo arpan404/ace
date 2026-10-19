@@ -16,6 +16,7 @@ export const organizationCommands = [
   "thread.read",
   "thread.settle",
   "thread.unsettle",
+  "thread.autoSettle",
   "thread.snooze",
   "thread.place",
 ] as const;
@@ -59,9 +60,22 @@ export function organizationDecision(
         changes: { settledAt: at, settledReason: "manual", snoozedUntil: null, autoSettleAt: null },
       };
     case "thread.unsettle":
+      // The person wants it in the list: the rules that settled it must not settle it again.
       return {
         type: "thread.client.updated",
-        changes: { settledAt: null, settledReason: null, activityAt: at, autoSettleAt: null },
+        changes: {
+          settledAt: null,
+          settledReason: null,
+          activityAt: at,
+          autoSettleAt: null,
+          autoSettle: false,
+          settleWhenDone: null,
+        },
+      };
+    case "thread.autoSettle":
+      return {
+        type: "thread.client.updated",
+        changes: p.enabled ? { autoSettle: null } : { autoSettle: false, autoSettleAt: null },
       };
     case "thread.snooze":
       if (p.until !== null && p.until <= at) return "snooze_in_past";
@@ -85,13 +99,45 @@ export function settleDecision(
 ): ThreadClientUpdated["changes"] {
   const expired =
     thread.snoozedUntil !== undefined && thread.snoozedUntil <= at ? { snoozedUntil: null } : {};
+  const request = settleRequest(thread);
+  if (request === "settle")
+    return {
+      ...expired,
+      settledAt: at,
+      settledReason: "manual",
+      autoSettleAt: null,
+      settleWhenDone: null,
+    };
+  const changes = automaticSettle(thread, policy, at, expired);
+  return request === "drop" ? { ...changes, settleWhenDone: null } : changes;
+}
+
+/**
+ * An agent's request to settle its thread once the work ends: kept while the thread works or
+ * waits, carried out when it is done, and dropped on any other outcome (failed, limited, a
+ * question for the person), which the person should still see.
+ */
+function settleRequest(thread: Thread): "settle" | "drop" | undefined {
+  if (!thread.settleWhenDone) return undefined;
+  const state = thread.status.state;
+  if (thread.deletedAt === undefined && state === "done") return "settle";
+  return state === "working" || state === "waiting" ? undefined : "drop";
+}
+
+function automaticSettle(
+  thread: Thread,
+  policy: SettlePolicy,
+  at: number,
+  expired: ThreadClientUpdated["changes"],
+): ThreadClientUpdated["changes"] {
   // Running work resurfaces a settled thread. A request for the person never auto-settles,
   // but a person may settle it by hand and it stays settled.
   if (thread.deletedAt !== undefined || thread.status.state === "working")
     return { ...expired, autoSettleAt: null, settledAt: null, settledReason: null };
   if (thread.archivedAt !== undefined || thread.pinned || threadAttention(thread))
     return { ...expired, autoSettleAt: null };
-  if (thread.settledAt !== undefined) return { ...expired, autoSettleAt: null };
+  if (thread.settledAt !== undefined || thread.autoSettle === false)
+    return { ...expired, autoSettleAt: null };
   const due =
     policy.hours > 0
       ? (thread.activityAt ?? thread.updatedAt) + policy.hours * 3_600_000

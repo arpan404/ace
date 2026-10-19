@@ -60,7 +60,7 @@ Review follow-up is static only. `swift build`, formatting, lint, the 1,500-line
 
 No tests, benchmarks, probes, mutation/flakiness runs, combined check or CI were executed during the review corrections. Earlier successful tests and performance measurements apply only to the earlier revision. Fake H.264 payloads test transport/negotiation, not hardware encoding. Native tests with fake encoder/posting boundaries cover bounded pending images, permission revocation and retained failed release. Real overlap release, real encoding, decode/display and performance verification **need run at merge**.
 
-See [device stream review coverage](testing/device-stream-review.md) for every review item and the mutation plan. Each mutation case is **not executed (tests run at merge)**. The simulator performance harness remains outside the default gate. Remote throttled links, relay and a real Android emulator still require merge-time measurements. H.264 is selected; HEVC is not negotiated.
+The simulator performance harness remains outside the default gate. Remote throttled links, relay and a real Android emulator still require merge-time measurements. H.264 is selected; HEVC is not negotiated.
 
 ## UI follow-up for the Claude web agent
 

@@ -101,8 +101,8 @@ test("picking an accent never changes a status colour, and waiting is shared by 
 });
 
 test("quiet text that reads on the page but not on a highlighted menu row is flagged", () => {
-  // 5.2:1 on ace's dark page, but under 4.5:1 on a highlighted row of a solid menu.
-  const palette = { ...themes.ace.dark, t3: "#888888" };
+  // 4.9:1 on ace's dark page, but under 4.5:1 on a highlighted row of a solid menu.
+  const palette = { ...themes.ace.dark, t3: "#7F7F7F" };
   expect(contrastWarnings(palette, "dark")).toEqual([
     expect.objectContaining({ label: "Quiet text", minimum: 4.5 }),
   ]);

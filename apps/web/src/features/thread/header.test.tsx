@@ -760,6 +760,7 @@ test("the ⋯ menu keeps the common thread actions in the row menu's order", asy
     "Pin",
     "Move to project…",
     "Snooze",
+    "Turn off auto-settle",
     "Archive",
     "Delete thread",
   ]);

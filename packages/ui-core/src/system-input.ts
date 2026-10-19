@@ -75,5 +75,6 @@ export function mayBeSystemInput(item: Item | undefined): boolean {
   const origin = messageOrigin(item);
   if (origin) return origin.kind !== "person" && origin.kind !== "queue" && origin.kind !== "steer";
   const text = messageText(item).trimStart();
+  if (text.startsWith("[ace-origin:")) return true;
   return candidates.some((start) => text.startsWith(start));
 }

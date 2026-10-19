@@ -429,6 +429,44 @@ test("a rate-limited root with nothing else running says it is rate limited", ()
   });
 });
 
+test("a root waiting on its subagents says so instead of Working, keeping its timer", () => {
+  const thread = world({ state: "blocked", on: "subagents", refs: ["web", "mobile"] }, [
+    said("ask", "user", 0),
+  ]);
+  thread.subagent("web", working);
+  thread.subagent("mobile", working);
+  expect(turnActivity(thread.reader, "root")).toMatchObject({
+    label: "Waiting for 2 subagents",
+    tone: "working",
+    waitingOnSubagents: true,
+    elapsedFrom: 0,
+  });
+  // Back at its own work, it reads Working again.
+  thread.status(working);
+  expect(turnActivity(thread.reader, "root")).toMatchObject({ label: "Working" });
+  expect(turnActivity(thread.reader, "root")?.waitingOnSubagents).toBeUndefined();
+});
+
+test("a turn that ended with background subagents still running waits for them", () => {
+  const thread = world({ state: "blocked", on: "background_task", refs: ["web"] }, [
+    said("ask", "user", 0),
+  ]);
+  thread.subagent("web", working);
+  expect(turnActivity(thread.reader, "root")).toMatchObject({
+    label: "Waiting for 1 subagent",
+    waitingOnSubagents: true,
+  });
+});
+
+test("a held or stopped root whose subagent works still reads Working, not waiting", () => {
+  const limited = world({ state: "blocked", on: "rate_limit", refs: [], until: undefined }, []);
+  limited.subagent("web", working);
+  expect(turnActivity(limited.reader, "root")?.label).toBe("Working");
+  const stopped = world({ state: "interrupted" }, [said("ask", "user", 0)]);
+  stopped.subagent("web", working);
+  expect(turnActivity(stopped.reader, "root")?.label).toBe("Working");
+});
+
 test("waiting on subagents counts them", () => {
   const thread = world({ state: "blocked", on: "subagents", refs: ["web", "mobile"] }, []);
   expect(turnActivity(thread.reader, "root")?.subagents).toBe(2);
@@ -654,7 +692,8 @@ test("a continuation recovered with only its new output still uses the original 
   expect(turnTreeOf(thread.reader).settled("run-1")).toBe(false);
 });
 
-test('a turn\'s time reads after "for", except after a label already in motion', () => {
+test('a turn\'s time reads after "for", except after a label already in motion or a wait', () => {
   expect(timedWords("Working")).toBe("Working for");
   expect(timedWords("Stopping…")).toBe("Stopping…");
+  expect(timedWords("Waiting for 2 subagents")).toBe("Waiting for 2 subagents ·");
 });

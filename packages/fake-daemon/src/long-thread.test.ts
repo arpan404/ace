@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { Client } from "@ace/client";
-import { DeviceId, ThreadId, type EventPayload } from "@ace/protocol";
+import { DeviceId, ThreadId, type EventPayload, type Item } from "@ace/protocol";
 import {
   FakeDaemon,
   ScenarioPlayer,
@@ -1079,6 +1079,138 @@ test("fake human approvals count once on the original turn while a newer turn wo
       (await client.turnsPage({ threadId: "review-late", before: 2 })).turns[0]?.digest
         .approvalsAnswered,
     ).toBe(1);
+  } finally {
+    await client.close();
+  }
+});
+
+const say = (item: string, role: "user" | "assistant", text: string) => ({
+  type: "item.upsert" as const,
+  agent: "root",
+  item,
+  draft: {
+    type: "message" as const,
+    role,
+    complete: true,
+    parts: [{ type: "text" as const, text }],
+  },
+});
+
+test("fake turns hold an ask and the runs the agent starts by itself until the next ask", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  daemon.createThread({
+    id: "asks",
+    workspaceId: "ace",
+    title: "asks",
+    provider: "claude",
+    access: "ask",
+  });
+  daemon.apply("asks", [
+    {
+      type: "agent.seen",
+      agent: "root",
+      origin: "root",
+      fidelity: "full",
+      native: { provider: "claude", nativeId: "root" },
+      cwd: "/fake",
+    },
+    say("ask-1", "user", "Fix the build"),
+    { type: "turn.started", agent: "root", trigger: "unknown" },
+    say("reply-1", "assistant", "Started a background check"),
+    { type: "turn.ended", agent: "root", outcome: "completed" },
+    { type: "turn.started", agent: "root", trigger: "background_completion" },
+    say("reply-2", "assistant", "Build fixed"),
+    { type: "turn.ended", agent: "root", outcome: "completed" },
+    say("ask-2", "user", "Now deploy"),
+    { type: "turn.started", agent: "root", trigger: "unknown" },
+  ]);
+  const client = await connect(daemon);
+  try {
+    const page = await client.turnsPage({ threadId: "asks" });
+    expect(
+      page.turns.map((turn) => [
+        turn.ordinal,
+        turn.initiatingMessagePreview,
+        turn.latestAgentMessagePreview,
+        turn.outcome,
+      ]),
+    ).toEqual([
+      [1, "Fix the build", "Build fixed", "completed"],
+      [2, "Now deploy", "", "active"],
+    ]);
+  } finally {
+    await client.close();
+  }
+});
+
+const text = (item: Item) =>
+  item.type === "message" && item.parts[0]?.type === "text" ? item.parts[0].text : item.id;
+
+// Mutation cases: cutting at the newest turn's own start when a run began it before its first
+// item (the read keeps only the item it was read before and the cursor never moves).
+test("fake older pages keep loading past a turn that no person's message starts", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  daemon.createThread({
+    id: "cli",
+    workspaceId: "ace",
+    title: "cli",
+    provider: "claude",
+    access: "ask",
+  });
+  const replies = (turn: number, count: number) =>
+    Array.from({ length: count }, (_, n) =>
+      say(`reply-${turn}-${n}`, "assistant", `Step ${turn}.${n}`),
+    );
+  daemon.apply("cli", [
+    {
+      type: "agent.seen",
+      agent: "root",
+      origin: "root",
+      fidelity: "full",
+      native: { provider: "claude", nativeId: "root" },
+      cwd: "/fake",
+    },
+    say("ask-1", "user", "Fix the build"),
+    { type: "turn.started", agent: "root", trigger: "unknown" },
+    ...replies(1, 250),
+    { type: "turn.ended", agent: "root", outcome: "completed" },
+    // The person typed in the provider's own CLI: ace sees the run, with no message before it.
+    { type: "turn.started", agent: "root", trigger: "user" },
+    ...replies(2, 30),
+    { type: "turn.ended", agent: "root", outcome: "completed" },
+  ]);
+  const client = await connect(daemon);
+  try {
+    const turns = await client.turnsPage({ threadId: "cli" });
+    expect(turns.turns.map((turn) => turn.initiatingMessagePreview)).toEqual(["Fix the build", ""]);
+    // From the newest item (a target past the end resolves to it), a whole-turn page at a time.
+    const newest = await client.itemsWindow({
+      threadId: "cli",
+      aroundSeq: Number.MAX_SAFE_INTEGER,
+      before: 0,
+      after: 0,
+    });
+    const read = [...newest.items];
+    let cursor = newest.itemsBefore;
+    for (let pages = 0; cursor !== null && pages < 10; pages++) {
+      const page = await client.itemsWindow({
+        threadId: "cli",
+        aroundSeq: cursor,
+        before: 199,
+        after: 0,
+        wholeTurns: true,
+      });
+      expect(page.items.at(-1)?.id).toBe(read[0]?.id);
+      expect(page.items.length).toBeGreaterThan(1);
+      read.unshift(...page.items.slice(0, -1));
+      cursor = page.itemsBefore;
+    }
+    expect(cursor).toBeNull();
+    expect(read.map(text)).toEqual([
+      "Fix the build",
+      ...Array.from({ length: 250 }, (_, n) => `Step 1.${n}`),
+      ...Array.from({ length: 30 }, (_, n) => `Step 2.${n}`),
+    ]);
   } finally {
     await client.close();
   }

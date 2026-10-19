@@ -6,13 +6,12 @@ import { cn } from "@/lib/cn.ts";
 import { formatKeys } from "@/lib/keymap.ts";
 import { iconControl } from "./composer-styles.ts";
 
-export type PrimaryMode = "send" | "queue" | "steer" | "steer-pending";
+export type PrimaryMode = "send" | "queue" | "steer";
 
 const labels: Record<PrimaryMode, string> = {
   send: "Send",
   queue: "Queue message",
   steer: "Steer message",
-  "steer-pending": "Queue message",
 };
 
 /** Queue and Steer read apart from Send, in the queue strip's own glyphs. */
@@ -20,7 +19,6 @@ const icons = {
   send: ArrowUpIcon,
   queue: QueueIcon,
   steer: ArrowBendUpRightIcon,
-  "steer-pending": QueueIcon,
 };
 
 /**
@@ -29,12 +27,10 @@ const icons = {
  */
 function hint(mode: PrimaryMode, canSteer: boolean): string {
   const mod = formatKeys("mod+enter");
-  if (mode === "steer-pending")
-    return `Queue until the current tool finishes, then steer automatically · ${mod} queues for the next turn instead`;
   if (mode === "steer") return `Steer into the running turn · ${mod} queues it instead`;
   if (mode === "queue")
     return canSteer
-      ? `Queue for after this turn · ${mod} steers when ready`
+      ? `Queue for after this turn · ${mod} steers it now`
       : "Queue for after this turn";
   return "Send";
 }

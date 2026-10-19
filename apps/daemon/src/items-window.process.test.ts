@@ -122,6 +122,7 @@ it("snapshots only the last 200 items, keeps all work entities and pages older h
   expect(view.runs.run).toEqual({
     ...run,
     ordinal: 1,
+    turn: 1,
     checkpoints: { state: "unavailable", error: "no_turn_boundary" },
   });
   expect(view.interactions.question).toEqual(interaction);

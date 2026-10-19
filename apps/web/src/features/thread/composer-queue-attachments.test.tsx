@@ -7,9 +7,11 @@ import { memoryStorage } from "@/boot/client.ts";
 import { harness } from "@/test/harness.tsx";
 import { uploadTimeoutMs } from "./composer/upload-interruption.ts";
 import { resetSendStore } from "./composer/send-store.ts";
+import { resetQueueEdits } from "./composer/queue-edit.ts";
 import { reloadPage, resetStaged, stagedSends } from "./composer/staged-sends.ts";
 
 beforeEach(() => {
+  resetQueueEdits();
   localStorage.clear();
   resetSendStore();
   resetStaged();
@@ -51,6 +53,9 @@ function interruptedActions(offered: readonly string[]) {
   ).toEqual(offered);
   return within(failure).getByRole("button", { name: "Remove" });
 }
+
+/** The message box; it remounts when a queued message is put in it to edit. */
+const composer = () => screen.getByRole("combobox", { name: "Message" });
 
 test("reload interrupts an unfinished upload and Remove releases later messages in order", async () => {
   const { app, message } = await openBusy({ uiClock: () => 1000 });
@@ -251,13 +256,12 @@ test("an edit keeps unsaved wording when the turn ends and its original attachme
   const edit = await screen.findByRole("button", { name: "Edit queued message" });
   await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
   await userEvent.click(edit);
-  const editor = await screen.findByRole("textbox", { name: "Queued message text" });
-  await userEvent.clear(editor);
-  await userEvent.type(editor, "Keep my revision");
+  await waitFor(() => expect(composer().textContent).toBe("Original wording"));
+  await userEvent.clear(composer());
+  await userEvent.type(composer(), "Keep my revision");
   act(() => app.daemon.apply(threadId, [facts.endTurn("root")]));
-  await screen.findByText("This message has left the queue. Your edits are still here to copy.");
-  expect(editor).toHaveProperty("value", "Keep my revision");
-  expect(screen.getByRole("button", { name: "Save changes" }).hasAttribute("disabled")).toBe(true);
+  await screen.findByText("The message you're editing has left the queue.");
+  expect(composer().textContent).toBe("Keep my revision");
   const view = app.daemon.snapshot({ kind: "thread", threadId });
   if (!view || !("items" in view)) throw new Error("Missing transcript");
   const sent = Object.values(view.items).filter(
