@@ -118,6 +118,7 @@ export async function startServer(options: ServerOptions): Promise<{
     admitUpgrades(listener, isLocal, {
       wss,
       allowedOrigins: access.allowedOrigins,
+      servesRenderer: options.webRoot !== undefined,
       preAuth,
       full: () => cleanups.size >= 256,
       remoteSockets,

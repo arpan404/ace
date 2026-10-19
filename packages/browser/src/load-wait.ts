@@ -54,21 +54,39 @@ export async function documentLoaded(
 }
 
 /**
- * Waits until the page has had no network request in flight for `networkQuietMs`. Long-polling
- * or streaming pages never get there; their wait ends at its timeout.
+ * A request still open this long is a long poll or a stream (a dev server's reload channel, a
+ * feed), not part of loading the page: it no longer keeps the network busy.
+ */
+export const lastingRequestMs = 5_000;
+
+/**
+ * Waits until the page has had no network request in flight for `networkQuietMs`. Sockets and
+ * event streams never count, and a request open for `lastingRequestMs` stops counting, so a
+ * dev server's reload socket or a long poll can't hold the wait until its timeout.
  */
 export async function networkIdle(
-  page: BrowserBackendPage,
+  page: Pick<BrowserBackendPage, "networkPending">,
   clock: NavigationClock,
   signal: AbortSignal,
 ): Promise<void> {
   const pending = page.networkPending?.bind(page);
   if (!pending) throw new BrowserActionError("not_supported");
+  /** When this wait first saw each request in flight. */
+  const seen = new Map<string, number>();
   let quietSince = clock.now();
   for (;;) {
     signal.throwIfAborted();
-    if (pending() > 0) quietSince = clock.now();
-    else if (clock.now() - quietSince >= networkQuietMs) return;
+    const now = clock.now();
+    const open = new Set(pending());
+    for (const id of seen.keys()) if (!open.has(id)) seen.delete(id);
+    let busy = false;
+    for (const id of open) {
+      const since = seen.get(id) ?? now;
+      seen.set(id, since);
+      if (now - since < lastingRequestMs) busy = true;
+    }
+    if (busy) quietSince = now;
+    else if (now - quietSince >= networkQuietMs) return;
     await pause(clock, pollMs, signal);
   }
 }

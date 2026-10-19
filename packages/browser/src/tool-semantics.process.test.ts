@@ -74,6 +74,60 @@ describe.skipIf(!executablePath)("browser tools agents can aim and pace", () => 
     await expect(f.evaluate("window.loaded")).resolves.toBe("slow-done");
   });
 
+  it("a click whose press lands somewhere else is reported, never ok", async () => {
+    const f = await fixture();
+    await f.navigate();
+    const agent = agentMcp(toolPort(f.service));
+    // The button slips away as the pointer arrives: the press lands on the panel behind it.
+    await f.evaluate(
+      `document.body.innerHTML = '<div style="position:fixed;inset:0;background:#eee"></div><button style="position:fixed;left:0;top:0;width:200px;height:60px" onmousemove="this.style.left=\\'600px\\'" onclick="document.title=\\'Clicked\\'">Run</button>'; 0`,
+    );
+    const run = refNamed(agent.raw(await agent.ok("browser_snapshot")), "Run");
+    const slipped = await agent.failure("browser_act", { action: "click", ref: run });
+    expect(slipped.code).toBe("covered");
+    await expect(f.evaluate("document.title")).resolves.not.toBe("Clicked");
+    // A point outside the page reaches nothing at all.
+    const outside = await agent.failure("browser_act", { action: "click", x: 5000, y: 10 });
+    expect(outside.code).toBe("not_hittable");
+  });
+
+  it("networkidle settles on a dev server page that keeps a reload stream and a long poll open", async () => {
+    const f = await fixture();
+    const server = createServer((request, response) => {
+      if (request.url === "/events") {
+        response.writeHead(200, { "Content-Type": "text/event-stream" });
+        response.write("data: connected\n\n");
+        return;
+      }
+      if (request.url === "/poll") return;
+      if (request.url === "/slow") {
+        setTimeout(() => response.end("slow-done"), 800);
+        return;
+      }
+      response.setHeader("Content-Type", "text/html");
+      response.end(`<!doctype html><body><script>
+        new EventSource('/events');
+        fetch('/poll');
+        addEventListener('load', () => fetch('/slow').then((r) => r.text()).then((t) => (window.loaded = t)));
+      </script></body>`);
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    onTestFinished(async () => {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Missing server address");
+    const agent = agentMcp(toolPort(f.service));
+    await agent.ok("browser_open", {
+      url: `http://127.0.0.1:${address.port}/`,
+      waitUntil: "networkidle",
+      timeout: 20_000,
+    });
+    // The page's own loading was still waited for.
+    await expect(f.evaluate("window.loaded")).resolves.toBe("slow-done");
+  }, 30_000);
+
   it("wait_for networkIdle waits out the requests a click started", async () => {
     const f = await fixture();
     const site = await busySite();
