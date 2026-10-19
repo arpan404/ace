@@ -27,7 +27,7 @@ export interface SignIn {
   prompt?: string;
 }
 const signIns: Partial<Record<ProviderKind, SignIn>> = {
-  claude: { run: "claude", prompt: "/login" },
+  claude: { run: "claude auth login" },
   codex: { run: "codex login" },
   opencode: { run: "opencode auth login --standalone" },
   // Pi signs in from its interactive prompt (docs/research/providers/pi.md, ADR 0050).

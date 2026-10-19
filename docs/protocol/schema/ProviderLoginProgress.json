@@ -32,6 +32,10 @@
       "maxItems": 32,
       "type": "array"
     },
+    "codeEntry": {
+      "const": true,
+      "type": "boolean"
+    },
     "expiresAt": {
       "minimum": 0,
       "type": "number"

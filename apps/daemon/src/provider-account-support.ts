@@ -8,9 +8,11 @@ import { probeOutput } from "@ace/provider-kit/process";
 import { apiKeySupport } from "./provider-api-key.ts";
 
 export function reportedAuthMethod(detail?: string): "browser" | "api_key" | "unknown" {
-  return detail === "API key" || detail === "api_key"
+  // Claude reports a key as `apiKey` or `api_key_helper`, and a long-lived subscription token
+  // from `claude setup-token` as `oauth_token`.
+  return ["API key", "api_key", "apiKey", "api_key_helper"].includes(detail ?? "")
     ? "api_key"
-    : ["ChatGPT", "claude.ai", "oauth"].includes(detail ?? "")
+    : ["ChatGPT", "claude.ai", "oauth", "oauth_token"].includes(detail ?? "")
       ? "browser"
       : "unknown";
 }

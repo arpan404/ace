@@ -2,7 +2,7 @@ import { z } from "zod";
 import { createRedactor } from "@ace/redaction";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { access } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { discoverCursorSdk } from "./host.ts";
 import { hostWire } from "./host-wire.ts";
@@ -56,6 +56,7 @@ const wire = hostWire(async (method, params) => {
       loginUrl: (url) => {
         void wire.notify("login-url", { url }).catch(stop);
       },
+      keyName: `ace on ${hostname()}`.slice(0, 128),
       credentialFileAbsent: async () => {
         try {
           await access(join(homedir(), ".cursor", "sdk", "auth.json"));
