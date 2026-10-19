@@ -8,7 +8,7 @@ import {
   type ToolWords,
   type Verbs,
 } from "./ace-tool-specs.ts";
-import { playwrightChord } from "./key-chord.ts";
+import { modifierPrefix, playwrightChord } from "./key-chord.ts";
 
 /*
  * Computer use's background tools as sentences: `screen_apps` lists apps, `screen_state` looks at
@@ -59,6 +59,8 @@ interface Phrase {
 
 const chose: Verbs = ["Chose", "Choosing", "Choose"];
 
+const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
+
 /** An action whose detail shows only when it is the batch's one action. */
 const plain = (words: Verbs, alone = "", input?: InputKind): Phrase => ({
   verbs: words,
@@ -67,18 +69,75 @@ const plain = (words: Verbs, alone = "", input?: InputKind): Phrase => ({
   input,
 });
 
+/** "⌘-clicked" from "Clicked" with ⌘ held; the verbs as they are with nothing held. */
+function held(action: Args, words: Verbs): Verbs {
+  const modifiers = Array.isArray(action["modifiers"])
+    ? action["modifiers"].filter((value): value is string => typeof value === "string")
+    : [];
+  const prefix = modifierPrefix(modifiers);
+  if (!prefix) return words;
+  return [
+    `${prefix}-${lowerFirst(words[0])}`,
+    `${prefix}-${lowerFirst(words[1])}`,
+    `${prefix}-${lowerFirst(words[2])}`,
+  ];
+}
+
+function clickVerbs(action: Args): Verbs {
+  const count = typeof action["count"] === "number" ? action["count"] : 1;
+  if (action["button"] === "right") return ["Right-clicked", "Right-clicking", "Right-click"];
+  if (action["button"] === "middle") return ["Middle-clicked", "Middle-clicking", "Middle-click"];
+  if (count === 2) return ["Double-clicked", "Double-clicking", "Double-click"];
+  if (count === 3) return ["Triple-clicked", "Triple-clicking", "Triple-click"];
+  if (typeof action["hold_ms"] === "number" && action["hold_ms"] > 0)
+    return ["Long-pressed", "Long-pressing", "Long-press"];
+  return verbs.clicked;
+}
+
+const windowVerbs: Record<string, Verbs> = {
+  close: ["Closed the window", "Closing the window", "Close the window"],
+  minimize: ["Minimized the window", "Minimizing the window", "Minimize the window"],
+  restore: ["Restored the window", "Restoring the window", "Restore the window"],
+  zoom: ["Zoomed the window", "Zooming the window", "Zoom the window"],
+  fullscreen: [
+    "Made the window full screen",
+    "Making the window full screen",
+    "Make the window full screen",
+  ],
+  raise: ["Raised the window", "Raising the window", "Raise the window"],
+  move: ["Moved the window", "Moving the window", "Move the window"],
+  resize: ["Resized the window", "Resizing the window", "Resize the window"],
+};
+
+function waitedFor(action: Args): Phrase {
+  const text = str(action, "text");
+  const what = text ? quote(text) : "an element";
+  const rest = action["gone"] === true ? ` ${what} to go` : ` ${what}`;
+  return { verbs: verbs.waited, alone: rest, among: rest, input: undefined };
+}
+
 function phrase(action: Args): Phrase | undefined {
   switch (action["type"]) {
-    case "click": {
-      const count = typeof action["count"] === "number" ? action["count"] : 1;
-      if (action["button"] === "right")
-        return plain(["Right-clicked", "Right-clicking", "Right-click"], "", "click");
-      if (count === 2)
-        return plain(["Double-clicked", "Double-clicking", "Double-click"], "", "click");
-      if (count === 3)
-        return plain(["Triple-clicked", "Triple-clicking", "Triple-click"], "", "click");
-      return plain(verbs.clicked, "", "click");
+    case "click":
+      return plain(held(action, clickVerbs(action)), "", "click");
+    case "move":
+      return plain(["Hovered", "Hovering", "Hover"], "", "click");
+    case "paste": {
+      const text = shownText(action);
+      return plain(verbs.pasted, text ? ` ${quote(text)}` : "", "paste");
     }
+    case "scroll_to":
+      return plain(
+        ["Scrolled to an element", "Scrolling to an element", "Scroll to an element"],
+        "",
+        "scroll",
+      );
+    case "window": {
+      const words = windowVerbs[str(action, "op") ?? ""];
+      return words ? plain(words, "", "act") : undefined;
+    }
+    case "wait_for":
+      return waitedFor(action);
     case "type": {
       const text = shownText(action);
       return plain(verbs.typed, text ? ` ${quote(text)}` : "", "type");
@@ -121,15 +180,13 @@ function phrase(action: Args): Phrase | undefined {
     case "focus":
       return plain(["Focused", "Focusing", "Focus"], " an element", "act");
     case "drag":
-      return plain(["Dragged", "Dragging", "Drag"], "", "click");
+      return plain(held(action, ["Dragged", "Dragging", "Drag"]), "", "click");
     case "activate":
       return { ...plain(["Brought", "Bringing", "Bring"], "", "other"), forward: true };
     default:
       return undefined;
   }
 }
-
-const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
 
 /** One sentence for a batch: its one action in full, or its actions' verbs in order. */
 function batchWords(args: Args, subject: string | undefined): ToolWords {

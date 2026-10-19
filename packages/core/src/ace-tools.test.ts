@@ -178,7 +178,7 @@ it("measurement input text is redacted before native evidence can be stored", ()
   });
 });
 
-it("text a computer-use batch types or sets stays private while its clicks and menus stay visible", () => {
+it("text a computer-use batch types, sets or selects stays private while its clicks, menus and searches stay visible", () => {
   const feed = fixture();
   const events = feed({
     type: "item.upsert",
@@ -199,6 +199,9 @@ it("text a computer-use batch types or sets stays private while its clicks and m
               { type: "menu", path: ["File", "New"] },
               { type: "type", text: "secret-typed" },
               { type: "set_value", id: 4, value: "secret-set" },
+              { type: "select_text", id: 4, text: "secret-sel", prefix: "secret-pre" },
+              { type: "wait_for", text: "Saved" },
+              { type: "click", id: 3, when: { text: "OK" } },
             ],
           },
         },
@@ -206,7 +209,7 @@ it("text a computer-use batch types or sets stays private while its clicks and m
       },
     },
   });
-  expect(JSON.stringify(events)).not.toMatch(/secret-typed|secret-set/);
+  expect(JSON.stringify(events)).not.toMatch(/secret-typed|secret-set|secret-sel|secret-pre/);
   expect(events.find((event) => event.type === "item.created")).toMatchObject({
     item: {
       call: {
@@ -217,6 +220,10 @@ it("text a computer-use batch types or sets stays private while its clicks and m
               { type: "menu", path: ["File", "New"] },
               { type: "type", text: "[redacted]" },
               { type: "set_value", id: 4, value: "[redacted]" },
+              { type: "select_text", id: 4, text: "[redacted]", prefix: "[redacted]" },
+              // What the agent waits for or checks is search text, not something it typed.
+              { type: "wait_for", text: "Saved" },
+              { type: "click", id: 3, when: { text: "OK" } },
             ],
           },
         },

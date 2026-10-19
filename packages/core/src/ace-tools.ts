@@ -153,12 +153,9 @@ export function privateAceInput(tool: string, input?: unknown): boolean {
   const action = record.safeParse(payload?.action ?? payload?.interaction).data;
   if (name.endsWith("_measure") && action && ("text" in action || "value" in action)) return true;
   if (name === "html_render") return true;
-  // A computer-use batch types or sets values in its actions.
+  // A computer-use batch types, pastes, sets or selects document text in some of its steps.
   if (name === "screen_act")
-    return (Array.isArray(payload?.actions) ? payload.actions : []).some((entry) => {
-      const step = record.safeParse(entry).data;
-      return step !== undefined && ["text", "value"].some((key) => step[key] !== undefined);
-    });
+    return (Array.isArray(payload?.actions) ? payload.actions : []).some(privateStep);
   // Merged input tools carry text only for typing, pasting or setting a value; a click or key
   // press stays visible, error and all.
   return (
@@ -167,6 +164,14 @@ export function privateAceInput(tool: string, input?: unknown): boolean {
     ["text", "value", "promptText"].some((key) => payload[key] !== undefined)
   );
 }
+/** Computer-use steps that carry typed, pasted, set or selected text, and those fields. */
+const textSteps: ReadonlySet<unknown> = new Set(["type", "paste", "set_value", "select_text"]);
+const stepSecrets = ["text", "value", "prefix", "suffix"];
+function privateStep(entry: unknown): boolean {
+  const step = record.safeParse(entry).data;
+  return step !== undefined && textSteps.has(step["type"]);
+}
+
 export function redactAceArguments(name: string, value: unknown): unknown {
   if (!privateAceInput(name, value)) return value;
   const call = dispatchedAceCall(name, value);
@@ -180,14 +185,15 @@ export function redactAceArguments(name: string, value: unknown): unknown {
       ["text", "value", "html", "title", "promptText"].includes(key) ? "[redacted]" : child,
     ]),
   );
+  // Search text (wait_for, a step's when) stays visible: it is what the agent looks for.
   if (Array.isArray(redacted.actions))
     redacted.actions = redacted.actions.map((entry) => {
       const step = record.safeParse(entry);
-      if (!step.success) return entry;
+      if (!step.success || !privateStep(step.data)) return entry;
       return Object.fromEntries(
         Object.entries(step.data).map(([key, child]) => [
           key,
-          ["text", "value"].includes(key) ? "[redacted]" : child,
+          stepSecrets.includes(key) ? "[redacted]" : child,
         ]),
       );
     });

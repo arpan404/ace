@@ -310,6 +310,36 @@ test("a batch reads its actions' verbs in order, each once, without its waits", 
   expect(batch?.awaiting).toBe("Click, type, press Return in Calculator");
 });
 
+test("hover, held modifiers, waits for text and window steps read as what they did", () => {
+  const act = (action: Record<string, unknown>) =>
+    words("screen_act", { app: "com.apple.finder", actions: [action] })?.past;
+  expect(act({ type: "move", id: 3 })).toBe("Hovered in Finder");
+  expect(act({ type: "click", id: 3, modifiers: ["shift", "cmd"] })).toBe("⇧⌘-clicked in Finder");
+  expect(act({ type: "click", id: 3, button: "middle" })).toBe("Middle-clicked in Finder");
+  expect(act({ type: "click", id: 3, hold_ms: 800 })).toBe("Long-pressed in Finder");
+  expect(act({ type: "drag", from: { id: 3 }, to: [4, 5], modifiers: ["alt"] })).toBe(
+    "⌥-dragged in Finder",
+  );
+  expect(act({ type: "wait_for", text: "Saved" })).toBe("Waited for “Saved” in Finder");
+  expect(act({ type: "wait_for", text: "Copying", gone: true })).toBe(
+    "Waited for “Copying” to go in Finder",
+  );
+  expect(act({ type: "scroll_to", id: 9 })).toBe("Scrolled to an element in Finder");
+  expect(act({ type: "window", op: "resize", width: 800, height: 600 })).toBe(
+    "Resized the window in Finder",
+  );
+  expect(act({ type: "paste", text: "# Notes" })).toBe("Pasted “# Notes” in Finder");
+  const batch = words("screen_act", {
+    app: "Finder",
+    actions: [
+      { type: "click", id: 1 },
+      { type: "wait_for", text: "Done" },
+      { type: "window", op: "close" },
+    ],
+  });
+  expect(batch?.past).toBe("Clicked, waited for “Done”, closed the window in Finder");
+});
+
 test("text a batch typed that ace redacted is never quoted as if it were typed", () => {
   const typed = words("screen_act", {
     app: "TextEdit",
