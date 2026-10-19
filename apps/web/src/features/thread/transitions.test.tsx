@@ -103,8 +103,7 @@ test("on a desktop window the fork opens with the caret in its composer", async 
   }
 }, 20_000);
 
-test("leaving a fork before its first message creates nothing", async () => {
-  const { app } = await openRouter();
+async function openForkFromPalette() {
   await userEvent.keyboard("{Meta>}k{/Meta}");
   await userEvent.type(
     await screen.findByRole("combobox", { name: "Search commands" }, { timeout: 10000 }),
@@ -112,12 +111,55 @@ test("leaving a fork before its first message creates nothing", async () => {
   );
   await userEvent.click(await screen.findByRole("option", { name: /Fork from the last turn/ }));
   await screen.findByRole("heading", { level: 1, name: "Document the router (fork)" });
+  return screen.findByRole("combobox", { name: "Message" });
+}
+const forkDrafts = () => screen.queryByRole("list", { name: "Fork drafts" });
+
+test("a fork left before its first message stays a draft in Unsent and reopens with its message", async () => {
+  const { app } = await openRouter();
+  await userEvent.type(await openForkFromPalette(), "Half a thought");
   await userEvent.click(
     within(screen.getByRole("banner")).getByRole("link", { name: "Document the router" }),
   );
   await screen.findByRole("heading", { level: 1, name: "Document the router" });
+  // Nothing exists on the daemon: the fork is only a draft on this device.
   expect(forks(app)).toEqual([]);
+
+  const list = await screen.findByRole("list", { name: "Fork drafts" });
+  await userEvent.click(
+    within(list).getByRole("link", { name: /^Document the router \(fork\)\. Fork draft/ }),
+  );
+  const message = await screen.findByRole("combobox", { name: "Message" });
+  await waitFor(() => expect(message.textContent).toBe("Half a thought"));
 });
+
+test("sending a fork's first message takes its draft out of Unsent", async () => {
+  const { app } = await openRouter();
+  await userEvent.type(await openForkFromPalette(), "Try nested routes instead{Enter}");
+  await within(await screen.findByRole("feed", { name: "Transcript" })).findByText(
+    "Try nested routes instead",
+  );
+  expect(forks(app)).toHaveLength(1);
+  await waitFor(() => expect(forkDrafts()).toBeNull());
+});
+
+test("discarding a fork draft forgets it and its message, and Undo brings both back", async () => {
+  await openRouter();
+  await userEvent.type(await openForkFromPalette(), "Half a thought");
+  const list = await screen.findByRole("list", { name: "Fork drafts" });
+  await userEvent.click(
+    within(list).getByRole("button", { name: "Discard fork draft of Document the router" }),
+  );
+  // Its page was open, so the parent opens in its place.
+  await screen.findByRole("heading", { level: 1, name: "Document the router" });
+  await waitFor(() => expect(forkDrafts()).toBeNull());
+
+  await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+  const back = await screen.findByRole("list", { name: "Fork drafts" });
+  await userEvent.click(within(back).getByRole("link", { name: /Fork draft/ }));
+  const message = await screen.findByRole("combobox", { name: "Message" });
+  await waitFor(() => expect(message.textContent).toBe("Half a thought"));
+}, 20_000);
 
 test("picking another provider's model asks first, then switches after the running turn", async () => {
   const app = harness();

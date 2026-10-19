@@ -9,11 +9,13 @@ import {
   type AttachmentReader,
 } from "@ace/ui-core";
 import { useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { failureMessage } from "@/lib/daemon-command.ts";
 import { useModelCatalog } from "@/lib/model-catalog.ts";
 import { useModelChoices } from "@/features/models/index.ts";
+import { useHostIdentity } from "@/lib/host-name.ts";
+import { useLayout } from "@/lib/layout.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { Composer, type Draft } from "../composer/composer.tsx";
 import { ComposerDock } from "../composer/composer-dock.tsx";
@@ -25,6 +27,7 @@ import { useThreadSources, type Selection, type ThreadRef } from "../sources/ind
 import { ThreadLoading } from "../thread-loading.tsx";
 import { ForkModelPicker } from "./fork-model-picker.tsx";
 import type { ForkDraftSearch } from "./fork-opener.ts";
+import { forkDraftKey, removeForkDraft, saveForkDraft, type ForkDraft } from "./fork-drafts.ts";
 
 /** Desktop widths put the caret in the composer when the fork opens; a phone's keyboard waits. */
 const wideEnoughToFocus = () =>
@@ -98,7 +101,20 @@ function ForkComposer(props: {
     model: selection.model ? modelLabel(selection.model) : undefined,
     modalities,
   };
-  const pointKey = props.point.type === "turn" ? props.point.runId : props.point.itemId;
+  // Opening the fork keeps it as a draft on this device until its first message starts it.
+  const { storage } = useLayout();
+  const host = useHostIdentity()?.hostId;
+  const saved = useMemo<ForkDraft>(
+    () => ({
+      threadId: props.thread.id,
+      ...(props.point.type === "turn" ? { run: props.point.runId } : { item: props.point.itemId }),
+    }),
+    [props.thread.id, props.point],
+  );
+  const draftKey = forkDraftKey(saved);
+  useEffect(() => {
+    if (host) saveForkDraft(storage, host, saved);
+  }, [storage, host, saved]);
   const submit = async (draft: Draft) => {
     try {
       const threadId = await forkWithDraft({
@@ -115,6 +131,7 @@ function ForkComposer(props: {
         draft,
         title: props.title || undefined,
       });
+      if (host) removeForkDraft(storage, host, draftKey);
       void navigate({ to: "/t/$threadId", params: { threadId }, replace: true });
       return true;
     } catch (error) {
@@ -129,7 +146,7 @@ function ForkComposer(props: {
     <ComposerDock>
       <Composer
         thread={props.thread}
-        draftKey={`fork:${props.thread.id}:${pointKey}`}
+        draftKey={draftKey}
         busy={false}
         onSubmit={submit}
         reader={reader}

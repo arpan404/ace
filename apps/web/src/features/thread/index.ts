@@ -27,6 +27,14 @@ export { preloadDeferred } from "./deferred.ts";
 /** Fork from a thread's last finished turn, for menus outside the thread screen. */
 export { useOpenFork } from "./transitions/fork-opener.ts";
 export { ForkDraftView } from "./transitions/fork-draft.tsx";
+/** Forks opened and not yet sent, listed with New thread's drafts. */
+export {
+  forkDraftKey,
+  removeForkDraft,
+  saveForkDraft,
+  useForkDrafts,
+  type ForkDraft,
+} from "./transitions/fork-drafts.ts";
 export { useLatestForkPoint } from "./transitions/use-fork-point.ts";
 
 export { PrLinksDialog } from "./pr-links-dialog-lazy.tsx";
