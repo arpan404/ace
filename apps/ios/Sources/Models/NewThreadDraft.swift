@@ -18,6 +18,8 @@ struct NewThreadDraft: Codable, Equatable, Sendable {
     var worktree = false
     var base: ComposeBaseRef?
     var text = ""
+    var profileId: String?
+    var instructions: String?
     /// The command id of a send that may already be saved: sending the same draft again replays
     /// that one command instead of starting a second thread. Any edit drops it.
     var commandId: String?

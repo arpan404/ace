@@ -22,7 +22,7 @@ struct ComposerView: View {
     private var stops: Bool { empty && controls?.busy == true && controls?.canStop == true }
     var body: some View {
         HStack(alignment: .bottom, spacing: AceTheme.Spacing.md) {
-            NativeTextInput(text: $draft.text, inputBegan: inputBegan)
+            NativeTextInput(text: $draft.text, inputBegan: inputBegan, submit: { if !disabled && !stops { submit(alternate: false) } })
                 .overlay(alignment: .leading) {
                     // Visual only: VoiceOver hears the field's own label.
                     if draft.text.isEmpty {

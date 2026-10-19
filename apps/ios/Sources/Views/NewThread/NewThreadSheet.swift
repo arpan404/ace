@@ -17,6 +17,7 @@ struct NewThreadSheet: View {
     @State private var failure: String?
     @State private var browsing = false
     @State private var attachProblem: String?
+    @State private var profiles: [TaskProfile] = []
     private var draft: NewThreadDraft { drafts.draft }
     /// The first message's files, in the chosen project's draft scope.
     private var files: [AttachmentFile] {
@@ -61,6 +62,16 @@ struct NewThreadSheet: View {
                 projectSection
                 agentSection
                 messageSection
+                Section {
+                    Picker("Profile", selection: Binding(get: { draft.profileId ?? "" }, set: { id in
+                        drafts.edit { $0.profileId = id.isEmpty ? nil : id; $0.instructions = profiles.first { $0.id == id }?.instructions }
+                    })) {
+                        Text("None").tag("")
+                        ForEach(profiles) { Text($0.name).tag($0.id) }
+                    }
+                    TextField("Custom instructions", text: Binding(get: { draft.instructions ?? "" }, set: { value in drafts.edit { $0.instructions = value } }), axis: .vertical).lineLimit(2...6)
+                    NavigationLink("Manage profiles") { TaskProfilesView(store: TaskProfileStore(defaults: .standard)) }
+                } footer: { Text("Instructions are included in this task's first message.") }
                 if let failure {
                     Text(failure).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.StatusText.failed)
                         .accessibilityIdentifier("newThread.failure")
@@ -94,6 +105,7 @@ struct NewThreadSheet: View {
         }
         .onChange(of: choiceKey) { _, _ in client?.composeChoice(draft) }
         .onDisappear { client?.composeAction(["kind": "close"]) }
+        .onAppear { profiles = TaskProfileStore(defaults: .standard).load() }
         .sheet(isPresented: $browsing) { projectFiles }
     }
     /// The chosen project's own folder, read-only, before the thread exists.
@@ -196,7 +208,7 @@ struct NewThreadSheet: View {
                 drafts.picked(staged, workspaceId: project)
                 client.composeAttach(staged, workspaceId: project)
             }, problem: $attachProblem, identifier: "newThread.attach", staging: drafts.staging) {
-                Label("Add photos or files", systemImage: "paperclip").frame(maxWidth: .infinity, alignment: .leading)
+                Label("Add photos or files", systemImage: "plus").frame(maxWidth: .infinity, alignment: .leading)
             }
             .disabled(draft.projectId == nil || client?.canOperate != true)
             if let attachProblem {

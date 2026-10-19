@@ -22,6 +22,7 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+      - path: Shared
       - path: Resources
         buildPhase: resources
     info:

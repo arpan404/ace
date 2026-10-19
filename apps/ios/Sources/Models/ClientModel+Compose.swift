@@ -15,7 +15,7 @@ extension ClientModel {
         guard files > 0 || !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         var create: [String: Any] = [
             "kind": "create", "commandId": commandId, "workspaceId": project,
-            "mode": draft.worktree ? "worktree" : "local", "text": draft.text,
+            "mode": draft.worktree ? "worktree" : "local", "text": draft.outgoingText,
         ]
         if let provider = draft.provider { create["provider"] = provider }
         if let model = draft.model { create["model"] = model }

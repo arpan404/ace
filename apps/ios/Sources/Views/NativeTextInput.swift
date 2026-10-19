@@ -5,6 +5,8 @@ import UIKit
 struct NativeTextInput: UIViewRepresentable {
     @Binding var text: String
     let inputBegan: () -> Void
+    var submit: (() -> Void)? = nil
+    @AppStorage("ace.keyboard.returnSends") private var returnSends = false
     func makeUIView(context: Context) -> ComposerTextView {
         let view = ComposerTextView()
         view.delegate = context.coordinator
@@ -40,6 +42,7 @@ struct NativeTextInput: UIViewRepresentable {
         init(parent: NativeTextInput) { self.parent = parent }
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
             parent.inputBegan()
+            if text == "\n", parent.returnSends, textView.markedTextRange == nil, let submit = parent.submit { submit(); return false }
             return true
         }
         func textViewDidChange(_ textView: UITextView) {
