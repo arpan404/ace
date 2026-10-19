@@ -587,6 +587,9 @@
           "minLength": 1,
           "type": "string"
         },
+        "touch": {
+          "type": "boolean"
+        },
         "width": {
           "maximum": 4096,
           "minimum": 100,
