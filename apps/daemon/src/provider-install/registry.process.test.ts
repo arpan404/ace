@@ -7,7 +7,7 @@ import { AgentCatalog, AgentRegistry, fileCache, fileInventoryStorage } from "@a
 import { expect, test } from "vitest";
 import { ProviderInstalls } from "./sessions.ts";
 import { registryInstaller } from "./registry.ts";
-import type { ProviderInstallProgress } from "@ace/protocol";
+import { ProviderInstallProgress, ProviderInstallResult } from "@ace/protocol";
 
 const runFile = promisify(execFile);
 test("Antigravity installs its registry archive with companion files and binds the verified server", async () => {
@@ -80,10 +80,21 @@ test("Antigravity installs its registry archive with companion files and binds t
     },
   );
   installs.listen((_owner, event) => {
-    if (["succeeded", "failed", "cancelled"].includes(event.state)) terminal.resolve(event);
+    // Clients parse every update with the strict wire schema; one stray field drops it.
+    if (["succeeded", "failed", "cancelled"].includes(event.state))
+      terminal.resolve(ProviderInstallProgress.parse(event));
   });
   try {
-    const plan = await installs.plan({ provider: "antigravity" }, "install");
+    const planned = ProviderInstallResult.parse(
+      await installs.handle("device", {
+        type: "provider.install.plan",
+        requestId: "plan",
+        provider: "antigravity",
+        action: "install",
+      }),
+    );
+    expect(planned.result).toMatchObject({ ok: true });
+    const plan = "plan" in planned.result ? planned.result.plan : undefined;
     expect(plan).toMatchObject({
       status: "ready",
       method: "registry",
