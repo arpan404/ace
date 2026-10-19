@@ -27,8 +27,8 @@ final class ComputerClickRouteTests: XCTestCase {
         // Text inside a button, or a field (where the caret should land at the point): a real click.
         XCTAssertEqual(cuClickRoute(CUClickFacts(byId: false, role: "AXStaticText", pressableAncestor: true)), .post)
         XCTAssertEqual(cuClickRoute(CUClickFacts(byId: false, role: "AXTextArea")), .post)
-        // Off screen a real click cannot land, so the nearest accessibility equivalent is tried.
-        XCTAssertEqual(cuClickRoute(CUClickFacts(byId: false, role: "AXStaticText", pressableAncestor: true, onScreen: false)), .pressAncestor)
+        // In a minimized window a real click cannot land, so the nearest accessibility equivalent is tried.
+        XCTAssertEqual(cuClickRoute(CUClickFacts(byId: false, role: "AXStaticText", pressableAncestor: true, pointerLands: false)), .pressAncestor)
     }
 
     func testRightClicksOpenTheContextMenuThroughAccessibilityWhenOffered() {

@@ -2,42 +2,44 @@ import AppKit
 import ApplicationServices
 
 /// Scrolling by element (accessibility first, which works on covered and off-screen windows)
-/// or at a screenshot point (a real wheel event there, which scrolls whatever is under it).
+/// or at a screenshot point (a real wheel event there, which scrolls whatever is under it;
+/// addressed to the window when it is on another Space or behind a full-screen app).
 extension CUActor {
     func scroll(_ action: CUObject) async throws -> String {
         let direction = action.string("direction") ?? "down"
         guard ["up", "down", "left", "right"].contains(direction) else { throw CUError("bad_action", "direction is up, down, left or right.") }
         let pages = action.double("pages"), pixels = action.double("pixels")
         if pages != nil && pixels != nil { throw CUError("bad_action", "scroll takes pages or pixels, not both.") }
-        let onScreen = session.window?.onScreen == true
+        let lands = pointerDelivery != .unavailable
         var start: AXUIElement?
         var point: CGPoint?
         if action.int("id") != nil { start = try element(action) }
         else if let x = action.double("x"), let y = action.double("y") {
             let at = try session.screenPoint(fromPixel: CGPoint(x: x, y: y))
             point = at
-            // On screen, a wheel event at the point is exact; off screen, scroll what is there.
-            if !onScreen { start = hitElement(at: at) }
+            // A wheel event at the point is exact; in a minimized window, scroll what is there.
+            if !lands { start = hitElement(at: at) }
         } else if let first = session.lastNodes.first(where: { $0.axRole == "AXScrollArea" || $0.axRole == "AXWebArea" }) {
             start = session.registry.element(first.id)
         }
-        if point == nil || !onScreen, let start, let done = try await scrollThroughAccessibility(from: start, direction: direction, pages: pages, pixels: pixels) {
+        if point == nil || !lands, let start, let done = try await scrollThroughAccessibility(from: start, direction: direction, pages: pages, pixels: pixels) {
             return done
         }
-        guard onScreen, let at = point ?? start.flatMap(visibleCenter) ?? session.window.map({ CGPoint(x: $0.frame.midX, y: $0.frame.midY) }) else {
-            throw CUError("not_scrollable", "Found nothing scrollable there, and the window is not on the current screen for a wheel event. Pass the id of a scroll area or list, or use keys such as PageDown.")
+        guard lands, let at = point ?? start.flatMap(visibleCenter) ?? session.window.map({ CGPoint(x: $0.frame.midX, y: $0.frame.midY) }) else {
+            throw CUError("not_scrollable", "Found nothing scrollable there, and the window is minimized or hidden, so a wheel event would not land. Pass the id of a scroll area or list, or use keys such as PageDown.")
         }
         let viewport = start.flatMap { scrollArea(containing: $0).flatMap(cuFrame(of:)) }?.size ?? session.window?.frame.size ?? CGSize(width: 800, height: 600)
         let distance = cuScrollDistance(direction: direction, pages: pages, pixels: pixels, viewport: viewport)
-        try await wheel(at: at, deltas: cuWheelDeltas(direction: direction, distance: distance))
+        try await wheel(at: at, deltas: cuWheelDeltas(direction: direction, distance: distance), over: start)
         return "scrolled \(direction) \(Int(distance)) points with the mouse wheel\(start.map { " over \(label($0))" } ?? "")"
     }
 
-    private func wheel(at point: CGPoint, deltas: [CUWheelDelta]) async throws {
-        indicate(point)
+    private func wheel(at point: CGPoint, deltas: [CUWheelDelta], over element: AXUIElement?) async throws {
+        if pointerDelivery == .windowServer { indicate(point) }
+        let target = pointerDelivery == .windowTargeted ? pointerTarget(for: element ?? hitElement(at: point)) : nil
         for (index, delta) in deltas.enumerated() {
             if index > 0 { try await pause(ms: 16) }
-            poster.scroll(at: point, window: session.window?.number, delta: delta)
+            poster.scroll(at: point, window: session.window?.number, target: target, delta: delta)
         }
         session.settler.markChanged()
     }
@@ -121,12 +123,12 @@ extension CUActor {
                     let offset = cuRevealOffset(element: frame, visible: visible)
                     if offset.dx != 0 || offset.dy != 0 {
                         if moveScrollBar(current, by: offset) == nil {
-                            guard session.window?.onScreen == true else {
-                                throw CUError("not_scrollable", "\(label(target)) is outside its scroll area, which can't be scrolled through accessibility while the window is off screen. Try keys such as PageDown.")
+                            guard pointerDelivery != .unavailable else {
+                                throw CUError("not_scrollable", "\(label(target)) is outside its scroll area, which can't be scrolled through accessibility while the window is minimized or hidden. Try keys such as PageDown.")
                             }
                             let deltas = cuWheelDeltas(direction: offset.dy > 0 ? "down" : offset.dy < 0 ? "up" : offset.dx > 0 ? "right" : "left",
                                                        distance: Double(abs(offset.dy != 0 ? offset.dy : offset.dx)))
-                            try await wheel(at: CGPoint(x: visible.midX, y: visible.midY), deltas: deltas)
+                            try await wheel(at: CGPoint(x: visible.midX, y: visible.midY), deltas: deltas, over: current)
                         }
                         moved = true
                     }

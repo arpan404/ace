@@ -40,9 +40,10 @@ import CoreGraphics
         else { key(cuNeutralKeyCode, text: String(character)) }
     }
 
-    /// One mouse event addressed to one window. Reaches visible windows even when another app
-    /// is in front; windows on another Space ignore it, so callers prefer accessibility actions.
-    func mouse(_ step: CUMouseEvent, window: CGWindowID?, flags: CGEventFlags = []) {
+    /// One mouse event for one window. On screen the window server routes it to the window
+    /// under the point; with a `target` (a window on another Space or behind a full-screen
+    /// app, where nothing of the app is under the point) the event names the window itself.
+    func mouse(_ step: CUMouseEvent, window: CGWindowID?, target: CUPointerTarget? = nil, flags: CGEventFlags = []) {
         let type: CGEventType
         switch (step.kind, step.button) {
         case (.move, _): type = .mouseMoved
@@ -60,20 +61,39 @@ import CoreGraphics
         guard let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: step.point, mouseButton: button) else { return }
         event.flags = flags
         if step.kind != .move { event.setIntegerValueField(.mouseEventClickState, value: Int64(max(1, step.clickState))) }
-        if let window {
-            event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window))
-            event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window))
-        }
+        address(event, window: target?.window ?? window)
+        if let target { cuAddressToWindow(event, target: target, at: step.point) }
         event.postToPid(pid)
     }
 
-    func scroll(at point: CGPoint, window: CGWindowID?, delta: CUWheelDelta) {
+    func scroll(at point: CGPoint, window: CGWindowID?, target: CUPointerTarget? = nil, delta: CUWheelDelta) {
         guard let event = CGEvent(scrollWheelEvent2Source: source, units: .pixel, wheelCount: 2, wheel1: delta.dy, wheel2: delta.dx, wheel3: 0) else { return }
         event.location = point
-        if let window {
-            event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window))
-            event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window))
-        }
+        address(event, window: target?.window ?? window)
+        if let target { cuAddressToWindow(event, target: target, at: point) }
         event.postToPid(pid)
     }
+
+    private func address(_ event: CGEvent, window: CGWindowID?) {
+        guard let window else { return }
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window))
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window))
+    }
+}
+
+/// The event field AppKit reads an event's window number from (`NSEvent.windowNumber`). The
+/// window server fills it, and the window location, when it routes an event by position.
+private let cuEventWindowNumberField = CGEventField(rawValue: 51)
+
+/// Names the window an event is for and sets its window-local location, so AppKit delivers it
+/// to that window at that point although no window is under the point on this screen.
+/// The window location setter is SkyLight's (re-exported by CoreGraphics), resolved once.
+func cuAddressToWindow(_ event: CGEvent, target: CUPointerTarget, at point: CGPoint) {
+    if let field = cuEventWindowNumberField { event.setIntegerValueField(field, value: Int64(target.window)) }
+    CUWindowLocationSetter.set?(event, cuWindowPoint(point, in: target))
+}
+
+private enum CUWindowLocationSetter {
+    typealias Function = @convention(c) (CGEvent, CGPoint) -> Void
+    static let set: Function? = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGEventSetWindowLocation").map { unsafeBitCast($0, to: Function.self) }
 }

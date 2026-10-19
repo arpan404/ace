@@ -3,7 +3,8 @@ import ApplicationServices
 
 /// Clicks, hovering and dragging. Plain clicks on named elements go through accessibility;
 /// everything a real mouse is needed for is posted to the app's window, made key first so the
-/// first click is not swallowed as a mere "bring to front".
+/// first click is not swallowed as a mere "bring to front". Windows on another Space or behind
+/// a full-screen app get events addressed to them (see `CUPointerDelivery`).
 extension CUActor {
     func click(_ action: CUObject) async throws -> String {
         guard let button = CUMouseButton(rawValue: action.string("button") ?? "left") else { throw CUError("bad_action", "button is left, right or middle.") }
@@ -11,6 +12,7 @@ extension CUActor {
         let modifiers = try cuModifierFlags(action.strings("modifiers"))
         let hold = max(0, min(action.int("hold_ms") ?? 0, 5_000))
         let onScreen = session.window?.onScreen == true
+        let lands = pointerDelivery != .unavailable
         var target: AXUIElement?
         var point: CGPoint?
         if action.int("id") != nil { target = try element(action) }
@@ -23,8 +25,8 @@ extension CUActor {
         if onScreen, let shown = point ?? target.flatMap(visibleCenter) { indicate(shown) }
         if let target {
             var facts = CUClickFacts(byId: point == nil, button: button, count: count, modified: !modifiers.isEmpty || hold > 0,
-                                     actions: cuActionNames(target), role: cuRole(target), onScreen: onScreen)
-            if count == 1, !facts.actions.contains("AXPress"), point == nil || !onScreen {
+                                     actions: cuActionNames(target), role: cuRole(target), pointerLands: lands)
+            if count == 1, !facts.actions.contains("AXPress"), point == nil || !lands {
                 facts.selectableRow = selectableRow(target) != nil
                 facts.pressableAncestor = pressableAncestor(target) != nil
             }
@@ -33,11 +35,11 @@ extension CUActor {
         guard let at = point ?? target.flatMap(visibleCenter) else {
             throw CUError("not_clickable", "That element has no position to click. Try an action listed on it, a menu path, or the keyboard.")
         }
-        guard onScreen else {
-            throw CUError("not_clickable", "Nothing there can be pressed through accessibility, and \(session.name)'s window is not on the current screen (another Space, minimized or behind a full-screen app), so a mouse click would not land. Use an element id with an action, a menu path, or keys instead.")
+        guard lands else {
+            throw CUError("not_clickable", "Nothing there can be pressed through accessibility, and \(session.name)'s window is minimized or hidden, so a mouse click would not land. Restore it (window {op: restore}), or use an element id with an action, a menu path, or keys instead.")
         }
         session.makeKey()
-        try await runMouse(cuClickEvents(at: at, button: button, count: count, holdMs: hold), flags: modifiers)
+        try await runMouse(cuClickEvents(at: at, button: button, count: count, holdMs: hold), flags: modifiers, target: pointerTarget(for: target))
         session.settler.markChanged()
         let kind = (button == .left ? "" : "\(button.rawValue)-") + (count == 2 ? "double-" : count == 3 ? "triple-" : "")
         let extras = (modifiers.isEmpty ? "" : " with \(cuModifierNames(modifiers))") + (hold > 0 ? ", held \(hold) ms" : "")
@@ -65,7 +67,7 @@ extension CUActor {
             guard let row = selectableRow(target) else { return nil }
             let result = AXUIElementSetAttributeValue(row, "AXSelected" as CFString, kCFBooleanTrue)
             guard result == .success else {
-                if session.window?.onScreen == true { return nil }
+                if pointerDelivery != .unavailable { return nil }
                 throw CUError("action_failed", "\(session.name) would not select \(label(row)) (AX error \(result.rawValue)). Try the keyboard (Up/Down) instead.")
             }
             session.settler.markChanged()
@@ -140,20 +142,36 @@ extension CUActor {
         return "selected \(line ? "the line" : "the word") \"\(cuClip(selected, 60) ?? "")\" in \(label(element))"
     }
 
+    /// How posted events reach the chosen window now.
+    var pointerDelivery: CUPointerDelivery {
+        guard let window = session.window else { return .unavailable }
+        return cuPointerDelivery(onScreen: window.onScreen, otherSpace: window.otherSpace, minimized: window.minimized, hasWindowNumber: window.number != nil)
+    }
+
+    /// Where window-targeted events go: the window holding `element` (a sheet over the chosen
+    /// window has its own), else the chosen window. Nil when the window server routes events.
+    func pointerTarget(for element: AXUIElement?) -> CUPointerTarget? {
+        guard pointerDelivery == .windowTargeted, let window = session.window, let chosen = window.number else { return nil }
+        if let element, let number = cuWindowNumber(element), number != chosen, let frame = cuServerWindowInfo([number])[number]?.frame {
+            return CUPointerTarget(window: number, frame: frame)
+        }
+        return CUPointerTarget(window: chosen, frame: cuFrame(of: window.element) ?? window.frame)
+    }
+
     /// Posts mouse events in order with their pauses. A pressed button is always released,
     /// even when the step is stopped half way.
-    func runMouse(_ events: [CUMouseEvent], flags: CGEventFlags) async throws {
+    func runMouse(_ events: [CUMouseEvent], flags: CGEventFlags, target: CUPointerTarget? = nil) async throws {
         let window = session.window?.number
         var pressed: CUMouseEvent?
         do {
             for event in events {
-                poster.mouse(event, window: window, flags: flags)
+                poster.mouse(event, window: window, target: target, flags: flags)
                 if event.kind == .down { pressed = event } else if event.kind == .up { pressed = nil }
                 else if event.kind == .drag, let down = pressed { pressed = CUMouseEvent(kind: .down, button: down.button, point: event.point, clickState: down.clickState, delayMs: 0) }
                 if event.delayMs > 0 { try await pause(ms: event.delayMs) }
             }
         } catch {
-            if let down = pressed { poster.mouse(CUMouseEvent(kind: .up, button: down.button, point: down.point, clickState: down.clickState, delayMs: 0), window: window, flags: flags) }
+            if let down = pressed { poster.mouse(CUMouseEvent(kind: .up, button: down.button, point: down.point, clickState: down.clickState, delayMs: 0), window: window, target: target, flags: flags) }
             throw error
         }
     }
@@ -162,21 +180,27 @@ extension CUActor {
 
     func move(_ action: CUObject) async throws -> String {
         let point: CGPoint
+        var named: AXUIElement?
         if action.int("id") != nil {
             let target = try element(action)
             guard let center = visibleCenter(target) else { throw CUError("not_clickable", "\(label(target)) has no position to hover.") }
             point = center
+            named = target
         } else if let x = action.double("x"), let y = action.double("y") {
             point = try session.screenPoint(fromPixel: CGPoint(x: x, y: y))
         } else { throw CUError("bad_action", "move needs an element id, or x and y from a screenshot.") }
-        guard session.window?.onScreen == true else {
-            throw CUError("not_on_screen", "Hovering needs \(session.name)'s window on the current screen. Use the outline or a menu instead.")
+        let delivery = pointerDelivery
+        guard delivery != .unavailable else {
+            throw CUError("not_on_screen", "Hovering needs \(session.name)'s window restored: it is minimized or hidden. Use the outline or a menu instead.")
         }
         session.makeKey()
-        indicate(point)
-        poster.mouse(CUMouseEvent(kind: .move, button: .left, point: point, clickState: 0, delayMs: 0), window: session.window?.number)
+        if delivery == .windowServer { indicate(point) }
+        let over = named ?? hitElement(at: point)
+        poster.mouse(CUMouseEvent(kind: .move, button: .left, point: point, clickState: 0, delayMs: 0), window: session.window?.number, target: pointerTarget(for: over))
         session.settler.markChanged()
-        return "moved the pointer\(session.element(atScreen: point).map { " over \(label($0))" } ?? "")"
+        // Tracking areas and tooltips follow the real pointer, which stays with the person.
+        let note = delivery == .windowTargeted ? " (the window is off screen: hover effects that follow the real pointer, like tooltips, may not appear)" : ""
+        return "moved the pointer\(over.map { " over \(label($0))" } ?? "")\(note)"
     }
 
     // MARK: drag
@@ -186,12 +210,13 @@ extension CUActor {
         let (end, to) = try dragEnd(action["to"], name: "to")
         let modifiers = try cuModifierFlags(action.strings("modifiers"))
         let hold = max(0, min(action.int("hold_ms") ?? 0, 5_000))
-        guard session.window?.onScreen == true else {
-            throw CUError("not_on_screen", "Dragging needs \(session.name)'s window on the current screen. Ask the person to bring it up, or find a menu or keyboard alternative.")
+        let delivery = pointerDelivery
+        guard delivery != .unavailable else {
+            throw CUError("not_on_screen", "Dragging needs \(session.name)'s window restored: it is minimized or hidden. Restore it (window {op: restore}), or find a menu or keyboard alternative.")
         }
         session.makeKey()
-        indicate(start)
-        try await runMouse(cuDragEvents(from: start, to: end, holdMs: hold), flags: modifiers)
+        if delivery == .windowServer { indicate(start) }
+        try await runMouse(cuDragEvents(from: start, to: end, holdMs: hold), flags: modifiers, target: pointerTarget(for: hitElement(at: start)))
         session.settler.markChanged()
         let extras = modifiers.isEmpty ? "" : " with \(cuModifierNames(modifiers))"
         return "dragged\(extras) from \(from) to \(to)"

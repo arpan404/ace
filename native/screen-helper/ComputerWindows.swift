@@ -114,6 +114,8 @@ func cuNow() -> UInt64 { DispatchTime.now().uptimeNanoseconds }
 
 struct CUServerWindow {
     let onScreen: Bool
+    /// Global points, top-left origin.
+    var frame: CGRect?
 }
 
 /// Window-server facts for specific windows, without listing every window on the Mac.
@@ -125,7 +127,8 @@ func cuServerWindowInfo(_ numbers: [CGWindowID]) -> [CGWindowID: CUServerWindow]
     var out: [CGWindowID: CUServerWindow] = [:]
     for row in rows {
         guard let number = (row[kCGWindowNumber as String] as? NSNumber)?.uint32Value else { continue }
-        out[number] = CUServerWindow(onScreen: (row[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue == true)
+        let bounds = (row[kCGWindowBounds as String] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation: $0 as CFDictionary) }
+        out[number] = CUServerWindow(onScreen: (row[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue == true, frame: bounds)
     }
     return out
 }
