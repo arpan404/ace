@@ -6,6 +6,7 @@ import ApplicationServices
 /// answered on the stdin thread, outside that queue (see ComputerServiceIO.swift).
 @MainActor final class ComputerService {
     private var sessions: [pid_t: CUAppSession] = [:]
+    private var resolvedQueries: [String: pid_t] = [:]
     private let catalog = CUAppCatalog()
     private var tail: Task<Void, Never>?
     private let overlay = CUOverlay()
@@ -78,6 +79,8 @@ import ApplicationServices
 
     private func session(for query: String, launch: Bool) async throws -> (CUAppSession, launched: Bool) {
         try requireAccessibility()
+        // The same name keeps naming the same running app while it lives; skip the lookup.
+        if let pid = resolvedQueries[query], let known = sessions[pid], !known.app.isTerminated { return (known, false) }
         let resolved = try catalog.resolve(query)
         var running = resolved.running
         var launched = false
@@ -94,6 +97,8 @@ import ApplicationServices
             session.close()
             sessions.removeValue(forKey: pid)
         }
+        resolvedQueries = resolvedQueries.filter { sessions[$0.value] != nil }
+        resolvedQueries[query] = app.processIdentifier
         if let existing = sessions[app.processIdentifier] { return (existing, launched) }
         let created = CUAppSession(app: app)
         sessions[app.processIdentifier] = created
@@ -129,11 +134,18 @@ import ApplicationServices
             await session.settler.settle(minimumMs: 150, quietMs: 200, maximumMs: 1_500)
         }
         try check.check()
+        let resolved = cuNow()
         let windows = try session.chooseWindow(request["window"], deadline: cuNow() + 1_500_000_000)
+        let chosen = cuNow()
         var result = await session.observation(windows: windows, screenshot: request.bool("screenshot") ?? false, outline: request.bool("outline") ?? true,
                                                marks: request.bool("marks") ?? true, deadline: cuNow() + 4_000_000_000)
         try check.check()
         if launched { result["launched"] = true }
+        if cuTimingsEnabled, var timings = result["timings"] as? CUObject {
+            timings["sessionMs"] = cuMs(resolved - started)
+            timings["windowsMs"] = cuMs(chosen - resolved)
+            result["timings"] = timings
+        }
         result["elapsedMs"] = Int((cuNow() - started) / 1_000_000)
         return result
     }

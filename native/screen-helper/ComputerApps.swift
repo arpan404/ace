@@ -69,10 +69,14 @@ func cuAppNames(displayName: String?, bundleName: String?, fileName: String) -> 
     func resolve(_ query: String) throws -> (running: NSRunningApplication?, installed: CUInstalledApp?) {
         let wanted = query.trimmingCharacters(in: .whitespaces).lowercased()
         guard !wanted.isEmpty else { throw CUError("app_not_found", "Name an app, e.g. \"Calculator\" or \"com.apple.TextEdit\".") }
-        let running = running()
-        if let app = running.first(where: { $0.bundleIdentifier?.lowercased() == wanted || $0.localizedName?.lowercased() == wanted }) {
+        func named(_ app: NSRunningApplication) -> Bool { app.bundleIdentifier?.lowercased() == wanted || app.localizedName?.lowercased() == wanted }
+        // Regular apps first: finding accessory apps with windows means listing every window.
+        if let app = NSWorkspace.shared.runningApplications.first(where: { $0.activationPolicy == .regular && !$0.isTerminated && named($0) }),
+           kill(app.processIdentifier, 0) == 0 {
             return (app, nil)
         }
+        let running = running()
+        if let app = running.first(where: named) { return (app, nil) }
         let installed = installed()
         if let app = installed.first(where: { $0.matches(exactly: wanted) }) ?? launchServicesApp(wanted) {
             return (running.first { $0.bundleIdentifier == app.bundleId }, app)

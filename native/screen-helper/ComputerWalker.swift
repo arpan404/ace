@@ -6,12 +6,41 @@ struct CUTree {
     var truncated = false
     /// The app stopped answering mid-walk; the outline is partial.
     var notResponding = false
+    /// Elements read and time spent in attribute and action reads, for timings.
+    var visited = 0
+    var fetchNs: UInt64 = 0
+    var actionNs: UInt64 = 0
 }
 
 /// Roles whose children are recycled views (rows, cells): their ids follow content.
 private let cuCollectionRoles: Set<String> = ["AXTable", "AXOutline", "AXList", "AXGrid", "AXBrowser"]
 private let cuRowRoles: Set<String> = ["AXRow", "AXOutlineRow"]
 private let cuAlwaysActionable: Set<String> = ["AXRow", "AXCell", "AXOutlineRow", "AXSlider", "AXIncrementor", "AXPopUpButton", "AXMenuButton", "AXDisclosureTriangle", "AXLink", "AXTab", "AXColorWell", "AXDateField"]
+
+/// Read for every element: enough to clip it, drop it or descend into it.
+let cuShapeAttributes = ["AXRole", "AXPosition", "AXSize", "AXChildren"]
+
+private let cuPlainRoles: Set<String> = ["AXStaticText", "AXGroup", "AXImage", "AXHeading", "AXScrollArea", "AXSplitGroup", "AXWindow", "AXLayoutArea", "AXWebArea", "AXList", "AXTable", "AXOutline", "AXCell"]
+private let cuSelectableRoles: Set<String> = ["AXRow", "AXOutlineRow", "AXCell", "AXTab", "AXRadioButton", "AXMenuItem", "AXMenuBarItem", "AXGroup", "AXImage", "AXStaticText"]
+private let cuSubroleRoles: Set<String> = ["AXTextField", "AXCheckBox", "AXRadioButton", "AXRow", "AXButton", "AXGroup", "AXWindow"]
+/// Roles whose description never depends on the subrole, so one read per session serves all.
+let cuFixedDescriptionRoles: Set<String> = ["AXStaticText", "AXCell", "AXTextArea", "AXScrollArea", "AXSplitGroup", "AXImage", "AXSlider", "AXPopUpButton", "AXComboBox", "AXIncrementor", "AXProgressIndicator", "AXHeading", "AXColumn"]
+
+/// Read for elements that may appear in the outline: only what their role can show. Every
+/// attribute costs the app time, so roles that never use one don't ask for it. Focus is not
+/// read per element; the walker compares with the app's focused element instead.
+func cuDetailAttributes(role: String, needsRoleDescription: Bool) -> [String] {
+    var names = ["AXTitle", "AXDescription", "AXValue"]
+    if !cuPlainRoles.contains(role) { names.append("AXEnabled") }
+    if cuSelectableRoles.contains(role) { names.append("AXSelected") }
+    if cuExpandableRoles.contains(role) || role == "AXButton" || role == "AXGroup" || role == "AXLink" { names.append("AXExpanded") }
+    if cuSubroleRoles.contains(role) { names.append("AXSubrole") }
+    if needsRoleDescription { names.append("AXRoleDescription") }
+    if cuTextInputRoles.contains(role) { names.append("AXPlaceholderValue") }
+    if role == "AXLink" || role == "AXWebArea" || role == "AXImage" { names.append("AXURL") }
+    if role == "AXRow" || role == "AXOutlineRow" { names.append("AXIndex") }
+    return names
+}
 
 /// What a subtree inherits from its ancestors during a walk.
 struct CUWalkContext {
@@ -35,10 +64,13 @@ struct CUWalkContext {
     private let maxVisited = 6_000
     private let maxNodes = 1_200
     private let deadline: UInt64
+    /// The app's focused element, read once per walk.
+    private let focused: AXUIElement?
 
-    init(registry: CUElementRegistry, deadline: UInt64) {
+    init(registry: CUElementRegistry, deadline: UInt64, focused: AXUIElement? = nil) {
         self.registry = registry
         self.deadline = deadline
+        self.focused = focused
     }
 
     private var exhausted: Bool {
@@ -50,18 +82,31 @@ struct CUWalkContext {
         if exhausted { tree.truncated = true; return .visible }
         guard seen.insert(CUElementKey(element: element)).inserted else { return .visible }
         visited += 1
-        let (attributes, status) = cuFetchStatus(element)
+        tree.visited = visited
+        // Two reads: geometry first, so what is scrolled away or pure chrome costs five
+        // attributes; then only the attributes this role can use.
+        let fetchStarted = cuNow()
+        let (shape, status) = cuFetchStatus(element, cuShapeAttributes)
+        tree.fetchNs += cuNow() - fetchStarted
         if status == .cannotComplete { tree.notResponding = true; tree.truncated = true; return .visible }
-        let role = attributes["AXRole"] as? String ?? "AXUnknown"
+        let role = shape["AXRole"] as? String ?? "AXUnknown"
         if cuNoiseRoles.contains(role) { return .visible }
-        let frame = cuFrame(attributes)
+        let frame = cuFrame(shape)
         if let visible = context.visible, role != "AXWindow" {
             let placement = cuVisibility(of: frame, in: visible)
             if placement != .visible { return placement }
         }
-        let (children, hiddenAbove, hiddenBelow) = childList(element, role: role, attributes: attributes, visible: context.visible)
+        let (children, hiddenAbove, hiddenBelow) = childList(element, role: role, attributes: shape, visible: context.visible)
         // Hidden or collapsed parts report zero size; they are not on screen to act on.
         if let frame, frame.width <= 0 || frame.height <= 0, children.isEmpty { return .visible }
+        let knownDescription = cuFixedDescriptionRoles.contains(role) ? registry.roleDescriptions[role] : nil
+        let detailStarted = cuNow()
+        var (attributes, detailStatus) = cuFetchStatus(element, cuDetailAttributes(role: role, needsRoleDescription: knownDescription == nil))
+        tree.fetchNs += cuNow() - detailStarted
+        if detailStatus == .cannotComplete { tree.notResponding = true; tree.truncated = true; return .visible }
+        attributes.merge(shape) { current, _ in current }
+        if let knownDescription { attributes["AXRoleDescription"] = knownDescription as NSString }
+        else if cuFixedDescriptionRoles.contains(role), let fetched = attributes["AXRoleDescription"] as? String { registry.roleDescriptions[role] = fetched }
 
         let subrole = attributes["AXSubrole"] as? String
         let secure = role == "AXSecureTextField" || subrole == "AXSecureTextField"
@@ -71,7 +116,7 @@ struct CUWalkContext {
         var flags: [String] = []
         if (attributes["AXEnabled"] as? Bool) == false { flags.append("disabled") }
         if (attributes["AXSelected"] as? Bool) == true { flags.append("selected") }
-        if (attributes["AXFocused"] as? Bool) == true { flags.append("focused") }
+        if let focused, CFEqual(focused, element) { flags.append("focused") }
         // Chromium reports "collapsed" on every element; only controls that expand say so.
         if let expanded = attributes["AXExpanded"] as? Bool, cuExpandableRoles.contains(role) || subrole == "AXOutlineRow" || expanded {
             flags.append(expanded ? "expanded" : "collapsed")
@@ -90,7 +135,9 @@ struct CUWalkContext {
         let placeholder = cuTextInputRoles.contains(role) ? cuClip(attributes["AXPlaceholderValue"] as? String, 120) : nil
         let url = role == "AXLink" || role == "AXWebArea" || role == "AXImage" ? cuClip(cuValueText(attributes["AXURL"]), 300) : nil
         // Plain text never acts on its own; skipping its action list saves a round trip per line.
+        let actionStarted = cuNow()
         let axActions = role == "AXStaticText" ? [] : cuActionNames(element)
+        tree.actionNs += cuNow() - actionStarted
         var readable: [String] = []
         for action in axActions { if let label = cuReadableAction(action), !readable.contains(label), readable.count < 6 { readable.append(label) } }
         if role == "AXWindow" || role == "AXSheet" { readable.removeAll { $0 == "raise" } }

@@ -86,6 +86,13 @@ final class ComputerWindowTests: XCTestCase {
         XCTAssertEqual(numbering.assign([40, 20, 30]), [3, 2, 1])
     }
 
+    func testOtherSpaceSearchStopsAfterALongRunWithoutWindowsOnlyOnceSomeWereFound() {
+        XCTAssertFalse(cuRemoteScanIsPastWindows(lastFound: nil, next: 150_000), "keeps looking until the first window")
+        XCTAssertFalse(cuRemoteScanIsPastWindows(lastFound: 522, next: 2_000))
+        XCTAssertTrue(cuRemoteScanIsPastWindows(lastFound: 522, next: 3_000))
+        XCTAssertFalse(cuRemoteScanIsPastWindows(lastFound: 40_000, next: 150_000), "late windows widen the search")
+    }
+
     func testKeysGoToADialogOrNewerWindowOverTheChosenOne() {
         XCTAssertEqual(cuKeyWindowTarget(CUKeyWindowFacts(chosen: 50, focused: 20, focusedSubrole: "AXDialog", focusedRole: "AXWindow")), 20)
         XCTAssertEqual(cuKeyWindowTarget(CUKeyWindowFacts(chosen: 50, focused: 70, focusedSubrole: "AXStandardWindow", focusedRole: "AXWindow")), 70)

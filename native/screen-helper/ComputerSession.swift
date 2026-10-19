@@ -78,10 +78,13 @@ import ApplicationServices
     func chooseWindow(_ selector: Any?, deadline: UInt64 = cuNow() + 1_500_000_000) throws -> [CUWindow] {
         let number = (selector as? NSNumber)?.intValue
         let title = (selector as? String).flatMap { $0.isEmpty ? nil : $0 }
-        var listed = windows.list(findRemote: false, deadline: deadline)
+        var listed = windows.list(remote: .none, deadline: deadline)
         let missing = (number.map { wanted in !listed.windows.contains { $0.index == wanted } } ?? false)
             || (title.map { wanted in !listed.windows.contains { $0.title.localizedCaseInsensitiveContains(wanted) } } ?? false)
-        if !listed.notResponding, listed.windows.isEmpty || missing { listed = windows.list(findRemote: true, deadline: deadline) }
+        // Finder's desktop has no window-server id: an app showing only that has no window here.
+        if !listed.notResponding, missing || !listed.windows.contains(where: { $0.number != nil }) {
+            listed = windows.list(remote: missing ? .requested : .automatic, deadline: deadline)
+        }
         notResponding = listed.notResponding
         let all = listed.windows
         let numbers = all.map { String($0.index) }.joined(separator: ", ")
@@ -106,6 +109,8 @@ import ApplicationServices
             ?? all.first(where: { $0.onScreen })
             ?? all.first(where: { $0.otherSpace })
             ?? all.first(where: { $0.minimized })
+            // No window-server id (Finder's desktop): visibility unknown, but never ordered out.
+            ?? all.first(where: { $0.number == nil })
             // A hidden app's windows are all off screen; never otherwise fall back to one.
             ?? (app.isHidden ? all.first : nil)
         return all
@@ -115,7 +120,7 @@ import ApplicationServices
     @discardableResult
     func walk(deadline: UInt64) -> CUTree {
         registry.beginWalk()
-        let walker = CUTreeWalker(registry: registry, deadline: deadline)
+        let walker = CUTreeWalker(registry: registry, deadline: deadline, focused: cuElementAttribute(element, "AXFocusedUIElement"))
         if let window {
             var context = CUWalkContext()
             if !window.minimized { context.visible = window.frame }

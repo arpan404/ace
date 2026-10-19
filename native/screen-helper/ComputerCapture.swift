@@ -96,24 +96,44 @@ func cuImageLooksBlank(_ image: CGImage) -> Bool {
 /// returns a frame with nothing drawn (an undrawn window on another Space).
 @available(macOS 14.0, *)
 @MainActor private func cuCaptureWithScreenCaptureKit(_ number: CGWindowID, width: Int, height: Int) async throws -> CGImage {
-    let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-    guard let window = content.windows.first(where: { $0.windowID == number }) else {
-        throw CUError("window_gone", "The window closed or can't be captured. Observe the app again.")
-    }
     let configuration = SCStreamConfiguration()
     configuration.width = width
     configuration.height = height
     configuration.showsCursor = false
     configuration.ignoreShadowsSingleWindow = true
-    let filter = SCContentFilter(desktopIndependentWindow: window)
     do {
-        let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+        let image: CGImage
+        do { image = try await cuCapture(window: try await cuShareableWindow(number, fresh: false), configuration) }
+        catch let fault as CUError { throw fault }
+        catch { image = try await cuCapture(window: try await cuShareableWindow(number, fresh: true), configuration) }
         if cuImageLooksBlank(image), let last = cuLastFrame(number, width: width, height: height), !cuImageLooksBlank(last) { return last }
         return image
     } catch {
         guard let last = cuLastFrame(number, width: width, height: height) else { throw error }
         return last
     }
+}
+
+@available(macOS 14.0, *)
+private func cuCapture(window: SCWindow, _ configuration: SCStreamConfiguration) async throws -> CGImage {
+    try await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(desktopIndependentWindow: window), configuration: configuration)
+}
+
+/// Listing shareable content costs about 50 ms, so a window's SCWindow is kept and reused
+/// until a capture with it fails.
+@MainActor private var cuShareableWindows: [CGWindowID: AnyObject] = [:]
+
+@available(macOS 14.0, *)
+@MainActor private func cuShareableWindow(_ number: CGWindowID, fresh: Bool) async throws -> SCWindow {
+    if !fresh, let cached = cuShareableWindows[number] as? SCWindow { return cached }
+    let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+    guard let window = content.windows.first(where: { $0.windowID == number }) else {
+        cuShareableWindows.removeValue(forKey: number)
+        throw CUError("window_gone", "The window closed or can't be captured. Observe the app again.")
+    }
+    if cuShareableWindows.count > 64 { cuShareableWindows.removeAll() }
+    cuShareableWindows[number] = window
+    return window
 }
 
 /// The window server's last frame of a window, resized. The API is deprecated, so it is

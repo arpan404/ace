@@ -1,11 +1,17 @@
 import AppKit
 import ApplicationServices
 
+/// Set ACE_CU_TIMINGS=1 to get per-phase timings in observations (for benchmarking).
+let cuTimingsEnabled = ProcessInfo.processInfo.environment["ACE_CU_TIMINGS"] != nil
+
+func cuMs(_ nanoseconds: UInt64) -> Double { (Double(nanoseconds) / 100_000).rounded() / 10 }
+
 extension CUAppSession {
     /// The observation the model gets: app, windows, the chosen window's outline (unless
     /// `outline` is false), focus, menu bar and optionally a screenshot tagged with ids.
     func observation(windows: [CUWindow], screenshot: Bool, outline: Bool, marks: Bool, deadline: UInt64) async -> CUObject {
         var tree = CUTree()
+        let started = cuNow()
         if outline {
             tree = walk(deadline: deadline)
             if chromium, !chromiumWarmed {
@@ -17,8 +23,14 @@ extension CUAppSession {
                 }
             }
         }
+        let walked = cuNow()
         var result = describe(windows: windows, tree: tree)
-        if screenshot { await attachScreenshot(to: &result, marks: marks) }
+        let described = cuNow()
+        // Without a fresh walk the ids on screen could name elements that changed; no tags then.
+        if screenshot { await attachScreenshot(to: &result, marks: marks && outline) }
+        if cuTimingsEnabled {
+            result["timings"] = ["walkMs": cuMs(walked - started), "visited": tree.visited, "fetchMs": cuMs(tree.fetchNs), "actionsMs": cuMs(tree.actionNs), "describeMs": cuMs(described - walked), "screenshotMs": cuMs(cuNow() - described)]
+        }
         return result
     }
 

@@ -23,6 +23,8 @@ let cuAXTimeout: Float = 1.0
     private var seen: [Int: UInt64] = [:]
     private var next = 1
     private var generation: UInt64 = 0
+    /// Role descriptions by role and subrole; they don't vary per element, so each is read once.
+    var roleDescriptions: [String: String] = [:]
 
     func beginWalk() { generation += 1 }
 
@@ -61,15 +63,9 @@ let cuAXTimeout: Float = 1.0
     }
 }
 
-let cuFetchedAttributes = [
-    "AXRole", "AXSubrole", "AXRoleDescription", "AXTitle", "AXDescription", "AXValue",
-    "AXEnabled", "AXFocused", "AXSelected", "AXPosition", "AXSize", "AXPlaceholderValue",
-    "AXHelp", "AXURL", "AXExpanded", "AXIdentifier", "AXChildren", "AXIndex",
-]
-
 /// One round trip for many attributes. Missing attributes are absent; the status says
 /// whether the app answered at all (`.cannotComplete` means it is not responding).
-func cuFetchStatus(_ element: AXUIElement, _ names: [String] = cuFetchedAttributes) -> ([String: AnyObject], AXError) {
+func cuFetchStatus(_ element: AXUIElement, _ names: [String]) -> ([String: AnyObject], AXError) {
     var values: CFArray?
     let status = AXUIElementCopyMultipleAttributeValues(element, names as CFArray, AXCopyMultipleAttributeOptions(rawValue: 0), &values)
     guard status == .success, let array = values as? [AnyObject] else { return ([:], status) }
@@ -82,8 +78,6 @@ func cuFetchStatus(_ element: AXUIElement, _ names: [String] = cuFetchedAttribut
     }
     return (out, .success)
 }
-
-func cuFetch(_ element: AXUIElement) -> [String: AnyObject] { cuFetchStatus(element).0 }
 
 func cuAttribute(_ element: AXUIElement, _ name: String) -> AnyObject? {
     var value: CFTypeRef?
