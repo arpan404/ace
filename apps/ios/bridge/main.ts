@@ -238,6 +238,7 @@ function action(json: string): void {
         break;
       case "archive":
         if (!archive?.handle(value.action)) error();
+        break;
       case "compose":
         if (!compose?.compose(value.action)) error();
         break;
