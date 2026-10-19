@@ -89,7 +89,7 @@ struct GitMessageSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+        .adaptiveSheetDetents().presentationDragIndicator(.visible)
     }
     private func submit() {
         let title = subject.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -42,7 +42,7 @@ struct MachinesSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+        .adaptiveSheetDetents().presentationDragIndicator(.visible)
     }
     private var unsupported: [MachineEntry] {
         machines.map { model in model.machines.filter { model.unsupported.contains($0.hostId) } } ?? []

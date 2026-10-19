@@ -24,7 +24,7 @@ struct ThreadSheetButtons: ViewModifier {
                 }
             }
             .sheet(isPresented: $showingAgents) {
-                AgentsSheet(model: model, thread: thread, openThread: openThread).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+                AgentsSheet(model: model, thread: thread, openThread: openThread).adaptiveSheetDetents().presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showingChanges) {
                 ChangesSheet(model: model, title: metadata?.title ?? "").presentationDetents([.large]).presentationDragIndicator(.visible)
