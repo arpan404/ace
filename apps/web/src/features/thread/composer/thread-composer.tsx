@@ -43,7 +43,6 @@ import {
 } from "./deferred-parts.tsx";
 import { DeferredComposerStrip } from "./deferred-cards.ts";
 import { finishQueueEdit, queueEditSession, saveQueueEdit } from "./queue-edit.ts";
-import { UsageNotice } from "./usage-notice.tsx";
 import { lastSentText } from "./last-sent.ts";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { clearStop, recordStop, useStopFence, useStopping } from "./stop-state.ts";
@@ -358,7 +357,6 @@ export function ThreadComposer({
         sendsWhileUploading
         attached={
           <Suspense fallback={null}>
-            <UsageNotice threadId={props.thread.id} />
             <DeferredComposerStrip.Component
               key={props.thread.id}
               threadId={props.thread.id}
