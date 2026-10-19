@@ -40,7 +40,9 @@ test("/goal sets the agent's goal, which the strip shows until it is paused and 
   // A goal, not a message: nothing was sent to the agent as text.
   expect(within(screen.getByRole("feed", { name: "Transcript" })).queryByText(/\/goal/)).toBeNull();
 
-  // The controls sit on the row itself: no need to open it first.
+  // The whole objective fits on the row and there's no reason to read: nothing to open.
+  expect(within(goal).queryByRole("button", { expanded: false })).toBeNull();
+  // The controls sit on the row itself.
   await userEvent.click(within(goal).getByRole("button", { name: "Pause goal" }));
   await waitFor(() => expect(goal.textContent).toContain("Goal paused"));
   expect(within(goal).queryByRole("button", { name: "Pause goal" })).toBeNull();

@@ -1,22 +1,17 @@
 import { goalResumable, goalTitle, goalUsage } from "@ace/ui-core";
 import type { ProviderGoal } from "@ace/protocol";
-import {
-  CaretDownIcon,
-  CaretUpIcon,
-  PauseIcon,
-  PlayIcon,
-  TargetIcon,
-  XIcon,
-} from "@phosphor-icons/react";
-import { useId, useState, type ReactNode } from "react";
+import { CaretDownIcon, CaretUpIcon, TargetIcon, XIcon } from "@phosphor-icons/react";
+import { useId, useLayoutEffect, useState, type ReactNode } from "react";
+import { PauseBarsIcon, ResumeIcon } from "@/components/ace-icons.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useGoalCommand } from "./goal-command.ts";
 
 /**
  * The thread's native goal in the strip: "Pursuing goal · all tests pass · 120K tokens", then,
- * where ace can change the goal, Pause or Resume and Clear as icons, and the chevron at the
- * row's far right, opening to the whole objective and the provider's latest reason it isn't met.
+ * where ace can change the goal, Pause or Resume and Clear as icons. The chevron at the row's
+ * far right shows only when there is more to read: an objective too long for the row, or the
+ * provider's latest reason the goal isn't met.
  */
 export function GoalStrip(props: {
   threadId: string;
@@ -36,27 +31,43 @@ export function GoalStrip(props: {
     void change(next).finally(() => setBusy(false));
   };
   const toggle = () => setOpen(!open);
+  const [clipped, objective] = useClipped(goal.objective);
+  const more = open || clipped || !!goal.lastReason;
+  const summary = (
+    <>
+      {/* Never a spinner: an active goal can wait between turns while nothing runs. */}
+      <Icon icon={TargetIcon} size={12} className="shrink-0" />
+      <span className="shrink-0 text-foreground">{goalTitle(goal.status)}</span>
+      {!open && (
+        <span ref={objective} className="min-w-0 truncate">
+          {goal.objective}
+        </span>
+      )}
+      {!open && usage && (
+        <span className="shrink-0 text-subtle-foreground tabular-nums">· {usage}</span>
+      )}
+    </>
+  );
+  const row = "flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-sm px-1 text-muted-foreground";
   return (
     <section aria-label="Goal" className="text-xs">
       <div className="flex h-7 min-w-0 items-center gap-0.5">
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-controls={detailsId}
-          onClick={toggle}
-          className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-sm px-1 text-muted-foreground focus-ring-inset hover:text-foreground"
-        >
-          {/* Never a spinner: an active goal can wait between turns while nothing runs. */}
-          <Icon icon={TargetIcon} size={12} className="shrink-0" />
-          <span className="shrink-0 text-foreground">{goalTitle(goal.status)}</span>
-          {!open && <span className="min-w-0 truncate">{goal.objective}</span>}
-          {!open && usage && (
-            <span className="shrink-0 text-subtle-foreground tabular-nums">· {usage}</span>
-          )}
-        </button>
+        {more ? (
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls={detailsId}
+            onClick={toggle}
+            className={`${row} focus-ring-inset hover:text-foreground`}
+          >
+            {summary}
+          </button>
+        ) : (
+          <div className={row}>{summary}</div>
+        )}
         {props.editable && goal.status === "active" && (
           <IconButton
-            icon={PauseIcon}
+            icon={PauseBarsIcon}
             label="Pause goal"
             size="sm"
             disabled={busy}
@@ -65,7 +76,7 @@ export function GoalStrip(props: {
         )}
         {props.editable && goalResumable(goal.status) && (
           <IconButton
-            icon={PlayIcon}
+            icon={ResumeIcon}
             label="Resume goal"
             size="sm"
             disabled={busy}
@@ -82,13 +93,15 @@ export function GoalStrip(props: {
           />
         )}
         {/* The row's button opens it from the keyboard; the chevron is the same toggle for a pointer. */}
-        <span
-          aria-hidden
-          onClick={toggle}
-          className="grid size-6 shrink-0 cursor-pointer place-items-center text-muted-foreground hover:text-foreground"
-        >
-          <Icon icon={open ? CaretUpIcon : CaretDownIcon} size={12} />
-        </span>
+        {more && (
+          <span
+            aria-hidden
+            onClick={toggle}
+            className="grid size-6 shrink-0 cursor-pointer place-items-center text-muted-foreground hover:text-foreground"
+          >
+            <Icon icon={open ? CaretUpIcon : CaretDownIcon} size={12} />
+          </span>
+        )}
         {props.indicators}
       </div>
       <div id={detailsId} hidden={!open} className="space-y-1 px-1 pb-1">
@@ -98,4 +111,23 @@ export function GoalStrip(props: {
       </div>
     </section>
   );
+}
+
+/**
+ * Whether a truncating element's text runs past its width, kept current as it resizes or its
+ * text changes. Returns the ref to put on the element (a callback: the element comes and goes).
+ */
+function useClipped(text: string): [boolean, (element: HTMLElement | null) => void] {
+  const [element, setElement] = useState<HTMLElement | null>(null);
+  const [clipped, setClipped] = useState(false);
+  useLayoutEffect(() => {
+    if (!element || !text) return;
+    const measure = () => setClipped(element.scrollWidth > element.clientWidth);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [element, text]);
+  return [clipped, setElement];
 }
