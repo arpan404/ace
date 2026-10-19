@@ -2,7 +2,8 @@ import { z } from "zod";
 import type { BrowserCdp } from "./backend.ts";
 import type { BrowserFrame } from "@ace/protocol";
 import { Screencast } from "./cdp.ts";
-import { captureSettings, CapturePressure, FrameFanout } from "./fanout.ts";
+import { FrameFanout } from "./fanout.ts";
+import { captureSettings, CapturePressure, sameEncoding } from "./capture-policy.ts";
 
 const Ack = z.object({ sessionId: z.number().int() });
 export class LiveCapture {
@@ -15,11 +16,12 @@ export class LiveCapture {
   private sequence = 0;
   private lastFrame = -Infinity;
   private lastAdapt = -Infinity;
-  private settings = captureSettings(false);
+  private settings = captureSettings(0);
   private pressure = new CapturePressure();
   private viewport: () => { width: number; height: number };
   private adapting = false;
   private tab: () => string | undefined;
+  private scale: () => number;
   private closed = false;
   private generation = 0;
   constructor(
@@ -29,8 +31,14 @@ export class LiveCapture {
     privacy: () => { epoch: number; since: number } = () => ({ epoch: 0, since: -Infinity }),
     viewport: () => { width: number; height: number } = () => ({ width: 1280, height: 720 }),
     tab: () => string | undefined = () => undefined,
+    /**
+     * How many window pixels stand for one CSS pixel of the captured tab: above 1 while the page
+     * renders sharper than the browser's own scale (`headless-size.ts`). Frames report CSS size.
+     */
+    scale: () => number = () => 1,
   ) {
     this.tab = tab;
+    this.scale = scale;
     this.cdp = cdp;
     this.now = now;
     this.onFrame = onFrame;
@@ -51,12 +59,14 @@ export class LiveCapture {
     const timestamp = this.now();
     if (timestamp - this.lastFrame < 1000 / this.settings.fps) return;
     this.lastFrame = timestamp;
+    // Input coordinates are CSS pixels, so a frame reports the page's CSS size.
+    const scale = this.scale();
     const frame: BrowserFrame = {
       sequence: ++this.sequence,
       timestamp,
       data: parsed.data.data,
-      width: parsed.data.metadata.deviceWidth,
-      height: parsed.data.metadata.deviceHeight,
+      width: Math.round(parsed.data.metadata.deviceWidth / scale),
+      height: Math.round(parsed.data.metadata.deviceHeight / scale),
       ...this.tabField(),
     };
     this.fanout.publish(frame);
@@ -127,15 +137,15 @@ export class LiveCapture {
     this.timer = setInterval(() => {
       this.fanout.flush();
       const now = this.now();
-      const pressured = this.pressure.sample(this.fanout.pressured, now);
-      const settings = captureSettings(pressured, this.fanout.captureViewers);
-      if (
-        this.closed ||
-        this.adapting ||
-        JSON.stringify(settings) === JSON.stringify(this.settings) ||
-        this.now() - this.lastAdapt < 2000
-      )
+      const load = this.pressure.sample(this.fanout.pressured, now);
+      const settings = captureSettings(load, this.fanout.captureViewers);
+      if (this.closed || this.adapting) return;
+      // The frame rate is applied here, as frames arrive: changing it alone needs no restart.
+      if (sameEncoding(settings, this.settings)) {
+        this.settings = settings;
         return;
+      }
+      if (now - this.lastAdapt < 1000) return;
       this.lastAdapt = this.now();
       this.adapting = true;
       void (async () => {
@@ -173,7 +183,7 @@ export class LiveCapture {
     this.closed = false;
     this.lastFrame = -Infinity;
     this.pressure = new CapturePressure();
-    this.settings = captureSettings(false, this.fanout.captureViewers);
+    this.settings = captureSettings(0, this.fanout.captureViewers);
     await this.start();
   }
   async close(): Promise<void> {

@@ -1,4 +1,6 @@
-import type { BrowserFrame, BrowserCaptureViewport } from "@ace/protocol";
+import type { BrowserFrame } from "@ace/protocol";
+import type { CaptureViewer } from "./capture-policy.ts";
+export type { CaptureViewer } from "./capture-policy.ts";
 
 export interface FrameSink {
   /** False means transport backpressure; no frame was queued. */
@@ -90,52 +92,5 @@ export class FrameFanout {
   clear(): void {
     this.viewers.clear();
     this.latest = undefined;
-  }
-}
-
-export interface CaptureViewer {
-  viewport: BrowserCaptureViewport;
-  local: boolean;
-}
-
-/** Bounded shared capture: remote viewers never raise the local resolution or cadence. */
-export function captureSettings(
-  pressured: boolean,
-  viewers: readonly CaptureViewer[] = [],
-): {
-  fps: number;
-  everyNthFrame: number;
-  quality: number;
-  maxWidth: number;
-  maxHeight: number;
-} {
-  const local = viewers.some((viewer) => viewer.local);
-  const cap = local ? 2560 : 1280;
-  let maxWidth = viewers.length ? 0 : 1280,
-    maxHeight = viewers.length ? 0 : 960;
-  for (const viewer of viewers) {
-    const { width, height, devicePixelRatio } = viewer.viewport;
-    const limit = viewer.local ? cap : 1280;
-    const scale = Math.min(devicePixelRatio, limit / Math.max(width, height));
-    maxWidth = Math.max(maxWidth, Math.round(width * scale));
-    maxHeight = Math.max(maxHeight, Math.round(height * scale));
-  }
-  const native = viewers.length > 0 && viewers.every((viewer) => viewer.viewport.nativeShown);
-  return {
-    fps: native ? 1 : pressured ? 6 : local ? 30 : 15,
-    everyNthFrame: native ? 60 : 1,
-    quality: pressured ? 40 : local ? 90 : 80,
-    maxWidth: Math.min(cap, maxWidth),
-    maxHeight: Math.min(cap, maxHeight),
-  };
-}
-
-/** Injected observations keep brief decode waits from reducing capture quality. */
-export class CapturePressure {
-  private since: number | undefined;
-  sample(pending: boolean, now: number): boolean {
-    if (pending) this.since ??= now;
-    else this.since = undefined;
-    return this.since !== undefined && now - this.since >= 500;
   }
 }

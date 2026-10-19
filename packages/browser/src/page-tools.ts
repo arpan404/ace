@@ -130,14 +130,19 @@ export async function emulateDevice(
  * the page back on the pane's size, so touch and user agent go back to the browser's own.
  */
 export async function resizePage(
-  size: { width: number; height: number },
+  {
+    width,
+    height,
+    devicePixelRatio,
+  }: { width: number; height: number; devicePixelRatio?: number | undefined },
   actor: Actor,
   page: BrowserBackendPage,
   view: TabView,
   check: () => void,
 ): Promise<void> {
+  const size = { width, height };
   check();
-  await page.resize(size.width, size.height);
+  await page.resize(width, height, devicePixelRatio);
   const previous = view.emulation;
   if (previous?.touch) {
     check();
