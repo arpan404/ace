@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   BrowserOpen,
   browserSessionLimit,
+  ThreadId,
   type BrowserArtifact,
   type BrowserState,
   type BrowserFrame,
@@ -23,6 +24,7 @@ import type {
   BrowserAnnotationMessage,
   BrowserBackendLost,
   BrowserDownloadProgress,
+  BrowserPageMessage,
 } from "@ace/protocol";
 import { sessionPolicies } from "./session-policies.ts";
 import { agentResumes, backendCandidates } from "./backend-choice.ts";
@@ -430,6 +432,13 @@ export class BrowserService {
             threadId: options.threadId,
             event,
           }),
+        pageState: (tabId, page) =>
+          this.subscriptions.page({
+            type: "browser.page",
+            threadId: options.threadId,
+            tabId,
+            page,
+          }),
         cleanup: async () => {
           await release();
         },
@@ -634,15 +643,21 @@ export class BrowserService {
     connectionId: string,
     sink: FrameSink,
     onState: (state: BrowserState) => void,
-    onBackendEvent?: (event: BrowserBackendLost | BrowserAnnotationMessage) => void,
+    onBackendEvent?: (
+      event: BrowserBackendLost | BrowserAnnotationMessage | BrowserPageMessage,
+    ) => void,
   ): () => void {
     const session = this.get(threadId);
-    return this.subscriptions.add(threadId, session.live.fanout, session.state, {
+    const stop = this.subscriptions.add(threadId, session.live.fanout, session.state, {
       connectionId,
       sink,
       state: onState,
       ...(onBackendEvent ? { event: onBackendEvent } : {}),
     });
+    // A new viewer starts from each tab's current page state, then follows its changes.
+    for (const { tabId, page } of session.pageStates())
+      onBackendEvent?.({ type: "browser.page", threadId: ThreadId.parse(threadId), tabId, page });
+    return stop;
   }
   configureCapture(
     threadId: string,

@@ -3,7 +3,7 @@ import type { BrowserCdp } from "./backend.ts";
 import { keyEvent } from "./keyboard.ts";
 /** The lease is checked immediately before each dispatched effect. */
 export async function sendHumanInput(
-  input: BrowserInput,
+  input: Exclude<BrowserInput, { kind: "pick" }>,
   cdp: BrowserCdp,
   check: () => void,
 ): Promise<void> {
@@ -39,6 +39,13 @@ export async function sendHumanInput(
       if (input.event === "char")
         await cdp.send("Input.insertText", { text: input.text ?? input.key });
       else await cdp.send("Input.dispatchKeyEvent", keyEvent(input));
+      break;
+    case "ime":
+      await cdp.send("Input.imeSetComposition", {
+        text: input.text,
+        selectionStart: Math.min(input.selectionStart, input.text.length),
+        selectionEnd: Math.min(input.selectionEnd, input.text.length),
+      });
       break;
     case "touch":
       await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true });
