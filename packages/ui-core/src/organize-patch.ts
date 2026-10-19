@@ -3,7 +3,7 @@ import { activityOf } from "./thread-state.ts";
 
 /*
  * Organize actions applied before the daemon confirms them (UX audit SY-10). Settle, snooze,
- * pin, read, rename, move, archive and delete each change a few fields of the thread list
+ * pin, place, read, rename, move, archive and delete each change a few fields of the thread list
  * entry; the client shows that change at once and drops it when the daemon's own entry shows
  * it, or when the daemon refuses the command.
  */
@@ -14,6 +14,8 @@ export interface OrganizePatch {
   pinned?: boolean;
   /** The place among pinned threads the command names; a pin naming none leads. */
   pinOrder?: number;
+  /** The place in the hand-ordered Home list (`thread.place`). */
+  listOrder?: number;
   unread?: boolean;
   settled?: boolean;
   /** A wake time, or null to wake it now. */
@@ -42,6 +44,7 @@ export function patchEntry(
     // As the daemon does: a named place, else the place it had, else the lead (now).
     next.pinOrder = patch.pinOrder ?? (entry.pinned ? entry.pinOrder : undefined) ?? at;
   }
+  if (patch.listOrder !== undefined) next.listOrder = patch.listOrder;
   if (patch.unread !== undefined) {
     next.unread = patch.unread;
     next.readAt = latest;
@@ -93,6 +96,7 @@ export function reflects(
     (patch.title === undefined || entry.title === patch.title) &&
     (patch.pinned === undefined || (entry.pinned === true) === patch.pinned) &&
     (patch.pinOrder === undefined || entry.pinOrder === patch.pinOrder) &&
+    (patch.listOrder === undefined || entry.listOrder === patch.listOrder) &&
     (patch.unread === undefined ||
       ((entry.unread === true) === patch.unread && entry.readAt !== before?.readAt)) &&
     (patch.settled === undefined || (entry.settledAt !== undefined) === patch.settled) &&

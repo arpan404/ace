@@ -74,6 +74,12 @@ const entries = [
     keywords: ["git", "branch", "checkout"],
   },
   {
+    id: "threads.sortBy",
+    page: "/settings/general",
+    title: "Sort threads",
+    keywords: ["order", "sidebar", "manual", "newest", "activity"],
+  },
+  {
     id: "threads.autoSettleAfter",
     page: "/settings/general",
     title: "Settle done threads",

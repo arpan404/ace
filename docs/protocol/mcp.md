@@ -27,8 +27,9 @@ Example:
 
 ```json
 {
+  "height": 84,
   "html": "example",
-  "title": "M"
+  "title": "C"
 }
 ```
 
@@ -67,7 +68,6 @@ Example:
 
 ```json
 {
-  "level": "info",
   "text": "example"
 }
 ```
@@ -112,12 +112,16 @@ Example:
 {
   "tasks": [
     {
-      "access": "inherit",
+      "effort": "example",
       "model": "example",
-      "project": "example",
-      "requestId": "_",
+      "provider": "antigravity",
+      "requestId": "HpK",
       "role": "example",
-      "task": "example"
+      "task": "example",
+      "workspace": {
+        "kind": "existing_worktree",
+        "path": "example"
+      }
     }
   ]
 }
@@ -138,10 +142,7 @@ Example:
 
 ```json
 {
-  "code": "invalid",
-  "data": {
-    "threadIds": []
-  },
+  "code": "unsupported",
   "ok": true
 }
 ```
@@ -187,8 +188,7 @@ Example:
 
 ```json
 {
-  "hint": "example",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -209,7 +209,9 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 Example:
 
 ```json
-{}
+{
+  "threadId": "example"
+}
 ```
 
 ## agents_status.output
@@ -227,11 +229,7 @@ Example:
 
 ```json
 {
-  "data": {
-    "state": "example",
-    "threadId": "example"
-  },
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -256,7 +254,8 @@ Example:
 
 ```json
 {
-  "requestId": "RROFJmxa5",
+  "delivery": "steer",
+  "requestId": "GEpLjhDgs",
   "text": "example",
   "threadId": "example"
 }
@@ -276,8 +275,7 @@ Example:
 
 ```json
 {
-  "code": "forbidden",
-  "hint": "example",
+  "code": "invalid",
   "ok": true
 }
 ```
@@ -301,7 +299,7 @@ Example:
 
 ```json
 {
-  "requestId": "WLWnkoEq",
+  "requestId": "1A",
   "threadId": "example"
 }
 ```
@@ -320,6 +318,7 @@ Example:
 
 ```json
 {
+  "hint": "example",
   "ok": true
 }
 ```
@@ -357,7 +356,9 @@ Example:
 
 ```json
 {
-  "code": "limit",
+  "code": "forbidden",
+  "data": null,
+  "hint": "example",
   "ok": true
 }
 ```
@@ -400,9 +401,7 @@ Example:
 
 ```json
 {
-  "data": null,
-  "hint": "example",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -428,11 +427,7 @@ Semantic rule: With threadId, query must not be empty.
 Example:
 
 ```json
-{
-  "cursor": "example",
-  "limit": 9,
-  "query": "example"
-}
+{}
 ```
 
 ## threads_find.output
@@ -450,8 +445,8 @@ Example:
 
 ```json
 {
-  "hint": "example",
-  "ok": false
+  "code": "limit",
+  "ok": true
 }
 ```
 
@@ -478,8 +473,8 @@ Example:
 
 ```json
 {
-  "limit": 5,
-  "streamId": "example"
+  "before": 7,
+  "offset": 2
 }
 ```
 
@@ -498,8 +493,18 @@ Example:
 
 ```json
 {
+  "data": {
+    "bytes": "example",
+    "items": [],
+    "itemsBefore": 4,
+    "nextOffset": 3,
+    "thread": {
+      "id": "example",
+      "title": "example"
+    }
+  },
   "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -528,15 +533,11 @@ Example:
 
 ```json
 {
-  "access": "full-access",
-  "provider": "acp",
-  "requestId": "XWhi_jpSeb",
+  "access": "read-only",
+  "effort": "example",
+  "requestId": "R3IxLk",
   "text": "example",
-  "title": "example",
-  "workspace": {
-    "kind": "existing_worktree",
-    "path": "example"
-  }
+  "title": "example"
 }
 ```
 
@@ -555,7 +556,6 @@ Example:
 
 ```json
 {
-  "hint": "example",
   "ok": true
 }
 ```
@@ -579,7 +579,7 @@ Example:
 
 ```json
 {
-  "requestId": "GXd1joJ",
+  "requestId": "PFI9Egc87f",
   "threadId": "example"
 }
 ```
@@ -599,7 +599,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "hint": "example",
+  "ok": false
 }
 ```
 
@@ -628,7 +629,7 @@ Example:
 ```json
 {
   "entryId": "example",
-  "requestId": "3yKYn8dOwK",
+  "requestId": "E6TJFA",
   "text": "example",
   "threadId": "example"
 }
@@ -677,7 +678,7 @@ Example:
 {
   "answers": {},
   "interactionId": "example",
-  "requestId": "qOZIJGa",
+  "requestId": "1S.sR0hPAM",
   "threadId": "example"
 }
 ```
@@ -696,8 +697,7 @@ Example:
 
 ```json
 {
-  "code": "limit",
-  "hint": "example",
+  "code": "not_found",
   "ok": false
 }
 ```
@@ -726,9 +726,8 @@ Example:
 
 ```json
 {
-  "repo": "example",
-  "unlink": true,
-  "url": "https://example.invalid/"
+  "number": 1,
+  "repo": "example"
 }
 ```
 
@@ -785,13 +784,8 @@ Example:
 
 ```json
 {
-  "action": "interrupt",
-  "branch": "example",
-  "model": "example",
-  "name": "example",
-  "requestId": "PUM-7GeTgz",
-  "runId": "example",
-  "threadId": "example"
+  "action": "rename",
+  "title": "example"
 }
 ```
 
@@ -810,10 +804,8 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
   "data": null,
-  "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -837,9 +829,7 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 Example:
 
 ```json
-{
-  "limit": 4
-}
+{}
 ```
 
 ## automations_list.output
@@ -857,7 +847,7 @@ Example:
 
 ```json
 {
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -887,11 +877,15 @@ Example:
 
 ```json
 {
+  "enabled": true,
   "id": "example",
+  "missedRun": "run_once",
+  "model": "example",
   "prompt": "example",
+  "provider": "pi",
   "schedule": {
     "expression": "example",
-    "kind": "cron",
+    "kind": "rrule",
     "startAt": 0,
     "timezone": "example"
   },
@@ -914,6 +908,7 @@ Example:
 
 ```json
 {
+  "code": "not_ready",
   "ok": false
 }
 ```
@@ -939,8 +934,7 @@ Example:
 ```json
 {
   "id": "example",
-  "requestId": "cDA2WeP",
-  "variables": {}
+  "requestId": "xhucK"
 }
 ```
 
@@ -999,6 +993,8 @@ Example:
 
 ```json
 {
+  "code": "limit",
+  "hint": "example",
   "ok": true
 }
 ```
@@ -1026,7 +1022,6 @@ Example:
 
 ```json
 {
-  "limit": 9,
   "sourceThreadId": "example"
 }
 ```
@@ -1049,7 +1044,12 @@ Example:
 
 ```json
 {
-  "encoding": "utf-16le"
+  "bytes": "example",
+  "eof": false,
+  "items": [],
+  "itemsBefore": null,
+  "nextOffset": 5,
+  "threadId": "example"
 }
 ```
 
@@ -1070,11 +1070,7 @@ Required capability: none beyond session authentication. Timeout: 30000 ms.
 Example:
 
 ```json
-{
-  "topics": [
-    "recent"
-  ]
-}
+{}
 ```
 
 ## context.output
@@ -1093,19 +1089,7 @@ Example:
 Example:
 
 ```json
-{
-  "changes": null,
-  "diagnostics": {
-    "blocking": [],
-    "failures": []
-  },
-  "status": {
-    "access": "auto-review",
-    "agentId": "example",
-    "groups": [],
-    "threadId": "example"
-  }
-}
+{}
 ```
 
 ## note_add
@@ -1144,7 +1128,7 @@ Example:
 ```json
 {
   "noteId": "example",
-  "notes": 6
+  "notes": 5
 }
 ```
 
@@ -1226,9 +1210,8 @@ Example:
 
 ```json
 {
-  "answer": [],
   "askId": "example",
-  "status": "declined"
+  "status": "answered"
 }
 ```
 
@@ -1270,7 +1253,7 @@ Example:
 
 ```json
 {
-  "how": "example",
+  "hint": "example",
   "matches": []
 }
 ```
@@ -1311,6 +1294,7 @@ Example:
 
 ```json
 {
-  "content": []
+  "content": [],
+  "isError": false
 }
 ```

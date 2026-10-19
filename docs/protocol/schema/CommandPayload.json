@@ -638,6 +638,27 @@
     },
     {
       "properties": {
+        "order": {
+          "description": "Place in the Home list when it is ordered by hand (threads.sortBy manual), higher first. Absent: the thread's creation time stands in, so a new thread leads.",
+          "type": "number"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.place",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "order"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "pullRequest": {
           "$ref": "https://ace.local/protocol/v1/ForgePrWorktree.json"
         },

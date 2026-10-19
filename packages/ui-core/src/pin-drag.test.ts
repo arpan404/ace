@@ -66,3 +66,36 @@ test("arrow keys step through each pinned place, then out of the group, and stop
   expect(stepTarget(targets, { kind: "pin", index: 2 }, 1)).toEqual({ kind: "unpin" });
   expect(stepTarget(targets, { kind: "unpin" }, 1)).toEqual({ kind: "unpin" });
 });
+
+/** Pinned heading and one pinned row, then three listed rows of a hand-sorted list. */
+const sorted: RowBox[] = [
+  { kind: "pin-zone", top: 0, bottom: 30 },
+  { kind: "pinned", id: "a", top: 30, bottom: 100 },
+  { kind: "listed", id: "x", top: 110, bottom: 180 },
+  { kind: "listed", id: "y", top: 180, bottom: 250 },
+  { kind: "listed", id: "z", top: 250, bottom: 320 },
+];
+
+test("in a hand-sorted list the rows below Pinned are places too", () => {
+  const moving = new Set(["z"]);
+  expect(dropTargetAt(sorted, 120, moving)).toEqual({ kind: "place", index: 0 });
+  expect(dropTargetAt(sorted, 200, moving)).toEqual({ kind: "place", index: 1 });
+  expect(indicatorAt(sorted, { kind: "place", index: 1 }, moving)).toBe(180);
+  // Past the moved thread's own row, the place after the last other row.
+  expect(dropTargetAt(sorted, 300, moving)).toEqual({ kind: "place", index: 2 });
+  expect(indicatorAt(sorted, { kind: "place", index: 2 }, moving)).toBe(250);
+  // A pinned thread dragged below Pinned lands at a place rather than only unpinning.
+  expect(dropTargetAt(sorted, 200, new Set(["a"]))).toEqual({ kind: "place", index: 1 });
+});
+
+test("keyboard moves in a hand-sorted list step through the places below Pinned", () => {
+  const targets = moveTargets(1, 2);
+  expect(targets).toEqual([
+    { kind: "pin", index: 0 },
+    { kind: "pin", index: 1 },
+    { kind: "place", index: 0 },
+    { kind: "place", index: 1 },
+    { kind: "place", index: 2 },
+  ]);
+  expect(stepTarget(targets, { kind: "place", index: 0 }, -1)).toEqual({ kind: "pin", index: 1 });
+});
