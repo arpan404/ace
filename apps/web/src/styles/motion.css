@@ -76,6 +76,10 @@
   .fx-queue-in {
     animation: fx-queue-in var(--motion-base) var(--ease-sheet) both;
   }
+  /* A value replaced in place (a merge gate, an agent's status): a short cross-fade. */
+  .fx-cross-in {
+    animation: fx-fade-in var(--motion-base) var(--ease-out) both;
+  }
   /* A scrim or overlay appearing: opacity only. */
   .fx-fade-in {
     animation: fx-fade-in var(--motion-slow) var(--ease-sheet) both;

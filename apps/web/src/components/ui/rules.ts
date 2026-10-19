@@ -34,3 +34,11 @@ export const groupCard = "rounded-lg border border-border-soft bg-card";
  */
 export const cardEdge = "shadow-[inset_0_0_0_1px_var(--border)]";
 export const plainRow = "rounded-md transition-colors duration-(--motion-fast) hover:bg-accent";
+/*
+ * `rowCard`: one outlined row of a side-panel list that asks for action (the PR panel's Needs
+ * attention): a hairline edge, a hover wash.
+ * `hairlineGrid`: cells separated by 1px hairlines in the border colour (the PR merge gates);
+ * each cell paints its own surface over the grid's.
+ */
+export const rowCard = `rounded-md ${cardEdge} transition-colors duration-(--motion-fast) hover:bg-hover`;
+export const hairlineGrid = "grid gap-px bg-border";

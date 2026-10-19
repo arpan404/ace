@@ -318,6 +318,7 @@ export class FakeDaemon implements Host {
     | "setGitDiff"
     | "setEditors"
     | "setForgeRead"
+    | "seedPullRequests"
     | "setDraftGenerator"
     | "setIssueOutcome"
     | "git"

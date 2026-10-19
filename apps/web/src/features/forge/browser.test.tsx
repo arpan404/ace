@@ -149,7 +149,8 @@ test("a successful merge followed by a failed detail refresh stays disabled unti
     expect(screen.queryByRole("button", { name: "Reconcile action" })).toBeNull(),
   );
   // Merged: the state shows where the merge button was.
-  expect(await panel().findByText("Merged")).toBeTruthy();
+  // The state badge and the gates both say so.
+  expect(await panel().findAllByText("Merged")).not.toHaveLength(0);
   expect(panel().queryByRole("button", { name: "Squash and merge" })).toBeNull();
 });
 
@@ -222,8 +223,8 @@ test("the Summary holds only reviewers, labels, description, checks and comments
     screen
       .getAllByRole("region")
       .map((region) => region.getAttribute("aria-label"))
-      .filter((name) => ["Description", "Checks", "Comments (1)"].includes(name ?? "")),
-  ).toEqual(["Description", "Checks", "Comments (1)"]);
+      .filter((name) => ["Description", "Checks", "Comments"].includes(name ?? "")),
+  ).toEqual(["Description", "Checks", "Comments"]);
   expect(panel().getByText("Preserve reconnect ordering.")).toBeTruthy();
   expect(panel().getByText("Keep the context.")).toBeTruthy();
   // Checks start folded; no Summary control refreshes anything.
@@ -375,7 +376,7 @@ test("the ⋯ menu offers the lifecycle actions GitHub allows and follows outsid
   });
   await userEvent.click(await menuItem("Refresh"));
   expect(await screen.findByRole("heading", { name: "Closed on GitHub" })).toBeTruthy();
-  expect(await panel().findByText("Closed")).toBeTruthy();
+  expect(await panel().findAllByText("Closed")).not.toHaveLength(0);
   expect(await menuItem("Reopen pull request")).toBeTruthy();
   expect(screen.queryByRole("menuitem", { name: "Ready for review" })).toBeNull();
 });

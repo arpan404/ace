@@ -30,8 +30,8 @@ export function prPrimaryAction(input: {
     return { kind: "auto-merge-armed", method: mergeState.autoMerge.method.toLowerCase() };
   if (mergeState?.queue) return { kind: "queued", position: mergeState.queue.position };
   const checks = ciLine(status).tone;
-  if (checks !== "success" && checks !== "none" && mergeState?.canEnable)
-    return { kind: "auto-merge", method };
+  // Failing checks never offer auto-merge: it would wait on a fix nobody has pushed.
+  if (checks === "pending" && mergeState?.canEnable) return { kind: "auto-merge", method };
   return { kind: "merge", method };
 }
 

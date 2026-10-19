@@ -1,18 +1,16 @@
 import { useState } from "react";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react";
 import { useClient, useConnectionState } from "@ace/client-react";
-import { ThreadId } from "@ace/protocol";
 import type { ForgePrDetail, ForgeStackMovedLayer, ForgeStackOperation } from "@ace/protocol";
 import { canPublishStack, matchesLocalStack, matchesStackBranches } from "@ace/forge/stack-plan";
 import { canPublishAfter, stackPublishUpdates } from "@ace/forge/stack-publish";
-import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { openExternal } from "@/boot/open-external.ts";
 import { actionErrorText } from "@ace/ui-core";
-import { readForge } from "./source.ts";
+import { usePrStackQuery } from "./pr-stack-query.ts";
 import { QueryState } from "./query-state.tsx";
 import { StackRail } from "./pr-stack-rail.tsx";
 import { StackConfirm, type StackConfirmation } from "./pr-stack-confirm.tsx";
@@ -72,28 +70,7 @@ export function PrStack(props: {
   const [confirmation, setConfirmation] = useState<StackConfirmation | null>(null);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
-  const query = useDaemonQuery({
-    queryKey: ["forge", props.workspaceId, ref, "stack", threadId],
-    retry: false,
-    staleTime: 0,
-    refetchOnReconnect: "always",
-    refetchInterval: 15_000,
-    read: async (reader, signal) => {
-      const result = await readForge(
-        reader,
-        {
-          op: "forge.pr.stack",
-          workspaceId: props.workspaceId,
-          repository: ref.repository,
-          number: ref.number,
-          threadId: threadId ? ThreadId.parse(threadId) : undefined,
-        },
-        signal,
-      );
-      if (result.resource !== "prStack") throw new Error("No stack returned.");
-      return result.value;
-    },
-  });
+  const query = usePrStackQuery({ workspaceId: props.workspaceId, pr: ref, threadId });
   const stack = query.isError ? undefined : (query.data?.stack ?? undefined);
   const local = query.data?.local;
   const operation = query.data?.operation;

@@ -39,6 +39,100 @@ export const reviewOutcomeLabels: Record<ReviewOutcome, string> = {
   dismissed: "Dismissed",
 };
 
+/** Something on the PR an agent could fix: a failing check or an open review thread. */
+export type AttentionItem =
+  | {
+      kind: "check";
+      key: string;
+      title: string;
+      detail: string;
+      at: string | null;
+      url: string | null;
+    }
+  | {
+      kind: "thread";
+      key: string;
+      title: string;
+      detail: string;
+      at: string | null;
+      author: string;
+      body: string;
+    };
+
+/** Failing checks first, then review threads nobody resolved, each as one actionable row. */
+export function attentionItems(
+  status: Pick<ForgePrStatus, "checks" | "reviewThreads">,
+): AttentionItem[] {
+  const checks = status.checks
+    .filter((check) => check.status === "failure")
+    .map((check): AttentionItem => ({
+      kind: "check",
+      key: `check:${check.id}`,
+      title: check.name,
+      detail: check.conclusion ?? "failed",
+      at: check.completedAt,
+      url: check.url,
+    }));
+  const threads = status.reviewThreads
+    .filter((thread) => !thread.resolved && thread.comments.length > 0)
+    .map((thread): AttentionItem => {
+      const first = thread.comments[0];
+      return {
+        kind: "thread",
+        key: `thread:${thread.id}`,
+        title: (first?.body ?? "").split("\n")[0] ?? "",
+        detail: `${thread.file}:${thread.line ?? ""}`,
+        at: first ? time(first) : null,
+        author: first?.author ?? "",
+        body: first?.body ?? "",
+      };
+    });
+  return [...checks, ...threads];
+}
+
+/** What "Fix with agent" asks the agent, for the person to read over before sending. */
+export function fixRequest(item: AttentionItem, pr: { number: number; url: string }): string {
+  if (item.kind === "check")
+    return `The check "${item.title}" fails on PR #${pr.number} (${item.url ?? pr.url}). Read its log, find the cause and push a fix to the PR branch.`;
+  return `Address ${item.author}'s review comment on ${item.detail} in PR #${pr.number}:\n\n> ${item.body.split("\n").join("\n> ")}\n\nMake the change, push it, and reply on the thread.`;
+}
+
+export interface GlanceFile {
+  path: string;
+  /** "src/invoices/pdf/", empty at the root. */
+  directory: string;
+  name: string;
+  additions: number;
+  deletions: number;
+  /** The file's share of the biggest file's change, 0 to 1. */
+  scale: number;
+}
+
+/** The `limit` files that changed most, biggest first, each scaled against the biggest. */
+export function biggestFiles(
+  files: readonly { path: string; additions: number; deletions: number }[],
+  limit: number,
+): GlanceFile[] {
+  const top = files
+    .toSorted(
+      (a, b) =>
+        b.additions + b.deletions - (a.additions + a.deletions) || a.path.localeCompare(b.path),
+    )
+    .slice(0, limit);
+  const most = Math.max(1, ...top.map((file) => file.additions + file.deletions));
+  return top.map((file) => {
+    const cut = file.path.lastIndexOf("/") + 1;
+    return {
+      path: file.path,
+      directory: file.path.slice(0, cut),
+      name: file.path.slice(cut),
+      additions: file.additions,
+      deletions: file.deletions,
+      scale: (file.additions + file.deletions) / most,
+    };
+  });
+}
+
 /** A GitHub App or bot account: "dependabot[bot]", "ci-bot". */
 export const isBot = (author: string) => /\[bot\]$|(^|-)bot$/i.test(author);
 

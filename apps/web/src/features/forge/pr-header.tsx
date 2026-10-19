@@ -20,7 +20,7 @@ import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import type { PrWorkspaceExtensions } from "./pr-extensions.ts";
 import type { PrActions } from "./pr-actions.ts";
 import { PrPrimaryButton } from "./pr-primary-button.tsx";
-import { PrStackChip } from "./pr-stack-chip.tsx";
+import { PrAgentChip } from "./pr-agent-chip.tsx";
 
 /** The title, editable in place where GitHub lets this account change it. */
 function PrTitle(props: { actions: PrActions; condensed: boolean }) {
@@ -75,9 +75,7 @@ function PrTitle(props: { actions: PrActions; condensed: boolean }) {
         title={title}
         className={cn(
           "min-w-0 truncate",
-          props.condensed
-            ? "text-ui font-medium"
-            : "text-base leading-6 font-semibold text-foreground",
+          props.condensed ? "text-ui font-medium" : "text-md leading-6 font-medium text-foreground",
         )}
       >
         {title}
@@ -96,23 +94,29 @@ function PrTitle(props: { actions: PrActions; condensed: boolean }) {
   );
 }
 
-/** An amber triangle beside the base when the branch is behind it, offering to update. */
-function BehindBase(props: { actions: PrActions }) {
+/** An amber "Behind · Update" chip beside the branches, offering to update the branch. */
+function BehindBase(props: {
+  actions: PrActions;
+  open: boolean;
+  onOpenChange(open: boolean): void;
+}) {
   const { lifecycle, mergeState, context } = props.actions;
   const updates = (["update.merge", "update.rebase"] as const).filter(lifecycle.can);
   if (mergeState.state?.mergeState !== "BEHIND" || !updates.length) return null;
   return (
-    <Popover>
+    <Popover open={props.open} onOpenChange={props.onOpenChange}>
       <PopoverTrigger
         render={
           <button
             type="button"
-            aria-label={`Behind ${context.detail.baseBranch}`}
-            className="inline-flex rounded-xs text-status-needs-you focus-ring touch-hit"
+            aria-label={`Behind ${context.detail.baseBranch}: update`}
+            data-tone="needs-you"
+            className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-(--tone)/12 px-2 font-sans text-xs text-(--tone-text) transition-colors duration-(--motion-fast) focus-ring hover:bg-(--tone)/20"
           />
         }
       >
         <WarningIcon aria-hidden size={12} />
+        Behind · Update
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 space-y-2 p-3">
         <PopoverTitle className="text-ui font-medium">
@@ -124,7 +128,10 @@ function BehindBase(props: { actions: PrActions }) {
               key={kind}
               size="sm"
               disabled={lifecycle.blocked}
-              onClick={() => void lifecycle.apply({ kind })}
+              onClick={() => {
+                props.onOpenChange(false);
+                void lifecycle.apply({ kind });
+              }}
             >
               {kind === "update.merge" ? "Update branch" : "Update with rebase"}
             </Button>
@@ -145,6 +152,10 @@ export function PrHeader(props: {
   extensions?: PrWorkspaceExtensions | undefined;
   menu: ReactNode;
   condensed: boolean;
+  behindOpen: boolean;
+  /** The merge gates, folded away with the title block. */
+  gates: ReactNode;
+  onBehindOpen(open: boolean): void;
   onBack?: (() => void) | undefined;
   onOpen(number: number): void;
 }) {
@@ -165,8 +176,8 @@ export function PrHeader(props: {
     </>
   );
   return (
-    <header className="shrink-0 px-4 pt-2 pb-2">
-      <div className="flex h-7 min-w-0 items-center gap-1">
+    <header className="shrink-0 pt-2">
+      <div className="flex h-7 min-w-0 items-center gap-1 px-4">
         {props.onBack && (
           <IconButton
             icon={ArrowLeftIcon}
@@ -201,15 +212,7 @@ export function PrHeader(props: {
         )}
         <div className="ml-auto flex shrink-0 items-center gap-1">
           {props.extensions?.headerActions?.(context)}
-          {actions.stack && (
-            <PrStackChip
-              workspaceId={context.workspaceId}
-              detail={detail}
-              stack={actions.stack}
-              onRefresh={() => void context.refresh()}
-              onOpen={props.onOpen}
-            />
-          )}
+          <PrAgentChip detail={detail} compact={props.condensed} />
           <PrPrimaryButton
             primary={actions.primary}
             blocked={actions.primaryBlocked}
@@ -219,43 +222,61 @@ export function PrHeader(props: {
           {props.menu}
         </div>
       </div>
-      {props.condensed ? (
-        <p className="truncate font-mono text-2xs text-subtle-foreground">{branches}</p>
-      ) : (
-        <div className="mt-1 space-y-1">
-          <PrTitle actions={actions} condensed={false} />
-          <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-            <PrAvatar name={detail.author} url={detail.authorAvatarUrl} />
-            <span className="truncate">{detail.author}</span>
-            <span aria-hidden className="text-subtle-foreground">
-              ·
-            </span>
-            <PrTime at={detail.updatedAt} prefix="updated " />
-            <button
-              type="button"
-              aria-label={copied ? "Checkout command copied" : "Copy checkout command"}
-              onClick={() => copy(checkout)}
-              title={checkout}
-              className="ml-auto max-w-[55%] truncate rounded-xs px-1 font-mono text-xs text-subtle-foreground focus-ring touch-hit hover:bg-accent hover:text-foreground"
-            >
-              {copied ? "Copied" : checkout}
-            </button>
+      {/* Folds away on scroll: the height animates; the title moves up into the first line. */}
+      <div
+        inert={props.condensed}
+        aria-hidden={props.condensed || undefined}
+        className={cn(
+          "grid transition-[grid-template-rows,opacity] duration-(--motion-base) ease-out motion-reduce:transition-none",
+          props.condensed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100",
+        )}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className="mt-1 space-y-1.5 px-4 pb-2.5">
+            {!props.condensed && <PrTitle actions={actions} condensed={false} />}
+            <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+              <PrAvatar name={detail.author} url={detail.authorAvatarUrl} />
+              <span className="truncate text-foreground">{detail.author}</span>
+              <span aria-hidden className="text-subtle-foreground">
+                ·
+              </span>
+              <PrTime at={detail.updatedAt} prefix="updated " />
+              <button
+                type="button"
+                aria-label={copied ? "Checkout command copied" : "Copy checkout command"}
+                onClick={() => copy(checkout)}
+                title={checkout}
+                className="ml-auto max-w-[55%] truncate rounded-xs bg-accent px-1.5 py-0.5 font-mono text-xs text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit hover:bg-hover hover:text-foreground"
+              >
+                {copied ? "Copied" : checkout}
+              </button>
+            </div>
+            <div className="flex min-w-0 items-center gap-2 text-xs text-subtle-foreground">
+              <span className="inline-flex min-w-0 items-center gap-2 font-mono">
+                <span className="truncate">{branches}</span>
+                <BehindBase
+                  actions={actions}
+                  open={props.behindOpen}
+                  onOpenChange={props.onBehindOpen}
+                />
+              </span>
+              <span className="ml-auto inline-flex shrink-0 items-center gap-1.5 tabular-nums">
+                <FileIcon aria-hidden size={12} />
+                {detail.changedFiles}
+                <span className="sr-only">files</span>
+                {detail.additions !== undefined && detail.deletions !== undefined && (
+                  <DiffStat additions={detail.additions} deletions={detail.deletions} />
+                )}
+              </span>
+            </div>
           </div>
-          <div className="flex min-w-0 items-center gap-2 pt-1 text-xs text-subtle-foreground">
-            <span className="inline-flex min-w-0 items-center gap-1 font-mono">
-              <span className="truncate">{branches}</span>
-              <BehindBase actions={actions} />
-            </span>
-            <span className="ml-auto inline-flex shrink-0 items-center gap-1.5 tabular-nums">
-              <FileIcon aria-hidden size={12} />
-              {detail.changedFiles}
-              <span className="sr-only">files</span>
-              {detail.additions !== undefined && detail.deletions !== undefined && (
-                <DiffStat additions={detail.additions} deletions={detail.deletions} />
-              )}
-            </span>
-          </div>
+          {props.gates}
         </div>
+      </div>
+      {props.condensed && (
+        <p className="fx-cross-in truncate px-4 pb-1.5 font-mono text-2xs text-subtle-foreground">
+          {branches}
+        </p>
       )}
     </header>
   );
