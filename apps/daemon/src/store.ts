@@ -18,6 +18,7 @@ import { purgeTranscript } from "./storage/transcript.ts";
 import { SearchReplay } from "./search-replay.ts";
 import { migrateSidebarRevisions } from "./sidebar-revisions.ts";
 import { seedSentMessages } from "./draft-migration.ts";
+import { timeOrderedIds } from "./time-ordered-id.ts";
 import { NativeImageStore } from "./native-image-store.ts";
 import { ToolResultStore } from "./tool-result-store.ts";
 import { MeasurementStore } from "./measurement-store.ts";
@@ -40,7 +41,6 @@ import { setImmediate } from "node:timers/promises";
 import type { ArchiveReader } from "@ace/history-import";
 import { installArchive } from "./history-storage.ts";
 import { systemCredentials, type CredentialRuntime } from "./credential-runtime.ts";
-import { randomUUID } from "node:crypto";
 import { DatabaseSync, type StatementSync } from "@ace/provider-kit/sqlite";
 import {
   McpIntent,
@@ -166,8 +166,8 @@ export class Store {
       statement: (sql) => this.statement(sql),
       commit: (run) => this.atomic(run),
     });
-    this.nextId = options.nextId ?? randomUUID;
     this.now = options.now ?? Date.now;
+    this.nextId = options.nextId ?? timeOrderedIds();
     this.writes = new StoreWriteGate(options.writeGate);
     this.streaming = new StoreStream({
       scheduler: options.bufferScheduler ?? bufferScheduler,

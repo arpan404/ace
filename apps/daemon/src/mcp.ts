@@ -1,5 +1,5 @@
 import { McpProviderSessions } from "./mcp-provider-sessions.ts";
-import { randomUUID } from "node:crypto";
+import { timeOrderedIds } from "./time-ordered-id.ts";
 import { ItemId, type McpScope } from "@ace/protocol";
 import {
   type StatusReader,
@@ -26,13 +26,15 @@ export async function startDaemonMcp(
   awareness?: AwarenessPort,
   knowledge?: Pick<KnowledgePort, "context">,
 ) {
+  // Intents and notices are database keys: time-ordered, they stay together in each index.
+  const nextId = timeOrderedIds();
   const registry = new ToolRegistry({
     scheduler: nodeScheduler,
     ...(observations ? { observeCall: observations.observeCall } : {}),
   });
   registerBuiltins(registry, {
     async notify(intent, signal) {
-      const intentId = randomUUID();
+      const intentId = nextId();
       const at = Date.now();
       signal.throwIfAborted();
       store.enqueueMcpIntent(
@@ -43,7 +45,7 @@ export async function startDaemonMcp(
             type: "item.created",
             item: {
               type: "notice",
-              id: ItemId.parse(randomUUID()),
+              id: ItemId.parse(nextId()),
               agentId: intent.agentId,
               createdAt: at,
               complete: true,

@@ -31,7 +31,7 @@ import { quiescent } from "./transition-history.ts";
 import { TransitionState } from "./transition-state.ts";
 import { type Fact, type ThreadState, type IdSource } from "@ace/core";
 import type { StatementSync } from "node:sqlite";
-import { randomUUID } from "node:crypto";
+import { timeOrderedIds } from "../time-ordered-id.ts";
 import { ExecutionOptions, Command, CommandId, ThreadId, type EventPayload } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import { decodeSnapshot } from "./snapshot.ts";
@@ -85,9 +85,9 @@ export class EngineRepository {
   };
   constructor(
     store: Store,
-    ids: IdSource = { next: () => randomUUID() },
+    ids: IdSource = timeOrderedIdSource(),
     capacity = 64,
-    commandId: () => string = randomUUID,
+    commandId: () => string = timeOrderedIds(),
     aceAction?: typeof import("@ace/mcp-server").aceToolAction,
     now: () => number = Date.now,
   ) {
@@ -671,4 +671,10 @@ export class EngineRepository {
     });
     this.store.atomic(() => this.capture.run(id, generation, frame.seq, json));
   }
+}
+
+/** One time-ordered sequence for every kind of engine-made id. */
+function timeOrderedIdSource(): IdSource {
+  const next = timeOrderedIds();
+  return { next: () => next() };
 }
