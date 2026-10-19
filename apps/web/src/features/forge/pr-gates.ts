@@ -13,7 +13,10 @@ export type GateTone = "done" | "failed" | "needs-you" | "working" | "waiting" |
 export interface Gate {
   key: GateKey;
   label: string;
+  /** Short enough to show whole in a quarter of a 400px panel; it never ellipsizes. */
   value: string;
+  /** A second, quieter line ("3d ago"). */
+  detail?: string | undefined;
   tone: GateTone;
 }
 
@@ -51,7 +54,7 @@ function checksGate(status: GateFacts["status"]): Gate {
     };
   if (status.ci === "unknown") return { key: "checks", label, value: "Unavailable", tone: "idle" };
   if (ok) return { key: "checks", label, value: `${ok} passed`, tone: "done" };
-  return { key: "checks", label, value: "None", tone: "idle" };
+  return { key: "checks", label, value: "No checks", tone: "idle" };
 }
 
 function reviewsGate(facts: GateFacts): Gate {
@@ -88,12 +91,13 @@ export function prGates(facts: GateFacts): Gate[] {
   const { status } = facts;
   if (status.state === "merged" || status.state === "closed") {
     const merged = status.state === "merged";
-    const when = [facts.ended?.by, facts.ended?.ago].filter(Boolean).join(" · ");
     return [
       {
         key: "ended",
         label: merged ? "Merged" : "Closed",
-        value: when || (merged ? "Merged" : "Closed"),
+        // Who, then when on a line of its own, so neither is cut short.
+        value: facts.ended?.by ?? (merged ? "Merged" : "Closed"),
+        detail: facts.ended?.ago ? `${facts.ended.ago} ago` : undefined,
         tone: merged ? "waiting" : "failed",
       },
       { key: "into", label: "Into", value: facts.baseBranch, tone: "idle" },
@@ -112,4 +116,11 @@ export function prGates(facts: GateFacts): Gate[] {
     conflictsGate(status),
     branchGate(facts.mergeState),
   ];
+}
+
+/** The gates that stop a merge outright, in words: failing checks and requested changes. */
+export function mergeBlockers(gates: readonly Gate[]): string[] {
+  return gates
+    .filter((gate) => (gate.key === "checks" || gate.key === "reviews") && gate.tone === "failed")
+    .map((gate) => `${gate.label}: ${gate.value}`);
 }

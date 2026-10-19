@@ -72,7 +72,9 @@ test("an uncertain metadata edit keeps its text and holds lifecycle writes until
   app.daemon.workspace.setForgeRead(lifecycle, { resource: "prLifecycle", value: state });
   app.daemon.refuseCommands("action_outcome_uncertain", "forge.hosted.lifecycle");
   await openPullRequest(app, { project: "api", number: 42 });
-  await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Pull request actions" }, { timeout: 10_000 }),
+  );
   await userEvent.click(await screen.findByRole("menuitem", { name: "Edit details…" }));
   const description = await screen.findByRole<HTMLTextAreaElement>("textbox", {
     name: "PR description",
@@ -111,4 +113,5 @@ test("an uncertain metadata edit keeps its text and holds lifecycle writes until
   expect(
     (await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "PR description" })).value,
   ).toBe("Keep my metadata edit");
-});
+  // A long walk through the whole panel: give it room on a busy machine.
+}, 20_000);

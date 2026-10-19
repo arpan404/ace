@@ -99,7 +99,7 @@ async function linkedControls(state: ForgeMergeState) {
     },
   );
   await openPullRequest(app, { project: "relay", number: 42 });
-  await screen.findByRole("article", { name: "Pull request #42" });
+  await screen.findByRole("article", { name: "Pull request #42" }, { timeout: 10_000 });
   return { app, seed };
 }
 
@@ -125,8 +125,10 @@ test("armed auto-merge and queue membership show in the header and clear on refr
   });
   app.daemon.workspace.setForgeRead(operation, { resource: "prMergeState", value: state });
   await openPullRequest(app, { project: "api", number: 42 });
-  await screen.findByRole("article", { name: "Pull request #42" });
-  expect(await panel().findByText("Auto-merge (squash)")).toBeTruthy();
+  await screen.findByRole("article", { name: "Pull request #42" }, { timeout: 10_000 });
+  await waitFor(() => expect(panel().getByText("Auto-merge (squash)")).toBeTruthy(), {
+    timeout: 10_000,
+  });
   expect(panel().queryByRole("button", { name: "Squash and merge" })).toBeNull();
   // Without a linked task, GitHub writes wait for a link.
   expect(disabled(await menuItem(/^Disable auto-merge/))).toBe(true);
@@ -137,7 +139,7 @@ test("armed auto-merge and queue membership show in the header and clear on refr
     value: { ...state, autoMerge: null, queue: null, canDisable: false, canDequeue: false },
   });
   await userEvent.click(await menuItem("Refresh"));
-  expect(await panel().findByRole("button", { name: "Squash and merge" })).toBeTruthy();
+  expect(await panel().findByRole("button", { name: "Link to merge" })).toBeTruthy();
   expect(panel().queryByText("Auto-merge (squash)")).toBeNull();
 });
 

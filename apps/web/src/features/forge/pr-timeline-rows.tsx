@@ -1,4 +1,5 @@
-import { useLayoutEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
+import type { ComponentType, ReactNode } from "react";
+import { PrClampedText } from "./pr-clamped.tsx";
 import type { ForgeComment } from "@ace/protocol";
 import {
   ArrowsClockwiseIcon,
@@ -13,7 +14,6 @@ import {
   type IconProps,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import { Prose } from "@/components/markdown/prose.tsx";
 import { DiffStat } from "@/components/diff-stat.tsx";
 import { MessageAvatar } from "@/components/ui/message.tsx";
 import { PrTime } from "./pr-presentation.tsx";
@@ -100,35 +100,14 @@ function Line(props: { children: ReactNode; at: string | null }) {
 }
 /** A long body shows about six lines until it is opened. */
 function Clamped(props: { id: string; text: string; expansion: TimelineExpansion }) {
-  const box = useRef<HTMLDivElement>(null);
-  const [overflows, setOverflows] = useState(false);
-  const open = props.expansion.isOpen(props.id);
-  useLayoutEffect(() => {
-    const element = box.current;
-    if (!element || open) return;
-    const measure = () => setOverflows(element.scrollHeight > element.clientHeight + 1);
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [open]);
   if (!props.text.trim()) return null;
   return (
     <div className="mt-1.5">
-      <div ref={box} className={open ? undefined : "line-clamp-6"}>
-        <Prose text={props.text} className="text-ui leading-normal" />
-      </div>
-      {(overflows || open) && (
-        <button
-          type="button"
-          aria-expanded={open}
-          onClick={() => props.expansion.toggle(props.id)}
-          className="mt-1 text-xs text-link hover:underline focus-ring"
-        >
-          {open ? "Show less" : "Show more"}
-        </button>
-      )}
+      <PrClampedText
+        text={props.text}
+        open={props.expansion.isOpen(props.id)}
+        onToggle={() => props.expansion.toggle(props.id)}
+      />
     </div>
   );
 }
