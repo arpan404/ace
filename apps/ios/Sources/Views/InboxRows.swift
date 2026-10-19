@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// One thread in the inbox: project and status, title, then branch, machine, tree size and when
+/// One thread in the inbox: quiet project and status, title, then branch, machine and when
 /// it last worked (or wakes). Every word arrives from the bridge; colour comes from its token.
-/// The machine shows only when more than one is paired (DESIGN.md list rows).
+/// The machine shows only when more than one is paired (DESIGN.md list rows). The badge pill
+/// and folder glyph are omitted: they repeated the project name without adding state.
 struct InboxThreadRow: View {
     let row: ThreadRow
     let snoozed: Bool
@@ -15,21 +16,15 @@ struct InboxThreadRow: View {
                             : AnyLayout(HStackLayout(spacing: AceTheme.Spacing.sm))
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             lines {
-                HStack(spacing: AceTheme.Spacing.sm) {
-                    Text(row.badge ?? "")
-                        .aceFont(AceTheme.Typography.label, relativeTo: .caption)
-                        .padding(AceTheme.Spacing.xs)
-                        .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.small))
-                        .accessibilityLabel(row.project)
-                    Image(systemName: "folder").aceFont(AceTheme.Typography.caption, relativeTo: .caption).accessibilityHidden(true)
+                if !row.project.isEmpty {
                     Text(row.project).aceFont(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(stacked ? nil : 1)
                 }
-                if !stacked { Spacer(minLength: AceTheme.Spacing.sm) }
+                if !stacked, !row.project.isEmpty { Spacer(minLength: AceTheme.Spacing.sm) }
                 StateLabel(status: row.status)
             }.foregroundStyle(AceTheme.Colours.mutedForeground)
             Text(row.title).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(stacked ? nil : 2)
             lines {
-                if !row.branch.isEmpty { Text(row.branch).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(stacked ? nil : 1) }
+                if !row.branch.isEmpty { Text(row.branch).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(stacked ? nil : 1).truncationMode(.middle) }
                 if let machine, !machine.isEmpty { Text(row.branch.isEmpty || stacked ? machine : "· \(machine)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(1) }
                 if !stacked { Spacer(minLength: AceTheme.Spacing.none) }
                 if row.agents > 1 {
@@ -37,7 +32,7 @@ struct InboxThreadRow: View {
                         .labelStyle(.titleAndIcon).aceFont(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(1)
                 }
                 Text(when).aceFont(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit().lineLimit(1)
-            }.foregroundStyle(AceTheme.Colours.mutedForeground)
+            }.foregroundStyle(AceTheme.Colours.subtleForeground)
         }
         .padding(.vertical, AceTheme.Spacing.sm)
         .frame(minHeight: AceTheme.Dimensions.touchTarget)
@@ -62,13 +57,14 @@ struct InboxUnsentRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             HStack(spacing: AceTheme.Spacing.sm) {
-                Image(systemName: "folder").aceFont(AceTheme.Typography.caption, relativeTo: .caption).accessibilityHidden(true)
-                Text(thread?.project ?? "").aceFont(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(1)
+                if let project = thread?.project, !project.isEmpty {
+                    Text(project).aceFont(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(1)
+                }
                 Spacer(minLength: AceTheme.Spacing.sm)
                 Text(entry.label ?? "").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(StateStyle.text(entry.token ?? "neutral"))
             }.foregroundStyle(AceTheme.Colours.mutedForeground)
             Text(entry.text).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
-            if let thread { Text(thread.title).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1) }
+            if let thread { Text(thread.title).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1) }
         }
         .padding(.vertical, AceTheme.Spacing.sm)
         .contentShape(Rectangle())
@@ -76,17 +72,19 @@ struct InboxUnsentRow: View {
     }
 }
 
-/// "Needs you ─── 2": a section's shared label, a rule and its count.
+/// "Needs you ─── 2": a section's shared label, a hairline and its count. The title stays
+/// secondary, the count tertiary, so sections read quieter than rows.
 struct InboxSectionHeader: View {
     let title: String
     let count: Int
     var body: some View {
         HStack(spacing: AceTheme.Spacing.md) {
             Text(title).aceFont(AceTheme.Typography.label, relativeTo: .caption).textCase(nil)
+                .foregroundStyle(AceTheme.Colours.mutedForeground)
             Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border)
             Text(count.formatted()).aceFont(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit()
+                .foregroundStyle(AceTheme.Colours.subtleForeground)
         }
-        .foregroundStyle(AceTheme.Colours.mutedForeground)
         .padding(.vertical, AceTheme.Spacing.xxs)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)

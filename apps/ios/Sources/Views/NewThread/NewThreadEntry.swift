@@ -7,29 +7,38 @@ struct NewThreadEntry: ViewModifier {
     let open: (InboxKey) -> Void
     @State private var composing = false
     @State private var awaiting: (machineId: String, commandId: String)?
+    /// Starting is impossible when every paired machine is view-only: both entries stay
+    /// out rather than opening a sheet whose Start can never enable.
+    private var canStart: Bool {
+        inbox.sessions.isEmpty || inbox.sessions.contains(where: { $0.client.canOperate })
+    }
 
     func body(content: Content) -> some View {
         content
             .safeAreaInset(edge: .bottom) {
-                Button { composing = true } label: {
-                    Label("Start a task", systemImage: "plus")
-                        .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                        .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget)
+                if canStart {
+                    Button { composing = true } label: {
+                        Label("Start a task", systemImage: "plus")
+                            .aceFont(AceTheme.Typography.body, relativeTo: .body)
+                            .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(AceTheme.Colours.foreground)
+                    .floatingGlass()
+                    .padding(.horizontal, AceTheme.Dimensions.composerInset)
+                    .padding(.bottom, AceTheme.Spacing.sm)
+                    .disabled(inbox.sessions.isEmpty)
+                    .accessibilityIdentifier("inbox.startTask")
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(AceTheme.Colours.foreground)
-                .floatingGlass()
-                .padding(.horizontal, AceTheme.Dimensions.composerInset)
-                .padding(.bottom, AceTheme.Spacing.sm)
-                .disabled(inbox.sessions.isEmpty)
-                .accessibilityIdentifier("inbox.startTask")
             }
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { composing = true } label: { Image(systemName: "square.and.pencil") }
-                        .disabled(inbox.sessions.isEmpty)
-                        .accessibilityLabel("New thread")
-                        .accessibilityIdentifier("inbox.compose")
+                if canStart {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { composing = true } label: { Image(systemName: "square.and.pencil") }
+                            .disabled(inbox.sessions.isEmpty)
+                            .accessibilityLabel("New thread")
+                            .accessibilityIdentifier("inbox.compose")
+                    }
                 }
             }
             .sheet(isPresented: $composing) {

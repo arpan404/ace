@@ -9,7 +9,7 @@ struct ThreadSheetButtons: ViewModifier {
     let openThread: ((String) -> Void)?
     @State private var showingAgents = false
     @Binding var showingChanges: Bool
-    @State private var showingTerminal = false
+    @Binding var showingTerminal: Bool
     private var metadata: ThreadRow? { thread.metadata ?? model.inbox[thread.id] }
 
     func body(content: Content) -> some View {
@@ -23,10 +23,6 @@ struct ThreadSheetButtons: ViewModifier {
                         }.accessibilityLabel("\(metadata?.agents ?? 1) agents")
                     }
                     .accessibilityIdentifier("thread.agents")
-                    Button { showingChanges = true } label: { Label("Changes", systemImage: "plusminus") }
-                        .accessibilityIdentifier("thread.changes")
-                    Button { showingTerminal = true } label: { Label("Terminal", systemImage: "terminal") }
-                        .accessibilityIdentifier("thread.terminal")
                 }
             }
             .sheet(isPresented: $showingAgents) {
@@ -42,7 +38,7 @@ struct ThreadSheetButtons: ViewModifier {
 }
 
 extension View {
-    func threadSheets(model: ClientModel, thread: ThreadModel, openThread: ((String) -> Void)? = nil, changes: Binding<Bool>) -> some View {
-        modifier(ThreadSheetButtons(model: model, thread: thread, openThread: openThread, showingChanges: changes))
+    func threadSheets(model: ClientModel, thread: ThreadModel, openThread: ((String) -> Void)? = nil, changes: Binding<Bool>, terminal: Binding<Bool>) -> some View {
+        modifier(ThreadSheetButtons(model: model, thread: thread, openThread: openThread, showingChanges: changes, showingTerminal: terminal))
     }
 }

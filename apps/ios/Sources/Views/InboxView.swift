@@ -42,7 +42,12 @@ struct InboxView: View {
                                           machine: inbox.showsMachineNames ? inbox.name(session.hostId) : nil) { session.client.retry() }
                         .listRowSeparator(.hidden)
                 }
-                if !inbox.sessions.isEmpty && inbox.sessions.allSatisfy({ !$0.client.canOperate }) { ViewOnlyNote.inbox.listRowSeparator(.hidden) }
+                if !inbox.sessions.isEmpty && inbox.sessions.allSatisfy({ !$0.client.canOperate }) {
+                    ViewOnlyNote(message: "View only")
+                        .accessibilityHint("Pair with View and act to send, archive or snooze.")
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AceTheme.Colours.background)
+                }
                 ForEach(open) { section in
                     Section { rows(section) } header: { InboxSectionHeader(title: section.label, count: section.rows.count) }
                 }
@@ -50,10 +55,12 @@ struct InboxView: View {
                     Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { showSettled.toggle() } } label: {
                         HStack(spacing: AceTheme.Spacing.md) {
                             Text(settled.map { "\($0.label) (\($0.rows.count))" }.joined(separator: " · "))
+                                .foregroundStyle(AceTheme.Colours.mutedForeground)
                             Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border)
                             Image(systemName: "chevron.down").rotationEffect(.degrees(showSettled ? 180 : 0))
+                                .foregroundStyle(AceTheme.Colours.decoration)
                         }
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -149,6 +156,8 @@ struct InboxView: View {
                     let thread = InboxKey(machineId: key.machineId, id: entry.threadId)
                     Button { openThread(thread) } label: { InboxUnsentRow(entry: entry, thread: inbox.row(thread)) }
                         .buttonStyle(.plain).accessibilityIdentifier("unsent.\(key.id)")
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: AceTheme.Spacing.xxs, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.xxs, trailing: AceTheme.Spacing.lg))
                 }
             }
         } else {
@@ -167,7 +176,12 @@ struct InboxView: View {
         }
             .buttonStyle(.plain)
             .accessibilityIdentifier(inbox.showsMachineNames ? "thread.\(key.machineId).\(row.id)" : "thread.\(row.id)")
-            .listRowBackground(section == "needs-you" ? AceTheme.Colours.needsYouSurface : AceTheme.Colours.background)
+            // Colour means status only: the status word and dot carry it, never a broad
+            // row wash (a Waiting row in Needs you must not read brown).
+            .listRowBackground(AceTheme.Colours.background)
+            .listRowInsets(EdgeInsets(top: AceTheme.Spacing.xxs, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.xxs, trailing: AceTheme.Spacing.lg))
+            // No rules between rows: quiet spacing from the row's own padding carries it.
+            .listRowSeparator(.hidden)
             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                 if canOperate { Button("Archive", systemImage: "archivebox") { archive(row, key: key) }.tint(AceTheme.Colours.mutedForeground) }
             }
@@ -229,8 +243,11 @@ struct InboxView: View {
         }
     }
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .topBarLeading) {
-            Text("ace.").aceFont(AceTheme.Typography.wordmark, relativeTo: .title3).fixedSize(horizontal: true, vertical: false).foregroundStyle(AceTheme.Colours.foreground)
+        // The wordmark is decorative branding: hidden from VoiceOver, and with no shared
+        // glass behind it where the OS supports it, so the machines control and the
+        // trailing icons keep the emphasis.
+        wordmarkItem
+        ToolbarItem(placement: .topBarLeading) {
             Button { showingMachines = true } label: {
                 HStack(spacing: AceTheme.Spacing.xs) {
                     Circle().fill(inbox.allReady ? AceTheme.Status.done : AceTheme.Colours.decoration).frame(width: AceTheme.Dimensions.statusDot, height: AceTheme.Dimensions.statusDot)
@@ -249,6 +266,22 @@ struct InboxView: View {
             Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { showingSearch.toggle(); if !showingSearch { search = "" } } } label: { Image(systemName: "magnifyingglass") }
                 .accessibilityLabel("Search threads")
         }
+    }
+
+    /// Decorative branding only. The glass hiding applies to the toolbar item itself
+    /// (`sharedBackgroundVisibility` lives on `ToolbarContent`, not `View`) on iOS 26+;
+    /// older systems render the same item without it.
+    @ToolbarContentBuilder private var wordmarkItem: some ToolbarContent {
+        if #available(iOS 26, *) {
+            ToolbarItem(placement: .topBarLeading) { wordmarkText }
+                .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .topBarLeading) { wordmarkText }
+        }
+    }
+    private var wordmarkText: some View {
+        Text("ace.").aceFont(AceTheme.Typography.wordmark, relativeTo: .title3).fixedSize(horizontal: true, vertical: false).foregroundStyle(AceTheme.Colours.foreground)
+            .accessibilityHidden(true)
     }
 
     private func filtered(_ section: MergedInbox.Section) -> MergedInbox.Section? {

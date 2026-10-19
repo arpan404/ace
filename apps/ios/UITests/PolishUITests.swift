@@ -121,6 +121,7 @@ import XCTest
             app.navigationBars["Explorer"].buttons["BackButton"].tap()
         }
         app.buttons["Done"].firstMatch.tap()
+        app.buttons["thread.menu"].tap()
         app.buttons["thread.changes"].tap()
         let file = app.buttons["changes.file.packages/provider-kit/src/process-owner.ts"]
         XCTAssertTrue(file.waitForExistence(timeout: 15))
@@ -182,6 +183,7 @@ import XCTest
         app.buttons["Done"].firstMatch.tap()
     }
     private func auditChanges(_ app: XCUIApplication) throws {
+        app.buttons["thread.menu"].tap()
         app.buttons["thread.changes"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["changes.totals"].waitForExistence(timeout: 15))
         try audit(app, "changes")

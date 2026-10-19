@@ -42,6 +42,8 @@ import XCTest
         let app = launch()
         XCTAssertTrue(app.buttons["thread.ios-approval"].waitForExistence(timeout: 30))
         app.buttons["thread.ios-approval"].tap()
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 20))
+        app.buttons["thread.menu"].tap()
         let terminal = app.buttons["thread.terminal"]
         XCTAssertTrue(terminal.waitForExistence(timeout: 20)); terminal.tap()
         XCTAssertTrue(app.buttons["New"].waitForExistence(timeout: 10)); app.buttons["New"].tap()
