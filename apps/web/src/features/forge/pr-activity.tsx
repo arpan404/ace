@@ -4,6 +4,8 @@ import { GitPullRequestIcon } from "@phosphor-icons/react";
 import { LongRows } from "@/components/virtual-rows.tsx";
 import { QueryState } from "./query-state.tsx";
 import { usePrActivityEvents } from "./pr-activity-events.ts";
+import { composerClearance } from "./pr-composer.tsx";
+import { cn } from "@/lib/cn.ts";
 import { usePrCommits } from "./pr-commits.tsx";
 import { prTimelineItems } from "./pr-timeline.ts";
 import { PrTimelineRow, type TimelineExpansion } from "./pr-timeline-rows.tsx";
@@ -44,7 +46,10 @@ export function PrActivity(props: {
   );
   const settled = !commits.isPending && !activity.isPending;
   return (
-    <section aria-label="Pull request timeline" className="mx-auto w-full max-w-3xl px-4 py-5">
+    <section
+      aria-label="Pull request timeline"
+      className={cn("mx-auto w-full max-w-3xl px-4 pt-5", composerClearance)}
+    >
       <QueryState query={commits} />
       <QueryState query={activity} />
       {(activity.data?.truncated || commits.data?.truncated) && (
