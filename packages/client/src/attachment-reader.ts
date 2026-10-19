@@ -22,7 +22,8 @@ export function attachmentBudget(input: AttachmentInput): number {
   ThreadId.parse(input.threadId);
   BlobHash.parse(input.sha256);
   if (input.variant === "original" && input.maxBytes === undefined) throw new ClientError("limit");
-  const max = input.maxBytes ?? 256 * 1024;
+  // Thumbnails are bounded PNG previews (512 px long edge); originals carry their own budget.
+  const max = input.maxBytes ?? 512 * 1024;
   if (!Number.isSafeInteger(max) || max <= 0 || max > 32 * 1024 * 1024)
     throw new ClientError("limit");
   return max;

@@ -126,6 +126,8 @@ export type Block =
 
 /** What the blocks need of a run. */
 export type RunFacts = Pick<Run, "state" | "trigger" | "endedAt"> & {
+  /** The daemon's turn number (ADR 0062): runs sharing it answer one ask. */
+  turn?: number | undefined;
   startedAt?: number | undefined;
   /** The run's failure, once the daemon reports it on the run (C-A). */
   failedOn?: string | undefined;
@@ -271,10 +273,13 @@ const isLaunch = (item: Item) =>
 
 /**
  * Whether turn `next` carries on the stretch before it: the agent started it by itself once its
- * background work or a subagent finished (no one asked), so it opens no second log.
+ * background work or a subagent finished (no one asked), or the daemon numbers both runs as one
+ * turn (ADR 0062), so it opens no second log.
  */
-function continues(source: BlockSource, next: string): boolean {
-  return carriesOnStretch(source.run?.(next)?.trigger);
+function continues(source: BlockSource, previous: string, next: string): boolean {
+  const run = source.run?.(next);
+  if (carriesOnStretch(run?.trigger)) return true;
+  return run?.turn !== undefined && run.turn === source.run?.(previous)?.turn;
 }
 
 /** Whether an item goes into a work log (when it is not shown as a question instead). */
@@ -318,7 +323,7 @@ function lastWorkOf(
     } else {
       const next = source.turnOf?.(id) ?? turn ?? (ask === undefined ? "" : `ask:${ask}`);
       if (next !== turn) {
-        if (turn !== undefined && !continues(source, next)) stretch++;
+        if (turn !== undefined && !continues(source, turn, next)) stretch++;
         turn = next;
       }
     }
@@ -414,7 +419,7 @@ export function buildBlocks(source: BlockSource): Block[] {
         turns.set(id, admitted);
         return admitted;
       }
-      if (previous && carriesOnStretch(source.run?.(id)?.trigger)) {
+      if (previous && continues(source, previous.id, id)) {
         turns.set(id, previous);
         return previous;
       }
@@ -543,7 +548,7 @@ export function buildBlocks(source: BlockSource): Block[] {
     } else {
       const next = known ?? turnId ?? (askId === undefined ? "" : `ask:${askId}`);
       if (next !== turnId) {
-        if (turnId === undefined || !continues(source, next)) {
+        if (turnId === undefined || !continues(source, turnId, next)) {
           if (turnId !== undefined) close(item.createdAt);
         } else if (stretch.work) {
           // The log carries on into the run the agent started by itself; the wait between the
@@ -747,9 +752,14 @@ export function buildBlocks(source: BlockSource): Block[] {
       (!pseudo && !settled(source, turn, newestRun === turn))
     ) {
       for (const block of turn.work) block.ongoing = true;
-      // The newest turn says what it is doing in one line at the end of its flow (DESIGN.md §8).
-      if (newest === turn && source.heldTurn !== turn.id)
-        place(turn.lastBlock, { kind: "live", key: `live:${turn.key}`, askId: turn.askId });
+      // The newest turn says what it is doing in one line at the top of its flow, under its
+      // ask, where its "Worked for" head stands once it settles (DESIGN.md §8).
+      if (newest === turn && source.heldTurn !== turn.id) {
+        const live: Block = { kind: "live", key: `live:${turn.key}`, askId: turn.askId };
+        const first = turn.blocks.size ? Math.min(...turn.blocks) : undefined;
+        if (first === undefined) place(turn.lastBlock, live);
+        else before.set(first, [live, ...(before.get(first) ?? [])]);
+      }
       // A pause shows while the turn waits on the limit, before anything settles.
       if (source.heldTurn === turn.id) {
         place(turn.lastBlock, endBlock(turn, "paused", newest === turn, ending?.runId));

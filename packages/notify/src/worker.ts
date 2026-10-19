@@ -1,3 +1,4 @@
+import { replayGap } from "./replay-gap.ts";
 import { Worker, type WorkerOptions } from "node:worker_threads";
 import {
   NotificationAddress,
@@ -125,7 +126,14 @@ export class NotificationWorker {
         if (message.ok) {
           this.retry = 0;
           waiter?.resolve(message.value);
-        } else waiter?.reject(new Error("Notification operation rejected"));
+        } else
+          waiter?.reject(
+            new Error(
+              message.error
+                ? `Notification operation rejected: ${message.error}`
+                : "Notification operation rejected",
+            ),
+          );
       } else if (message.type === "cancel") this.flights.get(message.id)?.abort();
       else {
         if (options.signal?.aborted || this.flights.size >= 16) {
@@ -250,7 +258,12 @@ export class NotificationWorker {
     const value = await this.call({ method: "cursor" }, signal);
     return typeof value === "number" ? value : 0;
   }
-  ingest(events: readonly Event[]): Promise<void> {
+  /**
+   * Ingests a batch. Without `coverage` the batch must follow on from the cursor with no holes.
+   * With it, the caller read every event that exists after `coverage.afterSeq`: a missing
+   * sequence number is an event deleted with its thread, not one still to come.
+   */
+  ingest(events: readonly Event[], coverage?: { afterSeq: number }): Promise<void> {
     if (events.length > 256)
       return Promise.reject(
         new Error("Notification ingestion batch exceeded 256; replay required"),
@@ -258,12 +271,13 @@ export class NotificationWorker {
     const first = events[0],
       last = events.at(-1);
     if (!first || !last) return Promise.resolve();
-    for (let i = 1; i < events.length; i++) {
-      if (events[i]?.seq !== (events[i - 1]?.seq ?? 0) + 1)
-        return Promise.reject(new Error("Notification replay gap"));
-    }
+    if (!coverage)
+      for (let i = 1; i < events.length; i++) {
+        if (events[i]?.seq !== (events[i - 1]?.seq ?? 0) + 1)
+          return Promise.reject(new Error(replayGap));
+      }
     return (async () => {
-      let afterSeq = first.seq - 1,
+      let afterSeq = coverage ? Math.min(coverage.afterSeq, first.seq - 1) : first.seq - 1,
         throughSeq = afterSeq;
       let compact: MetadataEvent[] = [];
       const flush = async () => {

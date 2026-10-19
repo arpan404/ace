@@ -28,14 +28,14 @@ export async function providerImagePath(path: string, mime: string): Promise<str
   }
   return alias;
 }
-export const previewLimit = 256 * 1024;
+export const previewLimit = 512 * 1024;
 /** libvips costs ~13 MB of native RSS once loaded; idle daemons never render a preview. */
 let decoder: Promise<typeof import("sharp")> | undefined;
 export async function renderThumbnail(path: string): Promise<Buffer> {
   const sharp = await (decoder ??= import("sharp").then((module) => module.default));
   return sharp(path, { limitInputPixels: 40_000_000, sequentialRead: true, animated: false })
     .rotate()
-    .resize({ width: 256, height: 256, fit: "inside", withoutEnlargement: true })
+    .resize({ width: 512, height: 512, fit: "inside", withoutEnlargement: true })
     .png()
     .toBuffer();
 }

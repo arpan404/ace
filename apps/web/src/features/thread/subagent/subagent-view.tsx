@@ -9,7 +9,7 @@ import {
   useThreadMeta,
 } from "@ace/client-react";
 import type { Agent } from "@ace/protocol";
-import { agentName, modelLabel, providerNames, subagentEnded, subagentPhase } from "@ace/ui-core";
+import { modelLabel, providerNames, subagentEnded, subagentPhase } from "@ace/ui-core";
 import { RobotIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { Suspense, useCallback, useState } from "react";
@@ -20,6 +20,7 @@ import {
   findAgentNode,
   StopAgent,
   threadWorkspace,
+  useAgentIdentity,
   useTreeWork,
 } from "@/features/panels/index.ts";
 import { Screen } from "@/features/shell/index.ts";
@@ -64,6 +65,8 @@ export function SubagentView(props: { threadId: string; agentId: string }) {
   const error = useThreadError(threadId);
   const agent = useAgent(threadId, agentId);
   const parent = useAgent(threadId, agent?.parentId ?? "");
+  // An unnamed subagent goes by its task, as its row in the Summary does.
+  const { name } = useAgentIdentity(threadId, agent);
   const root = !parent || parent.origin === "root";
   const [details] = useState(createWorkCardStore);
   useHotkey(keymap.workCard.keys, details.toggle, { id: "workCard" });
@@ -87,7 +90,7 @@ export function SubagentView(props: { threadId: string; agentId: string }) {
           crumb={
             agent?.parentId && <SubagentCrumb threadId={threadId} parentAgentId={agent.parentId} />
           }
-          title={agent ? agentName(agent) : error ? "Subagent unavailable" : meta ? "Subagent" : ""}
+          title={agent ? name : error ? "Subagent unavailable" : meta ? "Subagent" : ""}
           tools={meta && !error && <WorkButton threadId={threadId} />}
           workspace={{ scope: threadId, definition: threadWorkspace }}
         >

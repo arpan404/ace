@@ -1,4 +1,5 @@
 import { attachmentEcho } from "./attachment-echo.ts";
+import { markYieldedEnd, type SteerYield } from "./steer-yield.ts";
 import { hasRunningForegroundCommand, type Fact } from "@ace/core";
 import type { Frame, ProviderSession, Translator } from "@ace/engine-api";
 import type { ThreadId, EventPayload, Capabilities } from "@ace/protocol";
@@ -51,6 +52,8 @@ export class ThreadActor {
   idleDue = false;
   /** The thread was settled or archived: release its provider as soon as the tree is done. */
   releaseRequested = false;
+  /** The turn the engine interrupted so the person's steer goes in now (steer-lane.ts). */
+  steerYield: SteerYield | undefined;
   private inputLeases = new Map<number, { release(): void; runId: string | undefined }>();
   private queued = 0;
   private queuedBytes = 0;
@@ -133,6 +136,7 @@ export class ThreadActor {
   retireGeneration(): void {
     this.onRetire?.(this, this.generation);
     this.generation++;
+    this.steerYield = undefined;
   }
   retainInput(id: number, release: () => void, runId: string | undefined): void {
     if (this.inputLeases.size >= 256) {
@@ -345,8 +349,11 @@ export class ThreadActor {
           const cursorSdk =
             this.repo.requireState(this.id).config.provider === "cursor" &&
             this.repo.backend(this.id) === "cursor-sdk";
-          const facts = (translatedFacts ??= live.flatMap((entry) =>
-            this.translateFrame(entry.frame, cursorSdk),
+          const facts = (translatedFacts ??= markYieldedEnd(
+            live.flatMap((entry) => this.translateFrame(entry.frame, cursorSdk)),
+            this.repo.requireState(this.id),
+            // A Stop the person asked for always wins over a steer sent in the same stretch.
+            this.repo.queue.get(this.id).paused ? undefined : this.steerYield,
           ));
           const toolBoundary = facts.some(
             (fact) =>

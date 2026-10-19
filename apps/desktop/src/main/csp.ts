@@ -52,6 +52,7 @@ export function contentSecurityPolicy(options: {
     "font-src": ["'self'", "data:", ...(dev ? [dev] : [])],
     "connect-src": [
       "'self'",
+      "blob:",
       ...loopback,
       previews,
       ...(options.daemonOrigins ?? []).flatMap((origin) => [

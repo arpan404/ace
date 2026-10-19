@@ -2,6 +2,7 @@ import { useSyncExternalStore, type ReactNode } from "react";
 import { DeferredLoadError } from "@/lib/deferred-component.tsx";
 import type { MarkdownLinks } from "./link-options.ts";
 import { loadMarkdown } from "./load.ts";
+import { scheduleMathWarmup } from "./math-warm.ts";
 import { MarkdownLoading } from "./loading.tsx";
 
 type Renderer = Awaited<ReturnType<typeof loadMarkdown>>["Markdown"];
@@ -19,6 +20,10 @@ const load = () =>
   (loading ??= loadMarkdown().then(
     (module) => {
       renderer = module.Markdown;
+      // The app is interactive once prose can render; warm KaTeX at idle so
+      // the first formula shows with no chunk wait. Never on the critical
+      // startup path, mobile, or metered links (see `math-warm.ts`).
+      scheduleMathWarmup();
       settle();
     },
     (cause: unknown) => {

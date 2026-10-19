@@ -18,7 +18,7 @@ import { useTopFade } from "@/lib/edge-fade.ts";
 import { frameThrottle } from "@/lib/frame-throttle.ts";
 import { useListMotion, usePresence } from "@/lib/motion.ts";
 import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
-import { LiveFrames, LiveFramesContext } from "../items/live-frames.ts";
+import { LiveFrames, LiveFramesContext } from "@/features/visualization/index.ts";
 import { usePlaceBeforePaint } from "@/lib/virtual-paint.ts";
 import {
   DeferredGapRow,
@@ -103,8 +103,8 @@ export function Feed(props: FeedProps) {
   const built = useBlocks(threadId);
   const activity = useTurnActivity(threadId);
   useDropTurnSteps(threadId);
-  // The live turn's one status line ends its flow; a turn with no block in view yet (its ask
-  // still on its way, older than the window) keeps it at the end of the rows. Either way it is
+  // The live turn's one status line heads its flow, under its ask; a turn with no block in view
+  // yet (its ask still on its way, older than the window) keeps it at the end of the rows. Either way it is
   // one row, which moves rather than flashing out and back in.
   const working = !detached && !!activity && activity.tone !== "paused";
   const blocks = useMemo(
@@ -271,7 +271,10 @@ export function Feed(props: FeedProps) {
   const { hasOlder, loading, loadOlder } = pager;
   const toLive = () => {
     paging.reset();
-    scroll.toLive(window ? undefined : "glide");
+    // A window is discarded below, which may change no rows (a held window shows the tail's
+    // own rows): drive the scroller to the end first, so the reader lands there even when
+    // nothing about the rows moves. The rows changing underneath re-aims at the end again.
+    scroll.toLive(window ? "now" : "glide");
     if (window) nav.jump.live();
   };
 
@@ -425,7 +428,6 @@ export function Feed(props: FeedProps) {
               phase={livePill.phase}
               newItems={props.fresh.count}
               more={props.fresh.more}
-              paused={activity?.tone === "working"}
               onClick={toLive}
             />
           </Suspense>

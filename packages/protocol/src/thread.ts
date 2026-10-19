@@ -51,11 +51,19 @@ export const Run = z.object({
   trigger: RunTrigger,
   /** Provider's turn id, when it has one. */
   nativeId: z.string().optional(),
-  /** Stable root-turn number; subagent runs do not consume it. */
+  /** Stable root-run number (runs list, checkpoints); subagent runs do not consume it. */
   ordinal: z.number().int().positive().optional(),
+  /**
+   * Stable turn number of a root run: one turn is a person's ask and every root run after it
+   * until the next ask, so a run the agent starts by itself joins the current turn (ADR 0062).
+   * Runs recorded before turns were numbered omit it; their turn is their `ordinal`.
+   */
+  turn: z.number().int().positive().optional(),
   checkpoints: RunCheckpoints.optional(),
   executionSource: ExecutionSource.optional(),
   state: z.enum(["active", "completed", "interrupted", "failed"]),
+  /** ace interrupted this run so the person's steer reached the model now: not a stop. */
+  endedBy: z.enum(["steer"]).optional(),
   startedAt: Timestamp,
   endedAt: Timestamp.optional(),
   error: AgentError.optional(),

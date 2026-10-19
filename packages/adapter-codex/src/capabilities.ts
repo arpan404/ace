@@ -8,6 +8,8 @@ export function codexCapabilities(cli: DiscoveryResult): Capabilities {
   const supported = cli.installed && admitsVersion("codex", cli.version);
   return {
     steer: supported,
+    // `turn/steer` lands at the next model request, after the running command returns.
+    steerTiming: "after_tool",
     permissionModes: nativePermissionModes("codex"),
     accessModes: accessModeOffers({ provider: "codex" }),
     permissions: {

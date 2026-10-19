@@ -1,0 +1,6 @@
+{
+  "$id": "https://ace.local/protocol/v1/SharedImageCaption.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "maxLength": 500,
+  "type": "string"
+}

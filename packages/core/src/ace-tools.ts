@@ -149,7 +149,7 @@ export function privateAceInput(tool: string, input?: unknown): boolean {
   const payload = record.safeParse(call.input).data;
   const action = record.safeParse(payload?.action ?? payload?.interaction).data;
   if (name.endsWith("_measure") && action && ("text" in action || "value" in action)) return true;
-  if (name === "html_render") return true;
+  if (name === "html_render" || name === "image_show") return true;
   // Merged input tools carry text only for typing, pasting or setting a value; a click or key
   // press stays visible, error and all.
   return (
@@ -165,10 +165,15 @@ export function redactAceArguments(name: string, value: unknown): unknown {
     return { ...record.parse(value), arguments: redactAceArguments(call.name, call.input) };
   const parsed = record.safeParse(value);
   if (!parsed.success) return { redacted: true };
+  // An image's bytes and its alt and caption reach the transcript only through its image item.
+  const keys =
+    bareToolName(call.name) === "image_show"
+      ? ["data", "alt", "caption"]
+      : ["text", "value", "html", "title", "promptText"];
   const redacted = Object.fromEntries(
     Object.entries(parsed.data).map(([key, child]) => [
       key,
-      ["text", "value", "html", "title", "promptText"].includes(key) ? "[redacted]" : child,
+      keys.includes(key) ? "[redacted]" : child,
     ]),
   );
   for (const field of ["action", "interaction"]) {

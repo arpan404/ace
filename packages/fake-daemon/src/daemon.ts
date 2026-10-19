@@ -697,6 +697,7 @@ export class FakeDaemon implements Host {
         threadId: ThreadId.parse(host.id),
         payload,
       };
+      host.turns.track(event.payload, host.view.thread.rootAgentId);
       if (
         event.payload.type === "run.started" &&
         event.payload.run.agentId === host.view.thread.rootAgentId
@@ -706,6 +707,7 @@ export class FakeDaemon implements Host {
           ...event.payload,
           run: {
             ...run,
+            turn: host.turns.start(run),
             ordinal: host.view.runs[run.id]?.ordinal ?? ++host.runOrdinal,
             checkpoints: { state: "unavailable", error: "scripted_provider" },
           },

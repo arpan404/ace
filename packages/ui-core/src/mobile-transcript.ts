@@ -24,6 +24,9 @@ export function transcriptRowContent(item: Item): TranscriptRowContent {
     row.text = item.visualization.title;
     row.detail = visualizationFallback;
     row.quiet = true;
+  } else if (item.type === "image") {
+    row.text = item.image.caption || item.image.alt;
+    row.quiet = true;
   } else if (item.type === "reasoning") row.text = "Thinking…";
   else if (item.type === "tool_call") {
     row.text = `${item.call.title} · ${item.call.status}`;

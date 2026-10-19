@@ -63,6 +63,11 @@ export const TurnSummary = z.object({
   initiatingMessagePreview: preview,
   latestAgentMessagePreview: preview,
   digest: TurnDigest,
+  /**
+   * The main agent's own share of `digest`: the files it changed and commands it ran itself, so
+   * a reader can attribute each change to one agent. Absent from daemons that predate it.
+   */
+  main: z.object({ agentId: AgentId, digest: TurnDigest }).optional(),
   subagents: z.array(TurnSubagentSummary).max(32),
   subagentsTruncated: z.boolean(),
 });

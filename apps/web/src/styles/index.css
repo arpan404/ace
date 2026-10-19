@@ -336,15 +336,12 @@ body
 
 /*
  * A thin, quiet scroll track that is always there to see and grab: no hiding it until hover.
- * `scroll-quiet` on one scroller; `.sidebar-scroll` for every scroller inside the sidebar. Pair
- * with `[scrollbar-gutter:stable]` where the track appearing must not shift the content.
+ * `scroll-quiet` on one scroller. Pair with `[scrollbar-gutter:stable]` where the track
+ * appearing must not shift the content. The sidebar never shows a scrollbar (see
+ * `no-scrollbar` in shadcn.css): its list stays scrollable by wheel, trackpad, touch and
+ * keyboard with no bar in any theme, on desktop or web.
  */
 @utility scroll-quiet {
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in oklab, var(--foreground) 16%, transparent) transparent;
-}
-.sidebar-scroll,
-.sidebar-scroll * {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in oklab, var(--foreground) 16%, transparent) transparent;
 }

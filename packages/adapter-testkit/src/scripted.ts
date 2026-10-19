@@ -16,6 +16,8 @@ export interface ScriptedStep {
   on: "open" | ScriptedCommand["type"];
   frames?: readonly Frame[];
   exit?: { deliberate: boolean; message?: string };
+  /** The command is rejected with this message once the step's frames are admitted. */
+  fail?: string;
 }
 export interface AdapterScript {
   provider: ProviderKind;
@@ -39,6 +41,7 @@ export function createScriptedAdapter(script: AdapterScript): ScriptedAdapter {
     on: step.on,
     ...(step.frames ? { frames: step.frames.map(copyScriptedFrame) } : {}),
     ...(step.exit ? { exit: structuredClone(step.exit) } : {}),
+    ...(step.fail === undefined ? {} : { fail: step.fail }),
   }));
   const capabilities = structuredClone(script.capabilities);
   if (!capabilities.permissions) {
@@ -87,6 +90,7 @@ export function createScriptedAdapter(script: AdapterScript): ScriptedAdapter {
           await ctx.onFrame(copyScriptedFrame(frame));
         }
         if (step.exit && !closed) exit(step.exit);
+        if (step.fail !== undefined) throw new Error(step.fail);
       }
       function record(command: ScriptedCommand): void {
         if (closed) throw new Error("scripted session is closed");

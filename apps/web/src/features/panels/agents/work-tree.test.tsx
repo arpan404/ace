@@ -47,7 +47,7 @@ test("the live line, the subagents block and the Summary count subagents by one 
   await app.open("/t/thread-settings");
   await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });
   const live = await screen.findByRole("group", { name: "Turn in progress" });
-  await waitFor(() => expect(live.textContent).toContain("1 subagent working"));
+  await waitFor(() => expect(live.textContent).toContain("Waiting for 1 subagent"));
   const block = await screen.findByRole("region", { name: "2 subagents" });
   await waitFor(() =>
     expect(within(block).getByRole("status").textContent).toBe("1 working · 1 failed"),
@@ -76,7 +76,7 @@ test("the Summary tree shows what each agent is doing, the background shell, and
   // Its running browser call is what it is doing (the Preview tab names it as the driver).
   expect(within(audit).getByText("Pair a phone on localhost:5173/settings/devices")).toBeTruthy();
   const tester = within(panel).getByRole("treeitem", { name: "ack-buffer-test: Working" });
-  expect(within(tester).getByText("Run the outbox tests")).toBeTruthy();
+  expect(within(tester).getByText("running bun run test outbox")).toBeTruthy();
 
   expect(
     within(panel).getByRole("listitem", { name: "bun run relay:soak --clients 2: running" }),
@@ -156,6 +156,8 @@ test("an agent ace delegated opens its own thread from the tree", async () => {
   const app = harness();
   for (const scenario of delegatedDocs()) app.play(scenario).runUntilBlocked();
   const panel = await openAgents(app, `/t/${delegatedDocsIds.parent}`);
+  // It finished, so it waits in the main agent's folded "1 done" row.
+  await userEvent.click(await within(panel).findByRole("treeitem", { name: "1 done" }));
   await userEvent.click(await within(panel).findByRole("treeitem", { name: /^protocol-docs:/ }));
   await screen.findByRole("heading", { level: 1, name: "Relay protocol reference" });
   expect(screen.getByRole("link", { name: "Relay docs for 0.9" })).toBeTruthy();

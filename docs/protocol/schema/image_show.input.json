@@ -1,0 +1,39 @@
+{
+  "$id": "https://ace.local/protocol/v1/image_show.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "alt": {
+      "description": "What the image shows, for people who cannot see it.",
+      "maxLength": 300,
+      "minLength": 1,
+      "pattern": "\\S",
+      "type": "string"
+    },
+    "caption": {
+      "$ref": "https://ace.local/protocol/v1/SharedImageCaption.json",
+      "description": "A short line shown under the image."
+    },
+    "data": {
+      "description": "The image as base64 (no data: prefix), up to 16 MiB decoded.",
+      "maxLength": 22369624,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+      "type": "string"
+    },
+    "mimeType": {
+      "$ref": "https://ace.local/protocol/v1/SharedImageType.json",
+      "description": "The type of data. ace checks the bytes either way."
+    },
+    "path": {
+      "description": "An image file on this machine, absolute or relative to your working directory.",
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "alt"
+  ],
+  "type": "object"
+}

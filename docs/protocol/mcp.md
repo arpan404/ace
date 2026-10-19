@@ -8,7 +8,7 @@ Built-in definitions come from `@ace/mcp-server`. The local /mcp endpoint uses s
 
 ## html_render
 
-Show a chart, diagram, mockup or small interactive page inline in your reply. An invalid page returns invalid_html listing every problem and publishes nothing. Design and sandbox rules: guide visualize.
+Show a chart, diagram, mockup or interactive page inline in your reply. First read guide visualize and follow it: ace's style kit, responsive from 360 px, no decoration. invalid_html lists every problem and publishes nothing.
 
 Required capability: none beyond session authentication. Timeout: 30000 ms.
 
@@ -19,7 +19,7 @@ Required capability: none beyond session authentication. Timeout: 30000 ms.
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | title | yes | string | {"minLength":1,"maxLength":160,"pattern":"\\S","description":"A short caption shown above the page."} |
-| html | yes | string | {"minLength":1,"maxLength":262144,"description":"A complete self-contained HTML document: inline CSS, JS, SVG and data: images, no network."} |
+| html | yes | string | {"minLength":1,"maxLength":16777216,"description":"A complete self-contained HTML document: inline CSS, JS, SVG and data: images, no network."} |
 | height | no | [HtmlHeight.json](schema/HtmlHeight.json) | {"description":"Frame height in CSS pixels; default fits the content."} |
 | mode | no | [HtmlMode.json](schema/HtmlMode.json) | {"description":"interactive runs its scripts in a sandbox; static strips them (charts, diagrams). Default: inferred."} |
 
@@ -27,14 +27,59 @@ Example:
 
 ```json
 {
+  "height": 84,
   "html": "example",
-  "title": "M"
+  "title": "?"
 }
 ```
 
 ## html_render.output
 
 [JSON Schema](schema/html_render.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| itemId | yes | string | {"minLength":1} |
+
+Example:
+
+```json
+{
+  "itemId": "example"
+}
+```
+
+## image_show
+
+Post an image into your reply: a screenshot, a rendered chart or diagram, a generated picture. Pass it as base64 data (up to 16 MiB), or a file path on this machine for larger files (up to 128 MiB). PNG, JPEG, WebP or GIF.
+
+Required capability: none beyond session authentication. Timeout: 120000 ms.
+
+## image_show.input
+
+[JSON Schema](schema/image_show.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| path | no | string | {"description":"An image file on this machine, absolute or relative to your working directory.","minLength":1,"maxLength":4096} |
+| data | no | string | {"description":"The image as base64 (no data: prefix), up to 16 MiB decoded.","minLength":1,"maxLength":22369624,"pattern":"^[A-Za-z0-9+/]*={0,2}$"} |
+| mimeType | no | [SharedImageType.json](schema/SharedImageType.json) | {"description":"The type of data. ace checks the bytes either way."} |
+| alt | yes | string | {"minLength":1,"maxLength":300,"pattern":"\\S","description":"What the image shows, for people who cannot see it."} |
+| caption | no | [SharedImageCaption.json](schema/SharedImageCaption.json) | {"description":"A short line shown under the image."} |
+
+Example:
+
+```json
+{
+  "alt": "Z",
+  "caption": "example",
+  "path": "example"
+}
+```
+
+## image_show.output
+
+[JSON Schema](schema/image_show.output.json), output validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -67,7 +112,6 @@ Example:
 
 ```json
 {
-  "level": "info",
   "text": "example"
 }
 ```
@@ -112,12 +156,17 @@ Example:
 {
   "tasks": [
     {
-      "access": "inherit",
+      "access": "read-only",
+      "effort": "example",
       "model": "example",
       "project": "example",
-      "requestId": "_",
+      "requestId": "AJZGEpLjh",
       "role": "example",
-      "task": "example"
+      "task": "example",
+      "workspace": {
+        "kind": "existing_worktree",
+        "path": "example"
+      }
     }
   ]
 }
@@ -138,10 +187,15 @@ Example:
 
 ```json
 {
-  "code": "invalid",
   "data": {
-    "threadIds": []
+    "threadIds": [],
+    "wait": {
+      "mode": "any",
+      "status": "ready",
+      "threads": []
+    }
   },
+  "hint": "example",
   "ok": true
 }
 ```
@@ -187,7 +241,6 @@ Example:
 
 ```json
 {
-  "hint": "example",
   "ok": false
 }
 ```
@@ -209,7 +262,9 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 Example:
 
 ```json
-{}
+{
+  "threadId": "example"
+}
 ```
 
 ## agents_status.output
@@ -227,17 +282,13 @@ Example:
 
 ```json
 {
-  "data": {
-    "state": "example",
-    "threadId": "example"
-  },
   "ok": true
 }
 ```
 
 ## agent_message
 
-Send follow-up work to a child or a thread you started; it keeps its permissions. delivery queue (default) waits for its current turn to end, steer injects now, restart interrupts its tree and replaces queued input with this text.
+Send follow-up work to a child or a thread you started, or with full access to any of the person's threads; it keeps its permissions. delivery queue (default) waits for its current turn to end, steer injects now, restart interrupts its tree and replaces queued input with this text.
 
 Required capability: agents. Timeout: 630000 ms.
 
@@ -247,7 +298,7 @@ Required capability: agents. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadId | yes | string | {"minLength":1,"description":"A child's threadId, from delegate or agents_status."} |
+| threadId | yes | string | {"minLength":1,"description":"A child's or owned thread's id; with full access, any of the person's threads."} |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
 | text | yes | string | {"minLength":1,"maxLength":262144,"description":"The message, standing on its own."} |
 | delivery | no | ["queue","steer","restart"] | {"default":"queue","description":"queue (default), steer, or restart."} |
@@ -256,7 +307,8 @@ Example:
 
 ```json
 {
-  "requestId": "RROFJmxa5",
+  "delivery": "queue",
+  "requestId": "lOR6uqMN-g",
   "text": "example",
   "threadId": "example"
 }
@@ -276,8 +328,7 @@ Example:
 
 ```json
 {
-  "code": "forbidden",
-  "hint": "example",
+  "code": "unsupported",
   "ok": true
 }
 ```
@@ -301,7 +352,7 @@ Example:
 
 ```json
 {
-  "requestId": "WLWnkoEq",
+  "requestId": "3hizFR3I",
   "threadId": "example"
 }
 ```
@@ -320,6 +371,7 @@ Example:
 
 ```json
 {
+  "hint": "example",
   "ok": true
 }
 ```
@@ -357,8 +409,8 @@ Example:
 
 ```json
 {
-  "code": "limit",
-  "ok": true
+  "data": null,
+  "ok": false
 }
 ```
 
@@ -381,6 +433,7 @@ Example:
 
 ```json
 {
+  "offset": 1,
   "provider": "antigravity"
 }
 ```
@@ -400,15 +453,13 @@ Example:
 
 ```json
 {
-  "data": null,
-  "hint": "example",
   "ok": false
 }
 ```
 
 ## threads_find
 
-Find threads in this project, or search inside one. Without threadId: threads whose title or messages match query (all recent threads when query is empty). With threadId: matching items in that thread's transcript. Page with cursor.
+Find threads in this project or, with full access, another one (project), or search inside one. Without threadId: threads whose title or messages match query (all recent threads when query is empty). With threadId: matching items in that thread's transcript. Page with cursor.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -422,17 +473,14 @@ Semantic rule: With threadId, query must not be empty.
 | --- | --- | --- | --- |
 | query | no | string | {"default":"","description":"Words to match; empty lists recent threads.","maxLength":256} |
 | threadId | no | [ThreadId.json](schema/ThreadId.json) | {"description":"Search inside this thread's transcript instead."} |
+| project | no | string | {"description":"Another project's name, folder path or id, from projects_find. Default: this one.","minLength":1,"maxLength":4096} |
 | cursor | no | string | {"description":"From the previous page's cursor.","minLength":1,"maxLength":2048} |
 | limit | no | integer | {"default":10,"description":"Results per page, 1 to 20.","minimum":1,"maximum":20} |
 
 Example:
 
 ```json
-{
-  "cursor": "example",
-  "limit": 9,
-  "query": "example"
-}
+{}
 ```
 
 ## threads_find.output
@@ -450,14 +498,59 @@ Example:
 
 ```json
 {
-  "hint": "example",
+  "code": "unavailable",
+  "data": {
+    "hits": []
+  },
+  "ok": true
+}
+```
+
+## projects_find
+
+List the projects open in ace on this machine, most recent first, or find one by words in its name or folder. current marks this thread's project. Pass a project's name or id to thread_start to open a thread there.
+
+Required capability: none beyond session authentication. Timeout: 630000 ms.
+
+## projects_find.input
+
+[JSON Schema](schema/projects_find.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| query | no | string | {"default":"","description":"Words to match in the name or folder; empty lists recent projects.","maxLength":256} |
+| limit | no | integer | {"default":20,"description":"Results, 1 to 50.","minimum":1,"maximum":50} |
+
+Example:
+
+```json
+{
+  "limit": 5
+}
+```
+
+## projects_find.output
+
+[JSON Schema](schema/projects_find.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+| data | no | object | {"properties":{"projects":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"path":{"type":"string"},"current":{"type":"boolean"}},"required":["id","name","path"],"additionalProperties":{}}}},"required":["projects"],"additionalProperties":{}} |
+
+Example:
+
+```json
+{
   "ok": false
 }
 ```
 
 ## thread_read
 
-Read a thread: title, status, branch, linked PRs, preview servers and a page of its transcript, newest first. Omit threadId for this thread. Page back with before = itemsBefore. A truncated part with source.streamId continues with streamId and offset (base64 bytes, then nextOffset).
+Read a thread: title, status, branch, linked PRs, preview servers, queued messages (with entryIds for queue_edit) and a page of its transcript, newest first. Omit threadId for this thread. Page back with before = itemsBefore. A truncated part with source.streamId continues with streamId and offset (base64 bytes, then nextOffset).
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -478,7 +571,7 @@ Example:
 
 ```json
 {
-  "limit": 5,
+  "offset": 9,
   "streamId": "example"
 }
 ```
@@ -492,20 +585,19 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"thread":{"type":"object","properties":{"id":{"type":"string"},"title":{"type":"string"}},"required":["id","title"],"additionalProperties":{}},"items":{"type":"array","items":{"type":"object","properties":{"type":{"type":"string"},"id":{"type":"string"}},"required":["type"],"additionalProperties":{}}},"itemsBefore":{"type":["number","null"]},"linkedPrs":{"type":"array","items":{}},"previews":{"type":"array","items":{}},"bytes":{"description":"Base64 output bytes, when reading a stream","type":"string"},"nextOffset":{"type":"number"}},"additionalProperties":{}} |
+| data | no | object | {"properties":{"thread":{"type":"object","properties":{"id":{"type":"string"},"title":{"type":"string"}},"required":["id","title"],"additionalProperties":{}},"items":{"type":"array","items":{"type":"object","properties":{"type":{"type":"string"},"id":{"type":"string"}},"required":["type"],"additionalProperties":{}}},"itemsBefore":{"type":["number","null"]},"linkedPrs":{"type":"array","items":{}},"previews":{"type":"array","items":{}},"bytes":{"description":"Base64 output bytes, when reading a stream","type":"string"},"nextOffset":{"type":"number"},"queue":{"description":"Messages waiting for the thread, oldest first."}},"additionalProperties":{}} |
 
 Example:
 
 ```json
 {
-  "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
 ## thread_start
 
-Open a new top-level thread in the person's sidebar; text is its first message and its agent answers at once. For child work whose result you need, use delegate. If the call is cut short, call again with the same requestId to get the same thread. The person sees it as a card: relay its summary in a sentence, without ids.
+Open a new top-level thread in the person's sidebar, in this project or another one on this machine (project); text is its first message and its agent answers at once. Use it when the person asks for a separate or dedicated thread. For child work whose result you need, use delegate. If the call is cut short, call again with the same requestId to get the same thread. The person sees it as a card: relay its summary in a sentence, without ids.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -518,7 +610,8 @@ Required capability: thread_control. Timeout: 630000 ms.
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
 | title | yes | string | {"minLength":1,"maxLength":256,"description":"The sidebar title."} |
 | text | yes | string | {"minLength":1,"maxLength":262144,"description":"The first message, standing on its own."} |
-| workspace | no | [AgentWorkspace.json](schema/AgentWorkspace.json) | {"default":{"kind":"project"},"description":"Where it works. Default: this project's checkout; new_worktree starts a Git worktree from base."} |
+| project | no | string | {"description":"Another project on this machine: its name, folder path or id from projects_find. Default: this project.","minLength":1,"maxLength":4096} |
+| workspace | no | [AgentWorkspace.json](schema/AgentWorkspace.json) | {"default":{"kind":"project"},"description":"Where it works. Default: the project's checkout; new_worktree starts a Git worktree from base."} |
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) | {"description":"Default: yours."} |
 | model | no | string | {"description":"A model id from `models`.","minLength":1,"maxLength":256} |
 | effort | no | string | {"description":"Reasoning effort, such as high.","minLength":1,"maxLength":64} |
@@ -528,15 +621,10 @@ Example:
 
 ```json
 {
-  "access": "full-access",
-  "provider": "acp",
-  "requestId": "XWhi_jpSeb",
+  "model": "example",
+  "requestId": ".sR0hPAM",
   "text": "example",
-  "title": "example",
-  "workspace": {
-    "kind": "existing_worktree",
-    "path": "example"
-  }
+  "title": "example"
 }
 ```
 
@@ -555,14 +643,66 @@ Example:
 
 ```json
 {
+  "code": "unsupported",
   "hint": "example",
+  "ok": false
+}
+```
+
+## thread_fork
+
+Fork a thread into a new one that keeps its conversation and takes it another way: text is the fork's first message (what to try instead), optionally on another model. It forks after the latest finished turn, so you can fork this thread mid-turn; runId picks an earlier turn. The fork shares the thread's checkout and is yours to message, settle and merge back with thread_merge. The person sees it as a card: relay it in a sentence, without ids.
+
+Required capability: thread_control. Timeout: 630000 ms.
+
+## thread_fork.input
+
+[JSON Schema](schema/thread_fork.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | no | string | {"description":"The thread to fork. Default: this thread.","minLength":1} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
+| text | yes | string | {"minLength":1,"maxLength":262144,"description":"The fork's first message: the other approach, standing on its own."} |
+| title | no | string | {"description":"Its sidebar title.","minLength":1,"maxLength":256} |
+| runId | no | string | {"description":"Fork after this finished run. Default: the latest finished one.","minLength":1,"maxLength":128} |
+| model | no | string | {"description":"Another model of the same provider, from `models`. Default: the thread's.","minLength":1,"maxLength":256} |
+| effort | no | string | {"description":"Reasoning effort, with model.","minLength":1,"maxLength":64} |
+
+Example:
+
+```json
+{
+  "effort": "example",
+  "requestId": "9amkbeRt",
+  "runId": "example",
+  "text": "example",
+  "title": "example"
+}
+```
+
+## thread_fork.output
+
+[JSON Schema](schema/thread_fork.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
   "ok": true
 }
 ```
 
 ## thread_merge
 
-Merge an owned thread's worktree changes back into the branch it started from. This overwrites files there, so your provider may ask the person first.
+Bring a finished fork's result back into the thread it was forked from: summary says what the fork found or did, and it cites the fork's latest answer (or itemIds you pass). That thread's agent sees it from its next turn. A fork shares its source's checkout, so its file changes are already there. Wait for the fork to finish first.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -572,14 +712,17 @@ Required capability: thread_control. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadId | yes | string | {"minLength":1,"description":"A thread you own: this one or one you started."} |
+| threadId | yes | string | {"minLength":1,"description":"The fork, from thread_fork."} |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
+| summary | yes | string | {"minLength":1,"maxLength":262144,"description":"What the fork found or did, standing on its own for the other thread's agent."} |
+| itemIds | no | array | {"description":"Fork transcript items the summary rests on, from thread_read. Default: its latest answer.","minItems":1,"maxItems":100,"items":{"type":"string","minLength":1,"maxLength":256}} |
 
 Example:
 
 ```json
 {
-  "requestId": "GXd1joJ",
+  "requestId": "6E-x2X",
+  "summary": "example",
   "threadId": "example"
 }
 ```
@@ -599,13 +742,15 @@ Example:
 
 ```json
 {
-  "ok": true
+  "code": "not_ready",
+  "data": null,
+  "ok": false
 }
 ```
 
 ## queue_edit
 
-Change an owned thread's queued input before it is delivered: replace one entry's text (entryId and text), or reorder pending entries (order).
+Change an owned thread's queued messages before they are delivered; thread_read lists them with their entryIds. edit replaces an entry's text (attachments stay), cancel removes it, steer delivers it now into the running turn, reorder puts the named entries first in that order.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -613,22 +758,27 @@ Required capability: thread_control. Timeout: 630000 ms.
 
 [JSON Schema](schema/queue_edit.input.json), input validation.
 
-Semantic rule: Either entryId with text, or order.
+Semantic rule: edit needs entryId and text; cancel and steer need entryId; reorder needs order.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadId | yes | string | {"minLength":1,"description":"A thread you own: this one or one you started."} |
+| threadId | yes | string | {"minLength":1,"description":"A thread you own: this one or one you started. With full access, also any of the person's threads."} |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
-| entryId | no | string | {"description":"The queued entry to replace.","minLength":1,"maxLength":128} |
-| text | no | [MessageText.json](schema/MessageText.json) | {"description":"Its new text."} |
-| order | no | array | {"description":"Pending entry ids in their new order.","minItems":1,"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":128}} |
+| action | yes | ["edit","cancel","steer","reorder"] | {"description":"edit: entryId and text. cancel, steer: entryId. reorder: order."} |
+| entryId | no | string | {"description":"The queued entry.","minLength":1,"maxLength":128} |
+| text | no | [MessageText.json](schema/MessageText.json) | {"description":"edit: its new text."} |
+| order | no | array | {"description":"reorder: entry ids in their new order.","minItems":1,"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":128}} |
 
 Example:
 
 ```json
 {
+  "action": "cancel",
   "entryId": "example",
-  "requestId": "3yKYn8dOwK",
+  "order": [
+    "example"
+  ],
+  "requestId": "4Q3WN9JeC",
   "text": "example",
   "threadId": "example"
 }
@@ -648,6 +798,8 @@ Example:
 
 ```json
 {
+  "code": "unavailable",
+  "hint": "example",
   "ok": false
 }
 ```
@@ -664,7 +816,7 @@ Required capability: thread_control. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadId | yes | string | {"minLength":1,"description":"A thread you own: this one or one you started."} |
+| threadId | yes | string | {"minLength":1,"description":"A thread you own: this one or one you started. With full access, also any of the person's threads."} |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
 | interactionId | yes | string | {"minLength":1,"description":"The request's interactionId."} |
 | answers | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"type":"array","items":{"type":"string"}},"description":"Question id to the chosen option ids, or to free text when other is allowed."} |
@@ -676,8 +828,10 @@ Example:
 ```json
 {
   "answers": {},
+  "dismissed": true,
+  "feedback": "example",
   "interactionId": "example",
-  "requestId": "qOZIJGa",
+  "requestId": "HhSZHDx",
   "threadId": "example"
 }
 ```
@@ -696,7 +850,6 @@ Example:
 
 ```json
 {
-  "code": "limit",
   "hint": "example",
   "ok": false
 }
@@ -726,8 +879,6 @@ Example:
 
 ```json
 {
-  "repo": "example",
-  "unlink": true,
   "url": "https://example.invalid/"
 }
 ```
@@ -747,7 +898,7 @@ Example:
 
 ```json
 {
-  "data": null,
+  "code": "forbidden",
   "hint": "example",
   "ok": false
 }
@@ -755,7 +906,7 @@ Example:
 
 ## thread_control
 
-Change a thread you own (this one or one you started): rename, configure its model, fork, hand off to a new worktree, interrupt, settle (archive), snooze, close a preview server, or rename this project. Each action's fields are named in action's description.
+Change a thread you own (this one or one you started; with full access, any of the person's threads): rename, configure its model, hand off to a new worktree, interrupt, settle (this thread too, when its work is finished) or unsettle, snooze, close a preview server, or rename this project. Each action's fields are named in action's description.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -763,19 +914,18 @@ Required capability: thread_control. Timeout: 630000 ms.
 
 [JSON Schema](schema/thread_control.input.json), input validation.
 
-Semantic rule: configure needs requestId and model; fork and interrupt need requestId; handoff needs requestId and branch; snooze needs until; close_preview needs previewId; rename_project needs name.
+Semantic rule: configure needs requestId and model; interrupt needs requestId; handoff needs requestId and branch; snooze needs until; close_preview needs previewId; rename_project needs name.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| action | yes | ["rename","configure","fork","handoff","interrupt","settle","snooze","close_preview","rename_project"] | {"description":"rename: set title, or omit title to retitle from the first message. configure: model and effort. fork: copy the conversation into a new thread. handoff: move it to a new Git worktree on branch. interrupt: stop its current turn and its children. settle: archive it once done. snooze: mute its notifications until a time. close_preview: stop a preview server. rename_project: rename this project."} |
-| threadId | no | [ThreadId.json](schema/ThreadId.json) | {"description":"A thread you own. Default: this thread."} |
+| action | yes | ["rename","configure","handoff","interrupt","settle","unsettle","snooze","close_preview","rename_project"] | {"description":"rename: set title, or omit title to retitle from the first message. configure: model and effort. handoff: move it to a new Git worktree on branch. interrupt: stop its current turn and its children. settle: move it to Settled, as the person's Settle does; a thread still working (this one, mid-turn) settles when it is done, unless it fails or needs the person. unsettle: bring it back and cancel a pending settle. snooze: mute its notifications until a time. close_preview: stop a preview server. rename_project: rename this project."} |
+| threadId | no | [ThreadId.json](schema/ThreadId.json) | {"description":"A thread you own, or with full access any of the person's. Default: this thread."} |
 | requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
 | title | no | string | {"description":"rename: the new title.","minLength":1,"maxLength":256} |
 | onlyIfProvisional | no | boolean | {"description":"rename: only replace a title ace generated, never one the person chose."} |
 | model | no | string | {"description":"configure: a model id from `models`.","minLength":1,"maxLength":256} |
 | effort | no | string | {"description":"configure: reasoning effort.","minLength":1,"maxLength":64} |
 | serviceTier | no | ["default","priority","flex"] | {"description":"configure."} |
-| runId | no | string | {"description":"fork: fork after this run; default the latest.","minLength":1,"maxLength":128} |
 | branch | no | string | {"description":"handoff: the new branch name.","minLength":1,"maxLength":256} |
 | until | no | union | {"description":"snooze: epoch milliseconds, or null to unmute.","anyOf":[{"$ref":"https://ace.local/protocol/v1/Timestamp.json"},{"type":"null"}]} |
 | previewId | no | string | {"description":"close_preview: from thread_read.","minLength":1,"maxLength":128} |
@@ -785,13 +935,11 @@ Example:
 
 ```json
 {
-  "action": "interrupt",
-  "branch": "example",
-  "model": "example",
-  "name": "example",
-  "requestId": "PUM-7GeTgz",
-  "runId": "example",
-  "threadId": "example"
+  "action": "rename",
+  "effort": "example",
+  "previewId": "example",
+  "requestId": "skZBnao",
+  "serviceTier": "priority"
 }
 ```
 
@@ -810,9 +958,6 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
-  "data": null,
-  "hint": "example",
   "ok": true
 }
 ```
@@ -837,9 +982,7 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 Example:
 
 ```json
-{
-  "limit": 4
-}
+{}
 ```
 
 ## automations_list.output
@@ -857,6 +1000,8 @@ Example:
 
 ```json
 {
+  "code": "limit",
+  "hint": "example",
   "ok": true
 }
 ```
@@ -888,10 +1033,12 @@ Example:
 ```json
 {
   "id": "example",
+  "missedRun": "skip",
+  "model": "example",
   "prompt": "example",
   "schedule": {
     "expression": "example",
-    "kind": "cron",
+    "kind": "rrule",
     "startAt": 0,
     "timezone": "example"
   },
@@ -939,7 +1086,7 @@ Example:
 ```json
 {
   "id": "example",
-  "requestId": "cDA2WeP",
+  "requestId": "BYnLTaH5V4E",
   "variables": {}
 }
 ```
@@ -959,7 +1106,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "hint": "example",
+  "ok": false
 }
 ```
 
@@ -999,7 +1147,7 @@ Example:
 
 ```json
 {
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1026,8 +1174,10 @@ Example:
 
 ```json
 {
-  "limit": 9,
-  "sourceThreadId": "example"
+  "maxBytes": 4,
+  "offset": 3,
+  "sourceThreadId": "example",
+  "streamId": "example"
 }
 ```
 
@@ -1049,7 +1199,8 @@ Example:
 
 ```json
 {
-  "encoding": "utf-16le"
+  "items": [],
+  "itemsBefore": null
 }
 ```
 
@@ -1072,7 +1223,7 @@ Example:
 ```json
 {
   "topics": [
-    "recent"
+    "status"
   ]
 }
 ```
@@ -1094,13 +1245,19 @@ Example:
 
 ```json
 {
-  "changes": null,
-  "diagnostics": {
-    "blocking": [],
-    "failures": []
+  "changes": {
+    "ahead": 9,
+    "behind": 5,
+    "branch": "example",
+    "files": [],
+    "staged": 5,
+    "unstaged": 8,
+    "untracked": 8,
+    "upstream": null
   },
+  "prs": [],
   "status": {
-    "access": "auto-review",
+    "access": "read-only",
     "agentId": "example",
     "groups": [],
     "threadId": "example"
@@ -1144,7 +1301,7 @@ Example:
 ```json
 {
   "noteId": "example",
-  "notes": 6
+  "notes": 3
 }
 ```
 
@@ -1182,7 +1339,7 @@ Example:
 
 ```json
 {
-  "retired": false
+  "retired": true
 }
 ```
 
@@ -1207,7 +1364,6 @@ Example:
 
 ```json
 {
-  "options": [],
   "question": "example"
 }
 ```
@@ -1228,7 +1384,7 @@ Example:
 {
   "answer": [],
   "askId": "example",
-  "status": "declined"
+  "status": "pending"
 }
 ```
 
@@ -1252,6 +1408,7 @@ Example:
 
 ```json
 {
+  "limit": 10,
   "query": "example"
 }
 ```
@@ -1270,7 +1427,7 @@ Example:
 
 ```json
 {
-  "how": "example",
+  "hint": "example",
   "matches": []
 }
 ```
@@ -1311,6 +1468,7 @@ Example:
 
 ```json
 {
-  "content": []
+  "content": [],
+  "isError": true
 }
 ```

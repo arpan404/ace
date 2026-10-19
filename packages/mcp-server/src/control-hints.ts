@@ -28,7 +28,7 @@ const byOp: Partial<Record<Op, Partial<Record<Code, string>>>> = {
   },
   "thread.regenerate_title": { not_ready: "There is no user message to title from yet." },
   "thread.settle": {
-    not_ready: "Settle a thread only after it is done. Call wait with its threadId first.",
+    not_ready: "It cannot be settled in its current state. Call thread_read for its status.",
   },
   "question.answer": {
     not_ready: "That question is no longer pending. Call agents_status for current requests.",

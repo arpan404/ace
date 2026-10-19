@@ -9,9 +9,9 @@ export async function openWorkPanel() {
   if (!screen.queryByRole("tab", { name: "Summary", selected: true }))
     await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const work = await screen.findByRole("tabpanel", { name: "Summary" });
-  // Its head line ("Working for 12s", "Nothing running") draws once the thread's facts are in.
+  // Its sections draw once the thread's facts are in (a skeleton stands in until then).
   await waitFor(() => {
-    if (!work.querySelector("[data-summary-head]")) throw new Error("The summary is still loading");
+    if (!work.querySelector("[data-summary]")) throw new Error("The summary is still loading");
   });
   return work;
 }

@@ -35,7 +35,12 @@ export function itemRow(item: Item, index?: number, sourceTruncated = false) {
   if (item.type === "tool_call") text = item.call.title;
   else if (item.type === "reasoning") text = item.text;
   else if (item.type === "delegation.started") text = item.title;
-  else if (item.type !== "message" && item.type !== "html" && item.type !== "notice")
+  else if (
+    item.type !== "message" &&
+    item.type !== "html" &&
+    item.type !== "image" &&
+    item.type !== "notice"
+  )
     text = item.type;
   return {
     /** The shared secondary line, such as the visualization fallback. */

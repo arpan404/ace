@@ -111,6 +111,14 @@ export class TurnReader {
       initiatingMessagePreview: row.initiating,
       latestAgentMessagePreview: row.latest,
       digest: this.digests.read(thread, row.ordinal),
+      ...(root == null
+        ? {}
+        : {
+            main: {
+              agentId: String(root),
+              digest: this.digests.readAgent(thread, row.ordinal, String(root)),
+            },
+          }),
       subagents,
       subagentsTruncated: agents.length > 32,
     });
@@ -134,7 +142,7 @@ export class TurnReader {
       const turn = this.summary(input.threadId, row);
       let size = Buffer.byteLength(JSON.stringify(turn));
       if (size > 1024 * 1024 - 1024) {
-        for (const child of turn.subagents) {
+        for (const child of turn.main ? [...turn.subagents, turn.main] : turn.subagents) {
           child.digest.truncated ||=
             child.digest.files.length > 0 || child.digest.commands.length > 0;
           child.digest.files = [];

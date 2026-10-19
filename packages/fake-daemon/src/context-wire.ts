@@ -378,7 +378,7 @@ function imageMetadata(
   }
   return {
     mimeType: mime,
-    thumbnailAvailable: dimensions !== undefined && bytes.length <= 256 * 1024,
+    thumbnailAvailable: dimensions !== undefined && bytes.length <= 512 * 1024,
     ...dimensions,
   };
 }

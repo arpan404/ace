@@ -14,6 +14,13 @@ async function open() {
   return { app, scenario, work: await openWorkPanel() };
 }
 
+/** Open the main agent's "N done" row, where its completed subagents fold. */
+async function openDone(work: HTMLElement) {
+  const done = await within(work).findByRole("treeitem", { name: /^\d+ done$/ });
+  if (done.getAttribute("aria-expanded") === "false") await userEvent.click(done);
+  return done;
+}
+
 test("opening the panel defaults to Summary with agents and automations, the checkout left to the details card", async () => {
   const app = harness();
   const scenario = workCardScenario("changes");
@@ -31,27 +38,29 @@ test("opening the panel defaults to Summary with agents and automations, the che
   expect(within(work).queryByRole("button", { name: "More git actions" })).toBeNull();
 });
 
-/** The Summary's first line: where the thread stands right now. */
-const head = (work: HTMLElement) => work.querySelector("[data-summary-head]")?.textContent ?? "";
-
-test("an idle thread shows one quiet line and no empty sections", async () => {
+test("an idle thread shows its last message and no empty sections", async () => {
   const app = harness();
   const scenario = workCardScenario("worktree");
   app.play(scenario).runUntilBlocked();
   await app.open(`/t/${scenario.thread.id}`);
   const work = await openWorkPanel();
-  await waitFor(() => expect(head(work)).toBe("Nothing running"));
+  expect(await within(work).findByText("Give the restart loop a retry budget.")).toBeTruthy();
+  // One section needs no label; nothing says it is empty.
   expect(within(work).queryAllByRole("heading")).toHaveLength(0);
   expect(within(work).queryByRole("tree")).toBeNull();
+  expect(within(work).queryByRole("region", { name: "Needs you" })).toBeNull();
   expect(within(work).queryByRole("region", { name: "Automations" })).toBeNull();
   expect(within(work).queryByText("No scheduled tasks")).toBeNull();
+  // The thread already shows how long it worked and on which model.
+  expect(work.textContent).not.toMatch(/Working for|Nothing running|Codex · /);
 });
 
-test("a working tree leads with its live state and says each agent's status once", async () => {
+test("a working tree says each agent's status once and folds the completed ones into N done", async () => {
   const { work } = await open();
-  await waitFor(() => expect(head(work)).toMatch(/^Working/));
-  expect(within(work).getByRole("heading", { name: "Agents" })).toBeTruthy();
-  expect(within(work).getByRole("heading", { name: "Background" })).toBeTruthy();
+  expect(await within(work).findByRole("heading", { name: "Agents" })).toBeTruthy();
+  expect(within(work).getByRole("region", { name: "Background" })).toBeTruthy();
+  expect(within(work).queryByRole("treeitem", { name: "Read restart history: Idle" })).toBeNull();
+  await openDone(work);
   const done = await within(work).findByRole("treeitem", { name: "Read restart history: Idle" });
   expect(within(done).getAllByText("Completed")).toHaveLength(1);
   const working = within(work).getByRole("treeitem", { name: /^Check supervisor logs: / });
@@ -61,7 +70,6 @@ test("a working tree leads with its live state and says each agent's status once
 test("the Automations section is left out when the project has none", async () => {
   const { work } = await open();
   await within(work).findByRole("tree", { name: "Agent tree" });
-  await waitFor(() => expect(head(work)).toMatch(/^Working/));
   expect(within(work).queryByRole("region", { name: "Automations" })).toBeNull();
   expect(within(work).queryByRole("button", { name: "Automation settings" })).toBeNull();
   expect(within(work).queryByText("No scheduled tasks")).toBeNull();
@@ -76,8 +84,9 @@ test("a background command row offers Stop and Open in terminal", async () => {
   expect(await screen.findByRole("tab", { name: /^Watch/, selected: true })).toBeTruthy();
 });
 
-test("a request waiting on the person heads the summary and Show takes focus to it", async () => {
+test("Needs you lists a pending question, Show takes it to the composer, and it goes once answered", async () => {
   const { app, scenario, work } = await open();
+  expect(within(work).queryByRole("region", { name: "Needs you" })).toBeNull();
   act(() =>
     app.daemon.apply(scenario.thread.id, [
       {
@@ -100,11 +109,38 @@ test("a request waiting on the person heads the summary and Show takes focus to 
       },
     ]),
   );
-  await waitFor(() => expect(head(work)).toMatch(/^Waiting for your answer/));
-  await userEvent.click(within(work).getByRole("button", { name: "Show the request" }));
+  const needs = await within(work).findByRole("region", { name: "Needs you" });
+  const row = within(needs).getByRole("listitem", { name: "Which cases?" });
+  await userEvent.click(within(row).getByRole("button", { name: "Show Which cases?" }));
   await waitFor(() =>
     expect(document.activeElement?.closest("[data-composer-strip]")).toBeTruthy(),
   );
+  act(() =>
+    app.daemon.apply(scenario.thread.id, [
+      {
+        type: "interaction.closed",
+        interaction: "scope-question",
+        state: "resolved",
+        resolution: { kind: "question", answers: { scope: ["all"] } },
+      },
+    ]),
+  );
+  await waitFor(() => expect(within(work).queryByRole("region", { name: "Needs you" })).toBeNull());
+});
+
+test("Needs you lists a failed subagent with Open", async () => {
+  const app = harness();
+  const scenario = workCardScenario("failed");
+  app.play(scenario).runUntilBlocked();
+  await app.open(`/t/${scenario.thread.id}`);
+  const work = await openWorkPanel();
+  const needs = await within(work).findByRole("region", { name: "Needs you" });
+  const row = within(needs).getByRole("listitem", { name: "Check supervisor logs failed" });
+  expect(row.textContent).toContain("The test command failed. Check its output.");
+  await userEvent.click(within(row).getByRole("button", { name: "Open Check supervisor logs" }));
+  expect(
+    await screen.findByRole("heading", { level: 1, name: "Check supervisor logs" }),
+  ).toBeTruthy();
 });
 
 test.each(["completed", "interrupted"] as const)(
@@ -116,8 +152,9 @@ test.each(["completed", "interrupted"] as const)(
       name: /^Write retry tests: Waiting on (work|subagents|background task)$/,
     });
     expect(within(work).queryByRole("treeitem", { name: "Write retry tests: Idle" })).toBeNull();
-    expect(within(work).getByRole("status").textContent).toBe("1 working · 1 done");
+    expect(within(work).getAllByRole("status")[0]?.textContent).toBe("1 working · 1 done");
     act(() => app.daemon.apply(scenario.thread.id, [facts.endTurn("worker-1")]));
+    if (outcome === "completed") await openDone(work);
     await within(work).findByRole("treeitem", {
       name: `Write retry tests: ${outcome === "completed" ? "Idle" : "Interrupted"}`,
     });
@@ -132,9 +169,6 @@ test("an idle main agent keeps waiting while an ambient command is running, then
   await within(work).findByRole("treeitem", {
     name: /^Main agent: Waiting on (work|background task)$/,
   });
-  expect(
-    within(work).queryByText("Every agent has finished and nothing is running in the background."),
-  ).toBeNull();
   await userEvent.click(within(work).getByRole("button", { name: "Stop" }));
   await waitFor(() =>
     expect(within(work).queryByRole("region", { name: "Background" })).toBeNull(),

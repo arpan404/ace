@@ -33,6 +33,10 @@ export function transitionHarness(
     configure?: boolean;
     /** The providers advertise steering; false makes every follow-up queue. */
     steer?: boolean;
+    /** When the providers' native steer reaches the model; omitted means immediately. */
+    steerTiming?: "immediate" | "after_tool";
+    /** A root interrupt ends the running turn, as a real provider's would. */
+    interruptEndsTurn?: boolean;
     closeFails?: boolean;
     configureFails?: boolean;
     maxActiveThreads?: number;
@@ -64,6 +68,7 @@ export function transitionHarness(
     delivery: "queue" | "steer";
   }[] = [];
   const held = new Set<ThreadId>();
+  const interrupts: { threadId: ThreadId; cascade: boolean }[] = [];
   const emit = (id: ThreadId, ...facts: Fact[]) => {
     const session = sessions.findLast((entry) => entry.context.threadId === id && !entry.closed);
     if (!session) throw new Error("No fake provider session");
@@ -97,6 +102,7 @@ export function transitionHarness(
             toolGate: true,
           },
           steer: options.steer ?? true,
+          ...(options.steerTiming ? { steerTiming: options.steerTiming } : {}),
           interruptCascades: false,
           resume: true,
           fork: options.native ?? false,
@@ -207,7 +213,17 @@ export function transitionHarness(
                 });
             }
           },
-          interrupt: async () => {},
+          interrupt: async (target: { cascade: boolean }) => {
+            interrupts.push({ threadId: context.threadId, cascade: target.cascade });
+            const turn = histories.get(nativeId)?.at(-1)?.turn;
+            if (options.interruptEndsTurn && turn)
+              emit(context.threadId, {
+                type: "turn.ended",
+                agent: "root",
+                nativeTurnId: turn,
+                outcome: "interrupted",
+              });
+          },
           resolve: async () => {},
           stopTask: async () => {},
           close: async () => {
@@ -243,6 +259,13 @@ export function transitionHarness(
   function command(payload: CommandPayload, commandId = `command-${++serial}`) {
     const value = Command.parse({ id: commandId, deviceId: "device", payload });
     return store.recordCommand(value.id, value.deviceId, () => engine.handler.handle(value, store));
+  }
+  /** A trusted daemon command, such as a delegated child's result. */
+  function internalCommand(payload: CommandPayload, commandId = `command-${++serial}`) {
+    const value = Command.parse({ id: commandId, deviceId: "ace-agent", payload });
+    return store.recordCommand(value.id, value.deviceId, () =>
+      engine.internalHandler.handle(value, store),
+    );
   }
   async function create(permissionMode?: PermissionMode) {
     const existing = new Set(store.listThreads().map((thread) => thread.id));
@@ -304,10 +327,12 @@ export function transitionHarness(
     clock,
     sessions,
     inputs,
+    interrupts,
     histories,
     held,
     emit,
     command,
+    internalCommand,
     create,
     fork,
     finishedRun,

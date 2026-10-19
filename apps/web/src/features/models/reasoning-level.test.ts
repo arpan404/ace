@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
-import { isDeepReasoning, reasoningDescription } from "./reasoning-level.ts";
+import { isDeepReasoning, reasoningDescription, showsAceMark } from "./reasoning-level.ts";
 
-test.each(["ultra", "max"])(
+test.each(["ultra", "ultrathink", "max"])(
   "only an explicitly supported %s level gets the deep accent",
   (level) => {
     expect(isDeepReasoning(level, ["low", "high", level])).toBe(true);
@@ -16,4 +16,13 @@ test("High and Extra high never become Ultra just because they are the final cap
 
 test("unreported reasoning stays unknown until explicitly selected", () => {
   expect(reasoningDescription(undefined)).toContain("No reasoning level has been reported");
+});
+
+test("the ace mark is kept for Ultra and ultrathink; Max glows without it", () => {
+  expect(showsAceMark("ultra", ["high", "ultra"])).toBe(true);
+  expect(showsAceMark("ultrathink", ["high", "ultrathink"])).toBe(true);
+  expect(showsAceMark("max", ["high", "max"])).toBe(false);
+  expect(isDeepReasoning("max", ["high", "max"])).toBe(true);
+  // Named but not offered by this model: no mark.
+  expect(showsAceMark("ultra", ["high", "max"])).toBe(false);
 });

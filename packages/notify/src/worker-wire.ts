@@ -67,6 +67,8 @@ export const FromWorker = z.discriminatedUnion("type", [
     id: seq,
     ok: z.boolean(),
     value: z.union([seq, NotificationFeed, NotificationPreferences]).optional(),
+    /** Why a call failed, so the daemon's log names the cause. */
+    error: z.string().max(256).optional(),
   }),
   z.object({
     type: z.literal("delivery"),

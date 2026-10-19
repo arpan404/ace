@@ -5,8 +5,6 @@ import {
   useThreadMeta,
   useThreadStore,
 } from "@ace/client-react";
-import { useAgentFacts } from "@/lib/use-agent-facts.ts";
-import type { AgentFacts } from "@/lib/agent-facts.ts";
 import { useComposerActions } from "./composer-actions.ts";
 import type { Interaction, ThreadStatus } from "@ace/protocol";
 import { ThreadId } from "@ace/protocol";
@@ -22,7 +20,7 @@ import {
   runningSubagents,
   type AttachmentReader,
 } from "@ace/ui-core";
-import { Suspense, useCallback, useContext, useEffect, useRef, useState, type Ref } from "react";
+import { Suspense, useContext, useEffect, useRef, useState, type Ref } from "react";
 import { TimeContext } from "@/lib/time.ts";
 import { uploadClock } from "@/features/thread/composer/upload-interruption.ts";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -104,16 +102,7 @@ export function ThreadComposer({
   });
   // Steering needs a provider that says it can take input mid-turn; otherwise (or while its
   // capabilities are unknown) a follow-up queues (SY-14).
-  const rootId = meta?.rootAgentId ?? "";
-  const commandState = useCallback(
-    (facts: AgentFacts) => ({
-      value: facts.hasRunningCommand(rootId),
-      watch: [`command:${rootId}`, `work:${rootId}`],
-    }),
-    [rootId],
-  );
   const canSteer = meta?.capabilities?.steer === true;
-  const steerPending = useAgentFacts(props.thread.id, commandState, Object.is) ?? false;
   const followUp = canSteer ? setting : "queue";
   const busy = isBusy(props.status);
   const [pickerRequest, requestPicker] = useState(0);
@@ -339,7 +328,6 @@ export function ThreadComposer({
         keepsAttachments
         busy={busy}
         followUp={followUp}
-        steerPending={steerPending}
         canSteer={canSteer}
         onSubmit={submit}
         recall={() => (transcript ? lastSentText(transcript) : undefined)}

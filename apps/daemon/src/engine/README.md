@@ -58,7 +58,11 @@ commands, monitors, subagents and delegated children never hold it: once the roo
 ended the next message starts a new turn while that work keeps running and keeps the thread from
 reading done (ADR 0053, 2026-10-17 amendment). A queued message that changes the model or
 options still waits for the whole tree, because switching may reopen the session. A steer never
-waits for a turn: it joins the running one or starts the next. That holds when it changes the
+waits for a turn: it joins the running one or starts the next. A person's steer never waits for a
+running command either: where the provider's steer only lands after the tool (`steerTiming:
+"after_tool"`), the steering lane interrupts the root turn and delivers the steer as the next
+input once it ends (`steer-lane.ts`, ADR 0053, 2026-10-18 amendment "Steer interrupts a running
+command"). Delegated results never interrupt; they wait for the command. That holds when it changes the
 model or options too, and for a queued message changed to steer: while the tree works its text
 steers now and the change becomes the thread's pending `thread.switch`, ordered right behind it
 and applied at the next whole-tree boundary (`admitSteer`, ADR 0053, 2026-10-18 amendment). With

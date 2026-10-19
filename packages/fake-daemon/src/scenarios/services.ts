@@ -1,6 +1,6 @@
 import { savedTranscripts } from "../catalog/history.ts";
 import { aceToolThreadIds } from "./ace-tool-results.ts";
-import { publishedPages } from "./visualization.ts";
+import { postedImageThreadId, publishedPages } from "./visualization.ts";
 import { automationList, automationRuns } from "../catalog/automations.ts";
 import { pluginCatalog } from "../catalog/plugins.ts";
 import { pullRequests } from "../catalog/pull-requests.ts";
@@ -13,7 +13,10 @@ import type { ServicesSeed } from "../services-wire.ts";
  */
 export function workbenchServices(now: number, timeZone = "UTC"): ServicesSeed {
   return {
-    attachmentImages: aceToolThreadIds.map((threadId) => ({ threadId, name: "screen.png" })),
+    attachmentImages: [
+      ...aceToolThreadIds.map((threadId) => ({ threadId, name: "screen.png" })),
+      { threadId: postedImageThreadId, name: "latency.png" },
+    ],
     attachmentTexts: publishedPages.map((page) => ({
       threadId: page.threadId,
       sha256: page.sha256,

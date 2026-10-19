@@ -36,6 +36,7 @@ const Reply = z.union([
     settled: z.array(Block),
     open: z.array(Block),
     ms: z.number(),
+    mathSeen: z.boolean(),
   }),
   z.object({ resync: z.literal(true) }),
   CodeLinesReply,

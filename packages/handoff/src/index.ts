@@ -16,6 +16,8 @@ function excerpt(item: Item): string {
   switch (item.type) {
     case "html":
       return `Visualization: ${item.visualization.title}. View on desktop/web.`;
+    case "image":
+      return `Image: ${item.image.alt}${item.image.caption ? ` (${item.image.caption})` : ""}.`;
     case "message": {
       let text = `${item.role}: `;
       let first = true;

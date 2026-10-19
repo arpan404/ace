@@ -79,7 +79,7 @@ test("an empty Settled group stays out of the list even when expanded", () => {
   expect(words(homeRows(groups({ active: ["a"] }), { settledOpen: true }))).toEqual(["a"]);
 });
 
-test("unsent work follows admitted tasks and precedes settled work", () => {
+test("unsent work leads the list, above the Pinned group", () => {
   expect(
     words(
       homeRows(
@@ -87,14 +87,14 @@ test("unsent work follows admitted tasks and precedes settled work", () => {
         { settledOpen: true, includeUnsent: true },
       ),
     ),
-  ).toEqual(["pinned 1", "pin", "—", "active", "recent", "unsent", "settled 1", "settled"]);
+  ).toEqual(["unsent", "pinned 1", "pin", "—", "active", "recent", "settled 1", "settled"]);
 });
 
-test("Snoozed follows Unsent and precedes Settled, exposing its tasks only when open", () => {
+test("Snoozed follows the tasks and precedes Settled, exposing its tasks only when open", () => {
   const list = groups({ active: ["asks"], snoozed: ["later"], settled: ["done"] });
   expect(words(homeRows(list, { settledOpen: false, includeUnsent: true }))).toEqual([
-    "asks",
     "unsent",
+    "asks",
     "snoozed 1",
     "settled 1",
   ]);

@@ -96,7 +96,7 @@ export function AutomationsSidebar() {
                   params={{ automationId: automation.id }}
                   aria-current={selected === automation.id ? "page" : undefined}
                   data-view-row=""
-                  className="flex h-9 items-center gap-2 rounded-md px-2.5 text-ui hover:bg-sidebar-accent focus-ring-inset aria-[current=page]:bg-foreground/8"
+                  className="flex h-9 items-center gap-2 rounded-md px-2.5 text-ui hover:bg-sidebar-accent focus-ring-inset aria-[current=page]:bg-sidebar-accent"
                 >
                   <Icon
                     icon={triggerIcon(automation.trigger)}

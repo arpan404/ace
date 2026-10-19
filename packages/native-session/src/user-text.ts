@@ -12,6 +12,18 @@ const contextTags = [
 ];
 const contextOpening = new RegExp(`<(${contextTags.join("|")})(?=\\s|>)[^>]*>`, "i");
 
+const aceOriginMarker = /^\[ace-origin:[^\]\r\n]+\]\n?/;
+
+/** The daemon's `[ace-origin:…]` prefix, kept for the provider but never shown to the person. */
+export function stripAceOriginMarker(value: string): string {
+  return value.replace(aceOriginMarker, "");
+}
+
+/** Whether the text carries the daemon's `[ace-origin:…]` prefix for the provider. */
+export function hasAceOriginMarker(value: string): boolean {
+  return aceOriginMarker.test(value);
+}
+
 /** Also hide nested and unfinished envelopes in a streamed text part. */
 function withoutContextBlocks(value: string): string {
   let text = value;
@@ -48,7 +60,7 @@ const wrapperPatterns = [
 
 /** Remove the context envelopes saved by CLIs and IDEs, before truncating display text. */
 export function sanitizeUserText(value: string): string {
-  let text = value.trim();
+  let text = stripAceOriginMarker(value.trim());
   // These records are standalone instructions, not a person's prompt.
   if (/^#\s+(?:AGENTS|CLAUDE)\.md\b/i.test(text)) {
     const end = text.indexOf("</INSTRUCTIONS>");

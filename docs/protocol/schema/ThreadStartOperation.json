@@ -47,6 +47,11 @@
     "options": {
       "$ref": "https://ace.local/protocol/v1/AgentServiceOptions.json"
     },
+    "project": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     },

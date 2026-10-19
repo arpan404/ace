@@ -13,10 +13,8 @@ export function useEditorLaunch(resolve: (editorId: string) => Promise<LaunchTar
       await launchEditor(target);
       return target;
     },
-    onSuccess: (target) => {
-      choose(target.editorId);
-      toast.add({ title: `Opened in ${target.editorName}` });
-    },
+    // The editor coming forward is the confirmation.
+    onSuccess: (target) => choose(target.editorId),
     onError: (failure) =>
       toast.error({ title: "Couldn't open the editor", description: failure.message }),
   });

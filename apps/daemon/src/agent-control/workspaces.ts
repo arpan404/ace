@@ -15,18 +15,21 @@ export type AgentWorkspaceContext = Pick<ServiceContext, "store" | "signal"> & {
   services: Pick<ServiceContext["services"], "workspaceActions">;
 };
 
-/** One workspace boundary for child work and ordinary conversation creation. */
+/**
+ * One workspace boundary for child work and ordinary conversation creation. The command names
+ * the project the new thread joins; an existing worktree must be one of that project's.
+ */
 export async function prepareAgentWorkspace(
   context: AgentWorkspaceContext,
-  caller: McpAttribution,
   command: Command,
   strategy: AgentWorkspace,
   signal: AbortSignal,
 ): Promise<CreationWorkspace | undefined> {
   signal.throwIfAborted();
   const runtime = context.services.workspaceActions;
-  const thread = context.store.getThread(caller.threadId);
-  const project = thread && context.store.getWorkspacePath(thread.workspaceId);
+  const p = command.payload;
+  if (p.type !== "thread.prepare" || !p.threadId) throw new Error("invalid_command");
+  const project = context.store.getWorkspacePath(p.workspaceId);
   if (!project || !runtime) throw new Error("workspace_unavailable");
   if (strategy.kind === "project") return undefined;
   if (strategy.kind === "new_worktree") return runtime.prepareAgentCreation(command, signal);
@@ -36,8 +39,6 @@ export async function prepareAgentWorkspace(
   signal.throwIfAborted();
   const existing = worktrees.find((tree) => tree.path === path && !tree.bare);
   if (!existing) throw new Error("workspace_not_registered");
-  const p = command.payload;
-  if (p.type !== "thread.prepare" || !p.threadId) throw new Error("invalid_command");
   const workspace: NonNullable<CommandContext["preparedWorkspace"]> = {
     id: p.threadId,
     path,
@@ -87,7 +88,6 @@ export function createWorkspaceDelegations(
       });
       prepared = await prepareAgentWorkspace(
         context,
-        caller,
         command,
         request.workspace ?? { kind: "project" },
         lifetime,

@@ -12,6 +12,7 @@ export {
   visibleHistoryOrder,
 } from "./history-visibility.ts";
 export { threadAttention } from "./thread-attention.ts";
+export { startsTurn, startedRunTurn, runTurn } from "./turn-boundary.ts";
 export { siteOrigin, toolSurface, toolSurfaces } from "./tool-surface.ts";
 export { withoutPortableHandoff } from "./portable-input.ts";
 import { usageSnapshotKey } from "./usage.ts";
@@ -263,6 +264,7 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       const run = get(view.runs, p.runId);
       if (run) {
         run.state = p.state;
+        if (p.endedBy) run.endedBy = p.endedBy;
         run.endedAt = p.endedAt;
         if (p.error) run.error = structuredCopy(p.error);
         if (p.trigger !== undefined) run.trigger = p.trigger;

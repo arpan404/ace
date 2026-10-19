@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { Run, RunCheckpoints, type EventPayload, type Thread, type ThreadId } from "@ace/protocol";
+import { allocateRunTurn, migrateRunTurns, trackTurnAsk } from "./run-turns.ts";
 /** Stable ordinals are allocated once, independently of the transcript window. */
 export function migrateRunClient(db: DatabaseSync): void {
   db.exec(`CREATE TABLE IF NOT EXISTS client_run_index(thread_id TEXT NOT NULL,run_id TEXT NOT NULL,ordinal INTEGER NOT NULL,PRIMARY KEY(thread_id,run_id),UNIQUE(thread_id,ordinal));
@@ -7,6 +8,7 @@ export function migrateRunClient(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS client_run_migration(id INTEGER PRIMARY KEY);
     CREATE TABLE IF NOT EXISTS client_checkpoint_start(thread_id TEXT PRIMARY KEY,command_id TEXT NOT NULL,checkpoints TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS client_checkpoint_due(thread_id TEXT NOT NULL,run_id TEXT NOT NULL,PRIMARY KEY(thread_id,run_id));`);
+  migrateRunTurns(db);
   if (db.prepare("SELECT id FROM client_run_migration WHERE id=1").get()) return;
   const rows = db.prepare(
     "SELECT e.thread_id,e.id,e.value FROM view_entities e JOIN threads t ON t.id=e.thread_id WHERE e.collection='runs' AND json_extract(e.value,'$.agentId')=t.root_agent_id ORDER BY e.thread_id,json_extract(e.value,'$.startedAt'),e.id",
@@ -40,8 +42,15 @@ export function prepareRunClient(
   thread: Thread,
   payload: EventPayload,
 ): EventPayload {
+  trackTurnAsk(db, thread, payload);
   if (payload.type !== "run.started" || payload.run.agentId !== thread.rootAgentId) return payload;
-  const run = { ...payload.run, ordinal: allocate(db, thread.id, payload.run.id) };
+  const sequence = Number(
+    db.prepare("SELECT ordinal FROM client_run_sequence WHERE thread_id=?").get(thread.id)
+      ?.ordinal ?? 0,
+  );
+  // The turn first: it tells a new run from a pre-turn one by its missing run ordinal.
+  const turn = allocateRunTurn(db, thread.id, payload.run, sequence);
+  const run = { ...payload.run, ordinal: allocate(db, thread.id, payload.run.id), turn };
   if (payload.run.agentId === thread.rootAgentId) {
     const start = db
       .prepare("SELECT checkpoints FROM client_checkpoint_start WHERE thread_id=?")

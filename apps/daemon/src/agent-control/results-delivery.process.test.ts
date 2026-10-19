@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { setup, wakes } from "./test-support.ts";
 import { createAgentControlPort } from "./tools.ts";
+import { start, end } from "../engine/test-support.ts";
 
 test("asynchronous child results survive native user-role echoes as ace events", async () => {
   const h = setup();
@@ -227,4 +228,108 @@ test("delegation outcomes preserve answers larger than one kilobyte and mark bou
     result: "A".repeat(4096),
     truncated: true,
   });
+});
+
+test("a finished child's result is steered into a busy parent that supports steering", async () => {
+  const h = setup(
+    {},
+    undefined,
+    false,
+    undefined,
+    false,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    true,
+  );
+  const parent = await h.parent();
+  // Parent starts its own turn and stays in it while the child finishes.
+  await h.emit(parent.threadId, start);
+  const child = h.delegate(parent, "steered-result");
+  await h.engine.flush();
+  await h.complete(child.childId, "steered hello");
+  h.clock.advance(1050);
+  await h.engine.flush();
+  expect(h.errors).toEqual([]);
+  // Never a user-visible queue entry, even briefly: the Queued strip stays empty.
+  expect(h.engine.queue(parent.threadId).messages).toEqual([]);
+  // Injected now, while the parent is still busy, via steer delivery.
+  const delivered = h.inputMessages.get(parent.threadId)?.at(-1);
+  expect(delivered?.delivery).toBe("steer");
+  expect(h.inputs.get(parent.threadId)?.join("\n")).toContain("steered hello");
+  const settled = h.store
+    .readItemPage(parent.threadId, h.store.headSeq() + 1, 50)
+    .items.filter((item) => item.type === "delegation.settled");
+  expect(settled).toHaveLength(1);
+  expect(settled[0]).toMatchObject({
+    origin: "ace",
+    results: [expect.objectContaining({ threadId: child.childId, result: "steered hello" })],
+  });
+});
+
+test("with no steering, the result waits out of the person's queue and is delivered when the turn ends", async () => {
+  const h = setup();
+  const parent = await h.parent();
+  await h.emit(parent.threadId, start);
+  // The person's own follow-up queues while the parent is busy.
+  expect(
+    h.service.command("person-followup", {
+      type: "thread.send",
+      threadId: parent.threadId,
+      delivery: "queue",
+      input: [{ type: "text", text: "person follow-up" }],
+    }).ok,
+  ).toBe(true);
+  const child = h.delegate(parent, "queued-result");
+  await h.engine.flush();
+  await h.complete(child.childId, "queued hello");
+  h.clock.advance(1050);
+  await h.engine.flush();
+  expect(h.errors).toEqual([]);
+  // Daemon-owned pending ace input: the person's queue shows only their message.
+  const waiting = h.engine.queue(parent.threadId);
+  expect(waiting.messages).toHaveLength(1);
+  expect(waiting.messages[0]?.input).toEqual([{ type: "text", text: "person follow-up" }]);
+  expect(h.inputs.get(parent.threadId)?.join("\n") ?? "").not.toContain("queued hello");
+  // The transcript already records the ace result while delivery waits.
+  expect(
+    h.store
+      .readItemPage(parent.threadId, h.store.headSeq() + 1, 50)
+      .items.filter((item) => item.type === "delegation.settled"),
+  ).toHaveLength(1);
+  // The turn ends: the agent result runs before the person's queued message.
+  await h.emit(parent.threadId, end);
+  await h.engine.flush();
+  expect(h.errors).toEqual([]);
+  const sent = h.inputs.get(parent.threadId)?.join("\n") ?? "";
+  expect(sent).toContain("queued hello");
+  expect(sent).toContain("person follow-up");
+  expect(sent.indexOf("queued hello")).toBeLessThan(sent.indexOf("person follow-up"));
+  expect(h.engine.queue(parent.threadId).messages).toEqual([]);
+});
+
+test("a pending result is delivered once after a daemon restart", async () => {
+  const h = setup();
+  const parent = await h.parent();
+  const child = h.delegate(parent, "restarted-result");
+  await h.engine.flush();
+  await h.complete(child.childId, "restarted hello");
+  // Wake not yet due: the result is pending in the journal, no send yet.
+  await h.close();
+  const restarted = setup({}, h.dbPath);
+  restarted.clock.advance(1050);
+  await restarted.engine.flush();
+  expect(restarted.errors).toEqual([]);
+  expect(restarted.inputs.get(parent.threadId)?.join("\n") ?? "").toContain("restarted hello");
+  const occurrences = (restarted.inputs.get(parent.threadId) ?? []).filter((text) =>
+    text.includes("restarted hello"),
+  );
+  expect(occurrences).toHaveLength(1);
+  expect(
+    restarted.store
+      .readItemPage(parent.threadId, restarted.store.headSeq() + 1, 50)
+      .items.filter((item) => item.type === "delegation.settled"),
+  ).toHaveLength(1);
 });

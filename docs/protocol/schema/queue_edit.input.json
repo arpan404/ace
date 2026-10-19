@@ -3,14 +3,24 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "action": {
+      "description": "edit: entryId and text. cancel, steer: entryId. reorder: order.",
+      "enum": [
+        "edit",
+        "cancel",
+        "steer",
+        "reorder"
+      ],
+      "type": "string"
+    },
     "entryId": {
-      "description": "The queued entry to replace.",
+      "description": "The queued entry.",
       "maxLength": 128,
       "minLength": 1,
       "type": "string"
     },
     "order": {
-      "description": "Pending entry ids in their new order.",
+      "description": "reorder: entry ids in their new order.",
       "items": {
         "maxLength": 128,
         "minLength": 1,
@@ -29,18 +39,19 @@
     },
     "text": {
       "$ref": "https://ace.local/protocol/v1/MessageText.json",
-      "description": "Its new text."
+      "description": "edit: its new text."
     },
     "threadId": {
-      "description": "A thread you own: this one or one you started.",
+      "description": "A thread you own: this one or one you started. With full access, also any of the person's threads.",
       "minLength": 1,
       "type": "string"
     }
   },
   "required": [
     "threadId",
-    "requestId"
+    "requestId",
+    "action"
   ],
   "type": "object",
-  "x-ace-constraint": "Either entryId with text, or order."
+  "x-ace-constraint": "edit needs entryId and text; cancel and steer need entryId; reorder needs order."
 }

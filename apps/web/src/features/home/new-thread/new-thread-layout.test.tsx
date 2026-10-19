@@ -1,5 +1,5 @@
 import { workbench } from "@ace/fake-daemon";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
@@ -21,7 +21,7 @@ function textAfterComposer(): string {
   return after.trim();
 }
 
-test("nothing renders below the New thread composer, even its save warning", async () => {
+test("without open work nothing renders below the New thread composer, even its save warning", async () => {
   const backing = memoryKeyValue();
   const storage = {
     ...backing,
@@ -86,19 +86,30 @@ test("where the thread runs is one row in the strip above the composer; a notice
   expect(textAfterComposer()).toBe("");
 });
 
-test("the page is the composer and its strip: no wordmark or heading, the project a strip control", async () => {
+test("the page asks what to build in the project, and the project's name picks another", async () => {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/new?project=relay");
   await screen.findByRole("combobox", { name: "Message" });
   const main = screen.getByRole("main");
-  expect(within(main).queryByRole("heading", { level: 2 })).toBeNull();
+  const question = within(main).getByRole("heading", { level: 2 });
+  expect(question.textContent).toBe("What should we build in relay?");
   expect(within(main).queryByText("ace", { exact: true })).toBeNull();
-  const project = await screen.findByRole("button", { name: "Project: relay" });
   const composer = document.querySelector("[data-slot=composer]");
   expect(
-    composer && project.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING,
+    composer && question.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
+  await userEvent.click(within(question).getByRole("button", { name: "Project: relay" }));
+  const popup = await screen.findByRole("dialog", { name: "Choose project" });
+  await userEvent.type(
+    await within(popup).findByRole("combobox", { name: "Search projects" }),
+    "billing{Enter}",
+  );
+  await waitFor(() =>
+    expect(within(screen.getByRole("main")).getByRole("heading", { level: 2 }).textContent).toBe(
+      "What should we build in billing-api?",
+    ),
+  );
 });
 
 test("the strip names the machine only while more than one device is connected", async () => {

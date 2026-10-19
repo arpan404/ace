@@ -18,6 +18,7 @@ export const organizationCommands = [
   "thread.unsettle",
   "thread.autoSettle",
   "thread.snooze",
+  "thread.place",
 ] as const;
 
 /**
@@ -48,6 +49,8 @@ export function organizationDecision(
           pinOrder: p.order ?? (thread.pinned ? thread.pinOrder : undefined) ?? at,
         },
       };
+    case "thread.place":
+      return { type: "thread.client.updated", changes: { listOrder: p.order } };
     case "thread.read":
       return { type: "thread.client.updated", changes: { unread: p.unread, readAt: at } };
     case "thread.settle":
@@ -66,6 +69,7 @@ export function organizationDecision(
           activityAt: at,
           autoSettleAt: null,
           autoSettle: false,
+          settleWhenDone: null,
         },
       };
     case "thread.autoSettle":
@@ -95,6 +99,37 @@ export function settleDecision(
 ): ThreadClientUpdated["changes"] {
   const expired =
     thread.snoozedUntil !== undefined && thread.snoozedUntil <= at ? { snoozedUntil: null } : {};
+  const request = settleRequest(thread);
+  if (request === "settle")
+    return {
+      ...expired,
+      settledAt: at,
+      settledReason: "manual",
+      autoSettleAt: null,
+      settleWhenDone: null,
+    };
+  const changes = automaticSettle(thread, policy, at, expired);
+  return request === "drop" ? { ...changes, settleWhenDone: null } : changes;
+}
+
+/**
+ * An agent's request to settle its thread once the work ends: kept while the thread works or
+ * waits, carried out when it is done, and dropped on any other outcome (failed, limited, a
+ * question for the person), which the person should still see.
+ */
+function settleRequest(thread: Thread): "settle" | "drop" | undefined {
+  if (!thread.settleWhenDone) return undefined;
+  const state = thread.status.state;
+  if (thread.deletedAt === undefined && state === "done") return "settle";
+  return state === "working" || state === "waiting" ? undefined : "drop";
+}
+
+function automaticSettle(
+  thread: Thread,
+  policy: SettlePolicy,
+  at: number,
+  expired: ThreadClientUpdated["changes"],
+): ThreadClientUpdated["changes"] {
   // Running work resurfaces a settled thread. A request for the person never auto-settles,
   // but a person may settle it by hand and it stays settled.
   if (thread.deletedAt !== undefined || thread.status.state === "working")
