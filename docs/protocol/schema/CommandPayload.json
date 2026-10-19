@@ -435,6 +435,16 @@
       "properties": {
         "selection": {
           "properties": {
+            "acpAgentId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "installationId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
             "instanceId": {
               "maxLength": 256,
               "minLength": 1,

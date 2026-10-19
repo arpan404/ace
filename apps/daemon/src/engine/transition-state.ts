@@ -131,9 +131,15 @@ export class TransitionState {
     },
   ): ExecutionSelection {
     const previous = this.get(id).selection ?? fallback;
-    const same = previous.provider === requested.provider;
+    // Another ACP agent is another agent: none of the previous one's model carries over.
+    const otherAgent =
+      requested.provider === "acp" &&
+      requested.instanceId !== undefined &&
+      requested.instanceId !== previous.instanceId;
+    const same = previous.provider === requested.provider && !otherAgent;
     const model =
-      requested.model ?? (same ? previous.model : this.latest(id, requested.provider)?.model);
+      requested.model ??
+      (same ? previous.model : otherAgent ? undefined : this.latest(id, requested.provider)?.model);
     const selectedId = requested.instanceId ?? (same ? previous.instanceId : undefined);
     const instanceId = requested.provider === "cursor" ? cursorInstanceId(selectedId) : selectedId;
     const remembered = this.options(id, requested.provider, model ?? "");

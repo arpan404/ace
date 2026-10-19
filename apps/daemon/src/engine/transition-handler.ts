@@ -10,7 +10,7 @@ import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import { createEngineThread } from "./create-thread.ts";
 import { boundary, handoff, validateCitations } from "./transition-history.ts";
-import { recordSwitch, resolveSwitch } from "./switch-admission.ts";
+import { recordSwitch, resolveSwitch, switchAgent } from "./switch-admission.ts";
 
 export function acceptTransition(
   repo: EngineRepository,
@@ -163,11 +163,9 @@ export function acceptTransition(
         if (repo.transitions.guarded(id)) return fail("thread_transition_in_progress");
         if (p.patch && !repo.quiescent(repo.requireState(id))) return fail("source_tree_is_live");
       } else {
-        const identity = p.selection.provider === "acp" ? AcpIdentity.safeParse(thread) : undefined;
-        if (p.selection.provider === "acp" && !identity?.success)
-          return fail("acp_identity_required");
-        if (!registry.has(p.selection.provider, identity?.success ? identity.data : undefined))
-          return fail("provider_unavailable");
+        const agent = switchAgent(thread, p.selection);
+        if (agent === "required") return fail("acp_identity_required");
+        if (!registry.has(p.selection.provider, agent)) return fail("provider_unavailable");
         const selection = resolveSwitch(
           repo,
           id,

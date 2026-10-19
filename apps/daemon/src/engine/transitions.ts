@@ -12,7 +12,8 @@ import { validateCitations } from "./transition-history.ts";
 import { abandonReturn, planCrossProvider, type CrossProviderPlan } from "./provider-return.ts";
 import { routeAccountChange } from "./account-route.ts";
 import { admitTransitionMetadata } from "./transition-state.ts";
-import { acpAccountFixed, switchNeedsNewThread } from "./failure-copy.ts";
+import { acpAgentRequired, switchNeedsNewThread } from "./failure-copy.ts";
+import { switchAgent } from "./switch-admission.ts";
 import { switchRoute } from "@ace/core";
 /**
  * What a cross-provider switch carries, rendered: about 8k tokens. Enough for the opening ask,
@@ -130,9 +131,17 @@ export class ThreadTransitions {
         missingModel = true;
       }
     }
+    const thread = this.repo.store.getThread(actor.id);
+    const acpAgent = thread ? switchAgent(thread, p.selection) : undefined;
+    if (acpAgent === "required") throw new Error(acpAgentRequired);
     const requested = this.repo.transitions.selection(actor.id, current, p.selection);
-    const selection = await this.models.prepare(requested, this.models.identity(actor.id));
-    const crossProvider = selection.provider !== current.provider;
+    const selection = await this.models.prepare(requested, acpAgent);
+    // Another ACP agent is another agent, so it continues the way another provider does.
+    const otherAgent =
+      acpAgent !== undefined &&
+      current.provider === "acp" &&
+      thread?.instanceId !== acpAgent.instanceId;
+    const crossProvider = selection.provider !== current.provider || otherAgent;
     const crossAccount = !crossProvider && selection.instanceId !== current.instanceId;
     const backend = this.repo.backend(actor.id);
     const entry = this.registry.get(selection.provider, crossProvider ? undefined : backend);
@@ -140,9 +149,12 @@ export class ThreadTransitions {
     // Existing SDK stores are pinned to the thread and account. Entering the SDK uses a fresh
     // session; leaving it or changing accounts continues in a portable fork (clients route the
     // next message there). Admission refuses these; a switch queued before then lands here.
-    const route = switchRoute({ ...current, backend }, selection);
+    const route = switchRoute(
+      { ...current, backend },
+      { ...selection, acpAgentId: acpAgent?.acpAgentId },
+    );
     if (route === "new_thread") throw new Error(switchNeedsNewThread);
-    if (route === "unsupported") throw new Error(acpAccountFixed);
+    if (route === "unsupported") throw new Error(acpAgentRequired);
     if (
       !crossProvider &&
       !crossAccount &&
@@ -283,6 +295,8 @@ export class ThreadTransitions {
               // The previous provider's capabilities no longer describe this thread; permission
               // and option changes made before the next session opens use the new provider's.
               ...(crossProvider ? { capabilities, effectiveCapabilities: capabilities } : {}),
+              // Sessions open on the thread's agent identity, so it moves with the switch.
+              ...(crossProvider && acpAgent ? { acp: acpAgent } : {}),
               execution: selection,
               switch: {
                 selection,
