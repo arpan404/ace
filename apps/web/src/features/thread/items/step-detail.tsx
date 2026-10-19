@@ -236,7 +236,7 @@ const todoGlyphs = {
 function TodoList(props: { todos: readonly TodoEntry[] }) {
   if (!props.todos.length) return null;
   return (
-    <ul aria-label="Plan" className="flex flex-col gap-0.5 text-ui">
+    <ul aria-label="Tasks" className="flex flex-col gap-0.5 text-ui">
       {props.todos.map((todo, index) => {
         const Glyph = todoGlyphs[todo.status];
         return (

@@ -101,8 +101,8 @@ function Indicator(props: { kind: StripKind; counts: StripCounts; onPick(kind: S
                 ]
               : [
                   <Icon key="i" size={12} icon={ListChecksIcon} />,
-                  counts.plan ? `${counts.plan.done}/${counts.plan.total}` : "Plan",
-                  counts.plan ? `Show plan, ${planCount(counts.plan)} done` : "Show plan",
+                  counts.plan ? `${counts.plan.done}/${counts.plan.total}` : "Tasks",
+                  counts.plan ? `Show tasks, ${planCount(counts.plan)} done` : "Show tasks",
                 ];
   return (
     <button
@@ -170,33 +170,33 @@ export function ConnectionStrip(props: {
 }
 
 /**
- * The main agent's plan in the strip: "Plan · 3 of 5" and the step in progress, opening to the
- * whole list.
+ * The main agent's to-do list in the strip: "Tasks · 3 of 5" and the task in progress, the
+ * chevron at the row's far right, opening to the whole list.
  */
 export function PlanStrip(props: { progress: PlanProgress; indicators: ReactNode }) {
   const [open, setOpen] = useState(false);
   const listId = useId();
   const { progress } = props;
   return (
-    <section aria-label="Plan" className="text-xs">
+    <section aria-label="Tasks" className="text-xs">
       <div className="flex h-7 min-w-0 items-center gap-1">
         <button
           type="button"
           aria-expanded={open}
           aria-controls={listId}
           onClick={() => setOpen(!open)}
-          className="flex h-6 min-w-0 items-center gap-1.5 rounded-sm px-1 text-muted-foreground focus-ring-inset hover:text-foreground"
+          className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-sm px-1 text-muted-foreground focus-ring-inset hover:text-foreground"
         >
           <Icon icon={ListChecksIcon} size={12} className="shrink-0" />
-          <span className="shrink-0 text-foreground">Plan · {planCount(progress)}</span>
+          <span className="shrink-0 text-foreground">Tasks · {planCount(progress)}</span>
           {!open && progress.current && (
             <span className="min-w-0 truncate">{progress.current.content}</span>
           )}
-          <Icon icon={open ? CaretUpIcon : CaretDownIcon} size={12} className="shrink-0" />
+          <Icon icon={open ? CaretUpIcon : CaretDownIcon} size={12} className="ml-auto shrink-0" />
         </button>
         {props.indicators}
       </div>
-      <ol id={listId} hidden={!open} aria-label="Plan steps" className="space-y-1 px-1 pb-1">
+      <ol id={listId} hidden={!open} aria-label="Task list" className="space-y-1 px-1 pb-1">
         {progress.todos.map((todo, index) => (
           <li
             // oxlint-disable-next-line react/no-array-index-key -- positional provider todos may repeat text.
