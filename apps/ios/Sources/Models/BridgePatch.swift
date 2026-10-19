@@ -20,6 +20,13 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     /// Inbox rows only: the machine the thread runs on and its last execution activity.
     let machineId: String?
     let activityAt: Double?
+    /// Whether this row is the daemon's current list (connected, caught up, confirmed,
+    /// error-free). Nil on old payloads, which read as unconfirmed and never as done.
+    var confirmed: Bool? = nil
+    /// Confirmation fence: bumped only when confirmation is lost. Native keeps the newest
+    /// generation it has seen and treats older confirmed rows as unconfirmed. Nil on old
+    /// payloads, which never confirm.
+    var generation: Int? = nil
     /// Inbox rows only: when the thread was archived, for the archive browser and read-only opens.
     var archivedAt: Double? = nil
     var workspaceId: String? = nil
@@ -119,7 +126,7 @@ enum BridgePatch: Decodable, Sendable {
     case interaction(String, Int, String, ApprovalRow?)
     case cursor(String, Int, Int)
     case ready(String, Int, Int)
-    case connection(String)
+    case connection(String, Int?)
     case pending(String, PendingRow?)
     case error(String)
     case receipt(String, Bool, String)
@@ -147,7 +154,7 @@ enum BridgePatch: Decodable, Sendable {
     /// Steps, effort and speed, attachments and lanes (`ScreenPatch`).
     case screen(String, Int, ScreenPatch)
 
-    private enum Keys: String, CodingKey { case type, id, row, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff }
+    private enum Keys: String, CodingKey { case type, id, row, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
@@ -171,7 +178,7 @@ enum BridgePatch: Decodable, Sendable {
             self = .interaction(id, epoch, try box.decode(String.self, forKey: .id), try box.decodeIfPresent(ApprovalRow.self, forKey: .row))
         case "thread.cursor": let (id, epoch) = try scope(); self = .cursor(id, epoch, try box.decode(Int.self, forKey: .cursor))
         case "thread.ready": let (id, epoch) = try scope(); self = .ready(id, epoch, try box.decode(Int.self, forKey: .count))
-        case "connection": self = .connection(try box.decode(String.self, forKey: .state))
+        case "connection": self = .connection(try box.decode(String.self, forKey: .state), try box.decodeIfPresent(Int.self, forKey: .generation))
         case "pending": self = .pending(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(PendingRow.self, forKey: .row))
         case "error": self = .error(try box.decode(String.self, forKey: .message))
         case "receipt": self = .receipt(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))

@@ -18,6 +18,15 @@ struct ThreadView: View {
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
     private var metadata: ThreadRow? { thread.metadata ?? thread.placeholder?.metadata ?? model.inbox[thread.id] }
+    /// Starting prefers the inbox's current row (confirmed or not, so an unconfirmed start
+    /// still reads Syncing); without one it falls back conservatively as unconfirmed.
+    private var activityRow: ThreadRow? {
+        if let inboxRow = model.inbox[thread.id] { return inboxRow }
+        guard var fallback = metadata else { return nil }
+        fallback.confirmed = nil
+        fallback.generation = nil
+        return fallback
+    }
     private var screen: ThreadScreenModel { thread.screen }
     /// An archived thread opens read-only (from the archive browser) until it's unarchived.
     private var archived: Bool { model.inbox[thread.id]?.archivedAt != nil }
@@ -159,9 +168,9 @@ struct ThreadView: View {
     private var menu: some View {
         Menu {
             Button("Thread tools", systemImage: "wrench.and.screwdriver") { showTools = true }.accessibilityIdentifier("thread.tools")
-            if let metadata, let hostId = model.hostId {
+            if let activityRow, let hostId = model.hostId {
                 Button("Show on Lock Screen", systemImage: "widget.small") {
-                    do { try model.liveActivity.start(row: metadata, hostId: hostId, online: model.connection == "ready") }
+                    do { try model.liveActivity.start(row: activityRow, hostId: hostId, online: model.connection == "ready") }
                     catch { activityProblem = error.localizedDescription }
                 }
             }

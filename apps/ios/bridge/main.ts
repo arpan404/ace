@@ -4,7 +4,7 @@ import { z } from "zod";
 import { DeviceId, HostId } from "@ace/protocol";
 import { call, scheduler } from "./host.ts";
 import { PatchPump, followThread } from "./patches.ts";
-import { followInbox, inboxAction } from "./inbox.ts";
+import { followInbox, inboxAction, makeActivityGeneration } from "./inbox.ts";
 import { ArchiveBrowser } from "./archive.ts";
 import { dispatchCommand } from "./commands.ts";
 import { ThreadSession } from "./thread-session.ts";
@@ -121,15 +121,21 @@ async function start(json: string): Promise<void> {
   const connection = client.connectionState();
   notifications = new NotificationBridge(client, (key, read) => pump.put(key, read), scheduler.set);
   const owner = client;
+  const activityGeneration = makeActivityGeneration();
   connection.subscribe(() => {
     if (connection.getSnapshot() === "ready") trust.clear();
-    pump.put("connection", () => ({ type: "connection", state: connection.getSnapshot() }));
     pump.put("connection.problem", () => ({
       type: "connection.problem",
       problem: connectionProblem(connection.getSnapshot(), owner.error, trust),
     }));
   });
-  followInbox(client, config.hostId, pump, { now: () => host.now(), set: scheduler.set });
+  followInbox(
+    client,
+    config.hostId,
+    pump,
+    { now: () => host.now(), set: scheduler.set },
+    activityGeneration,
+  );
   followMachine(client, pump, trust);
   machine = new MachineProviders(client, pump);
   archive = new ArchiveBrowser(client, pump);

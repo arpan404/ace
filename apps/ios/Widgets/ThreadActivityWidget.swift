@@ -23,10 +23,15 @@ import WidgetKit
         }
     }
     private func label(_ context: ActivityViewContext<ThreadActivityAttributes>) -> String {
-        context.isStale ? "Open ace to refresh" : context.state.online ? context.state.label : "Offline · open ace to refresh"
+        if context.isStale { return "Open ace to refresh" }
+        if !context.state.online { return "Offline · open ace to refresh" }
+        // Old activities decode without confirmation; they read as unconfirmed and never as done.
+        if context.state.confirmed != true { return "Syncing · open ace to refresh" }
+        return context.state.label
     }
     private func symbol(_ context: ActivityViewContext<ThreadActivityAttributes>) -> String {
         if context.isStale || !context.state.online { return "wifi.slash" }
+        if context.state.confirmed != true { return "ellipsis.circle" }
         return context.state.token == "needsYou" ? "hand.raised" : context.state.token == "done" ? "checkmark.circle" : "ellipsis.circle"
     }
 }

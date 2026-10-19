@@ -54,6 +54,10 @@ import CryptoKit
     let files = ThreadFilesModel()
     let terminal = TerminalScreenModel()
     @ObservationIgnored private var generation = 0
+    /// Confirmation fence: the newest activity generation the bridge has reported, on any
+    /// connection or inbox row. Older confirmed rows read as unconfirmed until their snapshot
+    /// returns, even when PatchPump delivers the connection and row frames separately.
+    @ObservationIgnored private var activityGeneration = 0
     /// Threads left for a child, so going back shows them until their session's first patch.
     @ObservationIgnored private var trail = ThreadTrail()
     @ObservationIgnored private var runtime: (any ClientSession)?
@@ -82,6 +86,7 @@ import CryptoKit
         inboxLayout = .empty
         machineStatus = nil; providers = nil
         connection = "connecting"; error = nil; problem = nil
+        activityGeneration = 0
         frames = BridgeFrames(); generation = 0
         await closing?.value
         guard connectionEpoch == epoch, !Task.isCancelled else { return }
@@ -119,10 +124,30 @@ import CryptoKit
             case .terminal(let patch):
                 if let offset = terminal.receive(patch) { action(["type": "terminal.credit", "id": patch.id, "offset": offset]) }
             case .fragment: break // BridgeFrames only returns complete patches.
-            case .inboxReset: inbox.removeAll(keepingCapacity: true); inboxLoaded = true
-            case .inbox(let id, let row): inbox[id] = row; activityChanged = true
+            case .inboxReset: inbox.removeAll(keepingCapacity: true); inboxLoaded = true; activityChanged = true
+            case .inbox(let id, let row):
+                if let generation = row?.generation, generation > activityGeneration {
+                    activityGeneration = generation
+                    normalizeGenerations()
+                }
+                if let current = row {
+                    // Missing generations (old payloads) never confirm.
+                    inbox[id] = ThreadLiveActivity.effectiveRow(current, latestGeneration: activityGeneration)
+                } else {
+                    inbox[id] = nil
+                }
+                activityChanged = true
             case .inboxSections(let layout): if inboxLayout != layout { inboxLayout = layout }
-            case .connection(let state): connection = state; activityChanged = true
+            case .connection(let state, let generation):
+                connection = state
+                if let generation, generation > activityGeneration {
+                    activityGeneration = generation
+                    normalizeGenerations()
+                }
+                // A welcome before its sidebar snapshot must not resurrect a cached done row:
+                // only a fresh bridge row may confirm again, never connectivity alone.
+                if state != "ready" { invalidateConfirmations() }
+                activityChanged = true
             case .problem(let notice): problem = notice
             case .machineStatus(let info): machineStatus = info
             case .machineProviders(let info): providers = info
@@ -272,7 +297,29 @@ import CryptoKit
         if connectionEpoch == epoch { shutdown = nil }
     }
     func disconnect() { connectionEpoch += 1; _ = retireRuntime() }
+    /// Drop held confirmations when leaving ready: a cached done row stays cached, but never
+    /// confirmed, until its sidebar snapshot returns. Only a fresh inbox row may set it again.
+    private func invalidateConfirmations() {
+        for (id, row) in inbox where row.confirmed == true {
+            var cleared = row
+            cleared.confirmed = nil
+            inbox[id] = cleared
+        }
+    }
+    /// Drop confirmations from older generations: PatchPump may deliver a ready connection
+    /// before the row frames that invalidate it, so older confirmed rows never finish.
+    /// One rule lives in `ThreadLiveActivity.effectiveRow`; the authority value stays here.
+    private func normalizeGenerations() {
+        for (id, row) in inbox {
+            let effective = ThreadLiveActivity.effectiveRow(row, latestGeneration: activityGeneration)
+            if effective.confirmed != row.confirmed { inbox[id] = effective }
+        }
+    }
     private func retireRuntime() -> Task<Void, Never>? {
+        invalidateConfirmations()
+        // The next runtime restarts the bridge fence at zero: explicit reset so counter
+        // rows from a replaced runtime can never stay Syncing forever against an old max.
+        activityGeneration = 0
         if let hostId { liveActivity.update(rows: inbox, hostId: hostId, online: false) }
         services.cancel()
         admissions.cancel()
