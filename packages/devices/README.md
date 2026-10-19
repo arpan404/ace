@@ -104,8 +104,15 @@ If it cannot start or read the screen, `uiautomator dump` is used.
 `ACE_ANDROID_UI_HELPER=off` disables it. Both run only when the daemon gives the
 platform a tools directory.
 
-iOS capture and semantic actions use the Simulator window through the
-macOS helper. Set `ACE_SCREEN_HELPER` and grant Screen Recording and Accessibility
+iOS prefers a pinned `serve-sim` (0.1.47 or 0.1.48; install with
+`npm install -g serve-sim@0.1.48`, or point `ACE_SERVE_SIM` at it). ace spawns
+and supervises it per device: viewers that decode H.264 get its stream re-framed
+as Annex B with no decode or re-encode, other viewers, screenshots and recordings
+get its MJPEG through the bounded resize path, input uses its HID socket (edge
+gestures included), and `ui.tree`/`ui.find`/`ui.act` read its accessibility
+bridge. Other serve-sim versions are not driven (ADR 0064, "Native Simulator
+transport"). Without it, iOS capture and semantic actions use the Simulator window
+through the macOS helper. Set `ACE_SCREEN_HELPER` and grant Screen Recording and Accessibility
 to **Ace Screen Helper** (the helper disclaims its launcher, so the grants belong
 to its stable `dev.ace.screen-helper` identity). A missing permission fails with
 `permission_denied` and a `permission` field naming it; `permissions` reads the

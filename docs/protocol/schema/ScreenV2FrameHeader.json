@@ -28,7 +28,7 @@
     },
     "height": {
       "exclusiveMinimum": 0,
-      "maximum": 2160,
+      "maximum": 3840,
       "type": "integer"
     },
     "keyframe": {

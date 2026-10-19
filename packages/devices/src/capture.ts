@@ -11,6 +11,8 @@ import { scrcpyServerJar } from "./scrcpy-jar.ts";
 import type { DevicePlatform } from "./platform.ts";
 import type { Capture, DeviceRuntime } from "./runtime.ts";
 import { permissionDenied } from "./screen-failure.ts";
+import type { CaptureUI } from "./simulator-ui.ts";
+import { pinnedServeSim, serveSimSupported, serveSimVersion } from "./serve-sim-version.ts";
 
 export interface DeviceCapture extends Capture {
   releaseInput?(): Promise<void>;
@@ -21,6 +23,8 @@ export interface DeviceCapture extends Capture {
   keyframe?(): Promise<void>;
   /** Pointer input may carry fingers other than the first. */
   readonly multiTouch?: boolean;
+  /** Accessibility served by the capture's own transport rather than the screen helper. */
+  ui?: CaptureUI;
 }
 export async function startCapture(options: {
   device: Device;
@@ -46,23 +50,41 @@ export async function startCapture(options: {
       options.env,
     );
     checkAbort();
-    if (command) {
+    const version = command
+      ? await serveSimVersion(command, options.runtime, options.env)
+      : undefined;
+    checkAbort();
+    if (command && serveSimSupported(version)) {
       const device = await options.platform.simulatorDevice(options.device);
       checkAbort();
       return simulatorCapture({ ...options, device, command });
     }
+    // serve-sim is preferred; an unpinned version falls back to the public-API screen helper.
+    const unpinned = command
+      ? new DeviceError(
+          "tool_missing",
+          `serve-sim ${version ?? "(unknown version)"} isn't a version ace supports`,
+          `Install the pinned version: npm install -g serve-sim@${pinnedServeSim}`,
+        )
+      : undefined;
     if (options.env["ACE_SERVE_SIM"])
-      throw new DeviceError(
-        "tool_missing",
-        "serve-sim was not found",
-        "Install serve-sim on the device's Mac, or correct ACE_SERVE_SIM.",
+      throw (
+        unpinned ??
+        new DeviceError(
+          "tool_missing",
+          "serve-sim was not found",
+          "Install serve-sim on the device's Mac, or correct ACE_SERVE_SIM.",
+        )
       );
     const screen = options.screen;
     if (!screen)
-      throw new DeviceError(
-        "tool_missing",
-        "Screen helper is not configured",
-        "Configure ACE_SCREEN_HELPER and grant Screen Recording and Accessibility permissions.",
+      throw (
+        unpinned ??
+        new DeviceError(
+          "tool_missing",
+          "Screen helper is not configured",
+          "Configure ACE_SCREEN_HELPER and grant Screen Recording and Accessibility permissions.",
+        )
       );
     // Say plainly when macOS hasn't let the helper see the screen, before looking for windows.
     const permissions = await screen.inspectDevicePermissions();

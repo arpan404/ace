@@ -310,11 +310,15 @@ export function scrcpyServerArgs(version: string, profile: ServerProfile): strin
   ];
 }
 
-/** Frame headers allow 2160 rows, and a rotation can turn the longer edge into rows. */
+/**
+ * Device H.264 encoders commonly refuse an edge much past 2160 (an emulator's did in landscape),
+ * and the server only shrinks after a failed start; keep the longer edge there in either
+ * orientation.
+ */
 const longestFrameEdge = 2160;
 /**
  * The server's `max_size` bounds the longer edge. Fit the display inside the viewer's box, keep
- * the aspect ratio, never upscale, and stay within a frame header in either orientation.
+ * the aspect ratio, never upscale, and stay within what encoders accept in either orientation.
  */
 export function scrcpyMaxSize(
   display: ScreenSize,

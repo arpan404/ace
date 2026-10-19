@@ -192,10 +192,10 @@ describe("server start-up", () => {
     );
   });
 
-  it("fits the display in the viewer's box and in a frame header, never upscaling", () => {
+  it("fits the display in the viewer's box and the encoder's limit, never upscaling", () => {
     const portrait = { width: 1080, height: 2400 };
     expect(scrcpyMaxSize(portrait, { maxWidth: 540, maxHeight: 3840 })).toBe(1200);
-    // Frame headers allow 2160 rows, so a tall phone is bounded even in a huge panel.
+    // Encoders refuse much more than 2160, so a tall phone is bounded even in a huge panel.
     expect(scrcpyMaxSize(portrait, { maxWidth: 3840, maxHeight: 3840 })).toBe(2160);
     expect(scrcpyMaxSize({ width: 720, height: 1280 }, { maxWidth: 3840, maxHeight: 3840 })).toBe(
       0,

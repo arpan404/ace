@@ -32,6 +32,34 @@ Baseline mode requests the original 10 fps and uses image decode/draw and tap in
 
 The source app paints a 32-bit millisecond clock and toggles a pixel acknowledgement on each tap. The harness counts canvas presentation opportunities at requestAnimationFrame after warm-up and sends sixteen taps. It reports capture-header → canvas presentation and source-pixel clock → canvas presentation separately, FPS, binary bytes including headers, input-request → changed pixel, input dispatch duration, helper/daemon/Chromium-renderer CPU, negotiated codecs and resolution. CPU is normalized to one core (100% = one core), using CPU-time deltas; daemon CPU includes the Node harness, and renderer CPU includes the clock readback. These are headless canvas/rAF measurements, not physical display scanout or photon measurements. Android timestamps currently start at daemon receipt, so Android capture latency needs a source-clock benchmark before making equivalent latency claims.
 
+## iOS through serve-sim (2026-10-19, #1102)
+
+With a pinned serve-sim, H.264 viewers receive serve-sim's own VideoToolbox stream
+(High 5.1, native framebuffer size) re-framed as Annex B; the daemon neither decodes
+nor re-encodes. Measured on this Mac (Apple Silicon, Xcode 26.6, iPhone 16 Pro on
+iOS 26.5, 1206×2622, host load average 5–9) with the perf probe app from
+`tools/web-perf/device/Probe.swift`, which redraws a clock every display frame and
+toggles a colour cell on each tap. A script drove `simulatorCapture` directly: 30 taps
+at random 450–750 ms intervals, frames timestamped on arrival at the daemon, and the
+first frame whose decoded cell shows the toggled colour gives input → pixel. This
+stops at the daemon: WebCodecs decode and canvas paint are not included (Electron 44's
+Chromium decoded 120 of these frames, `avc1.640033` without a description, in 159 ms
+including setup).
+
+| Path (serve-sim 0.1.48)             | Input → pixel p50 / p95 |  fps |      Wire | serve-sim CPU | daemon CPU |
+| ----------------------------------- | ----------------------: | ---: | --------: | ------------: | ---------: |
+| H.264 passthrough                   |             35 / 110 ms | 59.1 | 0.55 Mbps |           46% |         1% |
+| MJPEG + sharp resize (old path)     |             53 / 106 ms | 57.2 | 19.3 Mbps |           79% |       164% |
+| H.264 passthrough, serve-sim 0.1.47 |             36 / 115 ms | 57.3 | 0.51 Mbps |           49% |         1% |
+
+CPU is percent of one core from CPU-time deltas over the run. The probe redraws the
+whole screen every frame, which is serve-sim's worst case; on a static Settings screen
+its H.264 stream costs 5.5% (MJPEG 8%) and nothing when no one subscribes. The p95 tail
+is two or three taps per run that landed during a keyframe or a host stall. The old
+ScreenCaptureKit path's 106–137 ms below was measured with a different harness (canvas
+in a browser) and is not directly comparable, but both runs start the clock at input
+dispatch and use the same probe.
+
 ## Historical measurements on this Mac
 
 These measurements predate review fixes and the merge of main. They describe revision `2d9e1a0d`, are preserved unchanged, and have not been independently reproduced. Current latency, FPS, bandwidth, CPU and RSS **need run at merge**.
