@@ -91,23 +91,22 @@ export function PrReviewWorkspace(props: {
     () => ({ state: query.data, pending: pending || disabled, ready: ready && !disabled, run }),
     [query.data, pending, ready, run, disabled],
   );
+  const uncertain = (query.data?.operations ?? []).filter((op) => op.state === "uncertain");
   return (
     <Context value={value}>
       {props.header}
-      <div className="space-y-2 px-4 py-1.5 text-xs" aria-label="GitHub review status">
-        <Button disabled={!ready || pending} onClick={() => void query.refetch()}>
-          Refresh review state
-        </Button>
-        {query.error && (
-          <p role="status">GitHub review state is unavailable. Refresh before writing.</p>
-        )}
-        {message && <p role="status">{message}</p>}
-        {query.data?.operations
-          .filter((op) => op.state === "uncertain")
-          .map((op) => (
-            <p key={op.id} role="status">
-              A GitHub write has an uncertain outcome.{" "}
+      {(message || uncertain.length > 0) && (
+        <div className="shrink-0 space-y-1 px-4 pb-1 text-xs" aria-label="GitHub review status">
+          {message && (
+            <p role="status" className="text-muted-foreground">
+              {message}
+            </p>
+          )}
+          {uncertain.map((op) => (
+            <p key={op.id} role="status" className="flex items-center justify-between gap-2">
+              <span className="text-muted-foreground">Review change not confirmed</span>
               <Button
+                size="xs"
                 disabled={!ready || pending}
                 onClick={() => void run({ kind: "reconcile", operationId: op.id })}
               >
@@ -115,7 +114,8 @@ export function PrReviewWorkspace(props: {
               </Button>
             </p>
           ))}
-      </div>
+        </div>
+      )}
       {props.children}
     </Context>
   );

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowClockwiseIcon, ArrowSquareOutIcon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon } from "@phosphor-icons/react";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { ThreadId } from "@ace/protocol";
 import type { ForgePrDetail, ForgeStackMovedLayer, ForgeStackOperation } from "@ace/protocol";
@@ -204,23 +204,15 @@ export function PrStack(props: {
   // A PR outside any native stack, with nothing to recover, shows no section at all.
   const loadedEmpty = !!query.data && !query.isError && !stack && !operation;
   if ((!query.data && !query.error) || (loadedEmpty && !message)) return null;
-  const refresh = (
-    <IconButton
-      icon={ArrowClockwiseIcon}
-      size="sm"
-      className="ml-auto"
-      label="Refresh stack"
-      disabled={!ready || pending || query.isFetching}
-      onClick={() => void query.refetch()}
-    />
-  );
   return (
     <section aria-label="Pull request stack" className="space-y-2">
       <div className="flex items-center gap-1">
         <h3 className="text-ui font-medium text-muted-foreground">
           {stack ? `Stack #${stack.number} → ${stack.trunk}` : "Stack"}
         </h3>
-        {refresh}
+        <span className="ml-auto text-xs text-subtle-foreground">
+          {query.isFetching ? "Refreshing…" : query.isError ? "May be stale" : ""}
+        </span>
         {stack && (
           <IconButton
             icon={ArrowSquareOutIcon}
