@@ -7,6 +7,9 @@ import type { FakeDaemon } from "@ace/fake-daemon";
  * runs.
  */
 
+const line = (index: number) =>
+  `${new Date(1_790_000_000_000 + index * 1000).toISOString()} relay: ack seq=${index}`;
+
 export function seedProjects(daemon: FakeDaemon): void {
   daemon.projects.seedFolders("/Users/arpan", [
     { path: "/Users/arpan/code/notes", git: true },
@@ -19,8 +22,6 @@ export function seedProjects(daemon: FakeDaemon): void {
       `fixtures/snapshots/case-${String(index).padStart(3, "0")}.json`,
       `{"case":${index}}\n`,
     );
-  const line = (index: number) =>
-    `${new Date(1_790_000_000_000 + index * 1000).toISOString()} relay: ack seq=${index}`;
   daemon.checkouts.seed(
     "ios-done",
     "logs/relay.log",

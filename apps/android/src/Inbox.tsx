@@ -41,10 +41,12 @@ const InboxRow = memo(function InboxRow({
   id,
   store,
   open,
+  now,
 }: {
   id: string;
   store: SidebarSource;
   open(id: string): void;
+  now(): number;
 }) {
   const theme = useTheme();
   const selection = useMemo(
@@ -59,7 +61,7 @@ const InboxRow = memo(function InboxRow({
   const row = useSelection(selection);
   if (!row) return null;
   const thread = row.entry;
-  const status = displayAppearance(inboxStatus(row), theme);
+  const status = displayAppearance(inboxStatus(row, now()), theme);
   return (
     <View
       style={{
@@ -156,7 +158,7 @@ export function Inbox({
         getItemType={(item) => item.kind}
         renderItem={({ item }) =>
           item.kind === "thread" ? (
-            <InboxRow id={item.id} store={lease.store} open={open} />
+            <InboxRow id={item.id} store={lease.store} open={open} now={now} />
           ) : (
             <View
               style={{

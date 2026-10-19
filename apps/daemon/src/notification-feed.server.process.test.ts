@@ -11,10 +11,12 @@ afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
 });
 
+const noSender = (): boolean => false;
+
 /** A real daemon socket and notification worker on temp SQLite; the client is an iPhone app. */
 async function phone() {
   const home = mkdtempSync(join(tmpdir(), "ace-notify-feed-"));
-  let sender: (device: DeviceId, notification: Notification) => boolean = () => false;
+  let sender: (device: DeviceId, notification: Notification) => boolean = noSender;
   const service = new NotificationWorker({
     path: join(home, "notify.sqlite"),
     windowMs: 0,

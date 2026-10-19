@@ -5,10 +5,7 @@ export type FileDownloadInput = {
   threadId?: ThreadId;
   workspaceId?: WorkspaceId;
   scope?: "support";
-} & Extract<
-  FileOperation,
-  { op: "download" | "artifact.download" | "archive.download" }
->;
+} & Extract<FileOperation, { op: "download" | "artifact.download" | "archive.download" }>;
 export interface FileUploadInput {
   threadId: ThreadId;
   path: string;
