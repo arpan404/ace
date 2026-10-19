@@ -12,14 +12,14 @@ import {
 } from "@ace/ui-core";
 import { ArrowBendDownRightIcon, GitForkIcon } from "@phosphor-icons/react";
 import { useCallback, useState, type ReactNode } from "react";
+import { IconButton } from "@/components/ui/icon-button.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import type { AgentFacts } from "@/lib/agent-facts.ts";
-import { cn } from "@/lib/cn.ts";
 import { useAgentFacts } from "@/lib/use-agent-facts.ts";
 import { ComposerDock } from "../composer/composer-dock.tsx";
-import { stripControl } from "../composer/composer-styles.ts";
 import { runsNow } from "../composer/execution.ts";
 import { branchEqual, readSubagentBranch } from "../lib/subagent-group.ts";
-import { SubagentStatusBar } from "./subagent-status-bar.tsx";
+import { barAction, SubagentStatusBar } from "./subagent-status-bar.tsx";
 
 /**
  * The bottom of a thread: its composer (`children`), unless ace delegated it and its whole tree
@@ -77,29 +77,23 @@ function Delegated(props: {
         phase={phase}
         startedAt={root?.createdAt ?? thread.createdAt}
         endedAt={end}
-        runs="Delegated by ace"
         parent={{ threadId: props.parentThreadId }}
         actions={
           <>
-            <button
-              type="button"
-              onClick={() => setContinued(end ?? 0)}
-              className={cn(stripControl, "h-8 shrink-0 text-ui text-foreground")}
-            >
-              <ArrowBendDownRightIcon aria-hidden size={15} className="shrink-0" />
-              <span data-slot="action-label">Continue</span>
-            </button>
-            {props.onFork ? (
-              <button
-                type="button"
-                aria-label="Fork from the last turn"
-                onClick={props.onFork}
-                className={cn(stripControl, "h-8 shrink-0 text-ui text-foreground")}
-              >
-                <GitForkIcon aria-hidden size={15} className="shrink-0" />
-                <span data-slot="action-label">Fork</span>
+            <Tip label="Reply to this agent">
+              <button type="button" onClick={() => setContinued(end ?? 0)} className={barAction}>
+                <ArrowBendDownRightIcon aria-hidden size={15} className="shrink-0" />
+                <span data-slot="action-label">Continue</span>
               </button>
-            ) : null}
+            </Tip>
+            {props.onFork && (
+              <IconButton
+                icon={GitForkIcon}
+                label="Fork from the last turn"
+                tip="Fork into a new thread"
+                onClick={props.onFork}
+              />
+            )}
           </>
         }
       />

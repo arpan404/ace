@@ -55,3 +55,20 @@ test("a finished delegated thread without a finished turn shows no Fork action",
   expect(within(bar).getByRole("button", { name: "Continue" })).toBeTruthy();
   expect(within(bar).queryByRole("button", { name: "Fork from the last turn" })).toBeNull();
 });
+
+test("each action on a finished delegated thread's bar says what it does", async () => {
+  const app = harness({ clock: () => 10 * 60_000 });
+  for (const scenario of delegatedDocs()) app.play(scenario).runUntilBlocked();
+  await app.open(`/t/${delegatedDocsIds.child}`);
+  const bar = await screen.findByRole("group", { name: "Subagent" });
+  const tips = [
+    ["button", "Continue", "Reply to this agent"],
+    ["button", "Fork from the last turn", "Fork into a new thread"],
+    ["link", "Open parent", "Back to Relay docs for 0.9"],
+  ] as const;
+  for (const [role, name, tip] of tips) {
+    await userEvent.hover(within(bar).getByRole(role, { name }));
+    expect((await screen.findByRole("tooltip")).textContent).toBe(tip);
+    await userEvent.unhover(within(bar).getByRole(role, { name }));
+  }
+});
