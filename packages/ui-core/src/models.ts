@@ -3,7 +3,13 @@ import { isDefaultSelection, resolveEffort } from "@ace/models/resolve";
 export { resolveEffort } from "@ace/models/resolve";
 import type { ModelScope } from "@ace/client";
 import { modelRequiresAuth } from "@ace/models/availability";
-import type { Capabilities, CatalogModel, ModelSource, ProviderKind } from "@ace/protocol";
+import type {
+  AcpIdentity,
+  Capabilities,
+  CatalogModel,
+  ModelSource,
+  ProviderKind,
+} from "@ace/protocol";
 import { accountDisplayName, tightestWindow, type AccountView } from "./accounts.ts";
 import { accountLimit } from "./limits.ts";
 import type { ProviderStatus } from "./provider-status.ts";
@@ -113,6 +119,8 @@ export interface ModelChoice extends ModelPlacement {
   speeds: readonly SpeedTier[];
   /** The speed the catalog runs it at unless asked otherwise (`defaultTier`). */
   defaultSpeed: Speed;
+  /** An ACP agent's model: the agent and account a switch to it names. */
+  acp?: AcpIdentity | undefined;
 }
 
 /**
@@ -231,6 +239,7 @@ export function modelChoices(
             legacy: isLegacy(model),
             speeds: speedTiers(model),
             defaultSpeed: defaultSpeed(model),
+            ...acpAgent(model),
             ...placement(model, account),
           },
         ];
@@ -277,7 +286,10 @@ export function currentModelChoice(
   // Never another provider's model: a thread shows what it runs on, and picking from a wrong
   // choice (an effort change) would move it to that provider. With no catalog choice for its
   // provider, the caller shows the recorded selection (`recordedChoice`).
-  const onAccount = sameModel.filter((choice) => choice.accountId === selection.instanceId);
+  const onAccount = sameModel.filter(
+    // An ACP thread's account is its agent's identity, not the catalog row's instance.
+    (choice) => (choice.acp?.instanceId ?? choice.accountId) === selection.instanceId,
+  );
   if (selection.instanceId && selected) return onAccount[0];
   return (
     (selected === undefined ? onAccount.find((choice) => choice.isDefault) : undefined) ??
@@ -294,13 +306,37 @@ export function currentModelChoice(
 }
 
 /** The `thread.switch` selection that moves a thread onto a choice, by its catalog id. */
-export function choiceSelection(choice: ModelChoice): ThreadSelection & { model: string } {
+export function choiceSelection(
+  choice: ModelChoice,
+): ThreadSelection & { model: string; acpAgentId?: string; installationId?: string } {
+  // An ACP agent runs only on its identity, so a switch to its model names the agent.
+  if (choice.acp)
+    return {
+      provider: choice.provider,
+      model: choice.modelId,
+      instanceId: choice.acp.instanceId,
+      acpAgentId: choice.acp.acpAgentId,
+      installationId: choice.acp.installationId,
+    };
   return {
     provider: choice.provider,
     model: choice.modelId,
     // Only a signed-in account names an instance; otherwise the daemon picks one.
     ...(choice.account ? { instanceId: choice.accountId } : {}),
   };
+}
+
+function acpAgent(model: CatalogModel): { acp?: AcpIdentity } {
+  const scope = modelScope(model);
+  return scope?.provider === "acp"
+    ? {
+        acp: {
+          acpAgentId: scope.acpAgentId,
+          installationId: scope.installationId,
+          instanceId: scope.instanceId,
+        },
+      }
+    : {};
 }
 
 /**

@@ -23,6 +23,9 @@
     },
     {
       "properties": {
+        "acp": {
+          "$ref": "https://ace.local/protocol/v1/AcpIdentity.json"
+        },
         "acpSupport": {
           "$ref": "https://ace.local/protocol/v1/AcpSessionSupport.json"
         },

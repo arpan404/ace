@@ -205,14 +205,19 @@ export class IntentDelivery {
       if (this.dependencies.repo.backend(actor.id) === "cursor-sdk")
         throw new Error("Cursor SDK account migration requires a fresh portable context handoff");
       await this.dependencies.sessions.close(actor, "user");
-      await this.dependencies.recovery.migrate(actor.id, p.instanceId);
+      await this.dependencies.transitions.moveAccount(actor, intent, p.instanceId, () =>
+        this.dependencies.recovery.moveTarget(actor.id, p.instanceId),
+      );
     }
     if (!this.dependencies.recovery.owns(actor.id, token)) return;
     const queue = this.dependencies.repo.queue.get(actor.id);
     if (queue.continuation) {
+      const carried = this.dependencies.repo.transitions.get(actor.id);
+      // The session continues natively, from a fork of a copied session, or through a handoff.
       if (
         !this.dependencies.repo.session(actor.id).nativeSessionId &&
-        !this.dependencies.repo.transitions.get(actor.id).handoff
+        !carried.fork &&
+        !carried.handoff
       )
         throw new Error("Native history is unavailable for continuation");
       // Closing an existing limited session prevents old frames from acknowledging replacement work.

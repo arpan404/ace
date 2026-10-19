@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import { realpath } from "node:fs/promises";
+import { readdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { ThreadId } from "@ace/protocol";
 import { spawnSupervised } from "@ace/provider-kit/process";
@@ -146,6 +146,40 @@ test("default migration refuses independent-writer uncertainty and verified offl
     registry.close();
   }
 });
+test.each(["codex", "claude", "opencode", "pi"] as const)(
+  "a normal %s CLI login on either side reports native history as unsupported and is never written",
+  async (provider) => {
+    for (const side of ["from", "to"] as const) {
+      const request = await homes(provider);
+      const registry = await openRegistry(join(request.to.homeDir, "accounts.sqlite"));
+      try {
+        for (const end of ["from", "to"] as const)
+          await registry.register(
+            end === side ? { ...request[end], implicit: true, env: {} } : request[end],
+          );
+        const before = await readdir(request[side].homeDir);
+        const result = await new AccountService({
+          registry,
+          now: () => 1,
+          timeZone: "UTC",
+          env: {},
+          safety: idle,
+        }).handle({
+          type: "accounts.migrate",
+          requestId: "m",
+          provider,
+          nativeSessionId: request.nativeSessionId,
+          from: request.from.id,
+          to: request.to.id,
+        });
+        expect(result).toMatchObject({ result: { status: "unsupported" } });
+        expect(await readdir(request[side].homeDir)).toEqual(before);
+      } finally {
+        registry.close();
+      }
+    }
+  },
+);
 test("concurrent migration and new adapter starts cannot enter homes under a lease", async () => {
   const request = await homes("codex");
   await rollout(request.from.homeDir, 3);

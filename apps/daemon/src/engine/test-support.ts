@@ -102,6 +102,9 @@ export async function harness(
     onCommandEvent?: EngineOptions["onCommandEvent"];
     limits?: EngineOptions["limits"];
     recovery?: EngineOptions["recovery"];
+    transitions?: EngineOptions["transitions"];
+    /** The account sessions open on when the thread names none. */
+    account?: string;
     preferences?: EngineOptions["preferences"];
     permissionSettings?: EngineOptions["permissionSettings"];
     providerEnabled?: EngineOptions["providerEnabled"];
@@ -165,7 +168,10 @@ export async function harness(
       ...(options.provider === "acp" ? { acceptsIdentity: () => true } : {}),
       async openSession(ctx) {
         contexts.push(ctx);
-        const session = await (options.nativeAdapter ?? adapter).openSession(ctx);
+        const opened = await (options.nativeAdapter ?? adapter).openSession(ctx);
+        // An account-bound provider reports the login it opened on.
+        const account = ctx.instanceId ?? options.account;
+        const session = account ? Object.assign(opened, { instanceId: account }) : opened;
         if (!options.resolveGate) return session;
         const resolve = session.resolve.bind(session);
         session.resolve = async (interaction, resolution) => {
@@ -185,6 +191,7 @@ export async function harness(
     ...(options.models ? { models: options.models } : {}),
     ...(options.providerEnabled ? { providerEnabled: options.providerEnabled } : {}),
     ...(options.recovery ? { recovery: options.recovery } : {}),
+    ...(options.transitions ? { transitions: options.transitions } : {}),
     ...(options.preferences ? { preferences: options.preferences } : {}),
     ...(options.permissionSettings ? { permissionSettings: options.permissionSettings } : {}),
     ...(options.prepareInput ? { prepareInput: options.prepareInput } : {}),

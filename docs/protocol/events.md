@@ -214,6 +214,7 @@ Example:
 | switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
 | effectiveCapabilities | no | [Capabilities.json](schema/Capabilities.json) |  |
 | acpSupport | no | [AcpSessionSupport.json](schema/AcpSessionSupport.json) |  |
+| acp | no | [AcpIdentity.json](schema/AcpIdentity.json) |  |
 | status | no | [ThreadStatus.json](schema/ThreadStatus.json) |  |
 | archivedAt | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/Timestamp.json"},{"type":"null"}]} |
 
@@ -237,6 +238,7 @@ Example:
     },
     "visibility": "limited"
   },
+  "archivedAt": null,
   "capabilities": {
     "accessModes": [],
     "approvals": "none",
@@ -296,33 +298,33 @@ Example:
 {
   "agent": {
     "background": false,
-    "childThreadId": "example",
-    "createdAt": 1,
+    "createdAt": 0,
     "cwd": "example",
-    "endedAt": 0,
-    "fidelity": "placeholder",
+    "endedAt": 1,
+    "fidelity": "full",
     "id": "example",
     "lineage": {
       "lossy": false,
-      "mode": "native",
+      "mode": "portable",
       "parentAgentId": "example",
       "parentThreadId": "example",
       "point": {
-        "runId": "example",
-        "type": "turn"
+        "itemId": "example",
+        "type": "item"
       }
     },
-    "name": "example",
     "native": {
-      "installationId": "example",
-      "instanceId": "example",
-      "provider": "pi"
+      "acpAgentId": "example",
+      "provider": "codex"
     },
-    "origin": "ace",
-    "parentId": null,
+    "origin": "root",
+    "parentId": "example",
     "role": "example",
+    "spawnedBy": null,
     "status": {
-      "state": "interrupted"
+      "activity": "responding",
+      "itemId": "example",
+      "state": "working"
     },
     "threadId": "example"
   },
@@ -345,8 +347,7 @@ Example:
 {
   "agentId": "example",
   "status": {
-    "lastSignalAt": 2,
-    "state": "unresponsive"
+    "state": "starting"
   },
   "type": "agent.status"
 }
@@ -380,18 +381,6 @@ Example:
   "background": true,
   "childThreadId": "example",
   "cwd": "example",
-  "lineage": {
-    "lossy": false,
-    "mode": "portable",
-    "parentAgentId": "example",
-    "parentThreadId": "example",
-    "point": {
-      "itemId": "example",
-      "type": "item"
-    }
-  },
-  "origin": "ace",
-  "parentId": "example",
   "role": "example",
   "type": "agent.updated"
 }

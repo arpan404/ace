@@ -37,7 +37,7 @@ async function fixture() {
     registry,
     selectInstance: () => "default-account",
     recovery: {
-      async migrate() {
+      moveTarget() {
         migrationReached = true;
         throw new Error("No SDK store migration");
       },

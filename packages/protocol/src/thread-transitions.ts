@@ -4,6 +4,7 @@ import { AgentId, ItemId, RunId, ThreadId, Timestamp } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
 import { MessageContext } from "./context.ts";
 import { MessageText } from "./message-limits.ts";
+import { AcpIdentity } from "./agent-registry.ts";
 
 export const ForkPoint = z.discriminatedUnion("type", [
   z.object({ type: z.literal("turn"), runId: RunId }),
@@ -137,6 +138,12 @@ export const TransitionCommands = [
     threadId: ThreadId,
     selection: ExecutionSelection.omit({ options: true }).extend({
       options: ExecutionOptions.optional(),
+      /**
+       * The ACP agent a switch moves to, with `instanceId` its account. Required to enter an
+       * ACP agent or change to another one; a model change within the agent may omit it.
+       */
+      acpAgentId: AcpIdentity.shape.acpAgentId.optional(),
+      installationId: AcpIdentity.shape.installationId.optional(),
     }),
   }),
 ] as const;

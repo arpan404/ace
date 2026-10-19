@@ -242,3 +242,36 @@ account whose CLI isn't installed is skipped. A model's own weekly limit (Claude
 Gemini/Antigravity and Copilot have no limit source ace can read without handling a credential
 itself, so they show no limits rather than a guessed one. The pre-blocker legacy quota format
 is no longer upgraded.
+
+## Amendment: account changes continue through one transition
+
+Date: 2026-10-19. Changing a thread's account within a provider, from the model picker or the
+usage-limit "Move to" action, is one thread transition with one decision:
+
+1. The destination must be usable: a registered account of the provider, signed in, finished
+   signing in and not exhausted. Otherwise the change fails and the thread keeps its account and
+   native session.
+2. A native copy keeps the whole session, so it is tried first. `accounts.migrate` returns
+   `refused` for safety (an active writer, a native lock, unverified exclusion); the change then
+   fails with the source binding untouched. A copied Codex session is forked from its end, as a
+   switch already did; the limit path previously resumed the copy in place.
+3. `unsupported` means the provider or either login can't share native history. Normal CLI
+   logins are now `unsupported`, not `refused`: ace never writes into a CLI-owned home. The thread
+   then continues the way a provider switch does (ADR 0051, 2026-10-19 amendment). The account
+   that leaves keeps its session for a return. A destination that left a session on this thread
+   resumes it with only what happened since; otherwise a fresh session gets the
+   conversation-first handoff. The handoff marker replaces one still waiting for delivery.
+
+By provider: Codex and Claude managed accounts copy native history (Codex forks the copy);
+their normal CLI logins, OpenCode and Pi continue through the handoff. Cursor account changes
+still continue in a new thread (ADR 0043). An ACP agent runs on its installation's one login,
+so another ACP account is another agent: a switch names the agent (`acpAgentId`,
+`installationId`, `instanceId`), admission checks it is registered, and the thread changes agent
+the way it changes provider, committing the new identity (`thread.updated.acp`) with the binding
+and the handoff. Returning to an agent resumes its own session with what happened since. Any
+thread can switch to a named ACP agent. A usage-limit move still never changes an ACP thread's
+agent (`acp_account_fixed`); the person picks another agent from the model picker.
+
+A usage-limit move commits the binding, the handoff and the cleared limit together. Replayed
+after a restart, it is not made again: a named account is already bound, and an automatic move
+finds nothing limited.

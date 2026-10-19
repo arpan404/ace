@@ -68,7 +68,9 @@ const refusals: Record<string, string> = {
   provider_unavailable: "That provider isn't installed or signed in.",
   switch_requires_new_thread:
     "Cursor keeps this conversation on its own account. Send your next message to continue in a new thread with this context.",
-  acp_identity_required: "That agent starts new threads only. Start a new thread to use it.",
+  acp_identity_required: "Choose the agent to switch to from the model picker.",
+  acp_account_fixed:
+    "An agent can't move to another account. Switch to another agent from the model picker.",
   model_unavailable: "That model isn't available. Pick another model and try again.",
   not_implemented: "ace on this machine can't do that yet.",
   forbidden: "This device isn't allowed to do that.",

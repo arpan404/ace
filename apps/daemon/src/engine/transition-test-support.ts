@@ -274,12 +274,12 @@ export function transitionHarness(
       engine.internalHandler.handle(value, store),
     );
   }
-  async function create(permissionMode?: PermissionMode) {
+  async function create(permissionMode?: PermissionMode, provider: ProviderKind = "codex") {
     const existing = new Set(store.listThreads().map((thread) => thread.id));
     const result = command({
       type: "thread.create",
       workspaceId: workspace,
-      provider: "codex",
+      provider,
       model: "model-a",
       ...(permissionMode ? { permissionMode } : {}),
       input: [{ type: "text", text: "source history" }],
