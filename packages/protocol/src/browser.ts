@@ -197,7 +197,16 @@ export const BrowserCommand = z.discriminatedUnion("action", [
     status: z.number().int().min(100).max(599).optional(),
     limit: z.number().int().min(1).max(200).default(100),
   }),
-  commandBase.extend({ action: z.literal("resize"), width: dimension, height: dimension }),
+  commandBase.extend({
+    action: z.literal("resize"),
+    width: dimension,
+    height: dimension,
+    /**
+     * The resizing viewer's device pixel ratio: ace's Chrome renders the page that sharp, up to
+     * 3, so a high-density screen gets pixels instead of an upscaled picture.
+     */
+    devicePixelRatio: z.number().finite().min(1).max(4).optional(),
+  }),
   commandBase.extend({
     action: z.literal("emulate"),
     width: dimension,
@@ -461,7 +470,18 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
     url: z.string().max(8192),
   }),
   base.extend({ type: z.literal("browser.execute"), command: BrowserCommand }),
-  base.extend({ type: z.literal("browser.subscribe"), subscriberId: short.optional() }),
+  base.extend({
+    type: z.literal("browser.subscribe"),
+    subscriberId: short.optional(),
+    /**
+     * Send this connection's frames as binary stream messages (an `ACES` envelope with the raw
+     * JPEG) instead of `browser.frame` JSON with base64. Ignored where the transport has no
+     * binary messages.
+     */
+    binaryFrames: z.boolean().optional(),
+    /** What this viewer shows, as `browser.capture` reports it, so its first frame fits it. */
+    viewport: BrowserCaptureViewport.optional(),
+  }),
   base.extend({ type: z.literal("browser.capture"), viewport: BrowserCaptureViewport }),
   base.extend({ type: z.literal("browser.unsubscribe"), subscriberId: short.optional() }),
   base.extend({ type: z.literal("browser.ack"), sequence: z.number().int().nonnegative() }),

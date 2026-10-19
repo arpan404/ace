@@ -2340,11 +2340,14 @@ Example:
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | type | yes | `"browser.subscribe"` |  |
 | subscriberId | no | string | {"minLength":1,"maxLength":256} |
+| binaryFrames | no | boolean |  |
+| viewport | no | [BrowserCaptureViewport.json](schema/BrowserCaptureViewport.json) |  |
 
 Example:
 
 ```json
 {
+  "binaryFrames": true,
   "requestId": "example",
   "threadId": "example",
   "type": "browser.subscribe"
@@ -2368,9 +2371,9 @@ Example:
   "threadId": "example",
   "type": "browser.capture",
   "viewport": {
-    "devicePixelRatio": 4,
-    "height": 108,
-    "nativeShown": true,
+    "devicePixelRatio": 1,
+    "height": 103,
+    "nativeShown": false,
     "width": 103
   }
 }
@@ -2390,7 +2393,6 @@ Example:
 ```json
 {
   "requestId": "example",
-  "subscriberId": "example",
   "threadId": "example",
   "type": "browser.unsubscribe"
 }
@@ -2410,7 +2412,7 @@ Example:
 ```json
 {
   "requestId": "example",
-  "sequence": 3,
+  "sequence": 1,
   "threadId": "example",
   "type": "browser.ack"
 }
@@ -2454,7 +2456,7 @@ Example:
 
 ```json
 {
-  "muted": true,
+  "muted": false,
   "requestId": "example",
   "tabId": "example",
   "threadId": "example",
@@ -2499,14 +2501,11 @@ Example:
 ```json
 {
   "input": {
-    "button": "left",
-    "event": "mousePressed",
-    "kind": "mouse",
-    "x": 0,
-    "y": 9
+    "event": "touchMove",
+    "kind": "touch",
+    "points": []
   },
   "requestId": "example",
-  "tabId": "example",
   "threadId": "example",
   "type": "browser.input"
 }
@@ -2592,12 +2591,6 @@ Example:
 
 ```json
 {
-  "options": {
-    "instance": "example",
-    "instanceId": "example",
-    "limit": 2,
-    "provider": "claude"
-  },
   "requestId": "example",
   "type": "models.list"
 }
@@ -2615,6 +2608,11 @@ Example:
 
 ```json
 {
+  "filter": {
+    "acpAgentId": "example",
+    "instance": "example",
+    "provider": "claude"
+  },
   "requestId": "example",
   "type": "models.refresh"
 }
@@ -2635,8 +2633,11 @@ Example:
   "requestId": "example",
   "roleSpec": {
     "acpAgentId": "example",
-    "role": "example",
-    "selection": "default"
+    "imageInput": true,
+    "instance": "example",
+    "instanceId": "example",
+    "provider": "antigravity",
+    "role": "example"
   },
   "type": "models.resolve"
 }
@@ -2655,9 +2656,8 @@ Example:
 
 ```json
 {
-  "appState": "foreground",
-  "inputAgeMs": 8,
-  "threadId": "example",
+  "inputAgeMs": 4,
+  "threadId": null,
   "type": "presence.update"
 }
 ```
@@ -2676,7 +2676,7 @@ Example:
 {
   "device": {
     "channel": "websocket",
-    "platform": "web"
+    "platform": "phone"
   },
   "type": "notification.register"
 }
@@ -2693,6 +2693,7 @@ Example:
 
 ```json
 {
+  "requestId": "example",
   "type": "notification.unregister"
 }
 ```
@@ -2725,7 +2726,7 @@ Example:
 ```json
 {
   "preferences": {
-    "agentSays": true
+    "agentSays": false
   },
   "type": "notification.preferences"
 }
@@ -2745,7 +2746,7 @@ Example:
 {
   "threadId": "example",
   "type": "notification.snooze",
-  "until": 6
+  "until": 7
 }
 ```
 
@@ -2761,7 +2762,7 @@ Example:
 
 ```json
 {
-  "afterCursor": 5,
+  "afterCursor": 6,
   "requestId": "example",
   "type": "notification.feed"
 }
@@ -2779,11 +2780,13 @@ Semantic rule: Exactly one of token and ticket is required.
 | deviceId | yes | [DeviceId.json](schema/DeviceId.json) |  |
 | token | no | string |  |
 | ticket | no | string |  |
+| compression | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
 
 Example:
 
 ```json
 {
+  "compression": [],
   "deviceId": "example",
   "protocolVersion": 1,
   "token": "example",
@@ -2805,7 +2808,6 @@ Example:
 
 ```json
 {
-  "paced": true,
   "scope": {
     "kind": "threads"
   },
@@ -2845,9 +2847,10 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "mode": "example",
+      "action": "resume_at_reset",
+      "expectedRevision": 8,
       "threadId": "example",
-      "type": "thread.mode.set"
+      "type": "thread.limit"
     }
   },
   "type": "command"
@@ -2868,8 +2871,8 @@ Example:
 
 ```json
 {
-  "limit": 2,
-  "offset": 6,
+  "limit": 3,
+  "offset": 8,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -2891,7 +2894,7 @@ Example:
 ```json
 {
   "before": 9,
-  "limit": 4,
+  "limit": 9,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"
@@ -2913,9 +2916,9 @@ Example:
 
 ```json
 {
-  "before": 9,
-  "collection": "interactions",
-  "limit": 3,
+  "before": 6,
+  "collection": "agents",
+  "limit": 1,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"
@@ -2936,7 +2939,7 @@ Example:
 ```json
 {
   "before": {
-    "at": 8,
+    "at": 0,
     "id": "example"
   },
   "requestId": "example",
