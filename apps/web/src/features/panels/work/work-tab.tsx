@@ -158,7 +158,7 @@ export default function WorkTab(props: TabViewProps) {
         </Section>
       )}
       {shown.plans && (
-        <Section name="Plan" labelled={shown.labelled}>
+        <Section name="Tasks" labelled={shown.labelled}>
           <WorkPlans threadId={props.scope} />
         </Section>
       )}

@@ -99,7 +99,10 @@ const inFlight: Record<string, { running: string; awaiting: string }> = {
   Deleted: { running: "Deleting", awaiting: "Delete" },
   Moved: { running: "Moving", awaiting: "Move" },
   Called: { running: "Calling", awaiting: "Call" },
-  "Updated the plan": { running: "Updating the plan", awaiting: "Update the plan" },
+  "Updated the task list": {
+    running: "Updating the task list",
+    awaiting: "Update the task list",
+  },
   "Asked a question": { running: "Asking a question", awaiting: "Ask a question" },
   "Messaged a subagent": { running: "Messaging a subagent", awaiting: "Message a subagent" },
   "Loaded skill": { running: "Loading skill", awaiting: "Load skill" },
@@ -219,11 +222,11 @@ function callText(call: ToolCall, context: StepContext): CallText {
     }
     case "todo":
     case "plan": {
-      // One quiet line, "Updated the plan … 3 of 6"; the list itself is the composer's tab.
+      // One quiet line, "Updated the task list … 3 of 6"; the list itself is the composer's tab.
       const progress = planProgress(planTodos(detail));
       return {
         icon: "note",
-        verb: "Updated the plan",
+        verb: "Updated the task list",
         note: progress.total ? planCount(progress) : undefined,
       };
     }

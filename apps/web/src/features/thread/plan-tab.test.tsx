@@ -33,15 +33,15 @@ test("operational plans show their progress in the composer strip and their full
     todo("Test", "pending"),
   ]);
   await waitFor(() => expect(live().textContent).toContain("Step 2 of 3 · Fix it"));
-  const strip = await screen.findByRole("region", { name: "Plan" });
-  expect(strip.textContent).toContain("Plan · 1 of 3");
+  const strip = await screen.findByRole("region", { name: "Tasks" });
+  expect(strip.textContent).toContain("Tasks · 1 of 3");
   expect(strip.textContent).toContain("Fix it");
   expect(screen.queryByRole("region", { name: "Waiting for you" })).toBeNull();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /Open agent tree/ }));
   expect(await screen.findByRole("tab", { name: "Summary" })).toBeTruthy();
   const work = await screen.findByRole("tabpanel", { name: "Summary" });
-  const list = await within(work).findByRole("list", { name: "Plan" });
+  const list = await within(work).findByRole("list", { name: "Tasks" });
   expect(await within(work).findByRole("tree", { name: "Agent tree" })).toBeTruthy();
   expect(screen.getAllByRole("tab", { name: "Summary" })).toHaveLength(1);
   expect(screen.queryByRole("tab", { name: "Agents" })).toBeNull();
@@ -68,7 +68,7 @@ test("operational plan updates advance the live step and completed plans leave a
   await userEvent.click(await screen.findByRole("menuitem", { name: /Open agent tree/ }));
   plan([todo("Fix it", "completed"), todo("Test", "completed")]);
   act(() => app.daemon.apply(threadId, [facts.endTurn("root")]));
-  await waitFor(() => expect(screen.queryByRole("list", { name: "Plan" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("list", { name: "Tasks" })).toBeNull());
 });
 
 test("human plan reviews keep their accept and reject controls on the attached strip", async () => {
