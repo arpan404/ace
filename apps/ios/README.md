@@ -204,6 +204,34 @@ tree, a running background command, usage, and a three-file diff. The diff inclu
 3,000-line file and a long line. Set `ACE_IOS_SPIKE_PORT` and launch with
 `--spike-port N` to run a fixture beside another agent's.
 
+## New thread, projects and files
+
+The inbox header's compose button opens New thread (`Views/NewThread`). It follows the web's
+New thread: machine (when several are paired), project, an optional new worktree with its base
+(`baseOptions`, `defaultWorktreeBase`), coding agent and model, then the first message. The
+bridge (`bridge/new-thread.ts`) reads projects (`workspaces.list`, recent first by thread
+activity via `newThreadProjects`), the machine's agents (`providers.request` readiness,
+`accounts.list` and the paged `models.list` reader shared with the web), and judges each with
+`newThreadAgents`: one that isn't installed, is signed out or needs attention stays listed,
+disabled, with its reason. It builds `thread.create` with the web's `createPayload` and admits
+it through the SDK outbox under the draft's own command id, so sending the same draft again,
+including after the app was killed, replays one command. The draft (choices and words, never a
+token) lives in `Application Support/ace/new-thread-draft.json`. Once the receipt names the
+thread and its row arrives, it opens; offline, it waits in Unsent.
+
+`@` mentions insert `@path`, as the web's composer does. Before a thread exists they search a
+device-owned draft scope (`draft.create`, `draft.mention.complete`). Add project searches the
+computer's folders (`fs.recentFolders`, `fs.search`) and registers one with `workspace.add`; a
+computer that refuses this phone's project requests gets "add it on your computer" instead.
+
+A thread's menu opens Files (`bridge/project-files.ts`, `Views/Files`): the daemon's listing of
+the thread's checkout (at most 1,000 paths) shown one folder at a time, 200 rows each with the
+rest counted, search through `mention.complete`, and a read-only SF Mono preview of at most
+128 KiB, 2,000 lines and 96,000 UTF-16 units, past which it says to view the rest on the
+computer. The protocol only lists files inside a thread's checkout, so New thread offers file
+search, not browsing. View-only machines browse but start nothing. `scripts/project-scenario.ts`
+seeds host folders, a 240-file folder and a large log in `ios-done`.
+
 ## Pairing with a real daemon
 
 Without `--spike` the app pairs with a real daemon. Scan the QR from `ace pair` (or

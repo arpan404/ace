@@ -39,6 +39,8 @@ export * from "./held-order.ts";
 export * from "./inline-markdown.ts";
 export * from "./limits.ts";
 export * from "./models.ts";
+export * from "./model-catalog-read.ts";
+export * from "./new-thread-payload.ts";
 export * from "./model-switch-route.ts";
 export * from "./model-picker.ts";
 export * from "./speed.ts";

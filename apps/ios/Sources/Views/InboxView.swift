@@ -109,6 +109,7 @@ struct InboxView: View {
                 }
             }
             .overlay(alignment: .bottom) { undoArchive }
+            .newThreadEntry(inbox: inbox) { key in openThread(key) }
             .aceNotifications(inbox: inbox) { key in openThread(key) }
             .onChange(of: path) { old, new in
                 if !old.isEmpty && new.isEmpty { current?.back(); openMachine = nil }

@@ -47,6 +47,9 @@ import CryptoKit
     let sheets = ThreadSheetsModel()
     /// This machine's archive while the archive sheet follows it (`bridge/archive.ts`).
     let archive = ArchiveBrowserModel()
+    /// New thread and Add project on this machine; the open thread's Files sheet.
+    let compose = ComposeModel()
+    let files = ThreadFilesModel()
     @ObservationIgnored private var generation = 0
     /// Threads left for a child, so going back shows them until their session's first patch.
     @ObservationIgnored private var trail = ThreadTrail()
@@ -70,7 +73,7 @@ import CryptoKit
         connectionEpoch += 1
         let epoch = connectionEpoch
         let closing = retireRuntime()
-        inbox = [:]; pending = [:]; thread = nil; inboxLoaded = false; sheets.reset(); archive.reset()
+        inbox = [:]; pending = [:]; thread = nil; inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset()
         inboxLayout = .empty
         machineStatus = nil; providers = nil
         connection = "connecting"; error = nil; problem = nil
@@ -171,6 +174,8 @@ import CryptoKit
             case .gitResult(let id, let ok, let message): sheets.outcomes[id] = GitOutcome(ok: ok, message: message)
             case .gitDraft(let draft): sheets.draft = draft
             case .archiveList(let list): archive.apply(list)
+            case .compose(let patch): compose.apply(patch)
+            case .files(let patch): files.apply(patch)
             case .screen(let id, let epoch, let screen):
                 if let thread, thread.id == id, thread.epoch == epoch { thread.screen.apply(screen) }
             }

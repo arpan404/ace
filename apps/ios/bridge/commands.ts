@@ -3,19 +3,26 @@ import { CommandPayload } from "@ace/protocol";
 import type { ClientCore } from "@ace/client";
 import type { PatchSink } from "./agents.ts";
 
-type Receipt = { ok: boolean; error?: string | undefined };
+type Receipt = {
+  ok: boolean;
+  error?: string | undefined;
+  /** What a `thread.create` or `workspace.add` made. */
+  threadId?: string | undefined;
+  workspace?: { id: string } | undefined;
+};
 
 /**
  * Durable admission through the SDK outbox: `onSaved` once the command is saved on this device,
  * then exactly one receipt callback. Rejects when the device can't save it.
  */
 export async function submitCommand(
-  owner: ClientCore,
+  owner: Pick<ClientCore, "commandId" | "intent" | "enqueue">,
   payload: CommandPayload,
   onSaved: () => void,
   onReceipt: (result: Receipt) => void,
+  /** A command id the caller keeps, so sending the same draft again replays it. */
+  id = owner.commandId(),
 ): Promise<void> {
-  const id = owner.commandId();
   const intent = owner.intent(id);
   let settled = false;
   let stop: (() => void) | undefined;

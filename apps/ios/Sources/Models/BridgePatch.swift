@@ -122,6 +122,9 @@ enum BridgePatch: Decodable, Sendable {
     case gitResult(String, Bool, String)
     case gitDraft(GitDraft)
     case archiveList(ArchiveList)
+    /// New thread and Add project (`Models/ComposeModel.swift`); a thread's Files sheet.
+    case compose(ComposePatch)
+    case files(FilesPatch)
     /// Steps, effort and speed, attachments and lanes (`ScreenPatch`).
     case screen(String, Int, ScreenPatch)
 
@@ -171,6 +174,8 @@ enum BridgePatch: Decodable, Sendable {
         case "machine.status": self = .machineStatus(try MachineStatusInfo(from: decoder))
         case "machine.providers": self = .machineProviders(try MachineProvidersInfo(from: decoder))
         case let kind where kind.hasPrefix("notifications."): self = .notification(try NotificationPatch(from: decoder))
+        case let kind where kind.hasPrefix("compose."): self = .compose(try ComposePatch(from: decoder))
+        case let kind where kind.hasPrefix("files."): self = .files(try FilesPatch(from: decoder))
         case "agents.sheet": let (id, epoch) = try scope(); self = .agents(id, epoch, try box.decode(AgentSheet.self, forKey: .sheet))
         case "changes.summary": let (id, epoch) = try scope(); self = .changesSummary(id, epoch, try ChangesSummary(from: decoder))
         case "changes.file":
