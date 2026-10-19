@@ -127,7 +127,10 @@ it.skipIf(!executablePath)(
   async () => {
     const f = await pageEdges();
     await f.agent({ action: "navigate", url: f.url });
-    expect((await chromeProcesses(f.home)).commandLine).toContain("--mute-audio");
+    const { commandLine } = await chromeProcesses(f.home);
+    // Sound goes to a fake output device; `--mute-audio` would silence tab capture too.
+    expect(commandLine).toContain("--disable-audio-output");
+    expect(commandLine).not.toContain("--mute-audio");
   },
   60_000,
 );

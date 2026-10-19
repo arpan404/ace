@@ -21,6 +21,8 @@ import { projectCommand, remoteWorkProject } from "./projects.ts";
 import { openCommand } from "./open.ts";
 import { retentionCommand } from "./retention.ts";
 import { configCommand } from "./config.ts";
+import { simCommand } from "./sim.ts";
+import { simHelp } from "./sim-args.ts";
 const help = `ace run [PROMPT|-] [--provider codex|claude] [--project ID|PATH] [--worktree] [--model MODEL]
 ace threads list [--project ID]
 ace thread read|send|steer|approve|deny|cancel|interrupt ID [TEXT]
@@ -43,6 +45,7 @@ ace pair redeem [URL|-] --profile NAME
 ace cloud codex exec|list|status|diff|apply [PROMPT|TASK_ID]
 ace logs [-f]
 ace browser shot|record THREAD [--url URL] [--output PATH]
+ace sim list|start|stop|ui|act|screenshot|logs [SIM …] --thread ID (ace sim --help)
 ace automation list|run ID
 ace add [PATH]|project add|list|rename|remove|open
 ace open [PATH] [--web]
@@ -64,7 +67,8 @@ export async function main(input: string[]): Promise<void> {
     args = parseArgs(input);
     await validateOutput(args);
     if (args.flags.help) {
-      await print(args, args.flags.json || args.flags.jq ? { help } : help.trimEnd());
+      const text = args.words[0] === "sim" ? simHelp : help.trimEnd();
+      await print(args, args.flags.json || args.flags.jq ? { help: text } : text);
       return;
     }
     const command = args.words[0] ?? "start";
@@ -145,6 +149,7 @@ export async function main(input: string[]): Promise<void> {
         "providers",
         "login",
         "browser",
+        "sim",
         "automation",
         "add",
         "project",
@@ -160,6 +165,7 @@ export async function main(input: string[]): Promise<void> {
       else if (command === "add" || command === "project")
         await projectCommand(args, session.client, session.signal, session.remote);
       else if (command === "browser") await browserCommand(args, session.client, session.signal);
+      else if (command === "sim") await simCommand(args, session.client, session.signal);
       else if (command === "automation")
         await automationCommand(args, session.client, session.signal);
       else if (command === "kill-all" || command === "mcp")

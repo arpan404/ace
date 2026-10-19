@@ -30,6 +30,13 @@ import { SuggestionStore } from "./preview-suggestions.ts";
 import { readBrowserLogs } from "./browser-logs.ts";
 import { PageStates } from "./page-states.ts";
 import { ThreadVideos } from "./thread-videos.ts";
+import { ThreadAudio } from "./thread-audio.ts";
+import {
+  webAudioOutput,
+  webCodecsAudioDecoder,
+  type AudioDecoderFactory,
+  type AudioOutputFactory,
+} from "./audio-codecs.ts";
 import {
   webCodecsDecoder,
   webCodecsSupport,
@@ -171,6 +178,14 @@ export interface PreviewOptions {
   videoDecoder?: VideoDecoderFactory | null;
   /** Which codecs the decoder plays; omitted: asks WebCodecs. */
   videoSupport?: VideoSupport;
+  /**
+   * The page sound's decoder and speaker (ADR 0088, Audio); omitted: WebCodecs `AudioDecoder`
+   * and Web Audio, if any. `null`: offer no sound.
+   */
+  audioDecoder?: AudioDecoderFactory | null;
+  audioOutput?: AudioOutputFactory | null;
+  /** Local time in ms on the speaker's clock; omitted: `performance.now()`. */
+  clock?: () => number;
 }
 
 /**
@@ -231,20 +246,33 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   /** A thread's pictures are seen now: the page shows and no native view covers it. */
   const seen = (threadId: string) =>
     visibility.visible() && captures.get(threadId)?.nativeShown !== true;
+  const videoDecoder = binaryFrames
+    ? options.videoDecoder === null
+      ? undefined
+      : (options.videoDecoder ?? webCodecsDecoder())
+    : undefined;
+  const clock = options.clock ?? (() => performance.now());
+  /** Each thread's page sound: only with video, and muted until the person unmutes it. */
+  const sounds = new ThreadAudio({
+    decoder:
+      videoDecoder && options.audioDecoder !== null
+        ? (options.audioDecoder ?? webCodecsAudioDecoder())
+        : undefined,
+    output:
+      options.audioOutput === null ? undefined : (options.audioOutput ?? webAudioOutput(clock)),
+    now: clock,
+  });
   /** Each thread's video, when this client decodes it (binary frames only). */
   const videos = new ThreadVideos({
-    decoder: binaryFrames
-      ? options.videoDecoder === null
-        ? undefined
-        : (options.videoDecoder ?? webCodecsDecoder())
-      : undefined,
+    decoder: videoDecoder,
     support: options.videoSupport ?? webCodecsSupport,
     schedule: later,
     seen,
     watching: (threadId) => watches.has(threadId),
-    present: (threadId, frame) => {
+    present: (threadId, frame, timestamp) => {
       const watch = watches.get(threadId);
       if (!watch) return frame.release();
+      sounds.shown(threadId, timestamp);
       // Video is newer than any JPEG frame still decoding: that one is dropped when it lands.
       watch.latest = undefined;
       frames.get(threadId)?.release();
@@ -279,12 +307,14 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     suggestions.delete(threadId);
     captures.delete(threadId);
     videos.delete(threadId);
+    sounds.delete(threadId);
   };
   const invalidate = (threadId: string, watch: Watch) => {
     watch.generation++;
     watch.latest = undefined;
     watch.owed = undefined;
     videos.reset(threadId);
+    sounds.reset(threadId);
     frames.get(threadId)?.release();
     frames.delete(threadId);
     // The next subscription sends every tab's page state again.
@@ -554,6 +584,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           message.chunk,
           captures.get(message.threadId)?.nativeShown !== true,
         );
+      else if (message.kind === "browser.audio" && !disposed && watches.has(message.threadId))
+        sounds.receive(message.threadId, message.chunk);
     });
     if (stopStream) stops.push(stopStream);
     stops.push(
@@ -593,6 +625,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       watches.clear();
       for (const threadId of new Set([...frames.keys(), ...stills.keys()])) release(threadId);
       videos.dispose();
+      sounds.dispose();
       views.clear();
       pages.clear();
       servers.clear();
@@ -641,6 +674,10 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       function stop() {
         watches.delete(threadId);
         current.cancel?.();
+        // Nobody shows the page: its sound stops, and a later view starts muted again.
+        sounds.set(threadId, false);
+        const shown = captures.get(threadId);
+        if (shown?.audio) captures.set(threadId, { ...shown, audio: false });
         unwatched.add(threadId);
         for (const oldest of unwatched) {
           if (unwatched.size <= keptThreads) break;
@@ -818,6 +855,14 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       captures.set(threadId, { ...captureOf(threadId), cursor: style });
       sendCapture(threadId, watches.get(threadId));
     },
+    audio: (threadId) => (sounds.available ? sounds.on(threadId) : undefined),
+    setAudio(threadId, on) {
+      if (disposed || !sounds.available) return;
+      sounds.set(threadId, on);
+      captures.set(threadId, { ...captureOf(threadId), audio: on });
+      sendCapture(threadId, watches.get(threadId));
+      changed(threadId);
+    },
     async stopRecording(threadId) {
       await call("browser.recording.stop", threadId);
     },
@@ -827,6 +872,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       captures.set(threadId, {
         nativeShown: before?.nativeShown,
         ...(before?.cursor ? { cursor: before.cursor } : {}),
+        ...(before?.audio ? { audio: true } : {}),
         width: clamp(width),
         height: clamp(height),
         devicePixelRatio: Math.min(4, Math.max(1, devicePixelRatio)),
