@@ -15,7 +15,7 @@ import { visualizationTab } from "./visualization-tab.ts";
 
 /**
  * A published HTML page, inline in the agent's reply at the message column's full width: no
- * card, no title bar, so it reads as part of the conversation. It fits its content height,
+ * card, no title bar, so it reads as part of the conversation. It shows its whole content height,
  * follows the app theme live, and runs its own scripts in a sandbox that cannot reach the app or
  * the network. Full screen, copy and download float over its top corner on hover or focus; Full
  * screen opens it at the side panel's full size, whose strip adds open in window.
@@ -45,7 +45,8 @@ export function HtmlVisualizationView(props: {
   const panel = useWorkspaceActions(props.threadId);
   const available =
     typeof HTMLIFrameElement !== "undefined" && "sandbox" in HTMLIFrameElement.prototype;
-  const maxHeight = visualization.height ?? 800;
+  // The page is shown whole; the agent's height only holds its place until it measures itself.
+  const initialHeight = visualization.height ?? 160;
   return (
     <section
       ref={attach}
@@ -61,7 +62,7 @@ export function HtmlVisualizationView(props: {
             mode={mode}
             title={title}
             theme={theme}
-            maxHeight={maxHeight}
+            initialHeight={initialHeight}
             fill={false}
             webview={desktopVisualizations() !== undefined}
             measured={measured}
@@ -69,7 +70,7 @@ export function HtmlVisualizationView(props: {
           />
         ) : html ? (
           // Unloaded while far from view: hold its place until it comes back.
-          <div style={{ height: Math.min(maxHeight, measured ?? 160) }} />
+          <div style={{ height: measured ?? initialHeight }} />
         ) : failed ? (
           <div className="flex items-center gap-2 text-ui text-muted-foreground">
             <span>Couldn't load this visualization.</span>

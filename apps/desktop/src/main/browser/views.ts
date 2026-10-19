@@ -251,8 +251,9 @@ export class EmbeddedViews implements ViewHost {
     if (!window || window.isDestroyed()) {
       window = new AppWindow(parkingWindowOptions(size));
       window.setPosition(parkingOrigin.x, parkingOrigin.y);
-      // Visible to the compositor (frames and rAF run) but offscreen and never focused,
-      // so the person never sees it.
+      // Visible to the compositor (frames and rAF run) but transparent, never focused and
+      // never in the way of a click, so the person never sees or hits it.
+      window.setIgnoreMouseEvents(true);
       window.showInactive();
       this.parking = window;
     }

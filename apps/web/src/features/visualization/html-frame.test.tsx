@@ -12,7 +12,7 @@ function Frame() {
       mode="static"
       title="Chart"
       theme={{}}
-      maxHeight={600}
+      initialHeight={160}
       fill={false}
       webview={false}
       measured={measured}
@@ -26,7 +26,7 @@ const send = (data: unknown, source: MessageEventSource | null, origin = "null")
     window.dispatchEvent(new MessageEvent("message", { data, source, origin }));
   });
 
-test("only a bounded height from this visualization's opaque frame resizes its row", async () => {
+test("a tall visualization takes its whole height, set only by its own opaque frame", async () => {
   render(<Frame />);
   const frame = screen.getByTitle<HTMLIFrameElement>("Chart");
 
@@ -38,5 +38,5 @@ test("only a bounded height from this visualization's opaque frame resizes its r
   send({ type: "ace.html.height", height: 500 }, frame.contentWindow);
   await waitFor(() => expect(frame.style.height).toBe("500px"));
   send({ type: "ace.html.height", height: 9000 }, frame.contentWindow);
-  await waitFor(() => expect(frame.style.height).toBe("600px"));
+  await waitFor(() => expect(frame.style.height).toBe("9000px"));
 });

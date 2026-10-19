@@ -20,7 +20,7 @@ const labels: Readonly<Record<EffortLevel, string>> = {
   low: "Low",
   medium: "Medium",
   high: "High",
-  xhigh: "Extra high",
+  xhigh: "XHigh",
   max: "Max",
   ultra: "Ultra",
 };
@@ -46,7 +46,9 @@ export function modelEfforts(
     if (!id || toggles.has(id) || seen.has(id)) continue;
     seen.add(id);
     const level = effortLevel(id);
-    efforts.push({ id, level, label: label ?? (level ? labels[level] : id) });
+    // XHigh reads the same for every provider, whatever the provider calls it.
+    const named = level === "xhigh" ? labels.xhigh : label;
+    efforts.push({ id, level, label: named ?? (level ? labels[level] : id) });
   }
   return efforts.slice(0, 32);
 }

@@ -28,6 +28,25 @@ interface Claim {
 }
 
 /**
+ * Chromium emulation that lays a device out at its size and draws it filling `bounds`. The
+ * device is in the app renderer's CSS pixels and `bounds` in window DIPs. Chromium's emulated
+ * size is in DIPs, and page zoom only changes how many CSS pixels fit in it, so zoom must not
+ * shrink the scale: the app's zoom grows the emulated size instead, as it grows the panel.
+ */
+export function deviceEmulation(device: NativeDevice, bounds: Rect, appZoom: number) {
+  const zoom = Number.isFinite(appZoom) && appZoom > 0 ? appZoom : 1;
+  const width = Math.max(1, Math.round(device.width * zoom));
+  const height = Math.max(1, Math.round(device.height * zoom));
+  return {
+    width,
+    height,
+    deviceScaleFactor: device.deviceScaleFactor ?? 0,
+    mobile: device.mobile ?? false,
+    scale: bounds.width / width,
+  };
+}
+
+/**
  * A renderer's box (CSS pixels of its page) in its window's DIPs. Edges are rounded, not
  * sizes, so two boxes that touch in CSS still touch on screen.
  */

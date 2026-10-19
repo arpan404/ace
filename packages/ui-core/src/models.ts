@@ -481,11 +481,13 @@ const effortNames: Readonly<Record<string, string>> = {
   low: "Low",
   medium: "Medium",
   high: "High",
-  xhigh: "Extra high",
+  xhigh: "XHigh",
+  extra_high: "XHigh",
+  "extra-high": "XHigh",
   max: "Max",
 };
 
-/** An effort level as people read it: "high" → "High", "xhigh" → "Extra high". */
+/** An effort level as people read it: "high" → "High", "xhigh" → "XHigh". */
 export function effortLabel(effort: string): string {
   const known = effortNames[effort];
   if (known) return known;

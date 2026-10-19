@@ -8,7 +8,7 @@ test.each(["ultra", "ultrathink", "max"])(
     expect(isDeepReasoning(level, ["low", "high"])).toBe(false);
   },
 );
-test("High and Extra high never become Ultra just because they are the final capability", () => {
+test("High and XHigh never become Ultra just because they are the final capability", () => {
   expect(isDeepReasoning("high", ["low", "medium", "high"])).toBe(false);
   expect(isDeepReasoning("xhigh", ["low", "high", "xhigh"])).toBe(false);
   expect(isDeepReasoning(undefined, ["high", "max"])).toBe(false);

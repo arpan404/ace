@@ -58,7 +58,7 @@ function PanelPage(props: { threadId: string; data: VisualizationTabData }) {
             mode={mode}
             title={data.title}
             theme={theme}
-            maxHeight={Number.POSITIVE_INFINITY}
+            initialHeight={160}
             fill
             webview={desktopVisualizations() !== undefined}
             measured={measured}
