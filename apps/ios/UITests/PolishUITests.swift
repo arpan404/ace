@@ -63,6 +63,15 @@ import XCTest
         continueAfterFailure = true // Audit every screen, then report them all.
         let app = launch()
         try audit(app, "inbox")
+        app.buttons["inbox.compose"].tap()
+        XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
+        try audit(app, "new-thread")
+        app.buttons["newThread.project"].tap()
+        XCTAssertTrue(app.buttons["projects.add"].waitForExistence(timeout: 15))
+        try audit(app, "projects")
+        app.buttons["BackButton"].firstMatch.tap()
+        app.buttons["Close"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 10))
         open("ios-plan", in: app)
         XCTAssertTrue(app.buttons["plan.approve"].waitForExistence(timeout: 25))
         try audit(app, "plan-card")
@@ -92,6 +101,11 @@ import XCTest
         XCTAssertTrue(app.buttons["changes.step"].waitForExistence(timeout: 15))
         try audit(app, "changes")
         if app.buttons["Done"].firstMatch.exists { app.buttons["Done"].firstMatch.tap() } else { app.swipeDown(velocity: .fast) }
+        app.buttons["thread.menu"].tap()
+        app.buttons["thread.files"].tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'file.'")).firstMatch.waitForExistence(timeout: 15))
+        try audit(app, "files")
+        app.buttons["Done"].firstMatch.tap()
         back(app)
         app.buttons["inbox.machines"].tap()
         XCTAssertTrue(app.navigationBars["Machines"].waitForExistence(timeout: 10))
@@ -143,6 +157,8 @@ import XCTest
             let blocking: XCUIAccessibilityAuditType = [.sufficientElementDescription, .hitRegion]
             let exempt = !blocking.contains(issue.auditType) || element == nil || element?.elementType == .navigationBar
                 || issue.compactDescription.contains("nearly")
+                // A file's name is its label; the audit reads "README.md" as not human-readable.
+                || (element?.identifier.hasPrefix("file.") == true && issue.auditType == .sufficientElementDescription)
             found.append((exempt ? "exempt " : "ISSUE ") + line)
             if !exempt, let element {
                 let shot = XCTAttachment(screenshot: element.screenshot())
