@@ -1,0 +1,119 @@
+import { mergeGate } from "@ace/ui-core";
+import { openExternal } from "@/boot/open-external.ts";
+import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
+import { usePrLifecycle } from "./pr-lifecycle.ts";
+import { usePrMergeState } from "./pr-merge-state.ts";
+import { usePrLinkWrites } from "./pr-link-writes.ts";
+import { usePrWorktree } from "./pr-worktree.ts";
+import { useMergeMethod } from "./pr-merge-method.ts";
+import { useStackMemberships } from "./pr-stack-groups.tsx";
+import { prPrimaryAction } from "./pr-primary-action.ts";
+
+const newCommandId = () => crypto.randomUUID();
+
+/**
+ * Every write the PR panel offers, gathered once so the header's primary control, the ⋯ menu
+ * and the result strip read the same state and the same fences.
+ */
+export function usePrActions(props: {
+  context: PrWorkspaceContext;
+  extensions?: PrWorkspaceExtensions | undefined;
+  /** The task whose side panel shows this PR, when there is one. */
+  hostThreadId?: string | undefined;
+}) {
+  const { context } = props;
+  const { detail, workspaceId } = context;
+  const { status } = detail;
+  const related = detail.relatedThreads;
+  // Writes go through the task showing the PR when it's linked, else the first linked task.
+  const threadId = (related.find((t) => t.id === props.hostThreadId) ?? related[0])?.id;
+  const [method, setMethod] = useMergeMethod(workspaceId);
+  const onRefresh = () => void context.refresh();
+  const lifecycle = usePrLifecycle({
+    workspaceId,
+    detail,
+    writeDisabled: context.disabled,
+    onRefresh,
+  });
+  const mergeState = usePrMergeState({
+    workspaceId,
+    detail,
+    threadId,
+    writeDisabled: context.disabled,
+    onRefresh,
+  });
+  const writes = usePrLinkWrites({
+    detail,
+    threadId,
+    writeReady: !context.disabled,
+    onRefresh: context.refresh,
+  });
+  const worktree = usePrWorktree({ workspaceId, detail, newId: newCommandId, onRefresh });
+  const membership = useStackMemberships(workspaceId, status.ref.repository, [status.ref.number]);
+  const stack = membership.isError ? undefined : (membership.data?.[0]?.stack ?? undefined);
+  const primary = prPrimaryAction({ status, mergeState: mergeState.state, method });
+  const linkReason = threadId ? undefined : "Link this pull request to a task first";
+  const fenceReason = writes.fenced
+    ? "Refresh GitHub to confirm the previous change first"
+    : context.disabled || writes.pending
+      ? "Wait for GitHub to refresh"
+      : undefined;
+  // The work card asks the same gate, so both say the same thing about this PR.
+  const mergeBlocked =
+    mergeGate(status, detail.baseBranch) ??
+    membership.mergeBlocker ??
+    linkReason ??
+    fenceReason ??
+    (status.state === "open" ? undefined : "The pull request isn't open");
+  const autoMergeBlocked = mergeState.enableBlocked ?? membership.mergeBlocker;
+  const readyBlocked = !lifecycle.can("ready")
+    ? "GitHub doesn't let this account mark it ready"
+    : lifecycle.blocked
+      ? "Wait for GitHub to refresh"
+      : undefined;
+  const resolveConflicts = () => {
+    if (props.extensions?.resolveInWorktree) props.extensions.resolveInWorktree(context);
+    else void openExternal(`${status.url}/conflicts`).catch(() => {});
+  };
+  return {
+    context,
+    threadId,
+    method,
+    setMethod,
+    lifecycle,
+    mergeState,
+    writes,
+    worktree,
+    stack,
+    primary,
+    mergeBlocked,
+    autoMergeBlocked,
+    readyBlocked,
+    /** Why the primary control can't act now, or undefined when it can. */
+    primaryBlocked:
+      primary.kind === "merge"
+        ? mergeBlocked
+        : primary.kind === "auto-merge"
+          ? autoMergeBlocked
+          : primary.kind === "ready"
+            ? readyBlocked
+            : primary.kind === "resolve" && props.extensions?.resolveInWorktree && context.disabled
+              ? "Wait for GitHub to refresh"
+              : undefined,
+    async runPrimary() {
+      if (primary.kind === "merge") return writes.merge(method);
+      if (primary.kind === "auto-merge") return mergeState.run("enable", method);
+      if (primary.kind === "ready") return void (await lifecycle.apply({ kind: "ready" }));
+      if (primary.kind === "resolve") resolveConflicts();
+    },
+    /** Read everything again; a deliberate read also settles fenced writes. */
+    async refresh() {
+      const [ok] = await Promise.all([
+        writes.fenced ? writes.reconcile() : context.refresh(),
+        mergeState.confirm(),
+      ]);
+      return ok;
+    },
+  };
+}
+export type PrActions = ReturnType<typeof usePrActions>;

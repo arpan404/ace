@@ -67,6 +67,24 @@ const pages: Record<string, string> = {
     <div id="out" role="status" aria-label="Output"></div></main>
     <script>document.querySelector('[aria-label=Email]').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('out').textContent='entered'})</script>
     </body></html>`,
+  // Native pickers, a link, a tooltip and fields for the remote view's page state.
+  "/interaction": `<!doctype html><html><head><title>Interaction</title>
+    <style>body{margin:0;font:16px sans-serif} .row{display:block;height:40px;margin:8px}</style></head><body>
+    <a class="row" id="link" href="/next">A link</a>
+    <p class="row" id="prose">Plain words to select</p>
+    <span class="row" id="tip" title="Saved two minutes ago">Hover for a tip</span>
+    <select class="row" id="colour"><optgroup label="Warm"><option value="red">Red</option></optgroup><option value="blue">Blue</option></select>
+    <input class="row" id="day" type="date" min="2026-01-01" value="2026-03-04">
+    <input class="row" id="shade" type="color" value="#ff0000">
+    <input class="row" id="email" type="email">
+    <textarea class="row" id="notes"></textarea>
+    <ol id="log"></ol>
+    <script>for (const id of ["colour", "day", "shade"]) for (const type of ["input", "change"])
+      document.getElementById(id).addEventListener(type, (e) => {
+        const li = document.createElement("li"); li.textContent = id + ":" + type + ":" + e.target.value;
+        document.getElementById("log").append(li);
+      });</script>
+    </body></html>`,
   "/next": `<!doctype html><html><head><title>Next</title></head><body><h1>Next page</h1></body></html>`,
   // Thousands of nodes, mostly wrappers: what a real app shell looks like to the AX tree.
   "/big": `<!doctype html><html><head><title>Big</title></head><body><main>${Array.from(

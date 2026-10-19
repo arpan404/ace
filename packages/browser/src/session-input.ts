@@ -38,7 +38,7 @@ function heldButtons(input: MouseInput): number {
  * touch sequence, so two spreading fingers zoom the page as they would on a phone.
  */
 export async function sendHumanInput(
-  input: BrowserInput,
+  input: Exclude<BrowserInput, { kind: "pick" }>,
   cdp: BrowserCdp,
   check: () => void,
   pinch?: TouchPinch,
@@ -70,6 +70,13 @@ export async function sendHumanInput(
       if (input.event === "char")
         await cdp.send("Input.insertText", { text: input.text ?? input.key });
       else await cdp.send("Input.dispatchKeyEvent", keyEvent(input));
+      break;
+    case "ime":
+      await cdp.send("Input.imeSetComposition", {
+        text: input.text,
+        selectionStart: Math.min(input.selectionStart, input.text.length),
+        selectionEnd: Math.min(input.selectionEnd, input.text.length),
+      });
       break;
     case "touch":
       await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true });

@@ -2501,9 +2501,9 @@ Example:
 ```json
 {
   "input": {
-    "event": "touchMove",
-    "kind": "touch",
-    "points": []
+    "kind": "pick",
+    "pickerId": "example",
+    "values": []
   },
   "requestId": "example",
   "threadId": "example",

@@ -22,6 +22,9 @@ import { AgentCursor } from "./agent-cursor.tsx";
 import { useCaptureSize } from "../preview/use-capture-size.ts";
 import { useViewportSync } from "../preview/use-viewport-sync.ts";
 import { PageContextMenu, type PageMenu } from "./page-context-menu.tsx";
+import { typedByPageKeyboard } from "./page-keyboard.tsx";
+import { PageStateLayer } from "./page-state-layer.tsx";
+import { usePageState } from "./use-page-state.ts";
 import { mouseButton, mouseMove, modifierMask } from "./pointer-input.ts";
 import { localCursor } from "./local-echo.ts";
 import { useLocalEcho } from "./use-local-echo.ts";
@@ -67,6 +70,8 @@ export function PageView(props: {
   const forward = (input: ForwardedInput) =>
     echo.timed(() => props.source.input(props.threadId, input, tabId));
   const keymap = useResolvedKeymap();
+  /** The focused field, picker, cursor shape and tooltip the page reports for this tab. */
+  const page = usePageState(props.source, props.threadId, tabId);
   const appChords = useMemo(
     () =>
       keymapIds
@@ -133,6 +138,8 @@ export function PageView(props: {
     onLongPress: props.menu ? (at) => props.menu?.locate(at) : undefined,
   });
   const onKey = (type: "keyDown" | "keyUp") => (event: KeyboardEvent<HTMLElement>) => {
+    // Text the page keyboard types (an IME, a dead key, a phone's letters) goes as text.
+    if (typedByPageKeyboard(event)) return;
     // Toolbar and app chords are consumed by the ancestors. Editing chords reach the page.
     if (event.defaultPrevented || appChords.some((chord) => matchesChord(event.nativeEvent, chord)))
       return;
@@ -265,6 +272,15 @@ export function PageView(props: {
           pointer={props.tab.pointer}
           page={{ width: frame.width, height: frame.height }}
           picture={picture}
+        />
+      )}
+      {image && live && (
+        <PageStateLayer
+          page={page}
+          pane={pane}
+          picture={picture}
+          frame={frame}
+          forward={(input) => void forward(input)}
         />
       )}
     </div>

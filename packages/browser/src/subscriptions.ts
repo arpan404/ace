@@ -1,11 +1,16 @@
-import type { BrowserAnnotationMessage, BrowserBackendLost, BrowserState } from "@ace/protocol";
+import type {
+  BrowserAnnotationMessage,
+  BrowserBackendLost,
+  BrowserPageMessage,
+  BrowserState,
+} from "@ace/protocol";
 import type { CaptureViewer, FrameFanout, FrameSink } from "./fanout.ts";
 
 type Subscriber = {
   connectionId: string;
   sink: FrameSink;
   state(state: BrowserState): void;
-  event?(event: BrowserBackendLost | BrowserAnnotationMessage): void;
+  event?(event: BrowserBackendLost | BrowserAnnotationMessage | BrowserPageMessage): void;
   stopFrames(): void;
   capture?: CaptureViewer;
 };
@@ -79,7 +84,14 @@ export class BrowserSubscriptions {
       if (state.closed) detachFrames(viewer);
     }
   }
+  /** A tab's page state goes to every viewer of the thread. */
+  page(message: BrowserPageMessage): void {
+    this.broadcast(message);
+  }
   backendLost(event: BrowserBackendLost): void {
+    this.broadcast(event);
+  }
+  private broadcast(event: BrowserBackendLost | BrowserPageMessage): void {
     for (const viewer of this.threads.get(event.threadId) ?? []) {
       try {
         viewer.event?.(event);

@@ -34,6 +34,7 @@ import {
 import { PageView } from "./page-view.tsx";
 import { RecordingIndicator } from "./recording-indicator.tsx";
 import { useCursorStyle } from "./use-cursor-style.ts";
+import { usePageCursor } from "./use-page-state.ts";
 import { ConnectionMark } from "./connection-mark.tsx";
 import { useBrowserTab } from "./use-browser-tab.ts";
 import { useBrowserTabs } from "./use-browser-tabs.ts";
@@ -79,6 +80,8 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
   const extensionsOff = useLocal(extensionsHidden, (value) => value);
   const { live, shown, online } = tabs;
   useCursorStyle(source, threadId);
+  /** The cursor shape the shown tab's page reports under the person's pointer. */
+  const pageCursor = usePageCursor(source, threadId, shown?.tabId);
 
   // Showing this panel tab shows its daemon tab, here and on the person's other devices. Only
   // showing it asks: when the daemon later shows another tab, the panel follows it instead.
@@ -274,6 +277,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
         fit={!tools.toolbar}
         framed={tools.toolbar}
         zoom={shown.zoom}
+        cursor={pageCursor}
         menu={chrome.menu}
         dimmed={!online || live.status === "paused"}
       />

@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserPageTooltip.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "text": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "type": "string"
+    },
+    "x": {
+      "maximum": 100000,
+      "minimum": -100000,
+      "type": "number"
+    },
+    "y": {
+      "maximum": 100000,
+      "minimum": -100000,
+      "type": "number"
+    }
+  },
+  "required": [
+    "text",
+    "x",
+    "y"
+  ],
+  "type": "object"
+}

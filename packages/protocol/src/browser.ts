@@ -14,6 +14,7 @@ import {
   BrowserAnnotationMessage,
   BrowserAnnotationPageCommand,
 } from "./browser-annotation.ts";
+import { BrowserPageMessage } from "./browser-page.ts";
 
 const short = z.string().min(1).max(256);
 const dimension = z.number().int().min(100).max(4096);
@@ -356,6 +357,25 @@ export const BrowserInput = z.discriminatedUnion("kind", [
       .array(z.object({ x: coordinate, y: coordinate, id: z.number().int().min(0).max(9) }))
       .max(10),
   }),
+  /**
+   * IME text being composed, shown marked in the focused field (`Input.imeSetComposition`);
+   * an empty `text` cancels it. A `char` key event commits it.
+   */
+  z.object({
+    kind: z.literal("ime"),
+    text: z.string().max(4096),
+    selectionStart: z.number().int().min(0).max(4096),
+    selectionEnd: z.number().int().min(0).max(4096),
+  }),
+  /**
+   * The person's choice in the page's open picker (`BrowserPagePicker`): the value is set on the
+   * element and its `input` and `change` events fire. Without `values` the picker is dismissed.
+   */
+  z.object({
+    kind: z.literal("pick"),
+    pickerId: short,
+    values: z.array(z.string().max(4096)).max(1000).optional(),
+  }),
 ]);
 export type BrowserInput = z.infer<typeof BrowserInput>;
 export const BrowserOriginBlock = z.object({
@@ -551,5 +571,6 @@ export const BrowserServerMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("browser.state"), state: BrowserState }),
   z.object({ type: z.literal("browser.frame"), threadId: ThreadId, frame: BrowserFrame }),
   BrowserAnnotationMessage,
+  BrowserPageMessage,
 ]);
 export type BrowserServerMessage = z.infer<typeof BrowserServerMessage>;
