@@ -31,7 +31,6 @@ export interface Services {
   externalMcp?: import("../external-mcp/server.ts").ExternalMcp;
   storage?: import("../storage/service.ts").StorageService;
   sourceControl?: import("../source-control.ts").SourceControl;
-  antigravityAuth?: "logged_in" | "logged_out";
   rediscoverProviders?: () => Promise<void>;
   refreshModelInstances?: (provider: import("@ace/protocol").ProviderKind) => Promise<void>;
   providerInstalls?: import("../provider-install/sessions.ts").ProviderInstalls;

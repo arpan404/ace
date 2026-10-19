@@ -6,6 +6,7 @@ import { controlDivider, toolbarEdge } from "@/components/ui/rules.ts";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet.tsx";
 import { useLayout } from "@/lib/layout.tsx";
 import {
+  PanelPlaceContext,
   shownTab,
   type ScopeWorkspace,
   type WorkspaceActions,
@@ -181,6 +182,8 @@ export function WorkspacePanel(props: {
       </Activity>
     </section>
   );
+  // What its views open (a new terminal) opens here, beside them.
+  const placed = <PanelPlaceContext value="side">{content}</PanelPlaceContext>;
   if (dismissable) {
     return (
       <Sheet open={workspace.open} onOpenChange={(open) => actions.setOpen(open)}>
@@ -203,17 +206,17 @@ export function WorkspacePanel(props: {
           )}
         >
           <SheetTitle className="sr-only">{label}</SheetTitle>
-          <Activity mode={workspace.open ? "visible" : "hidden"}>{content}</Activity>
+          <Activity mode={workspace.open ? "visible" : "hidden"}>{placed}</Activity>
         </SheetContent>
       </Sheet>
     );
   }
-  return <Activity mode={workspace.open ? "visible" : "hidden"}>{content}</Activity>;
+  return <Activity mode={workspace.open ? "visible" : "hidden"}>{placed}</Activity>;
 }
 
 /**
- * The panel's toggle outside the panel itself (the header's), to return focus to. On a phone the
- * toggle lives in this screen's header ⋯, closed by now: focus goes back to that ⋯.
+ * The panel's toggle outside the panel itself (the header's), to return focus to. A panel opened
+ * from a tool in the phone's ⋯ still returns to the header's toggle; failing that, to the ⋯.
  */
 function toggleOutside(panel: HTMLElement | null): HTMLElement | undefined {
   // Not one inside a popup (the phone's ⋯): that closes, taking focus with it.

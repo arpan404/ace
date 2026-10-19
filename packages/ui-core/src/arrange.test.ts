@@ -116,15 +116,19 @@ test.each(["not_sent", "uncertain"])(
   },
 );
 
-test("threads the daemon settled stay in Settled in every non-working status", () => {
+test("a settled thread stays in Settled when done or failed, but comes back while it asks", () => {
   const entries = [
     entry("settled", { state: "done" }, now - 2 * hour, { settledAt: now - hour }),
+    entry("failed", { state: "failed" }, now - 3 * hour, { settledAt: now - hour }),
     entry("fresh", { state: "done" }, now - hour),
-    entry("asks", { state: "needs_you", interactions: 1 }, now, { settledAt: now - hour }),
+    entry("asks", { state: "needs_you", interactions: 1 }, now, {
+      settledAt: now - hour,
+      settledReason: "manual",
+    }),
   ];
   const result = arrange(entries, state(), now);
-  expect(result.settled).toEqual(["asks", "settled"]);
-  expect(result.active).toEqual([]);
+  expect(result.settled).toEqual(["settled", "failed"]);
+  expect(result.active).toEqual(["asks"]);
   expect(result.recent).toEqual(["fresh"]);
 });
 
@@ -233,7 +237,16 @@ test("sorted by hand, threads follow the places the person gave them and a new o
   ]);
 });
 
-test("Settled and Snoozed stay by recency whatever the sort", () => {
+test("Snoozed lists what wakes soonest first", () => {
+  const entries = [
+    entry("tomorrow", { state: "done" }, now, { snoozedUntil: now + 24 * hour }),
+    entry("tonight", { state: "done" }, now - 5 * hour, { snoozedUntil: now + 3 * hour }),
+    entry("soon", { state: "done" }, now - 9 * hour, { snoozedUntil: now + hour }),
+  ];
+  expect(arrange(entries, state(), now).snoozed).toEqual(["soon", "tonight", "tomorrow"]);
+});
+
+test("Settled stays by recency whatever the sort", () => {
   const entries = [
     entry("settled-old", { state: "done" }, now - 9 * hour, {
       createdAt: 9,

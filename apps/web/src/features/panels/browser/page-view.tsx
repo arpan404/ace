@@ -22,6 +22,14 @@ import { AgentCursor } from "./agent-cursor.tsx";
 import { useCaptureSize } from "../preview/use-capture-size.ts";
 import { useViewportSync } from "../preview/use-viewport-sync.ts";
 import { PageContextMenu, type PageMenu } from "./page-context-menu.tsx";
+import { typedByPageKeyboard } from "./page-keyboard.tsx";
+import { PageStateLayer } from "./page-state-layer.tsx";
+import { usePageState } from "./use-page-state.ts";
+import { mouseButton, mouseMove, modifierMask } from "./pointer-input.ts";
+import { localCursor } from "./local-echo.ts";
+import { useLocalEcho } from "./use-local-echo.ts";
+import { LocalEchoOverlay } from "./local-echo-overlay.tsx";
+import { useTouchInput, useTouchScreen } from "./use-touch-input.ts";
 
 /**
  * The page itself, edge to edge in the panel: the screencast frame on the panel's own surface,
@@ -50,14 +58,20 @@ export function PageView(props: {
   menu?: PageMenu | undefined;
   /** Dimmed with a reason over it (offline, paused). */
   dimmed?: boolean;
+  /** The page's cursor shape under the person's pointer (a CSS keyword); the arrow if absent. */
+  cursor?: string | undefined;
 }) {
   const { frame } = props;
   const tabId = props.tab?.tabId;
-  /** The person's input, to the shown tab by name. */
-  const forward = (input: ForwardedInput) => props.source.input(props.threadId, input, tabId);
   const pane = useRef<HTMLDivElement>(null);
   const picture = useRef<HTMLImageElement>(null);
+  const echo = useLocalEcho(props.threadId, frame);
+  /** The person's input, to the shown tab by name, timed for the ⋯ menu's round trip. */
+  const forward = (input: ForwardedInput) =>
+    echo.timed(() => props.source.input(props.threadId, input, tabId));
   const keymap = useResolvedKeymap();
+  /** The focused field, picker, cursor shape and tooltip the page reports for this tab. */
+  const page = usePageState(props.source, props.threadId, tabId);
   const appChords = useMemo(
     () =>
       keymapIds
@@ -68,7 +82,8 @@ export function PageView(props: {
         .filter((chord) => chord.mod || chord.ctrl || chord.alt),
     [keymap],
   );
-  useViewportSync(props.source, props.threadId, pane, props.fit && props.interactive);
+  const touchScreen = useTouchScreen();
+  useViewportSync(props.source, props.threadId, pane, props.fit && props.interactive, touchScreen);
   useCaptureSize(props.source, props.threadId, pane);
   // Pointer positions map back to page pixels through the picture's rendered box.
   const point = (event: MouseEvent<HTMLElement>) => {
@@ -83,40 +98,48 @@ export function PageView(props: {
     if (mouse.button > 2) return;
     // A right click opens ace's menu; with ⇧ it goes to the page (its own menus).
     if (mouse.button === 2 && props.menu && !mouse.shiftKey) return;
-    if (event === "mousePressed") mouse.currentTarget.focus();
-    forward({
-      kind: "mouse",
-      event,
-      ...point(mouse),
-      button: mouse.button === 1 ? "middle" : mouse.button === 2 ? "right" : "left",
-      clickCount: Math.max(1, mouse.detail),
-    });
+    const input = mouseButton(event, point(mouse), mouse);
+    if (!input) return;
+    if (event === "mousePressed") {
+      mouse.currentTarget.focus();
+      const box = mouse.currentTarget.getBoundingClientRect();
+      echo.ripple(mouse.clientX - box.left, mouse.clientY - box.top);
+    }
+    void forward(input);
   };
   const move = useRef<ForwardedInput | undefined>(undefined);
   const scheduledMove = useRef(0);
   useEffect(() => () => cancelAnimationFrame(scheduledMove.current), []);
   const onMove = (event: MouseEvent<HTMLElement>) => {
-    move.current = {
-      kind: "mouse",
-      event: "mouseMoved",
-      ...point(event),
-      button: event.buttons & 1 ? "left" : "none",
-    };
+    move.current = mouseMove(point(event), event);
     if (!scheduledMove.current)
       scheduledMove.current = requestAnimationFrame(() => {
         scheduledMove.current = 0;
-        if (move.current) forward(move.current);
+        if (move.current) void forward(move.current);
       });
   };
   const onWheel = (event: WheelEvent<HTMLElement>) => {
-    forward({
+    const deltaX = Math.round(event.deltaX);
+    const deltaY = Math.round(event.deltaY);
+    const sent = forward({
       kind: "scroll",
       ...point(event),
-      deltaX: Math.round(event.deltaX),
-      deltaY: Math.round(event.deltaY),
+      deltaX,
+      deltaY,
+      modifiers: modifierMask(event),
     });
+    // Ctrl+wheel is a pinch or the page's zoom, not a scroll to show ahead of the frame.
+    if (!event.ctrlKey) echo.scroll(deltaX, deltaY, sent);
   };
+  const touch = useTouchInput({
+    locate: (event) => point(event),
+    send: forward,
+    echo,
+    onLongPress: props.menu ? (at) => props.menu?.locate(at) : undefined,
+  });
   const onKey = (type: "keyDown" | "keyUp") => (event: KeyboardEvent<HTMLElement>) => {
+    // Text the page keyboard types (an IME, a dead key, a phone's letters) goes as text.
+    if (typedByPageKeyboard(event)) return;
     // Toolbar and app chords are consumed by the ancestors. Editing chords reach the page.
     if (event.defaultPrevented || appChords.some((chord) => matchesChord(event.nativeEvent, chord)))
       return;
@@ -168,6 +191,7 @@ export function PageView(props: {
       src={frame.src}
       alt={`Live view of ${props.view.url}`}
       draggable={false}
+      style={echo.pictureStyle}
       width={Math.round(frame.width * zoom)}
       height={Math.round(frame.height * zoom)}
       className={cn(
@@ -217,6 +241,10 @@ export function PageView(props: {
       onMouseDown={live ? send("mousePressed") : undefined}
       onMouseUp={live ? send("mouseReleased") : undefined}
       onWheel={live ? onWheel : undefined}
+      onPointerDown={live ? touch.onPointerDown : undefined}
+      onPointerMove={live ? touch.onPointerMove : undefined}
+      onPointerUp={live ? touch.onPointerUp : undefined}
+      onPointerCancel={live ? touch.onPointerCancel : undefined}
       onContextMenu={
         !live
           ? undefined
@@ -227,9 +255,16 @@ export function PageView(props: {
       onKeyDown={live ? onKey("keyDown") : undefined}
       onKeyUp={live ? onKey("keyUp") : undefined}
       onPaste={live ? paste : undefined}
-      className={cn(className, "outline-none", live && "cursor-default focus-ring-inset")}
+      style={live ? { cursor: localCursor(props.cursor) } : undefined}
+      className={cn(
+        className,
+        "outline-none",
+        // Gestures go to the page, never pan or zoom ace, and a long press is the page's.
+        live && "touch-none select-none focus-ring-inset [-webkit-touch-callout:none]",
+      )}
     >
       {image}
+      {image && live && <LocalEchoOverlay ripples={echo.ripples} onSettled={echo.settled} />}
       {image && props.tab?.inUse && props.tab.pointer && !inPage && (
         <AgentCursor
           threadId={props.threadId}
@@ -237,6 +272,15 @@ export function PageView(props: {
           pointer={props.tab.pointer}
           page={{ width: frame.width, height: frame.height }}
           picture={picture}
+        />
+      )}
+      {image && live && (
+        <PageStateLayer
+          page={page}
+          pane={pane}
+          picture={picture}
+          frame={frame}
+          forward={(input) => void forward(input)}
         />
       )}
     </div>

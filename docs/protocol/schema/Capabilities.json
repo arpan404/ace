@@ -105,6 +105,9 @@
     "forkSubagents": {
       "type": "boolean"
     },
+    "goals": {
+      "type": "boolean"
+    },
     "imageInput": {
       "type": "boolean"
     },

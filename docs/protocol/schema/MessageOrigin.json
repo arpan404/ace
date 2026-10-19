@@ -49,6 +49,13 @@
     "role": {
       "type": "string"
     },
+    "sources": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/HandoffModel.json"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
     "threadIds": {
       "items": {
         "$ref": "https://ace.local/protocol/v1/ThreadId.json"

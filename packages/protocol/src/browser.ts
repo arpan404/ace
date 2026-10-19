@@ -14,6 +14,7 @@ import {
   BrowserAnnotationMessage,
   BrowserAnnotationPageCommand,
 } from "./browser-annotation.ts";
+import { BrowserPageMessage } from "./browser-page.ts";
 
 const short = z.string().min(1).max(256);
 const dimension = z.number().int().min(100).max(4096);
@@ -197,7 +198,21 @@ export const BrowserCommand = z.discriminatedUnion("action", [
     status: z.number().int().min(100).max(599).optional(),
     limit: z.number().int().min(1).max(200).default(100),
   }),
-  commandBase.extend({ action: z.literal("resize"), width: dimension, height: dimension }),
+  commandBase.extend({
+    action: z.literal("resize"),
+    width: dimension,
+    height: dimension,
+    /**
+     * Person-only: the pane is on a touch screen. The page lays out as a phone's or tablet's
+     * (the mobile flag) and gets touch events; agents' resizes ignore it.
+     */
+    touch: z.boolean().optional(),
+    /**
+     * The resizing viewer's device pixel ratio: ace's Chrome renders the page that sharp, up to
+     * 3, so a high-density screen gets pixels instead of an upscaled picture.
+     */
+    devicePixelRatio: z.number().finite().min(1).max(4).optional(),
+  }),
   commandBase.extend({
     action: z.literal("emulate"),
     width: dimension,
@@ -309,7 +324,14 @@ export const BrowserInput = z.discriminatedUnion("kind", [
     x: coordinate,
     y: coordinate,
     button: z.enum(["none", "left", "middle", "right"]).default("left"),
+    /**
+     * The buttons held during the event, as a bit mask (left 1, right 2, middle 4); absent: the
+     * one `button` names, none on release.
+     */
+    buttons: z.number().int().min(0).max(7).optional(),
     clickCount: z.number().int().min(0).max(3).default(1),
+    /** Keys held during the event: Alt 1, Ctrl 2, Meta 4, Shift 8. */
+    modifiers: z.number().int().min(0).max(15).default(0),
   }),
   z.object({
     kind: z.literal("key"),
@@ -325,6 +347,8 @@ export const BrowserInput = z.discriminatedUnion("kind", [
     y: coordinate,
     deltaX: coordinate,
     deltaY: coordinate,
+    /** Keys held during the event: Alt 1, Ctrl 2, Meta 4, Shift 8. */
+    modifiers: z.number().int().min(0).max(15).default(0),
   }),
   z.object({
     kind: z.literal("touch"),
@@ -332,6 +356,25 @@ export const BrowserInput = z.discriminatedUnion("kind", [
     points: z
       .array(z.object({ x: coordinate, y: coordinate, id: z.number().int().min(0).max(9) }))
       .max(10),
+  }),
+  /**
+   * IME text being composed, shown marked in the focused field (`Input.imeSetComposition`);
+   * an empty `text` cancels it. A `char` key event commits it.
+   */
+  z.object({
+    kind: z.literal("ime"),
+    text: z.string().max(4096),
+    selectionStart: z.number().int().min(0).max(4096),
+    selectionEnd: z.number().int().min(0).max(4096),
+  }),
+  /**
+   * The person's choice in the page's open picker (`BrowserPagePicker`): the value is set on the
+   * element and its `input` and `change` events fire. Without `values` the picker is dismissed.
+   */
+  z.object({
+    kind: z.literal("pick"),
+    pickerId: short,
+    values: z.array(z.string().max(4096)).max(1000).optional(),
   }),
 ]);
 export type BrowserInput = z.infer<typeof BrowserInput>;
@@ -461,7 +504,18 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
     url: z.string().max(8192),
   }),
   base.extend({ type: z.literal("browser.execute"), command: BrowserCommand }),
-  base.extend({ type: z.literal("browser.subscribe"), subscriberId: short.optional() }),
+  base.extend({
+    type: z.literal("browser.subscribe"),
+    subscriberId: short.optional(),
+    /**
+     * Send this connection's frames as binary stream messages (an `ACES` envelope with the raw
+     * JPEG) instead of `browser.frame` JSON with base64. Ignored where the transport has no
+     * binary messages.
+     */
+    binaryFrames: z.boolean().optional(),
+    /** What this viewer shows, as `browser.capture` reports it, so its first frame fits it. */
+    viewport: BrowserCaptureViewport.optional(),
+  }),
   base.extend({ type: z.literal("browser.capture"), viewport: BrowserCaptureViewport }),
   base.extend({ type: z.literal("browser.unsubscribe"), subscriberId: short.optional() }),
   base.extend({ type: z.literal("browser.ack"), sequence: z.number().int().nonnegative() }),
@@ -517,5 +571,6 @@ export const BrowserServerMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("browser.state"), state: BrowserState }),
   z.object({ type: z.literal("browser.frame"), threadId: ThreadId, frame: BrowserFrame }),
   BrowserAnnotationMessage,
+  BrowserPageMessage,
 ]);
 export type BrowserServerMessage = z.infer<typeof BrowserServerMessage>;

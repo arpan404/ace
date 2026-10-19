@@ -41,7 +41,7 @@ import { WorkSide } from "../header/work-side.tsx";
 import { AskParentRetry } from "./ask-parent-retry.tsx";
 import { SubagentFocusProvider } from "./focus.ts";
 import { SubagentLiveLine } from "./subagent-live-line.tsx";
-import { SubagentStatusBar } from "./subagent-status-bar.tsx";
+import { barAction, SubagentStatusBar } from "./subagent-status-bar.tsx";
 import { SubagentPrompt } from "./subagent-prompt.tsx";
 
 /** A dialog, menu or list open over the page takes Esc for itself; a closed, kept one doesn't. */
@@ -186,7 +186,6 @@ function SubagentBottom(props: { threadId: string; agent: Agent; root: boolean }
         phase={phase}
         startedAt={agent.createdAt}
         endedAt={subagentEnded(phase) ? branch?.end : undefined}
-        runs={agent.background ? "Runs in the background" : "Runs on its own"}
         parent={
           agent.parentId
             ? props.root
@@ -201,6 +200,8 @@ function SubagentBottom(props: { threadId: string; agent: Agent; root: boolean }
                   threadId={threadId}
                   agent={agent}
                   pending
+                  variant="ghost"
+                  className={barAction}
                   subagents={node ? countSubagents(node) : 0}
                 />
               )

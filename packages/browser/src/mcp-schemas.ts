@@ -31,7 +31,9 @@ export const browserOpenShape = {
   waitUntil: z
     .enum(["domcontentloaded", "load", "networkidle"])
     .optional()
-    .describe("With url: when to return (default domcontentloaded)."),
+    .describe(
+      "With url: when to return (default domcontentloaded). networkidle: no request for 500 ms; sockets, event streams and requests open over 5 s (a dev server's reload channel, long polls) don't count.",
+    ),
 };
 
 export const browserTabsShape = {
@@ -226,7 +228,9 @@ export const browserWaitShape = {
   networkIdle: z
     .literal(true)
     .optional()
-    .describe("Wait until no request is in flight for 500 ms, such as after a save."),
+    .describe(
+      "Wait until no request is in flight for 500 ms, such as after a save. Sockets, event streams and requests open over 5 s don't count.",
+    ),
   timeMs: z
     .number()
     .int()

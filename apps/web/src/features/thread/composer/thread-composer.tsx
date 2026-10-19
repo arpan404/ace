@@ -17,6 +17,7 @@ import {
   choiceSelection,
   currentModelChoice,
   followUpTurnOptions,
+  parseGoalCommand,
   runningSubagents,
   type AttachmentReader,
 } from "@ace/ui-core";
@@ -42,12 +43,12 @@ import {
 } from "./deferred-parts.tsx";
 import { DeferredComposerStrip } from "./deferred-cards.ts";
 import { finishQueueEdit, queueEditSession, saveQueueEdit } from "./queue-edit.ts";
-import { UsageNotice } from "./usage-notice.tsx";
 import { lastSentText } from "./last-sent.ts";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { clearStop, recordStop, useStopFence, useStopping } from "./stop-state.ts";
 import { useNavigate } from "@tanstack/react-router";
 import { failureMessage } from "@/lib/daemon-command.ts";
+import { useGoalCommand } from "./goal-command.ts";
 import { useThreadSources } from "../sources/index.ts";
 import {
   ContinuationRefused,
@@ -94,6 +95,7 @@ export function ThreadComposer({
   const time = useContext(TimeContext);
   const toast = useToast();
   const meta = useThreadMeta(props.thread.id);
+  const changeGoal = useGoalCommand(props.thread.id);
   // Read when ↑ asks, never subscribed: the transcript changing doesn't re-render the composer.
   const transcript = useThreadStore(props.thread.id);
   const modelChoices = useModelChoices();
@@ -167,6 +169,17 @@ export function ThreadComposer({
   const submit = async (draft: Draft) => {
     if (continuing) return continueThread(draft, continuing);
     if (queueEditSession(props.thread.id)) return saveEdit(draft);
+    // `/goal …` sets, pauses or clears the provider's own goal where ace drives it natively;
+    // with files or mentions it is a message like any other.
+    const goal =
+      meta?.capabilities?.goals && !draft.files.local.length && !draft.mentions.length
+        ? parseGoalCommand(draft.text)
+        : undefined;
+    if (goal) {
+      const changed = await changeGoal(goal);
+      if (changed) draft.files.release();
+      return changed;
+    }
     // Never send options picked for another selection; the controls are re-checking them.
     const commandId = crypto.randomUUID();
     // While the agent works the delivery is said outright, so this window knows at once
@@ -344,7 +357,6 @@ export function ThreadComposer({
         sendsWhileUploading
         attached={
           <Suspense fallback={null}>
-            <UsageNotice threadId={props.thread.id} />
             <DeferredComposerStrip.Component
               key={props.thread.id}
               threadId={props.thread.id}

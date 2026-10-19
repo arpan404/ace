@@ -19,6 +19,7 @@ export type {
   TextReadOptions,
 } from "./types.ts";
 export { webSocketTransport } from "./transport.ts";
+export type { BrowserFrameBytes, StreamMessage } from "@ace/browser/stream";
 export type { SocketLike } from "./transport.ts";
 export type { Selection, ChangeTap } from "./observable.ts";
 export { Notifications } from "./observable.ts";

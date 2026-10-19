@@ -10,8 +10,8 @@ import {
 import { focusPanelSoon } from "./panel-focus.ts";
 
 /**
- * The side panel's shortcuts, bound while a screen with one shows (keymap.ts lists them).
- * Opening the panel or showing a tool by shortcut moves focus into the panel; hiding it with
+ * The side and bottom panels' shortcuts, bound while a screen with them shows (keymap.ts lists
+ * them). Opening the panel or showing a tool by shortcut moves focus into the panel; hiding it with
  * focus inside hands focus back (`useFocusBackOnHide`).
  */
 export function WorkspaceHotkeys(props: {
@@ -52,17 +52,28 @@ export function WorkspaceHotkeys(props: {
   });
   // Bound from first paint: the definition names each tool's shortcut, so they work before the
   // kinds' code has loaded (the action waits for it). A tool shown this way takes focus; one
-  // hidden by it (already showing) hands focus back as the panel goes.
-  return Object.entries(props.definition.shortcuts ?? {}).map(([kind, shortcut]) => (
-    <KindShortcut
-      key={kind}
-      shortcut={shortcut}
-      onPress={() => {
-        actions.shortcut(kind);
-        focusPanelSoon(props.root());
-      }}
-    />
-  ));
+  // hidden by it (already showing) hands focus back as the panel goes. A tool shown in the
+  // bottom panel is focused by that panel.
+  const press = (kind: string) => {
+    const place = actions.placeFor(kind);
+    actions.shortcut(kind);
+    if (place === "side") focusPanelSoon(props.root());
+  };
+  const bottomKind = props.definition.bottom?.kinds[0];
+  return (
+    <>
+      {bottomKind && (
+        <KindShortcut
+          key="terminalPanel"
+          shortcut="terminalPanel"
+          onPress={() => press(bottomKind)}
+        />
+      )}
+      {Object.entries(props.definition.shortcuts ?? {}).map(([kind, shortcut]) => (
+        <KindShortcut key={kind} shortcut={shortcut} onPress={() => press(kind)} />
+      ))}
+    </>
+  );
 }
 
 function KindShortcut(props: { shortcut: KeymapId; onPress(): void }) {

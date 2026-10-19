@@ -201,11 +201,19 @@ test("a resetless limit refuses a timed action, and the person's next message is
 
 test("move to another account binds native continuation and following messages to the migrated session", async () => {
   const { h, id, replacement } = await limitedThread({
-    recovery: {
-      migrate: async (_id, target) => {
-        if (target !== "account-b") throw new Error("Unavailable target");
-        return { nativeSessionId: "migrated-native", instanceId: target };
-      },
+    account: "account-a",
+    recovery: { moveTarget: (_id, requested) => requested ?? "account-b" },
+    transitions: {
+      applyPatch: async () => {},
+      migrate: async (request) =>
+        request.to === "account-b"
+          ? {
+              status: "migrated",
+              nativeSessionId: "migrated-native",
+              action: "resume",
+              copiedFiles: 1,
+            }
+          : { status: "refused", reason: "Unavailable target" },
     },
   });
   expect(
@@ -232,10 +240,11 @@ test("move to another account binds native continuation and following messages t
 
 test("migration refusal retains the source binding and exposes an actionable held queue", async () => {
   const { h, id, replacement } = await limitedThread({
-    recovery: {
-      migrate: async () => {
-        throw new Error("Writer exclusion unavailable");
-      },
+    account: "account-a",
+    recovery: { moveTarget: (_id, requested) => requested ?? "account-b" },
+    transitions: {
+      applyPatch: async () => {},
+      migrate: async () => ({ status: "refused", reason: "Writer exclusion unavailable" }),
     },
   });
   const metadata = h.engine.sessionMetadata(id);

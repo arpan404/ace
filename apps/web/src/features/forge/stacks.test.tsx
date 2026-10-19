@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { ForgePrDetail, ForgeStackWorkspace, ThreadId, WorkspaceId } from "@ace/protocol";
 import { workbench } from "@ace/fake-daemon";
 import { harness } from "@/test/harness.tsx";
+import { actionErrorText } from "@ace/ui-core";
 import { openPullRequest } from "./test-support.ts";
 
 // The PR tab loads on first use. Load it before any test, so the first one waits only for
@@ -123,10 +124,21 @@ function setup(value = stack, linked = true) {
 }
 beforeEach(() => localStorage.clear());
 
+/** Open the stack from the header's chip ("2/3"). */
+async function openStack() {
+  await userEvent.click(await screen.findByRole("button", { name: "Stack #2, layer 2 of 3" }));
+  return screen.findByRole("region", { name: "Pull request stack" });
+}
+
 test("a middle layer reveals merge blockers on expand and reviews the native merge scope and method before execution", async () => {
   const app = setup();
   await openPullRequest(app, { project: "api", number: 42 });
-  const section = await screen.findByRole("region", { name: "Pull request stack" });
+  // A stacked PR merges through the stack, never through the single-PR merge button.
+  const panel = within(await screen.findByRole("article", { name: "Pull request #42" }));
+  expect(
+    (await panel.findByRole<HTMLButtonElement>("button", { name: "Squash and merge" })).disabled,
+  ).toBe(true);
+  const section = await openStack();
   const details = await within(section).findByRole("button", { name: "Details for #42" });
   expect(within(section).queryByText("Blocked by merge rules")).toBeNull();
   await userEvent.click(details);
@@ -140,9 +152,6 @@ test("a middle layer reveals merge blockers on expand and reviews the native mer
   expect(
     within(section).getByRole("button", { name: "Layer 2: #42 API" }).getAttribute("aria-current"),
   ).toBe("page");
-  expect(
-    screen.getByRole<HTMLButtonElement>("button", { name: "Enable auto-merge" }).disabled,
-  ).toBe(true);
   expect(
     within(section).getByRole<HTMLButtonElement>("button", { name: "Rebase local stack" }).disabled,
   ).toBe(true);
@@ -170,7 +179,7 @@ test("a refreshed uncertain request blocks another merge and remains visible aft
     }),
   );
   await openPullRequest(app, { project: "api", number: 42 });
-  const section = await screen.findByRole("region", { name: "Pull request stack" });
+  const section = await openStack();
   expect(
     await within(section).findByText(
       "Merge outcome unknown · Inspect GitHub before repeating this request.",
@@ -194,11 +203,13 @@ test("a refreshed uncertain request blocks another merge and remains visible aft
       },
     },
   );
-  await userEvent.click(within(section).getByRole("button", { name: "Refresh stack" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Refresh" }));
+  const refreshed = await openStack();
   expect(
-    await within(section).findByText(/Merge outcome unknown · The original stack changed/),
+    await within(refreshed).findByText(/Merge outcome unknown · The original stack changed/),
   ).toBeTruthy();
-  expect(within(section).queryByRole("button", { name: "Merge through #42" })).toBeNull();
+  expect(within(refreshed).queryByRole("button", { name: "Merge through #42" })).toBeNull();
 });
 
 test("a cancelled required check blocks its layer even when GitHub's rollup and merge state look clean", async () => {
@@ -224,7 +235,7 @@ test("a cancelled required check blocks its layer even when GitHub's rollup and 
     }),
   );
   await openPullRequest(app, { project: "api", number: 42 });
-  const section = await screen.findByRole("region", { name: "Pull request stack" });
+  const section = await openStack();
   expect(within(section).getByRole("img", { name: "Tests failing" })).toBeTruthy();
   await userEvent.click(within(section).getByRole("button", { name: "Details for #43" }));
   expect(within(section).getByText("Blocked by failing required checks")).toBeTruthy();
@@ -239,7 +250,7 @@ test("a cancelled required check blocks its layer even when GitHub's rollup and 
 test("no linked task leaves stack navigation available while remote writes require an explicit association", async () => {
   const app = setup(stack, false);
   await openPullRequest(app, { project: "api", number: 42 });
-  const section = await screen.findByRole("region", { name: "Pull request stack" });
+  const section = await openStack();
   await within(section).findByText("No linked task");
   expect(
     within(section).getByRole<HTMLButtonElement>("button", { name: "Merge through #42" }).disabled,
@@ -285,7 +296,7 @@ test("a locally rebased stack reviews each layer's leased push before publishing
   const app = setup(value);
   app.daemon.refuseCommands("forge_conflict", "forge.pr.stack.change");
   await openPullRequest(app, { project: "api", number: 42 });
-  const section = await screen.findByRole("region", { name: "Pull request stack" });
+  const section = await openStack();
   await within(section).findByText("Rebased, not pushed");
   expect(within(section).queryByText(/not yet pushed/)).toBeNull();
   expect(within(section).queryByText(/push_partial/)).toBeNull();
@@ -318,7 +329,7 @@ test("layers a collaborator moved on GitHub are listed with both heads and block
     rebasedStack([{ number: 42, branch: "api", reviewed: "b".repeat(40), current: theirs }]),
   );
   await openPullRequest(app, { project: "api", number: 42 });
-  const section = await screen.findByRole("region", { name: "Pull request stack" });
+  const section = await openStack();
   const moved = await within(section).findByRole("list", { name: "Layers moved on GitHub" });
   expect(
     within(moved)
@@ -328,9 +339,8 @@ test("layers a collaborator moved on GitHub are listed with both heads and block
   const publish = within(section).getByRole<HTMLButtonElement>("button", {
     name: "Publish stack",
   });
-  const refresh = within(section).getByRole<HTMLButtonElement>("button", { name: "Refresh stack" });
   // Once the read settles, the same rebased stack without moved layers enables Publish.
-  await waitFor(() => expect(refresh.disabled).toBe(false));
+  await waitFor(() => expect(within(section).queryByText("Refreshing…")).toBeNull());
   expect(publish.disabled).toBe(true);
 });
 
@@ -341,7 +351,7 @@ test("moved layers can be brought into the stack after reviewing each layer's ne
   );
   app.daemon.refuseCommands("forge_conflict", "forge.pr.stack.change");
   await openPullRequest(app, { project: "api", number: 42 });
-  const section = await screen.findByRole("region", { name: "Pull request stack" });
+  const section = await openStack();
   const bring = await within(section).findByRole<HTMLButtonElement>("button", {
     name: "Bring in GitHub commits",
   });
@@ -367,7 +377,7 @@ test("a sync stopped on a conflict offers Continue and Abort", async () => {
   };
   const app = setup(conflict);
   await openPullRequest(app, { project: "api", number: 42 });
-  const section = await screen.findByRole("region", { name: "Pull request stack" });
+  const section = await openStack();
   await within(section).findByText(/Sync conflict/);
   expect(within(section).getByRole("button", { name: "Continue sync" })).toBeTruthy();
   expect(within(section).getByRole("button", { name: "Abort sync" })).toBeTruthy();
@@ -383,7 +393,7 @@ test("a sync interrupted without a result can only be aborted", async () => {
   };
   const app = setup(interrupted);
   await openPullRequest(app, { project: "api", number: 42 });
-  const section = await screen.findByRole("region", { name: "Pull request stack" });
+  const section = await openStack();
   expect(await within(section).findByRole("button", { name: "Abort sync" })).toBeTruthy();
   expect(within(section).queryByRole("button", { name: "Continue sync" })).toBeNull();
 });
@@ -397,7 +407,7 @@ test.each([
     const app = setup();
     app.daemon.refuseCommands(error, "forge.pr.stack.change");
     await openPullRequest(app, { project: "api", number: 42 });
-    const section = await screen.findByRole("region", { name: "Pull request stack" });
+    const section = await openStack();
     const merge = await within(section).findByRole<HTMLButtonElement>("button", {
       name: "Merge through #42",
     });
@@ -416,3 +426,35 @@ test.each([
     expect(screen.getByRole("heading", { name: "API" })).toBeTruthy();
   },
 );
+
+test("a stack read that fails says why in one sentence with Retry, and Retry loads the stack", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  // Only the PR itself is readable: the daemon answers the stack read with its own code.
+  for (const read of [
+    { op: "forge.pr.detail", workspaceId, number: 42 },
+    { op: "forge.pr.detail", workspaceId, repository, number: 42 },
+  ] as const)
+    app.daemon.workspace.setForgeRead(read, { resource: "prDetail", value: detail(42) });
+  // GitHub says the PR is a layer, so the header offers its stack.
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.stack-memberships", workspaceId, repository, numbers: [42] },
+    {
+      resource: "prStackMemberships",
+      value: [
+        { number: 42, stack: { id: "STACK_2", number: 2, trunk: "main", size: 3, position: 2 } },
+      ],
+    },
+  );
+  await openPullRequest(app, { project: "api", number: 42 });
+  const section = await openStack();
+  expect(await within(section).findByText(actionErrorText("forge_not_found"))).toBeTruthy();
+  expect(within(section).queryByText(/The daemon couldn't do that/)).toBeNull();
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.stack", workspaceId, repository, threadId, number: 42 },
+    { resource: "prStack", value: stack },
+  );
+  await userEvent.click(within(section).getByRole("button", { name: "Retry" }));
+  expect(await within(section).findByRole("button", { name: "Layer 2: #42 API" })).toBeTruthy();
+  expect(within(section).queryByText(actionErrorText("forge_not_found"))).toBeNull();
+});

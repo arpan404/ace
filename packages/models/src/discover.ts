@@ -7,6 +7,7 @@ import {
   type SupervisedProcess,
 } from "@ace/provider-kit/process";
 import { JsonRpcPeer } from "@ace/provider-kit/jsonrpc";
+import { openWithSignIn } from "@ace/provider-kit/acp-sign-in";
 import { z } from "zod";
 import { discoverListedModels } from "./list-discovery.ts";
 import { discoverOpenCodeCatalog } from "./opencode-discovery.ts";
@@ -154,10 +155,12 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
           ),
         );
       void initialized;
-      const session = await rpc.request(
-        "session/new",
-        { cwd: instance.cwd, mcpServers: [] },
-        { signal },
+      const peer = rpc;
+      const session = await openWithSignIn(
+        peer,
+        instance.signInMethod,
+        () => peer.request("session/new", { cwd: instance.cwd, mcpServers: [] }, { signal }),
+        signal,
       );
       return normalizeAcp(session, instance);
     }

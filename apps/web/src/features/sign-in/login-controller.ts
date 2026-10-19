@@ -151,6 +151,17 @@ export class LoginController {
     void this.ask({ type: "provider.login.apiKey", session: this.session, apiKey });
   }
 
+  /** The code the sign-in page shows, for the CLI's own prompt; cleared once sent. */
+  submitCode(code: string): void {
+    if (
+      !this.session ||
+      this.current.kind !== "progress" ||
+      this.current.progress.codeEntry !== true
+    )
+      return;
+    void this.ask({ type: "provider.login.input", session: this.session, input: { code } });
+  }
+
   /** True only the first time: a sign-in opens its page by itself at most once. */
   claimPageOpen(): boolean {
     if (this.openedPage) return false;
@@ -264,6 +275,8 @@ export class LoginController {
       return undefined;
     } finally {
       if (request.type === "provider.login.apiKey") request.apiKey = "";
+      if (request.type === "provider.login.input" && "code" in request.input)
+        request.input.code = "";
       this.patch({ sending: false });
     }
   }

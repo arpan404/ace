@@ -101,7 +101,7 @@ for (const theme of ["light", "dark"])
       });
 
       await page.goto("/t/thread-install-page");
-      const plan = page.getByRole("region", { name: "Plan", exact: true });
+      const plan = page.getByRole("region", { name: "Tasks", exact: true });
       await expect(plan).toBeVisible();
       const planBox = await plan.boundingBox();
       expect(planBox?.y).toBeLessThan((await composerBox(page)).y);
@@ -156,7 +156,7 @@ for (const theme of screenThemes.slice(2))
     await page.getByRole("combobox", { name: "Message", exact: true }).focus();
     await page.screenshot({ animations: "disabled", path: `${shots}/new-thread-${theme}-390.png` });
     await page.goto("/t/thread-install-page");
-    await expect(page.getByRole("region", { name: "Plan", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Tasks", exact: true })).toBeVisible();
     await below(page, page.getByRole("region", { name: "Environment", exact: true }));
     await expect(
       page.getByText("Drafting the page from the daemon's CLI help.", { exact: true }),

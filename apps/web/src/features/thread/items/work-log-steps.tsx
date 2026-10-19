@@ -1,9 +1,10 @@
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import type { Item, ToolSurface } from "@ace/protocol";
-import { isMeasurementCall, type StepText } from "@ace/ui-core";
+import { isMeasurementCall, opensAgentPage, type StepText } from "@ace/ui-core";
 import type { AceToolContext } from "@ace/ui-core/ace-tools";
 import { Suspense, useId } from "react";
 import { cn } from "@/lib/cn.ts";
+import { useShowBrowserPanel } from "@/features/panels/index.ts";
 import { DeferredMeasurementStep } from "./deferred-measurement.ts";
 import { MessageAttachments } from "@/components/attachment-message.tsx";
 import { StepDetail } from "./step-detail.tsx";
@@ -45,7 +46,14 @@ export function ToolStepContent(props: {
         <StepProse threadId={props.threadId} itemId={props.itemId} />
       </li>
     );
-  const line = (
+  const line = opensAgentPage(item) ? (
+    <PageStepLine
+      threadId={props.threadId}
+      itemId={props.itemId}
+      data={display}
+      surface={props.surface}
+    />
+  ) : (
     <StepLine
       threadId={props.threadId}
       itemId={props.itemId}
@@ -113,28 +121,62 @@ function StepLine(props: {
   );
 }
 
-/** One quiet step row: glyph or spinner, verb, target, diff stat and note. */
-export function StepRow(props: {
+/**
+ * An agent opening a page in the thread's browser. The page is one of the thread's Browser tabs,
+ * so the row brings the Browser forward in the side panel, whether or not this device opens the
+ * panel by itself when an agent opens a page.
+ */
+function PageStepLine(props: {
   threadId: string;
-  step: StepText;
-  item?: Item | undefined;
+  itemId: string;
+  data: ReturnType<typeof useStepDisplay>;
   surface?: ToolSurface | undefined;
-  open: boolean;
-  panel: string;
-  onToggle(): void;
-  expandable?: boolean;
 }) {
+  const { data } = props;
+  const show = useShowBrowserPanel(props.threadId);
+  if (!data || data.awaiting) return null;
+  return (
+    <li className="relative">
+      <RailMark state={data.step.settled ? "done" : "running"} />
+      <StepRow
+        threadId={props.threadId}
+        step={data.step}
+        item={data.item}
+        surface={props.surface}
+        onOpen={() => show()}
+      />
+      {data.step.ace && data.step.ace.images.length > 0 && <StepImages view={data.step.ace} />}
+    </li>
+  );
+}
+
+/**
+ * One quiet step row: glyph or spinner, verb, target, diff stat and note. It toggles the step's
+ * detail (`panel`), or with `onOpen` shows what the step made somewhere else.
+ */
+export function StepRow(
+  props: {
+    threadId: string;
+    step: StepText;
+    item?: Item | undefined;
+    surface?: ToolSurface | undefined;
+  } & (
+    | { open: boolean; panel: string; onToggle(): void; expandable?: boolean; onOpen?: never }
+    | { onOpen(): void; open?: never; panel?: never; onToggle?: never; expandable?: never }
+  ),
+) {
   const { step } = props;
+  const toggles = !props.onOpen && props.expandable !== false;
   return (
     <button
       type="button"
-      aria-expanded={props.expandable === false ? undefined : props.open}
-      aria-controls={props.panel}
+      aria-expanded={toggles ? props.open : undefined}
+      aria-controls={toggles ? props.panel : undefined}
       aria-label={[step.verb, step.target, step.note].filter(Boolean).join(" ")}
       title={step.ace?.problem?.hint}
-      onClick={props.expandable === false ? undefined : props.onToggle}
+      onClick={props.onOpen ?? (toggles ? props.onToggle : undefined)}
       className={cn(
-        props.expandable === false ? rowClass : pressableRowClass,
+        props.onOpen || toggles ? pressableRowClass : rowClass,
         "text-muted-foreground",
       )}
     >

@@ -218,7 +218,13 @@ export class AccountService {
       result: { status: "refused", reason },
     });
     if (!from || !to) return refused("Unknown instance");
-    if (from.implicit || to.implicit) return refused("Normal CLI homes are immutable");
+    // ace never writes into a normal CLI home; the thread continues there through a handoff.
+    if (from.implicit || to.implicit)
+      return {
+        type: request.type,
+        requestId: request.requestId,
+        result: { status: "unsupported", reason: "Normal CLI logins can't share native history" },
+      };
     for (const id of [from.id, to.id])
       if (this.writers.has(id) || this.migrating.has(id))
         return refused("Source or destination has an active writer or migration");
@@ -428,6 +434,8 @@ export class AccountService {
                   Promise.reject(new Error("Mode selection unavailable")),
               }
             : {}),
+          ...(session.setGoal ? { setGoal: session.setGoal.bind(session) } : {}),
+          ...(session.clearGoal ? { clearGoal: session.clearGoal.bind(session) } : {}),
           ...(session.mcp ? { mcp: session.mcp } : {}),
           get sessionConfirmed() {
             return session.sessionConfirmed ?? true;

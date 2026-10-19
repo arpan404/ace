@@ -443,6 +443,7 @@
     "packages/client": {
       "name": "@ace/client",
       "dependencies": {
+        "@ace/browser": "workspace:*",
         "@ace/devices": "workspace:*",
         "@ace/files": "workspace:*",
         "@ace/projection": "workspace:*",
@@ -752,6 +753,7 @@
     "packages/projection": {
       "name": "@ace/projection",
       "dependencies": {
+        "@ace/handoff": "workspace:*",
         "@ace/protocol": "workspace:*",
         "zod": "^4.6.5",
       },
@@ -848,6 +850,7 @@
         "@ace/client": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/forge": "workspace:*",
+        "@ace/handoff": "workspace:*",
         "@ace/models": "workspace:*",
         "@ace/native-session": "workspace:*",
         "@ace/projection": "workspace:*",

@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import type { Turn } from "@ace/ui-core";
 import { scopeLabel, type Scope } from "@/lib/diffs/use-scoped-diff.ts";
 export { scopeLabel, type Scope };
+import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import {
   Menu,
@@ -113,7 +114,11 @@ export function ChangesToolbar(props: {
   onCollapseAll(folded: boolean): void;
   /** The tree only helps with more than one file. */
   canShowTree: boolean;
-  onRefreshReview(): void;
+  /** Reads the review's comments again; absent where a scope has no review. */
+  onRefreshReview?: (() => void) | undefined;
+  /** Reads the diff again (a checkout scope, which nothing pushes); absent for agents' edits. */
+  onRefresh?: (() => void) | undefined;
+  refreshing?: boolean | undefined;
 }) {
   const { prefs } = props;
   return (
@@ -132,6 +137,11 @@ export function ChangesToolbar(props: {
         </span>
       )}
       <ChangesGitAction threadId={props.threadId} />
+      {props.onRefresh && (
+        <Button size="sm" variant="ghost" disabled={props.refreshing} onClick={props.onRefresh}>
+          Refresh
+        </Button>
+      )}
       <Menu>
         <MenuTrigger
           render={<IconButton icon={DotsThreeIcon} label="Diff options" className={control} />}
@@ -154,7 +164,9 @@ export function ChangesToolbar(props: {
               Show files
             </MenuCheckboxItem>
           )}
-          <MenuItem onClick={props.onRefreshReview}>Refresh comments</MenuItem>
+          {props.onRefreshReview && (
+            <MenuItem onClick={props.onRefreshReview}>Refresh comments</MenuItem>
+          )}
           <MenuSeparator />
           <MenuRadioGroup
             value={prefs.mode}

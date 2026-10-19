@@ -25,6 +25,34 @@ export async function evaluatePage(cdp: BrowserCdp, expression: string): Promise
   }
 }
 
+/**
+ * V8 can't prove a native method free of side effects unless Chromium marks it so, and it
+ * doesn't mark `Storage.getItem` or `Storage.key`: `localStorage.getItem('x')` is refused while
+ * `localStorage.x` is allowed. In ace's own isolated world (the page never sees its
+ * prototypes) both become plain JavaScript reads of the storage's own named properties, which
+ * V8 does check, so the reads pass and writes (`setItem`, `removeItem`, `clear`) are still
+ * refused.
+ */
+const storageReads = `(() => {
+  const own = (storage, name) => Object.getOwnPropertyDescriptor(storage, String(name));
+  Object.defineProperty(Storage.prototype, "getItem", {
+    configurable: true,
+    writable: true,
+    value: function getItem(name) {
+      const entry = own(this, name);
+      return entry === undefined ? null : entry.value;
+    },
+  });
+  Object.defineProperty(Storage.prototype, "key", {
+    configurable: true,
+    writable: true,
+    value: function key(index) {
+      const name = Object.keys(this)[index];
+      return name === undefined ? null : name;
+    },
+  });
+})()`;
+
 /** V8 refuses calls whose side effects cannot be proven absent. No promises or page-world builtins. */
 export async function evaluateReadOnly(
   cdp: BrowserCdp,
@@ -42,6 +70,13 @@ export async function evaluateReadOnly(
       grantUniveralAccess: false,
     }),
   );
+  check();
+  // ace's own code, run before the agent's expression and without the side-effect check.
+  await cdp.send("Runtime.evaluate", {
+    expression: storageReads,
+    contextId: world.executionContextId,
+    returnByValue: true,
+  });
   check();
   const response = CallResult.parse(
     await cdp.send("Runtime.evaluate", {

@@ -54,40 +54,18 @@ export function recoveryPorts(
       // The daemon's own blocking-window rule, shared with the clients that word it.
       return quota ? blockedUntil(quota, now()) : undefined;
     },
-    async migrate(id, target) {
-      const session = metadata(id);
-      if (session.backend === "cursor-sdk")
-        throw new Error(
-          "Cursor SDK checkpoints cannot migrate accounts; create a portable context handoff instead",
-        );
+    moveTarget(id, requested) {
       const provider = AccountProvider.parse(store.getThread(id)?.provider);
-      if (!services.accounts || !session.instanceId || !session.nativeSessionId)
-        throw new Error("Account-bound native session is required");
+      const current = metadata(id).instanceId;
       const to =
-        target ??
+        requested ??
         automaticTarget(
           services.accountRegistry?.summaries(now()) ?? [],
-          { id: session.instanceId, provider },
+          { id: current ?? "", provider },
           now(),
         )?.id;
-      if (!to || to === session.instanceId) throw new Error("No other available provider account");
-      const result = await services.accounts.handle({
-        type: "accounts.migrate",
-        requestId: `recovery:${id}`,
-        provider,
-        nativeSessionId: session.nativeSessionId,
-        from: session.instanceId,
-        to,
-      });
-      if (result.type !== "accounts.migrate" || result.result.status !== "migrated")
-        throw new Error(
-          result.type === "accounts.migrate"
-            ? result.result.status === "migrated"
-              ? "Unexpected migration result"
-              : result.result.reason
-            : "Unexpected migration result",
-        );
-      return { nativeSessionId: result.result.nativeSessionId, instanceId: to };
+      if (!to || to === current) throw new Error("No other available provider account");
+      return to;
     },
     contextWindow(provider, instance, model) {
       const resolved = services.models?.resolve({

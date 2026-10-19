@@ -14,6 +14,7 @@ export type KeyScope =
   | "home"
   | "thread"
   | "composer"
+  | "newThread"
   | "panel"
   | "files"
   | "terminal"
@@ -82,8 +83,11 @@ export const keymap = {
   previousTab: { keys: "shift+mod+[", label: "Previous tab" },
   changes: { keys: "shift+mod+d", label: "Changes" },
   agents: { keys: "ctrl+shift+a", label: "Summary" },
-  // ⌘J showed the bottom panel, where terminals lived; it now shows the side panel's terminal.
-  terminal: { keys: "ctrl+`", also: ["mod+j"], label: "Terminal" },
+  // Both follow Settings' "Terminals open in": the bottom terminal panel (shown and focused,
+  // then hidden) or the side panel's terminal. ⌃` also works from inside a shell off Apple,
+  // where Ctrl+J is the shell's.
+  terminal: { keys: "ctrl+`", label: "Terminal" },
+  terminalPanel: { keys: "mod+j", label: "Show or hide the terminal panel" },
   files: { keys: "mod+p", label: "Open a file" },
   browser: { keys: "ctrl+shift+b", label: "Browser" },
   newTerminal: { keys: "ctrl+shift+`", label: "New terminal" },
@@ -113,8 +117,19 @@ export const keymap = {
   nextTurn: { keys: "shift+alt+mod+arrowdown", label: "Next turn" },
   findInThread: { keys: "mod+f", label: "Search this thread", scope: "thread" },
   settings: { keys: "mod+,", label: "Settings" },
-  // The composer's own keys (Enter sends, ⌘↵ the other of queue or steer). Shown, not rebindable.
-  send: { keys: "mod+enter", label: "Send", scope: "composer", fixed: true },
+  // Enter sends. While the agent works Enter queues or steers (Settings › Threads); this does
+  // the other.
+  followUpOther: {
+    keys: "mod+enter",
+    label: "Queue or steer the other way",
+    scope: "composer",
+  },
+  // New thread: start the thread and stay on New thread, ready for the next one.
+  startInBackground: {
+    keys: "mod+enter",
+    label: "Start a thread without opening it",
+    scope: "newThread",
+  },
   // The first Esc asks in the strip; a second one soon after stops the agent tree.
   stopFromComposer: {
     keys: "escape escape",

@@ -78,6 +78,9 @@
     "execution": {
       "$ref": "https://ace.local/protocol/v1/ExecutionSelection.json"
     },
+    "goal": {
+      "$ref": "https://ace.local/protocol/v1/ProviderGoal.json"
+    },
     "handoff": {
       "properties": {
         "bytes": {

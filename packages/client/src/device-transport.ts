@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ClientMessage, ServerMessage, type ServerMessage as ServerFrame } from "@ace/protocol";
 import type { PortableRelay, PortableRelayOptions, PortableSocket } from "./portable-relay.ts";
 import type { Credential } from "./credentials.ts";
+import { relayCompression } from "./inflate.ts";
 import { DeviceClientError, type DeviceTransport } from "@ace/devices/client";
 
 export type DeviceConnectionTarget =
@@ -122,6 +123,10 @@ export function authenticatedChannel(
           deviceId: options.deviceId,
           ...(typeof credential === "string" ? { token: credential } : credential),
           channel: kind,
+          // Relayed bulk JSON may come deflated; sign-in traffic never is.
+          ...(options.target.kind === "relay" && kind !== "provider_auth"
+            ? { compression: relayCompression() }
+            : {}),
         });
         if (options.target.kind === "relay") {
           const { connectPortableRelay } = await import("./portable-relay.ts");

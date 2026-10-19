@@ -1,4 +1,5 @@
 import { systemNotice } from "./system-notices.ts";
+import { claudeGoal } from "./goal.ts";
 import { factRaw, canonicalOnly } from "./raw-facts.ts";
 import { interactionFrame } from "./translate-interactions.ts";
 import type { Key } from "@ace/core";
@@ -126,6 +127,11 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         state.start(state.root, "user");
       }
       message(state, data, frame.seq, streams, messages);
+      return true;
+    }
+    if (type === "active_goal") {
+      const goal = claudeGoal(data);
+      if (goal !== undefined) state.emit({ type: "goal.updated", agent: state.root, goal });
       return true;
     }
     if (type === "conversation_reset") {

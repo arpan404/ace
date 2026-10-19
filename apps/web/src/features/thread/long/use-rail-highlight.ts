@@ -7,7 +7,8 @@ export interface RailHighlightTime {
   after(ms: number, run: () => void): () => void;
 }
 
-const browserTime: RailHighlightTime = {
+/** The real clock and timers, used unless a test passes its own. */
+export const browserTime: RailHighlightTime = {
   now: () => performance.now(),
   after: (ms, run) => {
     const timer = setTimeout(run, ms);

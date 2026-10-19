@@ -163,7 +163,7 @@ test("mismatched command, enqueue, request and one-way controls have no effects 
       type: "browser.input" as const,
       requestId: "input",
       threadId: wrong,
-      input: { kind: "scroll" as const, x: 0, y: 0, deltaX: 1, deltaY: 1 },
+      input: { kind: "scroll" as const, x: 0, y: 0, deltaX: 1, deltaY: 1, modifiers: 0 },
     },
   ])
     expect(() => f.pool.send(ref("host"), message)).toThrow("Thread routing mismatch");

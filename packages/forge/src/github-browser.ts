@@ -17,6 +17,7 @@ import {
   CommitFiles,
 } from "./github-browser-schemas.ts";
 import { ForgeError } from "./errors.ts";
+import { TimelinePage, timelineActivity } from "./github-activity.ts";
 import type { GhApi } from "./http.ts";
 
 const stateQuery = {
@@ -82,43 +83,10 @@ export class GitHubBrowser {
     ForgePageInput.parse({ page });
     const path = `${this.#root}/issues/${number}/timeline?per_page=25&page=${page}`;
     const response = await this.#api.request(path, signal);
-    const records = decode(
-      z
-        .array(
-          z.looseObject({
-            id: z.union([z.string(), z.number()]).optional(),
-            node_id: z.string().optional(),
-            event: z.string().max(256),
-            actor: z
-              .looseObject({ login: z.string().max(256), avatar_url: z.string().optional() })
-              .nullable()
-              .optional(),
-            created_at: z.string().nullable().optional(),
-            sha: z.string().optional(),
-            submitted_at: z.string().nullable().optional(),
-            label: z.looseObject({ name: z.string() }).optional(),
-            requested_reviewer: z.looseObject({ login: z.string() }).nullable().optional(),
-          }),
-        )
-        .max(25),
-      response.body,
-    );
+    const records = decode(TimelinePage, response.body);
     const next = this.#api.next(response, path);
     return {
-      events: records.map((record, index) =>
-        Object.assign(
-          {
-            id: String(record.id ?? record.node_id ?? `${page}:${index}`),
-            event: record.event,
-            actor: record.actor?.login ?? "GitHub",
-            at: record.created_at ?? record.submitted_at ?? null,
-            actorAvatarUrl: record.actor?.avatar_url,
-            subject: record.label?.name ?? record.requested_reviewer?.login,
-            raw: record,
-          },
-          record.sha && /^[a-fA-F0-9]{40,64}$/.test(record.sha) ? { commitSha: record.sha } : {},
-        ),
-      ),
+      events: records.map((record, index) => timelineActivity(record, page, index)),
       ...(next && page < 120 ? { nextPage: page + 1 } : {}),
       truncated: Boolean(next && page === 120),
     };

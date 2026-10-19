@@ -15,6 +15,8 @@ const types: Record<string, string> = {
   ".png": "image/png",
   ".ico": "image/x-icon",
 };
+/** The web app's icons, copied to the build's root from `apps/web/public`. */
+const icons = new Set(["/favicon.svg", "/favicon.png", "/apple-touch-icon.png"]);
 const compressible = new Set([".html", ".js", ".css", ".svg"]);
 /** Serve only the shipped renderer. No workspace or user-home files are reachable. */
 export function webHttp(root: string | undefined, next: RequestListener): RequestListener {
@@ -32,7 +34,7 @@ export function webHttp(root: string | undefined, next: RequestListener): Reques
       }
       const name = decodeURIComponent(new URL(path, "http://localhost").pathname);
       const directory = await realpath(root);
-      const asset = name.startsWith("/assets/") || name === "/favicon.svg";
+      const asset = name.startsWith("/assets/") || icons.has(name);
       const file = await realpath(resolve(directory, asset ? `.${name}` : "index.html"));
       if (!file.startsWith(directory + sep)) throw new Error("Outside renderer");
       const info = await stat(file);

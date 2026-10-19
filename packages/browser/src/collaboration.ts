@@ -53,8 +53,8 @@ const personalActions = new Set<BrowserCommand["action"]>([
 export function waitsForPerson(command: BrowserCommand): boolean {
   if (command.action === "history") return command.direction !== "stop";
   if (command.action === "measure_interaction") return command.interaction !== undefined;
-  // Laying the page out at other sizes moves what the person sees: wait until they pause.
-  if (command.action === "screenshot") return command.sizes !== undefined;
+  // Screenshots never wait, at other sizes either: the capture changes nothing the person did,
+  // and the tab is back at its own size as soon as it is taken.
   return personalActions.has(command.action);
 }
 

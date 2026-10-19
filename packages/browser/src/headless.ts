@@ -173,7 +173,9 @@ export class ChromeBackend implements BrowserBackend {
           const { data } = Png.parse(await cdp().send("Page.captureScreenshot", { format: "png" }));
           return Buffer.from(data, "base64");
         },
-        resize: (width, height) => tabs.resize(width, height, tabId()),
+        resize: (width, height, devicePixelRatio) =>
+          tabs.resize(width, height, tabId(), devicePixelRatio),
+        captureScale: () => tabs.captureScale(tabId()),
         emulate: (device) => tabs.emulate(device, tabId()),
         zoom: (factor) => tabs.zoom(factor, tabId()),
         clearData: () => clearHeadlessData(cdp(), tabs.origins()),

@@ -1,0 +1,28 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserPageMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "page": {
+      "$ref": "https://ace.local/protocol/v1/BrowserPageState.json"
+    },
+    "tabId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "browser.page",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "threadId",
+    "tabId",
+    "page"
+  ],
+  "type": "object"
+}

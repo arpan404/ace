@@ -174,6 +174,8 @@ export function engineHandler(
           "thread.archive",
           "thread.model.set",
           "thread.mode.set",
+          "thread.goal.set",
+          "thread.goal.clear",
           "interaction.resolve",
           "background_task.stop",
         ].includes(p.type)
@@ -337,6 +339,7 @@ export function engineHandler(
                   ? { from: { provider: source.provider, model: source.execution?.model } }
                   : {}),
                 to: { provider: p.provider, model: p.model },
+                ...(handoff.handoff.sources ? { sources: handoff.handoff.sources } : {}),
               },
               at,
             );
@@ -360,6 +363,12 @@ export function engineHandler(
           if (!repo.state(threadId)) return fail("thread_not_found");
           if (p.type === "thread.send" && repo.transitions.guarded(threadId))
             return fail("thread_transition_in_progress");
+          if (
+            (p.type === "thread.goal.set" || p.type === "thread.goal.clear") &&
+            !registry.get(repo.requireState(threadId).config.provider, repo.backend(threadId))
+              .capabilities.goals
+          )
+            return fail("unsupported_goal");
           if (
             p.type === "thread.interrupt" &&
             p.agentId !== undefined &&

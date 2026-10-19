@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { terminalsInSidePanel } from "./terminal-place.ts";
 
 /*
  * Journeys across the rebuilt workspace and composer: what a person does from start to finish
@@ -40,6 +41,7 @@ const daemonTerminals = (page: Page, threadId: string) =>
 test("a new terminal keeps its shell while the side panel hides, and closing its tab ends it", async ({
   page,
 }) => {
+  await terminalsInSidePanel(page);
   await open(page, "/t/thread-cold-start", "Cap cold-start replay at 200 events");
   await page.keyboard.press("ControlOrMeta+j");
   await expect(sidePanel(page).getByRole("tab", { name: "zsh", selected: true })).toBeVisible();

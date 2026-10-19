@@ -1820,6 +1820,9 @@
     },
     {
       "properties": {
+        "binaryFrames": {
+          "type": "boolean"
+        },
         "requestId": {
           "maxLength": 256,
           "minLength": 1,
@@ -1836,6 +1839,9 @@
         "type": {
           "const": "browser.subscribe",
           "type": "string"
+        },
+        "viewport": {
+          "$ref": "https://ace.local/protocol/v1/BrowserCaptureViewport.json"
         }
       },
       "required": [
@@ -2168,6 +2174,14 @@
             "provider_auth"
           ],
           "type": "string"
+        },
+        "compression": {
+          "items": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "type": "array"
         },
         "deviceId": {
           "$ref": "https://ace.local/protocol/v1/DeviceId.json"

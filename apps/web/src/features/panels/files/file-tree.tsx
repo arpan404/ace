@@ -23,6 +23,7 @@ import {
   type ReactNode,
 } from "react";
 import { Icon } from "@/components/icon.tsx";
+import { LongRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { Highlighted } from "./highlighted-path.tsx";
@@ -32,6 +33,9 @@ import { fileManagement } from "./file-management-source.ts";
 import { FileMenu, FileRowMenu } from "./file-menu.tsx";
 import type { FileOperationDialog } from "./file-operation.ts";
 import { useCheckoutSearch } from "./use-checkout.ts";
+
+/** Past this many rows, only those near the viewport mount: each row carries two menus. */
+const virtualAbove = 200;
 
 const rowClass =
   "flex h-8 w-full min-w-0 items-center gap-1.5 rounded-sm pr-2 group-hover/file:pr-8 group-focus-within/file:pr-8 text-left text-ui text-muted-foreground outline-none select-none transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)] aria-selected:bg-sidebar-accent aria-selected:text-foreground";
@@ -90,10 +94,17 @@ export function FileTree(props: {
     else next.add(folder);
     props.onCollapsed([...next]);
   };
+  const rowsHandle = useRef<VirtualRowsHandle>(null);
   const focusRow = (path: string | undefined) => {
     if (!path) return;
     setFocusKey(path);
-    list.current?.querySelector<HTMLElement>(`[data-path="${CSS.escape(path)}"]`)?.focus();
+    const find = () =>
+      list.current?.querySelector<HTMLElement>(`[data-path="${CSS.escape(path)}"]`);
+    const row = find();
+    if (row) return row.focus();
+    // A long tree mounts only the rows near the view: bring the row in, then focus it.
+    rowsHandle.current?.scrollToIndex(rows.findIndex((each) => each.node.path === path));
+    requestAnimationFrame(() => find()?.focus());
   };
   const activate = (row: FileTreeRow, keep: boolean) => {
     if (row.node.kind === "folder") {
@@ -284,76 +295,83 @@ export function FileTree(props: {
             dropTarget === "" && "shadow-[inset_0_0_0_1.5px_var(--ring)]",
           )}
         >
-          {rows.map((row, index) => {
-            const folder = row.node.kind === "folder";
-            const positions = searching
-              ? (fuzzyPositions(query.trim(), row.node.path.replace(/\/$/, "")) ?? [])
-              : [];
-            const nameStart = row.node.path.replace(/\/$/, "").length - row.node.name.length;
-            return (
-              <FileRowMenu
-                key={row.node.path}
-                path={row.node.path}
-                name={row.node.name}
-                folder={folder}
-                disabled={!online}
-                tabbable={row.node.path === focusable}
-                onOperation={props.onOperation}
-              >
-                <button
-                  type="button"
-                  role="treeitem"
-                  data-path={row.node.path}
-                  aria-level={row.depth + 1}
-                  aria-expanded={folder ? row.expanded : undefined}
-                  aria-selected={row.node.path === props.current}
-                  tabIndex={row.node.path === focusable ? 0 : -1}
-                  title={row.node.path}
-                  onFocus={() => setFocusKey(row.node.path)}
-                  onClick={() => activate(row, false)}
-                  onDoubleClick={() => !folder && props.onOpen(row.node.path, true)}
-                  onKeyDown={(event) => onRowKey(event, row, index)}
-                  onDragOver={folder ? (event) => dragOver(event, row.node.path) : undefined}
-                  onDrop={folder ? (event) => drop(event, row.node.path) : undefined}
-                  style={{ paddingLeft: 4 + row.depth * 12 }}
-                  className={cn(
-                    rowClass,
-                    folder &&
-                      dropTarget === row.node.path &&
-                      "shadow-[inset_0_0_0_1.5px_var(--ring)]",
-                  )}
+          <LongRows
+            items={rows}
+            virtualAbove={virtualAbove}
+            handle={rowsHandle}
+            rowKey={(row) => row.node.path}
+            estimate={32}
+            render={(row, index) => {
+              const folder = row.node.kind === "folder";
+              const positions = searching
+                ? (fuzzyPositions(query.trim(), row.node.path.replace(/\/$/, "")) ?? [])
+                : [];
+              const nameStart = row.node.path.replace(/\/$/, "").length - row.node.name.length;
+              return (
+                <FileRowMenu
+                  key={row.node.path}
+                  path={row.node.path}
+                  name={row.node.name}
+                  folder={folder}
+                  disabled={!online}
+                  tabbable={row.node.path === focusable}
+                  onOperation={props.onOperation}
                 >
-                  <span className="grid size-4 shrink-0 place-items-center">
-                    {folder && (
-                      <CaretRightIcon
-                        aria-hidden
-                        size={10}
-                        weight="bold"
-                        className={cn(
-                          "text-subtle-foreground transition-transform duration-(--motion-fast)",
-                          row.expanded && "rotate-90",
-                        )}
-                      />
+                  <button
+                    type="button"
+                    role="treeitem"
+                    data-path={row.node.path}
+                    aria-level={row.depth + 1}
+                    aria-expanded={folder ? row.expanded : undefined}
+                    aria-selected={row.node.path === props.current}
+                    tabIndex={row.node.path === focusable ? 0 : -1}
+                    title={row.node.path}
+                    onFocus={() => setFocusKey(row.node.path)}
+                    onClick={() => activate(row, false)}
+                    onDoubleClick={() => !folder && props.onOpen(row.node.path, true)}
+                    onKeyDown={(event) => onRowKey(event, row, index)}
+                    onDragOver={folder ? (event) => dragOver(event, row.node.path) : undefined}
+                    onDrop={folder ? (event) => drop(event, row.node.path) : undefined}
+                    style={{ paddingLeft: 4 + row.depth * 12 }}
+                    className={cn(
+                      rowClass,
+                      folder &&
+                        dropTarget === row.node.path &&
+                        "shadow-[inset_0_0_0_1.5px_var(--ring)]",
                     )}
-                  </span>
-                  <Icon
-                    icon={
-                      folder
-                        ? row.expanded
-                          ? FolderOpenIcon
-                          : FolderIcon
-                        : fileIcon(row.node.path)
-                    }
-                    size={14}
-                    className="text-subtle-foreground"
-                  />
-                  <span className="min-w-0 truncate">
-                    <Highlighted text={row.node.name} offset={nameStart} positions={positions} />
-                  </span>
-                </button>
-              </FileRowMenu>
-            );
-          })}
+                  >
+                    <span className="grid size-4 shrink-0 place-items-center">
+                      {folder && (
+                        <CaretRightIcon
+                          aria-hidden
+                          size={10}
+                          weight="bold"
+                          className={cn(
+                            "text-subtle-foreground transition-transform duration-(--motion-fast)",
+                            row.expanded && "rotate-90",
+                          )}
+                        />
+                      )}
+                    </span>
+                    <Icon
+                      icon={
+                        folder
+                          ? row.expanded
+                            ? FolderOpenIcon
+                            : FolderIcon
+                          : fileIcon(row.node.path)
+                      }
+                      size={14}
+                      className="text-subtle-foreground"
+                    />
+                    <span className="min-w-0 truncate">
+                      <Highlighted text={row.node.name} offset={nameStart} positions={positions} />
+                    </span>
+                  </button>
+                </FileRowMenu>
+              );
+            }}
+          />
         </div>
         {status}
       </div>

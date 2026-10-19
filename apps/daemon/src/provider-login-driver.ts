@@ -1,4 +1,6 @@
 import { openCodeLoginDriver } from "./opencode-login-driver.ts";
+import { codexLoginDriver } from "./codex-login-driver.ts";
+import { admitsVersion } from "@ace/provider-kit/cli-requirements";
 import { piLoginDriver, piLoginChoices, type PiLoginOptions } from "./pi-login-driver.ts";
 import {
   loginArgs,
@@ -63,15 +65,67 @@ export interface CliLoginOptions {
   openTerminal?: PiLoginOptions["openTerminal"];
   assertCurrent?(): void;
   onIntegration?(id: string): void;
+  /** OpenCode's own server for a browser sign-in in ace's dialog. */
+  openCodeSignIn?(
+    signal: AbortSignal,
+  ): Promise<import("@ace/adapter-opencode/sign-in").OpenCodeSignIn>;
+  /** Codex's app-server for a ChatGPT sign-in in ace's dialog. */
+  codexAccount?(
+    signal: AbortSignal,
+  ): Promise<import("@ace/adapter-codex/account-login").CodexAccount>;
+  onCodexAccount?(label: string): void;
+}
+/**
+ * How Claude Code can sign in, as its installed help offers: a Claude subscription first, then
+ * Anthropic Console (API usage billing) and single sign-on. One option needs no choice.
+ */
+export function claudeLoginMethods(help: string): { id: string; label: string; args: string[] }[] {
+  const subscription = help.includes("--claudeai") ? ["--claudeai"] : [];
+  return [
+    { id: "claudeai", label: "Claude subscription", args: ["auth", "login", ...subscription] },
+    ...(help.includes("--console")
+      ? [
+          {
+            id: "console",
+            label: "Anthropic Console (API usage billing)",
+            args: ["auth", "login", "--console"],
+          },
+        ]
+      : []),
+    ...(help.includes("--sso")
+      ? [
+          {
+            id: "sso",
+            label: "Single sign-on (SSO)",
+            args: ["auth", "login", ...subscription, "--sso"],
+          },
+        ]
+      : []),
+  ];
 }
 /** PTY output has no scrollback or logging. Only finite, reviewed observations leave here. */
 export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
   const { provider, action, help } = options;
   if (provider === "pi") return piLoginDriver(options);
-  if (provider === "opencode") return openCodeLoginDriver(options);
+  if (provider === "opencode")
+    return openCodeLoginDriver({
+      ...options,
+      ...(options.openCodeSignIn ? { signIn: options.openCodeSignIn } : {}),
+    });
+  if (provider === "codex" && action === "login" && options.codexAccount) {
+    const { codexAccount, onCodexAccount, ...terminal } = options;
+    return codexLoginDriver({
+      account: codexAccount,
+      fallback: cliLoginDriver(terminal),
+      ...(onCodexAccount ? { onAccount: onCodexAccount } : {}),
+      ...(options.assertCurrent ? { assertCurrent: options.assertCurrent } : {}),
+    });
+  }
   const manual = manualLogin(provider, action, options.instance);
   let live: ReturnType<TerminalManager["openLiveTerminal"]> | undefined;
   let enter: (() => void) | undefined;
+  let choose: ((choice: string) => boolean) | undefined;
+  let paste: ((code: string) => void) | undefined;
   return {
     manual,
     async drain() {
@@ -81,6 +135,12 @@ export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
       }
     },
     input(input: ProviderLoginInput) {
+      if ("code" in input) {
+        if (!paste) return false;
+        paste(input.code);
+        return true;
+      }
+      if ("choice" in input) return choose?.(input.choice) ?? false;
       if (("confirm" in input || "value" in input) && enter) {
         const accept = enter;
         enter = undefined;
@@ -92,12 +152,11 @@ export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
     async run(signal, emit) {
       signal.throwIfAborted();
       if (provider === "acp" || provider === "antigravity") return { success: false, manual };
-      const supportedVersion = provider === "codex" ? /^(?:0|1)\.\d+\.\d+$/ : /^2\.\d+\.\d+$/;
-      if (
-        !options.version ||
-        !supportedVersion.test(options.version) ||
-        !new RegExp(`\\b${action}\\b`).test(help)
-      )
+      const supportedVersion =
+        provider === "codex"
+          ? admitsVersion("codex", options.version)
+          : /^2\.\d+\.\d+$/.test(options.version ?? "");
+      if (!options.version || !supportedVersion || !new RegExp(`\\b${action}\\b`).test(help))
         return { success: false, manual };
       const args = action === "login" ? loginArgs(provider) : logoutArgs(provider);
       if (action === "login" && provider === "codex" && help.includes("--device-auth"))
@@ -105,6 +164,33 @@ export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
       if (provider === "claude" && !help.includes("--claudeai")) {
         const at = args.indexOf("--claudeai");
         if (at >= 0) args.splice(at, 1);
+      }
+      if (provider === "claude" && action === "login") {
+        const methods = claudeLoginMethods(help);
+        if (methods.length > 1) {
+          const picked = await new Promise<(typeof methods)[number]>((resolve, reject) => {
+            const abort = () => {
+              choose = undefined;
+              reject(new Error("Cancelled"));
+            };
+            signal.addEventListener("abort", abort, { once: true });
+            choose = (choice) => {
+              const method = methods.find((candidate) => candidate.id === choice);
+              if (!method) return false;
+              signal.removeEventListener("abort", abort);
+              choose = undefined;
+              resolve(method);
+              return true;
+            };
+            emit({
+              state: "awaiting_input",
+              prompt: "Choose how to sign in to Claude Code.",
+              choices: methods.map(({ id, label }) => ({ id, label })),
+            });
+            if (signal.aborted) abort();
+          });
+          args.splice(0, args.length, ...picked.args);
+        }
       }
       if (action === "login" && help.includes("--no-browser")) args.push("--no-browser");
       let pending = "";
@@ -132,6 +218,14 @@ export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
               emit({ state: "verifying" });
             }
           };
+        if (observation.codeEntry)
+          // The CLI reads the code its page shows as one line on its own prompt.
+          paste = (code) => {
+            if (signal.aborted) return;
+            options.assertCurrent?.();
+            terminal?.write(`${code}\r`);
+            emit({ state: "verifying", ...(output.url ? { url: output.url } : {}) });
+          };
         output = {
           state: observation.state,
           ...(observation.url ? { url: observation.url } : output.url ? { url: output.url } : {}),
@@ -141,6 +235,8 @@ export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
               ? { userCode: output.userCode }
               : {}),
           ...(observation.prompt ? { prompt: observation.prompt } : {}),
+          ...(observation.codeEntry || output.codeEntry ? { codeEntry: true as const } : {}),
+          ...(observation.message ? { message: observation.message } : {}),
         };
         emit(output);
       };
@@ -149,7 +245,9 @@ export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
         {
           shell: options.command,
           args,
-          env: { ...options.env, BROWSER: "echo" },
+          // Claude runs `$BROWSER <url>` to open its sign-in page, so `echo` would leave the
+          // person with no browser at all; it keeps its own opener and prints a link for others.
+          env: provider === "claude" ? options.env : { ...options.env, BROWSER: "echo" },
           cwd: options.cwd,
           cols: 100,
           rows: 30,
@@ -173,7 +271,7 @@ export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
           }
           // Recognize no-newline prompts without treating a partial URL as complete.
           if (
-            /press (?:enter|return)|hit enter|(?:enter|paste|provide).*(?:key|token|authorization code)/i.test(
+            /press (?:enter|return)|hit enter|paste code here if prompted|(?:enter|paste|provide).*(?:key|token|authorization code)/i.test(
               pending,
             )
           ) {
@@ -200,6 +298,7 @@ export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
         };
       } finally {
         enter = undefined;
+        paste = undefined;
         signal.removeEventListener("abort", cancel);
         await options.manager.releaseLive(terminal);
       }

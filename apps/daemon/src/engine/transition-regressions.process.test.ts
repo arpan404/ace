@@ -50,7 +50,7 @@ test("a queued switch precedes input queued earlier during the current turn", as
   });
 });
 
-test("forking an earlier turn after returning to its provider uses that turn's native session", async () => {
+test("forking an earlier turn after returning to its provider stops at that turn of its native session", async () => {
   const h = setup({ native: true });
   const id = await h.create();
   send(h, id, "original Codex private history");
@@ -65,7 +65,8 @@ test("forking an earlier turn after returning to its provider uses that turn's n
   await h.engine.flush();
   send(h, id, "second Codex session secret");
   await h.engine.flush();
-  expect(h.inputs.at(-1)?.nativeId).not.toBe(sourceNative);
+  // Returning to Codex resumes the session it left; the fork still stops at the chosen turn.
+  expect(h.inputs.at(-1)?.nativeId).toBe(sourceNative);
   const fork = await h.fork(id, { type: "turn", runId: point.id });
   expect(h.sessions.at(-1)?.context.fork?.nativeSessionId).toBe(sourceNative);
   const answer = h.store.readItemPage(fork, h.store.headSeq() + 1, 1).items[0];

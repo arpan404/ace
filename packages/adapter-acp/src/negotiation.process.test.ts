@@ -14,6 +14,7 @@ async function open(
   context: Partial<SessionContext> = {},
   agent?: string,
   version?: string,
+  signInMethod?: string,
 ) {
   const frames: Frame[] = [];
   const exited = Promise.withResolvers<void>();
@@ -37,6 +38,7 @@ async function open(
       args: [server],
       env: { ACE_SYNTHETIC_ACP: JSON.stringify(config) },
       ...(profile ? { profile } : {}),
+      ...(signInMethod ? { signInMethod } : {}),
     },
   );
   return { session, frames, exited: exited.promise, seen: seen.promise };
@@ -379,4 +381,29 @@ test("ACP receives ace routing context on native prompts after opening and resum
       await h.session.close("shutdown");
     }
   }
+});
+
+test("an agent that needs its sign-in method selected opens once ace selects the person's", async () => {
+  const { session, frames } = await open(
+    { requireSignIn: true },
+    {},
+    undefined,
+    undefined,
+    "oauth-personal",
+  );
+  try {
+    expect(session.nativeSessionId).toBe("synthetic-session");
+    const sent = frames
+      .filter((frame) => frame.dir === "send")
+      .map((frame) => Envelope.parse(frame.data));
+    expect(sent.find((frame) => frame.method === "authenticate")?.params).toEqual({
+      methodId: "oauth-personal",
+    });
+  } finally {
+    await session.close("shutdown");
+  }
+});
+
+test("without a remembered sign-in, an agent asking for one refuses the session as before", async () => {
+  await expect(open({ requireSignIn: true })).rejects.toThrow("Authentication required");
 });

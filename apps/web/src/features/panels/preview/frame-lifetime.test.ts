@@ -57,7 +57,8 @@ async function setup() {
   const source = daemonPreview(client, {
     schedule: () => () => {},
     visibility: { visible: () => visible, watch: () => () => {} },
-    decode: (data) => {
+    decode: (picture) => {
+      const data = typeof picture === "string" ? picture : "binary";
       if (!data.startsWith("pending-")) return Promise.resolve({ src: data, release() {} });
       const decode = Promise.withResolvers<DecodedFrame>();
       decodes.set(data, decode);

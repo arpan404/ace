@@ -38,7 +38,7 @@ export async function hash(path: string) {
     .update(await readFile(path))
     .digest("hex");
 }
-export async function homes(provider: "codex" | "claude" | "cursor" | "opencode") {
+export async function homes(provider: "codex" | "claude" | "cursor" | "opencode" | "pi") {
   const root = await temp();
   const from = createInstance({ id: "from", provider, label: "from", homeDir: join(root, "from") });
   const to = createInstance({ id: "to", provider, label: "to", homeDir: join(root, "to") });

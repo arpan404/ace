@@ -23,6 +23,8 @@ export const ModelInstance = z
     profileRevision: z.string().max(256).optional(),
     installationVersion: z.string().max(256).optional(),
     loginRevision: z.string().min(1).max(256),
+    /** The ACP method the person signed in with, selected again when the agent asks for one. */
+    signInMethod: z.string().min(1).max(128).optional(),
     executable: z.string().max(4096).default(""),
     backend: z.enum(["acp", "cursor-sdk"]).optional(),
     homeDir: z.string().min(1).max(4096).optional(),

@@ -38,7 +38,7 @@ const specs = {
     command: "claude",
     authArgs: ["auth", "status"],
     parse: parseClaudeAuth,
-    loginHint: "claude, then /login",
+    loginHint: "claude auth login",
   },
   codex: {
     command: "codex",
@@ -183,6 +183,7 @@ export async function discoverAntigravity(
 
 export { discoverPi } from "./pi.ts";
 export { discoverPiStatus } from "./pi-status.ts";
+export { piSdkEntry, piCredentialProviders, PiProviderId } from "./pi-sdk.ts";
 export {
   discoverDescriptor,
   type DiscoveryDescriptor,

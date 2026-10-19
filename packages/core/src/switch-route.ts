@@ -11,6 +11,8 @@ export interface SwitchSide {
   instanceId?: string | undefined;
   /** The transport the thread's native session lives on (`cursor-sdk`, `acp`). */
   backend?: string | undefined;
+  /** The ACP agent: a selection must name one to enter ACP or change agent. */
+  acpAgentId?: string | undefined;
 }
 
 /**
@@ -18,8 +20,9 @@ export interface SwitchSide {
  *   keeps the native session, another provider starts fresh with portable context.
  * - `new_thread`: a Cursor SDK checkpoint is pinned to its thread and account (ADR 0043), so
  *   leaving Cursor or changing its account continues in a portable fork; this thread is kept.
- * - `unsupported`: an ACP agent needs the registered identity a thread is created with, so an
- *   existing thread of another provider can't move to one.
+ * - `unsupported`: a selection that doesn't name the ACP agent it enters: an agent runs only on
+ *   its registered identity. Named, any thread can move to an ACP agent and an ACP thread can
+ *   change agent, continuing with a context handoff as for another provider.
  */
 export type SwitchRoute = "in_place" | "new_thread" | "unsupported";
 
@@ -28,8 +31,9 @@ function otherAccount(current: SwitchSide, next: SwitchSide): boolean {
 }
 
 export function switchRoute(current: SwitchSide, next: SwitchSide): SwitchRoute {
-  if (next.provider === "acp" && current.provider !== "acp") return "unsupported";
   const accountChanged = otherAccount(current, next);
+  if (next.provider === "acp" && !next.acpAgentId && (current.provider !== "acp" || accountChanged))
+    return "unsupported";
   if (current.backend === "cursor-sdk" && (next.provider !== current.provider || accountChanged))
     return "new_thread";
   if (current.provider === "cursor" && next.provider === "cursor" && accountChanged)

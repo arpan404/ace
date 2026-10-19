@@ -178,12 +178,19 @@ export function updateThread(thread: Thread, event: Event): void {
     if (payload.effectiveCapabilities !== undefined)
       thread.effectiveCapabilities = structuredCopy(payload.effectiveCapabilities);
     if (payload.acpSupport !== undefined) thread.acpSupport = structuredCopy(payload.acpSupport);
+    if (payload.acp !== undefined) {
+      thread.acpAgentId = payload.acp.acpAgentId;
+      thread.installationId = payload.acp.installationId;
+      thread.instanceId = payload.acp.instanceId;
+    }
     if (payload.status !== undefined) {
       thread.status = structuredCopy(payload.status);
       thread.activitySeq = event.seq;
     }
     if (payload.archivedAt === null) delete thread.archivedAt;
     else if (payload.archivedAt !== undefined) thread.archivedAt = payload.archivedAt;
+    if (payload.goal === null) delete thread.goal;
+    else if (payload.goal !== undefined) thread.goal = structuredCopy(payload.goal);
   }
   if (payload.type === "agent.created" && payload.agent.origin === "root")
     thread.rootAgentId = payload.agent.id;

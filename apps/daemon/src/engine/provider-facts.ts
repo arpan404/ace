@@ -1,4 +1,5 @@
 import { aceWaitFact } from "./ace-waits.ts";
+import { goalChange } from "./goal-change.ts";
 import type { StatementSync } from "node:sqlite";
 import { FactBatch, type Fact, type ThreadState, type IdSource } from "@ace/core";
 import type { EventPayload } from "@ace/protocol";
@@ -60,6 +61,12 @@ export function foldProviderFacts(
           [{ type: "thread.updated", title, titleSource: "provider" }],
           now,
         );
+      return [];
+    }
+    if (input.type === "goal.updated") {
+      if (input.agent !== (state.rootKey ?? "root")) return [];
+      const goal = goalChange(repo.store.getThread(id)?.goal, input.goal);
+      if (goal !== undefined) repo.store.appendEvents(id, [{ type: "thread.updated", goal }], now);
       return [];
     }
     if (input.type === "input.consumed") {

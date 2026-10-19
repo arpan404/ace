@@ -1,4 +1,4 @@
-import type { BrowserScreenshotSet, BrowserScreenshotSize } from "@ace/protocol";
+import type { BrowserPageState, BrowserScreenshotSet, BrowserScreenshotSize } from "@ace/protocol";
 import type { AnnotationDriver } from "@/features/annotations/index.ts";
 
 /*
@@ -226,7 +226,11 @@ export type ForwardedInput =
       x: number;
       y: number;
       button?: "none" | "left" | "middle" | "right";
+      /** Buttons held, as a mask: left 1, right 2, middle 4. */
+      buttons?: number;
       clickCount?: number;
+      /** Keys held: Alt 1, Ctrl 2, Meta 4, Shift 8. */
+      modifiers?: number;
     }
   | {
       kind: "key";
@@ -236,7 +240,24 @@ export type ForwardedInput =
       code?: string;
       modifiers?: number;
     }
-  | { kind: "scroll"; x: number; y: number; deltaX: number; deltaY: number };
+  | { kind: "scroll"; x: number; y: number; deltaX: number; deltaY: number; modifiers?: number }
+  | {
+      kind: "touch";
+      event: "touchStart" | "touchMove" | "touchEnd" | "touchCancel";
+      /** Every finger down, in page pixels; `id` (0–9) stays with its finger. */
+      points: { x: number; y: number; id: number }[];
+    }
+  /** IME text being composed, shown marked in the page's field; empty cancels it. */
+  | { kind: "ime"; text: string; selectionStart: number; selectionEnd: number }
+  /** The person's choice in the page's open picker; without values it is dismissed. */
+  | { kind: "pick"; pickerId: string; values?: readonly string[] };
+
+/**
+ * What a remote view draws over a tab's pixels: the focused field (where a phone's keyboard
+ * types), the picker the page opened, the cursor shape and a `title` tooltip. Boxes are in the
+ * tab's CSS pixels, the same space as the frame and forwarded input.
+ */
+export type BrowserPageView = BrowserPageState;
 
 /** How far the daemon's Chromium download has got (`browser.download.progress`). */
 export interface BrowserDownload {
@@ -336,6 +357,11 @@ export interface PreviewSource {
   extensions?(threadId: string): Promise<readonly BrowserExtensionView[]>;
   /** The person's own input; it lands at once, whoever else works in the tab. */
   input(threadId: string, input: ForwardedInput, tabId?: string): void | Promise<void>;
+  /**
+   * A tab's page state as the daemon last reported it (`browser.page`); undefined from a daemon
+   * or backend that doesn't report one. Changes notify `subscribe` listeners for the thread.
+   */
+  page?(threadId: string, tabId: string): BrowserPageView | undefined;
   /** Annotate mode on the page (ADR 0082); absent where the client can't drive it. */
   annotate?: AnnotationDriver | undefined;
   /** Read the current page selection for local copy and cut. */
@@ -346,6 +372,16 @@ export interface PreviewSource {
   cursorStyle?(threadId: string, style: { fill: string; outline: string }): void;
   /** Stop the recording that runs in the thread's browser; its file joins the thread. */
   stopRecording?(threadId: string): Promise<void>;
-  /** Size the page to the pane in CSS pixels (100–4096). */
-  resize(threadId: string, width: number, height: number): void;
+  /**
+   * Size the page to the pane in CSS pixels (100–4096). `touch`: the pane is on a touch screen,
+   * so the page lays out as a mobile one and gets touch events. The page renders as sharp as
+   * the pane's screen (`devicePixelRatio`) where the browser can.
+   */
+  resize(
+    threadId: string,
+    width: number,
+    height: number,
+    touch?: boolean,
+    devicePixelRatio?: number,
+  ): void;
 }

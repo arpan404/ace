@@ -234,6 +234,8 @@ export function createEngineSession(context: SocketContext): SocketService {
         "thread.interrupt",
         "thread.model.set",
         "thread.mode.set",
+        "thread.goal.set",
+        "thread.goal.clear",
         "thread.permission.set",
         "interaction.resolve",
         "background_task.stop",

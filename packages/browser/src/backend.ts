@@ -154,8 +154,11 @@ export interface BrowserBackendPage {
     permissionDenied?: { origin: string; permission: string } | undefined;
   };
   networkBody?(requestId: string): Promise<unknown>;
-  /** This page's network requests still in flight, for network-idle waits. */
-  networkPending?(): number;
+  /**
+   * Ids of this page's network requests still in flight, for network-idle waits; streams the
+   * page keeps open while it lives (EventSource, event streams, sockets) are left out.
+   */
+  networkPending?(): readonly string[];
   frames?(): Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]>;
   url(): string;
   navigate(url: string, timeout: number, signal?: AbortSignal): Promise<void>;
@@ -164,7 +167,16 @@ export interface BrowserBackendPage {
   press(key: string): Promise<void>;
   wheel(x: number, y: number): Promise<void>;
   screenshot(format: "png" | "jpeg"): Promise<Buffer>;
-  resize(width: number, height: number): Promise<void>;
+  /**
+   * Size the page in CSS pixels. `devicePixelRatio`: the resizing viewer's screen, which a
+   * backend that can renders the page as sharp as (up to 3); others ignore it.
+   */
+  resize(width: number, height: number, devicePixelRatio?: number): Promise<void>;
+  /**
+   * Window pixels per CSS pixel in this page's screencast frames beyond the browser's own scale
+   * (1 when the page renders at that scale). Absent: always 1.
+   */
+  captureScale?(): number;
   viewport(): { width: number; height: number };
   media(colorScheme: "light" | "dark" | "no-preference"): Promise<void>;
   /**

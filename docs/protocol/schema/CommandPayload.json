@@ -435,6 +435,16 @@
       "properties": {
         "selection": {
           "properties": {
+            "acpAgentId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "installationId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
             "instanceId": {
               "maxLength": 256,
               "minLength": 1,
@@ -2129,6 +2139,42 @@
         "type",
         "threadId",
         "mode"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "change": {
+          "$ref": "https://ace.local/protocol/v1/GoalChange.json"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.goal.set",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "change"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.goal.clear",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId"
       ],
       "type": "object"
     },

@@ -260,7 +260,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
                   </div>
                 </div>
                 {thread && (
-                  <DelegateBottom thread={meta}>
+                  <DelegateBottom thread={meta} onFork={forkPoint && (() => setForking(forkPoint))}>
                     <ThreadComposer
                       thread={thread}
                       status={meta?.status}

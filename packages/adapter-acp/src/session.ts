@@ -4,6 +4,7 @@ import { resumeLoadFailure } from "./resume-error.ts";
 import { appendAcpMcp, developerInstructions } from "@ace/mcp-server";
 import { AcpConfiguration } from "./configuration.ts";
 import type { LaunchOptions, SessionRuntime } from "./runtime.ts";
+import { openWithSignIn } from "@ace/provider-kit/acp-sign-in";
 import { clientMeta } from "./bridge-negotiation.ts";
 import { redactLease } from "./frame-redaction.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
@@ -268,14 +269,20 @@ class AcpSession implements ProviderSession {
       );
     let opened: unknown;
     try {
-      opened = await this.rpc.request(
-        resume ? AGENT_METHODS.session_load : AGENT_METHODS.session_new,
-        {
-          cwd: this.ctx.cwd,
-          mcpServers,
-          ...(resume ? { sessionId: resume.nativeSessionId } : {}),
-        },
-        { signal: this.ctx.signal },
+      opened = await openWithSignIn(
+        this.rpc,
+        this.launch.signInMethod,
+        () =>
+          this.rpc.request(
+            resume ? AGENT_METHODS.session_load : AGENT_METHODS.session_new,
+            {
+              cwd: this.ctx.cwd,
+              mcpServers,
+              ...(resume ? { sessionId: resume.nativeSessionId } : {}),
+            },
+            { signal: this.ctx.signal },
+          ),
+        this.ctx.signal,
       );
     } catch (error) {
       const failure = resume ? resumeLoadFailure(error) : undefined;

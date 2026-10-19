@@ -40,14 +40,14 @@ test("only a command's final failure is labelled Failed after retries succeed", 
   expect(within(feed).getByText(/· 1 failed$/)).toBeTruthy();
 });
 
-test("an account usage warning appears beside the composer without repeating the provider notice in the transcript", async () => {
+test("an account usage warning stays out of the thread: not in the transcript, not over the composer", async () => {
   const app = harness();
   app.play(coldStartReplay()).runUntilBlocked();
   await app.open("/t/thread-cold-start");
-  expect(await screen.findByText("82% of 5-h limit")).toBeTruthy();
-  const feed = screen.getByRole("feed", { name: "Transcript" });
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  await within(feed).findByText(/replayFrom now treats seq 0 as a cold start/);
   expect(within(feed).queryByText(/has used 82%/)).toBeNull();
-  expect(within(feed).queryByText("82% of 5-h limit")).toBeNull();
+  expect(screen.queryByText(/of 5-h limit/)).toBeNull();
 });
 
 test("a pending switch to Full access reads as its modes' names on the approvals chip", async () => {

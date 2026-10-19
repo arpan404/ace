@@ -192,3 +192,27 @@ test("daemon API and preview paths reach the next handler", async ({ onTestFinis
     expect(response.body.toString("utf8")).toBe("next");
   }
 });
+
+test("the web app's icons are served from the renderer root with image types", async ({
+  onTestFinished,
+}) => {
+  const { port, root } = await serveRenderer(onTestFinished);
+  await writeFile(join(root, "favicon.svg"), "<svg/>");
+  await writeFile(join(root, "favicon.png"), "png bytes");
+  await writeFile(join(root, "apple-touch-icon.png"), "touch bytes");
+  const touch = await fetchRaw(port, "/apple-touch-icon.png");
+  expect(touch.headers["content-type"]).toBe("image/png");
+  expect(touch.body.toString("utf8")).toBe("touch bytes");
+  expect((await fetchRaw(port, "/favicon.png")).body.toString("utf8")).toBe("png bytes");
+  expect((await fetchRaw(port, "/favicon.svg")).headers["content-type"]).toBe("image/svg+xml");
+});
+
+test("other root files are not exposed; the page is served in their place", async ({
+  onTestFinished,
+}) => {
+  const { port, root, html } = await serveRenderer(onTestFinished);
+  await writeFile(join(root, "secret.png"), "private");
+  const response = await fetchRaw(port, "/secret.png");
+  expect(response.headers["content-type"]).toBe("text/html; charset=utf-8");
+  expect(response.body.toString("utf8")).toBe(html);
+});
