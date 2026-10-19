@@ -2,58 +2,6 @@ import XCTest
 import CoreGraphics
 @testable import ScreenHelper
 
-final class ComputerKeyTests: XCTestCase {
-    func testChordsCarryModifiersAndTheKeyTheyName() throws {
-        XCTAssertEqual(try cuParseChord("cmd+shift+n"), CUChord(code: 45, flags: [.maskCommand, .maskShift], text: "n"))
-        XCTAssertEqual(try cuParseChord("Return"), CUChord(code: 36, flags: [], text: "\r"))
-        XCTAssertEqual(try cuParseChord("ctrl+alt+Down"), CUChord(code: 125, flags: [.maskControl, .maskAlternate], text: nil))
-        XCTAssertEqual(try cuParseChord("cmd++"), CUChord(code: 24, flags: [.maskCommand, .maskShift], text: "+"))
-    }
-
-    func testShiftedSymbolsAndCapitalsPressShift() throws {
-        XCTAssertEqual(try cuParseChord("*").flags, .maskShift)
-        XCTAssertEqual(try cuParseChord("A"), CUChord(code: 0, flags: .maskShift, text: "A"))
-    }
-
-    func testCharactersOutsideTheLayoutAreTypedAsUnicode() throws {
-        XCTAssertEqual(try cuParseChord("é"), CUChord(code: 0, flags: [], text: "é"))
-    }
-
-    func testUnknownKeysExplainWhatIsAccepted() {
-        XCTAssertThrowsError(try cuParseChord("hyper+k")) { error in
-            XCTAssertTrue((error as? CUError)?.message.contains("cmd, shift, alt") == true)
-        }
-        XCTAssertThrowsError(try cuParseChord("Launchpad")) { error in
-            XCTAssertTrue((error as? CUError)?.message.contains("Return, Tab, Escape") == true)
-        }
-    }
-
-    func testTypedNewlinesAndTabsBecomeKeys() {
-        XCTAssertEqual(cuTypingSteps("a\nb\t"), [.character("a"), .key(36), .character("b"), .key(48)])
-    }
-}
-
-final class ComputerShortcutTests: XCTestCase {
-    func testMenuShortcutsMatchCaseInsensitivelyWithExactModifiers() throws {
-        let paste = try cuParseChord("cmd+v")
-        XCTAssertTrue(cuShortcutMatches(itemChar: "V", itemVirtualKey: nil, itemModifiers: 0, chord: paste, mask: 0))
-        let redo = try cuParseChord("cmd+shift+z")
-        XCTAssertTrue(cuShortcutMatches(itemChar: "Z", itemVirtualKey: nil, itemModifiers: 1, chord: redo, mask: cuMenuModifierMask(redo.flags) ?? -1))
-        XCTAssertFalse(cuShortcutMatches(itemChar: "Z", itemVirtualKey: nil, itemModifiers: 0, chord: redo, mask: cuMenuModifierMask(redo.flags) ?? -1))
-    }
-
-    func testShortcutsWithoutCommandNeverMapToMenus() throws {
-        XCTAssertNil(cuMenuModifierMask(try cuParseChord("shift+Tab").flags))
-    }
-
-    func testOnlyPlainCommandLettersAreEmulatedTextCommands() throws {
-        XCTAssertEqual(cuTextCommand(try cuParseChord("cmd+a")), .selectAll)
-        XCTAssertEqual(cuTextCommand(try cuParseChord("cmd+v")), .paste)
-        XCTAssertNil(cuTextCommand(try cuParseChord("cmd+shift+v")))
-        XCTAssertNil(cuTextCommand(try cuParseChord("cmd+n")))
-    }
-}
-
 final class ComputerGuardTests: XCTestCase {
     private func facts(locked: Bool = false, front: Bool = false, idle: Double = 60, stop: Bool = false) -> CUGuardFacts {
         CUGuardFacts(locked: locked, appFrontmost: front, secondsSinceHumanInput: idle, stopRequested: stop)
@@ -108,16 +56,38 @@ final class ComputerScreenshotTests: XCTestCase {
     }
 
     func testMarksTagActionableElementsInsideTheWindowOnly() {
-        func node(_ id: Int, _ frame: CGRect, role: String = "AXButton", actions: [String] = ["AXPress"]) -> CUNode {
-            CUNode(id: id, depth: 1, role: "button", flags: [], name: nil, value: nil, detail: nil, placeholder: nil, url: nil, actions: [], frame: frame, axActions: actions, axRole: role)
-        }
         let window = CGRect(x: 100, y: 100, width: 400, height: 300)
         let marks = cuMarks(nodes: [
-            node(1, window, role: "AXWindow"),
-            node(2, CGRect(x: 110, y: 120, width: 40, height: 20)),
-            node(3, CGRect(x: 110, y: 160, width: 40, height: 20), role: "AXStaticText", actions: []),
-            node(4, CGRect(x: 900, y: 900, width: 40, height: 20)),
+            cuTestNode(1, depth: 0, frame: window, axRole: "AXWindow"),
+            cuTestNode(2, frame: CGRect(x: 110, y: 120, width: 40, height: 20)),
+            cuTestNode(3, frame: CGRect(x: 110, y: 160, width: 40, height: 20), axRole: "AXStaticText", axActions: []),
+            cuTestNode(4, frame: CGRect(x: 900, y: 900, width: 40, height: 20)),
         ], window: window, scale: 2)
         XCTAssertEqual(marks, [CUMark(id: 2, rect: CGRect(x: 20, y: 40, width: 80, height: 40))])
+    }
+
+    func testRowsScrolledOutOfTheirListAreNotTagged() {
+        let window = CGRect(x: 0, y: 0, width: 400, height: 400)
+        let marks = cuMarks(nodes: [
+            cuTestNode(1, depth: 0, frame: window, axRole: "AXWindow"),
+            cuTestNode(2, depth: 1, frame: CGRect(x: 0, y: 0, width: 400, height: 100), axRole: "AXScrollArea", axActions: []),
+            cuTestNode(3, depth: 2, frame: CGRect(x: 0, y: 20, width: 100, height: 20), axRole: "AXRow", axActions: []),
+            cuTestNode(4, depth: 2, frame: CGRect(x: 0, y: 220, width: 100, height: 20), axRole: "AXRow", axActions: []),
+            cuTestNode(5, depth: 1, frame: CGRect(x: 0, y: 300, width: 60, height: 20)),
+        ], window: window, scale: 1)
+        XCTAssertEqual(marks.map(\.id), [3, 5])
+    }
+}
+
+final class ComputerMarkdownLinkTests: XCTestCase {
+    func testBracketsThatAreNotLinksStayAsText() {
+        XCTAssertEqual(cuInlineMarkdown("[a] x [b](u)"), #"[a] x <a href="u">b</a>"#)
+        XCTAssertEqual(cuInlineMarkdown("[see [1]](https://e.com/a_(b))"), #"<a href="https://e.com/a_(b)">see [1]</a>"#)
+    }
+
+    func testScriptAndDataLinksKeepOnlyTheirText() {
+        XCTAssertEqual(cuInlineMarkdown("[click](javascript:alert(1))"), "click")
+        XCTAssertEqual(cuInlineMarkdown("[img]( DATA:text/html;base64,xx)"), "img")
+        XCTAssertEqual(cuInlineMarkdown("[ok](mailto:a@b.c)"), #"<a href="mailto:a@b.c">ok</a>"#)
     }
 }

@@ -6,18 +6,27 @@ struct CUMark: Equatable {
     let rect: CGRect
 }
 
-/// Elements worth tagging: ones that act, are a reasonable size and sit inside the window.
-/// Pure, so placement is tested without drawing.
+/// Elements worth tagging: ones that act, are a reasonable size and show inside the window and
+/// inside every scroll area around them (rows scrolled out of view keep their frames).
+/// Ancestry comes from the outline's depth-first order and depths. Pure, so placement is
+/// tested without drawing.
 func cuMarks(nodes: [CUNode], window: CGRect, scale: Double) -> [CUMark] {
     let windowArea = window.width * window.height
     var marks: [CUMark] = []
+    // Visible rect at each open ancestor depth: the window, narrowed by scroll areas.
+    var clips: [(depth: Int, rect: CGRect)] = []
     for node in nodes {
+        while let last = clips.last, last.depth >= node.depth { clips.removeLast() }
+        let clip = clips.last?.rect ?? window
+        if node.axRole == "AXScrollArea", let frame = node.frame { clips.append((node.depth, clip.intersection(frame))) }
+        else { clips.append((node.depth, clip)) }
         guard let frame = node.frame, frame.width >= 6, frame.height >= 6 else { continue }
+        let shown = frame.intersection(clip)
+        guard !shown.isNull, shown.width >= 4, shown.height >= 4 else { continue }
         let acts = node.axActions.contains("AXPress") || cuTextInputRoles.contains(node.axRole)
             || ["AXRow", "AXCell", "AXOutlineRow", "AXLink", "AXTab", "AXSlider", "AXPopUpButton", "AXMenuButton", "AXCheckBox", "AXRadioButton"].contains(node.axRole)
         guard acts, node.axRole != "AXWindow", frame.width * frame.height < windowArea * 0.4 else { continue }
-        let local = frame.offsetBy(dx: -window.minX, dy: -window.minY).intersection(CGRect(origin: .zero, size: window.size))
-        guard !local.isNull, local.width >= 4, local.height >= 4 else { continue }
+        let local = shown.offsetBy(dx: -window.minX, dy: -window.minY)
         marks.append(CUMark(id: node.id, rect: CGRect(x: local.minX * scale, y: local.minY * scale, width: local.width * scale, height: local.height * scale)))
         if marks.count >= 300 { break }
     }

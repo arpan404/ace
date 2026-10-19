@@ -76,15 +76,56 @@ func cuInlineMarkdown(_ text: String) -> String {
         if let inner = take(between: "**", "**") { out += "<strong>\(cuInlineMarkdown(String(inner)))</strong>"; continue }
         if let inner = take(between: "__", "__") { out += "<strong>\(cuInlineMarkdown(String(inner)))</strong>"; continue }
         if let inner = take(between: "*", "*") { out += "<em>\(cuInlineMarkdown(String(inner)))</em>"; continue }
-        if first == "[", let close = rest.range(of: "]("), let end = rest[close.upperBound...].firstIndex(of: ")") {
-            let label = rest[rest.index(after: rest.startIndex)..<close.lowerBound]
-            let url = rest[close.upperBound..<end]
-            out += "<a href=\"\(cuEscapeHTML(String(url)))\">\(cuInlineMarkdown(String(label)))</a>"
-            rest = rest[rest.index(after: end)...]
+        if first == "[", let link = cuLink(at: rest) {
+            let label = cuInlineMarkdown(link.label)
+            out += cuSafeURL(link.url).map { "<a href=\"\(cuEscapeHTML($0))\">\(label)</a>" } ?? label
+            rest = link.rest
             continue
         }
         out += cuEscapeHTML(String(first))
         rest = rest.dropFirst()
     }
     return out
+}
+
+/// A `[label](url)` link starting at `text`: the label runs to its matching "]" (nested
+/// brackets allowed), which must be followed directly by "(", and the URL to the matching ")".
+private func cuLink(at text: Substring) -> (label: String, url: String, rest: Substring)? {
+    guard text.first == "[" else { return nil }
+    var depth = 0
+    var index = text.startIndex
+    var labelEnd: Substring.Index?
+    while index < text.endIndex {
+        let character = text[index]
+        if character == "[" { depth += 1 }
+        if character == "]" { depth -= 1; if depth == 0 { labelEnd = index; break } }
+        index = text.index(after: index)
+    }
+    guard let labelEnd else { return nil }
+    let open = text.index(after: labelEnd)
+    guard open < text.endIndex, text[open] == "(" else { return nil }
+    var parens = 0
+    index = open
+    while index < text.endIndex {
+        let character = text[index]
+        if character == "(" { parens += 1 }
+        if character == ")" {
+            parens -= 1
+            if parens == 0 {
+                let label = String(text[text.index(after: text.startIndex)..<labelEnd])
+                let url = String(text[text.index(after: open)..<index]).trimmingCharacters(in: .whitespaces)
+                guard !label.isEmpty else { return nil }
+                return (label, url, text[text.index(after: index)...])
+            }
+        }
+        index = text.index(after: index)
+    }
+    return nil
+}
+
+/// Links that run code or embed data are dropped (their text stays).
+func cuSafeURL(_ url: String) -> String? {
+    let scheme = url.lowercased().filter { !$0.isWhitespace && !$0.isNewline && $0 != "\u{0}" }
+    for blocked in ["javascript:", "data:", "vbscript:"] where scheme.hasPrefix(blocked) { return nil }
+    return url.isEmpty ? nil : url
 }
