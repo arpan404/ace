@@ -30,7 +30,7 @@ import Testing
         sessions.session("studio")?.patch(alert("s:1"))
         sessions.session("mac")?.patch(alert("m:1"))
         for _ in 0..<200 where center.posted.isEmpty { await Task.yield() }
-        #expect(center.posted == ["m:1"])
+        #expect(center.posted == [AlertContent.requestId("m:1", hostId: "mac")])
     }
 
     @Test func quietHoursAreReadAndSavedPerMachine() async throws {

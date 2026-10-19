@@ -107,6 +107,29 @@ import Testing
         #expect(center.withdrawn == ["n:1"])
     }
 
+    @Test func theSameAlertIdFromTwoMachinesShowsTwiceAndRetractingOneLeavesTheOther() async throws {
+        let center = FakeCenter()
+        let store = try defaults()
+        let studio = LocalNotifier(center: center, hostId: "studio")
+        studio.bind(LedgerStore(scope: "studio", defaults: store))
+        let laptop = LocalNotifier(center: center, hostId: "laptop")
+        laptop.bind(LedgerStore(scope: "laptop", defaults: store))
+        await studio.receive(alert("n:1"))
+        await laptop.receive(alert("n:1"))
+        #expect(Set(center.delivered.values.compactMap(\.hostId)) == ["studio", "laptop"])
+        await laptop.catchUp(cursor: 1, entries: [], retracted: ["n:1"])
+        #expect(center.delivered.values.map(\.hostId) == ["studio"])
+    }
+
+    @Test func aRetractionAlsoWithdrawsTheBareIdAnOlderBuildPosted() async throws {
+        let center = FakeCenter()
+        await center.post(AlertContent(alert("n:1")))
+        let notifier = LocalNotifier(center: center, hostId: "studio")
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        await notifier.catchUp(cursor: 1, entries: [], retracted: ["n:1"])
+        #expect(center.delivered.isEmpty)
+    }
+
     // MARK: Support
 
     private let approvalInfo = [NotificationKeys.threadId: "thread", NotificationKeys.interactionId: "push",
@@ -144,8 +167,13 @@ private let fastSleep: @Sendable (Duration) async -> Void = { duration in
 private final class FakeCenter: NotificationCenterPort, @unchecked Sendable {
     var posted: [AlertContent] = []
     var withdrawn: [String] = []
-    func post(_ content: AlertContent) async { posted.append(content) }
-    func withdraw(_ identifiers: [String]) { withdrawn.append(contentsOf: identifiers) }
+    /// What Notification Center shows: a post replaces any with the same identifier.
+    var delivered: [String: AlertContent] = [:]
+    func post(_ content: AlertContent) async { posted.append(content); delivered[content.identifier] = content }
+    func withdraw(_ identifiers: [String]) {
+        withdrawn.append(contentsOf: identifiers)
+        for id in identifiers { delivered.removeValue(forKey: id) }
+    }
 }
 private struct FakeAuthorizer: NotificationAuthorizer {
     func status() async -> NotificationCoordinator.Permission { .allowed }

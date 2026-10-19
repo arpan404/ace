@@ -297,7 +297,8 @@ pairing or daemon-restart durability.
 
 Local only ([ADR 0087](../../docs/adr/0087-ios-local-notifications.md)). `Sources/Notifications/`
 posts the daemon's canonical `notification` messages and its `notification.feed` catch-up with
-`UNUserNotificationCenter`; `bridge/notifications.ts` registers the phone, reports foreground or
+`UNUserNotificationCenter`; `bridge/notifications.ts` registers the phone (and sends `notification.unregister` while that
+machine's alerts are off), reports foreground or
 background presence and runs approval actions through the SDK outbox. With the fixture running,
 `curl -X POST localhost:9841/review/notify -d '{"threadId":"ios-approval"}'` sends an alert and
 `/review/retract -d '{"id":"…"}'` withdraws one. Remote push (APNs, a push gateway) and Live
