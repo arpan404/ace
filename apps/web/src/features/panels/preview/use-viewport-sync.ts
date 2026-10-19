@@ -26,10 +26,11 @@ export function useViewportSync(
       const height = Math.floor(el.offsetHeight);
       // Hidden (a background tab, a collapsed panel): keep the page as it is.
       if (width <= 0 || height <= 0) return;
-      const key = `${width}x${height}`;
+      const dpr = window.devicePixelRatio || 1;
+      const key = `${width}x${height}@${dpr}`;
       if (key === last.current) return;
       last.current = key;
-      source.resize(threadId, width, height);
+      source.resize(threadId, width, height, dpr);
     };
     send();
     if (typeof ResizeObserver === "undefined") return;

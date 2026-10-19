@@ -346,6 +346,9 @@ export interface PreviewSource {
   cursorStyle?(threadId: string, style: { fill: string; outline: string }): void;
   /** Stop the recording that runs in the thread's browser; its file joins the thread. */
   stopRecording?(threadId: string): Promise<void>;
-  /** Size the page to the pane in CSS pixels (100–4096). */
-  resize(threadId: string, width: number, height: number): void;
+  /**
+   * Size the page to the pane in CSS pixels (100–4096), rendered as sharp as the pane's screen
+   * (`devicePixelRatio`) where the browser can.
+   */
+  resize(threadId: string, width: number, height: number, devicePixelRatio?: number): void;
 }

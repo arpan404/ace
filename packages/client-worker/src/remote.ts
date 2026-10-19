@@ -36,6 +36,7 @@ import {
   type ServiceRequest,
   type ServiceResponse,
   type SidebarSource,
+  type StreamMessage,
   type ThreadExport,
   type ThreadSource,
 } from "@ace/client";
@@ -148,6 +149,7 @@ export class RemoteClient implements ClientApi {
   private byLease = new Map<number, Mirrored>();
   private pending = new Map<number, Pending>();
   private messageListeners = new Set<(message: ServerMessage) => void>();
+  private streamListeners = new Set<(message: StreamMessage) => void>();
   private sequence = 0;
   private attached: Promise<void>;
   private settle: Pending | undefined;
@@ -487,6 +489,16 @@ export class RemoteClient implements ClientApi {
     return () => {
       if (!this.messageListeners.delete(listener)) return;
       if (this.messageListeners.size === 0) this.post({ t: "unwatchMessages" });
+    };
+  }
+  onStream(listener: (message: StreamMessage) => void): () => void {
+    if (this.closed || this.workerLost) throw new ClientError("offline");
+    if (this.streamListeners.size >= this.listeners) throw new ClientError("limit");
+    if (this.streamListeners.size === 0) this.post({ t: "watchStreams" });
+    this.streamListeners.add(listener);
+    return () => {
+      if (!this.streamListeners.delete(listener)) return;
+      if (this.streamListeners.size === 0) this.post({ t: "unwatchStreams" });
     };
   }
   send(message: OneWayMessage): void {
@@ -884,6 +896,17 @@ export class RemoteClient implements ClientApi {
       case "message": {
         const pushed = trusted<ServerMessage>(message.message);
         for (const listener of this.messageListeners) {
+          try {
+            listener(pushed);
+          } catch {
+            // One consumer cannot break delivery to the others.
+          }
+        }
+        return;
+      }
+      case "stream": {
+        const pushed = trusted<StreamMessage>(message.message);
+        for (const listener of this.streamListeners) {
           try {
             listener(pushed);
           } catch {

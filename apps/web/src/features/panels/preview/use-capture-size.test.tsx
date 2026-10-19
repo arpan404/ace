@@ -52,12 +52,15 @@ test("a viewer keeps DPR-sized capture after reconnect without taking control or
   );
   requests.length = 0;
   daemon.disconnectAll();
+  // The subscribe after the reconnect carries the pane, so the first frame is already sized.
   await waitFor(() =>
-    expect(requests).toContainEqual({
-      type: "browser.capture",
-      threadId: "thread",
-      viewport: { width: 900, height: 600, devicePixelRatio: 2 },
-    }),
+    expect(requests).toContainEqual(
+      expect.objectContaining({
+        type: "browser.subscribe",
+        threadId: "thread",
+        viewport: expect.objectContaining({ width: 900, height: 600, devicePixelRatio: 2 }),
+      }),
+    ),
   );
   expect(
     requests.some(
