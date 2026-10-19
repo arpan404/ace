@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PlacementBook, toWindowBounds } from "./placement.ts";
+import { deviceEmulation, PlacementBook, toWindowBounds } from "./placement.ts";
 
 const panel = { x: 920, y: 120, width: 520, height: 780 };
 const other = { x: 400, y: 80, width: 600, height: 500 };
@@ -144,5 +144,40 @@ describe("window bounds", () => {
 
   it("treats a missing zoom as 100%", () => {
     expect(toWindowBounds(panel, 0)).toEqual(panel);
+  });
+});
+
+// Chromium draws an emulated page `width * scale` DIPs wide; page zoom only changes its CSS.
+const drawn = (emulation: { width: number; height: number; scale: number }) => ({
+  width: emulation.width * emulation.scale,
+  height: emulation.height * emulation.scale,
+});
+
+describe("device emulation", () => {
+  it("a page shrunk into picture-in-picture fills its box when the app is zoomed", () => {
+    const pip = toWindowBounds({ x: 0, y: 0, width: 395, height: 386 }, 1.25);
+    const emulation = deviceEmulation({ width: 1040, height: 1016 }, pip, 1.25);
+    expect(drawn(emulation).width).toBeCloseTo(pip.width, 5);
+    expect(drawn(emulation).height).toBeCloseTo(pip.height, 0);
+  });
+
+  it("keeps the panel's layout: the app's zoom maps the emulated size back to the panel's CSS size", () => {
+    const emulation = deviceEmulation(
+      { width: 1040, height: 1016 },
+      { x: 0, y: 0, width: 500, height: 488 },
+      1.5,
+    );
+    expect(emulation.width / 1.5).toBeCloseTo(1040, 0);
+    expect(emulation.height / 1.5).toBeCloseTo(1016, 0);
+  });
+
+  it("an unzoomed device is emulated at its own size", () => {
+    expect(
+      deviceEmulation(
+        { width: 390, height: 844, mobile: true, deviceScaleFactor: 3 },
+        { x: 0, y: 0, width: 195, height: 422 },
+        1,
+      ),
+    ).toEqual({ width: 390, height: 844, deviceScaleFactor: 3, mobile: true, scale: 0.5 });
   });
 });

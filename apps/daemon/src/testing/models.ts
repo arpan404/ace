@@ -6,7 +6,7 @@ export const scriptedEfforts = [
   { id: "low", level: "low", label: "Low" },
   { id: "medium", level: "medium", label: "Medium" },
   { id: "high", level: "high", label: "High" },
-  { id: "extra-high", level: "xhigh", label: "Extra high" },
+  { id: "extra-high", level: "xhigh", label: "XHigh" },
 ] as const;
 
 /** Model metadata at the scripted CLI boundary; the catalog and persistence remain real. */

@@ -19,8 +19,9 @@ interface SurfaceProps {
 }
 
 /**
- * One rendered chat visualization. The page fits its content up to `maxHeight` and scrolls
- * inside beyond it; theme changes reach the running page, which keeps its state.
+ * One rendered chat visualization. Inline, the frame takes the page's whole content height, so
+ * the transcript is the only thing that scrolls; theme changes reach the running page, which
+ * keeps its state.
  */
 export function HtmlFrame(props: {
   html: string;
@@ -28,7 +29,8 @@ export function HtmlFrame(props: {
   mode: HtmlMode;
   title: string;
   theme: HtmlTheme;
-  maxHeight: number;
+  /** Height held until the page reports its own (the agent's hint, or a default). */
+  initialHeight: number;
   /** Fill the container instead of fitting content (fullscreen). */
   fill: boolean;
   /** Desktop: a `<webview>` in the locked visualization session. */
@@ -49,9 +51,7 @@ export function HtmlFrame(props: {
       mode: props.mode,
       source: visualizationUrl(props.html, props.theme, props.mode),
     });
-  const height = props.fill
-    ? "100%"
-    : `${Math.max(48, Math.min(props.maxHeight, props.measured ?? 160))}px`;
+  const height = props.fill ? "100%" : `${Math.max(48, props.measured ?? props.initialHeight)}px`;
   const Surface = props.webview ? WebviewSurface : IframeSurface;
   return (
     <Surface

@@ -15,7 +15,7 @@ import { appChord, browserChord, pageChord } from "../shortcuts.ts";
 import { parseChord } from "./keys.ts";
 import { WebSocketGate } from "./socket-gate.ts";
 import { throttleDecision, type ViewPresence } from "./throttle.ts";
-import type { NativeDevice, Rect } from "./placement.ts";
+import { deviceEmulation, type NativeDevice, type Rect } from "./placement.ts";
 import { clearPartition } from "./partition-cleanup.ts";
 import { PausedRequests } from "./paused-requests.ts";
 import { CrashBackoff } from "./crash-backoff.ts";
@@ -473,13 +473,7 @@ export class EmbeddedPage implements ViewPage {
       if (this.contents.getZoomFactor() !== zoom) this.contents.setZoomFactor(zoom);
       this.target = { bounds: target.bounds, zoom, device: target.device };
       const params = target.device
-        ? {
-            width: target.device.width,
-            height: target.device.height,
-            deviceScaleFactor: target.device.deviceScaleFactor ?? 0,
-            mobile: target.device.mobile ?? false,
-            scale: target.bounds.width / (target.device.width * zoom),
-          }
+        ? deviceEmulation(target.device, target.bounds, this.appZoom)
         : undefined;
       const key = JSON.stringify(
         params ?? { zoom, width: target.bounds.width, height: target.bounds.height },
@@ -565,15 +559,12 @@ export class EmbeddedPage implements ViewPage {
             ? this.send(method, this.fitted(params))
             : this.send(method);
         if (this.placed && this.target) {
-          const { device, bounds, zoom } = this.target;
+          const { device, bounds } = this.target;
           return device
-            ? this.send("Emulation.setDeviceMetricsOverride", {
-                width: device.width,
-                height: device.height,
-                deviceScaleFactor: device.deviceScaleFactor ?? 0,
-                mobile: device.mobile ?? false,
-                scale: bounds.width / (device.width * zoom),
-              })
+            ? this.send(
+                "Emulation.setDeviceMetricsOverride",
+                deviceEmulation(device, bounds, this.appZoom),
+              )
             : this.send("Emulation.clearDeviceMetricsOverride");
         }
         return this.send(method, params);
@@ -785,12 +776,9 @@ export class EmbeddedPage implements ViewPage {
       .object({ width: z.number().positive(), height: z.number().positive() })
       .safeParse(params);
     if (!size.success || !this.target) return params ?? {};
-    const { bounds, zoom } = this.target;
-    const scale = Math.min(
-      1,
-      bounds.width / (size.data.width * zoom),
-      bounds.height / (size.data.height * zoom),
-    );
+    // Emulated sizes are DIPs, drawn at `scale` whatever the page zoom.
+    const { bounds } = this.target;
+    const scale = Math.min(1, bounds.width / size.data.width, bounds.height / size.data.height);
     return { deviceScaleFactor: 0, mobile: false, ...params, scale };
   }
 

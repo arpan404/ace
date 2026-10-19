@@ -340,7 +340,7 @@ test("effort levels read as words people use, whatever the provider calls them",
     "Low",
     "Medium",
     "High",
-    "Extra high",
+    "XHigh",
     "Minimal",
   ]);
   expect(effortLabel("very_deep")).toBe("Very deep");

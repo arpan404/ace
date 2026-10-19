@@ -5,7 +5,7 @@
   "properties": {
     "height": {
       "$ref": "https://ace.local/protocol/v1/HtmlHeight.json",
-      "description": "Frame height in CSS pixels; default fits the content."
+      "description": "Height in CSS pixels to hold while the page loads; the frame then fits the whole page."
     },
     "html": {
       "description": "A complete self-contained HTML document: inline CSS, JS, SVG and data: images, no network.",

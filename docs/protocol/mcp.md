@@ -20,7 +20,7 @@ Required capability: none beyond session authentication. Timeout: 30000 ms.
 | --- | --- | --- | --- |
 | title | yes | string | {"minLength":1,"maxLength":160,"pattern":"\\S","description":"A short caption shown above the page."} |
 | html | yes | string | {"minLength":1,"maxLength":16777216,"description":"A complete self-contained HTML document: inline CSS, JS, SVG and data: images, no network."} |
-| height | no | [HtmlHeight.json](schema/HtmlHeight.json) | {"description":"Frame height in CSS pixels; default fits the content."} |
+| height | no | [HtmlHeight.json](schema/HtmlHeight.json) | {"description":"Height in CSS pixels to hold while the page loads; the frame then fits the whole page."} |
 | mode | no | [HtmlMode.json](schema/HtmlMode.json) | {"description":"interactive runs its scripts in a sandbox; static strips them (charts, diagrams). Default: inferred."} |
 
 Example:

@@ -7,7 +7,7 @@ const supportedAs = (effort: string | undefined, supported: readonly string[], n
 /**
  * Ultra, ultrathink and Max: the deepest reasoning a provider names, which gets the accent
  * sheen and the glowing thumb. Explicit provider capabilities, never inferred from being the
- * last choice (Extra high stays an ordinary level).
+ * last choice (XHigh stays an ordinary level).
  */
 export function isDeepReasoning(effort: string | undefined, supported: readonly string[]): boolean {
   return supportedAs(effort, supported, /^(ultra|ultrathink|max)$/i);
@@ -47,8 +47,8 @@ export function reasoningShortLabel(effort: string): string {
   const labels: Record<string, string> = {
     minimal: "Min",
     medium: "Med",
-    xhigh: "X-High",
-    extra_high: "X-High",
+    xhigh: "XHigh",
+    extra_high: "XHigh",
   };
   return labels[effort.toLowerCase()] ?? effortLabel(effort);
 }

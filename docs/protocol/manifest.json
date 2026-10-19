@@ -21,8 +21,8 @@
       "sha256": "06a2e6b5d17d001c0c2d47e29356fc6a96c6732668bf847e5739aa01d4797578"
     },
     "mcp.md": {
-      "bytes": 59906,
-      "sha256": "10b5f0cd0bbc065b9a1212893380e3270b3f2f55107a49d1ac494c67a9ec3ec6"
+      "bytes": 59939,
+      "sha256": "2e1b828ca0483fb139fa5371832e9fe9d36be56b579d6d92bd7be328f289f1c6"
     },
     "models.md": {
       "bytes": 16301,
@@ -3601,8 +3601,8 @@
       "sha256": "8d1124a6634df21b801b142776f3aa14e10a818fc9eb6bf72b8b1d1136a62299"
     },
     "schema/html_render.input.json": {
-      "bytes": 1005,
-      "sha256": "9c6007f7ab32e1f4c6c0ec7215a7df18889ac9eca742690977384d426693526f"
+      "bytes": 1038,
+      "sha256": "d4b939886c6431059fda53fdfac21cdce7b1871b50eb9e84c1eb9bdaccc42f2b"
     },
     "schema/html_render.output.json": {
       "bytes": 307,
@@ -3765,6 +3765,6 @@
       "sha256": "60fcc22215993a204ca43482cdf55753954cc976d83809e5aa378f43de82b791"
     }
   },
-  "input": "38f2bcc85b88c1cf413dc61ad9e22a801748188ed3cc3c8ecf528ad60bbf5e47",
+  "input": "beb855d9465a5e8f292553589b41d01dd1f2ea095ded7b72a2b045aa8ed963fd",
   "version": 1
 }

@@ -25,3 +25,13 @@ it("parking never takes focus or a taskbar slot", () => {
     skipTaskbar: true,
   });
 });
+
+it("parking stays invisible where the OS pulls it back on screen", () => {
+  // macOS keeps a shown window on a display, so the parked page must not be seen or clicked.
+  expect(parkingWindowOptions({ width: 800, height: 600 })).toMatchObject({
+    frame: false,
+    opacity: 0,
+    hasShadow: false,
+    hiddenInMissionControl: true,
+  });
+});
