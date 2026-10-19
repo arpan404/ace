@@ -75,9 +75,10 @@ function ViewedMark(props: { path: string; mark: PrViewedMark }) {
   return (
     <span className="flex shrink-0 items-center gap-2 pl-2">
       {mark.changed && <span className="text-xs text-status-needs-you">Changed</span>}
+      {/* The label names the checkbox (Base UI links it by aria-labelledby, which outranks an
+          aria-label), so it carries the path for assistive tech beside the visible "Viewed". */}
       <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Checkbox
-          aria-label={`Viewed ${props.path}`}
           checked={mark.checked}
           disabled={mark.disabled}
           onCheckedChange={(checked) =>
@@ -86,7 +87,8 @@ function ViewedMark(props: { path: string; mark: PrViewedMark }) {
               .catch(() => toast.error({ title: "Couldn't save viewed state" }))
           }
         />
-        Viewed
+        <span aria-hidden>Viewed</span>
+        <span className="sr-only">{`Viewed ${props.path}`}</span>
       </label>
     </span>
   );
