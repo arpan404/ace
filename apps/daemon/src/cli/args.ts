@@ -24,6 +24,9 @@ const switches = new Set([
   "worktrees",
   "caches",
   "compact",
+  // `ace sim`: short human output, and starting without booting.
+  "human",
+  "no-boot",
   // `ace thread|task wait` across several ids.
   "any",
   "all",

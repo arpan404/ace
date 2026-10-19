@@ -1,4 +1,4 @@
-import { lazy, type ComponentType } from "react";
+import { lazy, useState, type ComponentType } from "react";
 
 /** Carries recovery for a failed code load to the boundary that caught it. */
 export class DeferredLoadError extends Error {
@@ -41,9 +41,10 @@ export function deferredComponent<P extends object>(
   const makeLazy = () => lazy(() => preload().then((component) => ({ default: component })));
   let Lazy = makeLazy();
   function Deferred(props: P) {
-    // Reads module state that changes once, when the code arrives; nothing to memoise.
-    "use no memo";
-    const Component = loaded ?? Lazy;
+    // One component type for this element's whole life. React can commit the lazy wrapper
+    // (it replays just the suspended lazy once its code arrives, without rendering this again),
+    // and switching to the loaded type on a later render would remount everything below.
+    const [Component] = useState(() => loaded ?? Lazy);
     return <Component {...props} />;
   }
   return { Component: Deferred, preload };

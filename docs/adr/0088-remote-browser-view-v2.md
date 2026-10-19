@@ -117,6 +117,7 @@ Limits of this choice:
 | ---------------- | --------------------------------------------------------- | ---------------------------------------------------------------- |
 | 1 `browserFrame` | one JPEG screencast frame                                 | viewers without video, and every viewer until its first keyframe |
 | 2 `browserVideo` | one encoded video chunk (H.264 in AVC format, VP8 or VP9) | viewers that asked for video and got a keyframe                  |
+| 3 `browserAudio` | one Opus packet of the tab's sound (below, Audio)         | video viewers that unmuted the page                              |
 
 A video chunk's header carries the sequence, timestamp, the page's CSS size (input coordinates
 stay CSS pixels, as with JPEG), the coded size, the codec string, a keyframe flag, the thread and
@@ -199,5 +200,78 @@ Resolution stays; frame rate drops first. The bit rate is a variable-rate ceilin
   video. It is ace's own and holds no data.
 - Phone and web clients need a canvas path next to the `<img>` path; input coordinates still map
   through the picture's rendered box, in CSS pixels.
-- Open: audio (#1055) can ride the same capture; the desktop's embedded backend and ephemeral
-  contexts stay on JPEG.
+- Open: the desktop's embedded backend and ephemeral contexts stay on JPEG, and so without sound.
+
+## Audio
+
+Added with #1055. The page's sound rides the video's tab capture and the same stream framing.
+
+### Muted by default, everywhere
+
+Every view starts muted, on every device, and a view that stops showing the page goes back to
+muted. One speaker button in the browser tab's toolbar turns the sound on for that device only.
+The click is what opens the client's audio output (`AudioContext`), because phone browsers only
+start sound inside a user gesture. The button is offered while the page shows as video on a
+client with WebCodecs `AudioDecoder` and Web Audio; a JPEG view has no sound.
+
+The viewer's choice travels in its pane report: `BrowserCaptureViewport.audio` in
+`browser.subscribe` and `browser.capture`. It is not a tab property and not the person's tab
+mute (`browser.tabs.mute`, ADR 0086), which changes what a tab plays for everyone.
+
+### Bandwidth: sound only while someone listens
+
+A viewer listens while it plays video, its `audio` is true and no native view covers its pane
+(`audio-fanout.ts`, pure). The tab capture always holds the tab's audio track, but the offscreen
+document reads and encodes a clone of it only while at least one viewer listens, and the daemon
+sends audio chunks only to listeners. A muted viewer receives no audio bytes, and a capture that
+nobody hears costs no encoding.
+
+Audio is never acknowledged and never queued: a chunk the transport refuses is dropped, since
+late sound is worse than a gap. It is 96 kbit/s Opus at most, with DTX, so a silent page sends
+almost nothing.
+
+### Capture and encoding
+
+- The offscreen document opens the capture with `audio` and `video` from the same stream id.
+  A capture that can't take sound opens with video alone.
+- `AudioEncoder` encodes Opus (`opus`, the track's own rate and channels, 20 ms packets, DTX).
+- Each chunk, video and audio, says how long ago (`age`) its picture or sound was captured. The
+  daemon stamps it `now − age`, so both kinds carry capture time on one clock. Video frames are
+  stamped with the offscreen document's `performance.now()` as they go in; audio samples carry
+  the capture's own media timestamps, mapped onto that clock by their quickest arrival
+  (`media-clock.ts`, pure, re-anchored when either clock jumps).
+- An audio chunk's header carries the sequence, timestamp, sample rate, channels, codec, and the
+  thread and tab ids (`stream-audio.ts`).
+
+### Playing in step with the video
+
+Pictures show as soon as they decode; sound needs a jitter buffer. The client keeps two offsets,
+local time minus stream time: the video's (smoothed over shown pictures) and the sound's
+(its quickest recent arrival plus a 60 ms buffer). Each chunk plays at its timestamp plus the
+later of the two, so sound waits for pictures that run late, but at most 500 ms beyond its own
+buffer (`av-sync.ts`, pure). The schedule holds while the target moves less than 60 ms, so
+packets play back to back; a larger move, or a packet that would start in the past, restarts it
+with one short gap. The video's offset is tracked while muted, so unmuting starts in step. Web
+Audio's `getOutputTimestamp` maps local time to the output device, through its latency.
+
+### The daemon machine stays silent
+
+ace's Chrome used to run with `--mute-audio`. That flag mutes the page's output streams before
+tab capture taps them: a capture of a page playing a 440 Hz tone under `--mute-audio` decoded to
+silence (peak 2 × 10⁻³⁴), and without it to the tone. Removing it alone would play every agent's
+page on the daemon machine's speakers (macOS showed `coreaudiod` holding the built-in speaker for
+headless Chrome).
+
+ace's Chrome runs with `--disable-audio-output` instead: Chrome's audio output goes to a fake
+device, while tab capture still receives the streams. With it, the same tone reached the capture
+intact and no new speaker assertion appeared. So agent sessions, sessions nobody watches and
+muted viewers are all silent on the daemon machine, and no flag changes between sessions with
+and without a viewer.
+
+### Limits
+
+- Sound comes only with video: JPEG viewers, ephemeral contexts, the desktop's embedded backend
+  (which plays through the desktop itself) and "Use my Chrome" have none.
+- Clients without WebCodecs `AudioDecoder` for Opus (older Safari) get no speaker button.
+- The jitter buffer is fixed at 60 ms over the quickest arrival; a link with larger jitter
+  restarts the schedule more often rather than buffering more.

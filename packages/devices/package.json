@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./client": "./src/client.ts",
-    "./video-client": "./src/video-client.ts"
+    "./video-client": "./src/video-client.ts",
+    "./testing": "./src/testing/fake-sim.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

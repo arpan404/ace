@@ -28,6 +28,7 @@ import {
 } from "./commands.ts";
 import { AndroidOperations } from "./android-operations.ts";
 import { AndroidPlatform } from "./android-platform.ts";
+import { deviceScreenshot, emulatorScreenshot, type DeviceShot } from "./one-off-screenshot.ts";
 
 export type PlatformOptions = SDKOptions & {
   spawn?: typeof spawnSupervised;
@@ -260,6 +261,19 @@ export class DevicePlatform {
   async boot(device: Device, authorize?: () => void): Promise<void> {
     if (device.platform === "ios") await this.iosSimulators(authorize).boot(nativeId(device));
     else await this.android.boot(device, authorize);
+  }
+  /** One still of the screen, for when no live view is running. */
+  screenshot(device: Device, authorize?: () => void): Promise<DeviceShot> {
+    return deviceScreenshot(device, {
+      simulator: async (path) => {
+        await this.simctl(device, ["io", "screenshot", "--type=png", path], authorize);
+      },
+      emulator: (path) =>
+        emulatorScreenshot(
+          (args, maxBytes) => this.android.adb(device, args, maxBytes, authorize),
+          path,
+        ),
+    });
   }
   /** Make sure Simulator shows this booted device's window, without taking focus. */
   async showSimulator(device: Device): Promise<void> {

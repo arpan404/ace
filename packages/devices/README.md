@@ -51,8 +51,21 @@ tools are named `sim_*` so they cannot be confused with paired machines: `sim_li
 swipe, type, key, open_app, open_url, install, record_start, record_stop),
 `sim_screenshot` and `sim_logs`. Each takes a `simId`.
 Logs start on the first authorized `sim_logs` request and return a bounded
-tail. Tools take no thread or agent override. Agent screenshots require the
-device stream to be live.
+tail. Tools take no thread or agent override.
+
+`sim_ui` puts short refs (`@e3`) on actionable elements only. `SimRefs` keeps one numbering per
+agent and device, shared by MCP and the CLI: an element keeps its ref across reads while it
+stays on screen, matched by the platform's own ref or else by role, name and frame. Every
+`sim_act` on a ref re-reads the tree first; an element that has gone fails with `stale_ref`
+before anything reaches the device. `tap`, `long_press` and `type` take a ref or a point.
+
+`sim_screenshot` reads the live view when one runs, and otherwise takes a one-off still
+(`simctl io screenshot`, or `screencap` pulled over adb), fitted inside the frame packet bounds.
+The device how-to (`sim-guidance.ts`) rides on an agent's first `sim_start` of a device only.
+
+`ace sim list|start|stop|ui|act|screenshot|logs --thread ID` is the same tools from a shell
+(`sim-tools.ts` serves both). Like `ace task spawn`, it uses the local daemon credential and
+acts as the named thread's root agent, so leases, takeover and refs are the MCP agent's own.
 
 ## SDKs and supported operations
 

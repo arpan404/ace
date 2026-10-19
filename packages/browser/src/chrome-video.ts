@@ -7,7 +7,8 @@ import { videoExtensionId, writeVideoExtension } from "./video-extension.ts";
 /*
  * ace's Chrome as a video encoder (ADR 0088): loads the video extension, keeps CDP sessions on
  * its service worker and offscreen document, and turns the document's binding calls into
- * encoded chunks. One per Chrome process. The I/O shell around the pure fanout and policy.
+ * encoded chunks (video, and the tab's sound while asked). One per Chrome process. The I/O
+ * shell around the pure fanout and policy.
  */
 
 const Targets = z.object({
@@ -35,6 +36,15 @@ const Event = z.discriminatedUnion("t", [
     codedWidth: z.number().int().min(2).max(8192),
     codedHeight: z.number().int().min(2).max(8192),
     description: z.base64().max(4096).optional(),
+    age: z.number().finite().min(0).max(60_000).optional(),
+  }),
+  z.object({
+    t: z.literal("audio"),
+    capture: z.string(),
+    codec: BrowserVideoCodec,
+    sampleRate: z.number().int().min(8_000).max(192_000),
+    channels: z.number().int().min(1).max(8),
+    age: z.number().finite().min(0).max(60_000),
   }),
   z.object({ t: z.literal("failed"), capture: z.string(), encode: z.string().max(256) }),
   z.object({ t: z.literal("ended"), capture: z.string() }),
@@ -103,6 +113,7 @@ export class ChromeVideo implements VideoHost {
     return {
       encodes: (specs) => call("aceVideo.encodes", [id, specs]),
       keyframe: (encode) => call("aceVideo.keyframe", [id, encode]),
+      audio: (on) => call("aceVideo.audio", [id, on]),
       close: () => {
         if (!this.captures.delete(id)) return;
         call("aceVideo.stop", [id]);
@@ -172,11 +183,16 @@ export class ChromeVideo implements VideoHost {
     }
     if (event.data.t === "failed") return events.failed(event.data.encode);
     if (split === -1) return;
+    const bytes = new Uint8Array(Buffer.from(payload.slice(split + 1), "base64"));
+    if (event.data.t === "audio") {
+      const { capture: _capture, t: _t, ...audio } = event.data;
+      return events.audio?.({ ...audio, bytes });
+    }
     const { description, capture: _capture, t: _t, ...chunk } = event.data;
     events.chunk({
       ...chunk,
       ...(description ? { description: new Uint8Array(Buffer.from(description, "base64")) } : {}),
-      bytes: new Uint8Array(Buffer.from(payload.slice(split + 1), "base64")),
+      bytes,
     });
   }
 }
