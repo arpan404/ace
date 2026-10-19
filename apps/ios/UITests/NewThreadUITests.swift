@@ -82,7 +82,6 @@ import XCTest
         tuned.tap()
         XCTAssertTrue(element(app, "newThread.speed").waitForExistence(timeout: 10))
         XCTAssertTrue(element(app, "newThread.access").waitForExistence(timeout: 15))
-        XCTAssertTrue(element(app, "newThread.attach").exists)
         screenshot("newthread-tuning")
         element(app, "newThread.access").tap()
         let readOnly = app.buttons["Read-only"]
@@ -90,9 +89,10 @@ import XCTest
         screenshot("newthread-access-menu")
         readOnly.tap()
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Reads and plans")).firstMatch.waitForExistence(timeout: 10))
-        // Bring the row clear of the bottom edge before opening its menu.
+        // Attach sits below the fold in the Form; scroll it into view before asserting.
         app.swipeUp()
         for _ in 0..<6 where !element(app, "newThread.attach").isHittable { app.swipeUp() }
+        XCTAssertTrue(element(app, "newThread.attach").isHittable)
         element(app, "newThread.attach").tap()
         XCTAssertTrue(app.buttons["Choose File"].waitForExistence(timeout: 5))
         screenshot("newthread-attach-menu")
