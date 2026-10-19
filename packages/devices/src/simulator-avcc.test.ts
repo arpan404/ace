@@ -31,18 +31,19 @@ const stream = Buffer.concat([
   record(9, Buffer.from([7])),
 ]);
 
+const shape = (records: AvccRecord[]) =>
+  records.map((value) => [
+    value.kind,
+    value.kind === "other" ? value.tag : 0,
+    value.body.toString("hex"),
+  ]);
+
 it("stream records come out whole however the bytes are split, unknown tags kept raw", () => {
   const whole: AvccRecord[] = [];
   new AvccRecords((value) => whole.push(value)).push(stream);
   const split: AvccRecord[] = [];
   const reader = new AvccRecords((value) => split.push(value));
   for (const byte of stream) reader.push(Buffer.from([byte]));
-  const shape = (records: AvccRecord[]) =>
-    records.map((value) => [
-      value.kind,
-      value.kind === "other" ? value.tag : 0,
-      value.body.toString("hex"),
-    ]);
   expect(shape(split)).toEqual(shape(whole));
   expect(shape(whole)).toEqual([
     ["other", 4, Buffer.from("jpeg seed").toString("hex")],

@@ -1,128 +1,14 @@
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createServer, type ServerResponse } from "node:http";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import sharp from "sharp";
-import { WebSocketServer } from "ws";
 import { expect, it, onTestFinished } from "vitest";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import type { Frame } from "@ace/screen";
 import { DevicePlatform, startCapture, type DeviceRuntime } from "./index.ts";
+import { fakeServeSim as serveSim } from "./testing/fake-serve-sim.ts";
 
 const udid = "11111111-1111-4111-8111-111111111111";
-const base = `/helper/${udid}`;
-const description = Buffer.from(
-  "01640033ffe1001627640033ac13143c04c0149e6a9a81010103c20108f801000428ee3cb0",
-  "hex",
-);
-const record = (tag: number, body: Buffer) => {
-  const head = Buffer.alloc(5);
-  head.writeUInt32BE(body.length + 1);
-  head[4] = tag;
-  return Buffer.concat([head, body]);
-};
-const unit = (nal: number[]) => {
-  const length = Buffer.alloc(4);
-  length.writeUInt32BE(nal.length);
-  return Buffer.concat([length, Buffer.from(nal)]);
-};
-const ax = [
-  {
-    type: "Application",
-    AXLabel: "Settings",
-    enabled: true,
-    frame: { x: 0, y: 0, width: 402, height: 874 },
-    children: [
-      {
-        type: "Button",
-        AXLabel: "General",
-        enabled: true,
-        frame: { x: 0, y: 300, width: 402, height: 50 },
-        children: [],
-      },
-    ],
-  },
-];
-
-/** A stand-in for serve-sim's helper: MJPEG, AVCC, /ax and the HID socket on one port. */
-async function fakeServeSim(home: string, version: string) {
-  const avcc: ServerResponse[] = [];
-  let avccOpened = 0;
-  let mjpegOpen = 0;
-  const jpeg = await sharp({
-    create: { width: 201, height: 437, channels: 3, background: "white" },
-  })
-    .jpeg()
-    .toBuffer();
-  const server = createServer((req, res) => {
-    if (req.url === `${base}/stream.mjpeg`) {
-      mjpegOpen++;
-      res.on("close", () => mjpegOpen--);
-      res.writeHead(200, { "content-type": "multipart/x-mixed-replace; boundary=frame" });
-      res.write(`--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${jpeg.length}\r\n\r\n`);
-      res.write(jpeg);
-      return;
-    }
-    if (req.url === `${base}/stream.avcc`) {
-      avccOpened++;
-      res.writeHead(200, { "content-type": "application/octet-stream" });
-      avcc.push(res);
-      res.on("close", () => avcc.splice(avcc.indexOf(res), 1));
-      // Like serve-sim: a preview seed, then the description and an IDR for every subscriber.
-      res.write(record(4, jpeg));
-      res.write(Buffer.concat([record(1, description), record(2, unit([0x25, 0x88, avccOpened]))]));
-      return;
-    }
-    if (req.url === `${base}/ax`) {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify(ax));
-      return;
-    }
-    res.writeHead(404).end();
-  });
-  const hid: unknown[] = [];
-  const ws = new WebSocketServer({ server });
-  ws.on("connection", (socket) => {
-    socket.send(
-      Buffer.concat([
-        Buffer.from([130]),
-        Buffer.from(JSON.stringify({ width: 1206, height: 2622, orientation: "portrait" })),
-      ]),
-    );
-    socket.on("message", (bytes: Buffer) =>
-      hid.push([bytes[0], JSON.parse(bytes.subarray(1).toString())]),
-    );
-  });
-  const port = await new Promise<number>((resolve) =>
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      resolve(typeof address === "object" && address ? address.port : 0);
-    }),
-  );
-  const command = join(home, "serve-sim");
-  await writeFile(
-    command,
-    `#!${process.execPath}\nif(process.argv.includes('--version')){console.log(${JSON.stringify(version)});process.exit(0);}console.log(JSON.stringify({device:${JSON.stringify(udid)},port:${port},streamUrl:'http://127.0.0.1:${port}${base}/stream.mjpeg',wsUrl:'ws://127.0.0.1:${port}${base}/ws'}));process.stdin.resume();`,
-  );
-  await chmod(command, 0o700);
-  for (const name of ["xcode-select", "xcrun", "open"]) {
-    await writeFile(join(home, name), "#!/bin/sh\nexit 0\n");
-    await chmod(join(home, name), 0o700);
-  }
-  onTestFinished(async () => {
-    server.closeAllConnections();
-    ws.close();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-  });
-  return {
-    hid,
-    avcc,
-    opened: () => avccOpened,
-    mjpegOpen: () => mjpegOpen,
-    delta: (byte: number) => avcc.at(-1)?.write(record(3, unit([0x21, byte]))),
-  };
-}
-
+const fakeServeSim = (home: string, version: string) => serveSim(home, version, udid);
 function platformFor(home: string) {
   return new DevicePlatform({
     platform: "darwin",
@@ -199,12 +85,16 @@ it("viewers that decode H.264 get serve-sim's stream untouched, switching back t
     scale: 1,
   });
   expect(key?.payload.toString("hex")).toBe(
-    "0000000127640033ac13143c04c0149e6a9a81010103c20108f8" + "0000000128ee3cb0" + "00000001258801",
+    [
+      "0000000127640033ac13143c04c0149e6a9a81010103c20108f8",
+      "0000000128ee3cb0",
+      "00000001258801",
+    ].join(""),
   );
   await expect.poll(sim.mjpegOpen).toBe(0);
 
   sim.delta(0x55);
-  await expect.poll(() => frames.at(-1)?.payload.toString("hex")).toBe("00000001" + "2155");
+  await expect.poll(() => frames.at(-1)?.payload.toString("hex")).toBe("000000012155");
   expect(frames.at(-1)?.header).toMatchObject({ codec: "h264", keyframe: false });
 
   // A keyframe request opens a fresh subscription and leaves only that one open.

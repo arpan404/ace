@@ -176,6 +176,9 @@ export function simulatorTarget(tree: ScreenUITreeResult, ref: string): ScreenUI
   );
 }
 
+const clamp = (value: number, start: number, size: number) =>
+  Math.max(start, Math.min(start + size - 1, value));
+
 /** The device input that performs a semantic action on a node, or why it can't be done. */
 export function simulatorActionInput(
   node: ScreenUINode,
@@ -205,8 +208,6 @@ export function simulatorActionInput(
     })
     .parse(action.value ?? {});
   if (!scroll.dx && !scroll.dy) return { kind: "none", method: "no_scroll" };
-  const clamp = (value: number, start: number, size: number) =>
-    Math.max(start, Math.min(start + size - 1, value));
   return {
     kind: "swipe",
     ...centre,
