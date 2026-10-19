@@ -19,6 +19,7 @@ import type {
   ScreenFrame,
 } from "../sources.ts";
 import { AgentCursor } from "./agent-cursor.tsx";
+import { FramePicture } from "./frame-picture.tsx";
 import { useCaptureSize } from "../preview/use-capture-size.ts";
 import { useViewportSync } from "../preview/use-viewport-sync.ts";
 import { PageContextMenu, type PageMenu } from "./page-context-menu.tsx";
@@ -68,7 +69,7 @@ export function PageView(props: {
   const { frame } = props;
   const tabId = props.tab?.tabId;
   const pane = useRef<HTMLDivElement>(null);
-  const picture = useRef<HTMLImageElement>(null);
+  const picture = useRef<HTMLElement>(null);
   const echo = useLocalEcho(props.threadId, frame);
   /** The person's input, to the shown tab by name, timed for the ⋯ menu's round trip. */
   const forward = (input: ForwardedInput) =>
@@ -91,7 +92,8 @@ export function PageView(props: {
   useCaptureSize(props.source, props.threadId, pane);
   // Pointer positions map back to page pixels through the picture's rendered box.
   const point = (event: MouseEvent<HTMLElement>) => {
-    const box = event.currentTarget.querySelector("img")?.getBoundingClientRect();
+    // The picture is an <img> (JPEG) or a <canvas> (video); either is laid out in CSS pixels.
+    const box = event.currentTarget.querySelector("[data-page-picture]")?.getBoundingClientRect();
     const scale = box?.width ? frame.width / box.width : 1;
     return {
       x: Math.round((event.clientX - (box?.left ?? 0)) * scale),
@@ -194,11 +196,10 @@ export function PageView(props: {
   // A zoomed page is smaller in CSS pixels; drawn at its zoomed size it fills the pane again.
   const zoom = props.zoom ?? 1;
   const image = !props.nativeShown && (
-    <img
-      ref={picture}
-      src={frame.src}
+    <FramePicture
+      pictureRef={picture}
+      frame={frame}
       alt={`Live view of ${props.view.url}`}
-      draggable={false}
       style={echo.pictureStyle}
       width={Math.round(frame.width * zoom)}
       height={Math.round(frame.height * zoom)}
@@ -277,6 +278,8 @@ export function PageView(props: {
       {fileDrop.indicator}
       {image && props.tab?.inUse && props.tab.pointer && !inPage && (
         <AgentCursor
+          // It measures the picture it was given: a switch between JPEG and video is a new one.
+          key={frame.video ? "video" : "image"}
           threadId={props.threadId}
           agentId={props.tab.inUse.agentId}
           pointer={props.tab.pointer}

@@ -8,6 +8,8 @@ import { usePrWorktree } from "./pr-worktree.ts";
 import { useMergeMethod } from "./pr-merge-method.ts";
 import { useStackMemberships } from "./pr-stack-groups.tsx";
 import { prPrimaryAction } from "./pr-primary-action.ts";
+import { mergeBlockers, prGates } from "./pr-gates.ts";
+import { reviewerOutcomes } from "./pr-summary-model.ts";
 
 const newCommandId = () => crypto.randomUUID();
 
@@ -51,7 +53,24 @@ export function usePrActions(props: {
   const worktree = usePrWorktree({ workspaceId, detail, newId: newCommandId, onRefresh });
   const membership = useStackMemberships(workspaceId, status.ref.repository, [status.ref.number]);
   const stack = membership.isError ? undefined : (membership.data?.[0]?.stack ?? undefined);
-  const primary = prPrimaryAction({ status, mergeState: mergeState.state, method });
+  // The same gates the header shows decide whether a merge is blocked.
+  const blockers = mergeBlockers(
+    prGates({
+      status,
+      reviewDecision: detail.reviewDecision,
+      mergeState: mergeState.state,
+      baseBranch: detail.baseBranch,
+      outcomes: reviewerOutcomes(status.comments),
+    }),
+  );
+  const primary = prPrimaryAction({
+    status,
+    mergeState: mergeState.state,
+    method,
+    linked: threadId !== undefined,
+    blockers,
+  });
+  const host = props.hostThreadId;
   const linkReason = threadId ? undefined : "Link this pull request to a task first";
   const fenceReason = writes.fenced
     ? "Refresh GitHub to confirm the previous change first"
@@ -93,16 +112,28 @@ export function usePrActions(props: {
     primaryBlocked:
       primary.kind === "merge"
         ? mergeBlocked
-        : primary.kind === "auto-merge"
+        : primary.kind === "auto-merge" || primary.kind === "auto-merge-ready"
           ? autoMergeBlocked
-          : primary.kind === "ready"
-            ? readyBlocked
-            : primary.kind === "resolve" && props.extensions?.resolveInWorktree && context.disabled
-              ? "Wait for GitHub to refresh"
-              : undefined,
+          : primary.kind === "blocked"
+            ? primary.blockers.join("\n")
+            : primary.kind === "link"
+              ? host
+                ? writes.pending || context.disabled
+                  ? "Wait for GitHub to refresh"
+                  : undefined
+                : "Link this pull request to a task from the ⋯ menu"
+              : primary.kind === "ready"
+                ? readyBlocked
+                : primary.kind === "resolve" &&
+                    props.extensions?.resolveInWorktree &&
+                    context.disabled
+                  ? "Wait for GitHub to refresh"
+                  : undefined,
     async runPrimary() {
       if (primary.kind === "merge") return writes.merge(method);
-      if (primary.kind === "auto-merge") return mergeState.run("enable", method);
+      if (primary.kind === "auto-merge" || primary.kind === "auto-merge-ready")
+        return mergeState.run("enable", method);
+      if (primary.kind === "link" && host) return writes.link(host);
       if (primary.kind === "ready") return void (await lifecycle.apply({ kind: "ready" }));
       if (primary.kind === "resolve") resolveConflicts();
     },

@@ -5,40 +5,40 @@
       "sha256": "8b4354e75f1ca6ffa31f17c175d0a1b7ce25afe0341e6bee60e187e29949aa53"
     },
     "automations.md": {
-      "bytes": 9510,
-      "sha256": "fa8b0d31b1a22d1f6eca6b41b4b42c0a66b9486bd4e0dd7029495f69b9c0d7b3"
+      "bytes": 9927,
+      "sha256": "57776524131adbb5881af7cd60da5ffd238e72cbe4163a7614cde3ffe8045641"
     },
     "commands.md": {
       "bytes": 49427,
       "sha256": "96aac6c18c12ce1bb407f57644651eed9e54ff5f2bb11b4b7e1d7c5fed3521dc"
     },
     "events.md": {
-      "bytes": 20675,
-      "sha256": "2b61e4caace0f13e67c633687050b9105ddbf0ca3af1578ad715192f4ef7abbf"
+      "bytes": 21104,
+      "sha256": "0db09d8fe8f611d0284ed2fa00837cffca3cb6f974b17d79d4ce80f4e48f650b"
     },
     "forge.md": {
-      "bytes": 78494,
-      "sha256": "d0cdc70361bd70ea61e4939f400723fb75c1bf6f063cd15d22ff366a761f54bd"
+      "bytes": 77928,
+      "sha256": "b68c5b8d79b1c7f679df2fc8f3ab2b7b4b96b474d67546afec6b4161faf39b9f"
     },
     "mcp.md": {
-      "bytes": 59429,
-      "sha256": "2dde96f5ef1f4527ebf665ed49cc461097d864dd0b0941d44e403b460cd5e10f"
+      "bytes": 59502,
+      "sha256": "8680082462194b7bbf2479a97125e829b81ac8d8f407e529c9fccb95b41643e8"
     },
     "models.md": {
-      "bytes": 15117,
-      "sha256": "1b0c6d130aadc4a6ea1cdcf09b1756fd9b2f4406750f9678d0c3d150f3fd2766"
+      "bytes": 15276,
+      "sha256": "b518d05707a51119f8e45680d0e7df0cb299aa426562282f3ad2046721070005"
     },
     "orchestration.md": {
-      "bytes": 27548,
-      "sha256": "3f9e6bae4de4717388782c616df9401314de5f4e0ef9ffb63f6c57204db5ef83"
+      "bytes": 27673,
+      "sha256": "8e9aadefeb7dd257906af635a36f851df6966296712c27819b2c292424dfb224"
     },
     "push.md": {
-      "bytes": 94997,
-      "sha256": "2b3f05a3df3214ea2a2eef398a1bb1872adaa3b91023eec021735ec9b1e7a593"
+      "bytes": 91404,
+      "sha256": "d0ac56f1cf00bb4e64fcb300db0582827822de745bd32efd3b571dcba073d359"
     },
     "requests.md": {
-      "bytes": 86661,
-      "sha256": "efdcd3bd4d83dd7f41aa0e27f03915cad072d030d0bac2cd44e0fe3943f5c908"
+      "bytes": 86831,
+      "sha256": "7a55f32797e672a301098eed0b236642446db923df08d6b769a5f9ca64d8d98b"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -501,8 +501,8 @@
       "sha256": "55cec7ec4d99803282a3375e2f888877fe1cbf7ce2a6e62166e8fbe0428515f7"
     },
     "schema/BrowserClientMessage.json": {
-      "bytes": 14478,
-      "sha256": "a5129c4c66415ee36cdb181b0b3bb7bcb62bdd03f054aae347936f41294830d1"
+      "bytes": 14752,
+      "sha256": "c5731ae7c4cef5131c119fdafc2071f2eead4288a652090e4e8addd32435e15a"
     },
     "schema/BrowserCommand.json": {
       "bytes": 32274,
@@ -652,6 +652,14 @@
       "bytes": 834,
       "sha256": "6bfcdf11287dddfe42d46e72f90c2f6dfee7e0175fbbbf354dce5572b531bc0c"
     },
+    "schema/BrowserVideoCodec.json": {
+      "bytes": 218,
+      "sha256": "7b95f49659ee5a77e7978819e68d9db183e2b702f6c2db66120926a92b444163"
+    },
+    "schema/BrowserVideoRequest.json": {
+      "bytes": 391,
+      "sha256": "828e443a8db74a099e85ff7f7faa0d0c635087df9a16abcdedb5e499d4031749"
+    },
     "schema/Capabilities.json": {
       "bytes": 3588,
       "sha256": "7a0116fd7b8a1f0754437886e7ee6dab1e67139fba56143bc96193cd3683465d"
@@ -717,8 +725,8 @@
       "sha256": "213740b5214753b95aa6b308056df25518570519a4989a1dfcc2ba77de50e14a"
     },
     "schema/ClientMessage.json": {
-      "bytes": 54556,
-      "sha256": "098d72705914d446bfde0b8a7a521cd692a3d2739a4d9af0634884950206f168"
+      "bytes": 54830,
+      "sha256": "76e9a071eec23fd70c94bf6a90060a585ad183f8ba5fe9494d3f8ab355628351"
     },
     "schema/Command.json": {
       "bytes": 477,
@@ -3833,10 +3841,10 @@
       "sha256": "3c00a18ea5c34e708a57c9d0f5d0cdba097745d6b5fc80bd543053d4c1079efc"
     },
     "types.md": {
-      "bytes": 821535,
-      "sha256": "63bc441b4625aebf2c4d4fced1803bf3b34f39bcc85b41430a77188aef0c673d"
+      "bytes": 819600,
+      "sha256": "37b4c125a1f6c5c3b6c21fbc4f81c04526e786ecbc5d0cdc267d60832e903aef"
     }
   },
-  "input": "b4a916ddfd848729f216eea1476c5fc9cc34ffa653ef520bef190707677e7817",
+  "input": "d28383c2cb9d5e6cc699c518652f9b249cdca9ec5718b435f48ce13cf9be5686",
   "version": 1
 }

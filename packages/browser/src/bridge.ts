@@ -3,6 +3,7 @@ import {
   ThreadId,
   BrowserClientMessage,
   type BrowserCaptureViewport,
+  type BrowserVideoRequest,
   type BrowserDownloadRead,
   type BrowserServerMessage,
   type DeviceScope,
@@ -72,8 +73,16 @@ export function connectBrowser(
     ) => Promise<{ chunks: AsyncIterable<Uint8Array>; close(): Promise<void> }>;
   },
 ): { handle(raw: unknown): Promise<void>; close(): void } {
-  /** `binary`: this connection's viewers of the thread take frames as binary stream messages. */
-  type Subscription = { stop(): void; subscribers: Set<string>; binary: boolean };
+  /**
+   * `binary`: this connection's viewers of the thread take frames as binary stream messages;
+   * `video`: and encoded video in these codecs (ADR 0088).
+   */
+  type Subscription = {
+    stop(): void;
+    subscribers: Set<string>;
+    binary: boolean;
+    video?: BrowserVideoRequest | undefined;
+  };
   const subscriptions = new Map<string, Subscription>();
   const sendStream = options.sendStream;
   const bind = (threadId: string, entry: Subscription, capture?: CaptureViewer) => {
@@ -88,15 +97,29 @@ export function connectBrowser(
                 { type: "browser.frame", threadId: ThreadId.parse(threadId), frame },
                 service.serializeFrame(threadId, frame),
               ),
+        ...(sendStream
+          ? {
+              video: {
+                send: (chunk) =>
+                  entry.binary && entry.video !== undefined
+                    ? sendStream(service.streamVideo(threadId, chunk))
+                    : false,
+              },
+            }
+          : {}),
       },
       (state) => options.send({ type: "browser.state", state }),
       (event) => options.send(event),
       capture,
     );
   };
-  const viewer = (viewport: BrowserCaptureViewport): CaptureViewer => ({
+  const viewer = (
+    viewport: BrowserCaptureViewport,
+    video: BrowserVideoRequest | undefined,
+  ): CaptureViewer => ({
     viewport,
     local: options.local ?? false,
+    ...(video ? { video } : {}),
   });
   let pending = 0;
   let closed = false;
@@ -300,20 +323,23 @@ export function connectBrowser(
             const subscriber = message.subscriberId ?? "legacy";
             // The newest subscriber's build decides how frames travel on this connection.
             const binary = message.binaryFrames === true && sendStream !== undefined;
+            // Video travels only as binary stream messages.
+            const video = binary ? message.video : undefined;
             // A viewer that says what it shows gets frames sized for it from the first one.
-            const capture = message.viewport ? viewer(message.viewport) : undefined;
+            const capture = message.viewport ? viewer(message.viewport, video) : undefined;
             let entry = subscriptions.get(threadId);
             if (entry) {
               if (entry.subscribers.size >= 64 && !entry.subscribers.has(subscriber))
                 throw new Error("Browser subscriber limit");
               entry.binary = binary;
+              entry.video = video;
               if (capture) service.configureCapture(threadId, options.connectionId, capture);
               options.send({ type: "browser.state", state: service.state(threadId) });
               service.replayFrame(threadId, options.connectionId);
               entry.subscribers.add(subscriber);
             } else {
               if (subscriptions.size >= 8) throw new Error("Browser subscription limit");
-              entry = { subscribers: new Set([subscriber]), stop() {}, binary };
+              entry = { subscribers: new Set([subscriber]), stop() {}, binary, video };
               bind(threadId, entry, capture);
               subscriptions.set(threadId, entry);
               if (capture) service.configureCapture(threadId, options.connectionId, capture);
@@ -331,13 +357,26 @@ export function connectBrowser(
             respond(null);
             break;
           }
-          case "browser.capture":
-            if (!subscriptions.has(threadId)) throw new Error("Browser viewer is not subscribed");
-            service.configureCapture(threadId, options.connectionId, viewer(message.viewport));
+          case "browser.capture": {
+            const entry = subscriptions.get(threadId);
+            if (!entry) throw new Error("Browser viewer is not subscribed");
+            service.configureCapture(
+              threadId,
+              options.connectionId,
+              viewer(message.viewport, entry.video),
+            );
             respond(null);
             break;
+          }
           case "browser.ack":
-            service.acknowledge(threadId, options.connectionId, message.sequence);
+            if (message.video)
+              service.acknowledgeVideo(
+                threadId,
+                options.connectionId,
+                message.sequence,
+                message.keyframe === true,
+              );
+            else service.acknowledge(threadId, options.connectionId, message.sequence);
             break;
           case "browser.recording.start":
             await service.startRecording(threadId, {

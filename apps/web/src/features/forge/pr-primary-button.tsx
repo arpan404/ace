@@ -3,6 +3,8 @@ import {
   CheckIcon,
   EyeIcon,
   GitMergeIcon,
+  LinkIcon,
+  ProhibitIcon,
   QueueIcon,
   TimerIcon,
   WarningIcon,
@@ -25,6 +27,9 @@ const icons: Record<PrPrimary["kind"], Icon | undefined> = {
   "auto-merge-armed": TimerIcon,
   queued: QueueIcon,
   "auto-merge": TimerIcon,
+  "auto-merge-ready": TimerIcon,
+  link: LinkIcon,
+  blocked: ProhibitIcon,
   merge: GitMergeIcon,
   none: undefined,
 };
@@ -82,7 +87,10 @@ export function PrPrimaryButton(props: {
   if (primary.kind === "none") return null;
   if (primary.kind === "state" || primary.kind === "auto-merge-armed" || primary.kind === "queued")
     return <StateBadge primary={primary} text={text} />;
-  const twoPress = primary.kind === "merge" || primary.kind === "auto-merge";
+  const twoPress =
+    primary.kind === "merge" ||
+    primary.kind === "auto-merge" ||
+    primary.kind === "auto-merge-ready";
   const Glyph = confirming ? CheckIcon : (icons[primary.kind] ?? GitMergeIcon);
   const shown = props.working
     ? primary.kind === "merge"
@@ -96,7 +104,11 @@ export function PrPrimaryButton(props: {
   const button = (
     <Button
       size="xs"
-      variant={primary.kind === "resolve" ? "secondary" : "primary"}
+      variant={
+        primary.kind === "resolve" || primary.kind === "link" || primary.kind === "blocked"
+          ? "secondary"
+          : "primary"
+      }
       tone={primary.kind === "resolve" ? "danger" : "default"}
       disabled={props.blocked !== undefined || props.working}
       aria-label={shown}
@@ -126,7 +138,7 @@ export function PrPrimaryButton(props: {
       >
         {button}
       </TooltipTrigger>
-      <TooltipContent>{props.blocked ?? shown}</TooltipContent>
+      <TooltipContent className="whitespace-pre-line">{props.blocked ?? shown}</TooltipContent>
     </Tooltip>
   );
 }

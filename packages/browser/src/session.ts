@@ -150,6 +150,11 @@ export class BrowserSession {
       () => this.viewedPage().viewport(),
       () => (this.options.backend.tabs ? this.captured : undefined),
       () => this.viewedPage().captureScale?.() ?? 1,
+      () => {
+        const page = this.viewedPage();
+        const host = page.video?.();
+        return host ? { host, page: page.cdp } : undefined;
+      },
     );
     this.persist();
     this.scheduleLifecycle();

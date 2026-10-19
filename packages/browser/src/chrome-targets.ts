@@ -34,6 +34,8 @@ export class ChromeTargets {
   >();
   private orphans = new Map<string, { target: AttachedTarget; cancel(): void }>();
   private openers = new Map<string, (target: AttachedTarget) => void>();
+  /** Targets another part of ace attaches to itself (the video extension's), left alone. */
+  private kept = new Set<string>();
   private connection: CdpConnection;
   private schedule: Schedule;
   private reason: string | undefined;
@@ -127,6 +129,10 @@ export class ChromeTargets {
   async close(targetId: string): Promise<void> {
     await this.connection.send("Target.closeTarget", { targetId }).catch(() => {});
   }
+  /** Leaves `targetId` attached when ace attaches to it outside this router. */
+  keep(targetId: string): void {
+    this.kept.add(targetId);
+  }
   stop(reason: string): void {
     this.reason = reason;
     for (const claim of this.claims.values()) claim.reject(new Error(reason));
@@ -139,6 +145,7 @@ export class ChromeTargets {
     const parsed = Attached.safeParse(raw);
     if (!parsed.success || this.reason) return;
     const { sessionId, targetInfo } = parsed.data;
+    if (this.kept.has(targetInfo.targetId)) return;
     const target: AttachedTarget = {
       targetId: targetInfo.targetId,
       sessionId,

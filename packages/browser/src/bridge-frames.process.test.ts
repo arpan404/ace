@@ -5,9 +5,11 @@ import { connectBrowser } from "./index.ts";
 import { backendFixture } from "./backend-test-support.ts";
 import { decodeStreamMessage, StreamAssembler, type StreamMessage } from "./stream.ts";
 
+type FrameMessage = Extract<StreamMessage, { kind: "browser.frame" }>;
+
 function viewer(f: Awaited<ReturnType<typeof backendFixture>>, id: string, binary: boolean) {
   const messages: BrowserServerMessage[] = [];
-  const streamed: Extract<StreamMessage, { kind: "browser.frame" }>[] = [];
+  const streamed: FrameMessage[] = [];
   const assembler = new StreamAssembler();
   const bridge = connectBrowser(f.service, {
     connectionId: id,

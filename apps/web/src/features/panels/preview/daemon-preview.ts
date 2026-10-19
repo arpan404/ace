@@ -29,6 +29,13 @@ import { decodeFrame, type FrameDecoder } from "./frames.ts";
 import { SuggestionStore } from "./preview-suggestions.ts";
 import { readBrowserLogs } from "./browser-logs.ts";
 import { PageStates } from "./page-states.ts";
+import { ThreadVideos } from "./thread-videos.ts";
+import {
+  webCodecsDecoder,
+  webCodecsSupport,
+  type VideoDecoderFactory,
+  type VideoSupport,
+} from "./video-codecs.ts";
 
 /** How often a watched thread without a browser asks again, and re-reads its dev servers. */
 const retryMs = 5_000;
@@ -157,6 +164,13 @@ export interface PreviewOptions {
   decode?: FrameDecoder;
   /** This screen's device pixel ratio, for a viewer that hasn't reported its pane yet. */
   devicePixelRatio?: () => number;
+  /**
+   * The video decoder (ADR 0088); omitted: the platform's WebCodecs `VideoDecoder`, if any.
+   * `null`: play no video, always take JPEG frames.
+   */
+  videoDecoder?: VideoDecoderFactory | null;
+  /** Which codecs the decoder plays; omitted: asks WebCodecs. */
+  videoSupport?: VideoSupport;
 }
 
 /**
@@ -214,6 +228,31 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   const pages = new PageStates();
   const suggestions = new SuggestionStore();
   const watches = new Map<string, Watch>();
+  /** A thread's pictures are seen now: the page shows and no native view covers it. */
+  const seen = (threadId: string) =>
+    visibility.visible() && captures.get(threadId)?.nativeShown !== true;
+  /** Each thread's video, when this client decodes it (binary frames only). */
+  const videos = new ThreadVideos({
+    decoder: binaryFrames
+      ? options.videoDecoder === null
+        ? undefined
+        : (options.videoDecoder ?? webCodecsDecoder())
+      : undefined,
+    support: options.videoSupport ?? webCodecsSupport,
+    schedule: later,
+    seen,
+    watching: (threadId) => watches.has(threadId),
+    present: (threadId, frame) => {
+      const watch = watches.get(threadId);
+      if (!watch) return frame.release();
+      // Video is newer than any JPEG frame still decoding: that one is dropped when it lands.
+      watch.latest = undefined;
+      frames.get(threadId)?.release();
+      frames.set(threadId, frame);
+      changed(threadId);
+    },
+    ack: (threadId, sequence, keyframe) => ack(threadId, sequence, { keyframe }),
+  });
   /** Threads no view shows any more, oldest first; their state goes past `keptThreads`. */
   const unwatched = new Set<string>();
   let disposed = false;
@@ -239,11 +278,13 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     servers.delete(threadId);
     suggestions.delete(threadId);
     captures.delete(threadId);
+    videos.delete(threadId);
   };
   const invalidate = (threadId: string, watch: Watch) => {
     watch.generation++;
     watch.latest = undefined;
     watch.owed = undefined;
+    videos.reset(threadId);
     frames.get(threadId)?.release();
     frames.delete(threadId);
     // The next subscription sends every tab's page state again.
@@ -262,12 +303,15 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   /** Subscribes with how this view takes frames and, when known, what it shows. */
   const subscribe = async (threadId: string) => {
     if (disposed) throw new Error("preview_disposed");
+    const codecs = await videos.codecs();
+    if (disposed) throw new Error("preview_disposed");
     const viewport = captures.get(threadId);
     const reply = await request({
       type: "browser.subscribe",
       threadId: ThreadId.parse(threadId),
       ...(binaryFrames ? { binaryFrames: true } : {}),
       ...(viewport ? { viewport } : {}),
+      ...(codecs.length ? { video: { codecs: [...codecs] } } : {}),
     });
     if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
     return reply.result;
@@ -376,13 +420,16 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     watch.cancel?.();
     watch.cancel = later(() => poll(threadId), retryMs);
   };
-  const ack = (threadId: string, sequence: number) => {
+  /** ACKs a JPEG frame, or with `video` a video chunk (cumulative; maybe asking for a keyframe). */
+  const ack = (threadId: string, sequence: number, video?: { keyframe: boolean }) => {
     try {
       client.send({
         type: "browser.ack",
         requestId: requestId(),
         threadId: ThreadId.parse(threadId),
         sequence,
+        ...(video ? { video: true } : {}),
+        ...(video?.keyframe ? { keyframe: true } : {}),
       });
     } catch {
       // Offline: the subscription ended with the connection.
@@ -474,6 +521,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     if (!watch) return;
     const generation = watch.generation;
     watch.latest = frame.sequence;
+    // JPEG again: the daemon's video for this view stopped, and a new one starts from a keyframe.
+    videos.reset(threadId);
     if (captures.get(threadId)?.nativeShown) {
       watch.owed = frame.sequence;
       return;
@@ -499,6 +548,12 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     const stopStream = client.onStream?.((message) => {
       if (message.kind === "browser.frame")
         arrived(message.threadId, message.frame, message.frame.bytes);
+      else if (message.kind === "browser.video" && !disposed)
+        videos.receive(
+          message.threadId,
+          message.chunk,
+          captures.get(message.threadId)?.nativeShown !== true,
+        );
     });
     if (stopStream) stops.push(stopStream);
     stops.push(
@@ -519,6 +574,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         for (const [threadId, watch] of watches) {
           if (watch.owed !== undefined) ack(threadId, watch.owed);
           watch.owed = undefined;
+          if (seen(threadId)) videos.settle(threadId);
           watch.cancel?.();
           poll(threadId);
         }
@@ -536,6 +592,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       for (const watch of watches.values()) watch.cancel?.();
       watches.clear();
       for (const threadId of new Set([...frames.keys(), ...stills.keys()])) release(threadId);
+      videos.dispose();
       views.clear();
       pages.clear();
       servers.clear();
@@ -752,6 +809,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         ack(threadId, watch.owed);
         watch.owed = undefined;
       }
+      if (watch && seen(threadId)) videos.settle(threadId);
     },
     cursorStyle(threadId, style) {
       if (disposed) return;

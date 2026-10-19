@@ -128,7 +128,7 @@ function startHost(
         spawn: (flow, dropped) =>
           io.spawn({
             command,
-            args: [...(ctx.builtinSkills?.args ?? []), ...unloadClosedThreads, "app-server"],
+            args: [...(ctx.builtinSkills?.args ?? []), "app-server", ...unloadClosedThreads],
             // A shared process outlives any one workspace; threads carry their own cwd.
             cwd: dedicated ? ctx.cwd : io.homeDir(),
             outputFlow: flow,

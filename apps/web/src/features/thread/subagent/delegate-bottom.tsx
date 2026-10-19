@@ -29,7 +29,7 @@ import { barAction, SubagentStatusBar } from "./subagent-status-bar.tsx";
  */
 export function DelegateBottom(props: {
   thread: Thread;
-  /** Opens the fork dialog at the latest finished turn; absent until a turn finishes. */
+  /** Opens a fork of the latest finished turn; absent until a turn finishes. */
   onFork: (() => void) | undefined;
   children: ReactNode;
 }) {

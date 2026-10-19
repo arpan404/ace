@@ -18,7 +18,7 @@ export type AppServerOptions = {
    * doesn't speak it is given up on quickly so callers fall back (sign-in to its terminal).
    */
   startupTimeoutMs?: number;
-  /** Process-level `-c key=value` overrides, placed before the subcommand. */
+  /** `-c key=value` overrides for the app-server, after its subcommand. */
   args?: readonly string[];
 };
 
@@ -33,7 +33,7 @@ export async function openAppServer(
   options.signal.throwIfAborted();
   const proc = (options.spawn ?? spawnSupervised)({
     command: options.executable,
-    args: [...(options.args ?? []), "app-server"],
+    args: ["app-server", ...(options.args ?? [])],
     cwd: options.cwd,
     env: options.env,
     name,

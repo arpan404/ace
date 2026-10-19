@@ -465,6 +465,18 @@ export const BrowserCaptureViewport = z.object({
   devicePixelRatio: z.number().finite().min(1).max(4),
 });
 export type BrowserCaptureViewport = z.infer<typeof BrowserCaptureViewport>;
+/** A WebCodecs codec string (`avc1.42E033`, `vp8`, `vp09.00.10.08`). */
+export const BrowserVideoCodec = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[A-Za-z0-9.]+$/);
+/**
+ * A viewer that plays video (ADR 0088): the codecs its decoder supports, best first. The daemon
+ * encodes the first one its encoder supports and sends JPEG frames otherwise.
+ */
+export const BrowserVideoRequest = z.object({ codecs: z.array(BrowserVideoCodec).min(1).max(8) });
+export type BrowserVideoRequest = z.infer<typeof BrowserVideoRequest>;
 const base = z.object({ requestId: short, threadId: ThreadId });
 export const BrowserClientMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("browser.open"), requestId: short, options: BrowserOpen }),
@@ -516,10 +528,22 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
     binaryFrames: z.boolean().optional(),
     /** What this viewer shows, as `browser.capture` reports it, so its first frame fits it. */
     viewport: BrowserCaptureViewport.optional(),
+    /**
+     * Send this connection's view as encoded video (stream kind `browserVideo`) in one of these
+     * codecs, with JPEG frames until its first keyframe. Needs `binaryFrames`.
+     */
+    video: BrowserVideoRequest.optional(),
   }),
   base.extend({ type: z.literal("browser.capture"), viewport: BrowserCaptureViewport }),
   base.extend({ type: z.literal("browser.unsubscribe"), subscriberId: short.optional() }),
-  base.extend({ type: z.literal("browser.ack"), sequence: z.number().int().nonnegative() }),
+  base.extend({
+    type: z.literal("browser.ack"),
+    sequence: z.number().int().nonnegative(),
+    /** `sequence` is a video chunk's (acked cumulatively), not a JPEG frame's. */
+    video: z.literal(true).optional(),
+    /** The viewer's decoder lost its place (a decode error): send it a keyframe. */
+    keyframe: z.literal(true).optional(),
+  }),
   /**
    * The person's files for the tab's `file_chooser`, uploaded first as thread attachments
    * (`upload.begin` … `upload.commit`). No files cancels the picker.

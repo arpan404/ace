@@ -1,4 +1,4 @@
-import type { BrowserCaptureViewport } from "@ace/protocol";
+import type { BrowserCaptureViewport, BrowserVideoRequest } from "@ace/protocol";
 
 /*
  * How ace's Chrome captures a thread's page for its viewers: the frame size, cadence and JPEG
@@ -13,6 +13,8 @@ import type { BrowserCaptureViewport } from "@ace/protocol";
 export interface CaptureViewer {
   viewport: BrowserCaptureViewport;
   local: boolean;
+  /** The viewer plays video in these codecs (ADR 0088); JPEG frames until its first keyframe. */
+  video?: BrowserVideoRequest;
 }
 
 export interface CaptureSettings {
@@ -89,6 +91,11 @@ export class CapturePressure {
   private since: number | undefined;
   private clearSince: number | undefined;
   private level: CaptureLoad = 0;
+  private recoveryMs: number;
+  /** `recovery`: how long without a backlog undoes one step. */
+  constructor(recovery = recoveryMs) {
+    this.recoveryMs = recovery;
+  }
   sample(pending: boolean, now: number): CaptureLoad {
     if (pending) {
       this.clearSince = undefined;
@@ -100,7 +107,7 @@ export class CapturePressure {
     }
     this.since = undefined;
     this.clearSince ??= now;
-    if (this.level > 0 && now - this.clearSince >= recoveryMs) {
+    if (this.level > 0 && now - this.clearSince >= this.recoveryMs) {
       this.level = this.level === 2 ? 1 : 0;
       this.clearSince = now;
     }

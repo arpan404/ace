@@ -6,7 +6,11 @@ import { readForge } from "./source.ts";
  * Every activity event of a pull request (up to 120 pages), read once and shared by the
  * Timeline and the merge gates (who merged it, whether its branch was deleted).
  */
-export function usePrActivityEvents(props: { workspaceId: string; detail: ForgePrDetail }) {
+export function usePrActivityEvents(props: {
+  workspaceId: string;
+  detail: ForgePrDetail;
+  enabled?: boolean;
+}) {
   const ref = props.detail.status.ref;
   return useDaemonQuery({
     queryKey: [
@@ -17,6 +21,7 @@ export function usePrActivityEvents(props: { workspaceId: string; detail: ForgeP
       props.detail.updatedAt,
       props.detail.status.headSha,
     ],
+    enabled: props.enabled ?? true,
     retry: false,
     read: async (client, signal) => {
       const events: ForgeActivity[] = [];

@@ -6,11 +6,12 @@ import { PrAvatar } from "./pr-presentation.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { reviewerOutcomes, reviewOutcomeLabels, type ReviewOutcome } from "./pr-summary-model.ts";
 
-const ring: Record<ReviewOutcome, string> = {
-  approved: "ring-status-done",
-  changes: "ring-status-failed",
-  commented: "ring-border",
-  dismissed: "ring-border opacity-50",
+/** The verdict's colour, drawn as a 2px band around the avatar. */
+const band: Record<ReviewOutcome, string> = {
+  approved: "bg-status-done",
+  changes: "bg-status-failed",
+  commented: "bg-border-strong",
+  dismissed: "bg-border opacity-60",
 };
 
 /**
@@ -54,7 +55,7 @@ export function PrPeople(props: {
     >
       <div role="group" aria-label="Reviewers" className="flex items-center gap-1.5">
         {detail.reviewers.length ? (
-          <span className="flex -space-x-1">
+          <span className="flex -space-x-1.5">
             {detail.reviewers.map((name) => {
               const outcome = outcomes.get(name);
               const said = outcome ? `${name} — ${reviewOutcomeLabels[outcome]}` : name;
@@ -63,11 +64,15 @@ export function PrPeople(props: {
                   <span
                     aria-label={said}
                     className={cn(
-                      "inline-flex rounded-full ring-2 ring-offset-1 ring-offset-panel",
-                      outcome ? ring[outcome] : "ring-transparent",
+                      // The band shows the verdict; the panel-coloured ring keeps each avatar
+                      // whole where the next one overlaps it.
+                      "relative inline-flex rounded-full p-0.5 ring-2 ring-panel",
+                      outcome ? band[outcome] : "bg-panel",
                     )}
                   >
-                    <PrAvatar name={name} url={detail.reviewerAvatars?.[name]} />
+                    <span className="inline-flex rounded-full bg-panel">
+                      <PrAvatar name={name} url={detail.reviewerAvatars?.[name]} />
+                    </span>
                   </span>
                 </Tip>
               );

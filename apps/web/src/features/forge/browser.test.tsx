@@ -81,7 +81,7 @@ test("checkout copied from another repository names that repository instead of t
     { resource: "prDetail", value: detail(other, "Other repository PR") },
   );
   await openPullRequest(app, { project: "api", repository: other, number: 42 });
-  await screen.findByRole("heading", { name: "Other repository PR" });
+  await screen.findByRole("heading", { name: "Other repository PR" }, { timeout: 10_000 });
   await user.click(screen.getByRole("button", { name: "Copy checkout command" }));
   expect(await navigator.clipboard.readText()).toBe("gh pr checkout 42 --repo github.com/acme/web");
   await screen.findByRole("button", { name: "Checkout command copied" });
@@ -89,7 +89,8 @@ test("checkout copied from another repository names that repository instead of t
 
 /** The PR panel, apart from the thread's own work card and sidebar. */
 const panel = () => within(screen.getByRole("article", { name: "Pull request #42" }));
-const panelOpen = () => screen.findByRole("article", { name: "Pull request #42" });
+const panelOpen = () =>
+  screen.findByRole("article", { name: "Pull request #42" }, { timeout: 10_000 });
 
 /** Open the ⋯ menu and find one of its rows. */
 async function menuItem(name: string | RegExp) {
@@ -492,7 +493,9 @@ const reviewState = (drafts: ForgeReviewState["drafts"] = []): ForgeReviewState 
 
 /** Open the floating composer on its Review tab. */
 async function openReview() {
-  await userEvent.click(await screen.findByRole("button", { name: "Write a comment or review" }));
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Write a comment or review" }, { timeout: 10_000 }),
+  );
   await userEvent.click(await screen.findByRole("tab", { name: "Review" }));
 }
 

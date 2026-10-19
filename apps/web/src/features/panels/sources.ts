@@ -187,9 +187,20 @@ export type PageToolCommand =
   | { action: "image_data"; url: string };
 export interface ScreenFrame {
   sequence: number;
+  /** The picture as an image URL; empty for a video picture. */
   src: string;
+  /** CSS pixels of the page: input coordinates map to these. */
   width: number;
   height: number;
+  /** A decoded video picture (ADR 0088), drawn onto a canvas instead of an `<img>`. */
+  video?: ScreenVideo;
+}
+export interface ScreenVideo {
+  /** The picture's own pixels: the canvas bitmap's size. */
+  codedWidth: number;
+  codedHeight: number;
+  /** Draws the picture over the whole canvas; false once it was released. */
+  draw(canvas: HTMLCanvasElement): boolean;
 }
 export interface PreviewServer {
   port: number;

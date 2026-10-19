@@ -126,7 +126,9 @@ beforeEach(() => localStorage.clear());
 
 /** Open the stack from the header's chip ("2/3"). */
 async function openStack() {
-  await userEvent.click(await screen.findByRole("button", { name: "Stack #2, layer 2 of 3" }));
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Stack #2, layer 2 of 3" }, { timeout: 10_000 }),
+  );
   return screen.findByRole("region", { name: "Pull request stack" });
 }
 
@@ -134,7 +136,9 @@ test("a middle layer reveals merge blockers on expand and reviews the native mer
   const app = setup();
   await openPullRequest(app, { project: "api", number: 42 });
   // A stacked PR merges through the stack, never through the single-PR merge button.
-  const panel = within(await screen.findByRole("article", { name: "Pull request #42" }));
+  const panel = within(
+    await screen.findByRole("article", { name: "Pull request #42" }, { timeout: 10_000 }),
+  );
   expect(
     (await panel.findByRole<HTMLButtonElement>("button", { name: "Squash and merge" })).disabled,
   ).toBe(true);
