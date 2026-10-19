@@ -1,14 +1,14 @@
 import { retrySend, type ChangeTap, type ClientCore, type ThreadSource } from "@ace/client";
 import { FollowUpBehavior, InteractionId, ThreadId, type CommandPayload } from "@ace/protocol";
-import { isBusy, modelLabel } from "@ace/ui-core";
+import { isBusy, messageHasContent, modelLabel } from "@ace/ui-core";
 import { runsOn } from "@ace/ui-core/thread-execution";
 import { z } from "zod";
-import { call, host } from "./host.ts";
+import { host } from "./host.ts";
 import { dispatchCommand } from "./commands.ts";
 import type { PatchPump } from "./patch-pump.ts";
 import { preview } from "./presentation.ts";
 import { ThreadAction } from "./thread-actions.ts";
-import { AttachmentTray, type ChunkReader } from "./thread-attachments.ts";
+import { AttachmentTray, nativeChunks, type ChunkReader } from "./thread-attachments.ts";
 import { followBlocks } from "./thread-blocks.ts";
 import { QueueFollower } from "./thread-queue.ts";
 import { requestResolution } from "./thread-requests.ts";
@@ -22,10 +22,6 @@ import { answerResolution, controlsRow, sendPayload, stopPayload } from "./threa
  * and a subagent's lane, and the actions the thread screen sends. One session per navigation
  * generation; leaving the thread disposes it and cancels its reads.
  */
-
-/** Staged files are read from Swift a chunk at a time (`Sources/Bridge/AttachmentStaging`). */
-const nativeChunks: ChunkReader = (localId, offset, limit) =>
-  call("attachment.chunk", { localId, offset, limit });
 
 const SettingEntries = z.object({
   entries: z.array(z.object({ key: z.string(), value: z.unknown() })),
@@ -69,7 +65,13 @@ export class ThreadSession {
     this.#queue = new QueueFollower(client, store, this.#threadId, signal, put);
     this.#steps = new StepsFollower(client, store, this.#threadId, put);
     this.#tune = new TuneFollower(client, store, signal, put, () => host.now());
-    this.#tray = new AttachmentTray(client, this.#threadId, signal, put, chunks);
+    this.#tray = new AttachmentTray(
+      client,
+      { threadId: this.#threadId },
+      signal,
+      (files) => put("attachments", () => ({ type: "thread.attachments", files })),
+      chunks,
+    );
     this.#stop = store.observe((keys) => {
       this.#blocks.tap(keys);
       this.#lane?.tap(keys);
@@ -225,6 +227,10 @@ export class ThreadSession {
   }
   /** A message as the composer showed it: its delivery, the picked effort and speed, its files. */
   #send(text: string, opposite: boolean, id: string): void {
+    if (!messageHasContent(text, this.#tray.size)) {
+      this.#admission(id, false, "Write a message or attach a file.");
+      return;
+    }
     const files = this.#tray.context();
     if ("refused" in files) {
       this.#admission(id, false, files.refused);

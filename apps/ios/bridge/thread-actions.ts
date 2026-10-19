@@ -14,7 +14,8 @@ const ordinal = z.number().int().nonnegative();
 export const ThreadAction = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("send"),
-    text: z.string().min(1),
+    /** Empty when the message carries only files. */
+    text: z.string().max(100_000),
     opposite: z.boolean(),
     requestId,
   }),

@@ -14,9 +14,11 @@ struct ComposerView: View {
     let inputBegan: () -> Void
     /// A file picked in Files: each new one is inserted as `@path`.
     var mention: ComposerMention? = nil
+    /// Files on the next message: with any, the message can go without words.
+    var files = 0
     @State private var draft = ComposerDraft()
     @State private var feedback = 0
-    private var empty: Bool { draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var empty: Bool { files == 0 && draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var stops: Bool { empty && controls?.busy == true && controls?.canStop == true }
     var body: some View {
         HStack(alignment: .bottom, spacing: AceTheme.Spacing.md) {
@@ -76,6 +78,6 @@ struct ComposerView: View {
         return "Send message"
     }
     private func submit(alternate: Bool) {
-        Task { await draft.submit(delivery: alternate ? "alternate" : "follow") { text, delivery in await send(text, delivery == "alternate") } }
+        Task { await draft.submit(delivery: alternate ? "alternate" : "follow", files: files) { text, delivery in await send(text, delivery == "alternate") } }
     }
 }

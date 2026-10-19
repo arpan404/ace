@@ -1,29 +1,40 @@
 import type { ClientCore } from "@ace/client";
 import type { ContextOperation, ContextResult, MessageContext, ThreadId } from "@ace/protocol";
 import {
+  ContextError,
   attachmentLimits,
   attachmentProblem,
   attachmentSizeProblem,
+  expectContext,
   type AttachmentReader,
 } from "@ace/ui-core";
 import { z } from "zod";
+import { call } from "./host.ts";
 import { preview } from "./presentation.ts";
 
 /*
- * Files and photos for the open thread's next message. Swift keeps the picked file on the phone
- * and hands the bridge only its name, type, size and SHA-256; the bridge checks the shared limits
- * and what the agent can read before anything uploads, then runs the daemon's resumable upload
- * (`context.request`: begin, chunks at the acknowledged offset, commit), pulling each chunk from
- * Swift as it goes: at most one 48 KiB chunk of a file is in JavaScript at a time. The tray's one
- * row carries each file's state and progress. A message carries the files the daemon holds.
+ * Files and photos for a message: the open thread's next one, or New thread's first. Swift keeps
+ * the picked file on the phone and hands the bridge only its name, type, size and SHA-256; the
+ * bridge checks the shared limits and what the agent can read before anything uploads, then
+ * runs the daemon's resumable upload (`context.request`: begin, chunks at the acknowledged
+ * offset, commit), pulling each chunk from Swift as it goes: at most one 48 KiB chunk of a file
+ * is in JavaScript at a time. Before a thread exists the files go into New thread's draft scope,
+ * which the thread takes over when it starts. Refusals use the web's shared wording.
  */
 
-type Put = (key: string, read: () => Record<string, unknown> | undefined) => void;
 type Result = ContextResult["result"];
 /** Reads `limit` bytes of a staged file at `offset`, as base64. */
 export type ChunkReader = (localId: string, offset: number, limit: number) => Promise<string>;
+/** Where files upload: an existing thread, or a draft scope made on first use. */
+export type UploadTarget = { threadId: ThreadId } | { draftId: () => Promise<string> };
+/** One file's row for the tray Swift draws. */
+export type TrayRow = Record<string, unknown>;
 
 export const chunkBytes = 48 * 1024;
+
+/** Staged files are read from Swift a chunk at a time (`Sources/Bridge/AttachmentStaging`). */
+export const nativeChunks: ChunkReader = (localId, offset, limit) =>
+  call("attachment.chunk", { localId, offset, limit });
 
 export const Picked = z.object({
   localId: z.string().regex(/^[A-Za-z0-9-]{8,64}$/),
@@ -39,41 +50,37 @@ interface Staged extends Picked {
   progress: number;
   error: string;
   uploadId: string | undefined;
+  /** The draft scope it uploaded into, once made. */
+  draftId: string | undefined;
   abort: AbortController;
 }
 
-class UploadError extends Error {}
-
-const expect = <K extends Result["kind"]>(
-  result: Result,
-  kind: K,
-): Extract<Result, { kind: K }> => {
-  if (result.kind === "error") throw new UploadError(result.message || "The upload failed");
-  if (result.kind !== kind) throw new UploadError("ace answered something unexpected.");
-  return result as Extract<Result, { kind: K }>;
-};
-
 export class AttachmentTray {
-  readonly #client: ClientCore;
-  readonly #threadId: ThreadId;
+  readonly #client: Pick<ClientCore, "request">;
+  readonly #target: UploadTarget;
   readonly #signal: AbortSignal;
-  readonly #put: Put;
+  readonly #emit: (rows: TrayRow[]) => void;
   readonly #read: ChunkReader;
   readonly #files = new Map<string, Staged>();
 
   constructor(
-    client: ClientCore,
-    threadId: ThreadId,
+    client: Pick<ClientCore, "request">,
+    target: UploadTarget,
     signal: AbortSignal,
-    put: Put,
+    emit: (rows: TrayRow[]) => void,
     read: ChunkReader,
   ) {
     this.#client = client;
-    this.#threadId = threadId;
+    this.#target = target;
     this.#signal = signal;
-    this.#put = put;
+    this.#emit = emit;
     this.#read = read;
-    this.#emit();
+    this.#publish();
+  }
+
+  /** How many files the message holds, uploaded or not. */
+  get size(): number {
+    return this.#files.size;
   }
 
   /** Stage a picked file; a refusal is said on its row and nothing uploads. */
@@ -93,10 +100,11 @@ export class AttachmentTray {
       progress: 0,
       error: problem ?? "",
       uploadId: undefined,
+      draftId: undefined,
       abort: new AbortController(),
     };
     this.#files.set(picked.localId, file);
-    this.#emit();
+    this.#publish();
     if (!problem) void this.#upload(file);
   }
 
@@ -106,10 +114,14 @@ export class AttachmentTray {
     if (!file) return;
     this.#files.delete(localId);
     file.abort.abort();
-    this.#emit();
+    this.#publish();
     const release: ContextOperation | undefined =
       file.state === "ready"
-        ? { op: "attachment.release", threadId: this.#threadId, sha256: file.sha256 }
+        ? "threadId" in this.#target
+          ? { op: "attachment.release", threadId: this.#target.threadId, sha256: file.sha256 }
+          : file.draftId
+            ? { op: "draft.attachment.release", draftId: file.draftId, sha256: file.sha256 }
+            : undefined
         : file.uploadId
           ? { op: "upload.cancel", uploadId: file.uploadId }
           : undefined;
@@ -124,8 +136,10 @@ export class AttachmentTray {
     if (files.some((file) => file.state === "failed"))
       return { refused: "Remove the files that didn't upload, then send." };
     if (!files.length) return { context: undefined };
+    const draftId = files.find((file) => file.draftId)?.draftId;
     return {
       context: {
+        ...(draftId ? { draftId } : {}),
         mentions: [],
         attachments: [...new Set(files.map((file) => file.sha256))].map((sha256) => ({ sha256 })),
       },
@@ -136,30 +150,45 @@ export class AttachmentTray {
   sent(): void {
     if (!this.#files.size) return;
     this.#files.clear();
-    this.#emit();
+    this.#publish();
   }
 
+  /** Stop every upload: the screen holding the tray went away. */
   dispose(): void {
     for (const file of this.#files.values()) file.abort.abort();
+  }
+
+  /** Stop every upload and empty the tray: the scope its files went into was released. */
+  discard(): void {
+    this.dispose();
+    if (!this.#files.size) return;
+    this.#files.clear();
+    this.#publish();
+  }
+
+  async #begin(file: Staged, signal: AbortSignal) {
+    const target = {
+      sha256: file.sha256,
+      bytes: file.bytes,
+      ...(file.mimeType ? { mimeType: file.mimeType } : {}),
+      name: file.name,
+    };
+    if ("threadId" in this.#target)
+      return expectContext(
+        await this.#ask({ op: "upload.begin", threadId: this.#target.threadId, ...target }, signal),
+        "upload",
+      );
+    file.draftId = await this.#target.draftId();
+    return expectContext(
+      await this.#ask({ op: "draft.upload.begin", draftId: file.draftId, ...target }, signal),
+      "upload",
+    );
   }
 
   async #upload(file: Staged): Promise<void> {
     const signal = file.abort.signal;
     try {
-      const begun = expect(
-        await this.#ask(
-          {
-            op: "upload.begin",
-            threadId: this.#threadId,
-            sha256: file.sha256,
-            bytes: file.bytes,
-            ...(file.mimeType ? { mimeType: file.mimeType } : {}),
-            name: file.name,
-          },
-          signal,
-        ),
-        "upload",
-      );
+      const begun = await this.#begin(file, signal);
       file.uploadId = begun.uploadId;
       let offset = begun.offset;
       while (offset < file.bytes) {
@@ -169,16 +198,16 @@ export class AttachmentTray {
           Math.min(chunkBytes, file.bytes - offset),
         );
         if (signal.aborted) return;
-        const next = expect(
+        const next = expectContext(
           await this.#ask({ op: "upload.chunk", uploadId: begun.uploadId, offset, data }, signal),
           "upload",
         );
-        if (next.offset <= offset) throw new UploadError("The upload stopped making progress.");
+        if (next.offset <= offset) throw new ContextError("The upload stopped making progress.");
         offset = next.offset;
         file.progress = Math.min(0.99, offset / Math.max(1, file.bytes));
-        this.#emit();
+        this.#publish();
       }
-      expect(
+      expectContext(
         await this.#ask({ op: "upload.commit", uploadId: begun.uploadId }, signal),
         "attachment",
       );
@@ -189,11 +218,11 @@ export class AttachmentTray {
       if (signal.aborted || this.#signal.aborted) return;
       file.state = "failed";
       file.error = preview(
-        error instanceof UploadError ? error.message : "Connection lost. Remove it and try again.",
+        error instanceof ContextError ? error.message : "Connection lost. Remove it and try again.",
         256,
       );
     }
-    this.#emit();
+    this.#publish();
   }
 
   async #ask(operation: ContextOperation, signal?: AbortSignal): Promise<Result> {
@@ -204,10 +233,9 @@ export class AttachmentTray {
     return reply.result;
   }
 
-  #emit(): void {
-    this.#put("attachments", () => ({
-      type: "thread.attachments",
-      files: [...this.#files.values()].map((file) => ({
+  #publish(): void {
+    this.#emit(
+      [...this.#files.values()].map((file) => ({
         id: file.localId,
         name: preview(file.name, 128),
         kind: file.mimeType.startsWith("image/") ? "image" : "file",
@@ -216,6 +244,6 @@ export class AttachmentTray {
         progress: file.progress,
         error: file.error,
       })),
-    }));
+    );
   }
 }

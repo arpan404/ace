@@ -1,5 +1,6 @@
 import type { ClientCore } from "@ace/client";
 import { ProjectCommand, WorkspaceId } from "@ace/protocol";
+import { expectContext } from "@ace/ui-core";
 import { submitCommand } from "./commands.ts";
 import type { PatchSink, Preview } from "./agents.ts";
 
@@ -42,7 +43,7 @@ export class ComposeSearch {
       }));
     put("loading", []);
     try {
-      const draftId = await this.#draft(workspaceId);
+      const draftId = await this.draftScope(workspaceId);
       const reply = await this.#owner.request(
         {
           type: "context.request",
@@ -59,6 +60,17 @@ export class ComposeSearch {
     } catch {
       if (generation === this.#query) put("failed", []);
     }
+  }
+
+  /**
+   * The thread that just started took the draft scope over, with the files in it: forget the
+   * scope without releasing it.
+   */
+  adopt(draftId: string): void {
+    const scope = this.#scope;
+    void scope?.draftId.then((id) => {
+      if (id === draftId && this.#scope === scope) this.#scope = undefined;
+    });
   }
 
   /** Release the draft scope: the sheet closed or moved to another project. */
@@ -151,7 +163,8 @@ export class ComposeSearch {
     }
   }
 
-  #draft(workspaceId: string): Promise<string> {
+  /** The project's draft scope (files to mention, files to attach), made on first use. */
+  draftScope(workspaceId: string): Promise<string> {
     if (this.#scope?.workspaceId === workspaceId) return this.#scope.draftId;
     this.release();
     const draftId = this.#owner
@@ -162,10 +175,7 @@ export class ComposeSearch {
         },
         quiet,
       )
-      .then((reply) => {
-        if (reply.result.kind !== "draft") throw new Error(reply.result.kind);
-        return reply.result.draftId;
-      });
+      .then((reply) => expectContext(reply.result, "draft").draftId);
     const scope = { workspaceId, draftId };
     this.#scope = scope;
     // A scope that couldn't be made is asked for again next time.

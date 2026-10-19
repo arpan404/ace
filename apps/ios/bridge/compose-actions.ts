@@ -2,12 +2,14 @@ import type { ClientCore } from "@ace/client";
 import { z } from "zod";
 import type { PatchSink, Preview } from "./agents.ts";
 import { ComposeSearch } from "./compose-search.ts";
-import { CreateAction, NewThread } from "./new-thread.ts";
+import { ChoiceAction, CreateAction, NewThread } from "./new-thread.ts";
 import { ProjectFiles } from "./project-files.ts";
+import { AttachmentTray, Picked, nativeChunks, type ChunkReader } from "./thread-attachments.ts";
 
 /*
  * The `compose` (New thread, Add project) and `files` (a thread's Files sheet) actions Swift
  * sends, parsed once and routed to their sessions. `false` means the action couldn't be read.
+ * New thread's first-message files live here, in the chosen project's draft scope.
  */
 
 const id = z.string().min(1).max(128);
@@ -25,6 +27,10 @@ const ComposeAction = z.discriminatedUnion("kind", [
     requestId: z.string().min(1).max(64),
   }),
   CreateAction,
+  ChoiceAction,
+  /** A file picked for the first message, uploaded into the project's draft scope. */
+  z.object({ kind: z.literal("attach"), workspaceId: id, file: Picked }),
+  z.object({ kind: z.literal("detach"), localId: z.string().min(1).max(64) }),
 ]);
 const FilesAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("open"), threadId: id }),
@@ -38,9 +44,27 @@ export class ComposeActions {
   readonly newThread: NewThread;
   readonly search: ComposeSearch;
   readonly checkout: ProjectFiles;
-  constructor(owner: ClientCore, sink: PatchSink, preview: Preview, now: () => number) {
-    this.newThread = new NewThread(owner, sink, preview, now);
+  readonly #owner: ClientCore;
+  readonly #sink: PatchSink;
+  readonly #chunks: ChunkReader;
+  /** The first message's files, in one project's draft scope. */
+  #tray: { workspaceId: string; tray: AttachmentTray; stop: AbortController } | undefined;
+  constructor(
+    owner: ClientCore,
+    sink: PatchSink,
+    preview: Preview,
+    now: () => number,
+    chunks: ChunkReader = nativeChunks,
+  ) {
+    this.#owner = owner;
+    this.#sink = sink;
+    this.#chunks = chunks;
     this.search = new ComposeSearch(owner, sink, preview);
+    this.newThread = new NewThread(owner, sink, preview, now, {
+      tray: (workspaceId) =>
+        this.#tray?.workspaceId === workspaceId ? this.#tray.tray : undefined,
+      adopt: (draftId) => this.search.adopt(draftId),
+    });
     this.checkout = new ProjectFiles(owner, sink, preview);
   }
   compose(raw: unknown): boolean {
@@ -52,7 +76,17 @@ export class ComposeActions {
         this.newThread.open();
         break;
       case "close":
+        this.#dropTray();
         this.search.release();
+        break;
+      case "choice":
+        this.newThread.choose(action);
+        break;
+      case "attach":
+        this.#trayFor(action.workspaceId).attach(action.file, this.newThread.reader());
+        break;
+      case "detach":
+        this.#tray?.tray.detach(action.localId);
         break;
       case "projects":
         void this.newThread.projects();
@@ -100,5 +134,39 @@ export class ComposeActions {
         break;
     }
     return true;
+  }
+
+  /** The project's tray; files picked for another project went with that project's scope. */
+  #trayFor(workspaceId: string): AttachmentTray {
+    if (this.#tray?.workspaceId === workspaceId) return this.#tray.tray;
+    this.#dropTray();
+    const stop = new AbortController();
+    const tray = new AttachmentTray(
+      this.#owner,
+      { draftId: () => this.search.draftScope(workspaceId) },
+      stop.signal,
+      (files) =>
+        this.#sink.put("compose:attachments", () => ({
+          type: "compose.attachments",
+          workspaceId,
+          files,
+          blocked: this.#blocked(),
+        })),
+      this.#chunks,
+    );
+    this.#tray = { workspaceId, tray, stop };
+    return tray;
+  }
+  /** Why the first message can't go yet because of its files; null when they're ready. */
+  #blocked(): string | null {
+    const files = this.#tray?.tray.context();
+    return files && "refused" in files ? files.refused : null;
+  }
+  #dropTray(): void {
+    const held = this.#tray;
+    if (!held) return;
+    this.#tray = undefined;
+    held.stop.abort();
+    held.tray.discard();
   }
 }

@@ -15,6 +15,7 @@ import { providerAccountModel } from "./provider-account-model.ts";
 import { catalogSignal } from "./provider-readiness.ts";
 import { providerAccountState } from "./provider-status.ts";
 import { providerDisplayName } from "./providers.ts";
+import { speedLabel, speedOption, type Speed } from "./speed.ts";
 import type { StatusDisplay, StatusToken } from "./mobile-status.ts";
 
 /*
@@ -31,6 +32,13 @@ export interface NewThreadModelRow {
   account: string;
   efforts: { id: string; label: string }[];
   defaultEffort: string | undefined;
+  /** Speeds it can start at, slowest first; empty when there is nothing faster. */
+  speeds: { speed: Speed; label: string }[];
+  defaultSpeed: Speed;
+  /** Its account's default model. */
+  isDefault: boolean;
+  /** An older or deprecated model, listed after the current ones. */
+  legacy: boolean;
 }
 
 export interface NewThreadProviderRow {
@@ -126,6 +134,10 @@ export function newThreadAgents(input: {
         account: option.account,
         efforts: option.efforts.map((id) => ({ id, label: effortLabel(id) })),
         defaultEffort: option.defaultEffort,
+        speeds: option.speeds.map((tier) => ({ speed: tier.speed, label: speedLabel(tier.speed) })),
+        defaultSpeed: option.defaultSpeed,
+        isDefault: option.isDefault,
+        legacy: option.legacy,
       })),
     };
   });
@@ -138,10 +150,19 @@ export interface NewThreadChoice {
   model?: string | undefined;
   account?: string | undefined;
   effort?: string | undefined;
+  /** A speed the person turned on; undefined runs at the catalog's default. */
+  speed?: string | undefined;
 }
 
 export type NewThreadStart =
-  | { ok: true; provider: ProviderKind; model: ModelOption; effort: string | undefined }
+  | {
+      ok: true;
+      provider: ProviderKind;
+      model: ModelOption;
+      effort: string | undefined;
+      /** The `serviceTier` the picked speed asks for; undefined leaves the option out. */
+      serviceTier: string | undefined;
+    }
   | { ok: false; reason: string };
 
 /**
@@ -169,7 +190,38 @@ export function selectNewThreadAgent(
   });
   if (!model) return { ok: false, reason: `${row.name}: No models listed on this computer` };
   const effort = resolveEffort(model.efforts, choice.effort, model.defaultEffort);
-  return { ok: true, provider: row.provider, model, effort };
+  const speed = model.speeds.find((tier) => tier.speed === choice.speed)?.speed;
+  const serviceTier = speed ? speedOption(model.speeds, speed) : undefined;
+  return { ok: true, provider: row.provider, model, effort, serviceTier };
+}
+
+/** How many of an agent's models the picker shows before "More models". */
+export const leadingModels = 4;
+
+/**
+ * One agent's models as the picker lists them: the one in use (else the account's default)
+ * first, then the other current models in the catalog's order, then legacy ones. `lead` rows
+ * show at once and the rest wait behind "More models"; a list barely longer than that shows
+ * whole. The model in use always shows, even when it is legacy.
+ */
+export function newThreadModelList(
+  models: readonly NewThreadModelRow[],
+  current: { key: string; account?: string | undefined } | undefined,
+): { models: NewThreadModelRow[]; lead: number } {
+  const isCurrent = (row: NewThreadModelRow) =>
+    !!current && row.key === current.key && (!current.account || row.account === current.account);
+  const picked = models.find(isCurrent);
+  const rest = models.filter((row) => row !== picked);
+  const defaults = rest.filter((row) => row.isDefault && !row.legacy);
+  const others = rest.filter((row) => !row.isDefault && !row.legacy);
+  const legacy = rest.filter((row) => row.legacy);
+  const ordered = [...(picked ? [picked] : []), ...defaults, ...others, ...legacy];
+  const nonLegacy = ordered.length - legacy.length + (picked?.legacy ? 1 : 0);
+  const lead =
+    ordered.length <= leadingModels + 1
+      ? ordered.length
+      : Math.max(1, Math.min(leadingModels, nonLegacy));
+  return { models: ordered, lead };
 }
 
 export interface NewThreadProject {

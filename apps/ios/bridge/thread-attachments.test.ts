@@ -120,3 +120,57 @@ test("removing a file mid-upload cancels it on the daemon", async () => {
   expect(tray()?.files).toEqual([]);
   expect(uploads("upload.commit")).toHaveLength(0);
 });
+
+test("a message of only files goes with empty words, and nothing at all is refused", async () => {
+  const photo = Buffer.alloc(10 * 1024, 5);
+  staged.set("photo-0002", photo);
+  const thread = open(connect(idle()), "files", chunks);
+  await until(() => latest("thread.controls"), "the composer");
+  thread.handle({ type: "send", text: "  ", opposite: false, requestId: "blank" });
+  await until(() => latest("admission", "blank"), "the blank send refused");
+  expect(latest("admission", "blank")).toMatchObject({
+    ok: false,
+    message: "Write a message or attach a file.",
+  });
+  thread.handle({
+    type: "attach",
+    file: {
+      localId: "photo-0002",
+      name: "shot.png",
+      mimeType: "image/png",
+      bytes: photo.length,
+      sha256: sha(photo),
+    },
+  });
+  await until(() => tray()?.files[0]?.state === "ready", "the upload");
+  thread.handle({ type: "send", text: "", opposite: false, requestId: "only-files" });
+  await until(() => commands("thread.send").length === 1, "the message");
+  expect(commands("thread.send")[0]).toMatchObject({
+    input: [{ type: "text", text: "" }],
+    context: { attachments: [{ sha256: sha(photo) }] },
+  });
+});
+
+test("a refused upload says what to do in the web's words, not the daemon's code", async () => {
+  const big = Buffer.alloc(2 * 1024 * 1024, 1);
+  staged.set("big-00001", big);
+  const thread = open(connect(idle()), "files", chunks);
+  await until(() => latest("thread.controls"), "the composer");
+  thread.handle({
+    type: "attach",
+    file: {
+      localId: "big-00001",
+      name: "large.png",
+      mimeType: "image/png",
+      bytes: big.length,
+      sha256: sha(big),
+    },
+  });
+  const file = await until(
+    () => (tray()?.files[0]?.state === "failed" ? tray()?.files[0] : undefined),
+    "the refusal",
+  );
+  expect(file?.error).toBe(
+    "Attachment limit reached. Open Attachments from the thread menu and remove files you no longer need.",
+  );
+});

@@ -12,6 +12,7 @@ export * from "./agents.ts";
 export * from "./arrange.ts";
 export * from "./attachment-fit.ts";
 export * from "./attachment-limits.ts";
+export * from "./context-errors.ts";
 export * from "./turn-options.ts";
 export * from "./elicitation-form.ts";
 export * from "./catalog-ids.ts";

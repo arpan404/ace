@@ -31,4 +31,12 @@ import Testing
         }
         #expect(draft.text == "New edits")
     }
+    @Test func aMessageOfOnlyFilesGoesButAnEmptyOneDoesNot() async {
+        let draft = ComposerDraft()
+        var sent: [String] = []
+        await draft.submit(delivery: "queue") { text, _ in sent.append(text); return true }
+        #expect(sent.isEmpty)
+        await draft.submit(delivery: "queue", files: 1) { text, _ in sent.append(text); return true }
+        #expect(sent == [""])
+    }
 }

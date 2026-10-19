@@ -85,7 +85,8 @@ struct ThreadView: View {
                         ComposerView(controls: screen.controls, stopping: screen.stopping,
                                      placeholder: thread.approvals.isEmpty ? "Steer or follow up…" : "Reply instead…",
                                      send: { await model.sendMessage($0, alternate: $1) }, stop: { model.stopTree() },
-                                     openModels: { showModels = true }, inputBegan: { model.metrics?.inputBegan() }, mention: mention)
+                                     openModels: { showModels = true }, inputBegan: { model.metrics?.inputBegan() }, mention: mention,
+                                     files: screen.attachments.count)
                     } else {
                         ViewOnlyNote.thread
                             .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.md)

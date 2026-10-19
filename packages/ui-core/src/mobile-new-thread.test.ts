@@ -1,6 +1,12 @@
 import { CatalogModel, type ProviderKind, type ProviderStatus } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { newThreadAgents, newThreadProjects, selectNewThreadAgent } from "./mobile-new-thread.ts";
+import {
+  newThreadAgents,
+  newThreadModelList,
+  newThreadProjects,
+  selectNewThreadAgent,
+  type NewThreadModelRow,
+} from "./mobile-new-thread.ts";
 
 const row = (provider: ProviderKind, fields: Partial<ProviderStatus> = {}): ProviderStatus => ({
   provider,
@@ -13,7 +19,13 @@ const row = (provider: ProviderKind, fields: Partial<ProviderStatus> = {}): Prov
   ...fields,
 });
 
-const model = (provider: ProviderKind, id: string, isDefault = false, efforts: string[] = []) =>
+const model = (
+  provider: ProviderKind,
+  id: string,
+  isDefault = false,
+  efforts: string[] = [],
+  extra: Record<string, unknown> = {},
+) =>
   CatalogModel.parse({
     id,
     displayName: id,
@@ -27,6 +39,7 @@ const model = (provider: ProviderKind, id: string, isDefault = false, efforts: s
     hidden: false,
     deprecated: false,
     raw: { json: "{}", truncated: false },
+    ...extra,
   });
 
 const agents = () =>
@@ -98,4 +111,85 @@ test("projects with recent threads come first, newest activity on top, then the 
     ["api", false],
     ["web", false],
   ]);
+});
+
+test("a speed the person turned on starts the thread on that tier; one the model lacks is left out", () => {
+  const fast = {
+    serviceTiers: [
+      { id: "priority", name: "Fast", speed: "fast", parameters: { serviceTier: "priority" } },
+    ],
+  };
+  const tuned = newThreadAgents({
+    statuses: [row("codex")],
+    accounts: [],
+    catalog: { models: [model("codex", "gpt-6", true, [], fast)], instances: [] },
+    now: 0,
+  });
+  expect(tuned.providers[0]?.models[0]?.speeds.map((tier) => tier.label)).toEqual([
+    "Standard",
+    "Fast",
+  ]);
+  const start = selectNewThreadAgent(tuned, { speed: "fast" });
+  expect(start.ok && start.serviceTier).toBe("priority");
+  const standard = selectNewThreadAgent(tuned, { speed: "standard" });
+  expect(standard.ok && standard.serviceTier).toBeUndefined();
+  const unknown = selectNewThreadAgent(tuned, { speed: "ultrafast" });
+  expect(unknown.ok && unknown.serviceTier).toBeUndefined();
+});
+
+const listed = (label: string, fields: Partial<NewThreadModelRow> = {}): NewThreadModelRow => ({
+  key: label,
+  label,
+  account: "work",
+  efforts: [],
+  defaultEffort: undefined,
+  speeds: [],
+  defaultSpeed: "standard",
+  isDefault: false,
+  legacy: false,
+  ...fields,
+});
+
+test("an agent's long model list leads with the default and keeps the rest behind More models", () => {
+  const models = [
+    listed("A"),
+    listed("B"),
+    listed("Old", { legacy: true }),
+    listed("C"),
+    listed("Default", { isDefault: true }),
+    listed("D"),
+    listed("E"),
+  ];
+  const list = newThreadModelList(models, undefined);
+  expect(list.models.map((entry) => entry.label)).toEqual([
+    "Default",
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "Old",
+  ]);
+  expect(list.lead).toBe(4);
+});
+
+test("the model in use comes first and shows even when it is legacy", () => {
+  const models = [
+    listed("A"),
+    listed("B"),
+    listed("C"),
+    listed("Default", { isDefault: true }),
+    listed("D"),
+    listed("Old", { legacy: true }),
+  ];
+  const list = newThreadModelList(models, { key: "Old", account: "work" });
+  expect(list.models.slice(0, 2).map((entry) => entry.label)).toEqual(["Old", "Default"]);
+  expect(list.lead).toBeGreaterThanOrEqual(1);
+  const other = newThreadModelList(models, { key: "Old", account: "personal" });
+  expect(other.models[0]?.label).toBe("Default");
+});
+
+test("a list barely longer than the lead shows whole", () => {
+  const models = ["A", "B", "C", "D", "E"].map((label) => listed(label));
+  expect(newThreadModelList(models, undefined).lead).toBe(5);
 });

@@ -5,7 +5,9 @@ import Foundation
 extension ClientModel {
     /// Persist a follow-up: `alternate` asks for the other delivery the composer offered.
     func sendMessage(_ text: String, alternate: Bool) async -> Bool {
-        guard canOperate, thread != nil, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard canOperate, let thread else { return false }
+        // Words, files or both; the bridge checks again with the shared rule.
+        guard !thread.screen.attachments.isEmpty || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let id = admissions.nextId()
         return await admissions.wait(id: id) {
             threadAction(["type": "send", "text": text, "opposite": alternate, "requestId": id])
