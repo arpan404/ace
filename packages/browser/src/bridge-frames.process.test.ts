@@ -7,7 +7,7 @@ import { decodeStreamMessage, StreamAssembler, type StreamMessage } from "./stre
 
 function viewer(f: Awaited<ReturnType<typeof backendFixture>>, id: string, binary: boolean) {
   const messages: BrowserServerMessage[] = [];
-  const streamed: StreamMessage[] = [];
+  const streamed: Extract<StreamMessage, { kind: "browser.frame" }>[] = [];
   const assembler = new StreamAssembler();
   const bridge = connectBrowser(f.service, {
     connectionId: id,
@@ -20,7 +20,7 @@ function viewer(f: Awaited<ReturnType<typeof backendFixture>>, id: string, binar
       for (const piece of pieces) {
         const envelope = assembler.push(piece);
         const message = envelope && decodeStreamMessage(envelope);
-        if (message) streamed.push(message);
+        if (message?.kind === "browser.frame") streamed.push(message);
       }
       return true;
     },

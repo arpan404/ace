@@ -13,13 +13,15 @@ import { encodeStream } from "./stream-envelope.ts";
 const jpeg = (size: number) => Uint8Array.from({ length: size }, (_, index) => (index * 31) % 251);
 const header = { sequence: 41, timestamp: 1_700_000_000_123.5, width: 390, height: 844 };
 
-function receive(pieces: readonly Uint8Array[]): StreamMessage[] {
+function receive(
+  pieces: readonly Uint8Array[],
+): Extract<StreamMessage, { kind: "browser.frame" }>[] {
   const assembler = new StreamAssembler();
-  const messages: StreamMessage[] = [];
+  const messages: Extract<StreamMessage, { kind: "browser.frame" }>[] = [];
   for (const piece of pieces) {
     const envelope = assembler.push(piece);
     const message = envelope && decodeStreamMessage(envelope);
-    if (message) messages.push(message);
+    if (message?.kind === "browser.frame") messages.push(message);
   }
   return messages;
 }

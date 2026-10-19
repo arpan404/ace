@@ -1,0 +1,45 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserDownloadReadMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "downloadId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "length": {
+      "default": 1048576,
+      "maximum": 1048576,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "offset": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "browser.download.read",
+      "type": "string"
+    },
+    "validator": {
+      "$ref": "https://ace.local/protocol/v1/BrowserFileValidator.json"
+    }
+  },
+  "required": [
+    "requestId",
+    "threadId",
+    "type",
+    "downloadId",
+    "offset"
+  ],
+  "type": "object"
+}

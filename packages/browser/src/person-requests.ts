@@ -58,7 +58,7 @@ export async function requestAsPerson(
 }
 
 /** Writes each file under its own name (the page sees it), each in its own folder. */
-async function stage(files: readonly PersonFile[], root: string): Promise<string[]> {
+export async function stage(files: readonly PersonFile[], root: string): Promise<string[]> {
   const paths: string[] = [];
   for (const [index, file] of files.entries()) {
     const folder = join(root, String(index));

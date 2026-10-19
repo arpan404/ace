@@ -44,6 +44,7 @@ import { encodeBrowserFrame } from "./stream.ts";
 import { frameBytes } from "./frame-bytes.ts";
 import type { BrowserServiceOptions } from "./service-options.ts";
 import type { PersonRequest } from "./person-requests.ts";
+import type { DownloadRead } from "./download-read.ts";
 export type { BrowserServiceOptions } from "./service-options.ts";
 
 export class BrowserService {
@@ -638,6 +639,24 @@ export class BrowserService {
   /** What only the person may ask of a page, from their own client connection. */
   asPerson(threadId: string, request: PersonRequest): Promise<BrowserState> {
     return this.get(threadId).asPerson(request);
+  }
+  /** Files the person dropped on a tab's page, from their own client connection. */
+  dropFiles(
+    threadId: string,
+    request: Parameters<BrowserSession["dropFiles"]>[0],
+    connectionId: string,
+  ): Promise<BrowserState> {
+    return this.get(threadId).dropFiles(request, connectionId);
+  }
+  /** A chunk of one of the thread's finished downloads, fetched to the person's device. */
+  readDownload(
+    threadId: string,
+    downloadId: string,
+    offset: number,
+    length: number,
+    validator?: string,
+  ): Promise<DownloadRead> {
+    return this.get(threadId).readDownload(downloadId, offset, length, validator);
   }
   disconnect(connectionId: string): void {
     for (const session of this.sessions.values()) session.disconnect(connectionId);

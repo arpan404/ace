@@ -27,8 +27,9 @@ Example:
 
 ```json
 {
+  "height": 80,
   "html": "example",
-  "title": "m"
+  "title": "?"
 }
 ```
 
@@ -70,8 +71,7 @@ Example:
 
 ```json
 {
-  "alt": "7",
-  "caption": "example"
+  "alt": "1"
 }
 ```
 
@@ -110,7 +110,7 @@ Example:
 
 ```json
 {
-  "level": "warning",
+  "level": "error",
   "text": "example"
 }
 ```
@@ -155,18 +155,16 @@ Example:
 {
   "tasks": [
     {
-      "machine": "upRmJIB.uAuTQJdCcSf",
-      "project": "example",
-      "requestId": "94ZiHKnja",
+      "model": "example",
+      "requestId": "_LuKdN",
       "role": "example",
       "task": "example",
       "workspace": {
-        "kind": "existing_worktree",
-        "path": "example"
+        "kind": "project"
       }
     }
   ],
-  "waitSeconds": 3
+  "waitSeconds": 2
 }
 ```
 
@@ -188,6 +186,7 @@ Example:
   "data": {
     "threadIds": []
   },
+  "hint": "example",
   "ok": false
 }
 ```
@@ -233,8 +232,8 @@ Example:
 
 ```json
 {
-  "code": "unsupported",
-  "ok": true
+  "code": "limit",
+  "ok": false
 }
 ```
 
@@ -255,7 +254,9 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 Example:
 
 ```json
-{}
+{
+  "threadId": "example"
+}
 ```
 
 ## agents_status.output
@@ -273,6 +274,10 @@ Example:
 
 ```json
 {
+  "data": {
+    "state": "example",
+    "threadId": "example"
+  },
   "ok": false
 }
 ```
@@ -298,7 +303,7 @@ Example:
 
 ```json
 {
-  "requestId": "4d",
+  "requestId": "gr6cOtN",
   "text": "example",
   "threadId": "example"
 }
@@ -318,7 +323,7 @@ Example:
 
 ```json
 {
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -341,7 +346,7 @@ Example:
 
 ```json
 {
-  "requestId": "nczU",
+  "requestId": "5QU",
   "threadId": "example"
 }
 ```
@@ -360,8 +365,6 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
-  "hint": "example",
   "ok": true
 }
 ```
@@ -399,6 +402,7 @@ Example:
 
 ```json
 {
+  "data": null,
   "ok": true
 }
 ```
@@ -439,7 +443,9 @@ Example:
 
 ```json
 {
-  "ok": false
+  "code": "not_ready",
+  "data": null,
+  "ok": true
 }
 ```
 
@@ -466,7 +472,11 @@ Semantic rule: With threadId, query must not be empty.
 Example:
 
 ```json
-{}
+{
+  "cursor": "example",
+  "limit": 6,
+  "project": "example"
+}
 ```
 
 ## threads_find.output
@@ -507,7 +517,7 @@ Example:
 
 ```json
 {
-  "limit": 1
+  "query": "example"
 }
 ```
 
@@ -526,7 +536,10 @@ Example:
 
 ```json
 {
-  "ok": false
+  "data": {
+    "projects": []
+  },
+  "ok": true
 }
 ```
 
@@ -553,10 +566,7 @@ Example:
 
 ```json
 {
-  "maxBytes": 8,
-  "offset": 9,
-  "streamId": "example",
-  "threadId": "example"
+  "limit": 4
 }
 ```
 
@@ -575,15 +585,12 @@ Example:
 
 ```json
 {
-  "code": "limit",
   "data": {
-    "nextOffset": 9,
-    "thread": {
-      "id": "example",
-      "title": "example"
-    }
+    "bytes": "example",
+    "items": [],
+    "itemsBefore": 3,
+    "linkedPrs": []
   },
-  "hint": "example",
   "ok": true
 }
 ```
@@ -614,8 +621,9 @@ Example:
 
 ```json
 {
-  "provider": "claude",
-  "requestId": "O.yU0",
+  "effort": "example",
+  "project": "example",
+  "requestId": "uT",
   "text": "example",
   "title": "example"
 }
@@ -636,8 +644,8 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
-  "ok": true
+  "hint": "example",
+  "ok": false
 }
 ```
 
@@ -665,10 +673,9 @@ Example:
 
 ```json
 {
-  "requestId": "j",
-  "runId": "example",
-  "text": "example",
-  "title": "example"
+  "effort": "example",
+  "requestId": "-M.15Y1f",
+  "text": "example"
 }
 ```
 
@@ -687,8 +694,8 @@ Example:
 
 ```json
 {
-  "code": "not_found",
   "data": null,
+  "hint": "example",
   "ok": false
 }
 ```
@@ -717,7 +724,7 @@ Example:
   "itemIds": [
     "example"
   ],
-  "requestId": "KvQyH8G9G",
+  "requestId": "hO6CYUo",
   "summary": "example",
   "threadId": "example"
 }
@@ -769,11 +776,12 @@ Example:
 
 ```json
 {
-  "action": "reorder",
+  "action": "cancel",
+  "entryId": "example",
   "order": [
     "example"
   ],
-  "requestId": "Xi6wh-",
+  "requestId": "r3jAfcGK",
   "text": "example",
   "threadId": "example"
 }
@@ -793,6 +801,7 @@ Example:
 
 ```json
 {
+  "code": "invalid",
   "ok": false
 }
 ```
@@ -821,10 +830,9 @@ Example:
 ```json
 {
   "answers": {},
-  "dismissed": false,
   "feedback": "example",
   "interactionId": "example",
-  "requestId": "ydDUji",
+  "requestId": "91Su",
   "threadId": "example"
 }
 ```
@@ -843,7 +851,7 @@ Example:
 
 ```json
 {
-  "hint": "example",
+  "code": "unavailable",
   "ok": false
 }
 ```
@@ -891,7 +899,7 @@ Example:
 
 ```json
 {
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -926,11 +934,9 @@ Example:
 
 ```json
 {
-  "action": "rename",
-  "name": "example",
-  "onlyIfProvisional": true,
-  "requestId": "EYUKMj",
-  "serviceTier": "default"
+  "action": "unsettle",
+  "model": "example",
+  "requestId": "6W1W"
 }
 ```
 
@@ -949,8 +955,7 @@ Example:
 
 ```json
 {
-  "data": null,
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -975,9 +980,7 @@ Example:
 
 ```json
 {
-  "before": 4,
-  "limit": 10,
-  "runs": false
+  "limit": 5
 }
 ```
 
@@ -996,8 +999,6 @@ Example:
 
 ```json
 {
-  "code": "unsupported",
-  "data": null,
   "ok": false
 }
 ```
@@ -1031,12 +1032,6 @@ Example:
   "enabled": true,
   "id": "example",
   "prompt": "example",
-  "schedule": {
-    "expression": "example",
-    "kind": "rrule",
-    "startAt": 0,
-    "timezone": "example"
-  },
   "title": "example"
 }
 ```
@@ -1056,8 +1051,8 @@ Example:
 
 ```json
 {
-  "data": null,
-  "ok": false
+  "hint": "example",
+  "ok": true
 }
 ```
 
@@ -1082,7 +1077,7 @@ Example:
 ```json
 {
   "id": "example",
-  "requestId": "vGn3bF",
+  "requestId": "Dih0vp.YfdF",
   "variables": {}
 }
 ```
@@ -1102,8 +1097,8 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
-  "ok": true
+  "data": null,
+  "ok": false
 }
 ```
 
@@ -1143,7 +1138,8 @@ Example:
 
 ```json
 {
-  "ok": false
+  "hint": "example",
+  "ok": true
 }
 ```
 
@@ -1170,7 +1166,6 @@ Example:
 
 ```json
 {
-  "before": 4,
   "sourceThreadId": "example"
 }
 ```
@@ -1192,7 +1187,11 @@ Example:
 Example:
 
 ```json
-{}
+{
+  "bytes": "example",
+  "items": [],
+  "itemsBefore": null
+}
 ```
 
 ## context
@@ -1232,10 +1231,12 @@ Example:
 
 ```json
 {
-  "changes": null,
-  "prs": [],
+  "diagnostics": {
+    "blocking": [],
+    "failures": []
+  },
   "status": {
-    "access": "read-only",
+    "access": "ask",
     "agentId": "example",
     "groups": [],
     "threadId": "example"
@@ -1317,7 +1318,7 @@ Example:
 
 ```json
 {
-  "retired": true
+  "retired": false
 }
 ```
 
@@ -1342,6 +1343,7 @@ Example:
 
 ```json
 {
+  "allowOther": false,
   "question": "example"
 }
 ```
@@ -1360,8 +1362,9 @@ Example:
 
 ```json
 {
+  "answer": [],
   "askId": "example",
-  "status": "answered"
+  "status": "pending"
 }
 ```
 
@@ -1404,7 +1407,7 @@ Example:
 
 ```json
 {
-  "hint": "example",
+  "how": "example",
   "matches": []
 }
 ```
@@ -1428,6 +1431,7 @@ Example:
 
 ```json
 {
+  "arguments": {},
   "name": "example"
 }
 ```

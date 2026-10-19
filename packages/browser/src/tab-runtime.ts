@@ -25,6 +25,7 @@ import { executeBrowserCommand, type TabCommand } from "./session-commands.ts";
 import type { TabView } from "./page-tools.ts";
 import { agentScreenshot, type AgentScreenshot } from "./session-images.ts";
 import { sendHumanInput } from "./session-input.ts";
+import { dropFiles } from "./file-drop.ts";
 import { TouchPinch } from "./touch-pinch.ts";
 import type { Actor, SessionOptions } from "./session-options.ts";
 import { SessionQueue, mutatesBrowser, type QueueBudget, type TabHold } from "./session-queue.ts";
@@ -594,6 +595,25 @@ export class TabRuntime {
         this.pinch,
       );
     });
+    this.personLane = work.catch(() => {});
+    return work;
+  }
+  /** Files the person dropped on the page, on their lane in order with their other input. */
+  drop(
+    paths: readonly string[],
+    point: { x: number; y: number },
+    modifiers: number,
+    connectionId: string,
+  ): Promise<void> {
+    const actor: Actor = { kind: "human", connectionId };
+    this.touch(actor);
+    this.humanActivity();
+    const generation = this.access.generation;
+    const work = this.personLane.then(() =>
+      dropFiles(this.page.cdp, paths, point, modifiers, () =>
+        this.check(actor, undefined, generation),
+      ),
+    );
     this.personLane = work.catch(() => {});
     return work;
   }

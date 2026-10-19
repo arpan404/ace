@@ -1,5 +1,5 @@
 import { BrowserFeaturesClient } from "@ace/client";
-import { BrowserArtifact, ThreadId } from "@ace/protocol";
+import { BrowserArtifact, ThreadId, browserDropFileMax } from "@ace/protocol";
 import { useClient } from "@ace/client-react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { LocalStore } from "../store.ts";
@@ -39,6 +39,31 @@ export function useBrowserFeatures(threadId: string) {
     accept: boolean,
     promptText?: string,
   ) => features.answerDialog(threadId, tabId, dialogId, accept, promptText);
+  /** Each file uploaded as a thread attachment, the uploads let go of once `use` settles. */
+  const withUploads = async <T>(
+    files: readonly File[],
+    use: (uploaded: { sha256: string; name: string }[]) => Promise<T>,
+  ): Promise<T> => {
+    const uploaded = [];
+    for (const file of files)
+      uploaded.push(await uploadContextFile(client, { threadId }, file, () => {}));
+    try {
+      return await use(
+        uploaded.map((attachment) => ({
+          sha256: attachment.sha256,
+          name: attachment.name || "file",
+        })),
+      );
+    } finally {
+      const ask = askContext(client);
+      for (const attachment of uploaded)
+        void ask({
+          op: "attachment.release",
+          threadId: ThreadId.parse(threadId),
+          sha256: attachment.sha256,
+        }).catch(() => {});
+    }
+  };
   return {
     features,
     answerDialog: (tabId: string, dialogId: string, accept: boolean, promptText?: string) =>
@@ -53,29 +78,20 @@ export function useBrowserFeatures(threadId: string) {
      * page's input by the daemon, then let go of (the browser keeps its own copy).
      */
     chooseFiles: (tabId: string, chooserId: string, files: readonly File[]) =>
-      attempt("Couldn't give the page your files", async () => {
-        const uploaded = [];
-        for (const file of files)
-          uploaded.push(await uploadContextFile(client, { threadId }, file, () => {}));
-        try {
-          return await features.chooseFiles(
-            threadId,
-            tabId,
-            chooserId,
-            uploaded.map((attachment) => ({
-              sha256: attachment.sha256,
-              name: attachment.name || "file",
-            })),
-          );
-        } finally {
-          const ask = askContext(client);
-          for (const attachment of uploaded)
-            void ask({
-              op: "attachment.release",
-              threadId: ThreadId.parse(threadId),
-              sha256: attachment.sha256,
-            }).catch(() => {});
-        }
+      attempt("Couldn't give the page your files", () =>
+        withUploads(files, (uploaded) =>
+          features.chooseFiles(threadId, tabId, chooserId, uploaded),
+        ),
+      ),
+    /**
+     * Files dropped on the live page at a point in its CSS pixels: uploaded as thread
+     * attachments, then dropped on the page there, so its own drop zone takes them.
+     */
+    dropFiles: (tabId: string, files: readonly File[], at: DropPoint) =>
+      attempt("Couldn't drop your files on the page", () => {
+        const refused = dropRefusal(files);
+        if (refused) throw new Error(refused);
+        return withUploads(files, (uploaded) => features.dropFiles(threadId, tabId, at, uploaded));
       }),
     muteTab: (tabId: string, muted: boolean) =>
       attempt(muted ? "Couldn't mute the tab" : "Couldn't unmute the tab", () =>
@@ -97,6 +113,19 @@ export function useBrowserFeatures(threadId: string) {
 }
 
 export type BrowserFeatures = ReturnType<typeof useBrowserFeatures>;
+/** Where files were dropped, in the page's CSS pixels, and the keys held (CDP's mask). */
+export interface DropPoint {
+  x: number;
+  y: number;
+  modifiers: number;
+}
+/** Why these files can't be dropped on a page, if they can't: too many, or one too large. */
+export function dropRefusal(files: readonly { size: number }[]): string | undefined {
+  if (files.length > 16) return "Drop at most 16 files at once";
+  if (files.some((file) => file.size > browserDropFileMax))
+    return `Each file can be at most ${browserDropFileMax / (1024 * 1024)} MB`;
+  return undefined;
+}
 export interface SignInAnswer {
   username: string;
   password: string;
