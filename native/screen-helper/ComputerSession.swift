@@ -28,6 +28,8 @@ import ApplicationServices
     private var setManualAccessibility = false
     private var menuBar: (titles: [String], at: UInt64)?
     private var madeKey: CGWindowID?
+    /// The helper told the app it is active (see `CUKeyRoute.innerActivation`); undone when the request ends.
+    var innerActive = false
     private(set) var lastUsed = cuNow()
 
     init(app: NSRunningApplication) {
@@ -54,8 +56,16 @@ import ApplicationServices
         notResponding = false
     }
 
+    /// Called when a request's steps are done, before the closing look: the app goes back to
+    /// the state the window server gave it.
+    func endRequest() {
+        deactivateInside()
+        madeKey = nil
+    }
+
     /// Undoes what the helper changed in the app. Called when the session is dropped and at exit.
     func close() {
+        deactivateInside()
         settler.close()
         if setManualAccessibility, !app.isTerminated {
             AXUIElementSetAttributeValue(element, "AXManualAccessibility" as CFString, kCFBooleanFalse)
@@ -65,14 +75,29 @@ import ApplicationServices
 
     /// Makes the window that should receive keys the app's key window without bringing the
     /// app forward: a dialog, sheet or panel over the chosen window, else the chosen window.
-    /// A frontmost app already routes keys itself, so it is left alone.
+    /// A frontmost app already routes keys itself, so it is left alone. See `CUKeyRoute`.
     func makeKey() {
-        guard !app.isActive, let chosen = window?.number else { return }
-        let target = cuKeyTarget(application: element, chosen: chosen)
-        if madeKey == target.window, target.focused == target.window { return }
-        if cuFocusWithoutActivating(pid: pid, window: target.window) {
+        guard let current = window, let chosen = current.number else { return }
+        let route = cuKeyRoute(CUKeyRouteFacts(appFrontmost: app.isActive, hasWindowNumber: true, onScreen: current.onScreen,
+                                               otherSpace: current.otherSpace, minimized: current.minimized))
+        switch route {
+        case .frontmost, .none: return
+        case .focusRecords:
+            let target = cuKeyTarget(application: element, chosen: chosen)
+            if madeKey == target.window, target.focused == target.window { return }
+            if cuFocusWithoutActivating(pid: pid, window: target.window) {
+                madeKey = target.window
+                usleep(30_000)
+            }
+        case .innerActivation:
+            let target = cuKeyTarget(application: element, chosen: chosen)
+            if madeKey == target.window, innerActive { return }
+            _ = activateInside()
+            // An active app's main window is its key window; a sheet on it takes the keys itself.
+            let targetElement = target.window == chosen ? current.element : cuElementAttribute(element, "AXFocusedWindow")
+            if let targetElement { AXUIElementSetAttributeValue(targetElement, "AXMain" as CFString, kCFBooleanTrue) }
             madeKey = target.window
-            usleep(30_000)
+            usleep(20_000)
         }
     }
 

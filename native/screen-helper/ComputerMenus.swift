@@ -81,10 +81,15 @@ extension CUActor {
                     throw CUError("secure_field", "The focused field is a password field. Ask the person to fill it in themselves.")
                 }
                 // A background app's Edit commands act on no first responder; do them on the text.
-                if !session.app.isActive, let command = cuMenuTextCommand(item.1), let target = CUTextTarget.focused(in: session.element),
-                   let done = await cuRunTextCommand(command, on: target) {
-                    session.settler.markChanged()
-                    return "chose \(trail.joined(separator: " > ")) (\(done))"
+                if !session.app.isActive, let command = cuMenuTextCommand(item.1), let target = CUTextTarget.focused(in: session.element) {
+                    // Activated inside for an off-screen window: the app's own command keeps formatting.
+                    if let done = await firstResponderTextCommand(command, item: item.0, target: target) {
+                        return "chose \(trail.joined(separator: " > ")) (\(done))"
+                    }
+                    if let done = await cuRunTextCommand(command, on: target) {
+                        session.settler.markChanged()
+                        return "chose \(trail.joined(separator: " > ")) (\(done))"
+                    }
                 }
                 if !session.app.isActive, let button = windowButton(forCommand: item.1) {
                     let note = try await perform(button, "AXPress")

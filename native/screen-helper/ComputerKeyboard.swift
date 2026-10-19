@@ -159,9 +159,15 @@ extension CUActor {
         let focused = focusedElement()
         let command = cuTextCommand(chord)
         if chord.typesText || command == .paste { try refuseSecure(focused, verb: "fill") }
-        if let command, !session.app.isActive, let target = CUTextTarget.focused(in: session.element), let done = await cuRunTextCommand(command, on: target) {
-            session.settler.markChanged()
-            return "pressed \(name) (\(done))"
+        if let command, !session.app.isActive, let target = CUTextTarget.focused(in: session.element) {
+            // Activated inside for an off-screen window: the app's own command keeps formatting.
+            if session.innerActive, let item = cuMenuItem(for: chord, in: session.element), let done = await firstResponderTextCommand(command, item: item, target: target) {
+                return "pressed \(name) (\(done))"
+            }
+            if let done = await cuRunTextCommand(command, on: target) {
+                session.settler.markChanged()
+                return "pressed \(name) (\(done))"
+            }
         }
         if let item = cuMenuItem(for: chord, in: session.element) {
             let title = cuAttribute(item, "AXTitle") as? String ?? name
@@ -238,7 +244,7 @@ extension CUActor {
         // The app ignored a background paste; insert the text itself instead.
         switch await target.insert(content.plain) {
         case .changed, .unverified:
-            return "pasted \(count) characters as plain text (rich paste needs the app in front; use activate first if formatting matters)"
+            return "pasted \(count) characters as plain text (\(session.name) did not take the rich paste in the background; use activate first if formatting matters)"
         case .ignored, .refused:
             throw CUError("paste_ignored", "\(session.name) ignored the paste. Click the field first, or use type or set_value.")
         }

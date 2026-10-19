@@ -154,6 +154,7 @@ import ApplicationServices
         let started = cuNow()
         let (session, _) = try await session(for: request.string("app") ?? "", launch: false)
         session.beginRequest()
+        defer { session.endRequest() }
         // Settling never stretches a batch past a minute, however many steps it has.
         session.settler.deadline = started + 60_000_000_000
         defer { session.settler.deadline = nil }
@@ -182,6 +183,8 @@ import ApplicationServices
             }
             if index < actions.count - 1 { await session.settler.settle(minimumMs: 40, quietMs: 100, maximumMs: 1_200) }
         }
+        // The closing look sees the app as the window server left it, not activated inside.
+        session.endRequest()
         var result: CUObject = ["done": done]
         if let failure { result["error"] = failure }
         let cancelled = cancellations.isCancelled(id)

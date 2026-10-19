@@ -2,6 +2,34 @@ import XCTest
 import CoreGraphics
 @testable import ScreenHelper
 
+final class ComputerKeyRouteTests: XCTestCase {
+    private func facts(frontmost: Bool = false, number: Bool = true, onScreen: Bool = false, otherSpace: Bool = false, minimized: Bool = false) -> CUKeyRouteFacts {
+        CUKeyRouteFacts(appFrontmost: frontmost, hasWindowNumber: number, onScreen: onScreen, otherSpace: otherSpace, minimized: minimized)
+    }
+
+    func testAFrontmostAppIsLeftToRouteKeysItself() {
+        XCTAssertEqual(cuKeyRoute(facts(frontmost: true, onScreen: true)), .frontmost)
+        XCTAssertEqual(cuKeyRoute(facts(frontmost: true, otherSpace: true)), .frontmost)
+    }
+
+    func testAWindowOnTheCurrentScreenKeepsTheFocusRecords() {
+        XCTAssertEqual(cuKeyRoute(facts(onScreen: true)), .focusRecords)
+    }
+
+    func testAWindowOnAnotherSpaceIsActivatedInsideTheAppOnly() {
+        XCTAssertEqual(cuKeyRoute(facts(otherSpace: true)), .innerActivation)
+    }
+
+    func testAMinimizedWindowIsNeverActivatedInside() {
+        XCTAssertEqual(cuKeyRoute(facts(otherSpace: true, minimized: true)), .focusRecords)
+        XCTAssertEqual(cuKeyRoute(facts(minimized: true)), .focusRecords)
+    }
+
+    func testAWindowWithoutAWindowServerIdIsNotMadeKey() {
+        XCTAssertEqual(cuKeyRoute(facts(number: false, otherSpace: true)), CUKeyRoute.none)
+    }
+}
+
 final class ComputerPointerDeliveryTests: XCTestCase {
     func testOnScreenWindowsLetTheWindowServerFindTheWindowUnderThePoint() {
         XCTAssertEqual(cuPointerDelivery(onScreen: true, otherSpace: false, minimized: false, hasWindowNumber: true), .windowServer)
