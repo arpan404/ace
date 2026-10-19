@@ -1,4 +1,4 @@
-import { antigravityDiscovery } from "./antigravity.ts";
+import { antigravityAuth, antigravityDiscovery } from "./antigravity.ts";
 import { reportedAuthMethod } from "../provider-account-support.ts";
 import { apiKeySupport } from "../provider-api-key.ts";
 import { probeOutput } from "@ace/provider-kit/process";
@@ -49,8 +49,8 @@ export function startProviderStatuses(context: ServiceContext): void {
           context.services.models && hasUnauthenticatedOpenCodeModels(context.services.models),
         ),
       account(row) {
-        if (row.provider === "antigravity" && context.services.antigravityAuth)
-          return { auth: context.services.antigravityAuth };
+        const signedIn = row.provider === "antigravity" ? antigravityAuth(context) : undefined;
+        if (signedIn) return { auth: signedIn };
         const registry = context.services.accountRegistry;
         const selected = selectedInstance(row.provider);
         const account = registry?.get(selected);

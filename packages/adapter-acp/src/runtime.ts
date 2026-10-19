@@ -6,6 +6,8 @@ export interface LaunchOptions {
   env?: NodeJS.ProcessEnv;
   profile?: CompatibilityProfile;
   version?: string;
+  /** The method the person signed in with, selected again if the agent asks for one. */
+  signInMethod?: string;
 }
 export interface SessionRuntime {
   spawn: typeof spawnSupervised;

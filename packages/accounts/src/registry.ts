@@ -94,6 +94,9 @@ export class AccountRegistry {
   private clearSelection;
   private deleteSelections;
   private deleteAccount;
+  private signInMethod;
+  private setSignInMethod;
+  private clearSignInMethod;
   constructor(db: DatabaseSync, managedDataDir?: string) {
     this.db = db;
     this.managedDataDir = managedDataDir;
@@ -105,6 +108,13 @@ export class AccountRegistry {
       "CREATE TABLE IF NOT EXISTS account_selection (backend TEXT PRIMARY KEY, instance_id TEXT NOT NULL REFERENCES accounts(id))",
     );
     db.exec("CREATE TABLE IF NOT EXISTS pending_accounts (id TEXT PRIMARY KEY)");
+    // Which of an ACP agent's own methods the person signed in with: an id, never a credential.
+    db.exec("CREATE TABLE IF NOT EXISTS acp_sign_in (id TEXT PRIMARY KEY, method TEXT NOT NULL)");
+    this.signInMethod = db.prepare("SELECT method FROM acp_sign_in WHERE id=?");
+    this.setSignInMethod = db.prepare(
+      "INSERT INTO acp_sign_in VALUES (?,?) ON CONFLICT(id) DO UPDATE SET method=excluded.method",
+    );
+    this.clearSignInMethod = db.prepare("DELETE FROM acp_sign_in WHERE id=?");
     for (const value of db.prepare("SELECT id FROM pending_accounts LIMIT 257").all())
       this.pending.add(AccountId.parse(value.id));
     this.selection = db.prepare("SELECT instance_id FROM account_selection WHERE backend=?");
@@ -395,13 +405,23 @@ export class AccountRegistry {
       JSON.stringify(account.quota),
     );
   }
-  /** An installed ACP agent confirmed authentication; arbitrary ACP frames stay opaque. */
-  recordAcpAuth(id: string, auth: "logged_in" | "logged_out", observedAt: number): void {
+  /**
+   * An installed ACP agent confirmed authentication; arbitrary ACP frames stay opaque. A sign-in
+   * remembers the agent's method, so a session it refuses for want of one can select it again.
+   */
+  recordAcpAuth(
+    id: string,
+    auth: "logged_in" | "logged_out",
+    observedAt: number,
+    signInMethod?: string,
+  ): void {
     const account = this.get(id);
     if (!account || account.instance.provider !== "acp") throw new Error("ACP account required");
     const quota = AccountQuota.parse({ ...account.quota, auth, observedAt });
     this.loginChanged(id);
     this.updateQuota.run(JSON.stringify(quota), id);
+    if (auth === "logged_out") this.clearSignInMethod.run(id);
+    else if (signInMethod) this.setSignInMethod.run(id, signInMethod.slice(0, 128));
     for (const listener of this.quotaListeners) {
       try {
         listener(id);
@@ -409,6 +429,11 @@ export class AccountRegistry {
         /* Reader owns delivery. */
       }
     }
+  }
+  /** The ACP method the person last signed in with, while they stay signed in. */
+  acpSignInMethod(id: string): string | undefined {
+    const remembered = this.signInMethod.get(id);
+    return typeof remembered?.method === "string" ? remembered.method : undefined;
   }
   /** Why a usage read found nothing to report (fixed words), or undefined once it reads again. */
   recordUsageNotice(id: string, notice: AccountQuota["usageNotice"]): void {
@@ -569,6 +594,7 @@ export class AccountRegistry {
     try {
       this.deleteSelections.run(id);
       this.deleteAccount.run(id);
+      this.clearSignInMethod.run(id);
       this.publishAccount(id);
       this.db.exec("COMMIT");
     } catch (error) {

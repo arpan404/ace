@@ -172,6 +172,22 @@ for (const provider of ["antigravity"] as const) {
   });
 }
 
+test("an agent needing its sign-in method selected lists models with the method the person used", async () => {
+  const { config } = await launch("antigravity", {
+    models: { currentModelId: "gemini", availableModels: [{ modelId: "gemini", name: "Gemini" }] },
+  });
+  const needsSignIn = { ...config, env: { ...config.env, FAKE_NEEDS_SIGN_IN: "1" } };
+  const discover = createModelDiscovery();
+  await expect(discover(needsSignIn, new AbortController().signal)).rejects.toThrow(
+    "Authentication required",
+  );
+  const rows = await discover(
+    { ...needsSignIn, signInMethod: "oauth-personal" },
+    new AbortController().signal,
+  );
+  expect(rows.map((row) => row.id)).toEqual(["gemini"]);
+});
+
 test("ACP grouped model options and per-model effort configuration remain distinct", () => {
   const rows = normalizeAcp(
     {

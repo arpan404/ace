@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
 import { JsonRpcPeer } from "@ace/provider-kit/jsonrpc";
-import { loginObservation, type ProviderLoginDriver } from "@ace/accounts";
+import { loginObservation, loginUrl, type ProviderLoginDriver } from "@ace/accounts";
+import { signInPages, type SignInPages } from "./sign-in-pages.ts";
 import type { OpenTerminalOptions } from "@ace/terminal";
 import type { ProviderKind, ProviderLoginInput } from "@ace/protocol";
 
@@ -9,6 +10,9 @@ const Method = z.object({
   id: z.string().min(1).max(128),
   name: z.string().min(1).max(128),
   type: z.string().optional(),
+  // Read only to tell a key or gateway setup from a sign-in; never fatal when odd.
+  description: z.string().max(4096).optional().catch(undefined),
+  _meta: z.record(z.string(), z.unknown()).optional().catch(undefined),
   args: z.array(z.string().max(4096)).max(64).default([]),
   env: z
     .record(z.string().max(256), z.string().max(32768))
@@ -24,6 +28,20 @@ const Initialization = z.object({
     .optional(),
 });
 
+const keyed = /api[ _-]?key|token|credential|password|gateway/i;
+
+/**
+ * A method ace can finish: the agent's own sign-in or its interactive terminal. Methods that need
+ * a key, a gateway or variables set beforehand are the agent's own setup, not a sign-in.
+ */
+function signInMethod(method: z.infer<typeof Method>, terminal: boolean): boolean {
+  if (method.type && method.type !== "agent" && !(method.type === "terminal" && terminal))
+    return false;
+  const meta = method["_meta"];
+  if (meta && ("api-key" in meta || "gateway" in meta)) return false;
+  return !keyed.test(`${method.id} ${method.name} ${method.description ?? ""}`);
+}
+
 /** Only the installed agent performs authentication. No token exchange or credential store. */
 export function acpLoginDriver(options: {
   provider: Extract<ProviderKind, "acp" | "antigravity">;
@@ -33,17 +51,25 @@ export function acpLoginDriver(options: {
   env: NodeJS.ProcessEnv;
   cwd: string;
   spawn?: typeof spawnSupervised;
+  /** The sign-in process's page opener; tests stand one in so no real browser opens. */
+  pages?: (env: NodeJS.ProcessEnv) => Promise<SignInPages>;
   openTerminal?: (launch: OpenTerminalOptions) => {
     id: string;
     exited: Promise<boolean>;
     stop(): Promise<void>;
   };
-}): ProviderLoginDriver {
+}): ProviderLoginDriver & {
+  /** The agent method a completed browser sign-in used, for selecting it again later. */
+  signedInWith(): string | undefined;
+} {
   let process: SupervisedProcess | undefined;
+  let signedInWith: string | undefined;
   let rpc: JsonRpcPeer | undefined;
   let terminal: ReturnType<NonNullable<typeof options.openTerminal>> | undefined;
   let choose: ((choice: string) => boolean) | undefined;
+  let pages: SignInPages | undefined;
   return {
+    signedInWith: () => signedInWith,
     input(input: ProviderLoginInput) {
       return "choice" in input && !!choose?.(input.choice);
     },
@@ -51,14 +77,32 @@ export function acpLoginDriver(options: {
       rpc?.close();
       await process?.stop({ graceMs: 0 });
       await terminal?.stop();
+      await pages?.close();
     },
     async run(signal, emit) {
       signal.throwIfAborted();
+      const opened = await (options.pages ?? signInPages)(options.env);
+      pages = opened;
+      // Relay a page the client can open (the desktop app opens it, another device links it);
+      // open any other one here, as the agent meant to.
+      const relayed = new Set<string>();
+      const relay = async () => {
+        for (const page of await opened.take()) {
+          if (relayed.has(page)) continue;
+          relayed.add(page);
+          const url = loginUrl(options.provider, page);
+          if (url) emit({ state: "awaiting_browser", url });
+          else opened.open(page);
+        }
+      };
+      const watching = setInterval(() => {
+        relay().catch(() => {});
+      }, 200);
       const connect = () => {
         process = (options.spawn ?? spawnSupervised)({
           command: options.command,
           args: [...options.args],
-          env: { ...options.env, BROWSER: "echo" },
+          env: opened.env,
           cwd: options.cwd,
           name: "agent-sign-in",
           maxLineBytes: 65536,
@@ -78,7 +122,16 @@ export function acpLoginDriver(options: {
         });
         return { child, peer };
       };
-      const { child, peer } = connect();
+      let connected: ReturnType<typeof connect>;
+      try {
+        connected = connect();
+      } catch (error) {
+        clearInterval(watching);
+        pages = undefined;
+        await opened.close();
+        throw error;
+      }
+      const { child, peer } = connected;
       const stop = () => {
         peer.close();
         void child.stop({ graceMs: 0 });
@@ -105,12 +158,8 @@ export function acpLoginDriver(options: {
           return { success: true };
         }
         // Secrets stay in the installed agent, including its advertised interactive terminal.
-        const methods = init.authMethods.filter(
-          (method) =>
-            (!method.type ||
-              method.type === "agent" ||
-              (method.type === "terminal" && !!options.openTerminal)) &&
-            !/api[ _-]?key|token|credential|password/i.test(`${method.id} ${method.name}`),
+        const methods = init.authMethods.filter((method) =>
+          signInMethod(method, !!options.openTerminal),
         );
         if (!methods.length) {
           emit({
@@ -154,7 +203,7 @@ export function acpLoginDriver(options: {
           terminal = options.openTerminal({
             shell: options.command,
             args: [...options.args, ...selected.args],
-            env: { ...options.env, ...selected.env },
+            env: { ...opened.env, ...selected.env },
             cwd: options.cwd,
             cols: 80,
             rows: 24,
@@ -209,12 +258,16 @@ export function acpLoginDriver(options: {
         z.object({}).parse(
           await peer.request("authenticate", { methodId }, { signal, timeoutMs: null }),
         );
+        signedInWith = methodId;
         return { success: true };
       } finally {
         choose = undefined;
+        clearInterval(watching);
         signal.removeEventListener("abort", stop);
         peer.close();
         await child.stop({ graceMs: 0 });
+        pages = undefined;
+        await opened.close();
       }
     },
   };
