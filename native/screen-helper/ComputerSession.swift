@@ -51,6 +51,7 @@ import ApplicationServices
     func beginRequest() {
         lastUsed = cuNow()
         madeKey = nil
+        notResponding = false
     }
 
     /// Undoes what the helper changed in the app. Called when the session is dropped and at exit.

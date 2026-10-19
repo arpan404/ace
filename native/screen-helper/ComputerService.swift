@@ -158,7 +158,7 @@ import ApplicationServices
         session.settler.deadline = started + 60_000_000_000
         defer { session.settler.deadline = nil }
         if session.window == nil || request["window"] != nil { _ = try session.chooseWindow(request["window"]) }
-        let focusedBefore = cuElementAttribute(session.element, "AXFocusedWindow")
+        let focusedBefore = session.notResponding ? nil : cuElementAttribute(session.element, "AXFocusedWindow")
         stop.begin()
         defer { stop.end() }
         let check = checkpoint(id: id, session: session, acting: true)
@@ -186,9 +186,9 @@ import ApplicationServices
         if let failure { result["error"] = failure }
         let cancelled = cancellations.isCancelled(id)
         if request.bool("observe") ?? true, !cancelled {
-            await session.settler.settle(minimumMs: 60, quietMs: 150, maximumMs: 2_000)
+            if !session.notResponding { await session.settler.settle(minimumMs: 60, quietMs: 150, maximumMs: 2_000) }
             // Follow a window or dialog the actions opened.
-            let focusedAfter = cuElementAttribute(session.element, "AXFocusedWindow")
+            let focusedAfter = session.notResponding ? nil : cuElementAttribute(session.element, "AXFocusedWindow")
             if let focusedAfter, focusedBefore.map({ !CFEqual($0, focusedAfter) }) ?? true {
                 session.window = nil
                 session.forgetMenuBar()

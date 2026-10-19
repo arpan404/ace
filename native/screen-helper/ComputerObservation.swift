@@ -12,7 +12,8 @@ extension CUAppSession {
     func observation(windows: [CUWindow], screenshot: Bool, outline: Bool, marks: Bool, deadline: UInt64) async -> CUObject {
         var tree = CUTree()
         let started = cuNow()
-        if outline {
+        // The app just failed to answer: every further AX call would wait out its timeout too.
+        if outline, !notResponding {
             tree = await walkUnlessUnchanged(deadline: deadline)
             if chromium, !chromiumWarmed {
                 chromiumWarmed = true
