@@ -1,6 +1,6 @@
 import type { CursorHostSlots } from "@ace/adapter-cursor";
 import type { DevicesService } from "@ace/devices";
-import type { ScreenManager } from "@ace/screen";
+import type { ComputerClient, ScreenManager } from "@ace/screen";
 import type { CursorAuthService } from "@ace/accounts";
 import type { AccountService, AccountRegistry } from "@ace/accounts";
 import type { bindCursorSdk } from "@ace/accounts";
@@ -62,10 +62,14 @@ export interface Services {
   transitions?: import("../engine/transitions.ts").TransitionIO;
   pi?: import("./pi.ts").PiService;
   screen?: ScreenManager;
+  /** The agent computer-use engine (macOS), beside the screen manager that streams to people. */
+  computer?: ComputerClient;
   /** `ask` questions waiting on the person. */
   asks?: import("../asks.ts").Asks;
   /** Threads whose browser an agent works in now (the task list's indicator). */
   browsing?: import("../browsing.ts").BrowsingThreads;
+  /** Threads whose agent uses Mac apps now (the task list's indicator). */
+  computerUsing?: import("../computer-using.ts").ComputerUsingThreads;
   /** `browser_request_help` requests waiting on the person. */
   browserHelp?: import("../browser-help.ts").BrowserHelp;
   devices?: DevicesService;

@@ -1,7 +1,8 @@
 import { BrowserArtifactFiles } from "./browser-artifact-files.ts";
 import { createHash } from "node:crypto";
 import { FilesService } from "@ace/files";
-import type { ThreadId } from "@ace/protocol";
+import type { ThreadId, WorkspaceId } from "@ace/protocol";
+import { ProjectStorage } from "./project-storage.ts";
 import { join } from "node:path";
 import { realpath } from "node:fs/promises";
 import type { ServiceContext } from "./services/types.ts";
@@ -9,15 +10,20 @@ import type { ServiceContext } from "./services/types.ts";
 type Context = Pick<ServiceContext, "store" | "config" | "options" | "now" | "id"> &
   Partial<Pick<ServiceContext, "log">>;
 
+/** Where a service's folder is, and the project its changes are recorded for. */
+type Target = { root(): string; workspaceId(): WorkspaceId | undefined };
+
 /** Shared persistent upload/mutation owner per execution root, independent of ACE_WORKSPACE_ROOT. */
 export class FilesWorkspaces {
   private pinned = new Set<string>();
   readonly browserArtifacts: BrowserArtifactFiles;
   private services = new Map<string, Promise<FilesService>>();
   private context: Context;
+  private projects: ProjectStorage;
   private closed = false;
   constructor(context: Context) {
     this.context = context;
+    this.projects = new ProjectStorage(context.store, context.now);
     this.browserArtifacts = new BrowserArtifactFiles(context);
   }
   root(threadId: ThreadId): string {
@@ -32,6 +38,17 @@ export class FilesWorkspaces {
       return false;
     }
   }
+  /** A registered project's own folder; throws once the project is removed. */
+  projectRoot(workspaceId: WorkspaceId): string {
+    return this.projects.get(workspaceId).path;
+  }
+  matchesProject(workspaceId: WorkspaceId, root: string): boolean {
+    try {
+      return this.projectRoot(workspaceId) === root;
+    } catch {
+      return false;
+    }
+  }
   /** The legacy API registers its canonical service before sockets are admitted. */
   register(root: string, service: FilesService): void {
     if (this.closed || this.services.has(root)) throw new Error("Files root already owned");
@@ -39,20 +56,36 @@ export class FilesWorkspaces {
     this.services.set(root, Promise.resolve(service));
   }
   get(threadId: ThreadId): Promise<FilesService> {
-    return this.resolve(threadId, (service) => service);
+    return this.resolve(this.thread(threadId), (service) => service);
   }
   acquire(threadId: ThreadId): Promise<{ service: FilesService; release(): void }> {
-    return this.resolve(threadId, (service) => ({ service, release: service.retain() }));
+    return this.resolve(this.thread(threadId), (service) => ({
+      service,
+      release: service.retain(),
+    }));
   }
-  private async resolve<T>(threadId: ThreadId, claim: (service: FilesService) => T): Promise<T> {
+  /** The project folder's service: the same one its threads share when they run there. */
+  acquireProject(workspaceId: WorkspaceId): Promise<{ service: FilesService; release(): void }> {
+    return this.resolve(
+      { root: () => this.projectRoot(workspaceId), workspaceId: () => workspaceId },
+      (service) => ({ service, release: service.retain() }),
+    );
+  }
+  private thread(threadId: ThreadId): Target {
+    return {
+      root: () => this.root(threadId),
+      workspaceId: () => this.context.store.getThread(threadId)?.workspaceId,
+    };
+  }
+  private async resolve<T>(target: Target, claim: (service: FilesService) => T): Promise<T> {
     if (this.closed) return Promise.reject(new Error("Files closed"));
-    const root = await realpath(this.root(threadId));
+    const root = await realpath(target.root());
     if (this.closed) throw new Error("Files closed");
     const existing = this.services.get(root);
     if (existing) {
       const service = await existing;
       if (this.closed) throw new Error("Files closed");
-      if (this.services.get(root) !== existing) return this.resolve(threadId, claim);
+      if (this.services.get(root) !== existing) return this.resolve(target, claim);
       this.services.delete(root);
       this.services.set(root, existing);
       return claim(service);
@@ -74,9 +107,9 @@ export class FilesWorkspaces {
     }
     if (this.closed) throw new Error("Files closed");
     const raced = this.services.get(root);
-    if (raced) return this.resolve(threadId, claim);
-    const thread = this.context.store.getThread(threadId);
-    if (!thread) return Promise.reject(new Error("Thread unavailable"));
+    if (raced) return this.resolve(target, claim);
+    const workspaceId = target.workspaceId();
+    if (!workspaceId) return Promise.reject(new Error("Thread unavailable"));
     const key = createHash("sha256").update(root).digest("hex");
     const { config, options, now, id, store, log } = this.context;
     const service = FilesService.create({
@@ -86,7 +119,7 @@ export class FilesWorkspaces {
       now,
       id,
       authorize: () => !store.workspaceReservations.reserved(root),
-      onChange: (change) => store.recordWorkspaceFileChange(thread.workspaceId, root, change),
+      onChange: (change) => store.recordWorkspaceFileChange(workspaceId, root, change),
       onUploadRecovery: (notice) =>
         log?.log("warn", "Upload receipt settled after destination changed", notice),
     }).catch((error: unknown) => {
@@ -96,7 +129,7 @@ export class FilesWorkspaces {
     this.services.set(root, service);
     const ready = await service;
     if (this.closed) throw new Error("Files closed");
-    if (this.services.get(root) !== service) return this.resolve(threadId, claim);
+    if (this.services.get(root) !== service) return this.resolve(target, claim);
     return claim(ready);
   }
   async sweep(signal: AbortSignal): Promise<void> {

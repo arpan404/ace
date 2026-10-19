@@ -49,6 +49,8 @@ export interface ServerOptions {
   automations?: Pick<import("@ace/automations").AutomationService, "handle">;
   /** Threads whose browser an agent works in now (`browser.browsing.watch`). */
   browsing?: import("./browsing.ts").BrowsingThreads;
+  /** Threads whose agent uses Mac apps now (`computer.using.watch`). */
+  computerUsing?: import("./computer-using.ts").ComputerUsingThreads;
   /** The Activity read cursor (`activity.reads`). */
   activityReads?: import("./activity-reads.ts").ActivityReads;
   /** Site and app icons for browser and computer-use steps. */
@@ -142,6 +144,6 @@ export interface ServerOptions {
     NotificationWorker,
     "connectDevice" | "disconnect" | "updatePresence" | "register" | "preferences" | "snooze"
   > &
-    Partial<Pick<NotificationWorker, "revoke" | "getPreferences">>;
+    Partial<Pick<NotificationWorker, "revoke" | "getPreferences" | "feed" | "unregister">>;
   onDisconnect?: (deviceId: DeviceId | undefined) => void;
 }

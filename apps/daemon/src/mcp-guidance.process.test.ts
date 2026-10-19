@@ -12,7 +12,7 @@ import {
 } from "@ace/mcp-server";
 import { DevicesService, devicesToolkit } from "@ace/devices";
 import { builtinGuides } from "@ace/plugins";
-import { computerUseTools } from "@ace/screen";
+import { ComputerClient, computerToolkit, computerUseTools } from "@ace/screen";
 import type { ListedTool } from "./evals/agent.ts";
 import { evalWorld, type EvalWorld } from "./evals/world.ts";
 
@@ -31,9 +31,18 @@ function simTools(): string[] {
   return registry.names();
 }
 
+/** The macOS computer-use tools, which register only when the daemon runs on a Mac. */
+function computerTools(): string[] {
+  const registry = new ToolRegistry({ scheduler: nodeScheduler });
+  // Registration only reads definitions; the helper is never started.
+  const client: ComputerClient = Object.create(ComputerClient.prototype);
+  computerToolkit(client).register(registry);
+  return registry.names();
+}
+
 /**
- * Every tool the daemon serves to a full-access thread, plus the fixed computer-use and
- * simulator catalogues.
+ * Every tool the daemon serves to a full-access thread, plus the fixed computer-use catalogues
+ * (macOS and other platforms) and the simulator catalogue.
  */
 async function served() {
   world = await evalWorld({ browser: true });
@@ -43,6 +52,7 @@ async function served() {
     [
       ...tools.map((tool) => tool.name),
       ...computerUseTools.map((tool) => tool.name),
+      ...computerTools(),
       ...simTools(),
     ].map(bareToolName),
   );

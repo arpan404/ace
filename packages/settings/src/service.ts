@@ -182,6 +182,8 @@ export class SettingsService {
       throw new SettingsError("validation", "Project folders are a global user setting");
     if (key.startsWith("browser.download") && layer.kind !== "global")
       throw new SettingsError("validation", "The downloads folder is a global daemon setting");
+    if (key === "computer.blockedApps" && layer.kind !== "global")
+      throw new SettingsError("validation", "Apps agents can't use is a global setting");
     if (key.startsWith("generation.") && layer.kind !== "global")
       throw new SettingsError("validation", "Generation settings belong to the daemon");
     const parsed = validateValue(key, value);

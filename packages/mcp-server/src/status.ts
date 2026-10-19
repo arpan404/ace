@@ -40,9 +40,7 @@ export function aceGuidance(groups?: readonly string[]): string {
     has("thread_control")
       ? "- the person asks for a separate thread, here or in another project: thread_start (projects_find names projects); to settle a finished thread, this one included: thread_control settle;"
       : "",
-    has("screen", "devices")
-      ? "- the person names a native app or simulator: screen_open_app;"
-      : "",
+    has("screen", "devices") ? "- the person names a native app or simulator: screen_state;" : "",
     "Not sure which ace tool fits? tools_find with what you want to do.",
     `How-to and the rest of each family's tools: guide with topic ${guideTopics.join(", ")}.`,
     "If an ace tool says its group is off, tell the person. Agents never answer approvals.",

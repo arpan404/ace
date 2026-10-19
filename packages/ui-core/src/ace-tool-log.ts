@@ -47,7 +47,14 @@ export interface AceLog {
 }
 
 /** Tools whose actions the daemon audits, and so whose audit notice can be folded in. */
-const audited = new Set(["screen_input", "screen_ui_act", "screen_measure"]);
+const audited = new Set([
+  "screen_input",
+  "screen_ui_act",
+  "screen_measure",
+  "screen_apps",
+  "screen_state",
+  "screen_act",
+]);
 /** Tools whose answers name elements by ref. */
 const readsRefs = new Set([
   "screen_ui_tree",
@@ -179,7 +186,7 @@ function readContexts(ids: readonly string[], items: readonly (Item | undefined)
     const ref = str(args, "ref");
     if (ref && refs.has(ref)) context.element = refs.get(ref);
     if (spec.family === "screen") {
-      const named = str(args, "bundleId");
+      const named = str(args, "bundleId") ?? str(args, "app");
       if (named) setApp(state, named);
       if (state.app) context.app = { bundleId: state.app };
       else state.unknownApp.push(id);

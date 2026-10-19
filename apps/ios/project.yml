@@ -11,6 +11,9 @@ settings:
     SWIFT_APPROACHABLE_CONCURRENCY: YES
     SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
     CODE_SIGNING_ALLOWED: NO
+    # Ad-hoc signing gives simulator builds a Keychain; device builds pick a team in Xcode.
+    "CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]": YES
+    "CODE_SIGN_IDENTITY[sdk=iphonesimulator*]": "-"
     DEVELOPMENT_TEAM: ""
     TARGETED_DEVICE_FAMILY: "1,2"
 targets:
@@ -25,15 +28,20 @@ targets:
       path: .build/Info.plist
       properties:
         CFBundleDisplayName: ace
-        UILaunchScreen: {}
+        UILaunchScreen:
+          UIColorName: LaunchBackground
         CADisableMinimumFrameDurationOnPhone: true
         NSLocalNetworkUsageDescription: Connect to your own ace daemon.
         NSFaceIDUsageDescription: Unlock your paired machines.
+        NSCameraUsageDescription: Scan the pairing code shown by ace on your computer, or take a photo for an agent.
+        UIBackgroundModes: [fetch]
+        BGTaskSchedulerPermittedIdentifiers: [app.ace.ios.notifications.refresh]
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.ace.ios
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     dependencies:
       - sdk: JavaScriptCore.framework
       - sdk: libsqlite3.tbd

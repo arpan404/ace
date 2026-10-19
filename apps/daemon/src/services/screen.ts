@@ -1,5 +1,14 @@
-import { localScreenManager, screenConnection, type Simulators } from "@ace/screen";
+import {
+  ComputerClient,
+  installScreenHelper,
+  localScreenManager,
+  screenConnection,
+  type Simulators,
+} from "@ace/screen";
+import { nodeScheduler } from "@ace/mcp-server";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { ComputerUsingThreads } from "../computer-using.ts";
 import { ScreenSettings } from "../screen-settings.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -22,6 +31,17 @@ export async function startScreen({ config, options, resources, services, store 
   });
   resources.own(() => manager.close());
   services.screen = manager;
+  const helper = config.screenHelper;
+  if (helper && process.platform === "darwin" && !options.screen) {
+    // Same signed helper, so the person's Accessibility and Screen Recording grants apply.
+    const computer = new ComputerClient({
+      helper: () => installScreenHelper(helper, config.dataDir, config.screenHelperManifest),
+      nextId: randomUUID,
+    });
+    resources.own(() => computer.close());
+    services.computer = computer;
+    services.computerUsing = new ComputerUsingThreads({ after: nodeScheduler.after });
+  }
 }
 export function createScreenSession(context: SocketContext, simulators: Simulators): SocketService {
   let channel: ReturnType<typeof screenConnection> | undefined;

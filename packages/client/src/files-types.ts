@@ -1,9 +1,11 @@
-import type { FileOperation, ThreadId } from "@ace/protocol";
+import type { FileOperation, ThreadId, WorkspaceId } from "@ace/protocol";
 
-export type FileDownloadInput = { threadId?: ThreadId; scope?: "support" } & Extract<
-  FileOperation,
-  { op: "download" | "artifact.download" | "archive.download" }
->;
+/** One scope: a thread's checkout, a registered project's own folder (read-only), or support. */
+export type FileDownloadInput = {
+  threadId?: ThreadId;
+  workspaceId?: WorkspaceId;
+  scope?: "support";
+} & Extract<FileOperation, { op: "download" | "artifact.download" | "archive.download" }>;
 export interface FileUploadInput {
   threadId: ThreadId;
   path: string;

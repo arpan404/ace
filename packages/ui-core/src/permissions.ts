@@ -115,3 +115,46 @@ export function threadAccessSummary(
     stricter,
   };
 }
+
+/** New thread's access: what runs, what the chip says, and what `thread.create` carries. */
+export interface NewThreadAccess {
+  /** The person's choice, else the project's default, else the daemon's. */
+  wanted: AccessMode | undefined;
+  /** The mode it runs as on this provider: the wanted one, or the nearest stricter one. */
+  admitted: AccessMode | undefined;
+  summary: AccessSummary | undefined;
+  /** Send waits: the provider has nothing as strict as the mode asked for. */
+  problem: string | undefined;
+  /** The `access` the create carries; undefined lets the daemon apply its default. */
+  permission: AccessMode | undefined;
+}
+
+/**
+ * Access for a thread that hasn't started (ADR 0075). The draft's own choice wins over the
+ * project's default, which wins over this daemon's. A mode the provider can't express runs as
+ * the nearest stricter mode it supports, never a looser one. Before the provider's modes are
+ * read only a mode picked here is sent; otherwise the daemon applies the defaults itself.
+ */
+export function newThreadAccess(input: {
+  chosen: AccessMode | undefined;
+  projectDefault: AccessMode | undefined;
+  daemonDefault: AccessMode | undefined;
+  offers: readonly AccessModeOffer[];
+  /** The provider's display name, once known. */
+  provider: string | undefined;
+}): NewThreadAccess {
+  const defaultMode = input.projectDefault ?? input.daemonDefault;
+  const wanted = input.chosen ?? defaultMode;
+  const admitted = wanted ? supportedAccess(wanted, input.offers) : undefined;
+  const summary = threadAccessSummary(
+    { override: input.chosen ?? null, effective: admitted ?? null, pending: false },
+    input.offers,
+    { ...(defaultMode ? { defaultMode } : {}), provider: input.provider },
+  );
+  const problem =
+    input.provider && wanted && input.offers.length && !admitted
+      ? `${input.provider} has nothing as strict as ${accessLabel(wanted)}. Choose its access before sending.`
+      : undefined;
+  const permission = admitted ?? (input.offers.length ? undefined : input.chosen);
+  return { wanted, admitted, summary, problem, permission };
+}

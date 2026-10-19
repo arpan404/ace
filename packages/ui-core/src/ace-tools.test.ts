@@ -277,3 +277,104 @@ test("an old ace_-prefixed browser tool and its bare name read alike", () => {
   );
   expect(aceStep(mcp("browser_open", url))?.words).toMatchObject({ target: "github.com" });
 });
+
+const words = (tool: string, args: Record<string, unknown>) => aceStep(mcp(tool, args))?.words;
+test("a background look or a single action reads as what it did in the app it names", () => {
+  expect(words("screen_apps", {})?.past).toBe("Listed apps");
+  expect(words("screen_apps", { query: "calc" })?.past).toBe("Searched apps for “calc”");
+  expect(words("screen_state", { app: "Calculator" })?.past).toBe("Looked at Calculator");
+  expect(words("screen_state", { app: "com.apple.TextEdit" })?.running).toBe("Looking at TextEdit");
+  const act = (action: Record<string, unknown>, app = "com.apple.TextEdit") =>
+    words("screen_act", { app, actions: [action] })?.past;
+  expect(act({ type: "menu", path: ["File", "New"] })).toBe("Chose File › New in TextEdit");
+  expect(act({ type: "key", key: "cmd+n" })).toBe("Pressed ⌘N in TextEdit");
+  expect(act({ type: "click", id: 4, count: 2 })).toBe("Double-clicked in TextEdit");
+  expect(act({ type: "click", x: 10, y: 20, button: "right" })).toBe("Right-clicked in TextEdit");
+  expect(act({ type: "scroll", direction: "down" })).toBe("Scrolled down in TextEdit");
+  expect(act({ type: "activate" }, "Calculator")).toBe("Brought Calculator forward");
+});
+
+test("a batch reads its actions' verbs in order, each once, without its waits", () => {
+  const batch = words("screen_act", {
+    app: "Calculator",
+    actions: [
+      { type: "click", id: 1 },
+      { type: "type", text: "7+7" },
+      { type: "wait", ms: 200 },
+      { type: "click", id: 9 },
+      { type: "key", key: "Return" },
+    ],
+  });
+  expect(batch?.past).toBe("Clicked, typed, pressed Return in Calculator");
+  expect(batch?.running).toBe("Clicking, typing, pressing Return in Calculator");
+  expect(batch?.awaiting).toBe("Click, type, press Return in Calculator");
+});
+
+test("hover, held modifiers, waits for text and window steps read as what they did", () => {
+  const act = (action: Record<string, unknown>) =>
+    words("screen_act", { app: "com.apple.finder", actions: [action] })?.past;
+  expect(act({ type: "move", id: 3 })).toBe("Hovered in Finder");
+  expect(act({ type: "click", id: 3, modifiers: ["shift", "cmd"] })).toBe("⇧⌘-clicked in Finder");
+  expect(act({ type: "click", id: 3, button: "middle" })).toBe("Middle-clicked in Finder");
+  expect(act({ type: "click", id: 3, hold_ms: 800 })).toBe("Long-pressed in Finder");
+  expect(act({ type: "drag", from: { id: 3 }, to: [4, 5], modifiers: ["alt"] })).toBe(
+    "⌥-dragged in Finder",
+  );
+  expect(act({ type: "wait_for", text: "Saved" })).toBe("Waited for “Saved” in Finder");
+  expect(act({ type: "wait_for", text: "Copying", gone: true })).toBe(
+    "Waited for “Copying” to go in Finder",
+  );
+  expect(act({ type: "scroll_to", id: 9 })).toBe("Scrolled to an element in Finder");
+  expect(act({ type: "window", op: "resize", width: 800, height: 600 })).toBe(
+    "Resized the window in Finder",
+  );
+  expect(act({ type: "paste", text: "# Notes" })).toBe("Pasted “# Notes” in Finder");
+  const batch = words("screen_act", {
+    app: "Finder",
+    actions: [
+      { type: "click", id: 1 },
+      { type: "wait_for", text: "Done" },
+      { type: "window", op: "close" },
+    ],
+  });
+  expect(batch?.past).toBe("Clicked, waited for “Done”, closed the window in Finder");
+});
+
+test("text a batch typed that ace redacted is never quoted as if it were typed", () => {
+  const typed = words("screen_act", {
+    app: "TextEdit",
+    actions: [{ type: "type", text: "[redacted]" }],
+  });
+  expect(typed?.past).toBe("Typed in TextEdit");
+});
+
+test("background steps on one app group as one line, by name or bundle id, with audits folded in", () => {
+  const look = mcp("screen_state", { app: "Calculator" });
+  const act = mcp(
+    "screen_act",
+    { app: "com.apple.calculator", actions: [{ type: "menu", path: ["View", "Scientific"] }] },
+    { status: "failed", content: [{ type: "text", text: "Action 1 (menu) failed: no such item" }] },
+  );
+  const items = [
+    look,
+    audit("screen_state · com.apple.calculator · background · completed", {
+      bundleId: "com.apple.calculator",
+    }),
+    act,
+    audit("screen_act · com.apple.calculator · background · failed", {
+      bundleId: "com.apple.calculator",
+    }),
+  ];
+  const log = aceToolLog(
+    items.map((item) => item.id),
+    items,
+  );
+  expect(log.rows).toEqual([
+    expect.objectContaining({ kind: "group", label: "Used Calculator", actions: 2, failed: 1 }),
+  ]);
+  expect(aceStep(look, log.contexts[look.id])?.mark).toEqual({
+    kind: "app",
+    bundleId: "com.apple.calculator",
+    name: "Calculator",
+  });
+});

@@ -39,7 +39,8 @@ export interface SocketContext {
   local?: boolean;
   /** Host token on loopback only. Paired credentials need the encrypted relay. */
   canSubmitSecret?(): boolean;
-  onPresence(): void;
+  /** A presence update was admitted; `appState` says whether a phone app is in the background. */
+  onPresence(update: Extract<ClientMessage, { type: "presence.update" }>): void;
   subscriptions: Map<string, () => void>;
   tasks: Set<Promise<void>>;
   maintenance: MaintenanceGate;

@@ -2,6 +2,7 @@ import type { Item, RawPayload, ToolStatus } from "@ace/protocol";
 import { bareToolName } from "@ace/provider-kit/ace-tool-names";
 import { toolProblem, type AceToolFamily, type ToolProblem } from "./ace-tool-problems.ts";
 import { aceSpecs, unknownAceTool } from "./ace-tool-specs-ace.ts";
+import { computerSpecs } from "./ace-tool-specs-computer.ts";
 import {
   say,
   siteOf,
@@ -76,6 +77,8 @@ export interface AceToolView {
 }
 
 const aceServer = /^ace$|^ace[-_]/;
+/** Computer use, the browser and devices, by tool name. */
+const surfaces: Readonly<Record<string, AceToolSpec>> = { ...surfaceSpecs, ...computerSpecs };
 const measurementTools = new Set(["screen_measure", "browser_measure"]);
 const glyphs: Record<"agents" | "threads" | "ace", ToolMark> = {
   agents: { kind: "glyph", glyph: "agent" },
@@ -95,7 +98,7 @@ export function aceToolSpec(server: string, tool: string): AceToolSpec | undefin
   const ours = aceServer.test(server) || /^(?:mcp__ace__|ace_|screen_)/.test(tool);
   if (!ours) return undefined;
   const name = aceToolName(tool);
-  return surfaceSpecs[name] ?? aceSpecs[name] ?? unknownAceTool(name);
+  return surfaces[name] ?? aceSpecs[name] ?? unknownAceTool(name);
 }
 
 /**
@@ -132,13 +135,15 @@ function subjectOf(
 ): Subject {
   switch (spec.family) {
     case "screen": {
-      const bundleId = context.app?.bundleId ?? str(args, "bundleId");
+      // Older tools name a bundle id; newer ones an app by name or bundle id.
+      const bundleId = context.app?.bundleId ?? str(args, "bundleId") ?? str(args, "app");
       if (!bundleId) return { name: undefined, mark: { kind: "glyph", glyph: "screen" } };
       const name = appName(bundleId);
       return {
         name,
         mark: { kind: "app", bundleId, name },
-        group: { key: `app:${bundleId.toLowerCase()}`, label: `Used ${name}` },
+        // By name, so "Calculator" and `com.apple.calculator` are one app.
+        group: { key: `app:${name.toLowerCase()}`, label: `Used ${name}` },
       };
     }
     case "browser": {
@@ -357,6 +362,8 @@ const inputActions: Record<string, string> = {
 
 /** The computer-use tools whose call an audited action belongs to. */
 export function screenStepTools(action: string): readonly string[] {
+  // Newer daemons audit each call under its tool's name.
+  if (computerSpecs[action]) return [action];
   if (action === "scroll") return ["screen_input", "screen_ui_act"];
   if (uiActions.has(action)) return ["screen_ui_act"];
   if (action === "measure_interaction") return ["screen_measure"];
@@ -377,7 +384,7 @@ export function screenStepView(step: ScreenStep): AceToolView {
       ? { action: input }
       : {};
   const call = { server: "ace", tool: tool ?? "screen", args, status, raw: [] } as const;
-  return viewOf((tool && surfaceSpecs[tool]) || usedApp, call, context);
+  return viewOf((tool && surfaces[tool]) || usedApp, call, context);
 }
 
 /** An audited action ace has no words for. */
@@ -431,6 +438,6 @@ export function aceCallOf(item: Item | undefined): AceToolCall | undefined {
   const title = call.title.trim();
   const tool = aceToolName(title);
   if (!/^(?:mcp__ace__|ace_|screen_|device_)/.test(title)) return undefined;
-  if (!surfaceSpecs[tool] && !aceSpecs[tool]) return undefined;
+  if (!surfaces[tool] && !aceSpecs[tool]) return undefined;
   return { server: "ace", tool, args: argsFromRaw(call.raw), ...shared };
 }

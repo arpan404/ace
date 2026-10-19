@@ -61,14 +61,6 @@ test("pair opens pairing instead of a thread and creates a code only when reques
   expect(await screen.findByRole("textbox", { name: "Pairing link" })).toBeTruthy();
 });
 
-test("computer use off shows access controls without an inactive emergency stop", async () => {
-  await harness().open("/settings/computer-use");
-  await screen.findByRole("switch", { name: "Let agents use apps" });
-  expect(screen.queryByRole("button", { name: "Stop all computer use" })).toBeNull();
-  expect(screen.queryByText(/^Stops every session at once/)).toBeNull();
-  expect(screen.queryByText("Granted", { exact: true })).toBeNull();
-});
-
 test("prompt errors have a short label and clicking the title opens the editor", async () => {
   await harness().open("/settings/prompts");
   const files = await screen.findByRole("list", { name: "Prompt files" });

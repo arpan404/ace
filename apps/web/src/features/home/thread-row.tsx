@@ -14,6 +14,7 @@ import { RenameField } from "./rename-field.tsx";
 import { RowActions } from "./row-actions.tsx";
 import {
   BrowsingMark,
+  ComputerUseMark,
   ProjectMark,
   RowStatus,
   RowContext,
@@ -100,6 +101,7 @@ export function ThreadRow(props: {
         {!actions && (
           <span className="flex shrink-0 items-center gap-1.5 group-has-[[data-popup-open]]/row:hidden">
             <BrowsingMark threadId={props.threadId} />
+            <ComputerUseMark threadId={props.threadId} />
             <RowStatus card={card} attention={attention} />
           </span>
         )}

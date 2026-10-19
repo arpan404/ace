@@ -15,7 +15,7 @@ import {
 import { builtinGuides } from "@ace/plugins";
 import { devicesToolkit } from "@ace/devices";
 import { browserToolkit } from "../browser-toolkit.ts";
-import { screenToolkit } from "@ace/screen";
+import { computerToolkit, screenToolkit } from "@ace/screen";
 import { handoffToolkit } from "./handoff-tools.ts";
 import { startDaemonMcp } from "../mcp.ts";
 import { hostname } from "node:os";
@@ -158,7 +158,20 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         : []),
       ...(help ? [browserHelpToolkit(help)] : []),
       ...(services.devices ? [devicesToolkit(services.devices)] : []),
-      ...(services.screen ? [screenToolkit(services.screen)] : []),
+      // Agents use the background engine on macOS; other platforms keep the session tools.
+      ...(services.computer
+        ? [
+            computerToolkit(services.computer, {
+              // Read on every call, so a change in Settings applies to the next one.
+              blockedApps: async () =>
+                (await services.settings?.get("computer.blockedApps"))?.value ?? [],
+              using: (threadId, app) =>
+                services.computerUsing?.begin(ThreadId.parse(threadId), app) ?? (() => {}),
+            }),
+          ]
+        : services.screen
+          ? [screenToolkit(services.screen)]
+          : []),
     ],
     observations,
     (caller) => {
@@ -226,7 +239,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
 }
 
 import type { SocketContext, SocketService } from "./socket.ts";
-import { McpProviderRequest, type McpSources } from "@ace/protocol";
+import { McpProviderRequest, ThreadId, type McpSources } from "@ace/protocol";
 const mcpTypes = new Set<string>(
   McpProviderRequest.options.map((option) => option.shape.type.value),
 );

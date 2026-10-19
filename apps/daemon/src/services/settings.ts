@@ -48,7 +48,8 @@ export function createSettingsSession(context: SocketContext): SocketService {
             (context.local === true && authorize("admin"))) &&
           (key !== "providers.configuration" || authorize("admin")) &&
           (!key.startsWith("storage.") || authorize("admin")) &&
-          (!key.startsWith("browser.download") || authorize("admin")),
+          (!key.startsWith("browser.download") || authorize("admin")) &&
+          (key !== "computer.blockedApps" || authorize("admin")),
       ),
     set: async (key, value, commit) => {
       if (options.applyRemoteSetting) await options.applyRemoteSetting(key, value, commit);
@@ -62,6 +63,8 @@ export function createSettingsSession(context: SocketContext): SocketService {
         request.key.startsWith("storage.") ||
         // Where the daemon writes downloaded files on its machine.
         request.key.startsWith("browser.download") ||
+        // Which apps agents can't use: only the person may loosen it.
+        request.key === "computer.blockedApps" ||
         request.key.startsWith("host.") ||
         request.key.startsWith("remote."))
         ? request.layer.kind === "global" &&

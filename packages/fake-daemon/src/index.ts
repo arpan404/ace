@@ -46,6 +46,7 @@ export {
   aceToolsDevices,
   screenAudit,
 } from "./scenarios/ace-tools.ts";
+export { aceToolsComputerBackground } from "./scenarios/ace-tools-computer.ts";
 export type { AgedScenario } from "./scenarios/home-list.ts";
 export { replayCursor } from "./scenarios/replay-cursor.ts";
 export { dedupeReconnect } from "./scenarios/dedupe-reconnect.ts";
@@ -69,6 +70,7 @@ export { FakeProjects } from "./projects.ts";
 export type { FolderSeed } from "./projects.ts";
 export { hostFolders } from "./scenarios/host-folders.ts";
 export { FakeBrowser } from "./browser.ts";
+export { FakeComputerUsing } from "./computer-using.ts";
 export type { BrowserView, ScreenFrame, PreviewServer, ForwardedInput } from "./browser.ts";
 export { seedIndex } from "./scenarios/seed-index.ts";
 export * as facts from "./scenarios/facts.ts";

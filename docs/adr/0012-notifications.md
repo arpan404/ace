@@ -21,7 +21,7 @@ Per-thread snooze and device quiet hours discard alerts at delivery time. Quiet 
 Add schemas in `protocol/notifications.ts` and additive union members in `wire.ts`:
 
 - `presence.update { threadId: string | null, inputAgeMs }`, attached to the authenticated connection identity. Clients send on focus/input and at least every 30 seconds while focused. Age is relative, avoiding client clock skew. The server stamps receipt time.
-- `notification.register { device }`, with websocket, Web Push, APNs or FCM addressing. Identity comes from authentication, never the registration body.
+- `notification.register { device }`, with websocket, Web Push, APNs or FCM addressing. Identity comes from authentication, never the registration body. `notification.unregister { requestId? }` stops delivery and catch-up for the authenticated device until it registers again (ADR 0087).
 - `notification.preferences { quietHours?, includePreview }` and `notification.snooze { threadId, until }`.
 - Server `notification { notification }` contains a stable id, thread id, status, thread title, optional interaction id, background completion count and fixed approve/deny actions referencing canonical option ids. Notification contents never contain bearer tokens.
 

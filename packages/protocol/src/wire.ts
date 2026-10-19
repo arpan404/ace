@@ -75,6 +75,7 @@ import { WorkspaceActionRequest, WorkspaceActionResult } from "./workspace-actio
 import { PluginClientMessage, PluginServerMessage } from "./plugins.ts";
 import { BrowserClientMessage, BrowserServerMessage } from "./browser.ts";
 import { BrowserBrowsing, BrowserBrowsingWatch } from "./browser-browsing.ts";
+import { ComputerUsing, ComputerUsingWatch } from "./computer-using.ts";
 import {
   DiagnosticsHealthRequest,
   DiagnosticsHealthResult,
@@ -155,11 +156,15 @@ import {
   PresenceUpdate,
   NotificationRegister,
   NotificationRegisterResult,
+  NotificationUnregister,
+  NotificationUnregisterResult,
   NotificationConfigRequest,
   NotificationConfigResult,
   NotificationSettings,
   NotificationSnooze,
   NotificationMessage,
+  NotificationFeedRequest,
+  NotificationFeedResult,
 } from "./notifications.ts";
 
 import {
@@ -245,14 +250,17 @@ export const ClientMessage = z.discriminatedUnion("type", [
   DeviceClientMessage,
   ...BrowserClientMessage.options,
   BrowserBrowsingWatch,
+  ComputerUsingWatch,
   ModelsListRequest,
   ModelsRefreshRequest,
   ModelsResolveRequest,
   PresenceUpdate,
   NotificationRegister,
+  NotificationUnregister,
   NotificationConfigRequest,
   NotificationSettings,
   NotificationSnooze,
+  NotificationFeedRequest,
 
   ...CoreClientMessage.options,
 ]);
@@ -330,11 +338,14 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ...DeviceServerMessage.options,
   ...BrowserServerMessage.options,
   BrowserBrowsing,
+  ComputerUsing,
   ModelsResult,
   ModelsChanged,
   NotificationConfigResult,
   NotificationMessage,
+  NotificationFeedResult,
   NotificationRegisterResult,
+  NotificationUnregisterResult,
   ...CoreServerMessage.options,
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;

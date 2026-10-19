@@ -2,6 +2,9 @@
   "$id": "https://ace.local/protocol/v1/PresenceUpdate.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "appState": {
+      "$ref": "https://ace.local/protocol/v1/AppState.json"
+    },
     "inputAgeMs": {
       "maximum": 86400000,
       "minimum": 0,

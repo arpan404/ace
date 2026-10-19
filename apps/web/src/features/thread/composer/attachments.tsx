@@ -1,6 +1,7 @@
 import { ClientError } from "@ace/client";
 import { useConnectionState } from "@ace/client-react";
 import type { Attachment } from "@ace/protocol";
+import { attachmentLimits, attachmentSizeProblem } from "@ace/ui-core";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChipAttachment } from "@/components/attachment-format.ts";
 import type { LocalAttachment } from "@/components/attachment-format.ts";
@@ -23,16 +24,12 @@ export interface ReadyAttachment {
 export type Outcome = ReadyAttachment | { error: string };
 const lost: Outcome = { error: "it was removed" };
 
-/** Client preflight matches the daemon defaults; the daemon enforces configured limits. */
-export const maxAttachmentBytes = 512 * 1024 * 1024;
+/** Client preflight matches the daemon defaults (`@ace/ui-core`); the daemon enforces its own. */
+export const maxAttachmentBytes = attachmentLimits.fileBytes;
 /** All of one message's files together (the daemon's default). */
-export const maxMessageBytes = 1024 * 1024 * 1024;
+export const maxMessageBytes = attachmentLimits.messageBytes;
 /** Files one message carries (`MessageContext.attachments`). */
-export const maxAttachmentsPerMessage = 64;
-
-// The limits above in words (binary units, as the daemon sets them).
-const tooLarge = "Too large: files can be up to 512 MB each";
-const tooMuch = "Too much for one message: files can add up to 1 GB";
+export const maxAttachmentsPerMessage = attachmentLimits.perMessage;
 
 /** What the hook knows of a chip: its file, whether its bytes count, and what it is once held. */
 interface Known {
@@ -249,12 +246,7 @@ export function useAttachments(
             : undefined;
         if (preview) previews.current.add(preview);
         const total = held.reduce((sum, { bytes }) => sum + bytes, 0);
-        const error =
-          file.size > maxAttachmentBytes
-            ? tooLarge
-            : total + file.size > maxMessageBytes
-              ? tooMuch
-              : undefined;
+        const error = attachmentSizeProblem(file.size, total);
         known.current.set(key, { file, bytes: error ? 0 : file.size });
         setItems((list) => [
           ...list,

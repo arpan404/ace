@@ -1,6 +1,7 @@
 import { aceToolRows } from "./ace-tool-results.ts";
 import { uxAudit } from "./ux-audit.ts";
 import { aceTools } from "./ace-tools.ts";
+import { aceToolsComputerBackground } from "./ace-tools-computer.ts";
 import { aceToolApprovals } from "./ace-tool-approvals.ts";
 import type { ProviderKind } from "@ace/protocol";
 import type { Scenario } from "../scenario.ts";
@@ -62,6 +63,7 @@ export function devWorld(): WorldThread[] {
     ...startedConversation().map((scenario) => ({ scenario, agoMs: minute })),
     // Agents using ace's own tools: computer use, the browser and a simulator.
     ...aceTools().map((scenario) => ({ scenario, agoMs: 20 * minute })),
+    { scenario: aceToolsComputerBackground(), agoMs: 20 * minute },
     // A Codex browser thread whose approvals repeat: one row per call, the answer as its note.
     { scenario: aceToolApprovals(), agoMs: minute },
     // A published HTML visualization (html_render) above the agent's reply.

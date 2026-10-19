@@ -3,8 +3,10 @@ import type { ServiceRequest, ServiceResponse } from "./service-requests.ts";
 import { ClientError, type RequestOptions } from "./types.ts";
 
 export type FileClient = Pick<ClientApi, "request" | "send">;
+/** What a transfer needs of a client: `ClientApi`, or `ClientCore` in a native app's bridge. */
+export type FileHost = Pick<ClientApi, "state" | "connectionState" | "request" | "send">;
 /** A transfer belongs to one uninterrupted ready lifetime, even if numeric channels are reused. */
-export function fileConnection(client: ClientApi): { client: FileClient; close(): void } {
+export function fileConnection(client: FileHost): { client: FileClient; close(): void } {
   if (client.state !== "ready") throw new ClientError("offline");
   let invalid = false;
   const stop = client.connectionState().subscribe(() => {

@@ -8,6 +8,7 @@ export function approvalRetryScenario(
   else if (stage === "accept") daemon.restoreRequests();
   else {
     daemon.createThread({
+      hasSentMessage: true,
       id: "ios-retry",
       workspaceId: "ace",
       title: "Approval recovery",
@@ -43,6 +44,7 @@ export function approvalRetryScenario(
 export function oversizedScenario(daemon: FakeDaemon, stage: "create" | "work" | "approval"): void {
   if (stage === "create") {
     daemon.createThread({
+      hasSentMessage: true,
       id: "ios-large",
       workspaceId: "ace",
       title: "Short title",

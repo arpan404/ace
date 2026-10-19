@@ -3,6 +3,7 @@ import { FakePromptFiles, type PromptSeed } from "./prompt-files.ts";
 import { FakeCatalogWire } from "./catalog-wire.ts";
 import { FakeHistory } from "./history-wire.ts";
 import { FakeMcpWire } from "./mcp-wire.ts";
+import { FakeNotificationFeed } from "./notification-feed.ts";
 import {
   SourceControlPreferences,
   BrowserClientMessage,
@@ -17,6 +18,7 @@ import {
 import { commandCatalog, listCommands } from "./services/commands.ts";
 import { FakeFilesWire } from "./files-wire.ts";
 import { FakeBrowser } from "./browser.ts";
+import { FakeComputerUsing } from "./computer-using.ts";
 import { fakeBrowserSession } from "./browser-wire.ts";
 import { FakeTerminalStream } from "./terminal-stream.ts";
 import { fakeHealth } from "./health.ts";
@@ -76,7 +78,9 @@ export class FakeServicesWire {
   readonly history: FakeHistory;
   private notificationPublicKey: string | null = null;
   readonly mcp = new FakeMcpWire();
+  readonly notificationFeed = new FakeNotificationFeed();
   readonly browser = new FakeBrowser();
+  readonly computerUsing = new FakeComputerUsing();
   readonly context: FakeContextWire;
   readonly workspace: FakeWorkspaceWire;
   readonly files: FakeFilesWire;
@@ -95,9 +99,13 @@ export class FakeServicesWire {
     this.host = context;
     this.providerStatuses = providerStatuses;
     this.history = new FakeHistory(context);
-    this.files = new FakeFilesWire(context);
+    this.files = new FakeFilesWire(context, (id) => this.workspace.projects.get(id) !== undefined);
     this.settings = settings;
-    this.context = new FakeContextWire(context, (threadId) => this.files.paths(threadId));
+    this.context = new FakeContextWire(
+      context,
+      (threadId) => this.files.paths(threadId),
+      (workspaceId) => this.files.projectPaths(workspaceId),
+    );
     this.workspace = new FakeWorkspaceWire(context);
     this.automations = new FakeAutomationWire(
       context.now,
@@ -167,6 +175,15 @@ export class FakeServicesWire {
       browsing = key;
       emit({ type: "browser.browsing", threads });
     };
+    let stopUsing: (() => void) | undefined;
+    const reportUsing = () =>
+      emit({
+        type: "computer.using",
+        threads: this.computerUsing
+          .threads()
+          .filter((entry) => this.host.thread(entry.threadId))
+          .map((entry) => ({ threadId: ThreadId.parse(entry.threadId), apps: [...entry.apps] })),
+      });
     return {
       authenticated: (device) => {
         owner = device;
@@ -175,6 +192,7 @@ export class FakeServicesWire {
       close: () => {
         closed = true;
         stopBrowsing?.();
+        stopUsing?.();
         catalog.close();
         picker?.abort();
         stopProjects();
@@ -189,6 +207,11 @@ export class FakeServicesWire {
         if (message.type === "browser.browsing.watch") {
           stopBrowsing ??= this.browser.subscribe(() => reportBrowsing(false));
           reportBrowsing(true);
+          return;
+        }
+        if (message.type === "computer.using.watch") {
+          stopUsing ??= this.computerUsing.subscribe(reportUsing);
+          reportUsing();
           return;
         }
         if (message.type === "storage.request") {
@@ -219,12 +242,8 @@ export class FakeServicesWire {
             });
             return;
           }
-          if (message.type === "notification.register") {
-            if (message.requestId)
-              emit({ type: "notification.register.result", requestId: message.requestId });
-            return;
-          }
           if (message.type === "notification.preferences") return;
+          if (this.notificationFeed.handle(message, emit, device)) return;
           if (message.type.startsWith("files.")) {
             await files.handle(message, device);
             return;

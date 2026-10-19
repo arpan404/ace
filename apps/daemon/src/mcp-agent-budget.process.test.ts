@@ -3,14 +3,16 @@ import { z } from "zod";
 import { builtinGuides } from "@ace/plugins";
 import { ProviderKind } from "@ace/protocol";
 import {
+  ToolRegistry,
   aceInstructions,
   bareToolName,
   coreToolsHeader,
   developerInstructions,
+  nodeScheduler,
   staticToolsHeader,
   guideTopics,
 } from "@ace/mcp-server";
-import { computerUseTools } from "@ace/screen";
+import { ComputerClient, computerToolkit, computerUseTools } from "@ace/screen";
 import { EvalAgent, type ListedTool } from "./evals/agent.ts";
 import { evalWorld, type EvalWorld } from "./evals/world.ts";
 
@@ -52,10 +54,17 @@ async function session() {
   const core = await connect(coreToolsHeader);
   const fixed = await connect(staticToolsHeader);
   if (!world.daemon.mcp) throw new Error("Missing MCP server");
+  // The computer-use tools register only beside a screen helper: the macOS engine's, and the
+  // session tools other platforms keep. Registration reads definitions; no helper starts.
+  const computer = new ToolRegistry({ scheduler: nodeScheduler });
+  const client: ComputerClient = Object.create(ComputerClient.prototype);
+  computerToolkit(client).register(computer);
   const registered = new Set(
-    [...world.daemon.mcp.toolNames(), ...computerUseTools.map((tool) => tool.name)].map(
-      bareToolName,
-    ),
+    [
+      ...world.daemon.mcp.toolNames(),
+      ...computerUseTools.map((tool) => tool.name),
+      ...computer.names(),
+    ].map(bareToolName),
   );
   return { full, core, fixed, registered };
 }
