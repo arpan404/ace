@@ -13,6 +13,11 @@ export type AppServerOptions = {
   spawn?: (options: SpawnOptions) => SupervisedProcess;
   /** How long one request may wait for Codex. */
   timeoutMs?: number;
+  /**
+   * How long Codex may take to answer `initialize`. A real app-server answers at once; a CLI that
+   * doesn't speak it is given up on quickly so callers fall back (sign-in to its terminal).
+   */
+  startupTimeoutMs?: number;
 };
 
 /**
@@ -47,7 +52,7 @@ export async function openAppServer(
         clientInfo: { name: "ace_usage", title: "ace usage", version: "0.0.0" },
         capabilities: { experimentalApi: true },
       },
-      { signal: options.signal },
+      { signal: options.signal, timeoutMs: options.startupTimeoutMs ?? 5_000 },
     );
     rpc.notify("initialized");
     return { rpc, close };
