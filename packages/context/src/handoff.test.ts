@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { Item, PortableHandoff } from "@ace/protocol";
+import { Item } from "@ace/protocol";
 import { portableContext } from "./index.ts";
 
 function message(id: string, text: string, complete = true) {
@@ -29,7 +29,7 @@ test("Cursor portable context uses byte-budgeted recent complete citations and s
     ],
     { maxBytes: 2048, maxItems: 3, historyTruncated: true },
   );
-  const manifest = PortableHandoff.parse(JSON.parse(result.text));
+  const manifest = result.handoff;
   expect(result.bytes).toBe(Buffer.byteLength(result.text));
   expect(result.bytes).toBeLessThanOrEqual(2048);
   expect(result.truncated).toBe(true);
@@ -43,6 +43,7 @@ test("Cursor portable context uses byte-budgeted recent complete citations and s
   expect(manifest.omittedItems).toBe(3);
   expect(manifest.history.tool).toBe("handoff_read");
   expect(manifest.history.before).toBe(51);
+  expect(result.text).toContain("assistant: recent useful context");
 });
 function* history() {
   yield message("first", "bounded");
@@ -60,7 +61,7 @@ test("Cursor's handoff bounds iterator consumption and reports unread history", 
     },
   );
   expect(result.truncated).toBe(true);
-  expect(PortableHandoff.parse(JSON.parse(result.text)).omittedItems).toBe(1);
+  expect(result.handoff.omittedItems).toBe(1);
 });
 
 test("identical completed messages retain distinct citations in portable Cursor history", () => {
@@ -69,7 +70,7 @@ test("identical completed messages retain distinct citations in portable Cursor 
     [message("first", "same"), message("second", "same")],
     { maxBytes: 4096, maxItems: 5, historyTruncated: false },
   );
-  const manifest = PortableHandoff.parse(JSON.parse(result.text));
+  const manifest = result.handoff;
   expect(manifest.excerpts).toEqual([
     { citation: { threadId: "source", itemId: "first" }, text: "assistant: same" },
     { citation: { threadId: "source", itemId: "second" }, text: "assistant: same" },

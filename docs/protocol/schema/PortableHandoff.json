@@ -84,11 +84,21 @@
       "type": "object"
     },
     "policy": {
-      "const": "recent-complete-items",
+      "enum": [
+        "recent-complete-items",
+        "conversation-first"
+      ],
       "type": "string"
     },
     "sourceThreadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "sources": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/HandoffModel.json"
+      },
+      "maxItems": 8,
+      "type": "array"
     },
     "throughSeq": {
       "maximum": 9007199254740991,

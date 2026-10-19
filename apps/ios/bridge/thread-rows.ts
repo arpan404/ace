@@ -1,5 +1,5 @@
 import type { Item } from "@ace/protocol";
-import { describeStep, stepLabels } from "@ace/ui-core";
+import { describeStep, handoffMarker, stepLabels } from "@ace/ui-core";
 import { preview } from "./presentation.ts";
 
 /*
@@ -46,8 +46,27 @@ function attachmentsOf(item: Item) {
   };
 }
 
+/** A context handoff's divider: the models whose work carried over and the one taking it. */
+function handoffOf(item: Item) {
+  const marker = item.type === "message" && item.role === "user" ? handoffMarker(item) : undefined;
+  if (!marker) return null;
+  const end = (side: (typeof marker)["to"]) => ({
+    provider: side.provider,
+    model: preview(side.model ?? "", 256),
+    name: preview(side.name, 128),
+  });
+  return {
+    label: marker.label,
+    from: marker.from.slice(0, 8).map(end),
+    to: end(marker.to),
+    text: preview(marker.text, 512),
+    received: preview(marker.received, 8192),
+  };
+}
+
 export function itemDetail(item: Item) {
   return {
+    handoff: handoffOf(item),
     runId: item.runId ?? "",
     synthetic: item.type === "message" && item.synthetic === true,
     level: item.type === "notice" ? item.level : "",

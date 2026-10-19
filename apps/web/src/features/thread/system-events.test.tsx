@@ -591,3 +591,53 @@ test("legacy notices hide stderr and native event names and clean command prefix
   expect(feed.textContent).not.toContain("thread.resume:");
   expect(feed.textContent).not.toContain("\u001b");
 });
+
+const handoffBlock = [
+  '<ace_context_handoff source_thread="thread-handoff" through_seq="9">',
+  "Context handoff. You are continuing a conversation that gpt-5-codex on codex worked on before you.",
+  "Earlier items left out: 0.",
+  "",
+  "--- item ask",
+  "user: Fix the login redirect loop",
+  "</ace_context_handoff>",
+].join("\n");
+
+test("a provider switch shows a context handoff divider naming each model, opening to what the new agent received", async () => {
+  const feed = await open(
+    thread("thread-handoff", [
+      say("before", "assistant", "Looking at the redirect guard."),
+      {
+        type: "item.upsert",
+        agent: "root",
+        item: "handoff:switch",
+        draft: {
+          type: "message",
+          role: "user",
+          complete: true,
+          synthetic: true,
+          origin: {
+            kind: "handoff",
+            from: { provider: "codex", model: "gpt-5-codex" },
+            to: { provider: "claude", model: "claude-opus-4-1" },
+            sources: [{ provider: "codex", model: "gpt-5-codex" }],
+            lossy: true,
+          },
+          parts: [{ type: "text", text: handoffBlock }],
+        },
+      },
+      say("after", "assistant", "Picking up the redirect fix."),
+    ]),
+  );
+  await within(feed).findByText("Picking up the redirect fix.");
+  const divider = await within(feed).findByRole("note", {
+    name: "Context handoff: GPT-5 Codex → Opus 4.1",
+  });
+  expect(within(divider).getByText("GPT-5 Codex")).toBeTruthy();
+  expect(within(divider).getByText("Opus 4.1")).toBeTruthy();
+  expect(within(feed).queryByText(/ace_context_handoff/)).toBeNull();
+  expect(within(feed).queryByText("user: Fix the login redirect loop")).toBeNull();
+  await userEvent.click(
+    within(divider).getByRole("button", { name: /Show what the agent received/ }),
+  );
+  expect(within(divider).getByText("user: Fix the login redirect loop")).toBeTruthy();
+});

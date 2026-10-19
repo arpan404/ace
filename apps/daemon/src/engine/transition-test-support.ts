@@ -358,3 +358,24 @@ export function transitionHarness(
     },
   };
 }
+
+/** The context handoff block a provider received, read the way the agent reads it. */
+export function receivedHandoff(text: string) {
+  const close = "\n</ace_context_handoff>";
+  const start = text.indexOf("<ace_context_handoff ");
+  const end = text.indexOf(close);
+  if (start < 0 || end < 0) throw new Error("No context handoff was delivered");
+  const block = text.slice(start, end + close.length);
+  const head = /^<ace_context_handoff source_thread="([^"]+)" through_seq="(\d+)">/.exec(block);
+  const read = /handoff_read: (\{[^\n]*\})/.exec(block)?.[1];
+  return {
+    block,
+    bytes: Buffer.byteLength(block),
+    sourceThreadId: head?.[1],
+    throughSeq: Number(head?.[2]),
+    /** The handoff_read arguments the agent is told to use for omitted history. */
+    read: read
+      ? (JSON.parse(read) as { sourceThreadId: string; before: number; limit: number })
+      : undefined,
+  };
+}

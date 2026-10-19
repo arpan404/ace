@@ -80,8 +80,12 @@ export function handoff(
   budget: number,
   provider: ProviderKind,
 ) {
+  // Cold and bounded: one count, the newest 200 items (1 MiB of previews) and, when the thread is
+  // longer than that, a look at its first items for the opening ask.
   const totalItems = repo.store.historicalItemCount(id, throughSeq);
   const page = repo.store.readHistoricalItemPage(id, throughSeq, throughSeq + 1, 200, 1024 * 1024);
+  const opening =
+    page.items.length < totalItems ? repo.store.historicalOpening(id, throughSeq) : undefined;
   const thread = repo.store.getThread(id);
   const backend = thread?.provider === provider ? repo.backend(id) : undefined;
   return portableContext(
@@ -92,6 +96,7 @@ export function handoff(
       maxItems: 200,
       historyTruncated: page.items.length < totalItems,
     },
+    opening,
   ).handoff;
 }
 export function validateCitations(

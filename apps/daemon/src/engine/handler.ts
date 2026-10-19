@@ -337,6 +337,7 @@ export function engineHandler(
                   ? { from: { provider: source.provider, model: source.execution?.model } }
                   : {}),
                 to: { provider: p.provider, model: p.model },
+                ...(handoff.handoff.sources ? { sources: handoff.handoff.sources } : {}),
               },
               at,
             );

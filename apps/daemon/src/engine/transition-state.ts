@@ -19,6 +19,8 @@ const Metadata = z.object({
   selection: ExecutionSelection.optional(),
   fork: NativeFork.optional(),
   handoff: PortableHandoff.optional(),
+  /** The transcript marker of `handoff` while it waits for delivery. */
+  marker: z.string().min(1).max(512).optional(),
   /** Merge summaries are message-sized; an entry also carries their citations and escaping. */
   context: z
     .array(z.string().max(2 * maxMessageBytes))

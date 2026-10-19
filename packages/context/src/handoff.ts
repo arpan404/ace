@@ -32,6 +32,8 @@ export function portableContext(
   source: PortableSource,
   history: Iterable<Item>,
   options: { maxBytes: number; maxItems: number; historyTruncated: boolean },
+  /** The thread's opening ask when it is older than `history`. */
+  opening?: Item,
 ): {
   text: string;
   bytes: number;
@@ -57,6 +59,7 @@ export function portableContext(
       throughSeq: origin.throughSeq,
       totalItems: origin.totalItems,
       items,
+      ...(opening ? { opening } : {}),
       origin: { provider: origin.provider, ...(origin.backend ? { backend: origin.backend } : {}) },
     },
     limits.maxBytes,

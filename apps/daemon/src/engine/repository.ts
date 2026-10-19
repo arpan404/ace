@@ -10,6 +10,7 @@ import {
   admitInput,
   reviseInput,
   removeInput,
+  removeInputItem,
   notifyNamingPrompt,
 } from "./transcript-inputs.ts";
 import { cancelPending } from "./stop-intents.ts";
@@ -413,6 +414,9 @@ export class EngineRepository {
   }
   removeInput(id: ThreadId, commandId: CommandId, at: number): void {
     removeInput(this, id, commandId, at);
+  }
+  removeInputItem(id: ThreadId, key: string, at: number): void {
+    removeInputItem(this, id, key, at);
   }
 
   cancelPending(id: ThreadId, now: number): ThreadId[] {

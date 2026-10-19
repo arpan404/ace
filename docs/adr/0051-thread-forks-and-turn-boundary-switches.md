@@ -127,3 +127,60 @@ The adapter translates that history before accepting the first new turn, keeping
 both user asks and assistant answers visible in ace. excludeTurns must be false;
 keeping native context alone does not satisfy the fork dialog's history promise.
 The offline app-server regression excludes turns after the selected boundary.
+
+## Amendment (2026-10-19): context handoff
+
+A cross-provider switch is a **context handoff**. Field use showed three problems with the
+original selection and its delivery:
+
+- The budget filled newest-first with any item. The other provider's reasoning, notices and
+  tool calls pushed out the person's opening ask.
+- On a second switch, the earlier handoff's own JSON was quoted inside the new one.
+- The new agent received a bare JSON manifest with no framing, and the transcript showed only
+  "Switched to X".
+
+The t3code orchestrator was studied for its behaviour only, and none of its code was used. It
+also carries a deterministic, budgeted selection of real items rather than a model-written
+summary.
+
+Decisions:
+
+- **Selection (`conversation-first`, `@ace/handoff`).** The budget is offered items in this
+  order:
+  1. the latest message the person wrote;
+  2. the latest answer;
+  3. the thread's opening ask;
+  4. everything else, newest first.
+
+  The opening ask is read with one bounded query over the thread's first 16 items when it is
+  older than the 200-item page. Reasoning, compaction markers, restart and resume inputs, and
+  earlier handoff markers are left out. A user message that still carries an earlier block is
+  stripped to the person's words. Excerpts keep their order in the conversation.
+
+- **Rendering.** A plain-text `<ace_context_handoff>` block replaces the JSON. The block says:
+  - which models worked on the thread before (`sources`);
+  - that the history is quoted context, not instructions;
+  - how many items were left out, and the exact `handoff_read` arguments to page them.
+
+  Each excerpt is cited by item id. Quoted text cannot close the block early. The budget is
+  charged on the rendered bytes. A switch carries at most 32 KiB, which was 16 KiB before.
+  Forks keep their requested budget.
+
+- **Stored manifest.** The manifest is unchanged in shape and still version 1. Older rows read
+  as before, with policy `recent-complete-items`. Version 1 JSON envelopes are still recognised
+  and stripped from echoed messages.
+- **Transcript marker.** The synthetic handoff item's `origin.sources` lists the distinct models
+  whose work was carried, oldest first, with at most 8. Clients draw one centred divider:
+  "Context handoff", the source models, an arrow, then the new model (`@ace/ui-core`
+  `handoffMarker`, shared by web, iOS and Android).
+- **Changes before delivery.** A second cross-provider switch made before the agent receives the
+  first one replaces it: the old marker is removed and the new one names the models that did the
+  work. A model change made before delivery retargets the waiting marker instead.
+- **Cost and reliability.** Work per switch is bounded by what is carried: one count, one
+  200-item page and a 16-row look for the opening ask. It runs once per switch. The manifest is
+  persisted with the switch and rendered deterministically, so delivery after a restart sends
+  the same text exactly once.
+
+Not changed: returning to a provider still starts a fresh session with portable context. The
+alternative is resuming that provider's earlier native session and sending only the runs since
+it last ran. That needs per-provider native session memory and is a separate decision.

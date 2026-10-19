@@ -226,8 +226,52 @@ private struct EndingLine: View {
 private struct EventLine: View {
     @Bindable var item: ItemModel
     var body: some View {
-        Label(item.row.text, systemImage: "arrow.triangle.branch").lineLimit(2)
-            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+        if let handoff = item.row.handoff {
+            HandoffDivider(handoff: handoff)
+        } else {
+            Label(item.row.text, systemImage: "arrow.triangle.branch").lineLimit(2)
+                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+        }
+    }
+}
+
+/// "⇄ Context handoff  GPT-6.1-Sol, Muse Spark → Claude Opus 5.5" between two hairlines, as on
+/// the web. Tapping it shows what the new agent received.
+private struct HandoffDivider: View {
+    let handoff: HandoffLine
+    @State private var open = false
+    var body: some View {
+        VStack(spacing: AceTheme.Spacing.sm) {
+            Button { open.toggle() } label: {
+                HStack(spacing: AceTheme.Spacing.sm) {
+                    rule
+                    HStack(spacing: AceTheme.Spacing.xs) {
+                        Image(systemName: "arrow.left.arrow.right")
+                        Text(handoff.label).fontWeight(.medium)
+                        if !handoff.from.isEmpty {
+                            Text(handoff.from.map(\.name).joined(separator: ", ")).lineLimit(1).truncationMode(.middle)
+                            Image(systemName: "arrow.right")
+                        }
+                        Text(handoff.to.name).fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
+                    }
+                    .layoutPriority(1)
+                    rule
+                }
+                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                .frame(minHeight: AceTheme.Dimensions.touchTarget).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(handoff.text)
+            .accessibilityHint(open ? "Hides what the agent received" : "Shows what the agent received")
+            if open {
+                Text(handoff.received).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground).textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+    private var rule: some View {
+        Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border).frame(minWidth: AceTheme.Spacing.lg).accessibilityHidden(true)
     }
 }
 

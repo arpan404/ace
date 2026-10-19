@@ -38,9 +38,23 @@ struct TranscriptRow: Codable, Sendable, Identifiable, Equatable {
     var step: StepLine? = nil
     var attachments: [AttachmentLine]? = nil
     var moreAttachments: Int? = nil
+    /// A context handoff's divider; nil on every other row.
+    var handoff: HandoffLine? = nil
     /// Shared secondary line, such as the visualization fallback; empty when the row has none.
     let detail: String?
     let quiet: Bool?
+}
+/// Where a thread moved to another provider (`@ace/ui-core` `handoffMarker`): the models whose
+/// work carried over, oldest first, and the one taking the conversation.
+struct HandoffLine: Codable, Sendable, Equatable {
+    struct End: Codable, Sendable, Equatable { let provider: String; let model: String; let name: String }
+    let label: String
+    let from: [End]
+    let to: End
+    /// The whole marker as one sentence, for VoiceOver.
+    let text: String
+    /// The context the new agent received, readable.
+    let received: String
 }
 struct ApprovalRow: Codable, Sendable, Identifiable {
     struct Option: Codable, Sendable, Identifiable { let id: String; let label: String; let kind: String }

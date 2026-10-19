@@ -1,5 +1,5 @@
 import type { EngineModels } from "./models.ts";
-import { renderHandoff } from "@ace/handoff";
+import { handoffSources, renderHandoff } from "@ace/handoff";
 import type { MigrationResult } from "@ace/protocol/accounts";
 import type { ExecutionSelection, ThreadId } from "@ace/protocol";
 import type { EngineRepository, Intent } from "./repository.ts";
@@ -12,6 +12,11 @@ import { handoff, validateCitations } from "./transition-history.ts";
 import { admitTransitionMetadata } from "./transition-state.ts";
 import { switchNeedsNewThread } from "./failure-copy.ts";
 import { switchRoute } from "@ace/core";
+/**
+ * What a cross-provider switch carries, rendered: about 8k tokens. Enough for the opening ask,
+ * the latest exchange and recent work; older items stay one handoff_read away.
+ */
+const switchHandoffBytes = 32768;
 export interface TransitionIO {
   migrate(request: {
     provider: ExecutionSelection["provider"];
@@ -142,7 +147,13 @@ export class ThreadTransitions {
       throw new Error("Provider cannot continue its native session");
     this.repo.transitions.admitModel(actor.id, selection);
     const portable = crossProvider
-      ? handoff(this.repo, actor.id, this.repo.store.headSeq(), 16384, current.provider)
+      ? handoff(
+          this.repo,
+          actor.id,
+          this.repo.store.headSeq(),
+          switchHandoffBytes,
+          current.provider,
+        )
       : undefined;
     let nativeSessionId = metadata.nativeSessionId;
     let migratedFork: z.infer<typeof NativeFork> | undefined;
@@ -212,6 +223,7 @@ export class ThreadTransitions {
           crossProvider ? (entry.adapter.backend ?? null) : (backend ?? null),
           actor.id,
         );
+        const marker = portable ? `handoff:${intent.command.id}` : previous.marker;
         this.repo.transitions.set(actor.id, {
           selection,
           context: previous.context,
@@ -221,8 +233,26 @@ export class ThreadTransitions {
             : previous.handoff
               ? { handoff: previous.handoff }
               : {}),
+          ...(marker && (portable ?? previous.handoff) ? { marker } : {}),
         });
-        if (portable)
+        const waiting = this.repo.requireState(actor.id).items[previous.marker ?? ""];
+        if (!portable && previous.handoff && previous.marker && waiting?.type === "message")
+          // A model change before the handoff is delivered: its marker names the new target.
+          this.repo.syntheticInput(
+            actor.id,
+            previous.marker,
+            renderHandoff(previous.handoff),
+            {
+              ...(waiting.origin ?? { kind: "handoff" }),
+              to: { provider: selection.provider, model: selection.model },
+            },
+            this.now(),
+          );
+        if (portable) {
+          // A handoff the agent never received is replaced, not stacked: its marker goes, and
+          // the new one names the models whose work is actually carried.
+          if (previous.handoff && previous.marker)
+            this.repo.removeInputItem(actor.id, previous.marker, this.now());
           this.repo.syntheticInput(
             actor.id,
             `handoff:${intent.command.id}`,
@@ -232,11 +262,13 @@ export class ThreadTransitions {
               commandId: intent.command.id,
               from: { provider: current.provider, model: current.model },
               to: { provider: selection.provider, model: selection.model },
+              sources: portable.sources ?? handoffSources([], current),
               lossy: true,
               threadIds: [portable.sourceThreadId],
             },
             this.now(),
           );
+        }
         this.repo.store.appendEvents(
           actor.id,
           [
@@ -337,6 +369,7 @@ export class ThreadTransitions {
   delivered(id: ThreadId): void {
     const metadata = this.repo.transitions.get(id);
     delete metadata.handoff;
+    delete metadata.marker;
     metadata.context = [];
     this.repo.transitions.set(id, metadata);
   }
