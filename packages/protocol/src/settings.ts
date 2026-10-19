@@ -83,6 +83,11 @@ export const SettingsValues = z.object({
   "threads.unresponsiveAfter": z.enum(["2m", "5m", "15m"]),
   "threads.settleOnMerge": z.boolean(),
   "threads.settleOnClose": z.boolean(),
+  /**
+   * How the Home list orders threads below Pinned: by live activity (requests and working
+   * threads first, then most recent), newest created first, or by hand (`thread.place`).
+   */
+  "threads.sortBy": z.enum(["activity", "created", "manual"]),
   "remote.enabled": z.boolean(),
   "remote.transport": z.enum(["local", "lan", "tailscale", "relay"]),
   /** Whether agents on other paired machines may use this one, and how far (ADR 0078). */

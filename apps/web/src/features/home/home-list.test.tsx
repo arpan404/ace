@@ -214,29 +214,22 @@ test("hovering a row's link shows what its marks mean in a tooltip", async () =>
   expect(within(prs).getByRole("listitem", { name: /^#77, open\b/ })).toBeTruthy();
 });
 
-test("Settle drops a finished thread into Settled on the daemon and Undo puts it back", async () => {
+test("Settle drops a finished thread into Settled on the daemon and Unsettle puts it back", async () => {
   const app = workbenchApp();
+  const settledAt = () => {
+    const view = app.daemon.snapshot({ kind: "threads" });
+    return view?.kind === "threads" ? view.threads["thread-bump-codex"]?.settledAt : undefined;
+  };
   await openHome(app);
   await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
   await rowAction("Unsettle", "Bump Codex app-server to 0.48");
   await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());
   expect(order()).toContain("Bump Codex app-server to 0.48");
+  await waitFor(() => expect(settledAt()).toBeUndefined());
 
   await rowAction("Settle", "Bump Codex app-server to 0.48");
-  expect(await screen.findByText("Settled · Bump Codex app-server to 0.48")).toBeTruthy();
   await waitFor(() => expect(screen.getByRole("button", { name: "Settled (1)" })).toBeTruthy());
-  const settledAt = () => {
-    const view = app.daemon.snapshot({ kind: "threads" });
-    return view?.kind === "threads" ? view.threads["thread-bump-codex"]?.settledAt : undefined;
-  };
-  expect(settledAt()).toBeDefined();
-
-  // This toast's Undo: the Unsettle before it offers one too.
-  const toast = screen.getByText("Settled · Bump Codex app-server to 0.48").closest("[role]");
-  if (!(toast instanceof HTMLElement)) throw new Error("no toast");
-  await userEvent.click(within(toast).getByRole("button", { name: "Undo" }));
-  await waitFor(() => expect(screen.queryByRole("button", { name: /^Settled / })).toBeNull());
-  expect(settledAt()).toBeUndefined();
+  await waitFor(() => expect(settledAt()).toBeDefined());
 });
 
 test("a settled thread comes back to the list as soon as it moves again", async () => {
@@ -265,8 +258,13 @@ test("Settled lists settled threads without the settle rule, which lives in Sett
   expect(screen.queryByRole("button", { name: "When done threads settle" })).toBeNull();
 });
 
-test("a snoozed request stays in the list with its wake time; Undo wakes it", async () => {
-  await openHome(workbenchApp());
+test("a snoozed request stays in the list with its wake time; Wake now clears it", async () => {
+  const app = workbenchApp();
+  const snoozedUntil = () => {
+    const view = app.daemon.snapshot({ kind: "threads" });
+    return view?.kind === "threads" ? view.threads["thread-retry-budget"]?.snoozedUntil : undefined;
+  };
+  await openHome(app);
   await within(threads()).findByRole("link", { name: /Retry budget/ });
   await userEvent.pointer({ keys: "[MouseRight]", target: card(/^Retry budget/) });
   await userEvent.hover(await screen.findByRole("menuitem", { name: /^Snooze/ }));
@@ -277,11 +275,15 @@ test("a snoozed request stays in the list with its wake time; Undo wakes it", as
   expect(before("Retry budget for app-server restarts", "Backpressure on broadcast fan-out")).toBe(
     true,
   );
+  await waitFor(() => expect(snoozedUntil()).toBeDefined());
 
-  await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+  await userEvent.pointer({ keys: "[MouseRight]", target: card(/^Retry budget/) });
+  await userEvent.hover(await screen.findByRole("menuitem", { name: /^Snooze/ }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Wake now" }));
   await waitFor(() =>
     expect(card(/^Retry budget/).getAttribute("aria-label")).not.toContain("Snoozed"),
   );
+  await waitFor(() => expect(snoozedUntil()).toBeUndefined());
 });
 
 test("the project filter narrows Home to one project and is remembered", async () => {

@@ -109,8 +109,16 @@ type AddOptions = Parameters<Manager["add"]>[0] & {
 
 export interface ToastApi extends Omit<Manager, "add"> {
   add(options: AddOptions): string;
-  /** A failure or refusal: a warning glyph, announced at once (`role=alertdialog`). */
+  /** A failure or refusal: a red glyph, announced at once (`role=alertdialog`). */
   error(options: Omit<AddOptions, "type" | "priority">): string;
+  /** Something to look at before it bites: an amber glyph, announced at once. */
+  warning(options: Omit<AddOptions, "type" | "priority">): string;
+  /** Done and worth confirming: a green check. */
+  success(options: Omit<AddOptions, "type">): string;
+  /** A neutral fact: a blue glyph. */
+  info(options: Omit<AddOptions, "type">): string;
+  /** Work under way: a spinner. Update it (same `id` or `kind`) when it finishes. */
+  loading(options: Omit<AddOptions, "type">): string;
   /** Run the newest Undo still on screen. False when none is. */
   undoLatest(): boolean;
 }
@@ -188,6 +196,10 @@ function useToast(): ToastApi {
       ...manager,
       add,
       error: (options) => add({ ...options, type: "error", priority: "high" }),
+      warning: (options) => add({ ...options, type: "warning", priority: "high" }),
+      success: (options) => add({ ...options, type: "success" }),
+      info: (options) => add({ ...options, type: "info" }),
+      loading: (options) => add({ ...options, type: "loading", timeout: options.timeout ?? 0 }),
       undoLatest: () => {
         const latest = ledger ? [...ledger.undos.values()].at(-1) : undefined;
         latest?.();

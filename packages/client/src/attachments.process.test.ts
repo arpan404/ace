@@ -147,7 +147,7 @@ test("draft upload becomes a path-free user item and this daemon connection reso
     expect(hash(original.bytes)).toBe(sha256);
     const thumbnail = await client.attachmentBytes({ threadId: created.threadId, sha256 });
     expect(thumbnail.mimeType).toBe("image/png");
-    expect(thumbnail.bytes.length).toBeLessThan(256 * 1024);
+    expect(thumbnail.bytes.length).toBeLessThan(512 * 1024);
     await expect(client.attachmentBytes({ threadId: f.thread.id, sha256 })).rejects.toThrow();
     const sent = scripted.commands.find((command) => command.type === "send");
     if (sent?.type !== "send") throw new Error("Expected provider input");

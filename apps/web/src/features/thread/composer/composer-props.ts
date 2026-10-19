@@ -35,8 +35,6 @@ export interface ComposerProps {
   followUp?: "queue" | "steer" | undefined;
   /** ⌘↵ does the other follow-up; false when the provider can't steer (both queue). */
   canSteer?: boolean | undefined;
-  /** A foreground tool is running: a steer queues until that tool finishes. */
-  steerPending?: boolean | undefined;
   /**
    * Take the message. Resolves false when this device couldn't save it: the composer puts it
    * back if nothing new was typed meanwhile.

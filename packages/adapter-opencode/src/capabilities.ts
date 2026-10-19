@@ -8,6 +8,8 @@ export function capabilities(cli: DiscoveryResult): Capabilities {
   const supported = cli.installed && version(cli.version);
   return {
     steer: supported,
+    // A prompt into a busy session is picked up at the next step boundary.
+    steerTiming: "after_tool",
     sessionOptions: supported,
     launchOptions: supported ? ["effort"] : [],
     permissionModes: nativePermissionModes("opencode"),

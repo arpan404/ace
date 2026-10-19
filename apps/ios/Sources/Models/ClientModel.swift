@@ -16,6 +16,9 @@ import CryptoKit
     var interactions: [String: ApprovalRow] = [:]
     var cursor = 0
     var loaded = false
+    let screen = ThreadScreenModel()
+    /// What this thread last showed, kept on screen while its reopened session catches up.
+    var placeholder: ThreadModel?
     @ObservationIgnored var positions: [String: Int] = [:]
     init(id: String) { self.id = id }
     var approvals: [ApprovalRow] { interactions.values.filter { $0.state == "pending" }.sorted { $0.id < $1.id } }
@@ -25,18 +28,38 @@ import CryptoKit
     var inbox: [String: ThreadRow] = [:]
     var pending: [String: PendingRow] = [:]
     var connection = "connecting"
+    /// Why the SDK's connection isn't ready (unreachable, revoked, pin mismatch), for a person.
+    var problem: ProblemNotice?
     var error: String?
     var thread: ThreadModel?
     var inboxLoaded = false
+    var inboxLayout = InboxLayout.empty
     var approvalSubmissions: [String: ApprovalSubmission] = [:]
+    /// The Machines sheet's view of this runtime's computer (`bridge/machine-info.ts`).
+    var machineStatus: MachineStatusInfo?
+    var providers: MachineProvidersInfo?
+    /// False for a view-only grant: the phone reads threads but submits no commands.
+    var canOperate = true
+    /// A thread a tapped notification asked to open.
+    var deepLink: String?
+    @ObservationIgnored var notificationSink: ((NotificationPatch) -> Void)?
+    /// The open thread's Agents and Changes sheets (`bridge/sheets.ts`).
+    let sheets = ThreadSheetsModel()
+    /// This machine's archive while the archive sheet follows it (`bridge/archive.ts`).
+    let archive = ArchiveBrowserModel()
+    /// New thread and Add project on this machine; the open thread's Files sheet.
+    let compose = ComposeModel()
+    let files = ThreadFilesModel()
     @ObservationIgnored private var generation = 0
+    /// Threads left for a child, so going back shows them until their session's first patch.
+    @ObservationIgnored private var trail = ThreadTrail()
     @ObservationIgnored private var runtime: (any ClientSession)?
     @ObservationIgnored private let makeRuntime: ClientSessionFactory
     @ObservationIgnored private var connectionEpoch = 0
     @ObservationIgnored private var shutdown: Task<Void, Never>?
     @ObservationIgnored private var frames = BridgeFrames()
-    @ObservationIgnored private let admissions = CommandAdmissions()
-    @ObservationIgnored private var approvalRequests: [String: String] = [:]
+    @ObservationIgnored let admissions = CommandAdmissions()
+    @ObservationIgnored var approvalRequests: [String: String] = [:]
     @ObservationIgnored let now: () -> Double
     @ObservationIgnored var metrics: SpikeMetrics?
     @ObservationIgnored var largestFrame = 0
@@ -50,14 +73,15 @@ import CryptoKit
         connectionEpoch += 1
         let epoch = connectionEpoch
         let closing = retireRuntime()
-        inbox = [:]; pending = [:]; thread = nil; inboxLoaded = false
-        connection = "connecting"; error = nil
+        inbox = [:]; pending = [:]; thread = nil; inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset()
+        inboxLayout = .empty
+        machineStatus = nil; providers = nil
+        connection = "connecting"; error = nil; problem = nil
         frames = BridgeFrames(); generation = 0
         await closing?.value
         guard connectionEpoch == epoch, !Task.isCancelled else { return }
         shutdown = nil
-        let scope = SHA256.hash(data: Data("\(target.hostId)\u{0}\(target.deviceId)".utf8)).map { String(format: "%02x", $0) }.joined()
-        let runtime = makeRuntime(target, directory.appendingPathComponent(scope + ".sqlite"), { [weak self] data in
+        let runtime = makeRuntime(target, Self.database(hostId: target.hostId, deviceId: target.deviceId, in: directory), { [weak self] data in
             Task { @MainActor in
                 guard let self, self.connectionEpoch == epoch else { return }
                 let accepted = self.receive(data)
@@ -69,6 +93,11 @@ import CryptoKit
         } })
         self.runtime = runtime
         runtime.start(itemLimit: itemLimit)
+    }
+    /// Outbox and cached views are bound to one host and device identity.
+    nonisolated static func database(hostId: String, deviceId: String, in directory: URL) -> URL {
+        let scope = SHA256.hash(data: Data("\(hostId)\u{0}\(deviceId)".utf8)).map { String(format: "%02x", $0) }.joined()
+        return directory.appendingPathComponent(scope + ".sqlite")
     }
     @discardableResult func receive(_ data: Data) -> Bool {
         largestFrame = max(largestFrame, data.count)
@@ -83,9 +112,14 @@ import CryptoKit
             case .fragment: break // BridgeFrames only returns complete patches.
             case .inboxReset: inbox.removeAll(keepingCapacity: true); inboxLoaded = true
             case .inbox(let id, let row): inbox[id] = row
+            case .inboxSections(let layout): if inboxLayout != layout { inboxLayout = layout }
             case .connection(let state): connection = state
+            case .problem(let notice): problem = notice
+            case .machineStatus(let info): machineStatus = info
+            case .machineProviders(let info): providers = info
             case .pending(let id, let row): pending[id] = row
             case .error(let message): error = message
+            case .notification(let patch): notificationSink?(patch)
             case .receipt(let id, let ok, let message):
                 if let interactionId = approvalRequests[id], approvalSubmissions[interactionId]?.requestId == id {
                     if ok { approvalSubmissions[interactionId]?.phase = .waiting }
@@ -107,6 +141,7 @@ import CryptoKit
                 thread.order = []
                 thread.interactions = [:]
                 thread.loaded = false
+                thread.screen.reset()
             case .position(let id, let epoch, let itemId, let index):
                 guard let thread, thread.id == id, thread.epoch == epoch else { continue }
                 thread.positions[itemId] = index
@@ -125,9 +160,27 @@ import CryptoKit
                     if row?.state != "pending", let submission = approvalSubmissions.removeValue(forKey: interactionId) { approvalRequests[submission.requestId] = nil }
                 }
             case .cursor(let id, let epoch, let cursor): if thread?.id == id, thread?.epoch == epoch { thread?.cursor = cursor }
-            case .ready(let id, let epoch, _): if thread?.id == id, thread?.epoch == epoch { thread?.loaded = true }
+            case .ready(let id, let epoch, _): if thread?.id == id, thread?.epoch == epoch { thread?.loaded = true; thread?.placeholder = nil }
+            case .block, .blockPosition, .controls, .history, .models, .queue:
+                if let thread, let scope = patch.screenScope, scope.thread == thread.id, scope.epoch == thread.epoch {
+                    // The reopened session's first block replaces what was last shown of it.
+                    if case .block = patch { thread.placeholder = nil }
+                    thread.screen.apply(patch)
+                }
+            case .agents(let id, let epoch, let sheet): if thread?.id == id, thread?.epoch == epoch { sheets.agents = sheet }
+            case .changesSummary(let id, let epoch, let summary): if thread?.id == id, thread?.epoch == epoch { sheets.changes = summary }
+            case .changesFile(let id, let epoch, let path, let diff):
+                if thread?.id == id, thread?.epoch == epoch { sheets.file = .init(path: path, diff: diff) }
+            case .gitResult(let id, let ok, let message): sheets.outcomes[id] = GitOutcome(ok: ok, message: message)
+            case .gitDraft(let draft): sheets.draft = draft
+            case .archiveList(let list): archive.apply(list)
+            case .compose(let patch): compose.apply(patch)
+            case .files(let patch): files.apply(patch)
+            case .screen(let id, let epoch, let screen):
+                if let thread, thread.id == id, thread.epoch == epoch { thread.screen.apply(screen) }
             }
         }
+        thread?.screen.commit()
         if reorder, let thread {
             thread.order = thread.positions.keys.filter { thread.items[$0] != nil }.sorted {
                 (thread.positions[$0] ?? 0) < (thread.positions[$1] ?? 0)
@@ -137,26 +190,43 @@ import CryptoKit
     }
     func open(_ id: String) {
         generation += 1
-        thread = ThreadModel(id: id)
-        thread?.epoch = generation
+        sheets.reset()
+        let opened = ThreadModel(id: id)
+        opened.epoch = generation
+        opened.placeholder = trail.reopen(id, leaving: thread)
+        thread = opened
         action(["type": "open", "threadId": id])
     }
-    func back() { generation += 1; action(["type": "back"]); thread = nil }
+    func back() { generation += 1; action(["type": "back"]); thread = nil; trail.clear(); sheets.reset() }
+    /// A sheet action for the open thread (`bridge/sheets.ts`).
+    @discardableResult func sheet(_ value: [String: Any]) -> Bool { action(["type": "sheet", "action": value]) }
+    /// Durable stop through the SDK's outbox: true once admitted on this device. `agentId` nil
+    /// stops the whole tree; otherwise that agent and everything under it.
+    func interrupt(agentId: String?) async -> Bool {
+        guard canOperate, let thread else { return false }
+        var payload: [String: Any] = ["type": "thread.interrupt", "threadId": thread.id, "cascade": true]
+        if let agentId { payload["agentId"] = agentId } else { payload["beforeSeq"] = thread.cursor }
+        let id = admissions.nextId()
+        return await admissions.wait(id: id) { command(payload, requestId: id) }
+    }
+    func stopTask(_ taskId: String) async -> Bool {
+        guard canOperate else { return false }
+        let id = admissions.nextId()
+        return await admissions.wait(id: id) { command(["type": "background_task.stop", "taskId": taskId], requestId: id) }
+    }
     func network(_ online: Bool) { action(["type": "network", "online": online]) }
     func retry() { action(["type": "retry"]) }
+    /// Ask the computer for its CLIs and usage; runs on the next ready connection if offline.
+    func refreshMachine() { action(["type": "machine.refresh"]) }
     func send(_ text: String, delivery: String) async -> Bool {
-        guard let thread, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard canOperate, let thread, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let id = admissions.nextId()
         return await admissions.wait(id: id) {
             command(["type": "thread.send", "threadId": thread.id, "input": [["type": "text", "text": text]], "delivery": delivery], requestId: id)
         }
     }
-    func stopTree() {
-        guard let thread else { return }
-        command(["type": "thread.interrupt", "threadId": thread.id, "cascade": true, "beforeSeq": thread.cursor])
-    }
     func approve(_ interaction: ApprovalRow, option: ApprovalRow.Option) {
-        guard interaction.state == "pending", approvalSubmissions[interaction.id] == nil else { return }
+        guard canOperate, interaction.state == "pending", approvalSubmissions[interaction.id] == nil else { return }
         let id = admissions.nextId()
         approvalSubmissions[interaction.id] = ApprovalSubmission(requestId: id, phase: .saving)
         approvalRequests[id] = interaction.id
@@ -165,14 +235,22 @@ import CryptoKit
             approvalRequests[id] = nil
         }
     }
-    func archive(_ id: String) { command(["type": "thread.archive", "threadId": id]) }
-    func snooze(_ id: String) { command(["type": "thread.snooze", "threadId": id, "until": now() + 3_600_000]) }
+    /// Inbox organization (`bridge/inbox.ts`): true once the SDK durably admitted the command.
+    func inboxCommand(_ value: [String: Any]) async -> Bool {
+        guard canOperate else { return false }
+        let id = admissions.nextId()
+        return await admissions.wait(id: id) { action(["type": "inbox", "action": value, "requestId": id]) }
+    }
+    /// Inbox reads that admit nothing durable, such as loading older threads.
+    func inboxRequest(_ value: [String: Any]) { action(["type": "inbox", "action": value, "requestId": admissions.nextId()]) }
+    /// `notifications.*` bridge actions (Sources/Notifications).
+    @discardableResult func notificationAction(_ value: [String: Any]) -> Bool { action(value) }
     @discardableResult private func command(_ payload: [String: Any], requestId: String? = nil) -> Bool {
         let dispatched = action(["type": "command", "payload": payload, "requestId": requestId ?? admissions.nextId()])
         if !dispatched { error = "Could not submit the request. Your draft is still available." }
         return dispatched
     }
-    @discardableResult private func action(_ value: [String: Any]) -> Bool {
+    @discardableResult func action(_ value: [String: Any]) -> Bool {
         guard let runtime, let data = try? JSONSerialization.data(withJSONObject: value) else { return false }
         runtime.invoke("aceAction", json: String(decoding: data, as: UTF8.self))
         return true

@@ -324,8 +324,8 @@ test("attachment HTTP reads require current read and thread permission, preserve
   ).toBe(304);
   const preview = await get(`${base}/thumbnail`, reader.token);
   expect(preview.status).toBe(200);
-  expect(preview.bytes.length).toBeLessThan(256 * 1024);
-  expect(imageSize(preview.bytes)).toMatchObject({ width: 256, height: 192 });
+  expect(preview.bytes.length).toBeLessThan(512 * 1024);
+  expect(imageSize(preview.bytes)).toMatchObject({ width: 320, height: 240 });
   allowed = false;
   expect(
     (await get(`${base}/original`, reader.token, { "if-none-match": original.headers.etag ?? "" }))

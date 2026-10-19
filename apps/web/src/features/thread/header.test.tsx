@@ -226,8 +226,7 @@ test("Open in launches the checkout in an editor, and the one picked becomes the
   };
   expect(await openEditors()).toBeTruthy();
   await userEvent.click(await screen.findByRole("menuitem", { name: "Open in Zed" }));
-  expect(await screen.findByText("Opened in Zed")).toBeTruthy();
-  expect(launched).toHaveBeenCalledWith("zed://file/Users/dev/relay", "_self");
+  await waitFor(() => expect(launched).toHaveBeenCalledWith("zed://file/Users/dev/relay", "_self"));
   await openEditorsMenu();
   const picked = await screen.findByRole("menuitem", { name: "Open in Zed, default" });
   expect(picked.textContent).toContain("Zed");
@@ -650,7 +649,7 @@ test("from the card, an idle thread switches branch and moves into a worktree of
 // The ⋯ menu's thread actions
 
 test("renaming from the ⋯ menu changes the title", async () => {
-  await openIdleThread();
+  const app = await openIdleThread();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Rename/ }));
   const field = await screen.findByRole("textbox", { name: "Thread title" });
@@ -663,9 +662,12 @@ test("renaming from the ⋯ menu changes the title", async () => {
   ).toBeTruthy();
   expect(screen.queryByRole("textbox", { name: "Thread title" })).toBeNull();
   expect(screen.queryByRole("dialog", { name: "Rename thread" })).toBeNull();
-  expect(
-    await screen.findByRole("heading", { name: "Renamed · Cold-start replay cap" }),
-  ).toBeTruthy();
+  await waitFor(() => {
+    const view = app.daemon.snapshot({ kind: "threads" });
+    expect(view?.kind === "threads" && view.threads["thread-replay-cursor"]?.title).toBe(
+      "Cold-start replay cap",
+    );
+  });
 });
 
 test("archiving from the ⋯ menu leaves the thread", async () => {
@@ -758,6 +760,7 @@ test("the ⋯ menu keeps the common thread actions in the row menu's order", asy
     "Pin",
     "Move to project…",
     "Snooze",
+    "Turn off auto-settle",
     "Archive",
     "Delete thread",
   ]);
@@ -817,14 +820,15 @@ test("Fork is omitted until the first turn has finished", async () => {
   expect(screen.queryByRole("menuitem", { name: /Fork from the last turn/ })).toBeNull();
 });
 
-test("snoozing from the ⋯ menu snoozes it on the daemon and confirms until when", async () => {
+test("snoozing from the ⋯ menu snoozes it on the daemon until tomorrow", async () => {
   const app = await openThread();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Snooze" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Tomorrow/ }));
-  expect(await screen.findByText(/^Snoozed — no notifications until tomorrow/)).toBeTruthy();
-  const view = app.daemon.snapshot({ kind: "threads" });
-  expect(
-    view?.kind === "threads" && view.threads["thread-replay-cursor"]?.snoozedUntil,
-  ).toBeGreaterThan(Date.now());
+  await waitFor(() => {
+    const view = app.daemon.snapshot({ kind: "threads" });
+    expect(
+      view?.kind === "threads" && view.threads["thread-replay-cursor"]?.snoozedUntil,
+    ).toBeGreaterThan(Date.now());
+  });
 });

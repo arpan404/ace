@@ -55,7 +55,7 @@ test("only tools that delete or overwrite work are destructive; reads never ask"
   const destructive = listed
     .filter((tool) => tool.annotations?.destructiveHint)
     .map((tool) => tool.name);
-  expect(destructive.toSorted()).toEqual(["automation_remove", "thread_merge"]);
+  expect(destructive).toEqual(["automation_remove"]);
   const hints = new Map(listed.map((tool) => [tool.name, tool.annotations]));
   expect(hints.get("automations_list")).toMatchObject({
     readOnlyHint: true,

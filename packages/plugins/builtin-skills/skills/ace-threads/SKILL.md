@@ -5,7 +5,9 @@ description: Read and manage ace threads, project knowledge and automations, suc
 
 # Threads and project knowledge
 
-A **thread** is one conversation in the person's sidebar. Owned threads are this one and the threads it started. Read-only tools work on any thread in this project.
+A **thread** is one conversation in the person's sidebar. Owned threads are this one and the threads it started, in any project. Read-only tools work on any thread in this project.
+
+With **full access** (see `context` topic `status`), you act for the person: you can read threads in every project and send to, steer, settle or otherwise change any of their threads, not only owned ones. Other agents' delegated children stay theirs.
 
 ## Know the project
 
@@ -14,8 +16,8 @@ A **thread** is one conversation in the person's sidebar. Owned threads are this
 
 ## Read threads
 
-- `threads_find` lists and searches this project's threads; with `threadId` it searches inside one thread's transcript. Page with `cursor`.
-- `thread_read` reads a thread's title, status, branch, linked PRs, preview servers and a transcript page. Omit `threadId` for this thread. Page back with `before` set to the returned `itemsBefore`. A truncated part with a `source.streamId` continues with `streamId` and `offset`.
+- `threads_find` lists and searches this project's threads, or another project's with `project` (full access); with `threadId` it searches inside one thread's transcript. Page with `cursor`.
+- `thread_read` reads a thread's title, status, branch, linked PRs, preview servers, queued messages and a transcript page. Omit `threadId` for this thread. Page back with `before` set to the returned `itemsBefore`. A truncated part with a `source.streamId` continues with `streamId` and `offset`.
 - `handoff_read` pages the history a handoff from another provider cites (items, or one stream with `streamId`).
 
 ## Pull requests
@@ -24,11 +26,14 @@ When you open or find the PR for this work, link it with `thread_link_pr` (URL o
 
 ## Manage owned threads
 
-- **Start:** `thread_start` opens a new top-level thread. For child work whose result you need, use `delegate` (guide ace-agents).
-- **Send:** `agent_message` with `delivery` `queue`, `steer` or `restart`. `queue_edit` replaces a queued entry's text or reorders pending entries before delivery.
+- **Start:** `thread_start` opens a new top-level thread, the way to give the person a separate or dedicated thread. Pass `project` (a name, folder path or id) to open it in another project on this machine; `projects_find` lists them. For child work whose result you need, use `delegate` (guide ace-agents).
+- **Send:** `agent_message` with `delivery` `queue`, `steer` or `restart`.
+- **Queue:** `thread_read` lists queued messages with their `entryId`s. `queue_edit` with `action` `edit` (new text), `cancel`, `steer` (deliver it now into the running turn) or `reorder` (`order`, first to last).
 - **Answer:** `question_answer` answers a pending question. Permission approvals stay with the person.
-- **Change:** `thread_control` with an `action`: `rename` (omit `title` to retitle from the first message), `configure` (model and effort), `fork`, `handoff` (move to a new Git worktree on `branch`), `interrupt`, `settle` (archive once done), `snooze`, `close_preview`, or `rename_project`.
-- **Merge:** `thread_merge` merges a thread's worktree changes back. It overwrites files, so your provider may ask the person first.
+- **Change:** `thread_control` with an `action`: `rename` (omit `title` to retitle from the first message), `configure` (model and effort), `handoff` (move to a new Git worktree on `branch`), `interrupt`, `settle`, `unsettle`, `snooze`, `close_preview`, or `rename_project`.
+- **Settle:** `thread_control` `settle` moves a finished thread to Settled, as the person's Settle does. You can settle this thread before your turn ends: it settles once its work is done, and stays active if the turn fails or a question waits on the person. `unsettle` brings a thread back and cancels a pending settle.
+- **Fork:** `thread_fork` copies a thread's conversation into a new thread and sends it `text`: the other approach to try, optionally on another `model`. It forks after the latest finished turn, so you can fork this thread mid-turn. The fork shares the thread's checkout and is yours.
+- **Merge back:** once a fork is done (`wait` on it), `thread_merge` with a `summary` brings its result into the thread it was forked from, citing the fork's latest answer. That thread's agent sees it from its next turn; file changes are already in the shared checkout.
 - **Tell the person:** `notify` posts a notice and sends a notification, for something they should see while away.
 
 ace names new threads itself from their first message, so renaming is only for a title that has become wrong.

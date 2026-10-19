@@ -1,6 +1,6 @@
 /*
- * The Home list as the sidebar draws it: the Pinned group under its heading, in the person's
- * own order, then the work in hand in Home order (what needs you, work in motion, trouble, most
+ * The Home list as the sidebar draws it: the Unsent block on top, where it's seen, then the
+ * Pinned group under its heading, in the person's own order, then the work in hand in Home order (what needs you, work in motion, trouble, most
  * recent first within each), then threads at rest, then the collapsible Snoozed and Settled
  * section. Pure: the caller passes the arrangement.
  */
@@ -39,13 +39,13 @@ export function homeRows(
   },
 ): HomeRow[] {
   const rows: HomeRow[] = [];
+  if (options.includeUnsent) rows.push({ kind: "unsent" });
   const pinnedGroup = groups.pinned.length > 0 || options.pinZone === true;
   if (pinnedGroup) rows.push({ kind: "pinned-header", count: groups.pinned.length });
   for (const id of groups.pinned) rows.push({ kind: "pinned", id });
   if (pinnedGroup) rows.push({ kind: "pinned-end" });
   for (const id of groups.active) rows.push({ kind: "thread", id });
   for (const id of groups.recent) rows.push({ kind: "thread", id });
-  if (options.includeUnsent) rows.push({ kind: "unsent" });
   if (groups.snoozed.length) rows.push({ kind: "snoozed-header", count: groups.snoozed.length });
   if (options.snoozedOpen) for (const id of groups.snoozed) rows.push({ kind: "snoozed", id });
   if (groups.settled.length) rows.push({ kind: "settled-header", count: groups.settled.length });

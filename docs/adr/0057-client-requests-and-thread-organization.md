@@ -44,3 +44,9 @@ receives a history handoff. See [thread moves](../daemon/thread-move.md).
 Clients offer it as Move to project… in every thread menu, the selection bar and ⌘K. Like the
 other organize actions it shows the thread in its new project at once, offers Undo (a move
 back), and puts it back with the daemon's reason when refused.
+
+### Turn numbers (amended 2026-10-18)
+
+Run ordinals stay one per root run and still number the runs list and checkpoints. Turn
+numbers are separate: `Run.turn` groups an ask with the runs the agent starts by itself after
+it (ADR 0062, "Turns are asks"). Older runs without it use their ordinal as their turn.

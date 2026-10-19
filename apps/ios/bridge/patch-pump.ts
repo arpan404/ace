@@ -26,7 +26,8 @@ interface Fragment extends Delivery {
 function priority(key: string): 0 | 1 | 2 {
   if (key === "inbox:reset" || key === "thread:reset") return 0;
   if (key.startsWith("thread:item:") || key.startsWith("thread:position:")) return 2;
-  if (key === "thread:ready" || key === "thread:cursor") return 2;
+  if (key.startsWith("thread:block") || key === "thread:history") return 2;
+  if (key === "thread:ready" || key === "thread:cursor" || key === "changes:file") return 2;
   return 1; // Canonical status, interactions, connection and command outcomes precede content.
 }
 

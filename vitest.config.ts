@@ -38,6 +38,7 @@ export default defineConfig({
             "packages/*/src/**/*.test.ts",
             "tools/*/src/**/*.test.ts",
             "apps/*/src/**/*.test.ts",
+            "apps/ios/bridge/**/*.test.ts",
           ],
           exclude: ["**/*.process.test.ts", historyWorkerReview, "**/node_modules/**", ...react],
           maxWorkers: workers,

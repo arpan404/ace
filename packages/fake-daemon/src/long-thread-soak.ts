@@ -190,6 +190,8 @@ export class LongThreadSoak implements Host {
             threadId: this.history.threadId,
             agentId: root,
             ordinal: this.live.ordinal,
+            // One run answers each synthetic ask, so its turn is its run ordinal.
+            turn: this.live.ordinal,
             trigger: "user",
             state: "active",
             startedAt: now,

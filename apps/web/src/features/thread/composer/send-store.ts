@@ -99,14 +99,21 @@ export interface ReturnedDraft {
  * Composers that take a failed message back, by draft key. The thread's composer registers
  * while mounted; Edit on a failed bubble hands its draft to the one for that thread.
  */
-const takers = new Map<string, { take(draft: ReturnedDraft): boolean; save(): boolean }>();
+interface Taker {
+  take(draft: ReturnedDraft): boolean;
+  save(): boolean;
+  /** Show exactly this draft, dropping what is there (a queued message edited in place). */
+  replace(draft: import("@ace/ui-core").ComposerDraft): boolean;
+}
+const takers = new Map<string, Taker>();
 
 export function takeDraftsFor(
   key: string,
-  take: (draft: ReturnedDraft) => boolean,
-  save: () => boolean,
+  take: Taker["take"],
+  save: Taker["save"],
+  replace: Taker["replace"],
 ): () => void {
-  const editor = { take, save };
+  const editor = { take, save, replace };
   takers.set(key, editor);
   return () => {
     if (takers.get(key) === editor) takers.delete(key);
@@ -137,6 +144,13 @@ export function useEditingHeld(commandId: string): boolean {
 /** Undefined means no editor; false means it holds the returned draft in memory but couldn't save it. */
 export function returnDraft(key: string, draft: ReturnedDraft): boolean | undefined {
   return takers.get(key)?.take(draft);
+}
+/** Undefined means no editor is open for `key`. */
+export function replaceOpenDraft(
+  key: string,
+  draft: import("@ace/ui-core").ComposerDraft,
+): boolean | undefined {
+  return takers.get(key)?.replace(draft);
 }
 export function saveOpenDraft(key: string): boolean {
   return takers.get(key)?.save() ?? false;

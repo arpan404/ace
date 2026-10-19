@@ -339,6 +339,31 @@ it("a Claude-spelled html_render approval hides the page markup", () => {
   expect(JSON.stringify(events)).not.toContain("<p>private</p>");
 });
 
+it("an image_show approval keeps the path but hides the image bytes and its words", () => {
+  const feed = fixture();
+  const events = feed({
+    type: "interaction.opened",
+    agent: "root",
+    interaction: "show",
+    blocking: true,
+    request: {
+      kind: "approval",
+      title: "Show",
+      target: {
+        tool: "mcp__ace__image_show",
+        input: { path: "shots/home.png", data: "iVBORprivate", alt: "Private alt" },
+        access: "write",
+      },
+      options: [{ id: "allow", label: "Allow", kind: "allow_once" }],
+    },
+    raw: [],
+  });
+  const text = JSON.stringify(events);
+  expect(text).toContain("shots/home.png");
+  expect(text).not.toContain("iVBORprivate");
+  expect(text).not.toContain("Private alt");
+});
+
 it("custom input streams use completed argument JSON without treating result text as arguments", () => {
   const feed = fixture();
   const events = feed({

@@ -52,6 +52,7 @@ export const defaults: SettingsValues = {
   "threads.unresponsiveAfter": "5m",
   "threads.settleOnMerge": true,
   "threads.settleOnClose": false,
+  "threads.sortBy": "activity",
   "remote.enabled": false,
   "remote.transport": "local",
   "remote.agentAccess": "off",

@@ -1,0 +1,44 @@
+{
+  "$id": "https://ace.local/protocol/v1/NotificationFeedResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "cursor": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "entries": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/NotificationFeedEntry.json"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "requestId": {
+      "maxLength": 200,
+      "minLength": 1,
+      "type": "string"
+    },
+    "retracted": {
+      "items": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "type": {
+      "const": "notification.feed.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "cursor",
+    "entries",
+    "retracted",
+    "type",
+    "requestId"
+  ],
+  "type": "object"
+}

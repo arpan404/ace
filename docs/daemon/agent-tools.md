@@ -357,7 +357,7 @@ included `ECONNRESET: The socket connection was closed unexpectedly` (attempt 2)
 An MCP `session.tool.failed` event instead creates a failed tool result; it does
 not create that network retry status. Correct native registration removes the
 manual urllib workaround but cannot prevent a provider model-stream connection
-reset. See [native verification evidence](native-mcp-verification.md).
+reset.
 
 ## Offline regression harness
 

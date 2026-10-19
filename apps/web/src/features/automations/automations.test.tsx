@@ -159,7 +159,7 @@ test("a recent run without a thread opens what started it and what it found", as
 });
 
 test("pausing stops the schedule and resuming from the switch restarts it", async () => {
-  const { sidebar } = await open("/automations/auto-dependency-audit");
+  const { app, sidebar } = await open("/automations/auto-dependency-audit");
   await heading("Nightly dependency audit");
   const audit = sidebar.getByRole("link", { name: /Nightly dependency audit/ });
   expect(within(audit).queryByText("off")).toBeNull();
@@ -168,7 +168,9 @@ test("pausing stops the schedule and resuming from the switch restarts it", asyn
 
   expect(await within(audit).findByText("Paused")).toBeTruthy();
   expect(screen.getByText(/Paused\. Resume to schedule the next run\./)).toBeTruthy();
-  expect(await screen.findByText("Paused · Nightly dependency audit")).toBeTruthy();
+  await waitFor(async () =>
+    expect((await stored(app, "auto-dependency-audit"))?.enabled).toBe(false),
+  );
   expect(screen.getByRole("button", { name: "Run now" }).getAttribute("aria-disabled")).toBe(
     "true",
   );
@@ -178,13 +180,15 @@ test("pausing stops the schedule and resuming from the switch restarts it", asyn
   await waitFor(() => expect(within(audit).queryByText("Paused")).toBeNull());
   expect(screen.getByRole("switch", { name: "Enabled" }).getAttribute("aria-checked")).toBe("true");
   expect(screen.getByRole("button", { name: "Run now" })).toBeTruthy();
+  expect((await stored(app, "auto-dependency-audit"))?.enabled).toBe(true);
 });
 
 test("the switch restarts an automation that was already paused", async () => {
-  await open("/automations/auto-changelog");
+  const { app } = await open("/automations/auto-changelog");
   await heading("Changelog draft");
   await userEvent.click(screen.getByRole("switch", { name: "Paused" }));
-  expect(await screen.findByText("Resumed · Changelog draft")).toBeTruthy();
+  await waitFor(async () => expect((await stored(app, "auto-changelog"))?.enabled).toBe(true));
+  expect(screen.getByRole("switch", { name: "Enabled" }).getAttribute("aria-checked")).toBe("true");
   expect(await screen.findByRole("button", { name: "Run now" })).toBeTruthy();
 });
 
@@ -197,7 +201,8 @@ test("Run now starts a run on the daemon and lists it as running", async () => {
 
   const runs = within(screen.getByRole("list", { name: "Recent runs" }));
   expect(await runs.findByText("Running…")).toBeTruthy();
-  const toasts = within(screen.getByRole("region", { name: "Notifications" }));
+  // The toast view loads on the first toast, so its region comes a moment after.
+  const toasts = within(await screen.findByRole("region", { name: "Notifications" }));
   expect(await toasts.findByText("Started · Nightly dependency audit")).toBeTruthy();
 });
 

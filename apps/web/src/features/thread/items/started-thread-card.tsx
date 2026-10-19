@@ -7,7 +7,7 @@ import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { buttonVariants } from "@/components/ui/button.tsx";
 
 /**
- * The conversation an agent started with `thread_start`, where it started it: "New thread",
+ * The conversation an agent started with `thread_start` (or forked with `thread_fork`): "New thread" or "Fork",
  * its title and where it runs, and Open. The title and model follow the thread once the sidebar
  * knows it (a rename, a model switch); before then, ace's answer names them. Nothing shows until
  * ace answers with the thread, and nothing for a call that failed: its step says so.
@@ -17,18 +17,19 @@ export function StartedThreadCard(props: { threadId: string; itemId: string }) {
   const started = useMemo(() => startedThreadOf(item), [item]);
   const thread = useSidebarThread(started?.threadId ?? "");
   if (!started) return null;
-  const title = thread?.title ?? started.title ?? "New thread";
+  const label = started.forked ? "Fork" : "New thread";
+  const title = thread?.title ?? started.title ?? label;
   const provider = thread?.execution?.provider ?? thread?.provider ?? started.provider;
   const model = thread?.execution?.model ?? started.model;
   const runsOn = provider ? modelLine(provider, model, started.account) : undefined;
   return (
     <section
-      aria-label={`New thread: ${title}`}
+      aria-label={`${label}: ${title}`}
       className={`flex min-h-(--row-height) items-center gap-(--surface-gap) rounded-lg px-(--surface-inset) py-2 ${cardEdge}`}
     >
       {provider && <ProviderIcon provider={provider} size={16} decorative />}
       <p className="flex min-w-0 flex-1 items-baseline gap-x-1.5 text-ui">
-        <span className="shrink-0 text-muted-foreground">New thread</span>
+        <span className="shrink-0 text-muted-foreground">{label}</span>
         <span aria-hidden className="shrink-0 text-subtle-foreground">
           ·
         </span>

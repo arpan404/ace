@@ -121,6 +121,29 @@ Setup uses only the reviewed v2 installers. npm explicitly allows `@opencode/cli
 postinstall; Bun retains `--trust`. See the [v2 install documentation](https://opencode.ai/v2/docs/)
 and [npm global install script policy](https://docs.npmjs.com/cli/v11/using-npm/config/#allow-scripts).
 
+## Amendment 2026-10-18: a location shutdown is a rebuild, not a loss
+
+OpenCode 2.0.32 documents `location.shutdown` as part of `location.reload`: it closes every
+service of a loaded location, cancels its permissions and forms, and rebuilds fresh services on
+the next request; running sessions continue at their next step. Closing the shell service kills
+its background shells without a `shell.exited` event. ace used to treat the event as a
+permanent loss: it refused every later action in that directory and kept its work unresolved.
+A delegated child whose dev server died this way stayed `waiting on background_task` for hours,
+and the parent's Stop failed with "OpenCode location is unavailable".
+
+ace now treats the event as OpenCode intends, as a reason to recover:
+
+- Owned permissions and forms in the location expire at once, as before.
+- The session starts a snapshot recovery pass. Its agents read disconnected and sends wait behind
+  the recovery barrier until the pass ends; no action is refused for the location afterwards.
+- Every shell ace holds is checked against the rebuilt location (`shell.list`, then `shell.get`
+  for any it doesn't list). A shell OpenCode no longer knows ends `stopped`; one still running
+  keeps the thread waiting. Liveness comes from OpenCode's shell registry, the owner of the
+  process handle, not from probing PIDs ace never owned (PIDs are reused, and the registry
+  already reports `shell.exited` for every exit except a service shutdown, which this covers).
+- A Stop (cascading interrupt) removes the tree's live shells even when every session reports
+  nothing running, and fails only when nothing at all was stopped.
+
 ## Alternatives considered for execution
 
 Supporting v1 and v2 live would preserve separate translators, launchers,

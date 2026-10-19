@@ -11,7 +11,7 @@ import { useProviderStatuses, useStartingProvider } from "@/lib/provider-statuse
 import { DesktopAppPreferences } from "./desktop-app.tsx";
 import { ProjectFolders } from "./project-folders.tsx";
 import { AccessDefaultRow } from "./access-default.tsx";
-import { settingKeys, type AutoSettle } from "./data/setting-keys.ts";
+import { settingKeys, type AutoSettle, type SortBy } from "./data/setting-keys.ts";
 import { useSettingControl, useSettingWrite } from "./data/use-settings.ts";
 import { RecoverySettings } from "./recovery-settings.tsx";
 import { DaemonSlot, useNotConnectedNote } from "./setting-control.tsx";
@@ -26,6 +26,18 @@ const autoSettleOptions: { value: AutoSettle; label: string }[] = [
   { value: "never", label: "Never" },
 ];
 
+const sortByNotes: Record<SortBy, string> = {
+  activity: "Threads that need you or are working rise to the top.",
+  created: "Threads stay where they started; new ones lead.",
+  manual: "Drag threads into your own order; new ones lead.",
+};
+
+const sortByOptions: { value: SortBy; label: string }[] = [
+  { value: "activity", label: "Live activity" },
+  { value: "created", label: "Newest first" },
+  { value: "manual", label: "Manual" },
+];
+
 /**
  * This computer's login item, your name, defaults for new threads, settling, and the daemon this
  * window uses. The in-page development daemon is listed under Advanced instead.
@@ -35,6 +47,7 @@ export function GeneralSettings() {
     settingKeys.autoSettle,
     settingRow("threads.autoSettleAfter").title,
   );
+  const sortBy = useSettingControl(settingKeys.sortBy, settingRow("threads.sortBy").title);
   const note = useNotConnectedNote();
   return (
     <>
@@ -55,6 +68,17 @@ export function GeneralSettings() {
           entry="threads.useWorktree"
           description="Keeps your checkout clean."
         />
+        <SettingRow {...settingRow("threads.sortBy")} description={sortByNotes[sortBy.value]}>
+          <DaemonSlot control={sortBy}>
+            <Select
+              label="Sort threads"
+              value={sortBy.value}
+              options={sortByOptions}
+              disabled={sortBy.offline}
+              onValueChange={sortBy.set}
+            />
+          </DaemonSlot>
+        </SettingRow>
         <SettingRow
           {...settingRow("threads.autoSettleAfter")}
           description="Threads that need you never settle."

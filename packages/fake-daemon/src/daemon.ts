@@ -346,6 +346,10 @@ export class FakeDaemon implements Host {
   get projects(): FakeProjects {
     return this.servicesWire.workspace.projects;
   }
+  /** Threads' checkouts and projects' own folders behind `files.request`, for seeding files. */
+  get checkouts(): Pick<import("./files-wire.ts").FakeFilesWire, "seed" | "seedProject"> {
+    return this.servicesWire.files;
+  }
   /** Providers' own MCP servers behind `mcp.provider.sources` and its controls. */
   get mcp(): Pick<FakeMcpWire, "servers" | "idle"> {
     return this.servicesWire.mcp;
@@ -378,11 +382,16 @@ export class FakeDaemon implements Host {
    * Seed what a long-running daemon's services hold: decks, automations and their runs,
    * installed plugins and the forge's pull requests. Threads a seed links to must exist.
    */
-  /** Push an accepted notification over the same service channel as the production server. */
+  /** Push an accepted notification and keep it in the catch-up feed (`notification.feed`). */
   notify(notification: Notification): void {
     const message = NotificationMessage.parse({ type: "notification", notification });
+    this.servicesWire.notificationFeed.record(message.notification);
     for (const connection of this.connections)
       if (connection.authenticated) connection.push(message);
+  }
+  /** Stands in for the daemon's recheck: a retracted alert leaves catch-up. */
+  retractNotification(id: string): void {
+    this.servicesWire.notificationFeed.retract(id);
   }
   /** Fault injection: a restart lost proof that a queued message reached its provider. */
   uncertainQueuedMessage(threadId: string, messageId: string): void {
@@ -693,6 +702,7 @@ export class FakeDaemon implements Host {
         threadId: ThreadId.parse(host.id),
         payload,
       };
+      host.turns.track(event.payload, host.view.thread.rootAgentId);
       if (
         event.payload.type === "run.started" &&
         event.payload.run.agentId === host.view.thread.rootAgentId
@@ -702,6 +712,7 @@ export class FakeDaemon implements Host {
           ...event.payload,
           run: {
             ...run,
+            turn: host.turns.start(run),
             ordinal: host.view.runs[run.id]?.ordinal ?? ++host.runOrdinal,
             checkpoints: { state: "unavailable", error: "scripted_provider" },
           },

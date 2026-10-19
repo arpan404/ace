@@ -100,6 +100,7 @@ export const EventPayload = z.discriminatedUnion("type", [
     runId: RunId,
     error: Run.shape.error,
     state: z.enum(["completed", "interrupted", "failed"]),
+    endedBy: Run.shape.endedBy,
     /** Corrected trigger, when the provider only reveals it at the end. */
     trigger: RunTrigger.optional(),
     endedAt: Timestamp,

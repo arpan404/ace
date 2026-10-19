@@ -4,6 +4,7 @@ import {
   NotificationDevice,
   NotificationAddress,
   NotificationPreferences,
+  NotificationFeed,
   PresenceUpdate,
 } from "@ace/protocol/notifications";
 import { DeviceId, ThreadId } from "@ace/protocol/ids";
@@ -28,6 +29,7 @@ export const WorkerCall = z.discriminatedUnion("method", [
     device: DeviceId.and(z.string().max(200)),
     address: NotificationAddress,
   }),
+  z.object({ method: z.literal("unregister"), device: DeviceId.and(z.string().max(200)) }),
   z.object({ method: z.literal("connectDevice"), device: DeviceId.and(z.string().max(200)) }),
   z.object({
     method: z.literal("preferences"),
@@ -43,6 +45,11 @@ export const WorkerCall = z.discriminatedUnion("method", [
     update: PresenceUpdate,
   }),
   z.object({ method: z.literal("disconnect"), session: z.string().max(200) }),
+  z.object({
+    method: z.literal("feed"),
+    device: DeviceId.and(z.string().max(200)),
+    afterCursor: seq,
+  }),
 ]);
 export type WorkerCall = z.infer<typeof WorkerCall>;
 export const ToWorker = z.discriminatedUnion("type", [
@@ -59,7 +66,9 @@ export const FromWorker = z.discriminatedUnion("type", [
     type: z.literal("result"),
     id: seq,
     ok: z.boolean(),
-    value: z.union([seq, NotificationPreferences]).optional(),
+    value: z.union([seq, NotificationFeed, NotificationPreferences]).optional(),
+    /** Why a call failed, so the daemon's log names the cause. */
+    error: z.string().max(256).optional(),
   }),
   z.object({
     type: z.literal("delivery"),
@@ -69,4 +78,6 @@ export const FromWorker = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("cancel"), id: seq }),
 ]);
+/** What a successful call may return. */
+export type WorkerValue = Extract<z.infer<typeof FromWorker>, { type: "result" }>["value"];
 export const WorkerConfig = z.object({ path: z.string().max(4096), windowMs: seq.default(5000) });

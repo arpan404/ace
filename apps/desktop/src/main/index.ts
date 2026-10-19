@@ -212,6 +212,7 @@ function main(target: DaemonTarget): void {
       info: JSON.stringify(info),
       statePath: join(app.getPath("userData"), "window.json"),
       background: (osDark) => windowBackground(backgrounds.get(), osDark),
+      downloadsDir: app.getPath("downloads"),
       onRoute: (path) => {
         route = path;
         focusChanged();

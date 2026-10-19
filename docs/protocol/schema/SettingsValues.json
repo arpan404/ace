@@ -271,6 +271,14 @@
     "threads.settleOnMerge": {
       "type": "boolean"
     },
+    "threads.sortBy": {
+      "enum": [
+        "activity",
+        "created",
+        "manual"
+      ],
+      "type": "string"
+    },
     "threads.unresponsiveAfter": {
       "enum": [
         "2m",
@@ -329,6 +337,7 @@
     "threads.unresponsiveAfter",
     "threads.settleOnMerge",
     "threads.settleOnClose",
+    "threads.sortBy",
     "remote.enabled",
     "remote.transport",
     "remote.agentAccess",

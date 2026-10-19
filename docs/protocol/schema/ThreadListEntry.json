@@ -21,6 +21,10 @@
     "archivedAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
+    "autoSettle": {
+      "const": false,
+      "type": "boolean"
+    },
     "autoSettleAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
@@ -117,6 +121,10 @@
     "lineage": {
       "$ref": "https://ace.local/protocol/v1/ThreadLineage.json"
     },
+    "listOrder": {
+      "description": "Place in the Home list when it is ordered by hand (threads.sortBy manual), higher first. Absent: the thread's creation time stands in, so a new thread leads.",
+      "type": "number"
+    },
     "live": {
       "$ref": "https://ace.local/protocol/v1/ThreadRunMetadata.json"
     },
@@ -138,6 +146,10 @@
     },
     "readAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "settleWhenDone": {
+      "const": true,
+      "type": "boolean"
     },
     "settledAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"

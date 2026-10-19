@@ -11,6 +11,10 @@ export * from "./account-threads.ts";
 export * from "./agents.ts";
 export * from "./arrange.ts";
 export * from "./attachment-fit.ts";
+export * from "./attachment-limits.ts";
+export * from "./context-errors.ts";
+export * from "./turn-options.ts";
+export * from "./elicitation-form.ts";
 export * from "./catalog-ids.ts";
 export * from "./checkout.ts";
 export * from "./action-errors.ts";
@@ -36,6 +40,8 @@ export * from "./held-order.ts";
 export * from "./inline-markdown.ts";
 export * from "./limits.ts";
 export * from "./models.ts";
+export * from "./model-catalog-read.ts";
+export * from "./new-thread-payload.ts";
 export * from "./model-switch-route.ts";
 export * from "./model-picker.ts";
 export * from "./speed.ts";
@@ -73,6 +79,11 @@ export * from "./turn-activity.ts";
 export * from "./thread-ledger.ts";
 export * from "./turn-ordinals.ts";
 export * from "./turn-digest.ts";
+export * from "./agent-changes.ts";
+export * from "./agent-step.ts";
+export * from "./catch-up.ts";
+export * from "./check-runs.ts";
+export * from "./needs-you.ts";
 export * from "./jump-window.ts";
 export * from "./held-range.ts";
 export * from "./search-snippet.ts";
@@ -103,6 +114,8 @@ export * from "./system-events.ts";
 export * from "./system-input.ts";
 export * from "./approvals.ts";
 export * from "./approval-copy.ts";
+export * from "./follow-up.ts";
+export * from "./stop-fence.ts";
 export {
   composerInput,
   editComposerTokens,
@@ -138,7 +151,11 @@ export {
   type RowAttention,
   type RowAttentionInput,
 } from "./row-attention.ts";
-export { sanitizeUserText } from "@ace/native-session/user-text";
+export {
+  sanitizeUserText,
+  stripAceOriginMarker,
+  hasAceOriginMarker,
+} from "@ace/native-session/user-text";
 export { stripAnsi } from "./notice-text.ts";
 export {
   subagentState,

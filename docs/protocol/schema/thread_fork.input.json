@@ -1,0 +1,54 @@
+{
+  "$id": "https://ace.local/protocol/v1/thread_fork.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "effort": {
+      "description": "Reasoning effort, with model.",
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    },
+    "model": {
+      "description": "Another model of the same provider, from `models`. Default: the thread's.",
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "requestId": {
+      "description": "Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice.",
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "runId": {
+      "description": "Fork after this finished run. Default: the latest finished one.",
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "text": {
+      "description": "The fork's first message: the other approach, standing on its own.",
+      "maxLength": 262144,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "description": "The thread to fork. Default: this thread.",
+      "minLength": 1,
+      "type": "string"
+    },
+    "title": {
+      "description": "Its sidebar title.",
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "requestId",
+    "text"
+  ],
+  "type": "object"
+}

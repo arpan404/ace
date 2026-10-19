@@ -14,7 +14,7 @@ export function isRemoved(entry: ThreadListEntry): boolean {
 }
 
 /** Older named threads stay compatible; a recorded empty draft never becomes a task by rename. */
-function isDraft(entry: ThreadListEntry): boolean {
+export function isDraft(entry: ThreadListEntry): boolean {
   return (
     entry.hasSentMessage === false ||
     (entry.hasSentMessage === undefined &&
@@ -40,12 +40,18 @@ export function rank(entry: ThreadListEntry): number {
 /** From this rank on Home orders threads only by recency. */
 const restingRank = 2;
 
+/**
+ * How Home orders the threads below Pinned (`threads.sortBy`): by live activity, newest created
+ * first, or in the person's own order (`listOrder`).
+ */
+export type HomeSort = "activity" | "created" | "manual";
+
 export interface Arrangement {
   /** Pinned threads in the person's own order, settled or not: they put them there. */
   pinned: string[];
-  /** Requests and working threads. */
+  /** Requests and working threads, when Home sorts by activity; else empty. */
   active: string[];
-  /** Other threads by recency. */
+  /** Other threads by recency; every thread below Pinned when Home sorts another way. */
   recent: string[];
   snoozed: string[];
   settled: string[];
@@ -54,14 +60,20 @@ export interface Arrangement {
 /** A pinned thread's place: higher leads. Pins from before places existed go last. */
 export const pinOrderOf = (entry: ThreadListEntry): number => entry.pinOrder ?? 0;
 
+/** A thread's place in the hand-ordered list: higher leads; unplaced threads by creation, so a new one leads. */
+export const listOrderOf = (entry: ThreadListEntry): number => entry.listOrder ?? entry.createdAt;
+
+const byId = (a: ThreadListEntry, b: ThreadListEntry) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
 /**
- * Home order: pinned threads first in their own order; then by rank, most recent first within
- * a rank, split into the work in hand and the Recent threads at rest; Snoozed and Settled
- * apart by recency. Pinned tasks stay in the person's order; snoozed requests stay exposed.
+ * Home order: pinned threads first in their own order; then, sorting by activity, by rank, most
+ * recent first within a rank, split into the work in hand and the Recent threads at rest;
+ * sorting by creation or by hand, one list in that order. Snoozed and Settled apart by recency.
+ * Pinned tasks stay in the person's order; snoozed requests stay exposed.
  */
 export function arrange(
   entries: readonly ThreadListEntry[],
-  state: Pick<OrganizerState, "project">,
+  state: Pick<OrganizerState, "project"> & { sortBy?: HomeSort | undefined },
   now: number,
 ): Arrangement {
   const pinned: ThreadListEntry[] = [];
@@ -80,14 +92,24 @@ export function arrange(
     else active.push({ entry, rank: rank(entry) });
   }
   pinned.sort(
-    (a, b) =>
-      pinOrderOf(b) - pinOrderOf(a) ||
-      activityOf(b) - activityOf(a) ||
-      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    (a, b) => pinOrderOf(b) - pinOrderOf(a) || activityOf(b) - activityOf(a) || byId(a, b),
   );
-  active.sort((a, b) => a.rank - b.rank || activityOf(b.entry) - activityOf(a.entry));
   snoozed.sort((a, b) => activityOf(b) - activityOf(a));
   settled.sort((a, b) => activityOf(b) - activityOf(a));
+  const sortBy = state.sortBy ?? "activity";
+  if (sortBy !== "activity") {
+    const key = sortBy === "manual" ? listOrderOf : (entry: ThreadListEntry) => entry.createdAt;
+    const listed = active.map((row) => row.entry);
+    listed.sort((a, b) => key(b) - key(a) || byId(a, b));
+    return {
+      pinned: pinned.map((entry) => entry.id),
+      active: [],
+      recent: listed.map((entry) => entry.id),
+      snoozed: snoozed.map((entry) => entry.id),
+      settled: settled.map((entry) => entry.id),
+    };
+  }
+  active.sort((a, b) => a.rank - b.rank || activityOf(b.entry) - activityOf(a.entry));
   const resting = active.findIndex((row) => row.rank >= restingRank);
   const split = resting < 0 ? active.length : resting;
   return {

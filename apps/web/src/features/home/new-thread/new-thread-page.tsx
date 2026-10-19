@@ -1,6 +1,7 @@
 import { useIssueSource, usePrSource } from "@/features/forge/index.ts";
 import { useNavigate } from "@tanstack/react-router";
 import { ProjectPicker } from "./project-picker.tsx";
+import { StartFrom, type StartSource } from "./start-from.tsx";
 import type { AccessMode, BranchRef, ProviderKind, WorktreeBase } from "@ace/protocol";
 import { Suspense, useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
 import { Screen } from "@/features/shell/index.ts";
@@ -30,9 +31,7 @@ import { useOrganizerState } from "@/features/organize/index.ts";
 import {
   defaultWorktreeBase,
   accessChoices,
-  accessLabel,
-  supportedAccess,
-  threadAccessSummary,
+  newThreadAccess,
   providerNames,
   speedOption,
 } from "@ace/ui-core";
@@ -176,6 +175,12 @@ export function NewThreadPage(props: {
           },
         });
       }}
+      onSource={(source) =>
+        void navigate({
+          to: "/new",
+          search: { project, pullRequest: source.pullRequest, issue: source.issue },
+        })
+      }
     />
   );
 }
@@ -189,6 +194,7 @@ function PreparationPage(props: {
   pullRequest?: string | undefined;
   issue?: string | undefined;
   onProject(project: string): void;
+  onSource(source: StartSource): void;
 }) {
   // Kept out of the compiler: the page reads saved preparations and drafts from storage while
   // rendering, by version (`usePreparationsChanged`), and a memoized read would show stale rows.
@@ -320,23 +326,18 @@ function PreparationPage(props: {
     remember({ permission: mode });
   };
   const accessModes = useAccessModes(runsOn, undefined, runsOnAccount);
-  const defaultAccess = projectDefaults?.access ?? daemonDefault;
-  const wantedAccess = access ?? defaultAccess;
-  const admittedAccess = wantedAccess
-    ? supportedAccess(wantedAccess, accessModes.offers)
-    : undefined;
-  const accessSummary = threadAccessSummary(
-    { override: access ?? null, effective: admittedAccess ?? null, pending: false },
-    accessModes.offers,
-    {
-      ...(defaultAccess ? { defaultMode: defaultAccess } : {}),
-      provider: runsOn ? providerNames[runsOn] : undefined,
-    },
-  );
-  const noStricterAccess =
-    runsOn && wantedAccess && accessModes.offers.length && !admittedAccess
-      ? `${providerNames[runsOn]} has nothing as strict as ${accessLabel(wantedAccess)}. Choose its access before sending.`
-      : undefined;
+  const {
+    admitted: admittedAccess,
+    summary: accessSummary,
+    problem: noStricterAccess,
+    permission: createAccess,
+  } = newThreadAccess({
+    chosen: access,
+    projectDefault: projectDefaults?.access,
+    daemonDefault,
+    offers: accessModes.offers,
+    provider: runsOn ? providerNames[runsOn] : undefined,
+  });
 
   const remember = (patch: Partial<Preparation> = {}) => {
     const previous = preparation(storage, props.host, draftKey);
@@ -613,7 +614,7 @@ function PreparationPage(props: {
       serviceTier: launchModel.serviceTier,
       // Before the provider's modes are read, only a mode picked here is sent; otherwise the
       // daemon applies the project's or its own default.
-      permission: admittedAccess ?? (accessModes.offers.length ? undefined : access),
+      permission: createAccess,
       input: draft.input,
       text: draft.text,
       context: {
@@ -709,11 +710,22 @@ function PreparationPage(props: {
     <Screen title="New thread">
       <div
         ref={page}
-        className="flex h-full min-h-0 flex-col overflow-y-auto pt-6 pb-[max(1rem,env(safe-area-inset-bottom))]"
+        className="flex h-full min-h-0 flex-col overflow-y-auto pt-6 pb-[max(1rem,env(safe-area-inset-bottom))] [scrollbar-gutter:stable]"
       >
-        {/* The thread's reading column: the composer keeps its place and width when Enter
-            opens the thread. Above it, the empty transcript to be. */}
-        <div className={cn(readingColumn, "flex h-full min-h-0 flex-col justify-end")}>
+        {/* The thread's reading column: a question naming the project (its name picks another),
+            the composer high on the page, and the project's open work to start from below it. */}
+        <div className={cn(readingColumn, "flex flex-col pt-[clamp(1rem,22vh,12rem)]")}>
+          <h2 className="mb-6 px-1 text-center text-2xl leading-tight font-normal tracking-title text-balance break-words text-muted-foreground">
+            What should we build in{" "}
+            <ProjectPicker
+              projects={projects}
+              projectName={name}
+              project={project}
+              onProject={chooseProject}
+              returnFocus={messageField}
+            />
+            ?
+          </h2>
           <div className="shrink-0">
             <Composer
               ref={composer}
@@ -847,17 +859,9 @@ function PreparationPage(props: {
                       {readiness.pending}
                     </p>
                   )}
-                  <div className={composerEnvironmentRow}>
-                    <ProjectPicker
-                      projects={projects}
-                      projectName={name}
-                      project={project}
-                      onProject={chooseProject}
-                      returnFocus={messageField}
-                    />
-                    {!notice && (
-                      <div data-environment="" className="flex min-w-0 flex-1 items-center">
-                        <span aria-hidden className="mx-0.5 h-3.5 w-px shrink-0 bg-border" />
+                  {!notice && (
+                    <div data-environment="" className={composerEnvironmentRow}>
+                      <div className="flex min-w-0 flex-1 items-center">
                         <Suspense fallback={<Skeleton className="mx-2 w-28" />}>
                           <DeferredEnvironment.Component
                             pullRequest={
@@ -882,8 +886,8 @@ function PreparationPage(props: {
                           />
                         </Suspense>
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               }
               trailing={
@@ -927,6 +931,11 @@ function PreparationPage(props: {
               }
             />
           </div>
+          <StartFrom
+            project={props.project}
+            source={{ pullRequest: props.pullRequest, issue: props.issue }}
+            onPick={props.onSource}
+          />
         </div>
       </div>
     </Screen>

@@ -12,6 +12,17 @@
           "minimum": 0,
           "type": "integer"
         },
+        "autoSettle": {
+          "anyOf": [
+            {
+              "const": false,
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "autoSettleAt": {
           "anyOf": [
             {
@@ -30,6 +41,10 @@
         },
         "hasSentMessage": {
           "type": "boolean"
+        },
+        "listOrder": {
+          "description": "Place in the Home list when it is ordered by hand (threads.sortBy manual), higher first. Absent: the thread's creation time stands in, so a new thread leads.",
+          "type": "number"
         },
         "live": {
           "$ref": "https://ace.local/protocol/v1/ThreadRunMetadata.json"
@@ -50,6 +65,17 @@
         },
         "readAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "settleWhenDone": {
+          "anyOf": [
+            {
+              "const": true,
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "settledAt": {
           "anyOf": [

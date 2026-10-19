@@ -19,6 +19,8 @@ export const PublicToolCode = z.enum([
   "delivery_unconfirmed",
   "invalid_arguments",
   "invalid_html",
+  "invalid_image",
+  "image_unavailable",
   "invalid_data",
   "execution_failed",
   "provider_unavailable",
@@ -156,6 +158,14 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   invalid_html: {
     message: "The page has unsupported content and was not published",
     hint: "Fix each problem in issues, then call html_render again with the corrected page.",
+  },
+  invalid_image: {
+    message: "The bytes are not a PNG, JPEG, WebP or GIF image and were not shown",
+    hint: "Convert the image to PNG or JPEG (at most 8 MiB and 16,384 px per side), then call image_show again.",
+  },
+  image_unavailable: {
+    message: "The image file could not be read",
+    hint: "Pass the path of a regular file, not a symbolic link, at most 8 MiB. A relative path starts at your working directory.",
   },
   invalid_data: {
     message: "Invalid tool or backend data",

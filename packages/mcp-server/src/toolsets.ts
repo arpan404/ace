@@ -34,6 +34,10 @@ export const coreTools: ReadonlySet<string> = new Set([
   "ask",
   "note_add",
   "thread_link_pr",
+  "thread_start",
+  "thread_control",
+  "projects_find",
+  "agent_message",
   "browser_open",
   "html_render",
   // macOS lists the background engine's screen_state; other platforms keep screen_open_app.

@@ -154,6 +154,16 @@ export class Recovery {
         this.repo.queue.set(id, { paused: true, reason: "stopped" }, this.clock.now());
     });
   }
+  /**
+   * Builds before the Stop rule captured a restart "continue" behind a Stop, which left a
+   * cancelled thread waiting on its queue forever. Startup drops it; the Stop's hold stays.
+   */
+  dropContinuationBehindStop(id: ThreadId): void {
+    const queue = this.repo.queue.get(id);
+    if (!stoppedHold(queue) || queue.trigger !== "restart") return;
+    this.repo.queue.set(id, { continuation: null, trigger: null }, this.clock.now());
+    this.sync(id);
+  }
   discard(id: ThreadId): void {
     this.repo.store.atomic(() => {
       const queue = this.repo.queue.get(id);
@@ -184,6 +194,8 @@ export class Recovery {
   }
   capture(id: ThreadId): void {
     if (this.repo.pending.uncertainContinuation(id)) return;
+    // A Stop is final: the stopped turn never carries on, so a restart has nothing to resume.
+    if (stoppedHold(this.repo.queue.get(id))) return;
     const text = lostWork(
       this.repo.requireState(id),
       this.repo.pending.recoveryAcknowledgement(id) ? 1 : 0,
@@ -202,6 +214,7 @@ export class Recovery {
   holdInterrupted(id: ThreadId): void {
     if (this.repo.pending.uncertainContinuation(id)) return;
     const queue = this.repo.queue.get(id);
+    if (stoppedHold(queue)) return;
     this.repo.queue.set(
       id,
       {
@@ -560,4 +573,8 @@ export class Recovery {
     this.closed = true;
     this.cancel?.();
   }
+}
+
+function stoppedHold(queue: { paused: boolean; reason: string | null }): boolean {
+  return queue.paused && queue.reason === "stopped";
 }

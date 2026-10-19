@@ -204,6 +204,13 @@ export class IntentStore {
     ).get(id);
     return row ? header(row) : undefined;
   }
+  /** The person's oldest waiting steer, ahead of any daemon result steering behind a command. */
+  personSteer(id: ThreadId): IntentHeader | undefined {
+    const row = this.sql(
+      `SELECT ${columns} FROM intents WHERE thread_id=? AND kind='thread.send' AND delivery='steer' AND (trigger IS NULL OR trigger='user') AND status IN ('pending','queued') ORDER BY position,id LIMIT 1`,
+    ).get(id);
+    return row ? header(row) : undefined;
+  }
   /** A switch, merge or selecting send not yet done: later sends inherit what it selects. */
   selectionAhead(id: ThreadId): boolean {
     return Boolean(

@@ -13,7 +13,8 @@ import {
 import type { ThreadActions } from "@/features/organize/index.ts";
 
 /*
- * Moving Home threads into, within and out of the Pinned group, by pointer or keyboard. Loaded
+ * Moving Home threads into, within and out of the Pinned group, and within the list below it
+ * when the person sorts it by hand, by pointer or keyboard. Loaded
  * on first use, so the first paint doesn't carry it. Pure geometry and placement come from
  * @ace/ui-core (`dropTargetAt`, `placePinned`); this is the thin DOM shell: a ghost of the row
  * under the pointer, a line where it would land, scrolling near the edges, and words for
@@ -27,6 +28,8 @@ export interface DragHost {
   boxes(): RowBox[];
   /** The Pinned group as shown, top first. */
   pinned(): PinnedPlace[];
+  /** The threads below Pinned as shown, top first, when sorted by hand; else undefined. */
+  listed(): PinnedPlace[] | undefined;
   entry(id: string): ThreadListEntry | undefined;
   actions: ThreadActions;
   /** Moving rows dim, and an empty Pinned group shows its drop zone; undefined ends it. */
@@ -53,19 +56,42 @@ function describe(host: DragHost, ids: readonly string[], target: DropTarget): s
     const pinned = host.pinned().some((pin) => moving.has(pin.id));
     return pinned ? `${name}: unpin` : `${name}: not pinned`;
   }
+  if (target.kind === "place") {
+    const listed = (host.listed() ?? []).filter((place) => !moving.has(place.id)).length;
+    return `${name}: place ${target.index + 1} of ${listed + 1}`;
+  }
   const others = host.pinned().filter((pin) => !moving.has(pin.id)).length;
   return `${name}: Pinned, place ${target.index + 1} of ${others + 1}`;
 }
 
-/** Pin the threads at `target`, or unpin them; nothing when it changes nothing. */
+/** Unpin the pinned ones among `entries`; how many it unpinned. */
+function unpinAll(host: DragHost, entries: readonly ThreadListEntry[]): number {
+  const pinned = entries.filter((entry) => entry.pinned === true);
+  const [only] = pinned;
+  if (pinned.length === 1 && only) host.actions.setPinned(only, false);
+  else if (pinned.length) host.actions.setPinnedMany(pinned, false);
+  return pinned.length;
+}
+
+/** Pin the threads at `target`, place them, or unpin them; nothing when it changes nothing. */
 function drop(host: DragHost, ids: readonly string[], target: DropTarget): string | undefined {
   const entries = ids.flatMap((id) => host.entry(id) ?? []);
-  if (target.kind === "unpin") {
-    const pinned = entries.filter((entry) => entry.pinned === true);
-    const [only] = pinned;
-    if (pinned.length === 1 && only) host.actions.setPinned(only, false);
-    else if (pinned.length) host.actions.setPinnedMany(pinned, false);
-    return pinned.length ? `Unpinned ${nameOf(host, ids)}` : undefined;
+  if (target.kind === "unpin")
+    return unpinAll(host, entries) ? `Unpinned ${nameOf(host, ids)}` : undefined;
+  if (target.kind === "place") {
+    const unpinned = unpinAll(host, entries);
+    const moves = placePinned(
+      host.listed() ?? [],
+      entries.map((entry) => entry.id),
+      target.index,
+    );
+    host.actions.placeListed(
+      moves.flatMap((move) => {
+        const entry = host.entry(move.id);
+        return entry ? [{ entry, order: move.order }] : [];
+      }),
+    );
+    return moves.length || unpinned ? `Dropped ${describe(host, ids, target)}` : undefined;
   }
   const moves = placePinned(
     host.pinned(),
@@ -224,7 +250,9 @@ export function trackPointer(
     document.body.style.userSelect = "none";
     document.body.style.cursor = "grabbing";
     host.announce(
-      `Moving ${nameOf(host, ids)}. Drop it in Pinned to pin it, or below to unpin it.`,
+      host.listed()
+        ? `Moving ${nameOf(host, ids)}. Drop it in Pinned to pin it, or below to place it.`
+        : `Moving ${nameOf(host, ids)}. Drop it in Pinned to pin it, or below to unpin it.`,
     );
   };
   const finish = (commit: boolean) => {
@@ -282,19 +310,28 @@ export interface KeyboardMove {
 
 /**
  * Pick `ids` up to move by keyboard: ↑ and ↓ (or k and j) step through the places in the
- * Pinned group and, below it, out of the group; Space or Enter drops; Escape or Tab cancels.
- * Each step is announced, and the line shows where it would land.
+ * Pinned group and, below it, the places in a hand-sorted list or else out of the group; Space
+ * or Enter drops; Escape or Tab cancels. Each step is announced, and the line shows where it
+ * would land.
  */
 export function startKeyboardMove(host: DragHost, ids: readonly string[]): KeyboardMove {
   const moving = new Set(ids);
   const pinned = host.pinned();
+  const listed = host.listed();
   const others = pinned.filter((pin) => !moving.has(pin.id));
-  const targets = moveTargets(others.length);
+  const otherListed = listed?.filter((place) => !moving.has(place.id));
+  const targets = moveTargets(others.length, otherListed?.length);
   const first = pinned.findIndex((pin) => moving.has(pin.id));
   const startsPinned = first >= 0;
+  const firstListed = listed?.findIndex((place) => moving.has(place.id)) ?? -1;
   let target: DropTarget = startsPinned
     ? { kind: "pin", index: pinned.slice(0, first).filter((pin) => !moving.has(pin.id)).length }
-    : { kind: "unpin" };
+    : listed && firstListed >= 0
+      ? {
+          kind: "place",
+          index: listed.slice(0, firstListed).filter((place) => !moving.has(place.id)).length,
+        }
+      : { kind: "unpin" };
   let live = true;
   const line = indicator(host.list);
   const show = () => {

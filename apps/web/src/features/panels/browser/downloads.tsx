@@ -46,7 +46,7 @@ function DownloadRow(props: {
   const path = download.state === "complete" ? download.path : undefined;
   const risky = download.flags.includes("executable");
   return (
-    <li className="flex min-h-12 items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-foreground/5">
+    <li className="flex min-h-12 items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent">
       <span className="grid size-8 shrink-0 place-items-center rounded-md bg-foreground/5 text-muted-foreground">
         <Icon icon={download.flags.includes("archive") ? FileArchiveIcon : FileIcon} size={16} />
       </span>

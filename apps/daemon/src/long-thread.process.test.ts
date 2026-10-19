@@ -34,8 +34,8 @@ import {
 } from "./long-thread-test-support.ts";
 
 // Mutations: allocating ordinals from the retained tail; losing the pre-run message;
-// failing to allocate automatic turns; inclusive page cursors. Not executed (tests run at merge).
-test("root turn ordinals and pre-run messages survive restart and page around automatic turns", async () => {
+// giving an automatic run its own turn; inclusive page cursors.
+test("an automatic run joins its ask's turn, and turn ordinals and pre-run messages survive restart", async () => {
   const f = storeFixture();
   f.store.appendEvents(
     f.thread.id,
@@ -49,8 +49,8 @@ test("root turn ordinals and pre-run messages survive restart and page around au
     40,
   );
   end(f.store, f.thread, "first", 50);
-  const firstEndSeq = f.store.headSeq();
   start(f.store, f.thread, "automatic", 60, "background_completion");
+  expect(turns(f.store, f.thread).turns.at(-1)).toMatchObject({ ordinal: 1, outcome: "active" });
   f.store.appendEvents(
     f.thread.id,
     [
@@ -62,24 +62,26 @@ test("root turn ordinals and pre-run messages survive restart and page around au
     70,
   );
   end(f.store, f.thread, "automatic", 80);
+  const firstEndSeq = f.store.headSeq();
   await f.restart();
   f.store.appendEvents(
     f.thread.id,
-    [{ type: "item.created", item: userMessage("third-input", "Continue tomorrow") }],
+    [{ type: "item.created", item: userMessage("next-input", "Continue tomorrow") }],
     90,
   );
-  start(f.store, f.thread, "third", 100);
-  const latest = turns(f.store, f.thread, { limit: 2 });
-  expect(latest.turns.map((turn) => turn.ordinal)).toEqual([2, 3]);
+  start(f.store, f.thread, "next", 100);
+  const latest = turns(f.store, f.thread, { limit: 1 });
+  expect(latest.turns.map((turn) => turn.ordinal)).toEqual([2]);
+  expect(latest.turns[0]?.initiatingMessagePreview).toBe("Continue tomorrow");
   expect(latest.before).toBe(2);
   const older = turns(f.store, f.thread, { before: latest.before ?? 0, limit: 2 });
   expect(older.turns.map((turn) => turn.ordinal)).toEqual([1]);
   expect(older.turns[0]).toMatchObject({
     initiatingMessagePreview: "Investigate a multi-day task",
-    latestAgentMessagePreview: "First outcome",
+    latestAgentMessagePreview: "Background task result",
     outcome: "completed",
   });
-  expect(older.turns[0]?.endedAt).toBe(50);
+  expect(older.turns[0]?.endedAt).toBe(80);
   expect(older.turns[0]?.endSeq).toBe(firstEndSeq);
   expect(
     turns(f.store, f.thread, { after: 1, limit: 1 }).turns.map((turn) => turn.ordinal),

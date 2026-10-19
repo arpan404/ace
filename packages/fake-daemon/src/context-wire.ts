@@ -71,8 +71,15 @@ export class FakeContextWire {
       return attachment;
     });
   }
-  constructor(context: FakeServiceContext, checkoutPaths?: (threadId: string) => string[]) {
+  private projectPaths: ((workspaceId: string) => string[]) | undefined;
+  /** `projectPaths` is a project's own folder, which a draft (New thread) searches. */
+  constructor(
+    context: FakeServiceContext,
+    checkoutPaths?: (threadId: string) => string[],
+    projectPaths?: (workspaceId: string) => string[],
+  ) {
     this.checkoutPaths = checkoutPaths;
+    this.projectPaths = projectPaths;
     this.context = context;
   }
   private references(scope: string) {
@@ -313,7 +320,9 @@ export class FakeContextWire {
                       workspaceId,
                       op.query,
                       op.limit,
-                      this.drafts.has(scope) ? undefined : this.checkoutPaths?.(scope),
+                      this.drafts.has(scope)
+                        ? this.projectPaths?.(workspaceId)
+                        : this.checkoutPaths?.(scope),
                     )
                   : [],
               };
@@ -369,7 +378,7 @@ function imageMetadata(
   }
   return {
     mimeType: mime,
-    thumbnailAvailable: dimensions !== undefined && bytes.length <= 256 * 1024,
+    thumbnailAvailable: dimensions !== undefined && bytes.length <= 512 * 1024,
     ...dimensions,
   };
 }

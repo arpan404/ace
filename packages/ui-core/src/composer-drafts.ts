@@ -29,9 +29,15 @@ export type DraftEntries = readonly (readonly [key: string, draft: ComposerDraft
 /** How many unsent drafts a device keeps, and how long one may be. */
 export const draftLimits = { drafts: 50, chars: 100_000, attachments: 64 } as const;
 
+/** A message can go with words, files, or both; whitespace alone carries nothing. */
+export function messageHasContent(text: string, files: number): boolean {
+  return text.trim().length > 0 || files > 0;
+}
+
 export function isEmptyDraft(draft: ComposerDraft | undefined): boolean {
   return (
-    !draft || (!draft.text.trim() && !draft.attachments.length && !draft.annotations?.items.length)
+    !draft ||
+    (!messageHasContent(draft.text, draft.attachments.length) && !draft.annotations?.items.length)
   );
 }
 

@@ -2,49 +2,17 @@
 // it: its failures in plain words, and the resumable upload sequence (begin, chunks at the
 // acknowledged offset, commit) that turns a file into a thread attachment.
 import type { ClientApi } from "@ace/client";
-import {
-  ThreadId,
-  type Attachment,
-  type ContextOperation,
-  type ContextResult,
-} from "@ace/protocol";
+import { ThreadId, type Attachment, type ContextOperation } from "@ace/protocol";
 
-type Result = ContextResult["result"];
+import { ContextError, expectContext } from "@ace/ui-core";
 
-const messages: Partial<Record<Extract<Result, { kind: "error" }>["code"], string>> = {
-  busy: "Files are still in use. Wait for current work to finish, then try again.",
-  invalid_image: "That image can't be read.",
-  forbidden: "This device may not add files to the thread.",
-  not_found: "This thread or attachment is no longer available.",
-  quota:
-    "Attachment limit reached. Open Attachments from the thread menu and remove files you no longer need.",
-  unsupported: "This attachment operation is unavailable. Update ace and try again.",
-  invalid_request: "Couldn't manage the attachment. Try again.",
-};
+export { ContextError } from "@ace/ui-core";
 
 /** Base64 of up to 48 KiB, which stays under the protocol's chunk size limit. */
 export const chunkBytes = 48 * 1024;
 
-export class ContextError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ContextError";
-  }
-}
-
-const is = <K extends Result["kind"]>(
-  result: Result,
-  kind: K,
-): result is Extract<Result, { kind: K }> => result.kind === kind;
-
-export function expect<K extends Result["kind"]>(
-  result: Result,
-  kind: K,
-): Extract<Result, { kind: K }> {
-  if (result.kind === "error") throw new ContextError(messages[result.code] ?? result.message);
-  if (!is(result, kind)) throw new ContextError("ace answered something unexpected.");
-  return result;
-}
+/** The result of the kind asked for, or a `ContextError` in the shared plain words. */
+export const expect = expectContext;
 
 export async function sha256(file: File): Promise<string> {
   const { sha256: createHash } = await import("@noble/hashes/sha2.js");

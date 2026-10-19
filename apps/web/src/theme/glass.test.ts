@@ -142,7 +142,7 @@ test("text on glass reads at AA over blurred busy backdrops in every theme, ligh
         for (const [backdrop, colour] of Object.entries(behind)) {
           const surface = over(glass.rgb, glass.alpha, colour);
           // A selected row's ink wash on top, the strongest wash text sits on.
-          const selected = over(ink, scheme === "light" ? 0.07 : 0.08, surface);
+          const selected = over(ink, scheme === "light" ? 0.04 : 0.05, surface);
           for (const [token, minimum] of Object.entries(levels)) {
             const text = parseOpaqueColor(tokens[token]);
             const ratio = text

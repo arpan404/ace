@@ -16,7 +16,14 @@ import {
   type RefObject,
 } from "react";
 import { rowMotion, useListMotion } from "@/lib/motion.ts";
-import { homeRowKey, homeRowThread, homeRows, type HomeRow, type RowBox } from "@ace/ui-core";
+import {
+  homeRowKey,
+  homeRowThread,
+  homeRows,
+  listOrderOf,
+  type HomeRow,
+  type RowBox,
+} from "@ace/ui-core";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { matchesChord } from "@/lib/hotkeys.ts";
 import { useResolvedKeymap } from "@/lib/keybindings.ts";
@@ -36,7 +43,7 @@ import { ManyDevices, useManyDevices } from "./row-parts.tsx";
 import { ThreadRow } from "./thread-row.tsx";
 import { SettledRow } from "./settled-row.tsx";
 import { UnsentRows } from "./unsent-rows.tsx";
-import type { HomeList } from "./use-home-threads.ts";
+import { useHomeSort, type HomeList } from "./use-home-threads.ts";
 import { useHeldRows, useListHold } from "./use-held-rows.ts";
 import {
   useHomeSelection,
@@ -95,7 +102,8 @@ function HeadingText(props: { label: string; count?: number | undefined }) {
  * setting, in Settings › General). Only visible rows mount. Up and Down (or j and k) move
  * between rows; Tab still walks each row's actions. On a row, P pins or unpins it, X picks it
  * (⌘- and Shift-click too) and Space picks it up to move by keyboard; rows drag with the pointer
- * into, within and out of the Pinned group. A finger drags only by a pinned row's handle, so a
+ * into, within and out of the Pinned group, and, when threads are sorted by hand (Settings ›
+ * General › Sort threads), to any place below it. A finger drags only by a pinned row's handle, so a
  * finger on a row still scrolls the list; Space or Enter on the handle starts a keyboard move.
  * Rows that arrive (a new thread, an unsnooze) rise in, rows that go (settle, snooze, archive)
  * fade where they were, and the rest slide to their new places. While the person points at the
@@ -157,10 +165,12 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
   const jumps = useMemo(() => jumpTargets(drawn), [drawn]);
   const numbers = useMemo(() => new Map(jumps.map((id, index) => [id, index + 1])), [jumps]);
   const hints = useJumpHints();
+  // Sorted by hand, the threads below Pinned are places a drag can drop at.
+  const manual = useHomeSort() === "manual";
   // A drag outlives the render it started in: it reads the rows as drawn now.
-  const latest = useRef({ drawn, pinned });
+  const latest = useRef({ drawn, pinned, manual });
   useLayoutEffect(() => {
-    latest.current = { drawn, pinned };
+    latest.current = { drawn, pinned, manual };
   });
   // One Tab stop for the whole list (a roving tabindex), kept as rows mount, move and leave.
   const lastFocused = useRef<Element | null>(null);
@@ -191,7 +201,14 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
           const edge = kind === "pinned-end" ? { top: middle, bottom: middle } : undefined;
           return [
             {
-              kind: kind === "pinned-header" ? "pin-zone" : kind === "pinned" ? "pinned" : "other",
+              kind:
+                kind === "pinned-header"
+                  ? "pin-zone"
+                  : kind === "pinned"
+                    ? "pinned"
+                    : kind === "thread" && latest.current.manual
+                      ? "listed"
+                      : "other",
               ...("id" in row.item ? { id: row.item.id } : {}),
               top: edge?.top ?? item.start,
               bottom: edge?.bottom ?? item.end,
@@ -199,6 +216,16 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
           ];
         }),
       pinned: () => latest.current.pinned.map((id) => ({ id, order: shownEntry(id)?.pinOrder })),
+      listed: () =>
+        latest.current.manual
+          ? latest.current.drawn.flatMap((row) => {
+              const entry =
+                row.item.kind === "thread" && row.phase !== "exit"
+                  ? shownEntry(row.item.id)
+                  : undefined;
+              return entry ? [{ id: entry.id, order: listOrderOf(entry) }] : [];
+            })
+          : undefined,
       entry: shownEntry,
       actions,
       setMoving,

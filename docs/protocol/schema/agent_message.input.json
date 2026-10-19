@@ -27,7 +27,7 @@
       "type": "string"
     },
     "threadId": {
-      "description": "A child's threadId, from delegate or agents_status.",
+      "description": "A child's or owned thread's id; with full access, any of the person's threads.",
       "minLength": 1,
       "type": "string"
     }

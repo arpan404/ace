@@ -52,6 +52,8 @@ function StepSlider(props: {
   quietFocus?: boolean;
   /** A contained active material for a supported deep reasoning setting. */
   deepReasoning?: boolean;
+  /** The ace mark on the thumb: kept for the deepest modes, Ultra and ultrathink. */
+  aceMark?: boolean;
   /** Use the existing accent gradient at every supported level. */
   gradient?: boolean;
   /** The step that is the default: a ring on its dot and "default" under its label. */
@@ -187,7 +189,7 @@ function StepSlider(props: {
               )}
               style={{ left: inset }}
             >
-              {props.deepReasoning && (
+              {props.aceMark && (
                 <AceMark className="step-slider-ace fx-flourish absolute inset-0 m-auto size-4 text-ring" />
               )}
             </span>

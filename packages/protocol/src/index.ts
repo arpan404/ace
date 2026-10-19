@@ -159,3 +159,4 @@ export * from "./cli-control.ts";
 export * from "./storage.ts";
 
 export * from "./html.ts";
+export * from "./image-share.ts";

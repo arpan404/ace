@@ -259,6 +259,7 @@
  *   .spin-ring          the Spinner: one turn every 800ms
  *   .aperture-part      the status glyphs' moving parts (components/status-glyph.tsx), below
  *   .fx-breathe         the startup mark while ace starts
+ *   .fx-agent-pulse     a browser tab an agent is using: its cursor and its title, together
  *   .fx-indeterminate   a progress bar that doesn't know how far along it is
  *   .animate-pulse      Tailwind's pulse (streaming caret, connection dot, browser agent line)
  */
@@ -318,6 +319,14 @@
 }
 .fx-breathe {
   animation: fx-breathe 1.6s ease-in-out infinite alternate;
+}
+.fx-agent-pulse,
+[data-agent-driving] ~ [data-tab-title] {
+  animation: fx-agent-pulse 1s ease-in-out infinite alternate;
+}
+[data-live-held] .fx-agent-pulse,
+[data-live-held] [data-agent-driving] ~ [data-tab-title] {
+  animation-play-state: paused;
 }
 .fx-indeterminate {
   animation: fx-sweep 1.4s var(--ease-out) infinite;
@@ -391,6 +400,11 @@
 @keyframes fx-breathe {
   to {
     opacity: 0.55;
+  }
+}
+@keyframes fx-agent-pulse {
+  to {
+    opacity: 0.4;
   }
 }
 @keyframes fx-sweep {

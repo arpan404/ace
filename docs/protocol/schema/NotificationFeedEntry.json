@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/NotificationFeedEntry.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "cursor": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "notification": {
+      "$ref": "https://ace.local/protocol/v1/Notification.json"
+    }
+  },
+  "required": [
+    "cursor",
+    "notification"
+  ],
+  "type": "object"
+}

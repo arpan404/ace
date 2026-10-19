@@ -83,7 +83,7 @@ The image installs with Bun and runs TypeScript on Node 24 as an unprivileged us
 
 The Noise core is portable; these helpers use Node's `ws`. Browser and Expo bindings remain with the client workers. Pairing, token verification and daemon route selection remain with the remote-access worker.
 
-See [performance measurements](performance.md), [mutation evidence](mutations.md), [Noise revision 34](https://noiseprotocol.org/noise.html), [ws API](https://github.com/websockets/ws/blob/master/doc/ws.md), and [secure-channel provenance](../../packages/secure-channel/README.md).
+See [Noise revision 34](https://noiseprotocol.org/noise.html), [ws API](https://github.com/websockets/ws/blob/master/doc/ws.md), and [secure-channel provenance](../../packages/secure-channel/README.md).
 
 ## Exclusive binary preview subchannels
 
