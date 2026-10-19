@@ -6,6 +6,11 @@ protocol ClientSession: AnyObject, Sendable {
     func invoke(_ name: String, json: String)
     func acknowledge(accepted: Bool)
     func stop(completion: @escaping @Sendable () -> Void)
+    /// Where the runtime's sockets deliver browser stream messages; nil without a live socket.
+    var browserStreams: BrowserStreamHub? { get }
+}
+extension ClientSession {
+    var browserStreams: BrowserStreamHub? { nil }
 }
 
 typealias ClientSessionFactory = @MainActor (

@@ -49,15 +49,21 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Send
     private let target: ConnectionTarget
     private let event: @Sendable (String, String) -> Void
     private let now: @Sendable () -> Date
+    /// Browser stream pieces are assembled here, on the delegate queue, and go to `streams`
+    /// without entering JavaScriptCore; other binary messages reach the SDK.
+    private let streams: BrowserStreamHub?
+    private var router = BinaryRouter()
     private var task: URLSessionWebSocketTask?
     private var session: URLSession?
     private var ended = false
     private let queue = OperationQueue()
 
-    init(target: ConnectionTarget, now: @escaping @Sendable () -> Date = { Date() }, event: @escaping @Sendable (String, String) -> Void) {
+    init(target: ConnectionTarget, now: @escaping @Sendable () -> Date = { Date() }, streams: BrowserStreamHub? = nil,
+         event: @escaping @Sendable (String, String) -> Void) {
         self.target = target
         self.event = event
         self.now = now
+        self.streams = streams
         super.init()
         queue.maxConcurrentOperationCount = 1
     }
@@ -97,8 +103,13 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Send
                 switch result {
                 case .success(.string(let text)): self.event("message", text); self.receive()
                 case .success(.data(let bytes)):
-                    if let text = String(data: bytes, encoding: .utf8) { self.event("message", text); self.receive() }
-                    else { self.finish(4002) }
+                    switch self.router.route(bytes) {
+                    case .none: break
+                    case .stream(let message): self.streams?.deliver(message)
+                    case .sdk: self.event("binary", bytes.base64EncodedString())
+                    case .broken: self.finish(1002); return
+                    }
+                    self.receive()
                 case .failure: self.finish(1006)
                 @unknown default: self.finish(4002)
                 }

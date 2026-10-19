@@ -17,6 +17,8 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
     private let services: HostServices
     private let receive: @Sendable (Data) -> Void
     private let fail: @Sendable (String) -> Void
+    /// Browser stream messages this runtime's sockets decode natively, for the live view.
+    let browserStreams: BrowserStreamHub? = BrowserStreamHub()
 
     init(target: ConnectionTarget, storageURL: URL,
          receive: @escaping @Sendable (Data) -> Void, fail: @escaping @Sendable (String) -> Void) {
