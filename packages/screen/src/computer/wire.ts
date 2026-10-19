@@ -61,6 +61,10 @@ export const ComputerState = z.looseObject({
     .looseObject({ jpeg: z.string(), width: z.number().int(), height: z.number().int() })
     .optional(),
   screenshotError: z.string().optional(),
+  /** The app stopped answering accessibility requests; the outline may be partial. */
+  notResponding: z.boolean().optional(),
+  /** How long the helper took; for diagnostics, never shown to the model. */
+  elapsedMs: z.number().optional(),
 });
 export type ComputerState = z.infer<typeof ComputerState>;
 
@@ -84,6 +88,15 @@ export const ComputerApps = z.looseObject({
   ),
 });
 export type ComputerApps = z.infer<typeof ComputerApps>;
+
+/** `hello`: the helper's protocol version, its macOS grants and what it can do. */
+export const ComputerHello = z.looseObject({
+  version: z.number().int().default(1),
+  accessibility: z.boolean().optional(),
+  screenRecording: z.boolean().optional(),
+  capabilities: z.array(z.string()).default([]),
+});
+export type ComputerHello = z.infer<typeof ComputerHello>;
 
 export const ComputerReply = z.union([
   z.looseObject({ id: z.string(), ok: z.literal(true), result: z.unknown() }),

@@ -3,17 +3,19 @@
  * helper's background engine; each caller gets its own diff baseline per app.
  */
 import type { Toolkit, ToolContext } from "@ace/mcp-server";
+import { actLog, ranSteps, sentInput } from "./act-log.ts";
 import { appNote } from "./app-notes.ts";
 import { ComputerError, type ComputerClient } from "./client.ts";
+import { ComputerMemory, type ResolvedApp } from "./memory.ts";
 import {
   baselineOf,
   findLines,
   outlineBody,
   outlineLines,
+  screenshotNote,
   stateFooter,
   stateHeader,
   windowKey,
-  type OutlineBaseline,
 } from "./outline.ts";
 import { blockedReason } from "./policy.ts";
 import {
@@ -34,74 +36,96 @@ interface Result {
   isError?: boolean;
 }
 
-const Resolved = z.looseObject({ bundleId: z.string(), name: z.string(), running: z.boolean() });
-const maxBaselines = 256;
-/** Steps whose effect depends on the app routing a command, which background apps may skip. */
-const commandSteps: ReadonlySet<string> = new Set(["key", "menu", "paste"]);
-
-/** Per caller and app: the last outline seen, and whether its app note was shown. */
-class Memory {
-  private readonly baselines = new Map<string, OutlineBaseline>();
-  private readonly noted = new Set<string>();
-  baseline(key: string) {
-    return this.baselines.get(key);
-  }
-  remember(key: string, baseline: OutlineBaseline) {
-    this.baselines.delete(key);
-    this.baselines.set(key, baseline);
-    if (this.baselines.size > maxBaselines) {
-      const oldest = this.baselines.keys().next().value;
-      if (oldest !== undefined) this.baselines.delete(oldest);
-    }
-  }
-  firstNote(key: string) {
-    if (this.noted.has(key)) return false;
-    if (this.noted.size > maxBaselines) this.noted.clear();
-    this.noted.add(key);
-    return true;
-  }
+export interface ComputerToolkitOptions {
+  /** The person's own list of apps agents can't use: bundle ids or names. */
+  blockedApps?: () => readonly string[] | Promise<readonly string[]>;
+  /** Told while a thread's agent looks at or acts in an app; the returned function ends it. */
+  using?: (threadId: string, app: string) => () => void;
 }
 
-const callerKey = (context: ToolContext, bundleId: string) =>
-  `${context.caller.threadId}/${context.caller.agentId}/${bundleId}`;
+const Resolved = z.looseObject({ bundleId: z.string(), name: z.string(), running: z.boolean() });
 
-export function computerToolkit(client: ComputerClient): Toolkit {
-  const memory = new Memory();
+function withPicture(state: ComputerState, text: string): Content {
+  const content: Content = [{ type: "text", text }];
+  if (state.screenshot)
+    content.push({ type: "image", data: state.screenshot.jpeg, mimeType: "image/jpeg" });
+  return content;
+}
+
+const callerOf = (context: ToolContext) => `${context.caller.threadId}/${context.caller.agentId}`;
+const textOf = (content: Content) => (content[0]?.type === "text" ? content[0].text : "");
+
+export function computerToolkit(
+  client: ComputerClient,
+  options: ComputerToolkitOptions = {},
+): Toolkit {
+  const memory = new ComputerMemory();
+  const personBlocked = async () => (await options.blockedApps?.()) ?? [];
 
   const describe = (
     state: ComputerState,
     key: string,
-    options: { full?: boolean; find?: string; acted?: readonly ComputerAction[] } = {},
+    view: { full?: boolean; find?: string; ran?: readonly ComputerAction[] } = {},
   ): Content => {
     const lines = outlineLines(state.nodes);
     const windowId = windowKey(state);
     // A search shows a slice, so the caller's baseline for diffs stays as it was.
-    const body = options.find
-      ? { kind: "find" as const, text: findLines(lines, options.find) }
-      : outlineBody(lines, windowId, options.full ? undefined : memory.baseline(key));
-    if (!options.find) memory.remember(key, baselineOf(lines, windowId));
+    const body = view.find
+      ? { kind: "find" as const, text: findLines(lines, view.find) }
+      : outlineBody(lines, windowId, view.full ? undefined : memory.baseline(key));
+    if (!view.find) memory.remember(key, baselineOf(lines, windowId));
     const note = appNote(state.app.bundleId);
     const parts = [stateHeader(state)];
     if (note && memory.firstNote(key)) parts.push(`Note: ${note}`);
     parts.push(body.text || "(the window exposes no accessible elements)");
-    if (body.kind === "unchanged" && options.acted?.some((action) => commandSteps.has(action.type)))
+    if (body.kind === "unchanged" && view.ran && sentInput(view.ran))
       parts.push(
-        "That had no visible effect. Apps in the background ignore some commands: use the control in the outline (a button or field), or add activate first if it must be a shortcut.",
+        "That had no visible effect. Apps in the background ignore some input: use the control in the outline (a button or field), or add activate first if it must be a shortcut.",
       );
     const footer = stateFooter(state, body.kind === "full");
     if (footer) parts.push(footer);
-    const content: Content = [{ type: "text", text: parts.join("\n\n") }];
-    if (state.screenshot)
-      content.push({ type: "image", data: state.screenshot.jpeg, mimeType: "image/jpeg" });
-    return content;
+    return withPicture(state, parts.join("\n\n"));
   };
 
-  /** Resolves a name to its bundle id and refuses blocked apps before anything launches. */
-  const resolve = async (app: string, signal: AbortSignal) => {
-    const resolved = Resolved.parse(await client.request("resolve", { app }, { signal }));
-    const blocked = blockedReason(resolved.bundleId);
+  /**
+   * Resolves a caller's name for an app to its bundle id, once per caller and name, and refuses
+   * blocked apps before anything launches. `running` is known only on a fresh resolve.
+   */
+  const target = async (
+    app: string,
+    context: ToolContext,
+  ): Promise<ResolvedApp & { key: string; running?: boolean }> => {
+    const key = `${callerOf(context)}/${app.trim().toLowerCase()}`;
+    let found: (ResolvedApp & { running?: boolean }) | undefined = memory.app(key);
+    if (!found) {
+      const fresh = Resolved.parse(
+        await client.request("resolve", { app }, { signal: context.signal }),
+      );
+      found = fresh;
+      memory.resolved(key, { bundleId: fresh.bundleId, name: fresh.name });
+    }
+    const blocked = blockedReason(found, await personBlocked());
     if (blocked) throw new ComputerError("app_blocked", blocked);
-    return resolved;
+    return { ...found, key };
+  };
+
+  /** Runs a helper request for an app, telling `using` and forgetting a vanished app. */
+  const use = async (
+    app: ResolvedApp & { key: string },
+    context: ToolContext,
+    op: "state" | "act",
+    payload: Record<string, unknown>,
+  ): Promise<unknown> => {
+    const done = options.using?.(context.caller.threadId, app.name);
+    try {
+      return await client.request(op, payload, { signal: context.signal, app: app.bundleId });
+    } catch (error) {
+      if (error instanceof ComputerError && error.code === "app_not_found")
+        memory.forgetApp(app.key);
+      throw error;
+    } finally {
+      done?.();
+    }
   };
 
   const run: Record<ComputerToolName, (args: unknown, context: ToolContext) => Promise<Result>> = {
@@ -110,7 +134,8 @@ export function computerToolkit(client: ComputerClient): Toolkit {
       const { apps } = ComputerApps.parse(
         await client.request("apps", query ? { query } : {}, { signal }),
       );
-      const usable = apps.filter((app) => !blockedReason(app.bundleId));
+      const person = await personBlocked();
+      const usable = apps.filter((app) => !blockedReason(app, person));
       const running = usable.filter((app) => app.running);
       const installed = usable.filter((app) => !app.running);
       const row = (app: (typeof apps)[number]) =>
@@ -128,65 +153,77 @@ export function computerToolkit(client: ComputerClient): Toolkit {
       return { content: [{ type: "text", text }] };
     },
     async screen_state(args, context) {
-      const { app, window, screenshot, full, find } = computerSchemas.screen_state.parse(args);
-      const resolved = await resolve(app, context.signal);
+      const { app, window, screenshot, outline, full, find } =
+        computerSchemas.screen_state.parse(args);
+      const resolved = await target(app, context);
+      const pictureOnly = outline === false;
       const state = ComputerState.parse(
-        await client.request(
-          "state",
-          {
-            app: resolved.bundleId,
-            ...(window !== undefined ? { window } : {}),
-            screenshot: !!screenshot,
-          },
-          { signal: context.signal },
-        ),
+        await use(resolved, context, "state", {
+          app: resolved.bundleId,
+          ...(window !== undefined ? { window } : {}),
+          screenshot: pictureOnly || !!screenshot,
+          ...(pictureOnly ? { outline: false } : {}),
+        }),
       );
+      if (pictureOnly) {
+        const picture = screenshotNote(state);
+        return {
+          content: withPicture(state, [stateHeader(state), picture].filter(Boolean).join("\n\n")),
+        };
+      }
       return {
-        content: describe(state, callerKey(context, resolved.bundleId), {
+        content: describe(state, `${callerOf(context)}/${state.app.bundleId}`, {
           ...(full ? { full } : {}),
           ...(find ? { find } : {}),
         }),
       };
     },
     async screen_act(args, context) {
-      const { app, actions, window, screenshot } = computerSchemas.screen_act.parse(args);
-      const resolved = await resolve(app, context.signal);
-      if (!resolved.running)
+      const { app, actions, window, screenshot, observe } = computerSchemas.screen_act.parse(args);
+      const resolved = await target(app, context);
+      if (resolved.running === false)
         throw new ComputerError(
           "app_not_running",
           `${resolved.name} is not running. Call screen_state first to open it.`,
         );
-      const result = ComputerActResult.parse(
-        await client.request(
-          "act",
-          {
+      let result: ComputerActResult;
+      try {
+        result = ComputerActResult.parse(
+          await use(resolved, context, "act", {
             app: resolved.bundleId,
             actions,
             ...(window !== undefined ? { window } : {}),
             screenshot: !!screenshot,
-          },
-          { signal: context.signal },
-        ),
-      );
-      const log = result.done.map((step, index) => `${index + 1}. ${step}`);
-      if (result.error) {
-        const failed = actions[result.error.index];
-        log.push(
-          `Action ${result.error.index + 1}${failed ? ` (${failed.type})` : ""} failed: ${result.error.message}${
-            result.error.index < actions.length - 1 ? " The actions after it did not run." : ""
-          }`,
+            ...(observe === false ? { observe: false } : {}),
+          }),
         );
+      } catch (error) {
+        // Overdue or cancelled after some steps ran: say which, then why it stopped.
+        const partial =
+          error instanceof ComputerError ? ComputerActResult.safeParse(error.result) : undefined;
+        if (error instanceof ComputerError && partial?.success && partial.data.done.length)
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text",
+                text: [...actLog(actions, { done: partial.data.done }), error.message].join("\n"),
+              },
+            ],
+          };
+        throw error;
       }
-      const content: Content = [{ type: "text", text: log.join("\n") }];
-      if (result.state) {
-        const [first, ...rest] = describe(result.state, callerKey(context, resolved.bundleId), {
-          acted: actions,
-        });
-        if (first?.type === "text")
-          content[0] = { type: "text", text: `${log.join("\n")}\n\n${first.text}` };
-        content.push(...rest);
-      }
-      return { content, ...(result.error && result.done.length === 0 ? { isError: true } : {}) };
+      const log = actLog(actions, result).join("\n");
+      // A batch that stopped early failed, even when some steps ran.
+      const failed = result.error ? { isError: true } : {};
+      if (!result.state) return { content: [{ type: "text", text: log }], ...failed };
+      const observed = describe(result.state, `${callerOf(context)}/${result.state.app.bundleId}`, {
+        ran: ranSteps(actions, result.done),
+      });
+      return {
+        content: [{ type: "text", text: `${log}\n\n${textOf(observed)}` }, ...observed.slice(1)],
+        ...failed,
+      };
     },
   };
 

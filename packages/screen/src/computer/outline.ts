@@ -132,11 +132,19 @@ export function stateHeader(state: ComputerState): string {
       `Window: "${window.title}" ${window.width}×${window.height}, ${where(window.onScreen)}`,
     );
   }
+  if (state.notResponding) lines.push(`${app.name} is not responding; the outline may be partial.`);
   if (windows.length > 1)
     lines.push(
       `Windows: ${windows.map((entry) => `${entry.index} "${entry.title}"${entry.current ? " (shown)" : ""}${entry.minimized ? " (minimized)" : ""}`).join(", ")}. Pass window to switch.`,
     );
   return lines.join("\n");
+}
+
+/** The screenshot's coordinate space, or why there is none. */
+export function screenshotNote(state: ComputerState): string | undefined {
+  if (state.screenshot)
+    return `Screenshot: ${state.screenshot.width}×${state.screenshot.height} px. Click coordinates are pixels in this image.`;
+  return state.screenshotError ? `No screenshot: ${state.screenshotError}` : undefined;
 }
 
 export function stateFooter(state: ComputerState, includeMenuBar: boolean): string {
@@ -152,11 +160,8 @@ export function stateFooter(state: ComputerState, includeMenuBar: boolean): stri
     );
   if (focused?.selectedText) lines.push(`Selected text: ${escape(focused.selectedText)}`);
   if (includeMenuBar && state.menuBar.length) lines.push(`Menu bar: ${state.menuBar.join(", ")}`);
-  if (state.screenshot)
-    lines.push(
-      `Screenshot: ${state.screenshot.width}×${state.screenshot.height} px. Click coordinates are pixels in this image.`,
-    );
-  if (state.screenshotError) lines.push(`No screenshot: ${state.screenshotError}`);
+  const picture = screenshotNote(state);
+  if (picture) lines.push(picture);
   if (state.window && !state.window.onScreen && state.nodes.length < 6)
     lines.push(
       "This window shows almost no accessible content while it is off screen (common for Electron and browser apps). Try a screenshot, or use activate to bring it forward.",
