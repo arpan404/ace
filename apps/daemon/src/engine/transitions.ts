@@ -9,7 +9,8 @@ import type { NativeFork } from "./transition-state.ts";
 import type { z } from "zod";
 import type { Sessions } from "./sessions.ts";
 import { validateCitations } from "./transition-history.ts";
-import { abandonReturn, planCrossProvider } from "./provider-return.ts";
+import { abandonReturn, planCrossProvider, type CrossProviderPlan } from "./provider-return.ts";
+import { routeAccountChange } from "./account-route.ts";
 import { admitTransitionMetadata } from "./transition-state.ts";
 import { switchNeedsNewThread } from "./failure-copy.ts";
 import { switchRoute } from "@ace/core";
@@ -25,6 +26,8 @@ export interface TransitionIO {
     from: string;
     to: string;
   }): Promise<MigrationResult>;
+  /** Why the destination account can't take the thread now (unknown, signed out, exhausted). */
+  accountProblem?(provider: ExecutionSelection["provider"], instanceId: string): string | undefined;
   applyPatch(request: { worktree: string; patch: string }): Promise<void>;
 }
 export class ThreadTransitions {
@@ -141,56 +144,45 @@ export class ThreadTransitions {
       throw new Error(switchNeedsNewThread);
     if (
       !crossProvider &&
+      !crossAccount &&
       metadata.nativeSessionId &&
       !capabilities.resume &&
-      (!actor.session?.configure || crossAccount)
+      !actor.session?.configure
     )
       throw new Error("Provider cannot continue its native session");
+    const unusable =
+      crossAccount && selection.instanceId
+        ? this.io.accountProblem?.(selection.provider, selection.instanceId)
+        : undefined;
+    if (unusable) throw new Error(unusable);
     this.repo.transitions.admitModel(actor.id, selection);
-    const plan = crossProvider
-      ? planCrossProvider(this.repo, actor.id, {
-          from: current,
-          to: selection,
-          resumable: capabilities.resume,
-          backend: entry.adapter.backend,
-          budget: switchHandoffBytes,
-        })
-      : undefined;
-    const portable = plan?.handoff;
-    const resumed = plan?.resume;
     let nativeSessionId = metadata.nativeSessionId;
     let migratedFork: z.infer<typeof NativeFork> | undefined;
-    if (crossAccount) {
-      if (!nativeSessionId || !current.instanceId || !selection.instanceId)
-        throw new Error("Account changes require a pinned native session and destination account");
-      await this.sessions.close(actor, "idle");
-      const migration = await this.io.migrate({
-        provider: selection.provider,
-        nativeSessionId,
-        from: current.instanceId,
-        to: selection.instanceId,
+    let plan: CrossProviderPlan | undefined;
+    if (crossProvider)
+      plan = planCrossProvider(this.repo, actor.id, {
+        from: current,
+        to: selection,
+        resumable: capabilities.resume,
+        backend: entry.adapter.backend,
+        budget: switchHandoffBytes,
       });
-      if (migration.status !== "migrated") throw new Error(migration.reason);
-      if (migration.cleanupWarnings?.includes("lease_release_failed"))
-        throw new Error("Migration lease release failed");
-      nativeSessionId = migration.nativeSessionId;
-      if (
-        migration.action === "fork" &&
-        capabilities.fork &&
-        capabilities.forkPoints?.includes("end")
-      ) {
-        migratedFork = { nativeSessionId, point: { type: "end", nativeId: nativeSessionId } };
-      } else if (migration.action === "fork") {
-        const root = state.agents[state.rootKey ?? ""];
-        const run = root?.lastRun ? state.runs[root.lastRun] : undefined;
-        if (
-          !capabilities.fork ||
-          !(capabilities.forkPoints ?? []).includes("turn") ||
-          !run?.nativeId
-        )
-          throw new Error("Migrated session requires an unsupported native fork boundary");
-        migratedFork = { nativeSessionId, point: { type: "turn", nativeId: run.nativeId } };
-      }
+    if (crossAccount) {
+      await this.sessions.close(actor, "idle");
+      const route = await routeAccountChange(this.repo, actor.id, {
+        from: current,
+        to: selection,
+        nativeSessionId,
+        state,
+        capabilities,
+        backend,
+        budget: switchHandoffBytes,
+        migrate: (request) => this.io.migrate({ provider: selection.provider, ...request }),
+      });
+      if (route.kind === "copied") {
+        nativeSessionId = route.nativeSessionId;
+        migratedFork = route.fork;
+      } else if (route.kind === "handoff") plan = route.plan;
     } else if (!crossProvider && actor.session?.configure) {
       try {
         await actor.session.configure(selection);
@@ -208,6 +200,10 @@ export class ThreadTransitions {
     } else {
       await this.sessions.close(actor, "idle");
     }
+    const portable = plan?.handoff;
+    const resumed = plan?.resume;
+    // The session does not continue in place: a waiting handoff is replaced, not kept.
+    const fresh = plan !== undefined;
     try {
       this.repo.store.atomic((db) => {
         if (missingModel)
@@ -222,7 +218,7 @@ export class ThreadTransitions {
         ).run(
           selection.model ?? null,
           resumed?.instanceId ?? selection.instanceId ?? null,
-          crossProvider
+          fresh
             ? (resumed?.nativeSessionId ?? null)
             : migratedFork
               ? null
@@ -230,9 +226,9 @@ export class ThreadTransitions {
           crossProvider ? (entry.adapter.backend ?? null) : (backend ?? null),
           actor.id,
         );
-        // A provider switch replaces any handoff still waiting for delivery; a model change
-        // within the provider keeps it for the new model.
-        const waitingHandoff = crossProvider ? portable : previous.handoff;
+        // A fresh or resumed session replaces any handoff still waiting for delivery; a model
+        // change or a copied session keeps it for the new target.
+        const waitingHandoff = fresh ? portable : previous.handoff;
         const marker = portable ? `handoff:${intent.command.id}` : previous.marker;
         this.repo.transitions.set(actor.id, {
           selection,
@@ -243,7 +239,7 @@ export class ThreadTransitions {
           ...(plan?.fallback ? { fallback: plan.fallback } : {}),
         });
         const waiting = this.repo.requireState(actor.id).items[previous.marker ?? ""];
-        if (!crossProvider && previous.handoff && previous.marker && waiting?.type === "message")
+        if (!fresh && previous.handoff && previous.marker && waiting?.type === "message")
           // A model change before the handoff is delivered: its marker names the new target.
           this.repo.syntheticInput(
             actor.id,
@@ -257,7 +253,7 @@ export class ThreadTransitions {
           );
         // A handoff the agent never received is replaced, not stacked: its marker goes, and any
         // new one names the models whose work is actually carried.
-        if (crossProvider && previous.marker)
+        if (fresh && previous.marker)
           this.repo.removeInputItem(actor.id, previous.marker, this.now());
         if (portable) {
           this.repo.syntheticInput(
@@ -290,7 +286,7 @@ export class ThreadTransitions {
               switch: {
                 selection,
                 state: "applied",
-                lossy: crossProvider,
+                lossy: crossProvider || portable !== undefined,
                 ...(crossProvider ? { recommendation: "delegate" } : {}),
                 at: this.now(),
               },
@@ -307,7 +303,7 @@ export class ThreadTransitions {
             cwd: metadata.cwd,
             native: {
               provider: selection.provider,
-              ...(crossProvider
+              ...(fresh
                 ? resumed
                   ? { nativeId: resumed.nativeSessionId }
                   : {}
@@ -324,9 +320,9 @@ export class ThreadTransitions {
               .filter(([, record]) => record.limited)
               .map(([agent]) => ({ type: "limit.cleared" as const, agent })),
           );
-        // The provider leaving keeps its session for a return; it holds everything written so
-        // far, this switch's own marker included.
-        if (crossProvider && metadata.nativeSessionId)
+        // The provider or account leaving keeps its session for a return; it holds everything
+        // written so far, this switch's own marker included.
+        if ((crossProvider || crossAccount) && metadata.nativeSessionId)
           this.repo.transitions.left.leave(actor.id, {
             provider: current.provider,
             ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
@@ -378,6 +374,35 @@ export class ThreadTransitions {
             ...(model === undefined ? (current.model ? { model: current.model } : {}) : { model }),
             ...(options === undefined ? {} : { options }),
           },
+        },
+      },
+    });
+  }
+  /**
+   * The usage-limit "Move to" action: the same account change a switch makes. Replayed after a
+   * restart, a move that already committed is not made again. It cleared the limit with it, so
+   * an automatic move finds nothing limited, and a named one finds the thread already there.
+   */
+  async moveAccount(
+    actor: ThreadActor,
+    intent: Intent,
+    requested: string | undefined,
+    target: () => string,
+  ): Promise<void> {
+    const state = this.repo.requireState(actor.id);
+    const provider =
+      this.repo.transitions.get(actor.id).selection?.provider ?? state.config.provider;
+    if (requested !== undefined && requested === this.repo.session(actor.id).instanceId) return;
+    if (requested === undefined && !Object.values(state.agents).some((agent) => agent.limited))
+      return;
+    await this.execute(actor, {
+      ...intent,
+      command: {
+        ...intent.command,
+        payload: {
+          type: "thread.switch",
+          threadId: actor.id,
+          selection: { provider, instanceId: target() },
         },
       },
     });

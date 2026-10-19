@@ -6,13 +6,30 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import type { SessionContext } from "@ace/engine-api";
+import { Capabilities } from "@ace/protocol";
 import { AccountRegistry, AccountService, createInstance } from "@ace/accounts";
 import { fixture, cleanupRecovery, text, replaceProvider } from "./recovery-test-support.ts";
 import { scriptFrames, start, end } from "./test-support.ts";
 import { recoveryPorts } from "../services/recovery.ts";
+import { accountTransitions } from "../services/thread-transitions.ts";
 import type { RecoveryPorts } from "./recovery.ts";
+import type { TransitionIO } from "./transitions.ts";
 
 afterEach(cleanupRecovery);
+const codexLike = Capabilities.parse({
+  steer: false,
+  interruptCascades: false,
+  resume: true,
+  fork: true,
+  forkPoints: ["turn", "end"],
+  subagentTranscripts: true,
+  backgroundTaskControl: true,
+  backgroundVisibility: "full",
+  planMode: false,
+  tokenUsage: false,
+  imageInput: true,
+  rewindFiles: false,
+});
 const nativeId = "11111111-1111-4111-8111-111111111111";
 // Scripted steps clone frames, so re-admit their trusted bytes at the provider
 // boundary rather than presenting a cloned certificate to the accounts service.
@@ -27,15 +44,30 @@ function encodedContext(context: SessionContext): SessionContext {
     },
   };
 }
-for (const scenario of ["offline", "native_lock", "external_writer", "unverified"] as const) {
-  const refused = scenario !== "offline";
+for (const scenario of [
+  "offline",
+  "native_lock",
+  "external_writer",
+  "unverified",
+  "cli_source",
+  "cli_destination",
+] as const) {
+  // A normal CLI login can't share native history, so the move hands the conversation over.
+  const handoff = scenario === "cli_source" || scenario === "cli_destination";
+  const refused = scenario !== "offline" && !handoff;
   test(
-    refused
-      ? `native migration refuses ${scenario} and preserves source history and binding`
-      : "native migration copies history before resuming the destination through the accounts service",
+    handoff
+      ? `moving off a usage limit with ${scenario} opens a fresh session with the conversation and keeps queued order`
+      : refused
+        ? `native migration refuses ${scenario} and preserves source history and binding`
+        : "native migration copies history before resuming the destination through the accounts service",
     async () => {
       const frames = scriptFrames(),
         ports: RecoveryPorts = {};
+      const io: TransitionIO = {
+        migrate: async () => ({ status: "refused", reason: "Accounts are not wired yet" }),
+        applyPatch: async () => {},
+      };
       const h = await fixture(
         [
           {
@@ -62,7 +94,8 @@ for (const scenario of ["offline", "native_lock", "external_writer", "unverified
           },
         ],
         frames,
-        { recovery: ports },
+        // Codex forks a copied session, as the real adapter advertises.
+        { recovery: ports, transitions: io, capabilities: codexLike },
       );
       const source = join(h.home, "source"),
         target = join(h.home, "target");
@@ -86,12 +119,14 @@ for (const scenario of ["offline", "native_lock", "external_writer", "unverified
       const registry = new AccountRegistry(new DatabaseSync(join(h.home, "accounts.sqlite")));
       try {
         if (writer) await once(writer.stdout, "data");
-        await registry.register(
-          createInstance({ id: "account-a", provider: "codex", label: "A", homeDir: source }),
-        );
-        await registry.register(
-          createInstance({ id: "account-b", provider: "codex", label: "B", homeDir: target }),
-        );
+        await registry.register({
+          ...createInstance({ id: "account-a", provider: "codex", label: "A", homeDir: source }),
+          ...(scenario === "cli_source" ? { implicit: true, env: {} } : {}),
+        });
+        await registry.register({
+          ...createInstance({ id: "account-b", provider: "codex", label: "B", homeDir: target }),
+          ...(scenario === "cli_destination" ? { implicit: true, env: {} } : {}),
+        });
         // The independent exclusion boundary is injected, with a real outside writer
         // in the refusal case. No production lease can be inferred from ace shutdown.
         const accounts = new AccountService({
@@ -99,7 +134,7 @@ for (const scenario of ["offline", "native_lock", "external_writer", "unverified
           now: h.clock.now,
           timeZone: "UTC",
           env: {},
-          ...(scenario === "unverified"
+          ...(scenario === "unverified" || handoff
             ? {}
             : {
                 safety: {
@@ -149,6 +184,14 @@ for (const scenario of ["offline", "native_lock", "external_writer", "unverified
             { store: h.store, now: h.clock.now, services: { accounts, accountRegistry: registry } },
             (id) => h.engine.sessionMetadata(id),
           ),
+        );
+        Object.assign(
+          io,
+          accountTransitions({
+            now: h.clock.now,
+            id: () => "migration",
+            services: { accounts, accountRegistry: registry },
+          }),
         );
         const id = await h.create();
         expect(
@@ -210,6 +253,30 @@ for (const scenario of ["offline", "native_lock", "external_writer", "unverified
             messages: [expect.objectContaining({ input: text("following") })],
           });
           expect(replacement.commands.filter((command) => command.type === "send")).toHaveLength(0);
+        } else if (handoff) {
+          await expect(access(join(target, relative))).rejects.toMatchObject({ code: "ENOENT" });
+          expect(h.contexts.at(-1)).toMatchObject({ instanceId: "account-b" });
+          expect(h.contexts.at(-1)?.resume).toBeUndefined();
+          // The handoff and the limit continuation go first, then the message that waited.
+          const sent = replacement.commands.filter((command) => command.type === "send");
+          expect(sent).toHaveLength(2);
+          const [handed] = sent[0]?.input ?? [];
+          expect(handed?.type === "text" && handed.text).toContain(`source_thread="${id}"`);
+          expect(handed?.type === "text" && handed.text).toContain("\nuser: first\n");
+          expect(sent[1]).toMatchObject({ input: text("following") });
+          expect(h.engine.queue(id)).toMatchObject({ paused: false, messages: [] });
+          expect(h.store.getThread(id)?.status.state).toBe("done");
+          expect(h.store.getThread(id)?.switch).toMatchObject({ state: "applied", lossy: true });
+          expect(Object.values(h.store.snapshotThread(id).items)).toContainEqual(
+            expect.objectContaining({
+              type: "message",
+              origin: expect.objectContaining({
+                kind: "handoff",
+                lossy: true,
+                sources: [expect.objectContaining({ provider: "codex" })],
+              }),
+            }),
+          );
         } else {
           expect(await readFile(join(target, relative), "utf8")).toBe(history);
           expect(
@@ -217,14 +284,12 @@ for (const scenario of ["offline", "native_lock", "external_writer", "unverified
               (run) => run.trigger === "limit_resume",
             ),
           ).toBe(true);
-          expect(h.engine.sessionMetadata(id)).toMatchObject({
-            instanceId: "account-b",
-            nativeSessionId: nativeId,
-          });
+          expect(h.engine.sessionMetadata(id)).toMatchObject({ instanceId: "account-b" });
+          // The destination forks the copy from its end, so the source session stays as it was.
           expect(h.contexts.at(-1)).toMatchObject({
             instanceId: "account-b",
             env: { CODEX_HOME: await realpath(target) },
-            resume: { nativeSessionId: nativeId },
+            fork: { nativeSessionId: nativeId, point: { type: "end" } },
           });
           expect(replacement.commands.findLast((command) => command.type === "send")).toMatchObject(
             { input: text("following") },

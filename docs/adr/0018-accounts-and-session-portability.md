@@ -242,3 +242,26 @@ account whose CLI isn't installed is skipped. A model's own weekly limit (Claude
 Gemini/Antigravity and Copilot have no limit source ace can read without handling a credential
 itself, so they show no limits rather than a guessed one. The pre-blocker legacy quota format
 is no longer upgraded.
+
+## Amendment: account changes continue through one transition
+
+Date: 2026-10-19. Changing a thread's account within a provider, from the model picker or the
+usage-limit "Move to" action, is one thread transition with one decision:
+
+1. The destination must be usable: a registered account of the provider, signed in, finished
+   signing in and not exhausted. Otherwise the change fails and the thread keeps its account and
+   native session.
+2. A native copy keeps the whole session, so it is tried first. `accounts.migrate` returns
+   `refused` for safety (an active writer, a native lock, unverified exclusion); the change then
+   fails with the source binding untouched. A copied Codex session is forked from its end, as a
+   switch already did; the limit path previously resumed the copy in place.
+3. `unsupported` means the provider or either login can't share native history. Normal CLI
+   logins are now `unsupported`, not `refused`: ace never writes into a CLI-owned home. The thread
+   then continues the way a provider switch does (ADR 0051, 2026-10-19 amendment). The account
+   that leaves keeps its session for a return. A destination that left a session on this thread
+   resumes it with only what happened since; otherwise a fresh session gets the
+   conversation-first handoff. The handoff marker replaces one still waiting for delivery.
+
+A usage-limit move commits the binding, the handoff and the cleared limit together. Replayed
+after a restart, it is not made again: a named account is already bound, and an automatic move
+finds nothing limited.
