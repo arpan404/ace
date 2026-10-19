@@ -94,6 +94,15 @@ private let cuWindowAttributes = ["AXRole", "AXSubrole", "AXTitle", "AXPosition"
         var candidates = cuOtherSpaceWindows(pid: pid).subtracting(known).subtracting(remote.keys)
         if !requested { candidates.subtract(unreachable) }
         guard !candidates.isEmpty else { return }
+        // The main and focused windows answer directly from any Space, including windows the
+        // app opened there and never listed, which no token reaches until they were vended.
+        for attribute in ["AXMainWindow", "AXFocusedWindow"] {
+            guard let window = cuElementAttribute(application, attribute), let number = cuWindowNumber(window), candidates.contains(number) else { continue }
+            AXUIElementSetMessagingTimeout(window, cuAXTimeout)
+            remote[number] = window
+            candidates.remove(number)
+        }
+        guard !candidates.isEmpty else { return }
         let ceiling: UInt64 = requested ? cuRemoteTokenCeiling : 50_000
         if scanCursor >= ceiling { scanCursor = 0 }
         let result = cuScanRemoteTokens(pid: pid, wanted: candidates, from: scanCursor, ceiling: ceiling, deadline: min(deadline, cuNow() + 600_000_000))
