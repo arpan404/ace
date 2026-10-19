@@ -3,16 +3,19 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { terminalsOpenIn } from "@/test/terminal-place.ts";
 
 beforeEach(() => localStorage.clear());
 
 /**
  * The cold-start thread with two shells of yours already running in the daemon (`tests`, which
  * ran the test suite, and `zsh`, which ran git status) and the agent's background soak relay.
- * ⌃` shows the thread's terminal as a tab of the side panel.
+ * With terminals set to open in the side panel, ⌃` shows the thread's terminal as its tab (the
+ * bottom panel's own tests are in bottom-panel.test.tsx).
  */
 async function openTerminal(through = "turn-2") {
   const app = harness();
+  terminalsOpenIn(app.storage, "side");
   const script = app.play(coldStartReplay());
   script.runThrough(through);
   seedPanels(app.daemon);

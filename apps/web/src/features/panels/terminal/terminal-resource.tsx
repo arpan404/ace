@@ -21,7 +21,7 @@ import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import {
-  shownTab,
+  isShowing,
   useScopeWorkspace,
   useWorkspaceActions,
   useWorkspaceStore,
@@ -262,8 +262,8 @@ function LiveTerminal(
   const exited = exitCode !== null || info.exited;
   const [focusRequested] = useState(() => terminals.takeFocusRequest(info.id));
   // Startup may finish while the panel is hiding or the person has switched tabs.
-  const panel = useScopeWorkspace(scope);
-  const autoFocus = focusRequested && panel.open && shownTab(panel)?.key === tab.key;
+  const workspace = useScopeWorkspace(scope);
+  const autoFocus = focusRequested && isShowing(workspace, tab.key);
   const title = tab.title ?? info.name;
   const openFind = () => setTabUi(terminalUi, tab.key, { find: true });
   const closeFind = () => {

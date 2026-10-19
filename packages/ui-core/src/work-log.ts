@@ -6,6 +6,7 @@ import type { AceToolContext, AceToolView } from "./ace-tools.ts";
 import { formatElapsed } from "./time.ts";
 import { planCount, planProgress, planTodos } from "./plan.ts";
 import { exploreAction } from "./explore-command.ts";
+import { isToolSearch, toolSearchRow } from "./tool-search.ts";
 
 export type StepIcon =
   | "read"
@@ -129,6 +130,16 @@ function callText(call: ToolCall, context: StepContext): CallText {
       return { icon: "read", verb: "Read", target: path.text + range, title: path.full };
     }
     case "search": {
+      if (isToolSearch(call)) {
+        const row = toolSearchRow(detail.query);
+        return {
+          icon: row.loaded ? "tool" : "search",
+          verb: row.words.past,
+          target: row.words.target,
+          forms: { running: row.words.running, awaiting: row.words.awaiting },
+          ace: row.ace,
+        };
+      }
       const where = detail.path ? stepPath(detail.path, context).text : undefined;
       return {
         icon: "search",
@@ -402,6 +413,7 @@ export function summarizeWork(items: readonly (Item | undefined)[]): WorkSummary
     }
     const detail = call.detail;
     if (detail.kind === "file.read") reads.add(detail.path);
+    else if (detail.kind === "search" && isToolSearch(call)) summary.other++;
     else if (detail.kind === "search" || detail.kind === "web.search") summary.searched++;
     else if (detail.kind === "shell") summary.ran++;
     else if ("changes" in detail) for (const change of detail.changes) edits.add(change.path);

@@ -15,7 +15,7 @@ import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useThreadBrowsing } from "@/lib/browsing.ts";
 import { useThreadComputerUse } from "@/lib/computer-using.ts";
-import { CursorClickIcon, GlobeSimpleIcon } from "@phosphor-icons/react";
+import { ClockIcon, CursorClickIcon, GlobeSimpleIcon } from "@phosphor-icons/react";
 
 /*
  * Shared row pieces render the card facts. RowTime reads the shared clock for elapsed time;
@@ -128,7 +128,7 @@ export function PullRequest(props: { card: ThreadCard }) {
 export function RowStatus(props: { card: ThreadCard; attention: RowAttention }) {
   const { card } = props;
   const { level, word, tone, muted } = props.attention;
-  if (word === undefined) return <RowTime card={card} />;
+  if (word === undefined) return card.wake ? <RowWake wake={card.wake} /> : <RowTime card={card} />;
   // An unconfirmed copy says only that it is syncing: no glyph, no colour, no time.
   if (level === "failed-seen" || level === "syncing")
     return <span className="shrink-0 text-meta text-muted-foreground">{word}</span>;
@@ -176,6 +176,16 @@ function ActiveElapsed(props: { card: ThreadCard }) {
 }
 
 /** Only visible, fresh working rows subscribe to the shared second clock. */
+/** A snoozed row says when it wakes where others say their age. */
+function RowWake(props: { wake: string }) {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 text-meta whitespace-nowrap text-muted-foreground">
+      <ClockIcon aria-hidden size={12} />
+      {props.wake}
+    </span>
+  );
+}
+
 export function RowTime(props: { card: ThreadCard }) {
   const { card } = props;
   const fresh = useLiveConnection().fresh;

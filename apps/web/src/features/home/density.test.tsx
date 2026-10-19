@@ -185,6 +185,37 @@ test("Snoozed folds quiet tasks away but leaves a request in the main list", asy
   expect(await nav.findByRole("link", { name: /^First task/ })).toBeTruthy();
 });
 
+test("Snoozed lists what wakes soonest first, and each row says when it wakes", async () => {
+  const now = 100_000;
+  const app = harness({ clock: () => now, uiClock: () => now });
+  for (const [id, title] of [
+    ["later", "Wakes later"],
+    ["sooner", "Wakes sooner"],
+  ] as const)
+    createIdleTask(app.daemon, { id, title, workspaceId: "ace", provider: "codex" });
+  await app.open("/new");
+  const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
+  await nav.findByRole("link", { name: /^Wakes later/ });
+  for (const [id, hours] of [
+    ["later", 3],
+    ["sooner", 1],
+  ] as const)
+    await app.client.command({
+      type: "thread.snooze",
+      threadId: ThreadId.parse(id),
+      until: now + hours * 3_600_000,
+    });
+  await userEvent.click(await nav.findByRole("button", { name: "Snoozed (2)" }));
+  await nav.findByRole("link", { name: /^Wakes sooner/ });
+  const rows = nav.getAllByRole("link", { name: /^Wakes / });
+  expect(rows.map((row) => row.getAttribute("aria-label")?.split(".")[0])).toEqual([
+    "Wakes sooner",
+    "Wakes later",
+  ]);
+  for (const row of rows) expect(row.textContent).toMatch(/\d{1,2}:\d{2}/);
+  expect(rows[0]?.getAttribute("aria-label")).toContain("Snoozed until");
+});
+
 test("an Unsent-only list supports forward and backward navigation", async () => {
   const storage = memoryKeyValue();
   const app = harness({ storage });

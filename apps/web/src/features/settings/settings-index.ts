@@ -68,6 +68,12 @@ const entries = [
     keywords: ["agent", "claude", "codex", "model"],
   },
   {
+    id: "terminals.openIn",
+    page: "/settings/general",
+    title: "Terminals open in",
+    keywords: ["terminal", "shell", "bottom panel", "side panel", "dock", "location"],
+  },
+  {
     id: "threads.useWorktree",
     page: "/settings/general",
     title: "New threads use a worktree",

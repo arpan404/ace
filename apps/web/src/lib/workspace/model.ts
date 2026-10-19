@@ -45,6 +45,12 @@ export interface ScopeWorkspace {
   expanded: boolean;
   dock?: "side" | "bottom" | undefined;
   bottomSize?: number | undefined;
+  /**
+   * The bottom panel under the main column (`places.ts`): a second group of tabs, only of the
+   * kinds the definition lets it hold (terminals). Only its `tabs`, `active` and `open` mean
+   * anything. A key is open in one group at most. Undefined until it first opens.
+   */
+  bottom?: ScopeWorkspace | undefined;
 }
 
 export interface OpenRequest {
@@ -288,6 +294,11 @@ const TabSchema = z.object({
     }),
   ),
 });
+const BottomSchema = z.object({
+  tabs: z.array(TabSchema),
+  active: z.optional(z.string()),
+  open: z.boolean(),
+});
 export const ScopeWorkspaceSchema = z.object({
   tabs: z.array(TabSchema),
   active: z.optional(z.string()),
@@ -296,23 +307,36 @@ export const ScopeWorkspaceSchema = z.object({
   dock: z.optional(z.enum(["side", "bottom"])),
   bottomSize: z.optional(z.number().check(z.gte(0), z.lte(10_000))),
   expanded: z.catch(z.boolean(), false),
+  bottom: z.catch(z.optional(BottomSchema), undefined),
 });
 type Stored = z.infer<typeof ScopeWorkspaceSchema>;
 
-/** Drop what a hand-edited entry could carry that the model never makes. */
-export function sanitize(workspace: Stored): ScopeWorkspace {
-  const seen = new Set<string>();
-  const tabs = workspace.tabs.filter((tab) => !seen.has(tab.key) && seen.add(tab.key));
+type StoredGroup = Pick<Stored, "tabs" | "active" | "open">;
+
+/** One group's tabs, each key once (and not one `taken` by another group), pinned first. */
+function sanitizeGroup(group: StoredGroup, taken: ReadonlySet<string>) {
+  const seen = new Set(taken);
+  const tabs = group.tabs.filter((tab) => !seen.has(tab.key) && seen.add(tab.key));
   const ordered = [...tabs.filter((tab) => tab.pinned), ...tabs.filter((tab) => !tab.pinned)];
-  const active = ordered.some((tab) => tab.key === workspace.active) ? workspace.active : undefined;
-  const open = workspace.open && ordered.length > 0;
+  const active = ordered.some((tab) => tab.key === group.active) ? group.active : undefined;
   return {
     tabs: ordered,
     active: active ?? ordered[0]?.key,
-    open,
+    open: group.open && ordered.length > 0,
+  };
+}
+
+/** Drop what a hand-edited entry could carry that the model never makes. */
+export function sanitize(workspace: Stored): ScopeWorkspace {
+  const side = sanitizeGroup(workspace, new Set());
+  const bottom =
+    workspace.bottom && sanitizeGroup(workspace.bottom, new Set(side.tabs.map((tab) => tab.key)));
+  return {
+    ...side,
     size: workspace.size,
     dock: workspace.dock,
     bottomSize: workspace.bottomSize,
-    expanded: workspace.expanded && open,
+    expanded: workspace.expanded && side.open,
+    ...(bottom ? { bottom: { ...emptyWorkspace, ...bottom } } : {}),
   };
 }

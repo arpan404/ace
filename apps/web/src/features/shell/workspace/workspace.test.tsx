@@ -4,6 +4,7 @@ import { configure, fireEvent, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import { terminalsOpenIn } from "@/test/terminal-place.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -249,12 +250,13 @@ test("full view gives the panel the work area; the way back restores the convers
   expect(within(panel).getByRole("button", { name: "Full view" })).toBeTruthy();
 });
 
-test("⌘J shows the thread's terminal as a side panel tab, and the panel's width is kept across a reload", async () => {
-  const { view, storage } = await openColdStart();
-  // There is no bottom panel any more: the old shortcut shows the terminal beside the thread.
+test("with terminals set to open in the side panel, ⌘J shows the thread's terminal as its tab, and the panel's width is kept across a reload", async () => {
+  const storage = memoryKeyValue();
+  terminalsOpenIn(storage, "side");
+  const { view } = await openColdStart(storage);
   await userEvent.keyboard("{Meta>}j{/Meta}");
   const panel = await sidePanel();
-  expect(screen.queryByRole("region", { name: "Bottom panel" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "Terminal panel" })).toBeNull();
   // Its terminal picks up the thread's running zsh.
   expect(await within(panel).findByRole("tab", { name: "zsh", selected: true })).toBeTruthy();
   const handle = within(panel).getByRole("separator", { name: "Resize thread panel" });

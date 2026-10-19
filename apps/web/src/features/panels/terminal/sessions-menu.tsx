@@ -10,7 +10,7 @@ import {
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
 import { keymap } from "@/lib/keymap.ts";
-import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { allTabs, useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { usePanelServices } from "../services.ts";
 import {
   openNewTerminal,
@@ -44,7 +44,8 @@ export function SessionsMenu(props: { scope: string }) {
   const shells = useBackgroundShells(scope);
   const workspace = useScopeWorkspace(scope);
   const actions = useWorkspaceActions(scope);
-  const tabs = workspace.tabs;
+  // Open in either panel: picking one shows it where it is.
+  const tabs = allTabs(workspace);
   const titleOf = (kind: string, id: string) =>
     tabs.find((tab) => tab.kind === kind && tab.id === id)?.title;
   const isOpen = (kind: string, id: string) =>

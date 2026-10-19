@@ -62,6 +62,11 @@ export function toolDetail(name: string, value: unknown): ToolDetailDraft {
         ],
       };
     case "search":
+      return {
+        kind,
+        query: string(input["query"], string(input["pattern"])),
+        ...(name === "ToolSearch" ? { scope: "tools" as const } : {}),
+      };
     case "web.search":
       return { kind, query: string(input["query"], string(input["pattern"])) };
     case "web.fetch":

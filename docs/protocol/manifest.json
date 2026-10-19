@@ -3201,8 +3201,8 @@
       "sha256": "462ef5dd3b1c78d13d175059e4d5510bb7cc4551516a587e51adef7932f79751"
     },
     "schema/ToolDetail.json": {
-      "bytes": 6121,
-      "sha256": "f2cf65a45d7c30d2616faf231cd4b067147fe8d803cf6526b5ae0a13550f2331"
+      "bytes": 6206,
+      "sha256": "314e08a39242e36f0c94440e539b81975df8d756d68d4193582bae45b4b29102"
     },
     "schema/ToolIcon.json": {
       "bytes": 856,
@@ -3765,10 +3765,10 @@
       "sha256": "3c00a18ea5c34e708a57c9d0f5d0cdba097745d6b5fc80bd543053d4c1079efc"
     },
     "types.md": {
-      "bytes": 806815,
-      "sha256": "c3952709f34685006f8b889139a0912089c864165f80c2ae758d084fa11a20c5"
+      "bytes": 805701,
+      "sha256": "9732b3a1a4aba314de845eb8f9943e9fa7b0f3507aaf7b935926df07483b40e4"
     }
   },
-  "input": "d01036ee06de07a5b0a4904b6399ad45d9bf079d6c6917cf9880c7234f3fdbf9",
+  "input": "fd79b935158b1bf150bf86fe9fe0a0dd3b103b27307c86f9ebc511d3edab39dc",
   "version": 1
 }

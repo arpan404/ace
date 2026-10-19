@@ -17,6 +17,11 @@ export interface WorkspaceDefinitionOptions {
   initial: readonly OpenRequest[];
   /** Offer side/bottom docking in the panel strip. */
   dockable?: boolean;
+  /**
+   * The bottom panel under the main column, for these kinds only (a thread's terminals). Its
+   * first kind is what showing an empty bottom panel opens. Omit for no bottom panel.
+   */
+  bottom?: { label: string; kinds: readonly [string, ...string[]] };
   /** The phone header's labelled panel action. Omit kind to reopen the active tab or launcher. */
   mobileAction?: { label: string; kind?: string };
   /** More tools the phone's ⋯ opens straight to, each over the whole screen ("Changes"). */
@@ -63,6 +68,7 @@ export function defineWorkspace(options: WorkspaceDefinitionOptions): WorkspaceD
     launcher: options.launcher,
     initial: options.initial,
     ...(options.dockable !== undefined ? { dockable: options.dockable } : {}),
+    ...(options.bottom ? { bottom: options.bottom } : {}),
     ...(options.mobileAction ? { mobileAction: options.mobileAction } : {}),
     ...(options.mobileTools ? { mobileTools: options.mobileTools } : {}),
     ...(options.shortcuts ? { shortcuts: options.shortcuts } : {}),
