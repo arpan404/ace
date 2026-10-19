@@ -63,6 +63,7 @@ export { modelImage, ModelImageError, type ModelImage } from "./model-image.ts";
 export { modelImageGeometry } from "./image-geometry.ts";
 
 export { PublicToolError, PublicToolCode } from "./public-error.ts";
+export { parseToolArguments, toolFailure } from "./tool-failure.ts";
 
 export type { ModelImageRuntime } from "./model-image-runtime.ts";
 
