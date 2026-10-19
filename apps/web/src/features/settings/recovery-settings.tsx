@@ -20,7 +20,7 @@ const followUps: { value: FollowUp; label: string }[] = [
 export function RecoverySettings() {
   const followRow = settingRow("threads.followUpBehavior");
   const followUp = useSettingControl(settingKeys.followUp, followRow.title);
-  const send = useKeys("send");
+  const send = useKeys("followUpOther");
   return (
     <SettingSection label="While agents work" card scope="daemon">
       <SettingRow

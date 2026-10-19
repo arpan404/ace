@@ -28,6 +28,8 @@ const copy: Record<string, string> = {
     "The project's remote doesn't match this repository: pick the matching project, or refresh.",
   action_failed: "The daemon couldn't do that: check its logs, then retry.",
   action_busy: "Too many actions are running: wait for one to finish, then retry.",
+  workspace_reads_busy: "Too many reads are waiting on the daemon: wait a moment, then retry.",
+  workspace_reads_unavailable: "This daemon can't read projects: restart it, then retry.",
   action_outcome_uncertain:
     "The daemon lost track of the result: check the checkout or GitHub before retrying.",
   pr_link_changed: "The linked pull request changed: refresh, then retry.",
@@ -136,6 +138,7 @@ const copy: Record<string, string> = {
   forge_invalid_data: "GitHub's reply couldn't be read: update `gh`, then refresh.",
   forge_limit: "GitHub returned more than ace can show here: open it on GitHub.",
   forge_cancelled: "The GitHub request was cancelled: try again.",
+  forge_read_failed: "GitHub's answer couldn't be used: retry, or check the daemon's logs.",
   forge_status_unavailable:
     "GitHub accepted the action, but its new state couldn't be read: refresh to load it.",
   forge_action_reconciled:
@@ -160,6 +163,8 @@ const copy: Record<string, string> = {
   offline: "You're offline: reconnect to the daemon, then retry.",
   timeout: "The daemon didn't answer in time: check the checkout or GitHub before retrying.",
   maintenance: "The daemon is in maintenance: wait for it to finish, then retry.",
+  limit: "Too many requests are waiting on the daemon: wait a moment, then retry.",
+  protocol: "The daemon's reply couldn't be read: update ace, then retry.",
   // Review mode.
   review_not_found: "The daemon no longer has this review: comment again to start a new one.",
   not_found: "The daemon no longer has this review: comment again to start a new one.",

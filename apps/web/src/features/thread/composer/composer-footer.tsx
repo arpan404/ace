@@ -20,6 +20,10 @@ export const ComposerFooter = memo(function ComposerFooter(props: {
   blocked: string | undefined;
   off: boolean;
   canSteer: boolean;
+  /** The other send key, as bound now. */
+  otherKeys: string;
+  /** What it does when that isn't the other follow-up (New thread). */
+  otherHint?: string | undefined;
   describedBy: string | undefined;
   /** The agent works and the draft is empty: the primary slot shows Stop. */
   canStop: boolean;
@@ -68,6 +72,8 @@ export const ComposerFooter = memo(function ComposerFooter(props: {
             blocked={props.blocked}
             off={props.off}
             canSteer={props.canSteer}
+            otherKeys={props.otherKeys}
+            otherHint={props.otherHint}
             describedBy={props.describedBy}
             onSend={props.onSend}
           />

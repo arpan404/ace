@@ -3,6 +3,14 @@ import type { UseQueryResult } from "@tanstack/react-query";
 import { useConnectionState } from "@ace/client-react";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { actionErrorText } from "@ace/ui-core";
+import { failureCode } from "./source.ts";
+
+/** A failed read in words: its code's sentence, or the error's own when it has no code. */
+export function readFailureText(error: Error): string {
+  const code = failureCode(error);
+  return code ? actionErrorText(code) : error.message;
+}
 export function QueryState(props: {
   query: Pick<UseQueryResult, "isFetching" | "error" | "data" | "refetch">;
 }) {
@@ -10,10 +18,12 @@ export function QueryState(props: {
   if (!ready) return <p role="status">Offline. Reconnect to refresh this repository.</p>;
   if (props.query.error)
     return (
-      <div role="alert" className="space-y-2 text-status-failed">
-        <p>{props.query.error.message}</p>
-        <Button onClick={() => void props.query.refetch()}>Retry</Button>
-      </div>
+      <p role="alert" className="flex flex-wrap items-center gap-2 text-muted-foreground">
+        {readFailureText(props.query.error)}
+        <Button size="sm" onClick={() => void props.query.refetch()}>
+          Retry
+        </Button>
+      </p>
     );
   // A background poll keeps the shown data; only a first read has nothing to show yet.
   if (props.query.isFetching && props.query.data === undefined)
