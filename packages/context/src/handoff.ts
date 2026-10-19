@@ -12,6 +12,7 @@ const Source = z.object({
     .nonnegative()
     .max(Number.MAX_SAFE_INTEGER - 1),
   totalItems: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  since: z.number().int().nonnegative().optional(),
 });
 export interface PortableSource {
   threadId: string;
@@ -20,6 +21,8 @@ export interface PortableSource {
   /** Frozen ace event cutoff and indexed inventory, supplied by the storage owner. */
   throughSeq: number;
   totalItems: number;
+  /** Only items after this cutoff: the recipient resumes a session that holds the rest. */
+  since?: number | undefined;
 }
 const Options = z.object({
   maxBytes: z.number().int().min(1024).max(262144),
@@ -32,6 +35,8 @@ export function portableContext(
   source: PortableSource,
   history: Iterable<Item>,
   options: { maxBytes: number; maxItems: number; historyTruncated: boolean },
+  /** The thread's opening ask when it is older than `history`. */
+  opening?: Item,
 ): {
   text: string;
   bytes: number;
@@ -57,6 +62,8 @@ export function portableContext(
       throughSeq: origin.throughSeq,
       totalItems: origin.totalItems,
       items,
+      ...(opening ? { opening } : {}),
+      ...(origin.since === undefined ? {} : { since: origin.since }),
       origin: { provider: origin.provider, ...(origin.backend ? { backend: origin.backend } : {}) },
     },
     limits.maxBytes,

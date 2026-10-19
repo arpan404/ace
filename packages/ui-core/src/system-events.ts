@@ -110,9 +110,9 @@ const inputKinds = new Set<string>([
 export function systemInput(item: Item | undefined): SystemInput | undefined {
   if (item?.type !== "message" || item.role === "assistant") return undefined;
   const text = messageText(item);
-  if (item.parts.length && !withoutPortableHandoff(item.parts).length)
-    return { kind: "handoff", text };
   const origin = messageOrigin(item);
+  if (item.parts.length && !withoutPortableHandoff(item.parts).length)
+    return { kind: "handoff", ...(origin?.kind === "handoff" ? { origin } : {}), text };
   if (origin) {
     if (origin.kind === "person" || !inputKinds.has(origin.kind)) return undefined;
     return { kind: origin.kind as InputKind, origin, text };

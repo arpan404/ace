@@ -38,6 +38,8 @@ export function transitionHarness(
     /** A root interrupt ends the running turn, as a real provider's would. */
     interruptEndsTurn?: boolean;
     closeFails?: boolean;
+    /** Native sessions the provider no longer has: resuming one fails as a real CLI would. */
+    lostSessions?: Set<string>;
     configureFails?: boolean;
     maxActiveThreads?: number;
     beforeFork?(context: SessionContext): Promise<void>;
@@ -118,6 +120,11 @@ export function transitionHarness(
         }),
       createTranslator: () => ({ translate: frames.translate, tick: () => [] }),
       async openSession(context) {
+        if (context.resume && options.lostSessions?.has(context.resume.nativeSessionId))
+          throw Object.assign(new Error("No conversation found"), {
+            code: "session_not_found",
+            detail: "No conversation found with that session ID",
+          });
         if (context.fork) await options.beforeFork?.(context);
         const nativeId =
           context.resume?.nativeSessionId ??
@@ -356,5 +363,26 @@ export function transitionHarness(
       await store.close();
       rmSync(home, { recursive: true, force: true });
     },
+  };
+}
+
+/** The context handoff block a provider received, read the way the agent reads it. */
+export function receivedHandoff(text: string) {
+  const close = "\n</ace_context_handoff>";
+  const start = text.indexOf("<ace_context_handoff ");
+  const end = text.indexOf(close);
+  if (start < 0 || end < 0) throw new Error("No context handoff was delivered");
+  const block = text.slice(start, end + close.length);
+  const head = /^<ace_context_handoff source_thread="([^"]+)" through_seq="(\d+)">/.exec(block);
+  const read = /handoff_read: (\{[^\n]*\})/.exec(block)?.[1];
+  return {
+    block,
+    bytes: Buffer.byteLength(block),
+    sourceThreadId: head?.[1],
+    throughSeq: Number(head?.[2]),
+    /** The handoff_read arguments the agent is told to use for omitted history. */
+    read: read
+      ? (JSON.parse(read) as { sourceThreadId: string; before: number; limit: number })
+      : undefined,
   };
 }

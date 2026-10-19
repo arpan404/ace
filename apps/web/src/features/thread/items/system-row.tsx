@@ -7,7 +7,8 @@ import { StaticRow, TranscriptRow, rowDetailIndent } from "./transcript-row.tsx"
  * Something that happened to the thread rather than in the conversation ("Resumed after
  * restart", "Stopped", "Context compacted"), as one muted row in the weight of "Worked for":
  * a glyph, the words, the time at the right. What ace sent on the person's behalf opens from
- * the row itself, folded until asked for. Never a centred divider, never focused by itself.
+ * the row itself, folded until asked for. Never a centred divider (a context handoff, where the
+ * conversation changes hands, is the one: `handoff-divider.tsx`), never focused by itself.
  */
 export function SystemRow(props: {
   text: string;

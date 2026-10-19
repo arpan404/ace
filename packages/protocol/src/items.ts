@@ -5,7 +5,7 @@ import { StepMeasurement } from "./interaction-measurement.ts";
 import { ProviderErrorDetails } from "./provider-error-details.ts";
 import { ThreadStatus } from "./thread-status.ts";
 import { DelegationOutcome } from "./agent-control.ts";
-import { MergedForkContext, ExecutionSource } from "./thread-transitions.ts";
+import { MergedForkContext, ExecutionSource, HandoffModel } from "./thread-transitions.ts";
 import { Attachment } from "./context.ts";
 import { z } from "zod";
 import { AgentId, CommandId, InteractionId, ItemId, RunId, ThreadId, Timestamp } from "./ids.ts";
@@ -63,6 +63,8 @@ export const MessageOrigin = z.object({
   role: z.string().optional(),
   from: z.object({ provider: ProviderKind, model: z.string().optional() }).optional(),
   to: z.object({ provider: ProviderKind, model: z.string().optional() }).optional(),
+  /** A context handoff: every model whose work the new agent received, oldest first. */
+  sources: z.array(HandoffModel).max(8).optional(),
   lossy: z.boolean().optional(),
 });
 export type MessageOrigin = z.infer<typeof MessageOrigin>;

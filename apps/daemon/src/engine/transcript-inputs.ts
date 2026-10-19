@@ -235,8 +235,17 @@ export function removeInput(
   commandId: CommandId,
   at: number,
 ): void {
+  removeInputItem(repo, id, `input:${commandId}`, at);
+}
+
+/** Takes an input's item out of the transcript and its journal entry out of delivery. */
+export function removeInputItem(
+  repo: EngineRepository,
+  id: ThreadId,
+  key: string,
+  at: number,
+): void {
   const state = repo.requireState(id);
-  const key = `input:${commandId}`;
   repo.inputs.invalidate(id, key);
   const item = state.items[key];
   if (!item) return;
