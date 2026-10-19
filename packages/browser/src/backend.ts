@@ -16,9 +16,22 @@ export interface EncodedChunk {
   codedHeight: number;
   description?: Uint8Array;
   bytes: Uint8Array;
+  /** How long ago (ms) the frame was captured, as the encoder measured it. */
+  age?: number | undefined;
+}
+/** One encoded chunk of the captured tab's sound (Opus), with how long ago it was captured. */
+export interface EncodedAudio {
+  codec: string;
+  sampleRate: number;
+  channels: number;
+  /** Milliseconds between the sound's capture and this chunk leaving the encoder. */
+  age: number;
+  bytes: Uint8Array;
 }
 export interface CaptureEvents {
   chunk(chunk: EncodedChunk): void;
+  /** Encoded sound, while the capture's audio is on (`VideoCaptureHandle.audio`). */
+  audio?(chunk: EncodedAudio): void;
   /** No encoder configuration worked for this encode. */
   failed(encode: string): void;
   /** The capture stopped on its own (the tab closed, the extension went away). */
@@ -28,6 +41,8 @@ export interface CaptureEvents {
 export interface VideoCaptureHandle {
   encodes(specs: readonly VideoEncode[]): void;
   keyframe(encode: string): void;
+  /** Encode the tab's sound too (ADR 0088, Audio), or stop; it starts off. */
+  audio?(on: boolean): void;
   close(): void;
 }
 /** An engine's video encoder (ADR 0088): what a live capture needs to stream a tab as video. */

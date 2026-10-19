@@ -54,8 +54,10 @@ Background tabs and agents' tabs are muted; the tab the person watches plays. Ta
 - **D.** `audioMuted` (pure): the person's choice if they made one, else muted unless the tab is
   placed in the panel and no agent uses it. The page reports `ace.audio {audible, muted}` and
   takes `ace.audio.mute`.
-- **H.** Chrome has no per-tab mute over CDP and the screencast carries no sound, so ace's Chrome
-  runs with `--mute-audio`: nothing it renders plays on the daemon's machine. It offers no toggle.
+- **H.** Chrome has no per-tab mute over CDP, so ace's Chrome sends its sound to a fake output
+  device (`--disable-audio-output`): nothing it renders plays on the daemon's machine. Remote
+  viewers hear a page through the video capture instead, muted until they unmute
+  ([ADR 0088](0088-remote-browser-view-v2.md), Audio).
 - **U.** The extension mutes every agent tab it opens or adopts (`chrome.tabs.update {muted}`),
   lists `audible`/`muted`, republishes when they change and takes the new `tabs.mute` operation
   for shared and agent tabs. The person's shared tabs keep their own sound.

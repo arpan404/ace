@@ -460,6 +460,11 @@ export const BrowserCaptureViewport = z.object({
    * accent, `outline` the colour that reads on it. The last viewer to report one sets it.
    */
   cursor: z.object({ fill: hexColour, outline: hexColour }).optional(),
+  /**
+   * The person unmuted this view (ADR 0088, Audio): while true, a viewer that plays video also
+   * gets the page's sound as stream kind `browserAudio`. Absent or false: muted, no audio bytes.
+   */
+  audio: z.boolean().optional(),
   width: dimension,
   height: dimension,
   devicePixelRatio: z.number().finite().min(1).max(4),

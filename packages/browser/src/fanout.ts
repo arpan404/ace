@@ -2,6 +2,8 @@ import type { BrowserFrame } from "@ace/protocol";
 import type { CaptureViewer } from "./capture-policy.ts";
 import type { BrowserVideoChunk } from "./stream-video.ts";
 import type { VideoSink } from "./video-fanout.ts";
+import type { AudioSink } from "./audio-fanout.ts";
+import type { BrowserAudioChunk } from "./stream-audio.ts";
 export type { CaptureViewer } from "./capture-policy.ts";
 
 export interface FrameSink {
@@ -9,6 +11,8 @@ export interface FrameSink {
   send(frame: BrowserFrame): boolean;
   /** Takes encoded video (ADR 0088); a viewer without it, or without codecs, gets JPEG only. */
   video?: VideoSink<BrowserVideoChunk>;
+  /** Takes the page's sound while the viewer plays video unmuted (ADR 0088, Audio). */
+  audio?: AudioSink<BrowserAudioChunk>;
 }
 interface Viewer {
   sink: FrameSink;

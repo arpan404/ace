@@ -384,6 +384,16 @@ export interface PreviewSource {
   /** Stop the recording that runs in the thread's browser; its file joins the thread. */
   stopRecording?(threadId: string): Promise<void>;
   /**
+   * Whether the page's sound plays here (ADR 0088, Audio): false until the person unmutes, on
+   * every device. Undefined where this client can't play it.
+   */
+  audio?(threadId: string): boolean | undefined;
+  /**
+   * The person's speaker toggle. Call it from their click or tap: phone browsers only start
+   * sound inside a user gesture. The daemon sends sound only while a viewer has it on.
+   */
+  setAudio?(threadId: string, on: boolean): void;
+  /**
    * Size the page to the pane in CSS pixels (100–4096). `touch`: the pane is on a touch screen,
    * so the page lays out as a mobile one and gets touch events. The page renders as sharp as
    * the pane's screen (`devicePixelRatio`) where the browser can.
