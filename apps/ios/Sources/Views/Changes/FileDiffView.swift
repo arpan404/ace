@@ -60,10 +60,12 @@ struct FileDiffView: View {
 private struct DiffLineView: View {
     let line: FileDiff.Line
     let wrap: Bool
+    @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
         if line.kind == "hunk" {
+            // At accessibility sizes one line holds little more than the line numbers.
             Text(line.text).aceMonospace(AceTheme.Typography.code, relativeTo: .caption)
-                .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+                .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                 .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.xs)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(AceTheme.Colours.fill)

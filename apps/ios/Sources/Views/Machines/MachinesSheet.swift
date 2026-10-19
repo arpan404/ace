@@ -42,7 +42,7 @@ struct MachinesSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+        .adaptiveSheetDetents().presentationDragIndicator(.visible)
     }
     private var unsupported: [MachineEntry] {
         machines.map { model in model.machines.filter { model.unsupported.contains($0.hostId) } } ?? []
@@ -54,6 +54,7 @@ struct MachineRow: View {
     let inbox: MachineInbox
     let machines: MachinesModel?
     let hostId: String
+    @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
         let status = MachineFacts(inbox: inbox, machines: machines, hostId: hostId)
         HStack(spacing: AceTheme.Spacing.md) {
@@ -62,7 +63,7 @@ struct MachineRow: View {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(status.name).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
                 Text(status.subtitle).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
             }
         }
         .accessibilityElement(children: .combine)

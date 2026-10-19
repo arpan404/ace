@@ -8,6 +8,7 @@ struct MachineDetailView: View {
     let hostId: String
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var renaming = false
     @State private var newName = ""
     @State private var removing = false
@@ -32,11 +33,12 @@ struct MachineDetailView: View {
                 }
                 if let version = client?.providers?.version { LabeledContent("ace", value: version) }
                 if let problem = facts.needsPairing ? nil : client?.problem {
-                    HStack {
-                        Text(problem.message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground).accessibilityIdentifier("machine.problem")
-                        Spacer(minLength: AceTheme.Spacing.sm)
-                        if problem.code == "unreachable" || problem.code == "offline" { Button("Retry") { client?.retry() }.buttonStyle(.borderless) }
+                    // At accessibility sizes Retry goes under the message instead of squeezing it.
+                    let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: AceTheme.Spacing.xs)) : AnyLayout(HStackLayout())
+                    layout {
+                        problemText(problem.message)
+                        if !typeSize.isAccessibilitySize { Spacer(minLength: AceTheme.Spacing.sm) }
+                        retry(problem.code)
                     }
                 }
             }
@@ -68,6 +70,15 @@ struct MachineDetailView: View {
         } message: { Text(notice?.message ?? "") }
     }
 
+    private func problemText(_ message: String) -> some View {
+        Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+            .foregroundStyle(AceTheme.Colours.mutedForeground).accessibilityIdentifier("machine.problem")
+    }
+    @ViewBuilder private func retry(_ code: String) -> some View {
+        if code == "unreachable" || code == "offline" {
+            Button("Retry") { client?.retry() }.buttonStyle(.borderless).frame(minHeight: AceTheme.Dimensions.touchTarget)
+        }
+    }
     @ViewBuilder private var providers: some View {
         Section("Coding tools") {
             if let info = client?.providers {
@@ -93,22 +104,28 @@ struct MachineDetailView: View {
 /// "Codex · Signed in as … ─ Ready", then what is left of each usage window.
 struct ProviderRow: View {
     let provider: MachineProvidersInfo.Provider
+    @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
+        // At accessibility sizes the status and each usage value sit under their label.
+        let stacked = typeSize.isAccessibilitySize
+        let line = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: AceTheme.Spacing.xxs))
+                           : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm))
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
+            line {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                     Text(provider.name).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
                     Text([provider.summary, provider.version].compactMap { $0 }.joined(separator: " · "))
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer(minLength: AceTheme.Spacing.sm)
+                if !stacked { Spacer(minLength: AceTheme.Spacing.sm) }
                 StateLabel(status: provider.status)
             }
-            ForEach(provider.usage, id: \.self) { line in
-                HStack(spacing: AceTheme.Spacing.sm) {
-                    Text(line.label)
-                    Spacer(minLength: AceTheme.Spacing.sm)
-                    Text([line.left, line.resets].compactMap { $0 }.joined(separator: " · ")).monospacedDigit()
+            ForEach(provider.usage, id: \.self) { usage in
+                line {
+                    Text(usage.label)
+                    if !stacked { Spacer(minLength: AceTheme.Spacing.sm) }
+                    Text([usage.left, usage.resets].compactMap { $0 }.joined(separator: " · ")).monospacedDigit()
                 }
                 .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
             }

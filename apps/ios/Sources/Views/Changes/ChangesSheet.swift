@@ -7,6 +7,7 @@ struct ChangesSheet: View {
     @Bindable var model: ClientModel
     let title: String
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     private var summary: ChangesSummary? { model.sheets.changes }
 
     var body: some View {
@@ -28,6 +29,10 @@ struct ChangesSheet: View {
                         }
                         footer(summary)
                     }
+                    if typeSize.isAccessibilitySize && summary.state == "ready" {
+                        NextStepCard(model: model, summary: summary, title: title)
+                            .listRowInsets(EdgeInsets()).listRowBackground(Color.clear).listRowSeparator(.hidden)
+                    }
                 } else {
                     ProgressView("Reading changes…").frame(maxWidth: .infinity)
                 }
@@ -42,7 +47,11 @@ struct ChangesSheet: View {
                 ToolbarItem(placement: .principal) { header }
             }
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
-                if let summary, summary.state == "ready" { NextStepCard(model: model, summary: summary, title: title) }
+                // At accessibility sizes the floating card would cover most of the files, so it
+                // ends the list instead.
+                if let summary, summary.state == "ready", !typeSize.isAccessibilitySize {
+                    NextStepCard(model: model, summary: summary, title: title)
+                }
             }
         }
         .onAppear { model.sheet(["kind": "changes", "open": true]) }
@@ -73,17 +82,28 @@ struct ChangesSheet: View {
 
 struct ChangedFileRow: View {
     let file: ChangesSummary.File
+    @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
+        // At accessibility sizes the counts take their own line so the path keeps the width.
+        let stacked = typeSize.isAccessibilitySize
+        let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: AceTheme.Spacing.xxs))
+                             : AnyLayout(HStackLayout(spacing: AceTheme.Spacing.sm))
+        layout {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(file.path).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.foreground).lineLimit(2).truncationMode(.head)
-                if let from = file.from { Text("from \(from)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1) }
+                    .foregroundStyle(AceTheme.Colours.foreground).lineLimit(stacked ? 4 : 2).truncationMode(.head)
+                if let from = file.from {
+                    Text("from \(from)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .lineLimit(stacked ? 3 : 1).truncationMode(.head)
+                }
             }
-            Spacer(minLength: AceTheme.Spacing.sm)
-            if file.binary { Text("binary").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
-            if file.deletions > 0 { Text("−\(file.deletions)").foregroundStyle(AceTheme.StatusText.failed) }
-            if file.additions > 0 { Text("+\(file.additions)").foregroundStyle(AceTheme.StatusText.done) }
+            if !stacked { Spacer(minLength: AceTheme.Spacing.sm) }
+            HStack(spacing: AceTheme.Spacing.sm) {
+                if file.binary { Text("binary").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
+                if file.deletions > 0 { Text("−\(file.deletions)").foregroundStyle(AceTheme.StatusText.failed) }
+                if file.additions > 0 { Text("+\(file.additions)").foregroundStyle(AceTheme.StatusText.done) }
+            }
+            .fixedSize()
         }
         .aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
         .accessibilityElement(children: .combine)
