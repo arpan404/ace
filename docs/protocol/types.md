@@ -22270,7 +22270,7 @@ Example:
 | sequence | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | timestamp | yes | number | {"minimum":0} |
 | width | yes | integer | {"exclusiveMinimum":0,"maximum":3840} |
-| height | yes | integer | {"exclusiveMinimum":0,"maximum":2160} |
+| height | yes | integer | {"exclusiveMinimum":0,"maximum":3840} |
 | codec | yes | ["jpeg","h264"] |  |
 | keyframe | no | boolean |  |
 | videoCodec | no | string | {"pattern":"^avc1\\.[0-9a-fA-F]{6}$"} |
@@ -22305,7 +22305,7 @@ Example:
 | seq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | ts | yes | number | {"minimum":0} |
 | width | yes | integer | {"exclusiveMinimum":0,"maximum":3840} |
-| height | yes | integer | {"exclusiveMinimum":0,"maximum":2160} |
+| height | yes | integer | {"exclusiveMinimum":0,"maximum":3840} |
 | scale | yes | number | {"exclusiveMinimum":0,"maximum":8} |
 | codec | yes | ["jpeg","h264"] |  |
 | keyframe | no | boolean |  |
@@ -23755,7 +23755,7 @@ Example:
 | sequence | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | timestamp | yes | number | {"minimum":0} |
 | width | yes | integer | {"exclusiveMinimum":0,"maximum":3840} |
-| height | yes | integer | {"exclusiveMinimum":0,"maximum":2160} |
+| height | yes | integer | {"exclusiveMinimum":0,"maximum":3840} |
 | codec | yes | ["jpeg","h264"] |  |
 | keyframe | no | boolean |  |
 | videoCodec | no | string | {"pattern":"^avc1\\.[0-9a-fA-F]{6}$"} |
@@ -25110,7 +25110,7 @@ Example:
 | seq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | ts | yes | number | {"minimum":0} |
 | width | yes | integer | {"exclusiveMinimum":0,"maximum":3840} |
-| height | yes | integer | {"exclusiveMinimum":0,"maximum":2160} |
+| height | yes | integer | {"exclusiveMinimum":0,"maximum":3840} |
 | scale | yes | number | {"exclusiveMinimum":0,"maximum":8} |
 | codec | yes | ["jpeg","h264"] |  |
 | keyframe | no | boolean |  |

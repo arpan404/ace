@@ -6,7 +6,7 @@ import { DeviceError } from "./sdk.ts";
 /** One native touch and keyboard operation, revoked synchronously when control changes. */
 export class SimulatorInput {
   private epoch = new AbortController();
-  private held: { x: number; y: number; epoch: AbortController } | undefined;
+  private held: { x: number; y: number; edge: number; epoch: AbortController } | undefined;
   private typing: RawSupervisedProcess | undefined;
   private cleanup: Promise<void> = Promise.resolve();
   private readonly options: {
@@ -15,6 +15,7 @@ export class SimulatorInput {
     device: string;
     env: NodeJS.ProcessEnv;
     dimensions(): { width: number; height: number };
+    orientation(): string;
     send(tag: number, payload: unknown, cleanup?: boolean): void;
   };
   constructor(options: SimulatorInput["options"]) {
@@ -38,7 +39,7 @@ export class SimulatorInput {
   private end(epoch: AbortController) {
     const held = this.held;
     if (!held || held.epoch !== epoch) return;
-    this.options.send(3, { type: "end", x: held.x, y: held.y }, true);
+    this.options.send(3, touchMessage("end", held), true);
     this.held = undefined;
   }
   async input(input: DeviceInput, guard: () => void): Promise<void> {
@@ -49,19 +50,23 @@ export class SimulatorInput {
       guard();
     };
     check();
-    const touch = (type: "begin" | "move", x: number, y: number) => {
+    const touch = (type: "begin" | "move", x: number, y: number, gesture = false) => {
       check();
       const { width, height } = this.options.dimensions();
       if (!width || !height || x < 0 || y < 0 || x >= width || y >= height)
         throw new Error("Simulator input is outside the current frame");
-      const point = { x: x / width, y: y / height, epoch };
-      this.options.send(3, { type, x: point.x, y: point.y });
-      this.held = point;
+      const point = { x: x / width, y: y / height };
+      // A drag that starts on a screen edge is a system edge gesture (home, Control Centre).
+      const edge =
+        type === "begin" ? (gesture ? screenEdge(point.x, point.y) : 0) : (this.held?.edge ?? 0);
+      const held = { ...point, edge, epoch };
+      this.options.send(3, touchMessage(type, held));
+      this.held = held;
     };
     if (input.kind === "pointer") {
       if (input.phase === "down") {
         this.end(epoch);
-        touch("begin", input.x, input.y);
+        touch("begin", input.x, input.y, true);
       } else if (input.phase === "move") {
         if (!this.held) throw new Error("Simulator pointer is not held");
         touch("move", input.x, input.y);
@@ -70,7 +75,7 @@ export class SimulatorInput {
     }
     if (input.kind === "tap" || input.kind === "swipe" || input.kind === "longPress") {
       this.end(epoch);
-      touch("begin", input.x, input.y);
+      touch("begin", input.x, input.y, input.kind === "swipe");
       try {
         if (input.kind !== "tap") {
           const steps = Math.max(1, Math.ceil(input.durationMs / 16));
@@ -91,9 +96,10 @@ export class SimulatorInput {
       return;
     }
     if (input.kind === "key" && input.key !== "enter") {
-      const { width, height } = this.options.dimensions();
       if (input.key === "rotate")
-        this.options.send(7, { orientation: width > height ? "portrait" : "landscape_left" });
+        this.options.send(7, {
+          orientation: this.options.orientation() === "portrait" ? "landscape_left" : "portrait",
+        });
       else if (input.key === "home") this.options.send(4, { button: "home" });
       else if (input.key === "power")
         this.options.send(4, { button: "power", page: 12, usage: 48 });
@@ -152,4 +158,27 @@ export class SimulatorInput {
       if (signal.aborted) abort();
     });
   }
+}
+
+/** serve-sim's touch message; the edge field is sent only for edge gestures. */
+function touchMessage(
+  type: "begin" | "move" | "end",
+  point: { x: number; y: number; edge: number },
+) {
+  return point.edge
+    ? { type, x: point.x, y: point.y, edge: point.edge }
+    : { type, x: point.x, y: point.y };
+}
+
+/**
+ * The screen edge a normalized point lies on, as serve-sim's touch `edge` field names it:
+ * 1 left, 2 top, 3 bottom, 4 right, 0 none. The band is 2% of the screen.
+ */
+export function screenEdge(x: number, y: number): number {
+  const band = 0.02;
+  if (y >= 1 - band) return 3;
+  if (y < band) return 2;
+  if (x < band) return 1;
+  if (x >= 1 - band) return 4;
+  return 0;
 }
