@@ -186,14 +186,6 @@ export function Workspace(props: {
       actions={actions}
       placement={placement}
       dockable={definition.dockable}
-      mobileAction={{
-        label: definition.mobileAction?.label ?? definition.label,
-        onClick: () => {
-          const kind = definition.mobileAction?.kind;
-          if (kind) actions.open({ kind });
-          else actions.setOpen(true);
-        },
-      }}
       mobileTools={definition.mobileTools?.map((tool) => ({
         label: tool.label,
         icon: definition.kind(tool.kind)?.icon ?? SquareSplitHorizontalIcon,

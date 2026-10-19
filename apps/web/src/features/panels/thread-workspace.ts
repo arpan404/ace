@@ -10,7 +10,6 @@ import { defineWorkspace } from "@/lib/workspace/index.ts";
 export const threadWorkspace = defineWorkspace({
   label: "Thread panel",
   launcher: "new-tab",
-  mobileAction: { label: "Summary", kind: "work" },
   // A phone has no room for the panel beside the conversation: Changes opens over it from ⋯.
   mobileTools: [{ label: "Changes", kind: "changes" }],
   // Terminals may also open under the conversation (Settings › General › Terminals open in).

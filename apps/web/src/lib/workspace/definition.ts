@@ -22,8 +22,6 @@ export interface WorkspaceDefinitionOptions {
    * first kind is what showing an empty bottom panel opens. Omit for no bottom panel.
    */
   bottom?: { label: string; kinds: readonly [string, ...string[]] };
-  /** The phone header's labelled panel action. Omit kind to reopen the active tab or launcher. */
-  mobileAction?: { label: string; kind?: string };
   /** More tools the phone's ⋯ opens straight to, each over the whole screen ("Changes"). */
   mobileTools?: readonly { label: string; kind: string }[];
   /** Tools' shortcuts (kind → keymap id): bound from first paint, shown on launcher cards. */
@@ -69,7 +67,6 @@ export function defineWorkspace(options: WorkspaceDefinitionOptions): WorkspaceD
     initial: options.initial,
     ...(options.dockable !== undefined ? { dockable: options.dockable } : {}),
     ...(options.bottom ? { bottom: options.bottom } : {}),
-    ...(options.mobileAction ? { mobileAction: options.mobileAction } : {}),
     ...(options.mobileTools ? { mobileTools: options.mobileTools } : {}),
     ...(options.shortcuts ? { shortcuts: options.shortcuts } : {}),
     load,

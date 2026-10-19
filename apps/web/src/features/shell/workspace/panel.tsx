@@ -215,8 +215,8 @@ export function WorkspacePanel(props: {
 }
 
 /**
- * The panel's toggle outside the panel itself (the header's), to return focus to. On a phone the
- * toggle lives in this screen's header ⋯, closed by now: focus goes back to that ⋯.
+ * The panel's toggle outside the panel itself (the header's), to return focus to. A panel opened
+ * from a tool in the phone's ⋯ still returns to the header's toggle; failing that, to the ⋯.
  */
 function toggleOutside(panel: HTMLElement | null): HTMLElement | undefined {
   // Not one inside a popup (the phone's ⋯): that closes, taking focus with it.
