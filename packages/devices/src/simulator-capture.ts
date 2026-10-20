@@ -10,6 +10,8 @@ import { SimulatorH264 } from "./simulator-h264.ts";
 import { simulatorUI } from "./simulator-ui.ts";
 import { nativeId } from "./commands.ts";
 import { simulatorRotation } from "./simulator-rotation.ts";
+import { DeviceError } from "./sdk.ts";
+import { pinnedServeSim } from "./serve-sim-version.ts";
 
 const Endpoint = z.object({
   device: z.string().uuid(),
@@ -47,7 +49,8 @@ function sibling(stream: URL, name: string): URL {
 
 /**
  * The public serve-sim CLI owns the native framebuffer, HID and accessibility connection for
- * this UDID. Viewers that decode H.264 get serve-sim's stream as-is; others get JPEG.
+ * this UDID. Live views get serve-sim's H.264 as-is. Its MJPEG, resized, only feeds agents'
+ * stills and recordings while nobody watches.
  */
 export async function simulatorCapture(options: {
   command: string;
@@ -256,7 +259,7 @@ export async function simulatorCapture(options: {
       },
     });
     const nativeInput = input;
-    const toH264 = async (): Promise<"jpeg" | "h264"> => {
+    const toH264 = async (): Promise<"h264"> => {
       if (h264) return "h264";
       const source = new SimulatorH264({
         url: avccUrl,
@@ -290,12 +293,16 @@ export async function simulatorCapture(options: {
       try {
         await source.start();
       } catch (error) {
-        // H.264 that won't start leaves viewers on JPEG rather than without a picture.
+        // A live view is video or nothing: say so rather than hand it JPEG.
         if (h264 === source) h264 = undefined;
         await source.stop();
         controller.signal.throwIfAborted();
         if (stopped) throw error;
-        return "jpeg";
+        throw new DeviceError(
+          "command_failed",
+          "serve-sim's H.264 stream didn't start",
+          `Open the live view again. If it keeps failing, reinstall serve-sim: npm install -g serve-sim@${pinnedServeSim}`,
+        );
       }
       const previous = jpeg;
       jpeg = undefined;
@@ -323,9 +330,7 @@ export async function simulatorCapture(options: {
       },
       async configure(settings) {
         controller.signal.throwIfAborted();
-        const codec = settings.codec === "h264" ? await toH264() : await toJpeg(settings);
-        if (codec === "jpeg" && settings.codec === "h264") await toJpeg(settings);
-        return { codec };
+        return { codec: settings.codec === "h264" ? await toH264() : await toJpeg(settings) };
       },
       keyframe: async () => {
         controller.signal.throwIfAborted();

@@ -117,7 +117,7 @@ try {
     client.ack(picture);
   });
   client.retainStream(deviceId);
-  const profile = deviceStreamProfile({ width: 390 * 2, height: 844 * 2 }, "relay", true);
+  const profile = deviceStreamProfile({ width: 390 * 2, height: 844 * 2 }, "relay");
   await client.request({ op: "stream.configure", deviceId, settings: profile });
 
   const measure = async (label: string, during?: () => Promise<void>) => {

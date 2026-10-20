@@ -1,17 +1,19 @@
 import type { RawSupervisedProcess } from "@ace/provider-kit/process";
 import { JpegDecoder } from "./jpeg.ts";
 import type { DeviceRuntime } from "./runtime.ts";
-import type { VideoUnit } from "./scrcpy-video.ts";
 
 /** Bytes queued for the decoder before frames are dropped back to the next keyframe. */
 const backlogLimit = 4 * 1024 * 1024;
 
+/** One Annex B access unit; a keyframe carries its parameter sets in front. */
+export type H264Unit = { payload: Buffer; keyframe: boolean };
+
 /**
- * Still images for viewers without a video decoder, screenshots and recordings: the device's
- * H.264 goes through ffmpeg once and comes out as independent JPEG frames. The live H.264 view
- * never uses this.
+ * A device's H.264 through ffmpeg once, out as independent JPEG frames, for agents' stills and
+ * recordings: scrcpy's capture while nobody watches, and a recording while a live view keeps the
+ * capture on video. Live views never use this; they take the H.264 itself.
  */
-export class ScrcpyJpeg {
+export class H264Jpeg {
   private readonly process: RawSupervisedProcess;
   private readonly decoder: JpegDecoder;
   private waitingForKeyframe = true;
@@ -19,7 +21,9 @@ export class ScrcpyJpeg {
   constructor(options: {
     ffmpeg: string;
     fps: number;
-    runtime: DeviceRuntime;
+    /** Fit the images inside this box, never upscaling; native size when absent. */
+    box?: { maxWidth: number; maxHeight: number };
+    runtime: Pick<DeviceRuntime, "spawn">;
     env: NodeJS.ProcessEnv;
     image(payload: Buffer, width: number, height: number): void;
     failure(error: unknown): void;
@@ -27,6 +31,16 @@ export class ScrcpyJpeg {
     this.decoder = new JpegDecoder((payload, width, height) => {
       if (!this.stopped) options.image(payload, width, height);
     });
+    const box = options.box;
+    const filters = [
+      `fps=${Math.max(1, Math.floor(options.fps))}`,
+      ...(box
+        ? [
+            `scale='min(${box.maxWidth},iw)':'min(${box.maxHeight},ih)':force_original_aspect_ratio=decrease`,
+          ]
+        : []),
+      "mpdecimate=hi=0:lo=0:frac=0",
+    ];
     this.process = options.runtime.spawn({
       command: options.ffmpeg,
       args: [
@@ -44,7 +58,7 @@ export class ScrcpyJpeg {
         "-i",
         "pipe:0",
         "-vf",
-        `fps=${Math.max(1, Math.floor(options.fps))},mpdecimate=hi=0:lo=0:frac=0`,
+        filters.join(","),
         "-fps_mode",
         "vfr",
         "-c:v",
@@ -76,7 +90,7 @@ export class ScrcpyJpeg {
    * Queues one access unit. Returns false when the decoder needs a keyframe before it can use
    * more: at the start, and after a backlog forced it to drop frames.
    */
-  push(unit: VideoUnit): boolean {
+  push(unit: H264Unit): boolean {
     if (this.stopped) return true;
     if (this.process.stdin.writableLength > backlogLimit) this.waitingForKeyframe = true;
     if (this.waitingForKeyframe && !unit.keyframe) return false;

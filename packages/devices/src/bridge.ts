@@ -138,6 +138,9 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
                 // Every frame, unhurried: the viewer's window paces the pictures, not the hub.
                 const stop = await service.subscribeEvery(deviceId, actor, (frame) => {
                   guard();
+                  // Live views are video only: the JPEG a capture makes for agents while
+                  // nobody watches (until this view's H.264 starts) never reaches one.
+                  if (frame.header.codec !== "h264") return;
                   view.push(framePicture(frame));
                 });
                 slot.attach(() => {

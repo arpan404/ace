@@ -8,7 +8,8 @@ import { DevicePlatform, startCapture, type DeviceRuntime } from "./index.ts";
 import { fakeServeSim as serveSim } from "./testing/fake-serve-sim.ts";
 
 const udid = "11111111-1111-4111-8111-111111111111";
-const fakeServeSim = (home: string, version: string) => serveSim(home, version, udid);
+const fakeServeSim = (home: string, version: string, options?: { video?: boolean }) =>
+  serveSim(home, version, udid, options);
 function platformFor(home: string) {
   return new DevicePlatform({
     platform: "darwin",
@@ -51,7 +52,7 @@ const video = {
   bitrate: 12000000,
 };
 
-it("viewers that decode H.264 get serve-sim's stream untouched, switching back to JPEG on request", async () => {
+it("a live view gets serve-sim's H.264 untouched, and agents get JPEG back once nobody watches", async () => {
   const home = await mkdtemp(join(tmpdir(), "sim-h264-"));
   onTestFinished(() => rm(home, { recursive: true, force: true }));
   const sim = await fakeServeSim(home, "0.1.48");
@@ -111,6 +112,35 @@ it("viewers that decode H.264 get serve-sim's stream untouched, switching back t
   await expect.poll(() => frames.at(-1)?.header.codec).toBe("jpeg");
   await expect.poll(() => sim.avcc.length).toBe(0);
   expect(failures).toEqual([]);
+});
+
+it("serve-sim video that won't start refuses the live view instead of handing it JPEG", async () => {
+  const home = await mkdtemp(join(tmpdir(), "sim-novideo-"));
+  onTestFinished(() => rm(home, { recursive: true, force: true }));
+  await fakeServeSim(home, "0.1.48", { video: false });
+  const platform = platformFor(home);
+  onTestFinished(() => platform.close());
+  const frames: Frame[] = [];
+  const failures: unknown[] = [];
+  const capture = await startCapture({
+    device,
+    streamId: "native",
+    fps: 30,
+    platform,
+    runtime,
+    env: { PATH: home },
+    publish: (frame) => frames.push(frame),
+    failure: (error) => failures.push(error),
+  });
+  onTestFinished(() => capture.stop());
+  await expect.poll(() => frames.length).toBeGreaterThan(0);
+  await expect(capture.configure?.(video)).rejects.toMatchObject({
+    code: "command_failed",
+    hint: expect.stringContaining("npm install -g serve-sim@0.1.48"),
+  });
+  // The capture itself lives on for agents' stills.
+  expect(failures).toEqual([]);
+  expect(frames.every((frame) => frame.header.codec === "jpeg")).toBe(true);
 });
 
 it("a tree ref taps its element through serve-sim's touch socket; edge swipes and rotation follow the screen", async () => {

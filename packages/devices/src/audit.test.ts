@@ -57,7 +57,7 @@ it("an expired agent delegation resumes but an explicit handback cannot resume",
   lease.claim(human);
   expect(lease.resume(agent)).toBe(false);
 });
-it("identical stream budgets preserve the native capture and recording bounds its traffic", async () => {
+it("identical stream budgets preserve the native capture and an unwatched recording bounds its traffic", async () => {
   const effects: string[] = [];
   const control = new DeviceStreamControl(async (settings) => {
     effects.push(`${settings.codec}:${settings.maxWidth}x${settings.maxHeight}:${settings.fps}`);
@@ -74,10 +74,19 @@ it("identical stream budgets preserve the native capture and recording bounds it
   await control.set("b", { ...profile });
   await control.refresh();
   await control.remove("b");
-  const recording = control.acquireRecording();
-  await recording.ready;
-  await recording.release();
-  expect(effects).toEqual(["h264:1920x2160:60", "jpeg:1280x720:15", "h264:1920x2160:60"]);
+  const watched = control.acquireRecording();
+  await watched.ready;
+  await watched.release();
+  await control.remove("a");
+  const unwatched = control.acquireRecording();
+  await unwatched.ready;
+  await unwatched.release();
+  expect(effects).toEqual([
+    "h264:1920x2160:60",
+    "jpeg:1920x2160:30",
+    "jpeg:1280x720:15",
+    "jpeg:1920x2160:30",
+  ]);
   await control.close();
 });
 it("the final Simulator frame is published after throttling even when no more frames arrive", async () => {
