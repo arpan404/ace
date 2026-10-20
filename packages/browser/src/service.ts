@@ -6,7 +6,6 @@ import {
   ThreadId,
   type BrowserArtifact,
   type BrowserState,
-  type BrowserFrame,
 } from "@ace/protocol";
 import { recoverHeadless } from "./recovery.ts";
 import { DesktopLoss } from "./desktop-loss.ts";
