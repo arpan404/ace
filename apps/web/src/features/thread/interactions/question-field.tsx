@@ -23,9 +23,7 @@ export function QuestionField(props: {
   question: Question;
   picked: readonly string[];
   text: string;
-  /** At the start of the first line (the header, else the text): the request's icon. */
-  lead?: ReactNode;
-  /** At the end of the first line: the strip's pager. */
+  /** At the end of the first line (the header, else the text): the strip's pager. */
   aside?: ReactNode;
   disabled: boolean;
   onToggle(id: string): void;
@@ -114,11 +112,6 @@ export function QuestionField(props: {
               : "text-md leading-[1.35] font-medium tracking-[-0.005em]",
           )}
         >
-          {props.lead && (
-            <span className={cn("flex shrink-0", !question.header && "text-muted-foreground")}>
-              {props.lead}
-            </span>
-          )}
           <span id={question.header ? header : legend} className="min-w-0 flex-1">
             {question.header ?? question.text}
           </span>

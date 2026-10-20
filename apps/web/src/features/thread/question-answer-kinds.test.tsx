@@ -30,11 +30,10 @@ test("each option's description reads under its label", async () => {
   expect(within(card).getByText("2 spaces, like the web app")).toBeTruthy();
 });
 
-test("the card names no agent on screen, only aloud, its icon leading the question's header", async () => {
+test("the card names no agent on screen, only aloud", async () => {
   const { card } = await openCard("thread-ux-question-pick", "Tabs or Spaces?");
-  expect(card.textContent).not.toContain("Codex");
-  const icon = within(card).getByRole("img", { name: "Codex is asking" });
-  expect(icon.closest("div")?.textContent).toBe("Indentation");
+  expect(within(card).getByText("Codex is asking").className).toContain("sr-only");
+  expect(within(card).getByText("Indentation")).toBeTruthy();
 });
 
 test("a question with nothing to pick is one field, and Continue sends the words typed", async () => {

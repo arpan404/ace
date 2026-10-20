@@ -1,7 +1,7 @@
 import { useAgent, useInteraction } from "@ace/client-react";
 import type { Interaction, InteractionResolution, Question } from "@ace/protocol";
 import { agentName, answeredQuestions, questionTitle, requestIdentity } from "@ace/ui-core";
-import { ArrowRightIcon, ChatTeardropDotsIcon, ChatTeardropTextIcon } from "@phosphor-icons/react";
+import { ArrowRightIcon, ChatTeardropIcon, ChatTeardropTextIcon } from "@phosphor-icons/react";
 import { useId, useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -112,7 +112,7 @@ function WaitingLine(props: { asker: string; title: string; onActivate(): void }
       className={cn(pressableRowClass, "text-muted-foreground")}
     >
       <span className="flex min-w-5 shrink-0 items-center justify-center text-foreground">
-        <Icon icon={ChatTeardropDotsIcon} size={16} />
+        <Icon icon={ChatTeardropIcon} size={16} />
       </span>
       <span className="min-w-0 flex-1 truncate">
         {props.asker} is asking · <span className="text-foreground">{props.title}</span>

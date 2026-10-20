@@ -12,8 +12,7 @@ import {
   questionTitle,
   requestIdentity,
 } from "@ace/ui-core";
-import { ChatTeardropDotsIcon, CheckIcon } from "@phosphor-icons/react";
-import { Icon } from "@/components/icon.tsx";
+import { CheckIcon } from "@phosphor-icons/react";
 import { ApprovalHeading, ApprovalRequest } from "@/components/approval-request.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -289,11 +288,13 @@ function OpenRequest(props: {
         </>
       )}
       {request.kind === "question" && (
+        // Who asks is said aloud only; the strip shows the question.
+        <span className="sr-only">{props.asker} is asking</span>
+      )}
+      {request.kind === "question" && (
         <QuestionForm
           interactionId={interaction.id}
           asker={props.asker}
-          // Who asks is said aloud only; the strip shows the question.
-          lead={<Icon icon={ChatTeardropDotsIcon} size={14} label={`${props.asker} is asking`} />}
           aside={props.aside && <span className="flex items-center gap-3">{props.aside}</span>}
           questions={request.questions}
           disabled={sending}

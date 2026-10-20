@@ -22,9 +22,7 @@ export function QuestionForm(props: {
   interactionId: string;
   /** Who asks, for the note's placeholder. */
   asker: string;
-  /** At the start of the question's first line (its header, else its text). */
-  lead?: ReactNode;
-  /** At the end of that line: the strip's pager and indicators. */
+  /** At the end of the question's first line: the strip's pager and indicators. */
   aside?: ReactNode;
   questions: readonly Question[];
   disabled: boolean;
@@ -104,7 +102,6 @@ export function QuestionForm(props: {
         question={current}
         picked={picked[current.id] ?? []}
         text={texts[current.id] ?? ""}
-        lead={props.lead}
         aside={props.aside}
         disabled={props.disabled}
         onToggle={(id) => toggle(current, id)}
