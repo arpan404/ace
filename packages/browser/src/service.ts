@@ -18,7 +18,7 @@ import { daemonTabLimit, threadTabLimit } from "./tab-limits.ts";
 import { defaultTabLifecycle } from "./tab-lifecycle.ts";
 import type { LifecycleSchedule } from "./session-lifecycle.ts";
 import { EmbeddedBackend, type EmbeddedTransport } from "./embedded.ts";
-import type { BrowserBackend, BackendOpen, BrowserBackendSession } from "./backend.ts";
+import type { BrowserBackend, BackendOpen, BrowserBackendSession, VideoHost } from "./backend.ts";
 import type {
   BrowserAnnotationMessage,
   BrowserBackendLost,
@@ -91,6 +91,14 @@ export class BrowserService {
   }
   downloadProgress(listener: (progress: BrowserDownloadProgress) => void): () => void {
     return this.acquisition.subscribe(listener);
+  }
+  /**
+   * An encoder for another service's pages that have none ("Use my Chrome", ADR 0088): a Chrome
+   * of ace's that encodes their screencast, started by a viewer and stopped once idle. Absent
+   * when this service runs no Chrome of its own.
+   */
+  videoEncoder(): VideoHost | undefined {
+    return this.acquisition.videoEncoder();
   }
   private policyScopes = new Map<string, AbortController>();
   private navigationClock: import("./navigation.ts").NavigationClock;

@@ -83,6 +83,8 @@ export interface BrowserServiceOptions {
   chrome?: Partial<ChromeLaunch>;
   /** Browser shutdown deadline and its force-kill. */
   cleanup?: Partial<ChromeCleanup>;
+  /** How long the encoder-only Chrome (`BrowserService.videoEncoder`) outlives its last capture. Default 30 s. */
+  videoEncoderIdleMs?: number;
   /** The recording encoder's process edge. */
   spawn?: ProcessSpawner;
   headlessBackend?: BrowserBackend;

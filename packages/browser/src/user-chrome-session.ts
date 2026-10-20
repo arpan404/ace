@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { BrowserDialog, type UserBrowserTab } from "@ace/protocol";
-import type { BackendOpen, BrowserBackendSession } from "./backend.ts";
+import type { BackendOpen, BrowserBackendSession, VideoHost } from "./backend.ts";
 import { cancellableCdp } from "./cancellable-cdp.ts";
 import { navigateCdp } from "./cdp-navigation.ts";
 import { chromeInput } from "./chrome-input.ts";
@@ -69,6 +69,7 @@ export async function userTabSession(
   tab: UserBrowserTab,
   request: BackendOpen,
   platform: NodeJS.Platform,
+  videoEncoder: () => VideoHost | undefined = () => undefined,
 ): Promise<UserTabSession> {
   const tabCdp = link.tab(tab.tabId);
   // The extension's debugger sees no real input: a watcher in the page reports the person's.
@@ -237,6 +238,8 @@ export async function userTabSession(
       viewport = { width, height };
     },
     viewport: () => viewport,
+    // The live capture feeds the encoder this tab's screencast (`VideoCaptureHandle.pictures`).
+    video: videoEncoder,
     media: async (colorScheme) => {
       await cdp.send("Emulation.setEmulatedMedia", {
         features: [{ name: "prefers-color-scheme", value: colorScheme }],

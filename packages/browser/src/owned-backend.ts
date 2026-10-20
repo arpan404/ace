@@ -74,9 +74,15 @@ export function ownedHeadless(options: BrowserServiceOptions, signal: AbortSigna
       platform: process.platform,
       launch: { ...defaults.launch, ...options.chrome },
       cleanup: { ...defaults.cleanup, ...options.cleanup },
+      encoder: {
+        profileDir: join(options.dataDir, "browser", "encoder"),
+        idleMs: options.videoEncoderIdleMs ?? 30_000,
+      },
     }));
   return {
     backend,
+    /** Video for a backend without an encoder of its own ("Use my Chrome"). */
+    videoEncoder: () => owned?.encoder(),
     subscribe: (listener: (value: BrowserDownloadProgress) => void) => {
       if (listeners.size >= 64) throw new Error("Browser download subscriber limit");
       listeners.add(listener);
