@@ -4,6 +4,8 @@ Date: 2026-10-02. Status: accepted.
 
 Superseded 2026-10-14: ace's MCP tools are always allowed; permissions are provider-native (owner decision). Device approval is no longer a human prompt: an agent's device call binds the device to its thread without asking.
 
+Superseded 2026-10-20: live views are H.264 at 60 fps only; every JPEG live-view path below is gone (see "Live views are video only").
+
 Renumbered after checking origin/main and open PRs on 2026-10-03. The initial
 0063 allocation avoided #90’s 0062. A subsequent check found #90 merged and
 #93 reserving 0063, so in-app devices now uses 0064. Web performance keeps 0056.
@@ -344,3 +346,33 @@ keyframe, as scrcpy and serve-sim hand it over, so the daemon still never decode
   disposable (`nal_ref_idc` 0 in none of 2,125), so frame-rate decimation without a
   transcode isn't possible; a slow viewer relies on the window's drop rule, and a viewer
   asking for JPEG gets the resized, budgeted JPEG path.
+
+## Live views are video only, 2026-10-20
+
+Owner decision: a live device view is H.264 at 60 fps, on the same desktop, over Tailscale and
+through the relay to mobile web. JPEG is never a live-view format. This supersedes the JPEG
+fallbacks above (MJPEG and ffmpeg JPEG for viewers without a decoder, the JPEG answer to a
+`NotSupportedError`, the screenshot and recording switches to JPEG, and the screenrecord view).
+
+- **Profile.** `deviceStreamProfile` asks for 60 fps and H.264 on every connection: local
+  12 Mbit/s in a 3840×3840 box, remote 8 Mbit/s in 1440×2880 (a phone screen at its device pixel
+  ratio), relay 5 Mbit/s in 1080×2160. Pressure (0–3) divides the bit rate by 1 + pressure/2, never
+  below 1 Mbit/s, and at 3 shrinks a remote or relay box to three quarters. It never lowers the
+  frame rate. scrcpy gets `max_fps=60` and the profile's `video_bit_rate`; serve-sim encodes at
+  60 fps and 6 Mbit/s and takes no options, so its stream passes through as before.
+- **No JPEG to a viewer.** A viewer's preference is always H.264 (a JPEG `stream.configure` is
+  `not_supported`); before it sizes its stream it asks for 60 fps in the remote box. While anyone
+  watches, the capture streams H.264 whatever else uses it. A capture that can't refuses the
+  view rather than downgrading it: the Simulator screen helper without an H.264 encoder with
+  `tool_missing` and `npm install -g serve-sim@0.1.48`, serve-sim video that won't start with a
+  reinstall hint, and the Android screenrecord fallback with `not_supported` naming why scrcpy
+  didn't start. The bridge drops any JPEG frame, so the JPEG a capture makes for agents' stills
+  and recordings while nobody watches never reaches a view.
+- **Stills and recordings.** A screenshot of a watched device comes from the device (`simctl io
+screenshot`, `screencap`). A watched recording decodes the live H.264 through ffmpeg to its own
+  1280×720, 15 fps JPEG budget (`RecordingFeed`); an unwatched one still sets that budget on the
+  capture. JPEG and PNG remain for screenshots, model screenshots and recordings only.
+- **Clients.** The web view always asks for H.264 and has no JPEG decoder; without a WebCodecs
+  H.264 decoder, or when the platform refuses the stream, it shows "This browser can't decode H.264
+  video", and a refused stream shows the daemon's message and hint. The iOS reader marks stills
+  and exposes `isLiveVideo`. The fake daemon streams real H.264 IDRs of its screens.
