@@ -6,6 +6,7 @@ import { list, number, object, string, text, type Data } from "./native.ts";
 import { matchBlock, type MessageIndex } from "./blocks.ts";
 import { childUsage } from "./usage.ts";
 import { toolDetail } from "./tools.ts";
+import { childPrompt, injectedInput } from "./injected-inputs.ts";
 
 export function tool(
   state: ClaudeState,
@@ -124,8 +125,17 @@ export function message(
       (block) => block["type"] === "text" && block["text"] !== "[Request interrupted by user]",
     );
   if (role === "user" && userText.length) {
+    const parts = userText.map((block) => ({ type: "text" as const, text: string(block["text"]) }));
+    const joined = parts.map((part) => part.text).join("");
+    // A notification Claude writes into a subagent is its own input, not the subagent's prompt.
+    const kind =
+      agent !== state.root && childPrompt(state, agent, joined)
+        ? undefined
+        : injectedInput(state, data, joined);
     const item =
-      agent !== state.root ? state.key("prompt", agent) : state.key("message", `${agent}:${id}:0`);
+      agent !== state.root && !kind
+        ? state.key("prompt", agent)
+        : state.key("message", `${agent}:${id}:0`);
     state.emit({
       type: "item.upsert",
       agent,
@@ -133,7 +143,8 @@ export function message(
       draft: {
         type: "message",
         role: "user",
-        parts: userText.map((block) => ({ type: "text" as const, text: string(block["text"]) })),
+        parts,
+        ...(kind ? { synthetic: true, origin: { kind } } : {}),
         complete: true,
         ...(string(data["uuid"]) && string(data["uuid"]).length <= 256
           ? { nativeId: string(data["uuid"]) }

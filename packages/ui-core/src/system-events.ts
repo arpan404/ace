@@ -2,6 +2,7 @@ import { withoutPortableHandoff } from "@ace/projection";
 import { stripAceOriginMarker } from "@ace/native-session/user-text";
 import type { Item, ProviderKind } from "@ace/protocol";
 import { modelLabel, providerNames } from "./providers.ts";
+import { agentMessageBody, providerNotice } from "./provider-notices.ts";
 import {
   messageOrigin,
   messageText,
@@ -105,11 +106,16 @@ const inputKinds = new Set<string>([
  * The ace input a message carries, or undefined for the person's own words (A3, IR-8/9/10/11).
  * `origin` decides when present: `person`, `queue` (their words, sent from the queue) and any
  * kind this build doesn't know keep it the person's. Without one, only ace's exact fixed texts
- * count. Assistant prose never does.
+ * and a provider's own notifications on synthetic messages count. Assistant prose never does;
+ * a provider notification stored as an assistant message (OpenCode history) is not prose.
  */
 export function systemInput(item: Item | undefined): SystemInput | undefined {
-  if (item?.type !== "message" || item.role === "assistant") return undefined;
+  if (item?.type !== "message") return undefined;
   const text = messageText(item);
+  if (item.role === "assistant") {
+    const notice = providerNotice(item);
+    return notice ? { kind: notice, text } : undefined;
+  }
   const origin = messageOrigin(item);
   if (item.parts.length && !withoutPortableHandoff(item.parts).length)
     return { kind: "handoff", ...(origin?.kind === "handoff" ? { origin } : {}), text };
@@ -117,7 +123,7 @@ export function systemInput(item: Item | undefined): SystemInput | undefined {
     if (origin.kind === "person" || !inputKinds.has(origin.kind)) return undefined;
     return { kind: origin.kind as InputKind, origin, text };
   }
-  const known = knownInput(text.trim());
+  const known = knownInput(text.trim()) ?? providerNotice(item);
   return known ? { kind: known, text } : undefined;
 }
 
@@ -181,6 +187,39 @@ export function switchLine(
   };
 }
 
+const xmlEntities: Record<string, string> = {
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&apos;": "'",
+  "&#39;": "'",
+  "&amp;": "&",
+};
+
+/** One pass, so "&amp;lt;" stays "&lt;". */
+const unescapeXml = (text: string) =>
+  text.replace(/&(?:lt|gt|quot|apos|#39|amp);/g, (entity) => xmlEntities[entity] ?? entity);
+
+/**
+ * The command a background-completion input names: from a Claude `<task-notification>` summary,
+ * an opencode `<shell>` tag, or the first backtick span of ace's own text. Provider notices are
+ * matched by their leading tag, so backticks in their output never become the title.
+ */
+function backgroundTitle(text: string): string | undefined {
+  const notice =
+    /^\s*<task-notification>[\s\S]*?<summary>Background command "([^<]*)"[^"<]*<\/summary>/.exec(
+      text,
+    ) ?? /^\s*<shell\b[^>]*?\scommand="([^"]*)"/.exec(text);
+  if (notice)
+    return (
+      unescapeXml(notice[1] ?? "")
+        .split("\n")[0]
+        ?.trim() || undefined
+    );
+  if (/^\s*<(?:task-notification|shell)\b/.test(text)) return undefined;
+  return /`([^`\n]+)`/.exec(text)?.[1];
+}
+
 /** The divider for an ace input shown as one line; undefined for the kinds that are cards. */
 export function inputLine(input: SystemInput): EventLine | undefined {
   switch (input.kind) {
@@ -189,7 +228,7 @@ export function inputLine(input: SystemInput): EventLine | undefined {
     case "limit_resume":
       return { icon: "resume", text: "Resumed after the usage limit" };
     case "background_completion": {
-      const title = /`([^`\n]+)`/.exec(input.text)?.[1];
+      const title = backgroundTitle(input.text);
       return {
         icon: "background",
         text: title ? `Background task finished: ${title}` : "Background task finished",
@@ -298,7 +337,7 @@ export interface TaskPrompt {
 export function taskPrompt(input: SystemInput): TaskPrompt | undefined {
   const match = /^Role: ([^\n]*)\n\nTask:\n([\s\S]*)$/.exec(input.text.trimStart());
   const role = input.origin?.role ?? match?.[1];
-  const task = (match?.[2] ?? input.text).trim();
+  const task = (match?.[2] ?? agentMessageBody(input.text) ?? input.text).trim();
   switch (input.kind) {
     case "spawn":
       return role?.startsWith("handoff: ")
@@ -344,6 +383,8 @@ export function handoffSummary(text: string): string | undefined {
   }
 }
 
+const separateReports = new Set<InputKind>(["background_completion", "subagent_result"]);
+
 /**
  * The same ace event already shown just before `index` (A2: a restart writes a notice and the
  * provider echoes the input): only the first of them renders. Looks back a few items only.
@@ -355,9 +396,19 @@ export function repeatsEarlierEvent(
   kind: InputKind,
   span = 8,
 ): boolean {
+  const current = item(order[index] ?? "");
   for (let at = index - 1; at >= Math.max(0, index - span); at--) {
     const earlier = item(order[at] ?? "");
     if (!earlier) continue;
+    // Each finished background task reports itself once: a different report is another task.
+    if (
+      separateReports.has(kind) &&
+      earlier.type === "message" &&
+      current?.type === "message" &&
+      systemInput(earlier)?.kind === kind &&
+      messageText(earlier).trim() !== messageText(current).trim()
+    )
+      return false;
     if (noticeInput(earlier) === kind || systemInput(earlier)?.kind === kind) return true;
     // Real work in between means it happened again.
     if (
