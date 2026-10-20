@@ -98,14 +98,18 @@ function treeState(tree: OffshiftTree): { word: OffshiftWord; tone: Tone } | und
 export function offshiftSummary(card: OffshiftRunCard, tree: OffshiftTree): OffshiftSummary {
   const live = treeState(tree);
   const unfinished = card.phase !== "delivery" || card.pendingCount > 0;
-  // A recorded blocker holds the run whatever the tree does; then a live tree speaks for
-  // itself; a settled tree with an unfinished run waits on whoever picks it up.
-  const state = card.blocker
-    ? { word: "Waiting" as const, tone: "waiting" as const }
-    : (live ??
-      (unfinished
-        ? { word: "Waiting" as const, tone: "waiting" as const }
-        : { word: "Done" as const, tone: "done" as const }));
+  // A request to the person or a failure speaks first, blocker or not: that is what they act
+  // on. Otherwise a blocker holds the run; then a live tree speaks for itself; a settled tree
+  // with an unfinished run waits on whoever picks it up.
+  const urgent = live?.tone === "needs-you" || live?.tone === "failed";
+  const state = urgent
+    ? live
+    : card.blocker
+      ? { word: "Waiting" as const, tone: "waiting" as const }
+      : (live ??
+        (unfinished
+          ? { word: "Waiting" as const, tone: "waiting" as const }
+          : { word: "Done" as const, tone: "done" as const }));
   const descriptions = new Map(card.criteria.map((item) => [item.id, item.description]));
   return {
     ...state,

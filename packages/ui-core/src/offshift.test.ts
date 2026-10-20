@@ -75,6 +75,21 @@ test("a blocked run waits and carries its blocker, even while agents work", () =
   });
 });
 
+test("a blocked run still says Answer or Failed when the tree asks the person or fails", () => {
+  const blocker = card({ phase: "implement", blocker: "Need a test account" });
+  const asking = offshiftSummary(blocker, {
+    status: { state: "needs_you", interactions: 1 },
+    runningAgents: 0,
+  });
+  expect(asking).toMatchObject({
+    word: "Answer",
+    tone: "needs-you",
+    blocker: "Need a test account",
+  });
+  const failed = offshiftSummary(blocker, { status: { state: "failed" }, runningAgents: 0 });
+  expect(failed).toMatchObject({ word: "Failed", blocker: "Need a test account", done: false });
+});
+
 test("missing evidence names each criterion and kind and never reads Done", () => {
   const needs = offshiftSummary(
     card({
