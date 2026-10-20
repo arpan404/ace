@@ -71,6 +71,23 @@ final class StreamPolicyTests: XCTestCase {
         XCTAssertFalse(refine.still)
         XCTAssertTrue(refine.due(at: 1_300))
     }
+    func testADroppedRefineIsRetriedAfterAnotherIdleIntervalAFewTimes() {
+        var refine = RefineOnIdle(idleNs: 300, maxAttempts: 2)
+        refine.changed(at: 0)
+        refine.sent()
+        refine.dropped(at: 400)
+        XCTAssertFalse(refine.due(at: 600))
+        XCTAssertTrue(refine.due(at: 700))
+        refine.sent()
+        refine.dropped(at: 800)
+        XCTAssertFalse(refine.due(at: 5_000))
+    }
+    func testADroppedMotionFrameAfterAChangeDoesNotCancelThePendingRefine() {
+        var refine = RefineOnIdle(idleNs: 300)
+        refine.changed(at: 0)
+        refine.dropped(at: 100)
+        XCTAssertTrue(refine.due(at: 300))
+    }
     func testARestartedStreamHasNothingPending() {
         var refine = RefineOnIdle(idleNs: 300)
         refine.changed(at: 0)

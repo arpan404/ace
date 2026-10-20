@@ -12,11 +12,18 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     private lazy var encoder = JPEGEncoder(context: CIContext(options: [.cacheIntermediates: false]))
     private lazy var video: VideoEncoder = VideoEncoder(sessionId: sessionId, version: version,
         publish: { [weak self] packet in if let self { self.writer.publish(packet, sessionId: self.sessionId) } },
-        completed: { [weak self] in self?.queue.async { [weak self] in self?.pendingVideo.completed() } })
+        completed: { [weak self] in self?.queue.async { [weak self] in self?.pendingVideo.completed() } },
+        dropped: { [weak self] quality in
+            guard quality == .refine else { return }
+            self?.queue.async { [weak self] in
+                guard let self else { return }
+                self.refine.dropped(at: self.runtime.nanos()); self.armRefine()
+            }
+        })
     private struct ChangedImage { let image: CVPixelBuffer; let timestamp: Double; let scale: Double; let damage: [CGRect]?; var quality = StreamQuality.motion }
     private lazy var pendingVideo: LatestVideoFrames<ChangedImage> = LatestVideoFrames<ChangedImage> { [weak self] changed in
         guard let self else { return .unavailable }
-        let result = self.video.encode(changed.image, sequence: self.nextSequence, timestamp: changed.timestamp, scale: changed.scale, quality: changed.quality)
+        let result = self.video.encode(changed.image, sequence: self.nextSequence, timestamp: changed.timestamp, scale: changed.scale, at: self.runtime.nanos(), quality: changed.quality)
         if result == .submitted { self.lock.lock(); self.sequence += 1; self.initial = false; self.lock.unlock() }
         if result == .unavailable { self.codec = "jpeg"; self.publishImage(changed) }
         if result != .busy, changed.quality == .refine { self.refine.sent() }

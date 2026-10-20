@@ -5,8 +5,9 @@ private final class VideoFrame {
     let sequence: UInt64
     let timestamp: Double
     let scale: Double
-    init(_ sequence: UInt64, _ timestamp: Double, _ scale: Double) {
-        self.sequence = sequence; self.timestamp = timestamp; self.scale = scale
+    let quality: StreamQuality
+    init(_ sequence: UInt64, _ timestamp: Double, _ scale: Double, _ quality: StreamQuality) {
+        self.sequence = sequence; self.timestamp = timestamp; self.scale = scale; self.quality = quality
     }
 }
 
@@ -26,8 +27,10 @@ final class VideoEncoder {
     private let version: Int
     private let publish: (Data) -> Void
     private let completed: () -> Void
-    init(sessionId: String, version: Int, publish: @escaping (Data) -> Void, completed: @escaping () -> Void) {
-        self.sessionId = sessionId; self.version = version; self.publish = publish; self.completed = completed
+    /// Rate control dropped a frame of this quality (no sample, no error).
+    private let dropped: (StreamQuality) -> Void
+    init(sessionId: String, version: Int, publish: @escaping (Data) -> Void, completed: @escaping () -> Void, dropped: @escaping (StreamQuality) -> Void = { _ in }) {
+        self.sessionId = sessionId; self.version = version; self.publish = publish; self.completed = completed; self.dropped = dropped
     }
     func requestKeyframe() { lock.lock(); keyframe = true; lock.unlock() }
     func configure(bitrate: Int, fps: Int) {
@@ -54,7 +57,11 @@ final class VideoEncoder {
                 guard let context else { return }
                 let encoder = Unmanaged<VideoEncoder>.fromOpaque(context).takeUnretainedValue()
                 defer { encoder.lock.lock(); encoder.busy = false; encoder.lock.unlock(); encoder.completed() }
-                guard status == noErr, let sample else { encoder.requestKeyframe(); return }
+                // Rate control may drop a frame (no sample, no error); the stream stays decodable.
+                // Forcing a keyframe then would overspend again and drop again, so only an
+                // encoder error asks for one.
+                guard status == noErr else { encoder.requestKeyframe(); return }
+                guard let sample else { encoder.dropped(entry.quality); return }
                 encoder.output(sample, entry)
             }, refcon: Unmanaged.passUnretained(self).toOpaque(), compressionSessionOut: &session)
         guard status == noErr, let session else { return false }
@@ -73,18 +80,21 @@ final class VideoEncoder {
     private func apply(_ settings: VideoEncoderSettings, to session: VTCompressionSession) {
         guard settings.maxFrameQP != appliedQP else { return }
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxAllowedFrameQP, value: (settings.maxFrameQP ?? 51) as CFNumber)
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: (settings.maxFrameQP == nil ? bitrate : 40_000_000) as CFNumber)
         appliedQP = settings.maxFrameQP
     }
-    func encode(_ image: CVPixelBuffer, sequence: UInt64, timestamp: Double, scale: Double, quality: StreamQuality = .motion) -> VideoEncodeResult {
+    /// `at` is the capture time in uptime nanoseconds. Presentation times follow it, so rate
+    /// control sees the idle time before a refine and does not drop it as over budget.
+    func encode(_ image: CVPixelBuffer, sequence: UInt64, timestamp: Double, scale: Double, at: UInt64, quality: StreamQuality = .motion) -> VideoEncodeResult {
         lock.lock(); let occupied = busy; lock.unlock()
         if occupied { return .busy }
         guard prepare(image), let session else { return .unavailable }
         let settings = videoEncoderSettings(quality, bitrate: bitrate, width: Int(size.width), height: Int(size.height))
         apply(settings, to: session)
         lock.lock(); let force = keyframe || settings.keyframe; keyframe = false; busy = true; lock.unlock()
-        let entry = Unmanaged.passRetained(VideoFrame(sequence, timestamp, scale)).toOpaque()
+        let entry = Unmanaged.passRetained(VideoFrame(sequence, timestamp, scale, quality)).toOpaque()
         let status = VTCompressionSessionEncodeFrame(session, imageBuffer: image,
-            presentationTimeStamp: CMTime(value: Int64(sequence), timescale: CMTimeScale(fps)), duration: .invalid,
+            presentationTimeStamp: CMTime(value: Int64(at / 1_000), timescale: 1_000_000), duration: .invalid,
             frameProperties: force ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil,
             sourceFrameRefcon: entry, infoFlagsOut: nil)
         if status != noErr {

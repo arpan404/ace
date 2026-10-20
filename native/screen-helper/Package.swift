@@ -6,7 +6,7 @@ let helper = ["Responsibility.swift", "Protocol.swift", "Pipeline.swift", "Point
 let fixture = ["TestWindow.swift"]
 let inspector = ["InspectJPEG.swift"]
 let buildDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("build").path
-let excluded = (FileManager.default.fileExists(atPath: buildDirectory) ? ["build"] : []) + [ "Tests", "README.md", "Info.plist", "build.sh", "build-test-window.sh", "bench.sh", "bench-writer.sh", "Bench.swift", "WriterBench.swift"]
+let excluded = (FileManager.default.fileExists(atPath: buildDirectory) ? ["build"] : []) + [ "Tests", "README.md", "Info.plist", "build.sh", "build-test-window.sh", "bench.sh", "bench-writer.sh", "Bench.swift", "WriterBench.swift", "StreamBench.swift", "bench-stream.sh"]
 let package = Package(
     name: "AceScreenHelper", platforms: [.macOS(.v13)],
     products: [.executable(name: "ace-screen-helper", targets: ["ScreenHelper"])],

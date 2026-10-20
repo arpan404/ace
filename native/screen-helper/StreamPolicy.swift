@@ -57,12 +57,15 @@ func jpegQuality(_ quality: StreamQuality) -> Double { quality == .refine ? 0.92
  */
 struct RefineOnIdle {
     let idleNs: UInt64
+    /// Rate control may drop a refine after heavy motion on a slow link; it is retried this often.
+    let maxAttempts: Int
     private var changedAt: UInt64?
     private var refined = true
-    init(idleNs: UInt64 = 300_000_000) { self.idleNs = idleNs }
+    private var attempts = 0
+    init(idleNs: UInt64 = 300_000_000, maxAttempts: Int = 3) { self.idleNs = idleNs; self.maxAttempts = maxAttempts }
 
     /// A changed picture went out at motion quality.
-    mutating func changed(at now: UInt64) { changedAt = now; refined = false }
+    mutating func changed(at now: UInt64) { changedAt = now; refined = false; attempts = 0 }
     /// When to check again, if a refine is pending.
     var wakeAt: UInt64? { refined ? nil : changedAt.map { $0 + idleNs } }
     /// Whether the refine is due now.
@@ -71,9 +74,14 @@ struct RefineOnIdle {
         return now >= changedAt && now - changedAt >= idleNs
     }
     /// The refine went to the encoder.
-    mutating func sent() { refined = true }
+    mutating func sent() { refined = true; attempts += 1 }
+    /// The encoder dropped the refine: try again after another idle interval, a few times.
+    mutating func dropped(at now: UInt64) {
+        guard refined, changedAt != nil, attempts < maxAttempts else { return }
+        changedAt = now; refined = false
+    }
     /// The picture has held still since its refine: a keyframe asked for now should be refined too.
     var still: Bool { refined && changedAt != nil }
     /// The stream restarted (new size, codec or viewer): nothing is pending.
-    mutating func reset() { changedAt = nil; refined = true }
+    mutating func reset() { changedAt = nil; refined = true; attempts = 0 }
 }
