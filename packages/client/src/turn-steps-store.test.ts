@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { beforeAll, expect, test } from "vitest";
 import { TurnStepsCache } from "./turn-steps.ts";
 import {
   daemon,
@@ -13,6 +13,9 @@ import {
  * Finished turns kept between sessions: a later session (a new cache over the same store) shows
  * what an earlier one read before the daemon answers, and never trusts what it can't check.
  */
+
+// The record's schema loads on the first record; warm it so each read below settles in a tick.
+beforeAll(() => import("./turn-steps-record.ts"));
 
 function record(overrides: Record<string, unknown> = {}) {
   return {

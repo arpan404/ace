@@ -13,6 +13,7 @@ import { DaemonConnectionContext } from "./boot/connection.tsx";
 import { createDaemonClient, forgetDaemonIdentity } from "./boot/daemon.ts";
 import { useBrowserMachinePool } from "./boot/machine-pool-boot.ts";
 import { useKeptQueries } from "./boot/kept-queries.ts";
+import { KeptTurnStepsConnection } from "./boot/kept-turn-steps.ts";
 import {
   desktopConnection,
   desktopDaemon,
@@ -68,14 +69,16 @@ function DaemonApp(props: { client: ClientApi; connection: GateConnection }) {
   const [queryClient] = useState(createQueryClient);
   useKeptQueries(queryClient, props.client, props.connection);
   return (
-    <App
-      client={props.client}
-      queryClient={queryClient}
-      storage={local}
-      batch={batch}
-      machines={pool}
-      ensureMachines={ensure}
-    />
+    <KeptTurnStepsConnection.Provider value={props.connection}>
+      <App
+        client={props.client}
+        queryClient={queryClient}
+        storage={local}
+        batch={batch}
+        machines={pool}
+        ensureMachines={ensure}
+      />
+    </KeptTurnStepsConnection.Provider>
   );
 }
 const daemonApp = (client: ClientApi, connection: GateConnection) => (

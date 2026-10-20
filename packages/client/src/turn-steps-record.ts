@@ -21,22 +21,6 @@ const TurnStepsRecord = z.object({
 });
 export type TurnStepsRecord = z.infer<typeof TurnStepsRecord>;
 
-export function turnStepsRecord(
-  threadId: string,
-  ordinal: number,
-  read: { endSeq: number; more: boolean; cursor: number | undefined; steps: readonly TurnStep[] },
-): TurnStepsRecord {
-  return {
-    version: 1,
-    threadId,
-    ordinal,
-    endSeq: read.endSeq,
-    more: read.more,
-    cursor: read.cursor ?? null,
-    steps: [...read.steps],
-  };
-}
-
 /** The stored record of this turn, or undefined when `value` is not one. */
 export function parseTurnStepsRecord(
   value: unknown,

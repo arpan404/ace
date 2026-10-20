@@ -4,11 +4,13 @@ import { idbCache } from "../lib/idb-cache.ts";
 /**
  * One database for every daemon, device and account: the bounds below are the whole budget.
  * Room for a few dozen long threads across the person's machines, so a remote device opening a
- * thread it read last week paints at once (ADR 0056).
+ * thread it read last week paints at once (ADR 0056), beside the many small records of finished
+ * turns' steps (`kept-turn-steps.ts`), which would otherwise use up the count long before the
+ * bytes.
  */
 export const readSnapshotBounds = {
   name: "ace.read-snapshots",
-  maxEntries: 128,
+  maxEntries: 512,
   maxBytes: 64 * 1024 * 1024,
 };
 

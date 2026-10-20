@@ -1,7 +1,7 @@
 import type { TurnStep, TurnStepsResponse } from "@ace/protocol";
 import type { ServiceRequest } from "./service-requests.ts";
 import type { RequestOptions } from "./types.ts";
-import { parseTurnStepsRecord, turnStepsRecord } from "./turn-steps-record.ts";
+import type { TurnStepsRecord } from "./turn-steps-record.ts";
 
 /*
  * Finished turns' steps, read on demand (`turn.steps`) when a "Worked for" log opens or is about
@@ -223,15 +223,19 @@ export class TurnStepsCache {
   ): Promise<void> {
     const store = this.options.store;
     if (!store) return;
-    let value: unknown;
+    let record: TurnStepsRecord | undefined;
     try {
-      value = await store.get(storeKey(threadId, ordinal));
+      // The record's schema loads with the first record: none of it is on the first screen.
+      const [value, { parseTurnStepsRecord }] = await Promise.all([
+        store.get(storeKey(threadId, ordinal)),
+        import("./turn-steps-record.ts"),
+      ]);
+      record = parseTurnStepsRecord(value, threadId, ordinal);
     } catch {
       return;
     }
     // The daemon answered first, or the read was ended: what it holds now is newer.
     if (this.slots.get(id) !== slot || slot.abort !== controller) return;
-    const record = parseTurnStepsRecord(value, threadId, ordinal);
     if (!record) return;
     const current = slot.known === undefined || record.endSeq >= slot.known;
     if (current && !record.more) {
@@ -294,11 +298,24 @@ export class TurnStepsCache {
   private keep(
     threadId: string,
     ordinal: number,
-    read: { endSeq: number | undefined; more: boolean; cursor: number | undefined; steps: TurnStep[] },
+    read: {
+      endSeq: number | undefined;
+      more: boolean;
+      cursor: number | undefined;
+      steps: TurnStep[];
+    },
   ): void {
     const store = this.options.store;
     if (!store || read.endSeq === undefined) return;
-    const record = turnStepsRecord(threadId, ordinal, { ...read, endSeq: read.endSeq });
+    const record: TurnStepsRecord = {
+      version: 1,
+      threadId,
+      ordinal,
+      endSeq: read.endSeq,
+      more: read.more,
+      cursor: read.cursor ?? null,
+      steps: read.steps,
+    };
     try {
       void store.set(storeKey(threadId, ordinal), record).catch(ignore);
     } catch {

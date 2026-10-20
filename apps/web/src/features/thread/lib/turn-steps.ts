@@ -1,22 +1,40 @@
 import type { ClientApi } from "@ace/client";
 import { TurnStepsCache, type TurnStepsEntry } from "@ace/client/turn-steps";
 import { useClient } from "@ace/client-react";
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useContext, useEffect, useSyncExternalStore } from "react";
+import {
+  KeptTurnStepsConnection,
+  keptTurnSteps,
+  type KeptConnection,
+} from "@/boot/kept-turn-steps.ts";
 
 /*
- * A finished turn's steps, read from the daemon (`turn.steps`) only while its "Worked for" log
- * is open, and dropped soon after it closes, scrolls far away or its thread closes: a long
- * thread never keeps every finished step in memory. One bounded cache per daemon client.
+ * A finished turn's steps, read from the daemon (`turn.steps`) when its "Worked for" log opens
+ * or the pointer reaches it. What was read stays in memory, within the cache's budget, through
+ * closing and reopening the log or its thread, and (on a real daemon's connection) is kept with
+ * the connection's read snapshots so a later session shows it at once. One cache per client.
  */
 
-const caches = new WeakMap<ClientApi, TurnStepsCache>();
+interface Held {
+  connection: KeptConnection | undefined;
+  cache: TurnStepsCache;
+}
 
-function cacheOf(client: ClientApi): TurnStepsCache {
-  let cache = caches.get(client);
-  if (!cache) {
-    cache = new TurnStepsCache({ read: (input, options) => client.request(input, options) });
-    caches.set(client, cache);
-  }
+const caches = new WeakMap<ClientApi, Held>();
+
+const sameConnection = (a: KeptConnection | undefined, b: KeptConnection | undefined) =>
+  a?.target === b?.target && a?.hostId === b?.hostId;
+
+function useCache(): TurnStepsCache {
+  const client = useClient();
+  const connection = useContext(KeptTurnStepsConnection);
+  const held = caches.get(client);
+  if (held && sameConnection(held.connection, connection)) return held.cache;
+  const cache = new TurnStepsCache({
+    read: (input, options) => client.request(input, options),
+    store: connection ? keptTurnSteps(connection) : undefined,
+  });
+  caches.set(client, { connection, cache });
   return cache;
 }
 
@@ -38,7 +56,7 @@ export function useTurnSteps(
   open: boolean,
   endSeq?: number,
 ): TurnSteps {
-  const cache = cacheOf(useClient());
+  const cache = useCache();
   const read = useCallback(
     () => (ordinal === undefined ? undefined : cache.get(threadId, ordinal)),
     [cache, threadId, ordinal],
@@ -64,8 +82,22 @@ export function useTurnSteps(
   };
 }
 
-/** Drops the thread's finished steps once its view closes. */
+/**
+ * Reads a finished turn that is about to open (the pointer over its "Worked for", focus on it),
+ * so it opens on its steps. Undefined for a turn the daemon can't name.
+ */
+export function useWarmTurnSteps(
+  threadId: string,
+  ordinal: number | undefined,
+  endSeq: number | undefined,
+): (() => void) | undefined {
+  const cache = useCache();
+  if (ordinal === undefined) return undefined;
+  return () => cache.warm(threadId, ordinal, endSeq);
+}
+
+/** Ends the thread's holds and reads in flight once its view closes; what was read stays. */
 export function useDropTurnSteps(threadId: string): void {
-  const cache = cacheOf(useClient());
+  const cache = useCache();
   useEffect(() => () => cache.dropThread(threadId), [cache, threadId]);
 }

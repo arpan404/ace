@@ -193,3 +193,30 @@ read was made from, so every later read returned the same single item.
 - No index repair is needed: `long_turns.start_seq` stays the sequence of the event that opened
   the turn, for old-rule and new-rule turns alike. The fake daemon applies the same cut; the soak
   already chose turns by membership and was not affected.
+
+## Finished turns' steps stay (2026-10-19)
+
+Owner report: on a slow remote link, every reopened "Worked for" log showed a skeleton, because
+the client dropped a turn's `turn.steps` read 30 s after its log closed and all of a thread's
+reads when its view closed. A completed turn's steps only change when the turn is continued, and
+then its summary's `endSeq` moves past the read, which the client already detects.
+
+- **Memory.** A read turn stays in the page's `TurnStepsCache` after it is released, with no
+  timer: unretained turns are trimmed oldest use first once they pass 2,000 steps or 100 turns.
+  Closing a thread's view ends its holds and its reads in flight (a read-on that is cut short
+  keeps the part already read); what was read stays, so the thread reopens on it.
+- **Between sessions.** Each finished read (never a failed one) is kept as a versioned record
+  (`threadId`, `ordinal`, `endSeq`, `more`, `cursor`, `steps`) under
+  `turn-steps/<hostId>/<threadId>/<ordinal>` in the connection's read snapshots (ADR 0030), stamped
+  with the build. Revoking the device, Disconnect and Forget delete them with the threads; another
+  daemon's or build's record is a miss. A turn not in memory starts its daemon read and looks in
+  the store at once. A record that parses and is at least as new as the turn's summary shows as
+  ready and, when complete, ends the daemon read; an older one, or one holding only a long turn's
+  first part, shows while the daemon's read replaces it. A record arriving after the daemon
+  answered is ignored. The store loads after first paint; the fake daemon and tests run without
+  one.
+- **Before the click.** The pointer reaching, or focus landing on, a finished turn's "Worked for"
+  starts its read and holds the turn for 10 s, so the log usually opens on its steps.
+- **Budget.** Turn records share the read-snapshot database. Its entry bound rose from 128 to 512
+  (ADR 0056) so the many small turn records don't use up the count long before the bytes; the
+  64 MiB byte bound is unchanged and shared, least recently used first.

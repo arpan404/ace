@@ -15,9 +15,11 @@ export function WorkLogHeader(props: {
   open: boolean;
   panel: string;
   onToggle(): void;
+  /** The pointer reached the line or focus did: it may open next. */
+  onIntent?: (() => void) | undefined;
 }) {
   return (
-    <div>
+    <div onPointerEnter={props.onIntent} onFocus={props.onIntent}>
       <TranscriptRow
         expanded={props.open}
         controls={props.panel}
