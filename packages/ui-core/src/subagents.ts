@@ -1,4 +1,5 @@
-import type { Agent, AgentStatus, ThreadStatus } from "@ace/protocol";
+import type { AgentStatus, ThreadStatus } from "@ace/protocol";
+import { agentRuns, type RunAgent } from "./agent-runs.ts";
 
 export type SubagentState =
   | "working"
@@ -153,13 +154,15 @@ const statusWords: Record<SubagentState, string> = {
  * them, as the subagents block does for its launch, so the totals always agree.
  */
 export function subagentBranchStates(
-  agents: readonly Pick<Agent, "id" | "origin" | "parentId" | "status">[],
+  agents: readonly RunAgent[],
   work: { running: ReadonlySet<string>; needsYou: ReadonlySet<string> },
 ): SubagentState[] {
   const ids = new Set(agents.map((agent) => agent.id));
   const root = agents.find((agent) => agent.origin === "root");
+  const superseded = agentRuns(agents).latest;
   return agents.flatMap((agent): SubagentState[] => {
-    if (agent.origin === "root") return [];
+    // An earlier run of an agent that ran again counts once, as its latest run.
+    if (agent.origin === "root" || superseded.has(agent.id)) return [];
     // Under another loaded subagent: its branch already counts it.
     const parent = agent.parentId;
     if (parent && parent !== root?.id && ids.has(parent)) return [];

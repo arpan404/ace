@@ -3,7 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
-import { openWorkPanel } from "@/test/open-work.ts";
+import { openDoneAgents, openWorkPanel } from "@/test/open-work.ts";
 
 beforeEach(() => localStorage.clear());
 
@@ -98,10 +98,10 @@ async function openReview() {
   return { app, work: await openWorkPanel() };
 }
 
-test("this turn says the person's message and what happened since, each count opening its list", async () => {
+test("this turn says what happened, not the person's message, each count opening its list", async () => {
   const { work } = await openReview();
   const turn = await within(work).findByRole("region", { name: "This turn" });
-  expect(within(turn).getByText("Split the summary panel into sections.")).toBeTruthy();
+  expect(within(turn).queryByText("Split the summary panel into sections.")).toBeNull();
   const commands = await within(turn).findByRole("button", { name: /^1 command, 1 failed/ });
   await userEvent.click(within(turn).getByRole("button", { name: /^1 file changed/ }));
   const files = within(turn).getByRole("list", { name: "Files changed" });
@@ -115,9 +115,8 @@ test("this turn says the person's message and what happened since, each count op
 
 test("a finished agent is named by its task and shows its result line and files touched", async () => {
   const { work } = await openReview();
-  const done = await within(work).findByRole("treeitem", { name: "1 done" });
-  await userEvent.click(done);
-  const helper = await within(work).findByRole("treeitem", {
+  const done = await openDoneAgents(work);
+  const helper = await within(done).findByRole("treeitem", {
     name: "Rename the panel helpers: Idle",
   });
   expect(helper.textContent).not.toMatch(/Subagent/);

@@ -10,6 +10,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { openDoneAgents, summaryStatus } from "@/test/open-work.ts";
 
 test("the agent tree shows subagents as they spawn and marks the one that fails", async () => {
   const app = harness();
@@ -29,7 +30,9 @@ test("the agent tree shows subagents as they spawn and marks the one that fails"
   await within(panel).findByRole("treeitem", { name: "migration-tester: Working" });
 
   await act(async () => script.runThrough("tester-failed"));
-  const failed = await within(panel).findByRole("treeitem", { name: "migration-tester: Failed" });
+  // It settled: it leaves Working for the folded Done section, marked failed there.
+  const done = await openDoneAgents(panel);
+  const failed = await within(done).findByRole("treeitem", { name: "migration-tester: Failed" });
   // It says Failed once, as its badge: no second line repeating the status in words.
   expect(within(failed).getAllByText(/Failed|Couldn't finish/)).toHaveLength(1);
   expect(within(failed).queryByText(/Context window exceeded/)).toBeNull();
@@ -54,9 +57,13 @@ test("the live line, the subagents block and the Summary count subagents by one 
   );
   await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  const agents = await within(panel).findByRole("region", { name: "Agents" });
-  await within(agents).findByRole("treeitem", { name: "migration-tester: Failed" });
-  expect(within(agents).getAllByRole("status")[0]?.textContent).toBe("1 working · 1 failed");
+  await within(await openDoneAgents(panel)).findByRole("treeitem", {
+    name: "migration-tester: Failed",
+  });
+  // The Summary's status line counts the one still working, as the live line does.
+  await waitFor(async () =>
+    expect(await summaryStatus(panel)).toMatch(/^Working · 1 agent running/),
+  );
 });
 
 test("the Summary tree shows what each agent is doing, the background shell, and why the thread isn't done", async () => {
@@ -97,7 +104,8 @@ test("Stop ends a background shell, and the thread settles once nothing else is 
   });
   await userEvent.click(within(shell).getByRole("button", { name: "Stop" }));
   // Once stopped it leaves the panel, which lists only what is still running.
-  await within(panel).findByRole("treeitem", { name: "Main agent: Idle" });
+  await waitFor(async () => expect(await summaryStatus(panel)).toMatch(/^Done/));
+  expect(within(panel).queryByRole("region", { name: "Working" })).toBeNull();
   expect(within(panel).queryByRole("listitem", { name: /^bun run relay:soak/ })).toBeNull();
   expect(within(panel).queryByRole("button", { name: "Stop" })).toBeNull();
   expect(within(panel).queryByText(/The thread settles when/)).toBeNull();
@@ -113,7 +121,9 @@ test("Stop on a subagent interrupts only that subagent", async () => {
   const audit = await within(panel).findByRole("treeitem", { name: "resume-sweep: Working" });
   await userEvent.hover(audit);
   await userEvent.click(within(panel).getByRole("button", { name: "Stop resume-sweep" }));
-  await within(panel).findByRole("treeitem", { name: "resume-sweep: Interrupted" });
+  await within(await openDoneAgents(panel)).findByRole("treeitem", {
+    name: "resume-sweep: Interrupted",
+  });
   expect(within(panel).getByRole("treeitem", { name: "ack-buffer-test: Working" })).toBeTruthy();
   expect(within(panel).queryByRole("region", { name: "Why isn't this done?" })).toBeNull();
 });
@@ -156,9 +166,9 @@ test("an agent ace delegated opens its own thread from the tree", async () => {
   const app = harness();
   for (const scenario of delegatedDocs()) app.play(scenario).runUntilBlocked();
   const panel = await openAgents(app, `/t/${delegatedDocsIds.parent}`);
-  // It finished, so it waits in the main agent's folded "1 done" row.
-  await userEvent.click(await within(panel).findByRole("treeitem", { name: "1 done" }));
-  await userEvent.click(await within(panel).findByRole("treeitem", { name: /^protocol-docs:/ }));
+  // It finished, so it waits in the folded "1 done" section.
+  const done = await openDoneAgents(panel);
+  await userEvent.click(await within(done).findByRole("treeitem", { name: /^protocol-docs:/ }));
   await screen.findByRole("heading", { level: 1, name: "Relay protocol reference" });
   expect(screen.getByRole("link", { name: "Relay docs for 0.9" })).toBeTruthy();
 });
@@ -275,7 +285,7 @@ test("Stop on an agent with subagents says how many go with it and asks first, C
   );
   expect(await within(bar).findByText(/^Stopped after/)).toBeTruthy();
   // Its subagent stopped with it.
-  const tree = await screen.findByRole("region", { name: "Thread panel" });
+  const tree = await openDoneAgents(await screen.findByRole("region", { name: "Thread panel" }));
   expect(
     await within(tree).findByRole("treeitem", { name: "resume-sweep: Interrupted" }),
   ).toBeTruthy();
@@ -299,8 +309,9 @@ test("in the tree, Stop on an agent with subagents asks the same question, and a
   await userEvent.keyboard("{Enter}");
   const ask = await screen.findByRole("dialog", { name: "Stop resume-sweep and its 1 subagent?" });
   await userEvent.click(within(ask).getByRole("button", { name: "Stop all" }));
+  const done = await openDoneAgents(panel);
   expect(
-    await within(panel).findByRole("treeitem", { name: "web-probe: Interrupted" }),
+    await within(done).findByRole("treeitem", { name: "web-probe: Interrupted" }),
   ).toBeTruthy();
-  expect(within(panel).getByRole("treeitem", { name: "resume-sweep: Interrupted" })).toBeTruthy();
+  expect(within(done).getByRole("treeitem", { name: "resume-sweep: Interrupted" })).toBeTruthy();
 });

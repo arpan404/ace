@@ -9,6 +9,7 @@ import { teamAtLimit } from "./account-limit.ts";
 import { coldStartReplay } from "./cold-start-replay.ts";
 import { delegatedDocs } from "./delegated-docs.ts";
 import { failingSubagent } from "./failing-subagent.ts";
+import { summaryFleet } from "./summary-fleet.ts";
 import { childActions } from "./child-actions.ts";
 import { flakyCheckout } from "./flaky-checkout.ts";
 import { homeList } from "./home-list.ts";
@@ -55,6 +56,8 @@ export function devWorld(): WorldThread[] {
     // the subagents report back live.
     { scenario: coldStartReplay(), agoMs: 0, through: "relay-output", live: { speed: 1 } },
     { scenario: failingSubagent(), agoMs: 12 * minute, live: { speed: 0.5 } },
+    // A coordinator thread with 33 subagents, five of them resumed after a daemon restart.
+    { scenario: summaryFleet(), agoMs: 40 * minute },
     // Children that hit a limit, keep working or went silent, under a parent still working.
     ...childActions().map((scenario) => ({ scenario, agoMs: 0 })),
     // A thread that delegated work to Codex through ace: the delegate is a thread of its own.

@@ -17,7 +17,7 @@ export function subagent(
   agent: Key,
   name: string,
   spawnedBy: Key,
-  options: { parent?: Key; background?: boolean } = {},
+  options: { parent?: Key; background?: boolean; nativeId?: string; model?: string } = {},
 ): Fact {
   return {
     type: "agent.seen",
@@ -26,10 +26,12 @@ export function subagent(
     spawnedBy,
     origin: "provider_subagent",
     fidelity: "full",
-    native: { provider, nativeId: agent },
+    // A resumed run reported as a new agent carries the native id of the run it continues.
+    native: { provider, nativeId: options.nativeId ?? agent },
     cwd: "/Users/dev/acme",
     name,
     background: options.background ?? false,
+    ...(options.model ? { model: options.model } : {}),
   };
 }
 export function turn(agent: Key, trigger: RunTrigger = "user"): Fact {

@@ -1,5 +1,5 @@
-import type { TurnSummary } from "@ace/protocol";
-import { digestLines, formatCount, pluralCount, turnHeadline } from "@ace/ui-core";
+import type { LinkedPullRequest, TurnSummary } from "@ace/protocol";
+import { digestLines, formatCount, pluralCount } from "@ace/ui-core";
 import { useState, type ReactNode } from "react";
 import { DiffStat } from "@/components/diff-stat.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -13,18 +13,39 @@ export const separated =
   "[&>*+*]:before:mr-1 [&>*+*]:before:text-subtle-foreground [&>*+*]:before:content-['·']";
 
 /**
- * The latest turn at a glance: the person's message on one line, then what happened since in
- * counts ("6 files changed +210 −84 · 14 commands, 1 failed · 2 approvals"). Files and commands
- * each open their list in place: files go on to Changes, commands list failures first. Read
- * from the turn index's digest (ADR 0062), never from history.
+ * What the latest turn achieved, in counts ("2 PRs merged · 6 files changed +210 −84 · 14
+ * commands, 1 failed"), then the agent's latest words. Not the person's message echoed back:
+ * the transcript already shows it. Files and commands each open their list in place: files go
+ * on to Changes, commands list failures first. Read from the turn index's digest (ADR 0062) and
+ * the thread's linked pull requests, never from history.
  */
-export function ThisTurn(props: { threadId: string; turn: TurnSummary }) {
+export function ThisTurn(props: {
+  threadId: string;
+  turn: TurnSummary;
+  prs: readonly LinkedPullRequest[];
+}) {
   const { digest } = props.turn;
   const [open, setOpen] = useState<Open>();
   const toggle = (list: Open) => setOpen((current) => (current === list ? undefined : list));
   const lines = digestLines(digest);
   const files = digest.files.length;
   const facts: ReactNode[] = [];
+  // Pull requests that moved since the turn began: merged in it, or up for review.
+  const recent = props.prs.filter((pr) => pr.updatedAt >= props.turn.startedAt);
+  const merged = recent.filter((pr) => pr.state === "merged").length;
+  const opened = recent.filter((pr) => pr.state === "open" || pr.state === "draft").length;
+  if (merged)
+    facts.push(
+      <span key="merged" className="tabular-nums">
+        {pluralCount(merged, "PR")} merged
+      </span>,
+    );
+  if (opened)
+    facts.push(
+      <span key="opened" className="tabular-nums">
+        {pluralCount(opened, "PR")} in review
+      </span>,
+    );
   if (files)
     facts.push(
       <Fact key="files" open={open === "files"} onClick={() => toggle("files")}>
@@ -56,16 +77,19 @@ export function ThisTurn(props: { threadId: string; turn: TurnSummary }) {
   const commands = digest.commands.toSorted(
     (left, right) => Number(right.failed) - Number(left.failed),
   );
+  const said = props.turn.latestAgentMessagePreview.replace(/\s+/g, " ").trim();
   return (
     <div className="min-w-0">
-      <p className="truncate px-2 text-ui text-foreground" title={turnHeadline(props.turn)}>
-        {turnHeadline(props.turn)}
-      </p>
       {facts.length > 0 && (
         <p
-          className={`flex min-w-0 flex-wrap items-center gap-x-1 px-2 text-xs text-muted-foreground ${separated}`}
+          className={`flex min-h-6 min-w-0 flex-wrap items-center gap-x-1 px-2 text-ui text-foreground ${separated}`}
         >
           {facts}
+        </p>
+      )}
+      {said && (
+        <p className="truncate px-2 text-xs text-muted-foreground" title={said}>
+          {said}
         </p>
       )}
       {open === "files" && (

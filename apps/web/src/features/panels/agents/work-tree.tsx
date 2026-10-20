@@ -1,15 +1,17 @@
 import type { AgentTreeNode } from "@ace/client-react";
 import { use, useCallback, useId, useMemo, type KeyboardEvent } from "react";
-import { cn } from "@/lib/cn.ts";
 import { ArrivalScope, useArrival } from "@/lib/arrival.tsx";
 import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { AgentRow, CapsuleChevron } from "./agent-row.tsx";
+import { AgentRow } from "./agent-row.tsx";
 import { subagentCounts } from "./subagents.ts";
-import { capsule, CapsuleGlyph } from "./task-capsule.tsx";
-import { doneGroupId, RowFacts, Tree, type AgentRowFacts, type TreeState } from "./tree-state.ts";
-
-const noFacts: AgentRowFacts = { requests: new Map(), files: new Map() };
-const noneDone: ReadonlySet<string> = new Set();
+import {
+  historyKey,
+  noRowFacts,
+  RowFacts,
+  Tree,
+  type AgentRowFacts,
+  type TreeState,
+} from "./tree-state.ts";
 
 /**
  * The tree's keys, as the Changes and Files trees have them: one Tab stop; ↑/↓ move, →/←
@@ -62,66 +64,86 @@ function treeKeys(tree: TreeState) {
 }
 
 /**
- * Summary's agents: the whole agent tree with what each agent is doing (a subagent's row opens
- * it as the whole chat). The main agent's subagents that completed fold into one "N done" row.
- * Every row subscribes to its own entity. Rows that join while the tab is open rise in.
+ * A tree of agents with what each is doing (a subagent's row opens it as the whole chat). Every
+ * row subscribes to its own entity. Rows that join while the tab is open rise in.
  */
 export function WorkTree(props: {
   threadId: string;
   nodes: readonly AgentTreeNode[];
-  /** Agents whose whole branch completed: they fold under their parent's "N done" row. */
-  done?: ReadonlySet<string> | undefined;
+  /** The tree's accessible name. */
+  label?: string | undefined;
   facts?: AgentRowFacts | undefined;
 }) {
   return (
     <ArrivalScope>
-      <RowFacts value={props.facts ?? noFacts}>
-        <AgentTree threadId={props.threadId} nodes={props.nodes} done={props.done ?? noneDone} />
+      <RowFacts value={props.facts ?? noRowFacts}>
+        <AgentTree
+          threadId={props.threadId}
+          nodes={props.nodes}
+          label={props.label ?? "Agent tree"}
+        />
       </RowFacts>
     </ArrivalScope>
   );
 }
 
+/** Every agent id a tree shows, at any depth. */
+function shows(
+  nodes: readonly AgentTreeNode[],
+  earlier: ReadonlyMap<string, readonly { id: string }[]>,
+  id: string,
+): boolean {
+  return nodes.some(
+    (node) =>
+      node.id === id ||
+      earlier.get(node.id)?.some((run) => run.id === id) === true ||
+      shows(node.children, earlier, id),
+  );
+}
+
 /** The agent tree: a tree widget, one Tab stop, with folding branches. */
-function AgentTree(props: {
-  threadId: string;
-  nodes: readonly AgentTreeNode[];
-  done: ReadonlySet<string>;
-}) {
+function AgentTree(props: { threadId: string; nodes: readonly AgentTreeNode[]; label: string }) {
   const workspace = useScopeWorkspace(props.threadId);
   const actions = useWorkspaceActions(props.threadId);
+  const facts = use(RowFacts);
   const ui = workspace.tabs.find((tab) => tab.key === "work")?.ui;
-  const active = ui?.selected;
+  const selected = ui?.selected;
   const setActive = useCallback(
-    (selected: string | undefined) => actions.updateUi("work", { selected }),
+    (id: string | undefined) => actions.updateUi("work", { selected: id }),
     [actions],
   );
-  const collapsed = useMemo(() => new Set(ui?.collapsed), [ui?.collapsed]);
+  const folded = ui?.collapsed;
+  const collapsed = useMemo(() => new Set(folded), [folded]);
   const sections = ui?.sections;
-  const doneOpen = useMemo(
+  const history = useMemo(
     () =>
       new Set(
         Object.entries(sections ?? {}).flatMap(([key, open]) =>
-          key.startsWith("done:") && open ? [key] : [],
+          key.startsWith("history:") && open ? [key.slice("history:".length)] : [],
         ),
       ),
     [sections],
   );
-  const first = props.nodes[0]?.id;
   const treeId = useId();
   const subagents = useMemo(() => subagentCounts(props.nodes), [props.nodes]);
+  // The Summary holds more than one tree: the selected row keeps the Tab stop in its own tree,
+  // and every other tree's first row holds one.
+  const active = useMemo(
+    () => (selected && shows(props.nodes, facts.earlier, selected) ? selected : props.nodes[0]?.id),
+    [selected, props.nodes, facts.earlier],
+  );
   const state = useMemo<TreeState>(
     () => ({
       id: treeId,
       subagents,
-      // The root holds the Tab stop until another row has had focus.
-      active: active ?? first,
+      active,
       setActive,
       collapsed,
-      doneOpen,
+      history,
       fold: (id, open) => {
-        if (id.startsWith("done:")) {
-          actions.updateUi("work", { sections: { ...sections, [id]: open } });
+        // A row with subagents folds them; a lone agent folds its earlier runs.
+        if (!subagents.get(id)) {
+          actions.updateUi("work", { sections: { ...sections, [historyKey(id)]: open } });
           return;
         }
         const next = new Set(collapsed);
@@ -130,133 +152,66 @@ function AgentTree(props: {
         actions.updateUi("work", { collapsed: [...next] });
       },
     }),
-    [treeId, subagents, active, first, collapsed, doneOpen, sections, setActive, actions],
+    [treeId, subagents, active, collapsed, history, sections, setActive, actions],
   );
   return (
     <Tree value={state}>
-      <ul role="tree" aria-label="Agent tree" onKeyDown={treeKeys(state)}>
-        <Branch threadId={props.threadId} nodes={props.nodes} depth={0} done={props.done} />
+      <ul role="tree" aria-label={props.label} onKeyDown={treeKeys(state)}>
+        <Branch threadId={props.threadId} nodes={props.nodes} depth={0} />
       </ul>
     </Tree>
   );
 }
 
-function Branch(props: {
-  threadId: string;
-  nodes: readonly AgentTreeNode[];
-  depth: number;
-  done: ReadonlySet<string>;
-}) {
+function Branch(props: { threadId: string; nodes: readonly AgentTreeNode[]; depth: number }) {
   return props.nodes.map((node) => (
-    <BranchNode
-      key={node.id}
-      threadId={props.threadId}
-      node={node}
-      depth={props.depth}
-      done={props.done}
-    />
+    <BranchNode key={node.id} threadId={props.threadId} node={node} depth={props.depth} />
   ));
 }
 
 /** The rail a row's subagents hang on, under their parent's glyph. */
-const rail = "ml-4.5 border-l border-border-soft pl-1.5";
+const rail = "ml-4 border-l border-border-soft pl-1.5";
 
 /**
- * One agent and its subtree; a subagent spawned while the tab is open rises in. Under the main
- * agent, completed subagents gather in one folded "N done" row after the ones still going.
+ * One agent and its subtree; a subagent spawned while the tab is open rises in. An agent a
+ * provider ran again keeps its earlier runs under it, folded until the person opens them.
  */
-function BranchNode(props: {
-  threadId: string;
-  node: AgentTreeNode;
-  depth: number;
-  done: ReadonlySet<string>;
-}) {
+function BranchNode(props: { threadId: string; node: AgentTreeNode; depth: number }) {
   const { node } = props;
   const tree = use(Tree);
+  const facts = use(RowFacts);
+  const earlier = facts.earlier.get(node.id) ?? [];
   const parent = node.children.length > 0;
-  const open = parent && !tree.collapsed.has(node.id);
+  const open = parent ? !tree.collapsed.has(node.id) : tree.history.has(node.id);
+  const folds = parent || earlier.length > 0;
   const group = `${tree.id}-${node.id}`;
-  const finished =
-    props.depth === 0 ? node.children.filter((child) => props.done.has(child.id)) : [];
-  const going = finished.length
-    ? node.children.filter((child) => !props.done.has(child.id))
-    : node.children;
   return (
     <li role="none" className={useArrival()}>
       <AgentRow
         threadId={props.threadId}
         agentId={node.id}
         depth={props.depth}
-        expanded={parent ? open : undefined}
-        owns={open ? group : undefined}
+        expanded={folds ? open : undefined}
+        owns={folds && open ? group : undefined}
         subagents={tree.subagents.get(node.id) ?? 0}
       />
-      {open && (
+      {folds && open && (
         // Owned by the row above (aria-owns): the tree item's children, in tree terms.
         <ul role="group" id={group} className={rail}>
-          <Branch
-            threadId={props.threadId}
-            nodes={going}
-            depth={props.depth + 1}
-            done={props.done}
-          />
-          {finished.length > 0 && (
-            <DoneGroup
-              threadId={props.threadId}
-              parent={node.id}
-              nodes={finished}
-              depth={props.depth + 1}
-              done={props.done}
-            />
-          )}
-        </ul>
-      )}
-    </li>
-  );
-}
-
-/** "3 done": completed subagents, folded until opened; ← → and Enter fold it like a branch. */
-function DoneGroup(props: {
-  threadId: string;
-  parent: string;
-  nodes: readonly AgentTreeNode[];
-  depth: number;
-  done: ReadonlySet<string>;
-}) {
-  const tree = use(Tree);
-  const id = doneGroupId(props.parent);
-  const open = tree.doneOpen.has(id);
-  const group = `${tree.id}-${id}`;
-  const label = `${props.nodes.length} done`;
-  return (
-    <li role="none">
-      <div className={cn("group/agent flex items-center", capsule)}>
-        {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- Enter folds it through the tree's key handler (treeKeys) */}
-        <div
-          role="treeitem"
-          data-agent={id}
-          aria-level={props.depth + 1}
-          aria-expanded={open}
-          aria-owns={open ? group : undefined}
-          aria-label={label}
-          tabIndex={tree.active === id ? 0 : -1}
-          onFocus={() => tree.setActive(id)}
-          onClick={() => tree.fold(id, !open)}
-          className="focus-ring-inset flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md pr-0.5 pl-2 text-ui text-muted-foreground"
-        >
-          <CapsuleGlyph state="done" />
-          <span className="min-w-0 flex-1 truncate">{label}</span>
-          <CapsuleChevron expanded={open} opens={false} />
-        </div>
-      </div>
-      {open && (
-        <ul role="group" id={group} className={rail}>
-          <Branch
-            threadId={props.threadId}
-            nodes={props.nodes}
-            depth={props.depth + 1}
-            done={props.done}
-          />
+          <Branch threadId={props.threadId} nodes={node.children} depth={props.depth + 1} />
+          {earlier.map((run) => (
+            <li role="none" key={run.id}>
+              <AgentRow
+                threadId={props.threadId}
+                agentId={run.id}
+                depth={props.depth + 1}
+                expanded={undefined}
+                owns={undefined}
+                subagents={0}
+                earlierRun
+              />
+            </li>
+          ))}
         </ul>
       )}
     </li>
