@@ -6,7 +6,7 @@ import {
   useThreadStore,
 } from "@ace/client-react";
 import { useComposerActions } from "./composer-actions.ts";
-import type { Interaction, ThreadStatus } from "@ace/protocol";
+import type { ThreadStatus } from "@ace/protocol";
 import { ThreadId } from "@ace/protocol";
 import {
   modelLabel,
@@ -51,6 +51,7 @@ import { clearStop, recordStop, useStopFence, useStopping } from "./stop-state.t
 import { useNavigate } from "@tanstack/react-router";
 import { failureMessage } from "@/lib/daemon-command.ts";
 import { useGoalCommand } from "./goal-command.ts";
+import { useQuestionReply } from "./use-question-reply.ts";
 import { useThreadSources } from "../sources/index.ts";
 import {
   ContinuationRefused,
@@ -68,9 +69,6 @@ const wideEnoughToFocus = () =>
 
 /** How soon after the first Esc a second one stops the agent tree. */
 export const stopKeyWindowMs = 1_500;
-
-const pendingQuestion = (interaction: Interaction) =>
-  interaction.state === "pending" && interaction.request.kind === "question";
 
 /**
  * The thread's composer, on the transcript's column. Enter sends: the message shows as its
@@ -98,6 +96,7 @@ export function ThreadComposer({
   const toast = useToast();
   const meta = useThreadMeta(props.thread.id);
   const changeGoal = useGoalCommand(props.thread.id);
+  const question = useQuestionReply(props.thread.id);
   // Read when ↑ asks, never subscribed: the transcript changing doesn't re-render the composer.
   const transcript = useThreadStore(props.thread.id);
   const modelChoices = useModelChoices();
@@ -188,6 +187,8 @@ export function ThreadComposer({
       if (changed) draft.files.release();
       return changed;
     }
+    // Plain words, while the agent waits on its question, answer it.
+    if (await question.reply(draft)) return true;
     // Never send options picked for another selection; the controls are re-checking them.
     const commandId = crypto.randomUUID();
     // While the agent works the delivery is said outright, so this window knows at once
@@ -282,7 +283,7 @@ export function ThreadComposer({
   const open = useInteractions(props.thread.id);
   const asking = !!open?.length;
   // A question is answered on its card, so Stop never sits in the send slot while one waits.
-  const questioned = !!useInteractions(props.thread.id, pendingQuestion)?.length;
+  const questioned = question.placeholder !== undefined;
   const canStop = activityState.canStop && !questioned;
   // Esc never stops on its own: the first press asks in the strip, a second one soon stops.
   const [armedAt, setArmedAt] = useState<number>();
@@ -351,6 +352,7 @@ export function ThreadComposer({
         ref={composer}
         thread={props.thread}
         draftKey={`thread:${props.thread.id}`}
+        placeholder={question.placeholder}
         keepsAttachments
         busy={busy}
         followUp={followUp}

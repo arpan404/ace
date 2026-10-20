@@ -94,8 +94,11 @@ const ask = (app: ReturnType<typeof harness>, id: string) =>
             {
               id: "scope",
               text: "Include generated files?",
-              options: [],
-              allowOther: true,
+              options: [
+                { id: "yes", label: "Include them" },
+                { id: "no", label: "Skip them" },
+              ],
+              allowOther: false,
               secret: false,
               multiSelect: false,
             },
@@ -105,7 +108,7 @@ const ask = (app: ReturnType<typeof harness>, id: string) =>
     ]),
   );
 
-test("the message never answers a question: it queues, and the card's Continue answers", async () => {
+test("a message to a question that takes no free text queues, and the card's Continue answers", async () => {
   const app = await open();
   await queueMessage("Also cover the mobile path");
   ask(app, "ask-1");
@@ -120,17 +123,14 @@ test("the message never answers a question: it queues, and the card's Continue a
     ).toHaveLength(2),
   );
   expect(app.daemon.isPending(threadId, "ask-1")).toBe(true);
-  // Back on the question, its own field and Continue answer it.
+  // Back on the question, its options and Continue answer it.
   await userEvent.click(screen.getByRole("button", { name: "Show 1 request waiting for you" }));
   const region = await screen.findByRole("region", { name: "Waiting for you" });
-  await userEvent.type(
-    within(region).getByRole("textbox", { name: "Include generated files?" }),
-    "No, skip them",
-  );
+  await userEvent.click(within(region).getByRole("radio", { name: /Skip them/ }));
   await userEvent.click(within(region).getByRole("button", { name: "Continue" }));
   await waitFor(() => expect(app.daemon.isPending(threadId, "ask-1")).toBe(false));
   expect(app.daemon.resolution(threadId, "ask-1")).toEqual({
     kind: "question",
-    answers: { scope: ["No, skip them"] },
+    answers: { scope: ["no"] },
   });
 });
