@@ -86,6 +86,13 @@ other answer, including an older desktop's "unknown method" error, counts as ali
 tab is placed in the panel or takes the person's input; the others render, unseen, in the
 parking window while an agent drives them (`backgroundThrottling: false`, ADR 0069's 30-second
 rule), and are hidden and throttled otherwise. Only the selected tab's screencast is relayed.
+Amended 2026-10-19 for #1113: unseen tabs also follow ADR 0083's idle lifecycle. After 15
+minutes nobody used it the daemon freezes a tab (`ace.tabs.cdp` `Page.setWebLifecycleState`,
+which the view does not count as driving, so it stays hidden and throttled); after 2 hours it
+closes the tab's view and keeps listing the tab as `discarded`, reopening a view with the same
+id at its address when an agent uses it or the person shows it. The desktop exposes no
+reliable memory-pressure signal on macOS (`process.getSystemMemoryInfo` is a reading, not an
+event), so nothing discards earlier under memory pressure.
 The `cdp` operation's tab methods are the one tab contract the desktop and the daemon's tab
 runtime (ADR 0083) both keep:
 

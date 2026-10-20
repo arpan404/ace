@@ -105,10 +105,14 @@ it("a native tab idle for two hours loses its view, stays listed at its address 
   });
 
   // The agent reads the page: the tab comes back as itself, at its address.
-  await service.execute("t-1", { action: "navigate", url: "http://localhost:5173/docs#top" }, agent);
+  await service.execute(
+    "t-1",
+    { action: "navigate", url: "http://localhost:5173/docs#top" },
+    agent,
+  );
   const reopened = views.tab(unseen);
   expect(reopened).not.toBe(view);
-  expect(reopened.calls.filter((call) => call.method === "Page.navigate")[0]?.params).toEqual({
+  expect(reopened.calls.find((call) => call.method === "Page.navigate")?.params).toEqual({
     url: "http://localhost:5173/docs",
   });
   expect(reopened.url()).toBe("http://localhost:5173/docs#top");
@@ -133,7 +137,7 @@ it("a discarded native tab stays listed through a dropped link the desktop re-ad
   const kept = views.tab(shown);
   daemon.drop();
   await eventually(() => expect(kept.adoptions).toBe(1));
-  await eventually(() => expect(service.state("t-1").paused).toBeFalsy());
+  await eventually(() => expect(service.state("t-1").status).toBe("ready"));
   expect(service.state("t-1").tabs?.map((tab) => [tab.tabId, tab.lifecycle])).toEqual([
     [shown, "live"],
     [unseen, "discarded"],

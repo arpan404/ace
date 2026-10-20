@@ -342,8 +342,7 @@ export class EmbeddedTabs {
       const fresh = this.entries.get(id);
       if (opened !== id || !fresh || fresh.discarded) {
         // A desktop that could not give the id back: the tab cannot come back as itself.
-        if (opened !== id && opened !== this.activeId)
-          await this.close(opened).catch(() => {});
+        if (opened !== id && opened !== this.activeId) await this.close(opened).catch(() => {});
         throw new Error("Browser tab unavailable");
       }
       if (tab.state.url !== "about:blank")

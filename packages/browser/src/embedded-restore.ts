@@ -67,10 +67,7 @@ export async function restoreEmbeddedTabs(
  * The thread's discarded tabs the desktop has no view for (it never had one since the discard):
  * listed again as discarded, so a dropped link or a replaced view never loses them.
  */
-export function holdDiscardedTabs(
-  tabs: EmbeddedTabs,
-  entries: readonly BackendRestoreTab[],
-): void {
+export function holdDiscardedTabs(tabs: EmbeddedTabs, entries: readonly BackendRestoreTab[]): void {
   const listed = new Set(tabs.list().map((tab) => tab.tabId));
   tabs.hold(entries.filter((entry) => entry.discarded && !listed.has(entry.tabId)));
 }

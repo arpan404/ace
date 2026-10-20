@@ -851,11 +851,13 @@ export class BrowserSession {
   }
   /** The tabs a recovering backend reopens: each with its id and address, discarded ones so. */
   restoreEntries(): import("./backend.ts").BackendRestoreTab[] {
-    return this.tabs.records().map(({ tabId, url }) =>
-      this.tabs.find(tabId)?.lifecycle === "discarded"
-        ? { tabId, url, discarded: true }
-        : { tabId, url },
-    );
+    return this.tabs
+      .records()
+      .map(({ tabId, url }) =>
+        this.tabs.find(tabId)?.lifecycle === "discarded"
+          ? { tabId, url, discarded: true }
+          : { tabId, url },
+      );
   }
   /** The tab an agent's next command without `tabId` would use, with its address. */
   currentTab(actor: Actor): { tabId: string; url: string; title: string } {
