@@ -11,7 +11,7 @@
         "prs",
         "notes"
       ],
-      "description": "Only the topics you need. Default: status, recent, changes, prs, notes.",
+      "description": "Only the topics you need.",
       "items": {
         "enum": [
           "status",

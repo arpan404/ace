@@ -20,7 +20,7 @@
     "timeoutSeconds": {
       "$ref": "https://ace.local/protocol/v1/WaitTimeoutSeconds.json",
       "default": 120,
-      "description": "Longest wait in seconds, 1 to 600 (default 120)."
+      "description": "Longest wait in seconds."
     }
   },
   "required": [

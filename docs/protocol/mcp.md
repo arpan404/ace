@@ -149,7 +149,7 @@ Required capability: agents. Timeout: 630000 ms.
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | tasks | yes | array | {"minItems":1,"maxItems":64,"items":{"type":"object","properties":{"requestId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."},"task":{"type":"string","minLength":1,"maxLength":262144,"description":"The whole assignment: goal, files, constraints, project notes that apply, and how to verify. The child sees none of your conversation."},"role":{"$ref":"https://ace.local/protocol/v1/DelegationRole.json"},"provider":{"description":"Provider that runs the child. Default: yours, or the one whose catalog has `model`.","$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"model":{"description":"A model id from `models`. Default: the provider's default model. ace picks the account and instance that serve it.","type":"string","minLength":1,"maxLength":256},"effort":{"description":"Reasoning effort, such as low, medium, high or xhigh. Default inherit: yours on the same model, else the model's default.","type":"string","minLength":1,"maxLength":64},"access":{"description":"The child's access mode. Default inherit (yours); never broader than yours.","$ref":"https://ace.local/protocol/v1/AccessRequest.json"},"workspace":{"description":"Where the child works. Default: this project's checkout. new_worktree starts a Git worktree from base; existing_worktree reuses one by path.","$ref":"https://ace.local/protocol/v1/AgentWorkspace.json"},"machine":{"description":"Run on this paired machine (a name from `machines`). Requires project.","$ref":"https://ace.local/protocol/v1/MachineName.json"},"project":{"description":"The project on that machine, as `machines` lists it.","type":"string","minLength":1,"maxLength":256}},"required":["requestId","task","role"],"additionalProperties":false},"description":"One entry per child. Roles must be unique among your live children."} |
-| waitSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) | {"description":"Wait up to this many seconds (max 600) for the children before returning, as `wait` does. Omit to return at once."} |
+| waitSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) | {"description":"Wait up to this many seconds for the children before returning, as `wait` does. Omit to return at once."} |
 | waitFor | no | [WaitMode.json](schema/WaitMode.json) | {"default":"all","description":"With waitSeconds: return when all children settle (default) or when any does."} |
 
 Example:
@@ -189,7 +189,7 @@ Example:
 
 ## wait
 
-Block until threads settle, up to timeoutSeconds. Returns early with needs_you, naming each request, when a thread waits on the person: tell the person and treat it as unfinished. timeout or interrupted: the threads keep working; call wait again. Use this, never a polling loop.
+Block until threads settle, up to timeoutSeconds. Returns early with needs_you, naming each request, when a thread waits on the person: tell the person and treat it as unfinished. timeout or interrupted: the threads keep working; call wait again, never a polling loop.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -201,7 +201,7 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 | --- | --- | --- | --- |
 | threadIds | yes | array | {"minItems":1,"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"description":"Threads to watch: children from delegate, or any thread you can read."} |
 | mode | no | [WaitMode.json](schema/WaitMode.json) | {"default":"all","description":"all (default): every thread settles; any: the first."} |
-| timeoutSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) | {"default":120,"description":"Longest wait in seconds, 1 to 600 (default 120)."} |
+| timeoutSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) | {"default":120,"description":"Longest wait in seconds."} |
 
 Example:
 
@@ -1197,7 +1197,7 @@ Required capability: none beyond session authentication. Timeout: 30000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| topics | no | array | {"default":["status","recent","changes","prs","notes"],"description":"Only the topics you need. Default: status, recent, changes, prs, notes.","minItems":1,"maxItems":6,"items":{"type":"string","enum":["status","recent","changes","prs","notes","diagnostics"]}} |
+| topics | no | array | {"default":["status","recent","changes","prs","notes"],"description":"Only the topics you need.","minItems":1,"maxItems":6,"items":{"type":"string","enum":["status","recent","changes","prs","notes","diagnostics"]}} |
 
 Example:
 
