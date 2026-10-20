@@ -94,6 +94,11 @@ export interface ThreadState {
   outcomeOrder: number;
   /** Rejected facts wait for a real fact to establish their root owner. */
   pendingNotices: { createdAt: number; text: string; raw: RawPayload[] }[];
+  /**
+   * Repeats of one rejection within a root run update its first notice. Optional for snapshots
+   * created before repeats collapsed.
+   */
+  rejectionNotices?: { run: string; notices: Record<string, { item: Key; count: number }> };
   itemLinks: Record<Key, { childAgent?: Key; targetAgent?: Key; waitingFor?: Key[] }>;
   queueCount: number;
   queueSources: { engine: number; provider: number };

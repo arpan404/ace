@@ -29,6 +29,7 @@ describe("lenient fact rejection", () => {
     const after = structuredClone(h.state);
     // Rejection can persist its diagnostic, but must not change existing engine state.
     after.items = before.items;
+    delete after.rejectionNotices;
     expect(after).toEqual(before);
   });
 
@@ -73,6 +74,7 @@ describe("lenient fact rejection", () => {
     });
     const after = structuredClone(h.state);
     after.items = before.items;
+    delete after.rejectionNotices;
     expect(after).toEqual(before);
   });
 
@@ -156,6 +158,7 @@ describe("lenient fact rejection", () => {
       });
       const after = structuredClone(h.state);
       after.items = before.items;
+      delete after.rejectionNotices;
       expect(after).toEqual(before);
     },
   );
@@ -236,6 +239,7 @@ describe("lenient fact rejection", () => {
       expect(h.agent("root")).toMatchObject({ parentId: null });
       const after = structuredClone(h.state);
       after.items = before.items;
+      delete after.rejectionNotices;
       expect(after).toEqual(before);
     },
   );
