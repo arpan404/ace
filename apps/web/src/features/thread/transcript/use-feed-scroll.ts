@@ -110,6 +110,16 @@ function placeAt(virtualizer: FeedVirtualizer, el: HTMLElement, offset: number):
   synced(virtualizer, el);
 }
 
+/**
+ * Where row `index` is by the sizes measured so far. Rows measure as React attaches them, before
+ * this hook's layout effects run, but the virtualizer's cached positions catch up only on its
+ * next read of them: asking for its total size first brings them up to date.
+ */
+function placed(virtualizer: FeedVirtualizer, index: number) {
+  virtualizer.getTotalSize();
+  return virtualizer.measurementsCache[index];
+}
+
 function toEndOf(virtualizer: FeedVirtualizer, el: HTMLElement): void {
   const end = el.scrollHeight - el.clientHeight;
   if (Math.abs(el.scrollTop - end) >= 1) placeAt(virtualizer, el, end);
@@ -156,13 +166,16 @@ export function useFeedScroll(options: FeedScrollOptions) {
     (key: string, itemId: string | undefined) => {
       let index = indexOf.get(key) ?? -1;
       if (index < 0 && itemId !== undefined) index = rowOf(rows, itemId);
-      const start = index < 0 ? undefined : virtualizer.measurementsCache[index]?.start;
-      return start === undefined ? undefined : { index, start, key: keys[index] ?? key };
+      const item = index < 0 ? undefined : placed(virtualizer, index);
+      return item && { index, start: item.start, end: item.end, key: keys[index] ?? key };
     },
     [indexOf, keys, rows, virtualizer],
   );
   // The held row older history just joined at its top: its next growth is above the reader.
   const grewAtTop = useRef<string | undefined>(undefined);
+  // Rows just landed above the held row and are still measuring: it stays held until the reader
+  // moves the view again.
+  const settling = useRef(false);
   /** Which resizes the virtualizer answers by moving the view, for the current mode. */
   const compensate = useCallback(() => {
     const was = mode.current.kind === "following" ? undefined : held.current;
@@ -185,12 +198,13 @@ export function useFeedScroll(options: FeedScrollOptions) {
     [virtualizer, compensate],
   );
   const hold = useCallback(
-    (index: number, itemId?: string) => {
+    (el: HTMLElement, index: number, itemId?: string) => {
       const row = rows[index];
-      const start = virtualizer.measurementsCache[index]?.start;
+      const start = placed(virtualizer, index)?.start;
       if (!row) return undefined;
       const id = itemId ?? blockItems(row.block)[0];
-      if (start !== undefined) held.current = { key: row.key, itemId: id, start };
+      if (start !== undefined)
+        held.current = { key: row.key, itemId: id, top: start - el.scrollTop };
       return { key: row.key, itemId: id };
     },
     [rows, virtualizer],
@@ -203,13 +217,17 @@ export function useFeedScroll(options: FeedScrollOptions) {
     return listenScrollIntent(
       el,
       (up) => {
+        settling.current = false;
         upward.current = up;
         if (up) glidingUntil.current = 0;
         onDirection(up);
         const atEnd = distanceToEnd(el) < nearEdge;
         apply({ type: "gesture", upward: up, atEnd, detached, at: now() }, el);
       },
-      () => apply({ type: "press", at: now() }, el),
+      () => {
+        settling.current = false;
+        apply({ type: "press", at: now() }, el);
+      },
     );
   }, [viewport, apply, detached, now, onDirection]);
 
@@ -221,7 +239,7 @@ export function useFeedScroll(options: FeedScrollOptions) {
       const toggle = event.target instanceof Element ? event.target.closest(disclosure) : null;
       const row = toggle?.closest<HTMLElement>("[data-index]");
       if (!row || !el.contains(row)) return;
-      const which = hold(Number(row.dataset.index));
+      const which = hold(el, Number(row.dataset.index));
       if (which) apply({ type: "toggle", ...which }, el);
     };
     el.addEventListener("click", click, true);
@@ -242,11 +260,11 @@ export function useFeedScroll(options: FeedScrollOptions) {
     restoring.current = undefined;
     const at = restoreAt(saved, keys);
     const row = at && rows[at.index];
-    const start = at && virtualizer.measurementsCache[at.index]?.start;
+    const start = at && placed(virtualizer, at.index)?.start;
     if (!at || !row || start === undefined || mode.current.kind !== "following") return;
     apply({ type: "toggle", key: row.key, itemId: blockItems(row.block)[0] }, el);
     placeAt(virtualizer, el, start - at.offset);
-    hold(at.index);
+    hold(el, at.index);
     compensate();
   }, [keys, rows, viewport, virtualizer, apply, hold, compensate]);
 
@@ -284,12 +302,18 @@ export function useFeedScroll(options: FeedScrollOptions) {
     if (!el || (mode.current.kind === "following" ? !structural && !grew : !structural)) return;
     const was = held.current;
     const at = was && locate(was.key, was.itemId);
-    const fix = correction(mode.current, was, at, now());
+    const fix = correction(
+      mode.current,
+      was,
+      at && { index: at.index, top: at.start - el.scrollTop },
+      now(),
+    );
     if (fix.kind === "end") toEndOf(virtualizer, el);
     else if (fix.kind === "shift") placeAt(virtualizer, el, el.scrollTop + fix.by);
     else if (fix.kind === "aim") aimAt(virtualizer, el, fix.index, fix.align);
     if (was && at) {
-      held.current = { ...was, key: at.key, start: at.start };
+      held.current = { ...was, key: at.key, top: at.start - el.scrollTop };
+      settling.current = structural && mode.current.kind === "free";
       const earlier = before.rows[before.indexOf.get(was.key) ?? -1];
       const shown = rows[at.index];
       if (
@@ -325,9 +349,14 @@ export function useFeedScroll(options: FeedScrollOptions) {
       top.current = { index: first.index, offset: first.start - el.scrollTop };
       const row = rows[first.index];
       const shown = row && { key: row.key, itemId: blockItems(row.block)[0] };
-      const which = heldKey(mode.current, shown);
+      const was = held.current;
+      const still = settling.current && was ? locate(was.key, was.itemId) : undefined;
+      const inView =
+        !!still && still.end > el.scrollTop && still.start < el.scrollTop + el.clientHeight;
+      const which = heldKey(mode.current, shown, inView ? was : undefined);
       const at = which && locate(which.key, which.itemId);
-      held.current = which && at ? { ...which, key: at.key, start: at.start } : undefined;
+      held.current =
+        which && at ? { ...which, key: at.key, top: at.start - el.scrollTop } : undefined;
       // The rows above this one are what the virtualizer compensates for, as the reader moves.
       compensate();
       return first;
@@ -347,11 +376,11 @@ export function useFeedScroll(options: FeedScrollOptions) {
     /** Bring row `index` into view and hold it there while the rows around it measure. */
     jumpTo: (index: number, align: "start" | "center", itemId?: string) => {
       const el = viewport.current;
-      const which = hold(index, itemId);
+      const which = el && hold(el, index, itemId);
       if (!el || !which) return;
       apply({ type: "jump", ...which, align, at: now() }, el);
       aimAt(virtualizer, el, index, align);
-      hold(index, itemId);
+      hold(el, index, itemId);
       compensate();
     },
     /** Follow the live end again, gliding there or going at once (or not yet: a window loads). */
