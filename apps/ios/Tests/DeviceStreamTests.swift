@@ -51,10 +51,10 @@ import Testing
         #expect(frame.sequence == 7 && frame.width == 1179)
     }
 
-    @Test func devicePicturesAndBrowserFramesShareOneSocketsRouter() throws {
+    @Test func devicePicturesAndBrowserVideoShareOneSocketsRouter() throws {
         var router = BinaryRouter()
         guard case .device = router.route(try hex(Self.jpeg)) else { Issue.record("no device frame"); return }
-        guard case .stream(.frame) = router.route(try hex(BrowserStreamTests.frame)) else { Issue.record("no browser frame"); return }
+        guard case .stream = router.route(try hex(BrowserStreamTests.keyframe)) else { Issue.record("no browser video"); return }
         // A kind this build doesn't know (audio, or one a newer daemon adds) is skipped, not fatal.
         let audio = BrowserStreamTests.pieces(kind: 3, id: 9, meta: Data([0, 1]), payload: Data([1]))[0]
         #expect(router.route(audio) == BinaryRouter.Outcome.none)

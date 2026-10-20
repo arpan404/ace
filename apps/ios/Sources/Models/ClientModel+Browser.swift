@@ -32,13 +32,13 @@ extension ClientModel {
     }
     /// Start watching the open thread's browser at the view's size (points) and screen scale.
     func openBrowser(size: CGSize, scale: CGFloat) {
-        guard let thread else { return }
+        guard let thread, let session = browserSession else { return }
         let threadId = thread.id
-        browser.open(threadId: threadId, streams: browserStreams) { [weak self] ack in
+        // Acknowledgements skip the main thread: the daemon's window frees as chunks decode.
+        browser.open(threadId: threadId, streams: session.browserStreams) { ack in
             var value: [String: Any] = ["kind": "ack", "sequence": ack.sequence]
-            if ack.video { value["video"] = true }
             if ack.keyframe { value["keyframe"] = true }
-            self?.browserAction(value)
+            Self.action(["type": "browser", "action": value], to: session)
         }
         browserAction(["kind": "open", "threadId": threadId, "viewport": Self.viewport(size, scale)])
     }

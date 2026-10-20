@@ -19,8 +19,12 @@ async function live(options: { browser?: boolean } = {}) {
   await client.start();
   const listeners = new Set<(message: ServerMessage) => void>();
   const sent: unknown[] = [];
+  const requested: unknown[] = [];
   const owner: BrowserOwner = {
-    request: client.request.bind(client),
+    request: (message) => {
+      requested.push(message);
+      return client.request(message);
+    },
     send: (message) => {
       sent.push(message);
       client.send(message);
@@ -53,7 +57,7 @@ async function live(options: { browser?: boolean } = {}) {
     const page = BrowserPageMessage.parse(message);
     for (const listener of listeners) listener(page);
   };
-  return { daemon, sink, view, sent, push, scheduled };
+  return { daemon, sink, view, sent, requested, push, scheduled };
 }
 
 const state = (sink: RecordingSink) =>
@@ -104,17 +108,37 @@ describe("Live browser view", () => {
     expect(view.action({ kind: "input", input: { kind: "touch", event: "wave" } })).toBe(false);
   });
 
-  test("a picture on screen is acknowledged, a decode error asks for a keyframe", async () => {
+  test("the view always subscribes for H.264 video", async () => {
+    const { sink, view, requested } = await live();
+    view.action({ kind: "open", threadId: "web", viewport });
+    await until(() => state(sink) != null, "browser state");
+    expect(requested).toContainEqual(
+      expect.objectContaining({
+        type: "browser.subscribe",
+        threadId: "web",
+        binaryFrames: true,
+        video: { codecs: ["avc1.42E033"] },
+      }),
+    );
+  });
+
+  test("decoded chunks are acknowledged as video, a decode error asks for a keyframe", async () => {
     const { sink, view, sent } = await live();
     view.action({ kind: "open", threadId: "web", viewport });
     await until(() => state(sink) != null, "browser state");
     view.action({ kind: "ack", sequence: 4 });
-    view.action({ kind: "ack", sequence: 9, video: true, keyframe: true });
-    expect(sent).toMatchObject([
-      { type: "browser.ack", threadId: "web", sequence: 4 },
-      { type: "browser.ack", threadId: "web", sequence: 9, video: true, keyframe: true },
+    view.action({ kind: "ack", sequence: 9, keyframe: true });
+    expect(sent).toEqual([
+      expect.objectContaining({ type: "browser.ack", threadId: "web", sequence: 4, video: true }),
+      expect.objectContaining({
+        type: "browser.ack",
+        threadId: "web",
+        sequence: 9,
+        video: true,
+        keyframe: true,
+      }),
     ]);
-    expect(sent[0]).not.toHaveProperty("video");
+    expect(sent[0]).not.toHaveProperty("keyframe");
   });
 
   test("switching tabs starts the pictures again and shows the new tab's page state", async () => {

@@ -6,7 +6,7 @@ import Foundation
 ///
 ///     0  u32  magic "ACES"
 ///     4  u8   version (1)
-///     5  u8   kind (1 JPEG frame, 2 video chunk, 4 device picture, 8 download chunk)
+///     5  u8   kind (2 video chunk, 4 device picture, 8 download chunk; 1, a JPEG frame, isn't drawn)
 ///     6  u16  meta length: the kind's own header at the start of the body
 ///     8  u32  message id, per sender
 ///     12 u32  body length (meta + payload)
@@ -21,7 +21,6 @@ enum StreamWire {
     /// The largest logical message a receiver assembles.
     static let maxBytes = 8 * 1024 * 1024
     enum Kind {
-        static let frame: UInt8 = 1
         static let video: UInt8 = 2
         static let deviceFrame: UInt8 = 4
         static let download: UInt8 = 8
