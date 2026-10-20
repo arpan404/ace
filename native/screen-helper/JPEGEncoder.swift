@@ -5,9 +5,9 @@ import CoreImage
 final class JPEGEncoder {
     private let context: CIContext
     init(context: CIContext) { self.context = context }
-    func packet(image: CVPixelBuffer, sessionId: String, sequence: UInt64, timestamp: Double, version: Int = 1, scale: Double = 1, dirtyRects: [CGRect]? = nil) -> Data? {
+    func packet(image: CVPixelBuffer, sessionId: String, sequence: UInt64, timestamp: Double, version: Int = 1, scale: Double = 1, dirtyRects: [CGRect]? = nil, quality: Double = 0.75) -> Data? {
         let ciImage = CIImage(cvPixelBuffer: image)
-        guard let jpeg = context.jpegRepresentation(of: ciImage, colorSpace: CGColorSpaceCreateDeviceRGB(), options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.75]),
+        guard let jpeg = context.jpegRepresentation(of: ciImage, colorSpace: CGColorSpaceCreateDeviceRGB(), options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: quality]),
               jpeg.count > 0, jpeg.count <= 8 * 1024 * 1024 else { return nil }
         var header: [String: Any] = ["version": 1, "sessionId": sessionId, "sequence": sequence, "timestamp": timestamp,
                                    "width": CVPixelBufferGetWidth(image), "height": CVPixelBufferGetHeight(image), "codec": "jpeg", "bytes": jpeg.count]
