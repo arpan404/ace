@@ -10415,7 +10415,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | kind | yes | `"key"` |  |
-| key | yes | ["home","back","rotate","enter","power","recents","volumeUp","volumeDown","action","side"] |  |
+| key | yes | ["home","back","rotate","enter","power","recents","volumeUp","volumeDown","action","side","keyboard"] |  |
 
 Example:
 

@@ -509,11 +509,14 @@ it("human typing reaches Simulator behind another app without native idb", async
   await client.request({ op: "input", deviceId, input: { kind: "key", key: "enter" } });
   await client.request({ op: "input", deviceId, input: { kind: "tap", x: 10, y: 20 } });
   await client.request({ op: "input", deviceId, input: { kind: "key", key: "home" } });
+  await client.request({ op: "input", deviceId, input: { kind: "key", key: "keyboard" } });
   expect(await f.helperJournal()).toEqual([
     { input: { kind: "text.type", text: "hello" } },
     { input: { kind: "key.press", key: "Return", modifiers: [] } },
     { input: { kind: "pointer.click", x: 10, y: 20, button: "left" } },
     { button: "Home" },
+    // Simulator's Toggle Software Keyboard shortcut.
+    { input: { kind: "key.press", key: "K", modifiers: ["command"] } },
   ]);
 });
 

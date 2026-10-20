@@ -32,6 +32,11 @@ export const DeviceInput = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("type"), text: z.string().max(4096) }),
   z.object({
     kind: z.literal("key"),
+    /**
+     * `keyboard` brings back the on-screen software keyboard a typed key hid: on iOS it toggles
+     * it, as Simulator's I/O ▸ Keyboard ▸ Toggle Software Keyboard (⌘K) does; on Android it
+     * presses Alt+K, Gboard's "Show on-screen keyboard".
+     */
     key: z.enum([
       "home",
       "back",
@@ -43,6 +48,7 @@ export const DeviceInput = z.discriminatedUnion("kind", [
       "volumeDown",
       "action",
       "side",
+      "keyboard",
     ]),
   }),
 ]);
