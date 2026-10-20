@@ -12,7 +12,7 @@ import {
   type DeviceServerMessage,
   DeviceState,
 } from "@ace/protocol/devices";
-import { fakeDeviceFrame, fakeScreenFrame } from "./screen-frame.ts";
+import { fakeDeviceFrame, fakePictureBytes } from "./screen-frame.ts";
 import { fakeDeviceUITree } from "./device-ui-tree.ts";
 
 const leaseMs = 5 * 60_000;
@@ -59,8 +59,6 @@ type DeviceTransportEvents = Parameters<DeviceTransport["open"]>[0];
 interface Channel {
   events: DeviceTransportEvents;
   streams: Set<string>;
-  /** Devices it watches on the shared media stream (`mediaStream`), not screen packets. */
-  media: Set<string>;
 }
 
 class Refusal extends Error {
@@ -94,7 +92,7 @@ function denied(permission: DevicePermission): Refusal {
 /**
  * In-app devices as the daemon's `@ace/devices` service presents them, in memory: an iOS
  * Simulator and an Android emulator, enable, approval for a thread, boot and shutdown, a live
- * stream of screen frames in the screen binary format (JPEG, or H.264 when negotiated and
+ * stream of pictures on the shared media stream (JPEG, or H.264 when negotiated and
  * `videoEncoding` is on), an expiring human control lease, input, and logs. Each `transport()`
  * is one dedicated, already authenticated devices channel.
  * UI trees are a fixed Settings screen; UI find and act answer `not_supported`.
@@ -121,7 +119,7 @@ export class FakeAppDevices {
    * stand-in bytes for the encoder's NAL units, which only a test's decoder accepts.
    */
   videoEncoding = false;
-  /** Every `devices.ack` a media-stream viewer sent, in order. */
+  /** Every `devices.ack` a viewer sent, in order. */
   readonly acks: DeviceAck[] = [];
   private messageIds = 0;
   /** Every live-view setting a viewer asked for, in order. */
@@ -204,7 +202,7 @@ export class FakeAppDevices {
     let channel: Channel | undefined;
     return {
       open: (events) => {
-        const opened: Channel = { events, streams: new Set<string>(), media: new Set<string>() };
+        const opened: Channel = { events, streams: new Set<string>() };
         channel = opened;
         this.channels.add(opened);
         queueMicrotask(() => {
@@ -280,39 +278,25 @@ export class FakeAppDevices {
       this.send(channel, { type: "devices.state", state: this.state(session, channel) });
   }
 
-  private frame(session: Session): Uint8Array {
-    const packet = fakeScreenFrame({
-      sessionId: session.streamId ?? "idle",
-      sequence: ++this.sequence,
-      timestamp: this.clock(),
-      screen: session.screen,
-      codec: session.codec,
-      keyframe: session.keyframe,
-    });
-    session.keyframe = false;
-    return packet;
+  private nextMessageId(): number {
+    this.messageIds = (this.messageIds + 1) >>> 0;
+    return this.messageIds;
   }
 
-  /** One picture to `viewers`: stream pieces to media-stream viewers, a packet to the rest. */
+  /** One picture to `viewers`, as stream kind `deviceFrame` pieces. */
   private show(session: Session, viewers: readonly Channel[]): void {
-    const options = {
+    const pieces = fakeDeviceFrame({
+      deviceId: session.device.id,
       sessionId: session.streamId ?? "idle",
       sequence: ++this.sequence,
       timestamp: this.clock(),
       screen: session.screen,
       codec: session.codec,
       keyframe: session.keyframe,
-    };
-    session.keyframe = false;
-    const packet = fakeScreenFrame(options);
-    const pieces = fakeDeviceFrame({
-      ...options,
-      deviceId: session.device.id,
-      id: (this.messageIds = (this.messageIds + 1) >>> 0),
+      id: this.nextMessageId(),
     });
-    for (const channel of viewers)
-      if (!channel.media.has(session.device.id)) channel.events.message(packet);
-      else for (const piece of pieces) channel.events.message(piece);
+    session.keyframe = false;
+    for (const channel of viewers) for (const piece of pieces) channel.events.message(piece);
   }
 
   private paint(session: Session): void {
@@ -465,8 +449,6 @@ export class FakeAppDevices {
         return this.state(session, channel);
       case "subscribe":
         channel.streams.add(session.device.id);
-        if (operation.mediaStream) channel.media.add(session.device.id);
-        else channel.media.delete(session.device.id);
         // A new viewer starts from a self-contained frame.
         session.keyframe = true;
         if (session.lifecycle === "live") this.show(session, [channel]);
@@ -487,7 +469,6 @@ export class FakeAppDevices {
         return { completed: true };
       case "unsubscribe":
         channel.streams.delete(session.device.id);
-        channel.media.delete(session.device.id);
         return this.state(session, channel);
       case "input":
         this.controlled(session, channel);
@@ -512,12 +493,26 @@ export class FakeAppDevices {
         this.actions.push(operation);
         return { completed: true };
       case "screenshot": {
-        const packet = this.frame(session);
-        channel.events.message(packet);
-        const length = new DataView(packet.buffer, packet.byteOffset, packet.byteLength).getUint32(
-          0,
-        );
-        return JSON.parse(new TextDecoder().decode(packet.subarray(4, 4 + length)));
+        // A still JPEG on the media stream first; the result names it.
+        const streamId = session.streamId ?? "idle";
+        const sequence = ++this.sequence;
+        for (const piece of fakeDeviceFrame({
+          deviceId: session.device.id,
+          sessionId: streamId,
+          sequence,
+          timestamp: this.clock(),
+          screen: session.screen,
+          still: true,
+          id: this.nextMessageId(),
+        }))
+          channel.events.message(piece);
+        return {
+          streamId,
+          sequence,
+          width: 390,
+          height: 844,
+          bytes: fakePictureBytes(session.screen).length,
+        };
       }
       case "record.start":
         if (!session.threadId)

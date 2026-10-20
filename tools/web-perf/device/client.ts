@@ -4,11 +4,14 @@ import {
   DeviceClient,
   deviceTransport,
   browserDeviceSocket,
-  deviceCanvasRenderer,
   deviceVideoSupported,
   deviceStreamProfile,
+  type DevicePicture,
 } from "@ace/client/devices";
-type PortableFrame = Parameters<Parameters<DeviceClient["watchFrames"]>[1]>[0];
+// The web app's own live-view renderer and decoder, so the probe measures what people see.
+import { pictureRenderer } from "../../../apps/web/src/lib/video/picture-renderer.ts";
+import { webCodecsDecoder } from "../../../apps/web/src/lib/video/codecs.ts";
+import { jpegImage } from "../../../apps/web/src/lib/video/picture-canvas.ts";
 
 const config = z
   .object({
@@ -101,8 +104,8 @@ function pixels() {
 }
 let painting = false;
 let capturedAt = 0;
-function displayed(header: PortableFrame["header"]) {
-  capturedAt = header.version === 1 ? header.timestamp : header.ts;
+function displayed(picture: DevicePicture) {
+  capturedAt = picture.timestamp;
   if (painting) return;
   painting = true;
   requestAnimationFrame(() => {
@@ -112,16 +115,16 @@ function displayed(header: PortableFrame["header"]) {
     record.frames++;
   });
 }
-async function draw(next: PortableFrame) {
+async function draw(next: DevicePicture) {
   const image = new Image();
-  const url = URL.createObjectURL(new Blob([next.payload], { type: "image/jpeg" }));
+  const url = URL.createObjectURL(new Blob([next.bytes.slice()], { type: "image/jpeg" }));
   try {
     image.src = url;
     await image.decode();
-    canvas.width = next.header.width;
-    canvas.height = next.header.height;
+    canvas.width = next.width;
+    canvas.height = next.height;
     context.drawImage(image, 0, 0);
-    displayed(next.header);
+    displayed(next);
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -145,10 +148,16 @@ client.watch((snapshot) => {
   if (!snapshot.connected) return;
   Reflect.set(globalThis, "probeReady", true);
 });
-const renderer = deviceCanvasRenderer(canvas, {
-  keyframe: () => {
-    void client.request({ op: "stream.keyframe", deviceId: config.deviceId });
+const renderer = pictureRenderer<DevicePicture>({
+  decoder: webCodecsDecoder(),
+  image: jpegImage,
+  show: (image, picture) => {
+    canvas.width = picture.width;
+    canvas.height = picture.height;
+    image.draw(context, picture.width, picture.height);
+    displayed(picture);
   },
+  ack: (picture, keyframe) => client.ack(picture, keyframe),
   fallback: () => {
     void client.request({
       op: "stream.configure",
@@ -157,16 +166,17 @@ const renderer = deviceCanvasRenderer(canvas, {
     });
   },
   pressure: () => {},
-  displayed,
 });
 Reflect.set(globalThis, "probeStart", async () => {
   await client.request({ op: "enable", enabled: true });
   await client.request({ op: "controller", deviceId: config.deviceId, controller: "human" });
-  client.watchFrames(config.deviceId, async (frame) => {
-    record.bytes += frame.packet.length;
-    record.codecs[frame.header.codec]++;
-    if (config.baseline) await draw(frame);
-    else await renderer.render(frame);
+  client.watchPictures(config.deviceId, async (picture) => {
+    record.bytes += picture.bytes.length;
+    record.codecs[picture.codec === "jpeg" ? "jpeg" : "h264"]++;
+    if (config.baseline) {
+      await draw(picture);
+      client.ack(picture);
+    } else await renderer.render(picture);
   });
   await client.request({ op: "start", deviceId: config.deviceId, fps: config.fps });
   await client.request({ op: "subscribe", deviceId: config.deviceId });

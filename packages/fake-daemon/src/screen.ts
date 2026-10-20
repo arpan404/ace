@@ -1,4 +1,5 @@
 import {
+  ScreenAck,
   ScreenClientMessage,
   ScreenState,
   ScreenPermissions,
@@ -11,7 +12,8 @@ import {
 import type { ScreenTransport } from "@ace/client/screen-stream";
 import type { FakeServiceContext } from "./service-context.ts";
 import { FakeScreenError } from "./screen-error.ts";
-import { fakeScreenFrame } from "./screen-frame.ts";
+import { streamKinds } from "@ace/browser/stream";
+import { fakePicture } from "./screen-frame.ts";
 
 type Channel = {
   send(message: ScreenServerMessage | Uint8Array): void;
@@ -28,7 +30,10 @@ export interface FakeScreenOptions {
   schedule(callback: () => void, delay: number): () => void;
   permissions?: ScreenPermissions;
 }
-/** Fake desktop targets share the real wire states, scopes and frame format. */
+/**
+ * Fake desktop targets share the real wire states and scopes; a subscribed session's pictures
+ * are stream kind `screenFrame` pieces, and viewers' `screen.ack`s are kept in order.
+ */
 export class FakeScreen {
   readonly permissions: ScreenPermissions;
   /**
@@ -42,6 +47,9 @@ export class FakeScreen {
    */
   stopAllHold: { until: Promise<void>; failure?: string } | undefined;
   readonly requested: ("screenRecording" | "accessibility")[] = [];
+  /** Every `screen.ack` a viewer sent, in order. */
+  readonly acks: ScreenAck[] = [];
+  private messageIds = 0;
   /** The person's computer use switch. */
   enabled = false;
   private readonly options: FakeScreenOptions;
@@ -58,6 +66,7 @@ export class FakeScreen {
   /** Main socket controls and dedicated frame sockets see the same shared world. */
   connection(send: Channel["send"]): {
     request(raw: unknown, human?: boolean): Promise<void>;
+    ack(raw: unknown): void;
     close(): void;
   } {
     const channel: Channel = { send, subscriptions: new Set() };
@@ -84,6 +93,9 @@ export class FakeScreen {
         }
         if (this.channels.has(channel)) send(result);
       },
+      ack: (raw) => {
+        if (this.channels.has(channel)) this.acks.push(ScreenAck.parse(raw));
+      },
       close: () => {
         this.channels.delete(channel);
         for (const session of this.sessions.values())
@@ -106,6 +118,7 @@ export class FakeScreen {
       },
       send: (message) => {
         if (!connection) throw new Error("Screen channel is not authenticated");
+        if (message.type === "screen.ack") return connection.ack(message);
         return connection.request(message);
       },
       close: () => {
@@ -128,13 +141,18 @@ export class FakeScreen {
       ? [only]
       : [...this.channels].filter((channel) => channel.subscriptions.has(session.state.sessionId));
     if (session.state.lifecycle !== "live" || !viewers.length) return;
-    const packet = fakeScreenFrame({
-      sessionId: session.state.sessionId,
+    this.messageIds = (this.messageIds + 1) >>> 0;
+    const pieces = fakePicture({
+      kind: streamKinds.screenFrame,
+      sourceId: session.state.sessionId,
+      streamId: session.state.sessionId,
       sequence: ++this.sequence,
       timestamp: this.options.host.now(),
       screen: "app",
+      id: this.messageIds,
     });
-    for (const channel of viewers) if (this.channels.has(channel)) channel.send(packet);
+    for (const channel of viewers)
+      if (this.channels.has(channel)) for (const piece of pieces) channel.send(piece);
   }
   private live(id: string): Session {
     const session = this.sessions.get(id);

@@ -52,27 +52,32 @@ export function createScreenSession(context: SocketContext, simulators: Simulato
       if (!context.options.screen || !context.authorize("admin")) return;
       channel = screenConnection(context.options.screen, simulators, context.sessionId, {
         send: context.send,
-        frame: (packet) =>
-          new Promise<void>((resolve, reject) => {
-            if (!context.connected() || !context.authorize("admin")) {
-              reject(new Error("Socket closed or revoked"));
-              return;
-            }
-            if (context.socket.bufferedAmount > 8 * 1024 * 1024) {
-              context.socket.close(4009, "Screen backpressure");
-              reject(new Error("Socket backpressure"));
-              return;
-            }
-            context.socket.send(packet, { binary: true, compress: false }, (error) =>
-              error ? reject(error) : resolve(),
-            );
-          }),
+        media: {
+          bufferedBytes: () => context.socket.bufferedAmount,
+          write: (piece) =>
+            new Promise<void>((resolve, reject) => {
+              if (!context.connected() || !context.authorize("admin"))
+                return reject(new Error("Screen socket revoked"));
+              context.socket.send(piece, { binary: true, compress: false }, (error) =>
+                error ? reject(error) : resolve(),
+              );
+            }),
+        },
       });
     },
     close() {
       channel?.close();
     },
     handle(message) {
+      if (message.type === "screen.ack") {
+        // Fire and forget: a stale or refused ack only leaves that viewer's window as it was.
+        try {
+          if (context.authorize("admin")) channel?.ack(message);
+        } catch (error) {
+          context.options.log?.(error);
+        }
+        return true;
+      }
       if (message.type !== "screen.request") return false;
       if (!context.authorize("admin"))
         context.send({

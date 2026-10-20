@@ -2,7 +2,7 @@ export { DevicesService, type DevicesOptions, agentOwner, deviceFailure } from "
 export { DevicePlatform, type PlatformOptions } from "./platform.ts";
 export { DeviceError } from "./sdk.ts";
 export { ControllerLease, type Actor } from "./lease.ts";
-export { connectDevices, sendDeviceFrame, type DevicePeer } from "./bridge.ts";
+export { connectDevices, type DevicePeer } from "./bridge.ts";
 export { devicesToolkit } from "./mcp.ts";
 export { DeviceLogs, type LogBatch } from "./logs.ts";
 export type { DeviceRuntime } from "./runtime.ts";
@@ -16,8 +16,6 @@ export { DeviceStreamControl, commonDeviceStream } from "./stream-control.ts";
 export { H264AccessUnits } from "./h264.ts";
 
 export { watchDeviceLease } from "./lease-expiry.ts";
-
-export { devicePacketDelivery } from "./packet-delivery.ts";
 
 export { deviceControlDelivery } from "./control-delivery.ts";
 export { consumeDeviceRecording } from "./recording-artifact.ts";

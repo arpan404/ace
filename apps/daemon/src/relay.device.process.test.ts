@@ -8,15 +8,15 @@ import { DevicePlatform, DevicesService, type DevicesOptions } from "@ace/device
 import {
   DeviceClientMessage,
   DeviceInventory,
+  DeviceScreenshot,
   DeviceServerMessage,
   DeviceState,
 } from "@ace/protocol/devices";
-import { DeviceId, ScreenFrameHeader } from "@ace/protocol";
+import { DeviceId } from "@ace/protocol";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { connectClientViaRelay, startRelay, type ClientChannel } from "@ace/relay";
 import { fingerprint, keyPair } from "@ace/secure-channel";
 import { framePacket, type Frame } from "@ace/screen";
-import { ScreenFrameReader, type PortableFrame } from "@ace/screen/frames-client";
 import {
   decodeStreamMessage,
   isStreamPiece,
@@ -35,9 +35,6 @@ afterEach(async () => {
 });
 type Capture = Parameters<NonNullable<DevicesOptions["capture"]>>[0];
 type Result = Extract<DeviceServerMessage, { type: "devices.result" }>;
-function frameSequence(header: ScreenFrameHeader): number {
-  return header.version === 1 ? header.sequence : header.seq;
-}
 function image(sessionId: string, sequence: number, byte: number): Frame {
   const payload = Buffer.alloc(128 * 1024, byte);
   const header = {
@@ -53,21 +50,15 @@ function image(sessionId: string, sequence: number, byte: number): Frame {
   return { header, payload, packet: framePacket(header, payload) };
 }
 
-/** Consume JSON state updates and relay fragments through the public portable decoder. */
+/** Consume JSON state updates and relay stream pieces through the public portable decoder. */
 class DeviceClient {
   readonly channel: ClientChannel;
   readonly chunks: number[] = [];
-  private readonly images: PortableFrame[] = [];
   private readonly pictures: Extract<StreamMessage, { kind: "device.frame" }>[] = [];
   private readonly assembler = new StreamAssembler();
-  private readonly reader: ScreenFrameReader;
   private sequence = 0;
   constructor(channel: ClientChannel) {
     this.channel = channel;
-    this.reader = new ScreenFrameReader((frame) => {
-      if (this.images.length >= 16) throw new Error("Unexpected frame flood");
-      this.images.push(frame);
-    });
   }
   async send(operation: unknown): Promise<string> {
     const requestId = `relay-request-${++this.sequence}`;
@@ -81,11 +72,11 @@ class DeviceClient {
     if (frame instanceof Uint8Array) {
       if (this.chunks.length >= 128) throw new Error("Unexpected fragment flood");
       this.chunks.push(frame.length);
-      if (isStreamPiece(frame)) {
-        const envelope = this.assembler.push(frame);
-        const message = envelope && decodeStreamMessage(envelope);
-        if (message?.kind === "device.frame") this.pictures.push(message);
-      } else this.reader.push(frame);
+      // Every binary message on the devices channel is a stream piece.
+      if (!isStreamPiece(frame)) throw new Error("Binary message is not a stream piece");
+      const envelope = this.assembler.push(frame);
+      const message = envelope && decodeStreamMessage(envelope);
+      if (message?.kind === "device.frame") this.pictures.push(message);
       return undefined;
     }
     return DeviceServerMessage.parse(frame);
@@ -102,15 +93,6 @@ class DeviceClient {
   async request(operation: unknown): Promise<Result> {
     return this.result(await this.send(operation));
   }
-  async frame(): Promise<PortableFrame> {
-    while (this.images.length === 0) {
-      const message = await this.next();
-      if (message?.type === "devices.result") throw new Error("Unconsumed device result");
-    }
-    const frame = this.images.shift();
-    if (!frame) throw new Error("Missing frame");
-    return frame;
-  }
   /** The next device picture that came as stream kind `deviceFrame`. */
   async picture() {
     while (this.pictures.length === 0) {
@@ -123,9 +105,6 @@ class DeviceClient {
   }
   async ack(deviceId: string, streamId: string, sequence: number) {
     await this.channel.send({ type: "devices.ack", deviceId, streamId, sequence });
-  }
-  end(): void {
-    this.reader.end();
   }
 }
 
@@ -264,7 +243,7 @@ async function fixture() {
   return { service, auth, admin, reader, connect, connected, publish, inputs };
 }
 
-async function ready(client: DeviceClient, deviceId: string, mediaStream = false) {
+async function ready(client: DeviceClient, deviceId: string) {
   expect(await client.request({ op: "controller", deviceId, controller: "human" })).toMatchObject({
     ok: true,
   });
@@ -275,16 +254,14 @@ async function ready(client: DeviceClient, deviceId: string, mediaStream = false
   const started = await client.request({ op: "start", deviceId });
   expect(started.ok).toBe(true);
   expect(DeviceState.parse(started.data).lifecycle).toBe("live");
-  expect(
-    await client.request({ op: "subscribe", deviceId, ...(mediaStream ? { mediaStream } : {}) }),
-  ).toMatchObject({ ok: true });
+  expect(await client.request({ op: "subscribe", deviceId })).toMatchObject({ ok: true });
 }
 
 it("a relay viewer on the shared media stream gets an emulator's pictures at the pace it acks", async () => {
   const f = await fixture();
   const client = await f.connected();
   await client.request({ op: "enable", enabled: true });
-  await ready(client, "android:Tablet", true);
+  await ready(client, "android:Tablet");
   const first = await client.picture();
   expect(first.sourceId).toBe("android:Tablet");
   expect(first.frame).toMatchObject({ sequence: 0, codec: "jpeg", key: true, width: 640 });
@@ -304,7 +281,6 @@ it("a relay viewer on the shared media stream gets an emulator's pictures at the
   const newest = await client.picture();
   expect(newest.frame.sequence).toBe(9);
   expect(Buffer.from(newest.frame.bytes)).toEqual(Buffer.alloc(128 * 1024, 49));
-  client.end();
 });
 
 it("a paired phone boots and controls an emulator and reassembles large encrypted device frames", async () => {
@@ -321,8 +297,8 @@ it("a paired phone boots and controls an emulator and reassembles large encrypte
   expect(
     DeviceInventory.parse(after.data).devices.find((device) => device.id === "android:Tablet"),
   ).toMatchObject({ state: "booted", serial: "emulator-5556" });
-  const frame = await client.frame();
-  expect(Buffer.from(frame.payload)).toEqual(Buffer.alloc(128 * 1024, 22));
+  const picture = await client.picture();
+  expect(Buffer.from(picture.frame.bytes)).toEqual(Buffer.alloc(128 * 1024, 22));
   expect(client.chunks).toHaveLength(3);
   expect(client.chunks.every((length) => length <= 64 * 1024)).toBe(true);
   expect(
@@ -333,53 +309,43 @@ it("a paired phone boots and controls an emulator and reassembles large encrypte
     }),
   ).toMatchObject({ ok: true });
   expect(f.inputs).toEqual(["-s emulator-5556 shell 'input' 'tap' '7' '9'"]);
-  client.end();
 });
 
-it("two live device streams and a screenshot retain whole packets over one encrypted relay channel", async () => {
+it("two live device streams and a screenshot keep whole pictures over one encrypted relay channel", async () => {
   const f = await fixture();
   const client = await f.connected();
   await client.request({ op: "enable", enabled: true });
   await ready(client, "android:Pixel");
-  const pixel = await client.frame();
+  const pixel = await client.picture();
   await ready(client, "android:Tablet");
-  const tablet = await client.frame();
+  const tablet = await client.picture();
   const request = await client.send({ op: "screenshot", deviceId: "android:Pixel" });
   f.publish("android:Pixel", 1, 33);
   f.publish("android:Tablet", 1, 44);
   const result = await client.result(request);
   expect(result.ok).toBe(true);
-  const frames = [await client.frame(), await client.frame(), await client.frame()];
-  const screenshot = ScreenFrameHeader.parse(result.data);
-  expect(
-    frames.some(
-      (frame) =>
-        frame.header.sessionId === screenshot.sessionId &&
-        frameSequence(frame.header) === frameSequence(screenshot),
-    ),
-  ).toBe(true);
-  expect(frames.filter((frame) => frame.header.sessionId === tablet.header.sessionId)).toHaveLength(
-    1,
+  const pictures = [await client.picture(), await client.picture(), await client.picture()];
+  const screenshot = DeviceScreenshot.parse(result.data);
+  // The screenshot came as a still, ahead of its result, naming the capture and picture.
+  const still = pictures.find((picture) => picture.frame.still);
+  expect(still).toMatchObject({
+    sourceId: "android:Pixel",
+    frame: { streamId: screenshot.streamId, sequence: screenshot.sequence },
+  });
+  // The screenshot is whichever picture was newest when it was taken.
+  expect(Buffer.from(still?.frame.bytes ?? [])).toEqual(
+    Buffer.alloc(128 * 1024, screenshot.sequence === 0 ? 11 : 33),
   );
-  expect(frames.filter((frame) => frame.header.sessionId === pixel.header.sessionId)).toHaveLength(
-    2,
-  );
-  for (const frame of frames) {
-    const expected =
-      frame.header.sessionId === tablet.header.sessionId
-        ? 44
-        : frameSequence(frame.header) === 0
-          ? 11
-          : 33;
-    expect(Buffer.from(frame.payload)).toEqual(Buffer.alloc(128 * 1024, expected));
-  }
-  expect(
-    frames.some(
-      (frame) =>
-        frame.header.sessionId === pixel.header.sessionId && frameSequence(frame.header) === 1,
-    ),
-  ).toBe(true);
-  client.end();
+  const live = pictures.filter((picture) => !picture.frame.still);
+  expect(live.map((picture) => [picture.sourceId, picture.frame.sequence]).toSorted()).toEqual([
+    ["android:Pixel", 1],
+    ["android:Tablet", 1],
+  ]);
+  for (const picture of live)
+    expect(Buffer.from(picture.frame.bytes)).toEqual(
+      Buffer.alloc(128 * 1024, picture.sourceId === tablet.sourceId ? 44 : 33),
+    );
+  expect(pixel.frame.streamId).not.toBe(tablet.frame.streamId);
 });
 
 it("read-only pairings cannot open the device channel and revocation closes an active controller", async () => {
@@ -401,7 +367,7 @@ it("read-only pairings cannot open the device channel and revocation closes an a
   const client = await f.connected();
   await client.request({ op: "enable", enabled: true });
   await ready(client, "android:Pixel");
-  await client.frame();
+  await client.picture();
   const released = new Promise<void>((resolve) => {
     const unwatch = f.service.watch((state) => {
       if (state.device.id === "android:Pixel" && state.controller === "none") {

@@ -1,6 +1,7 @@
 export { ScreenManager, type ScreenOptions } from "./manager.ts";
 export { Helper, type HelperOptions } from "./helper.ts";
 export { FrameDecoder, FrameHub, framePacket, type Frame, type FrameSink } from "./frames.ts";
+export { framePicture } from "./frame-picture.ts";
 export { Recording, type RecordingArtifact } from "./recording.ts";
 export { Simulators, type Simulator } from "./simulator.ts";
 export { screenConnection, type ScreenPeer } from "./bridge.ts";

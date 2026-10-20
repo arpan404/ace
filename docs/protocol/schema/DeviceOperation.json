@@ -283,10 +283,6 @@
         "deviceId": {
           "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
         },
-        "mediaStream": {
-          "const": true,
-          "type": "boolean"
-        },
         "op": {
           "const": "subscribe",
           "type": "string"

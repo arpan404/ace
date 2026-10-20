@@ -3,8 +3,8 @@ import Testing
 @testable import Ace
 
 /// Device pictures (stream kind 4, ADR 0064 "Shared media stream") read natively. The golden
-/// pieces below were written by the daemon's own encoder (`encodeDeviceFrame` in
-/// `@ace/browser`'s `stream-device.ts`), so these tests hold the Swift reader to the daemon's wire.
+/// pieces below were written by the daemon's own encoder (`encodePicture` in
+/// `@ace/browser`'s `stream-picture.ts`), so these tests hold the Swift reader to the daemon's wire.
 @Suite struct DeviceStreamTests {
     /// An iOS simulator's JPEG: sequence 7, 1179 × 2556 at scale 3, rotated 90°, sent without the
     /// keyframe flag (every JPEG is one anyway).

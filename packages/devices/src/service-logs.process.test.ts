@@ -214,8 +214,7 @@ it("revoking a device peer during log discovery cannot start an unauthorized pro
     canReadThread: () => true,
     agentExists: () => true,
     async send() {},
-    async frame() {},
-    async image() {},
+    media: { write: async () => {}, bufferedBytes: () => 0 },
   });
   try {
     const started = channel.request({
@@ -248,8 +247,7 @@ it("stopping logs during first subscription discovery prevents startup and permi
       lines.push(...message.lines);
       received.resolve();
     },
-    async frame() {},
-    async image() {},
+    media: { write: async () => {}, bufferedBytes: () => 0 },
   });
   const request = (requestId: string, op: "logs.start" | "logs.stop") =>
     channel.request({
