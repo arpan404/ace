@@ -6,12 +6,12 @@ import {
   ToolRegistry,
   aceInstructions,
   bareToolName,
-  codexInjection,
   coreToolsHeader,
   developerInstructions,
   nodeScheduler,
   staticToolsHeader,
   guideTopics,
+  type SessionGuidance,
 } from "@ace/mcp-server";
 import { ComputerClient, computerToolkit, computerUseTools } from "@ace/screen";
 import { EvalAgent, type ListedTool } from "./evals/agent.ts";
@@ -20,7 +20,8 @@ import { evalWorld, type EvalWorld } from "./evals/world.ts";
 /**
  * What ace adds to every model request, per provider, as the real daemon serves it. Tokens are
  * estimated as characters / 4. Each budget fails a change that bloats the always-on surface:
- * guidance, the tools a client loads upfront, or the shipped skills' listing.
+ * guidance and the session brief, the tools a client loads upfront, the shipped skills' listing
+ * where the provider lists skills, and Pi's per-tool prompt snippets.
  */
 const tokens = (text: string) => Math.ceil(text.length / 4);
 const descriptor = ({ name, description, inputSchema }: ListedTool) =>
@@ -35,6 +36,12 @@ const instructionsOnly = new Set<ProviderKind>(["codex"]);
 /** These load every listed tool upfront and reload on tools/list_changed: core mode. */
 const reloading = new Set<ProviderKind>(["opencode", "pi"]);
 /** The rest never reload: a fixed core list, with tools_call for everything else. */
+/**
+ * Pi puts a prompt snippet per active tool in its system prompt, besides the tool itself; the Pi
+ * adapter keeps it to the description's first sentence.
+ */
+const snippets = new Set<ProviderKind>(["pi"]);
+const firstSentence = (text = "") => text.split(/(?<=[.!?])\s/)[0] ?? "";
 
 let world: EvalWorld | undefined;
 afterEach(async () => {
@@ -72,13 +79,9 @@ async function session() {
       ...computer.names(),
     ].map(bareToolName),
   );
-  return {
-    full,
-    core,
-    fixed,
-    registered,
-    codexInstructions: codexInjection(connection).developerInstructions,
-  };
+  // What the daemon knows at injection: the brief, roles, callable tools and access mode.
+  const facts: SessionGuidance = connection.session?.() ?? {};
+  return { full, core, fixed, registered, facts };
 }
 type Agents = Pick<Awaited<ReturnType<typeof session>>, "full" | "core" | "fixed">;
 /** The tools a provider's model has in context on every request. */
@@ -90,9 +93,14 @@ function upfront(provider: ProviderKind, { full, core, fixed }: Agents): ListedT
 }
 const bareNames = (tools: ListedTool[]) => tools.map((tool) => bareToolName(tool.name)).toSorted();
 /** ace's guidance as one provider receives it: server instructions or its native channel. */
-function guidance(provider: ProviderKind): string {
-  const native = developerInstructions(provider);
+function guidance(provider: ProviderKind, facts: SessionGuidance = {}): string {
+  const native = developerInstructions(provider, facts);
   return native.includes(aceInstructions) ? native : `${aceInstructions}\n${native}`;
+}
+/** The shipped skills as a provider's native skill listing shows them. */
+async function skillListing(): Promise<string> {
+  const guides = await builtinGuides();
+  return guides.map((guide) => `- ${guide.name}: ${guide.description}`).join("\n");
 }
 
 it("ace's shared guidance stays under 315 tokens and each provider's own lines stay short", () => {
@@ -110,20 +118,31 @@ it("ace's shared guidance stays under 315 tokens and each provider's own lines s
 
 it("each provider's per-request ace context stays within its budget", async () => {
   const agents = await session();
+  const skills = await skillListing();
   for (const provider of ProviderKind.options) {
-    // A deferring client also lists every deferred tool's name.
-    const names = deferring.has(provider) ? agents.full.tools.map((tool) => tool.name) : [];
+    const text = guidance(provider, agents.facts);
+    const tools = upfront(provider, agents);
     const always = [
-      instructionsOnly.has(provider) ? agents.codexInstructions : guidance(provider),
-      ...upfront(provider, agents).map(descriptor),
-      names.join(" "),
+      // Guidance with the session brief and roles; ACP's goes once, in its first prompt.
+      text,
+      ...tools.map(descriptor),
+      // A deferring client also lists every deferred tool's name.
+      deferring.has(provider) ? agents.full.tools.map((tool) => tool.name).join(" ") : "",
+      // Where ace's guides are installed as skills, the provider lists them on every request.
+      text.includes("installed as skills") ? skills : "",
+      snippets.has(provider) ? tools.map((tool) => firstSentence(tool.description)).join("\n") : "",
     ].join("\n");
     // Every client starts small: deferred names, or the core list with tools_find and tools_call.
-    // Deferring raised from 2,600 to 2,625 for offshift (#899): its deferred name, its guide topic
-    // and its clause in the instructions. Then to 2,655 for delegate's runRole field (Offshift
-    // roles), which the always-loaded delegate schema carries. Codex pays its instructions only.
-    // Core raised from 3,200 to the static 3,300: it lists tools_call too, so the two lists match.
-    const budget = instructionsOnly.has(provider) ? 900 : deferring.has(provider) ? 2_655 : 3_300;
+    // The brief and the skill listing were always paid but never counted; now they are:
+    // Claude 2,655 → 3,400; core and static 3,300 → 4,000, Pi 4,300 with its snippets. Codex
+    // pays its developer text (brief and callable names included) and its skill listing: 1,200.
+    const budget = instructionsOnly.has(provider)
+      ? 1_200
+      : deferring.has(provider)
+        ? 3_400
+        : snippets.has(provider)
+          ? 4_300
+          : 4_000;
     expect(tokens(always), provider).toBeLessThanOrEqual(budget);
   }
 });

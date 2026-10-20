@@ -124,7 +124,28 @@ the schemas again (a browser guide read cost 7,945 tokens in core against 2,635 
 Static clients cannot reload and keep inline schemas. Codex lists every tool but its code-mode
 models see only `exec` and call `tools.mcp__ace__<name>(args)` without a schema; it sends
 `X-Ace-Client: codex`, and `guide` and `tools_find` return it the schemas and that call form.
-The rule lives in one place (`tool-delivery.ts`).
+The rule lives in one place (`tool-delivery.ts`). Codex's developer prefix adds a short recipe
+(call ace from `exec`, ace's `wait` is `tools.mcp__ace__wait`, filter `ALL_TOOLS` or ask
+`tools_find` for a schema) and the bare names this session can call, folded by family and capped
+near 300 tokens, so it stops dumping `ALL_TOOLS` before its first ace call.
+
+**Per-ACP-agent listing.** The daemon picks the listing by the reviewed CLI behind an ACP agent
+(`acpToolListing`): Gemini CLI (it reloads on `tools/list_changed`) is core, claude-agent-acp (the
+Claude Agent SDK defers behind its tool search) lists every tool, and every other agent stays
+static. The stdio bridge carries the choice in `ACE_MCP_BRIDGE_TOOLS`. Always-loaded tools also
+carry `antigravity/alwaysLoad`, which Antigravity reads; it stays static until a live check.
+
+**Guidance per session.** The shared server text stays the same for everyone and under 315
+tokens. What differs goes in the provider's own channel, rendered once per session so its
+cached prefix holds: how to reach a tool the list may lack (Claude's tool search by exact name,
+`select:mcp__ace__thread_start`; core's `guide` or `tools_call`; static's `tools_call`), and in a
+read-only session which ace read tools still work. ACP's text is rendered by the daemon, which
+knows the agent's listing, and handed to the adapter.
+
+**`tools/list_changed` reaches only the session whose list changed.** A core session that opens
+a family is told; every other session keeps its list and its provider's prompt cache. Listen
+streams are tied to the lease of the request that opened them; legacy streams are matched by
+lease. Changes that concern every session (a group turned on or off) still reach all.
 
 **`tools_call {name, arguments}`** runs the named tool through the server's direct call path:
 the same registry lookup, capability and group checks, schema validation and error text,
