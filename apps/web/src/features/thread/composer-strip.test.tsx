@@ -124,7 +124,7 @@ test("the message never answers a question: it queues, and the card's Continue a
   await userEvent.click(screen.getByRole("button", { name: "Show 1 request waiting for you" }));
   const region = await screen.findByRole("region", { name: "Waiting for you" });
   await userEvent.type(
-    within(region).getByRole("textbox", { name: /^Something else/ }),
+    within(region).getByRole("textbox", { name: "Include generated files?" }),
     "No, skip them",
   );
   await userEvent.click(within(region).getByRole("button", { name: "Continue" }));
