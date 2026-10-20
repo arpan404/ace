@@ -53,6 +53,10 @@ test("a settled tree tells the person where its run stopped, and a delivered run
       endpoint: "local",
       criteria: [{ id: "error", description: "Error shows", requiredKinds: ["source"] }],
     });
+    // The sidebar carries where the run stands, without ids.
+    expect(
+      f.daemon.store.sidebarPage({ limit: 10 }).threads.find((entry) => entry.id === thread)?.run,
+    ).toEqual({ phase: "plan", state: "open", pendingCount: 1 });
     // The agent ends its turn with the run still in plan.
     await f.h.emit(thread, end);
     await f.daemon.engine?.flush();
