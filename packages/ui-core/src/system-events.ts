@@ -1,8 +1,7 @@
-import { withoutPortableHandoff } from "@ace/projection";
+import { agentMessageBody, providerNotice, withoutPortableHandoff } from "@ace/projection";
 import { stripAceOriginMarker } from "@ace/native-session/user-text";
 import type { Item, ProviderKind } from "@ace/protocol";
 import { modelLabel, providerNames } from "./providers.ts";
-import { agentMessageBody, providerNotice } from "./provider-notices.ts";
 import {
   messageOrigin,
   messageText,
