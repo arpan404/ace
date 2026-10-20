@@ -2,6 +2,7 @@ import { deliverAfterLoads } from "./deep-link-delivery.ts";
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import {
   app,
   BrowserWindow,
@@ -21,7 +22,6 @@ import { DaemonRuntime, desktopTarget } from "./daemon/runtime.ts";
 import type { DaemonTarget } from "./daemon/target.ts";
 import { createDesktopLog, type Log } from "./log/desktop-log.ts";
 import { createFileLog } from "./log/file-log.ts";
-import { createDesktopRedactor } from "./log/redact.ts";
 import { rendererReports } from "./diagnostics/renderer-reports.ts";
 import { startLocalCrashReporter, watchProcessDeaths } from "./diagnostics/watch.ts";
 import { linksFromArgv, parseDeepLink, protocolScheme } from "./deep-link.ts";
@@ -128,7 +128,7 @@ function openLogs(): (component: string) => Log {
     file,
     now: Date.now,
     // The daemon redacts `ace.jsonl` with this context; the desktop log gets the same.
-    redact: createDesktopRedactor({ home: homedir(), env: process.env }),
+    redact: createDiagnosticRedactor({ home: homedir(), env: process.env }),
     console: (level, text) => (level === "error" ? console.error : console.log)(text),
   });
 }

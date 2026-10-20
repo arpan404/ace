@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createDesktopLog } from "../log/desktop-log.ts";
-import { createDesktopRedactor } from "../log/redact.ts";
+import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import { rendererReports } from "./renderer-reports.ts";
 
 /** Renderer reports through the real desktop log, with a clock the test moves. */
@@ -10,7 +10,7 @@ function reports(options: { burst?: number; refillMs?: number } = {}) {
   const log = createDesktopLog({
     now: () => now,
     console: (_level, text) => written.push(text),
-    redact: createDesktopRedactor({ env: {} }),
+    redact: createDiagnosticRedactor({ env: {} }),
   })("renderer");
   const report = rendererReports({ log, now: () => now, ...options });
   return {
