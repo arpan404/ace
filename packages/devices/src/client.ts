@@ -73,7 +73,10 @@ const statesResult = z.object({
 const enableResult = z.object({ enabled: z.boolean() });
 /** A screenshot request resolves with its picture (`PendingScreenshots`), never wire data. */
 const isPicture = (value: unknown): value is DevicePicture =>
-  typeof value === "object" && value !== null && "bytes" in value && value.bytes instanceof Uint8Array;
+  typeof value === "object" &&
+  value !== null &&
+  "bytes" in value &&
+  value.bytes instanceof Uint8Array;
 
 /** No credentials, automatic reapproval or replayed input. The host owns reconnect. */
 export class DeviceClient {
@@ -347,7 +350,10 @@ export class DeviceClient {
         throw new DeviceClientError("disconnected", "Unauthenticated device message");
       if (data instanceof Uint8Array) {
         if (!isStreamPiece(data))
-          throw new DeviceClientError("invalid_data", "Device binary message is not a stream piece");
+          throw new DeviceClientError(
+            "invalid_data",
+            "Device binary message is not a stream piece",
+          );
         this.receivePiece(data);
         return;
       }
@@ -482,4 +488,3 @@ export class DeviceClient {
     }
   }
 }
-

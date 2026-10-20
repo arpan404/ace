@@ -197,14 +197,19 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
             await pictures.still(operation.deviceId, picture, () =>
               deviceAccess(operation.deviceId),
             );
-            const data: DeviceScreenshot = {
+            const shot: DeviceScreenshot = {
               streamId: picture.streamId,
               sequence: picture.sequence,
               width: picture.width,
               height: picture.height,
               bytes: picture.bytes.length,
             };
-            await send({ type: "devices.result", requestId: message.requestId, ok: true, data });
+            await send({
+              type: "devices.result",
+              requestId: message.requestId,
+              ok: true,
+              data: shot,
+            });
           } else {
             const result =
               operation.op === "states"

@@ -337,9 +337,7 @@ it("two live device streams and a screenshot keep whole pictures over one encryp
     Buffer.alloc(128 * 1024, screenshot.sequence === 0 ? 11 : 33),
   );
   const live = pictures.filter((picture) => !picture.frame.still);
-  expect(
-    live.map((picture) => [picture.sourceId, picture.frame.sequence]).toSorted(),
-  ).toEqual([
+  expect(live.map((picture) => [picture.sourceId, picture.frame.sequence]).toSorted()).toEqual([
     ["android:Pixel", 1],
     ["android:Tablet", 1],
   ]);

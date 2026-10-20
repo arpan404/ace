@@ -234,7 +234,10 @@ export class ScreenStreamClient {
       const envelope = this.assembler.push(message);
       // Kinds this client doesn't draw are skipped, never fatal.
       const decoded = envelope && decodeStreamMessage(envelope);
-      if (decoded?.kind === "screen.frame" && this.states.get(decoded.sourceId)?.lifecycle === "live")
+      if (
+        decoded?.kind === "screen.frame" &&
+        this.states.get(decoded.sourceId)?.lifecycle === "live"
+      )
         this.pictures.publish({ ...decoded.frame, sourceId: decoded.sourceId });
       return;
     }

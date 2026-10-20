@@ -50,8 +50,7 @@ async function fixture() {
       async send(message) {
         events?.message(message);
       },
-      async frame() {},
-      async image() {},
+      media: { write: async () => {}, bufferedBytes: () => 0 },
     });
     client.connect({
       open(next) {

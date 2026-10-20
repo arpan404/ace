@@ -1,10 +1,7 @@
 import { fileExportSource } from "../file-export-source.ts";
 import { projectFilesBinding } from "../project-files-binding.ts";
 import { providerAuthRelay } from "./provider-auth-relay.ts";
-import {
-  connectDevices,
-  type DevicesService,
-} from "@ace/devices";
+import { connectDevices, type DevicesService } from "@ace/devices";
 import { connectBrowser, type BrowserService } from "@ace/browser";
 import { screenConnection, Simulators, type ScreenManager } from "@ace/screen";
 import {

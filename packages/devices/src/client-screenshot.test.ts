@@ -122,6 +122,6 @@ it("concurrent screenshots of the same unchanged image both get its pixels", asy
   for (const sent of host.sent)
     host.receive({ type: "devices.result", requestId: sent.requestId, ok: true, data: result });
   const images = await Promise.all([first, second]);
-  expect(images.map((image) => [...image.bytes])).toEqual([[5], [5]]);
+  expect(images.map((image) => image.bytes)).toEqual([new Uint8Array([5]), new Uint8Array([5])]);
   host.client.disconnect();
 });

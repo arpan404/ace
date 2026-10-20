@@ -202,8 +202,7 @@ describe("in-app device ownership", () => {
       send: async (msg) => {
         if (msg.type === "devices.logs") seen.push(...msg.lines);
       },
-      image: async () => {},
-      frame: async () => {},
+      media: { write: async () => {}, bufferedBytes: () => 0 },
     });
     cleanups.push(async () => peer.close());
     await Promise.all(
@@ -375,15 +374,17 @@ describe("in-app device ownership", () => {
     const h = await harness();
     await bind(h);
     await h.request({ op: "start", deviceId });
-    const packets: Buffer[] = [];
+    const packets: Uint8Array[] = [];
     const peer = connectDevices(h.service, "reader", {
       authorize: () => true,
       canReadThread: () => true,
       agentExists: () => true,
       send: async () => {},
-      image: async () => {},
-      frame: async (packet) => {
-        packets.push(packet);
+      media: {
+        bufferedBytes: () => 0,
+        write: async (piece) => {
+          packets.push(piece);
+        },
       },
     });
     cleanups.push(async () => peer.close());
@@ -401,6 +402,8 @@ describe("in-app device ownership", () => {
       requestId: "unsub",
       operation: { op: "unsubscribe", deviceId },
     });
+    // Pictures already handed to the transport finish writing first.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     const prior = packets.length;
     const delivered = deferred<void>();
     await h.service.subscribe(deviceId, human, async (image) => {
@@ -422,8 +425,7 @@ describe("in-app device ownership", () => {
       send: async (message) => {
         if (message.type === "devices.logs") seen.push(...message.lines);
       },
-      image: async () => {},
-      frame: async () => {},
+      media: { write: async () => {}, bufferedBytes: () => 0 },
     });
     cleanups.push(async () => peer.close());
     await peer.request({
@@ -651,8 +653,7 @@ for (const op of ["subscribe", "stream.configure"] as const) {
         canReadThread: () => true,
         agentExists: () => true,
         async send() {},
-        async frame() {},
-        async image() {},
+        media: { write: async () => {}, bufferedBytes: () => 0 },
       });
       const pending = channel.request({
         type: "devices.request",
