@@ -30,6 +30,9 @@
       "$ref": "https://ace.local/protocol/v1/IconsReadRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/AvatarsResolveRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ThreadSearchRequest.json"
     },
     {
