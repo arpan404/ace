@@ -14,6 +14,7 @@ import { AccessDefaultRow } from "./access-default.tsx";
 import { settingKeys, type AutoSettle, type SortBy } from "./data/setting-keys.ts";
 import { useSettingControl, useSettingWrite } from "./data/use-settings.ts";
 import { RecoverySettings } from "./recovery-settings.tsx";
+import { RoleSettings } from "./role-settings.tsx";
 import { DaemonSlot, useNotConnectedNote } from "./setting-control.tsx";
 import { settingRow } from "./settings-index.ts";
 import { SettingSwitch } from "./setting-switch.tsx";
@@ -100,6 +101,7 @@ export function GeneralSettings() {
         <SettingSwitch setting={settingKeys.settleOnClose} entry="threads.settleOnClose" />
       </SettingSection>
       <GenerationSettings />
+      <RoleSettings />
       <ProjectFolders />
       <RecoverySettings />
       <SettingSection label="Automations" card scope="daemon">

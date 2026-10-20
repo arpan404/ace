@@ -201,6 +201,7 @@
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/secure-channel": "workspace:*",
+        "@ace/settings": "workspace:*",
         "@ace/ui-core": "workspace:*",
         "@base-ui/react": "^1.8.0",
         "@noble/hashes": "2.0.1",
