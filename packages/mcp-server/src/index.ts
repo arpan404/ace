@@ -58,6 +58,7 @@ export {
   maxDelegateTasks,
   type AgentControlPort,
 } from "./agent-control.ts";
+export { readOnlyAceTools } from "./read-only-tools.ts";
 
 export { modelImage, ModelImageError, type ModelImage } from "./model-image.ts";
 

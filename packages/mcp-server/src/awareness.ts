@@ -23,6 +23,11 @@ export class SessionAwareness {
   private readonly failures = new WeakMap<Principal, string>();
   /** Each session's roles line as first read; a later settings change never alters it. */
   private readonly roles = new WeakMap<Principal, string | null>();
+  /** Each session's guidance as first rendered; the session's prefix never changes after. */
+  private readonly fixed = new WeakMap<
+    Principal,
+    { brief: string; groups: string[]; roles?: string }
+  >();
   /** Recent failed calls per session id, newest last; bounded in sessions and entries. */
   private readonly failureLog = new Map<string, { tool: string; code: string; count: number }[]>();
   private readonly port: AwarenessPort;
@@ -46,15 +51,25 @@ export class SessionAwareness {
     return this.current(principal, true);
   }
   /**
-   * The brief, enabled groups and roles line. The first read also marks what this session has
-   * seen and fixes its roles line for the rest of the session.
+   * The brief, enabled groups and roles line, as this session first read them. Every provider
+   * puts them in a prefix it re-sends each turn, so they stay fixed for the session and its
+   * cache holds; later changes reach the agent in the digest. The first read also marks what
+   * this session has seen.
    */
   guidance(principal: Principal): { brief?: string; groups?: string[]; roles?: string } {
+    const fixed = this.fixed.get(principal);
+    if (fixed) return { ...fixed, groups: [...fixed.groups] };
     const facts = this.current(principal, true);
     if (!facts) return {};
     if (!this.seen.has(principal)) this.seen.set(principal, facts);
     const roles = this.rolesLine(principal);
-    return { brief: renderBrief(facts), groups: [...facts.groups], ...(roles ? { roles } : {}) };
+    const guidance = {
+      brief: renderBrief(facts),
+      groups: [...facts.groups],
+      ...(roles ? { roles } : {}),
+    };
+    this.fixed.set(principal, guidance);
+    return { ...guidance, groups: [...guidance.groups] };
   }
   /** This session's roles line, rendered on its first read and kept as it was. */
   rolesLine(principal: Principal): string | undefined {

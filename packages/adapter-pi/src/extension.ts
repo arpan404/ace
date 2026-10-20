@@ -2,7 +2,7 @@ import { registerPiTurnBoundaries } from "./turn-boundary.ts";
 import { registerPiContextSamples } from "./context-usage.ts";
 import { z } from "zod";
 import { readPrivateMcpConfig, AceMcpConnectionSchema } from "@ace/mcp-server";
-import { registerAceMcpTools } from "./extension-mcp.ts";
+import { anyAceTool, readOnlyAceTool, registerAceMcpTools } from "./extension-mcp.ts";
 import type { PiExtensionApi } from "./extension-api.ts";
 
 /** Where the session file's path is kept once it leaves the environment, for Pi's reloads. */
@@ -39,6 +39,7 @@ export default async function aceExtension(
     .object({
       controlSecret: z.string().regex(/^[a-f0-9]{64}$/),
       mcp: AceMcpConnectionSchema.optional(),
+      readOnly: z.literal(true).optional(),
     })
     .parse(JSON.parse(readPrivateMcpConfig(file)));
   const secret = session.controlSecret;
@@ -91,5 +92,6 @@ export default async function aceExtension(
       );
     },
   });
-  if (session.mcp) registerAceMcpTools(pi, session.mcp);
+  if (session.mcp)
+    registerAceMcpTools(pi, session.mcp, session.readOnly ? readOnlyAceTool : anyAceTool);
 }

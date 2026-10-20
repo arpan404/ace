@@ -68,7 +68,10 @@ const extensionEnv: NodeJS.ProcessEnv = {
  * extension factory again in a new one.
  */
 async function loadExtension() {
+  const toolsFlag = process.argv.indexOf("--tools");
   const next = createPiExtensionHost({
+    // Like Pi, `--tools` filters extension tools as well as Pi's own.
+    ...(toolsFlag < 0 ? {} : { allowedTools: (process.argv[toolsFlag + 1] ?? "").split(",") }),
     appendEntry(customType, data) {
       emit({ type: "entry_appended", entry: history.append(customType, data) });
     },
