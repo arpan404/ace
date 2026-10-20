@@ -76,7 +76,7 @@ export class EmbeddedPage implements ViewPage {
   private appZoom = 1;
   private nativeInput = false;
   /** Drawn as picture-in-picture: a picture of the page, whose click brings the page back. */
-  private picture = false;
+  private floating = false;
   private agentControl = false;
   /** A page writes the clipboard only on the person's own recent click or key press. */
   allowsClipboard(): boolean {
@@ -245,7 +245,7 @@ export class EmbeddedPage implements ViewPage {
     contents.on("before-mouse-event", (event, mouse) => {
       // In picture-in-picture the page is a picture: the person's mouse never reaches it, and
       // their click shows the page in the panel again (the app's own click on the picture).
-      if (this.injecting === 0 && this.picture) {
+      if (this.injecting === 0 && this.floating) {
         event.preventDefault();
         if (mouse.type === "mouseDown" && mouse.button === "left") this.options.restore?.();
         return;
@@ -836,7 +836,7 @@ export class EmbeddedPage implements ViewPage {
 
   /** Whether the page is drawn as picture-in-picture now (see `restore`). */
   setPicture(on: boolean): void {
-    this.picture = on;
+    this.floating = on;
   }
 
   setNativeInput(enabled: boolean): void {

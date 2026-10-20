@@ -113,6 +113,8 @@ export function useNativeView(
     padding?: number;
     /** One tab of the thread (split view); omitted: the tab the thread shows. */
     tabId?: string | undefined;
+    /** Picture-in-picture: the page takes no clicks; the desktop reports them (`onRestore`). */
+    picture?: boolean | undefined;
   },
 ): { shown: boolean; frozen: FrozenPage | undefined } {
   const [shown, setShown] = useState(false);
@@ -124,7 +126,7 @@ export function useNativeView(
   const deviceKey = options.device
     ? `${options.device.width}x${options.device.height}:${options.device.mobile}:${options.device.deviceScaleFactor}:${options.exact}`
     : `none:${options.exact}`;
-  const placeKey = `${deviceKey}:${options.padding ?? 0}`;
+  const placeKey = `${deviceKey}:${options.padding ?? 0}:${options.picture === true}`;
   const tabId = options.tabId;
   const sync = useEffectEvent(() => {
     latest.current = options;
@@ -231,6 +233,7 @@ export function useNativeView(
         bounds: box.bounds,
         visible: box.visible && !hidden,
         ...(box.visible && hidden ? { covered: true } : {}),
+        ...(latest.current.picture ? { picture: true } : {}),
         ...(size ? { device: size } : {}),
       });
     };
