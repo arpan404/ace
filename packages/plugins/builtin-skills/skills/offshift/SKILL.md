@@ -1,101 +1,24 @@
 ---
 name: offshift
-description: Own a multi-step coding outcome through verified delivery when the user asks for Offshift or end-to-end execution.
+description: Own a multi-step coding outcome through verified delivery, keeping criteria and evidence in a durable record. Use when the person asks for Offshift or end-to-end execution.
 ---
 
 # Offshift
 
-Use `ace_offshift` to retain the outcome and evidence in ace. If the tool is absent
-from your list, first call `ace_guide` with `topic: "offshift"` to reveal it. Execute work through
-existing provider tools and ace's agent, browser and thread tools. The record
-survives restart; continuation depends on the host's actual wake or scheduling
-mechanism.
+`offshift` keeps this thread's record of the outcome: criteria, phase, blocker and evidence bound to the workspace's Git revision. It survives restarts. It records work and never runs it; do the work with your own tools and ace's. If `offshift` is not in your tool list, call `guide` with topic `ace-threads` first.
 
-## Start or resume
+1. **Start or resume.** Call `context` with `topics: ["recent", "notes", "changes"]`. Then `offshift` `list`, and `get` any run for this assignment: resume from its phase, blocker and pending evidence. For new work, `start` with a `runId`, a `requestId`, the observable `outcome`, the authorized `endpoint` (local changes, an open PR, ...) and `criteria`, each with the evidence kinds it needs: `automated`, `source`, `ui`, `human` or `manual`.
+2. **Every change** after `start` takes a fresh `requestId` and the last returned `version`. After a lost response, repeat the identical call. On a version conflict, `get` and reconcile before you retry.
+3. **Advance one phase at a time:** `plan`, `implement`, `verify`, `review`, `delivery`, each with a concrete `note`. Go back to an earlier phase to repair. If the requirements change, `revise` the criterion: its old evidence is dropped.
+4. **Do the work with the skill that owns it:**
+   - parallel parts: guide `plan-and-delegate` (`delegate`, then `wait`);
+   - a bug: `investigate-bug`; red tests or CI: `fix-failing-tests`;
+   - UI behaviour: `ace-browser` for the check and its evidence;
+   - review: `review-changes`; the PR endpoint: `prepare-pr`;
+   - a handoff from another provider: `handoff_read`; thread changes: `ace-threads`.
+5. **Record evidence.** `get` the run and keep its `revision`, run the real check, then record `evidence` with that revision, the `action` you performed, an `artifact` reference and a short `note`. A failed check replaces an earlier pass. If the source changed during the check, repeat it.
+6. **Blockers and decisions.** `block` records what stops you; it does not ask anyone. Ask the person with `ask`, then `resume` with their decision in `note`. When they want to pause or stop, use `thread_control` (`interrupt`), never a record.
+7. **Lasting facts** about the project (how to run its tests, a pitfall) go to `note_add`, not the run.
+8. **Deliver.** Advance to `delivery` only when every criterion has a current pass. `waiting_on_tree` means a child or this thread is still working or waiting on the person: `wait` for it. The run is `complete` only when the whole tree is done.
 
-Read the user's authorized endpoint and repository instructions. For an existing
-assignment, call with `request: {action: "list"}`, then `get` its run. Resume from
-its phase, blocker and evidence. Preserve user decisions across turns.
-
-For a new substantial assignment, call with:
-
-```json
-{
-  "request": {
-    "action": "start",
-    "runId": "feature-name",
-    "requestId": "start-feature-name",
-    "outcome": "Observable result",
-    "endpoint": "Verified local changes",
-    "criteria": [
-      {
-        "id": "behavior",
-        "description": "Specific user-visible behavior",
-        "requiredKinds": ["automated", "source"]
-      }
-    ]
-  }
-}
-```
-
-Choose evidence kinds needed to establish each criterion. UI behavior requires UI
-evidence when repository/user instructions require it. An inaccessible requirement
-stays pending with a concrete blocker. The endpoint records authorization; a record
-cannot grant publication, spending or permission to message other people.
-
-## Execute and verify
-
-Every mutation after start needs `runId`, a fresh stable `requestId`, and the last
-returned `version`. Retry the identical payload after a lost response. On a version
-conflict, get the current run and reconcile before submitting a new request.
-
-Advance one phase at a time with `action: "advance"`, `phase` and a concrete `note`.
-The sequence is `plan`, `implement`, `verify`, `review`, `delivery`. Return to an
-earlier phase for repairs. Delegate through `delegate_task` only when authorized
-and useful; inspect results and wait through `ace_wait`. Existing ace tools own
-provider execution, workspace changes and child cancellation.
-
-Before verification, `get` the run and retain its `revision`. Perform the actual
-check, save evidence, then submit:
-
-```json
-{
-  "request": {
-    "action": "evidence",
-    "runId": "feature-name",
-    "requestId": "check-behavior-1",
-    "version": 2,
-    "evidence": {
-      "criterionId": "behavior",
-      "kind": "automated",
-      "result": "pass",
-      "revision": "REVISION_FROM_GET",
-      "action": "Actual command or interaction performed",
-      "artifact": "Retained report reference",
-      "note": "Observed result and environment"
-    }
-  }
-}
-```
-
-Evidence kinds are `automated`, `source`, `ui`, `human`, `manual`. Each required
-kind needs a current pass. A failed observation replaces its earlier pass. If
-source changes during a check, repeat it at the new revision. Keep summaries
-concise and raw output in artifacts. Record unverified requirements honestly.
-
-Use `action: "block"` and `note` for a missing decision or unavailable access.
-Resolve the actual blocker, then `resume` with the decision and source in `note`.
-Neither operation pauses or resumes provider processes. User pause/cancel requests
-must also use the host's native execution controls.
-
-## Deliver
-
-Review the combined diff and rerun affected checks after repairs. Advance to
-`delivery` only when every criterion has current passing evidence. `waiting_on_tree`
-means evidence is ready but the owner or a descendant is still active. Completion
-is observed only once the whole tree is done; a human wait also prevents completion.
-
-Report the outcome, checks performed, and material gaps. A status question preserves
-the assignment. Keep working within authorization until the outcome is verified or
-a concrete blocker prevents progress. Never describe a workflow record as a running
-background agent.
+Report the outcome, the checks behind it and any gaps. A record is never a running background agent; never describe it as one.

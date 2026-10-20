@@ -48,7 +48,7 @@ The [headless CLI](docs/daemon/cli.md) exposes thread and delegated-task control
 
 Agents can publish [HTML visualizations](docs/daemon/html-visualizations.md) through dedicated MCP tools. Pages replay with the thread and run in an offline sandbox. Claude Code and Codex sessions receive the bundled `visualize` skill.
 
-Agents can use the bundled `offshift` skill and `ace_offshift` tool to track a coding outcome through verification and delivery. See [the native workflow contract](packages/offshift/README.md).
+Agents can use the bundled `offshift` skill and the `offshift` tool to keep a durable record of a coding outcome through verification and delivery. See [the native workflow contract](packages/offshift/README.md).
 
 The generated [protocol reference](docs/protocol/README.md) covers WebSocket messages, canonical events and built-in MCP tools. Regenerate it with `bun run docs:protocol`.
 

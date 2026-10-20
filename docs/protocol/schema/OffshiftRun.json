@@ -18,13 +18,7 @@
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
     "criteria": {
-      "items": {
-        "$ref": "https://ace.local/protocol/v1/OffshiftCriterion.json"
-      },
-      "maxItems": 64,
-      "minItems": 1,
-      "type": "array",
-      "x-ace-constraint": "Criterion IDs must be unique."
+      "$ref": "https://ace.local/protocol/v1/OffshiftCriteria.json"
     },
     "endpoint": {
       "maxLength": 4096,

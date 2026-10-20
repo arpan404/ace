@@ -4,17 +4,20 @@
   "additionalProperties": false,
   "properties": {
     "description": {
+      "description": "The observable behaviour that must hold.",
       "maxLength": 4096,
       "minLength": 1,
       "type": "string"
     },
     "id": {
+      "description": "A stable id for the criterion (letters, digits, _ . -).",
       "maxLength": 128,
       "minLength": 1,
       "pattern": "^[a-zA-Z0-9_.-]+$",
       "type": "string"
     },
     "requiredKinds": {
+      "description": "Evidence kinds that must each have a current pass.",
       "items": {
         "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceKind.json"
       },

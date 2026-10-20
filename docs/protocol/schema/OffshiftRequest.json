@@ -10,13 +10,7 @@
           "type": "string"
         },
         "criteria": {
-          "items": {
-            "$ref": "https://ace.local/protocol/v1/OffshiftCriterion.json"
-          },
-          "maxItems": 64,
-          "minItems": 1,
-          "type": "array",
-          "x-ace-constraint": "Criterion IDs must be unique."
+          "$ref": "https://ace.local/protocol/v1/OffshiftCriteria.json"
         },
         "endpoint": {
           "maxLength": 4096,
@@ -213,53 +207,7 @@
           "type": "string"
         },
         "evidence": {
-          "additionalProperties": false,
-          "properties": {
-            "action": {
-              "maxLength": 4096,
-              "minLength": 1,
-              "type": "string"
-            },
-            "artifact": {
-              "maxLength": 4096,
-              "minLength": 1,
-              "type": "string"
-            },
-            "criterionId": {
-              "maxLength": 128,
-              "minLength": 1,
-              "pattern": "^[a-zA-Z0-9_.-]+$",
-              "type": "string"
-            },
-            "kind": {
-              "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceKind.json"
-            },
-            "note": {
-              "maxLength": 4096,
-              "minLength": 1,
-              "type": "string"
-            },
-            "result": {
-              "enum": [
-                "pass",
-                "fail"
-              ],
-              "type": "string"
-            },
-            "revision": {
-              "$ref": "https://ace.local/protocol/v1/OffshiftRevision.json"
-            }
-          },
-          "required": [
-            "criterionId",
-            "kind",
-            "result",
-            "revision",
-            "action",
-            "artifact",
-            "note"
-          ],
-          "type": "object"
+          "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceInput.json"
         },
         "requestId": {
           "maxLength": 128,
@@ -285,6 +233,49 @@
         "requestId",
         "version",
         "evidence"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "revise",
+          "type": "string"
+        },
+        "criterion": {
+          "$ref": "https://ace.local/protocol/v1/OffshiftCriterion.json"
+        },
+        "note": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        "runId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        "version": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "action",
+        "runId",
+        "requestId",
+        "version",
+        "criterion",
+        "note"
       ],
       "type": "object"
     }

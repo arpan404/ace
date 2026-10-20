@@ -962,6 +962,74 @@ Example:
 }
 ```
 
+## offshift
+
+Keep this thread's durable record of a multi-step coding outcome: criteria, phase (plan, implement, verify, review, delivery), blocker and evidence bound to the workspace's Git revision. It records work and never runs it. Changes take a requestId and the last version. Each action's fields are named in action's description.
+
+Required capability: thread_control. Timeout: 630000 ms.
+
+## offshift.input
+
+[JSON Schema](schema/offshift.input.json), input validation.
+
+Semantic rule: start needs runId, requestId, outcome, endpoint and criteria; get needs runId; advance needs runId, requestId, version, phase and note; block and resume need runId, requestId, version and note; evidence needs runId, requestId, version and evidence; revise needs runId, requestId, version, criterion and note.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | ["start","get","list","advance","block","resume","evidence","revise"] | {"description":"start: open a run with its outcome, endpoint and criteria. get: the run, the current revision and pending evidence. list: this thread's runs. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record one check's result. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked."} |
+| runId | no | string | {"description":"Every action but list: the run's id, chosen at start (letters, digits, _ . -).","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
+| version | no | integer | {"description":"Every change after start: the version the last result returned. A mismatch means the run changed; get it again.","minimum":0,"maximum":9007199254740991} |
+| outcome | no | string | {"description":"start: the observable result the work delivers.","minLength":1,"maxLength":4096} |
+| endpoint | no | string | {"description":"start: where the work stops, as authorized (local changes, an open PR, ...).","minLength":1,"maxLength":4096} |
+| criteria | no | [OffshiftCriteria.json](schema/OffshiftCriteria.json) | {"description":"start: what must hold for the outcome, up to 64."} |
+| criterion | no | [OffshiftCriterion.json](schema/OffshiftCriterion.json) | {"description":"revise: the new criterion, or the replacement for the one with its id."} |
+| phase | no | [OffshiftPhase.json](schema/OffshiftPhase.json) | {"description":"advance: plan, implement, verify, review, then delivery."} |
+| note | no | string | {"description":"advance, block, resume and revise: why, in a sentence.","minLength":1,"maxLength":4096} |
+| evidence | no | [OffshiftEvidenceInput.json](schema/OffshiftEvidenceInput.json) | {"description":"evidence: one check, at the revision get returned before it ran."} |
+
+Example:
+
+```json
+{
+  "action": "get",
+  "criteria": [
+    {
+      "description": "example",
+      "id": ".",
+      "requiredKinds": [
+        "manual"
+      ]
+    }
+  ],
+  "endpoint": "example",
+  "phase": "verify",
+  "requestId": "pX",
+  "runId": "_CuXgoaNprV",
+  "version": 1
+}
+```
+
+## offshift.output
+
+[JSON Schema](schema/offshift.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+| data | no | union | {"anyOf":[{"type":"object","properties":{"run":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","minLength":1,"maxLength":4096},"endpoint":{"type":"string","minLength":1,"maxLength":4096},"criteria":{"minItems":1,"maxItems":64,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"A stable id for the criterion (letters, digits, _ . -)."},"description":{"type":"string","minLength":1,"maxLength":4096,"description":"The observable behaviour that must hold."},"requiredKinds":{"minItems":1,"maxItems":5,"type":"array","items":{"type":"string","enum":["automated","source","ui","human","manual"]},"description":"Evidence kinds that must each have a current pass."}},"required":["id","description","requiredKinds"],"additionalProperties":false},"x-ace-constraint":"Criterion IDs must be unique."},"phase":{"type":"string","enum":["plan","implement","verify","review","delivery"]},"version":{"type":"integer","minimum":0,"maximum":9007199254740991},"blocker":{"anyOf":[{"type":"string","minLength":1,"maxLength":4096},{"type":"null"}]},"note":{"type":"string","minLength":1,"maxLength":4096},"evidence":{"maxItems":320,"type":"array","items":{"type":"object","properties":{"criterionId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"The criterion this observation checks."},"kind":{"type":"string","enum":["automated","source","ui","human","manual"],"description":"Which required kind this observation satisfies."},"result":{"type":"string","enum":["pass","fail"],"description":"What the check observed."},"revision":{"type":"string","minLength":1,"maxLength":512,"description":"The revision from get, read before the check ran."},"action":{"type":"string","minLength":1,"maxLength":4096,"description":"The command or interaction actually performed."},"artifact":{"type":"string","minLength":1,"maxLength":4096,"description":"Where the full output is kept: a path, URL or report reference."},"note":{"type":"string","minLength":1,"maxLength":4096,"description":"The observed result and environment, in a sentence or two."},"recordedAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["criterionId","kind","result","revision","action","artifact","note","recordedAt"],"additionalProperties":false}},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"updatedAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","threadId","outcome","endpoint","criteria","phase","version","blocker","note","evidence","createdAt","updatedAt"],"additionalProperties":false},"revision":{"type":"string","minLength":1,"maxLength":512},"state":{"type":"string","enum":["active","blocked","needs_evidence","waiting_on_tree","complete"]},"pending":{"maxItems":320,"type":"array","items":{"type":"object","properties":{"criterionId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"kind":{"type":"string","enum":["automated","source","ui","human","manual"]}},"required":["criterionId","kind"],"additionalProperties":false}},"treeState":{"type":"string","enum":["working","waiting","needs_you","failed","done","unknown"]}},"required":["run","revision","state","pending","treeState"],"additionalProperties":false},{"maxItems":32,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"phase":{"type":"string","enum":["plan","implement","verify","review","delivery"]},"outcome":{"type":"string","maxLength":512},"outcomeTruncated":{"type":"boolean"}},"required":["id","phase","outcome","outcomeTruncated"],"additionalProperties":false}}]} |
+
+Example:
+
+```json
+{
+  "code": "unsupported",
+  "ok": true
+}
+```
+
 ## automations_list
 
 Automations you or the threads you own created in this project, with each schedule's next run. runs: true reads recent runs instead, newest first, paged with before.
@@ -982,7 +1050,10 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 Example:
 
 ```json
-{}
+{
+  "before": 10,
+  "limit": 10
+}
 ```
 
 ## automations_list.output
@@ -1000,9 +1071,7 @@ Example:
 
 ```json
 {
-  "code": "limit",
-  "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1033,15 +1102,7 @@ Example:
 ```json
 {
   "id": "example",
-  "missedRun": "skip",
-  "model": "example",
   "prompt": "example",
-  "schedule": {
-    "expression": "example",
-    "kind": "rrule",
-    "startAt": 0,
-    "timezone": "example"
-  },
   "title": "example"
 }
 ```
@@ -1061,7 +1122,7 @@ Example:
 
 ```json
 {
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -1086,7 +1147,7 @@ Example:
 ```json
 {
   "id": "example",
-  "requestId": "BYnLTaH5V4E",
+  "requestId": "U",
   "variables": {}
 }
 ```
@@ -1106,8 +1167,7 @@ Example:
 
 ```json
 {
-  "hint": "example",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -1147,7 +1207,8 @@ Example:
 
 ```json
 {
-  "ok": false
+  "code": "limit",
+  "ok": true
 }
 ```
 
@@ -1174,8 +1235,9 @@ Example:
 
 ```json
 {
-  "maxBytes": 4,
-  "offset": 3,
+  "before": 8,
+  "limit": 6,
+  "offset": 4,
   "sourceThreadId": "example",
   "streamId": "example"
 }
@@ -1199,8 +1261,7 @@ Example:
 
 ```json
 {
-  "items": [],
-  "itemsBefore": null
+  "eof": false
 }
 ```
 
@@ -1221,11 +1282,7 @@ Required capability: none beyond session authentication. Timeout: 30000 ms.
 Example:
 
 ```json
-{
-  "topics": [
-    "status"
-  ]
-}
+{}
 ```
 
 ## context.output
@@ -1245,23 +1302,11 @@ Example:
 
 ```json
 {
-  "changes": {
-    "ahead": 9,
-    "behind": 5,
-    "branch": "example",
-    "files": [],
-    "staged": 5,
-    "unstaged": 8,
-    "untracked": 8,
-    "upstream": null
+  "diagnostics": {
+    "blocking": [],
+    "failures": []
   },
-  "prs": [],
-  "status": {
-    "access": "read-only",
-    "agentId": "example",
-    "groups": [],
-    "threadId": "example"
-  }
+  "prs": []
 }
 ```
 
@@ -1364,7 +1409,8 @@ Example:
 
 ```json
 {
-  "question": "example"
+  "question": "example",
+  "timeoutSeconds": 5
 }
 ```
 
@@ -1382,7 +1428,6 @@ Example:
 
 ```json
 {
-  "answer": [],
   "askId": "example",
   "status": "pending"
 }
@@ -1408,7 +1453,7 @@ Example:
 
 ```json
 {
-  "limit": 10,
+  "limit": 2,
   "query": "example"
 }
 ```
@@ -1427,7 +1472,6 @@ Example:
 
 ```json
 {
-  "hint": "example",
   "matches": []
 }
 ```
@@ -1451,6 +1495,7 @@ Example:
 
 ```json
 {
+  "arguments": {},
   "name": "example"
 }
 ```
@@ -1469,6 +1514,6 @@ Example:
 ```json
 {
   "content": [],
-  "isError": true
+  "isError": false
 }
 ```

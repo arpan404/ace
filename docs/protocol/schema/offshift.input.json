@@ -1,0 +1,80 @@
+{
+  "$id": "https://ace.local/protocol/v1/offshift.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "description": "start: open a run with its outcome, endpoint and criteria. get: the run, the current revision and pending evidence. list: this thread's runs. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record one check's result. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked.",
+      "enum": [
+        "start",
+        "get",
+        "list",
+        "advance",
+        "block",
+        "resume",
+        "evidence",
+        "revise"
+      ],
+      "type": "string"
+    },
+    "criteria": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftCriteria.json",
+      "description": "start: what must hold for the outcome, up to 64."
+    },
+    "criterion": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftCriterion.json",
+      "description": "revise: the new criterion, or the replacement for the one with its id."
+    },
+    "endpoint": {
+      "description": "start: where the work stops, as authorized (local changes, an open PR, ...).",
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "evidence": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceInput.json",
+      "description": "evidence: one check, at the revision get returned before it ran."
+    },
+    "note": {
+      "description": "advance, block, resume and revise: why, in a sentence.",
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "outcome": {
+      "description": "start: the observable result the work delivers.",
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "phase": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftPhase.json",
+      "description": "advance: plan, implement, verify, review, then delivery."
+    },
+    "requestId": {
+      "description": "Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice.",
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "runId": {
+      "description": "Every action but list: the run's id, chosen at start (letters, digits, _ . -).",
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "version": {
+      "description": "Every change after start: the version the last result returned. A mismatch means the run changed; get it again.",
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "type": "object",
+  "x-ace-constraint": "start needs runId, requestId, outcome, endpoint and criteria; get needs runId; advance needs runId, requestId, version, phase and note; block and resume need runId, requestId, version and note; evidence needs runId, requestId, version and evidence; revise needs runId, requestId, version, criterion and note."
+}

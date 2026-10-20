@@ -1,5 +1,5 @@
 {
-  "$id": "https://ace.local/protocol/v1/ace_offshift.output.json",
+  "$id": "https://ace.local/protocol/v1/offshift.output.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
@@ -80,17 +80,20 @@
                     "additionalProperties": false,
                     "properties": {
                       "description": {
+                        "description": "The observable behaviour that must hold.",
                         "maxLength": 4096,
                         "minLength": 1,
                         "type": "string"
                       },
                       "id": {
+                        "description": "A stable id for the criterion (letters, digits, _ . -).",
                         "maxLength": 128,
                         "minLength": 1,
                         "pattern": "^[a-zA-Z0-9_.-]+$",
                         "type": "string"
                       },
                       "requiredKinds": {
+                        "description": "Evidence kinds that must each have a current pass.",
                         "items": {
                           "enum": [
                             "automated",
@@ -128,22 +131,26 @@
                     "additionalProperties": false,
                     "properties": {
                       "action": {
+                        "description": "The command or interaction actually performed.",
                         "maxLength": 4096,
                         "minLength": 1,
                         "type": "string"
                       },
                       "artifact": {
+                        "description": "Where the full output is kept: a path, URL or report reference.",
                         "maxLength": 4096,
                         "minLength": 1,
                         "type": "string"
                       },
                       "criterionId": {
+                        "description": "The criterion this observation checks.",
                         "maxLength": 128,
                         "minLength": 1,
                         "pattern": "^[a-zA-Z0-9_.-]+$",
                         "type": "string"
                       },
                       "kind": {
+                        "description": "Which required kind this observation satisfies.",
                         "enum": [
                           "automated",
                           "source",
@@ -154,6 +161,7 @@
                         "type": "string"
                       },
                       "note": {
+                        "description": "The observed result and environment, in a sentence or two.",
                         "maxLength": 4096,
                         "minLength": 1,
                         "type": "string"
@@ -164,6 +172,7 @@
                         "type": "integer"
                       },
                       "result": {
+                        "description": "What the check observed.",
                         "enum": [
                           "pass",
                           "fail"
@@ -171,6 +180,7 @@
                         "type": "string"
                       },
                       "revision": {
+                        "description": "The revision from get, read before the check ran.",
                         "maxLength": 512,
                         "minLength": 1,
                         "type": "string"
@@ -290,7 +300,7 @@
                 "type": "string"
               },
               "outcome": {
-                "maxLength": 256,
+                "maxLength": 512,
                 "type": "string"
               },
               "outcomeTruncated": {
@@ -309,8 +319,8 @@
             },
             "required": [
               "id",
-              "outcome",
               "phase",
+              "outcome",
               "outcomeTruncated"
             ],
             "type": "object"

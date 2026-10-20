@@ -1,6 +1,6 @@
 ---
 name: ace-threads
-description: Read and manage ace threads, project knowledge and automations, such as other threads' work, PR links, project notes, queued messages, worktree handoff and scheduled prompts. Use before thread_*, context, note_* or automation_* tools.
+description: Read and manage ace threads, project knowledge and automations, such as other threads' work, PR links, project notes, queued messages, worktree handoff, Offshift records and scheduled prompts. Use before thread_*, context, note_*, offshift or automation_* tools.
 ---
 
 # Threads and project knowledge
@@ -34,6 +34,7 @@ When you open or find the PR for this work, link it with `thread_link_pr` (URL o
 - **Settle:** `thread_control` `settle` moves a finished thread to Settled, as the person's Settle does. You can settle this thread before your turn ends: it settles once its work is done, and stays active if the turn fails or a question waits on the person. `unsettle` brings a thread back and cancels a pending settle.
 - **Fork:** `thread_fork` copies a thread's conversation into a new thread and sends it `text`: the other approach to try, optionally on another `model`. It forks after the latest finished turn, so you can fork this thread mid-turn. The fork shares the thread's checkout and is yours.
 - **Merge back:** once a fork is done (`wait` on it), `thread_merge` with a `summary` brings its result into the thread it was forked from, citing the fork's latest answer. That thread's agent sees it from its next turn; file changes are already in the shared checkout.
+- **Record an outcome:** `offshift` keeps this thread's durable record of a multi-step outcome: criteria, `phase`, blocker and evidence bound to the Git revision. It records work and never runs it; the `offshift` guide has the sequence.
 - **Tell the person:** `notify` posts a notice and sends a notification, for something they should see while away.
 
 ace names new threads itself from their first message, so renaming is only for a title that has become wrong.
