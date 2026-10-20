@@ -1,48 +1,62 @@
-import { applyRole, type ResolvedRole } from "@ace/offshift";
 import { PublicToolError } from "@ace/mcp-server";
-import type { DelegationTask, McpAttribution } from "@ace/protocol";
-import type { OffshiftRole } from "@ace/protocol/offshift";
+import type { DelegationTask, RunRole } from "@ace/protocol";
+import type { RoleChoice } from "@ace/settings/roles";
 import { AgentControlError } from "./failure.ts";
 
-type Lookup = (caller: McpAttribution, role: OffshiftRole) => ResolvedRole | undefined;
+/** The person's choice for a role, from Settings → Roles; undefined while it is unset. */
+export type RoleLookup = (role: RunRole) => RoleChoice | undefined;
 /** The role a task was filled from, so a refusal downstream can name it. */
 export interface FilledRole {
-  name: OffshiftRole;
-  resolved: ResolvedRole;
+  name: RunRole;
+  choice: RoleChoice;
 }
+type Task = Omit<DelegationTask, "runRole">;
 
-const setHint =
-  'Set it with offshift action "roles" (on the run, or with scope "project"), pass provider and model on the task, or leave runRole out to use your own provider.';
+/**
+ * Fill a delegated task from a role. A provider or model on the task is a deliberate choice, so
+ * the role's provider, model, effort and tier come as one and the task takes them only when it
+ * names neither; its own effort and service tier always win.
+ */
+export function applyRole(task: Task, role: RoleChoice): Task {
+  if (task.provider !== undefined || task.model !== undefined) return task;
+  // Delegation offers the priority and flex tiers; any other tier is the provider's default.
+  const tier = role.tier === "priority" || role.tier === "flex" ? role.tier : undefined;
+  return {
+    ...task,
+    provider: role.provider,
+    ...(role.model ? { model: role.model } : {}),
+    ...(task.effort === undefined && role.effort ? { effort: role.effort } : {}),
+    ...(tier && task.options?.serviceTier === undefined
+      ? { options: { ...task.options, serviceTier: tier } }
+      : {}),
+  };
+}
 
 /**
  * A delegate task with its runRole applied and removed. A task that names a provider or model
- * needs no role; a role that is set nowhere is refused, never quietly replaced by the caller's
- * own provider.
+ * needs no role; a role the person has not set is refused, never quietly replaced by the
+ * caller's own provider.
  */
 export function roleTask(
   task: DelegationTask,
-  caller: McpAttribution,
-  lookup: Lookup | undefined,
-): { task: Omit<DelegationTask, "runRole">; role?: FilledRole } {
+  lookup: RoleLookup | undefined,
+): { task: Task; role?: FilledRole } {
   const { runRole, ...rest } = task;
   if (!runRole) return { task: rest };
-  const resolved = lookup?.(caller, runRole);
-  const chosen = rest.provider !== undefined || rest.model !== undefined;
-  if (!resolved && chosen) return { task: rest };
-  if (!resolved)
+  const choice = lookup?.(runRole);
+  if (!choice && (rest.provider !== undefined || rest.model !== undefined)) return { task: rest };
+  if (!choice)
     throw new AgentControlError(
       "invalid_arguments",
       "run_role_unset",
       undefined,
-      `runRole "${runRole}" is not set on your active Offshift run or as a project default. ${setHint}`,
+      `runRole "${runRole}" is not set. The person sets roles in Settings → Roles; ask them to, pass provider and model on the task, or leave runRole out to use your own provider.`,
     );
-  return { task: applyRole(rest, resolved), role: { name: runRole, resolved } };
+  return { task: applyRole(rest, choice), role: { name: runRole, choice } };
 }
 
-const describe = (role: FilledRole) => {
-  const { provider, model, effort } = role.resolved.selection;
-  return [provider, model, effort].filter(Boolean).join(" ");
-};
+const describe = ({ provider, model, effort }: RoleChoice) =>
+  [provider, model, effort].filter(Boolean).join(" ");
 
 /**
  * Run `work`; when it refuses a task filled from a role, say which role chose what, and how to
@@ -62,7 +76,7 @@ export async function withRoleContext<T>(
       error.code,
       error.message,
       error,
-      `runRole "${role.name}" (${role.resolved.source} role) chose ${describe(role)}, which cannot run: ${reason ?? error.message}. Change it with offshift action "roles", or pass provider and model on the task.`,
+      `runRole "${role.name}" chose ${describe(role.choice)} in Settings → Roles, which cannot run: ${reason ?? error.message}. Ask the person to change it there, or pass provider and model on the task.`,
     );
   }
 }

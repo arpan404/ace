@@ -11,6 +11,7 @@ import {
 } from "@ace/protocol";
 import { WorkspaceGuards } from "./workspace.ts";
 import { defaults } from "./defaults.ts";
+import { roleSettingKeys } from "./roles.ts";
 import { SettingsError, validateValue } from "./document.ts";
 import { SettingsFile, freeze, type FileChange } from "./file.ts";
 import { fileIO, scheduler, type FileIO, type Scheduler } from "./io.ts";
@@ -184,6 +185,8 @@ export class SettingsService {
       throw new SettingsError("validation", "The downloads folder is a global daemon setting");
     if (key === "computer.blockedApps" && layer.kind !== "global")
       throw new SettingsError("validation", "Apps agents can't use is a global setting");
+    if (roleSettingKeys.includes(key) && layer.kind !== "global")
+      throw new SettingsError("validation", "Roles are a global setting");
     if (key.startsWith("generation.") && layer.kind !== "global")
       throw new SettingsError("validation", "Generation settings belong to the daemon");
     const parsed = validateValue(key, value);

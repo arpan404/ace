@@ -8,9 +8,7 @@ import {
   type ThreadId,
 } from "@ace/protocol";
 import type { AgentControlPort } from "@ace/mcp-server";
-import type { OffshiftRole } from "@ace/protocol/offshift";
-import type { ResolvedRole } from "@ace/offshift";
-import { roleTask, withRoleContext } from "./run-roles.ts";
+import { roleTask, withRoleContext, type RoleLookup } from "./run-roles.ts";
 import type { Store } from "../store.ts";
 import type { DelegationService } from "./delegations.ts";
 import { controlCommandId } from "./delegations.ts";
@@ -111,8 +109,8 @@ export interface AgentControlExtensions {
   snooze?(thread: ThreadId, until: number | null): Promise<void>;
   /** Other paired machines (ADR 0078); their children join wait and agents_status. */
   machines?: MachinePort;
-  /** Who does a kind of work for the caller's Offshift run, for `delegate` tasks with runRole. */
-  runRole?(caller: McpAttribution, role: OffshiftRole): ResolvedRole | undefined;
+  /** The person's role settings, for `delegate` tasks with runRole. */
+  runRole?: RoleLookup;
 }
 export interface MachinePort {
   list(caller: McpAttribution): Promise<AgentControlResult>;
@@ -271,9 +269,9 @@ export function createAgentControlPort(
           }
           // Checked first, then admitted in order. Children past the parent's free slots queue.
           // Stable per-task requestIds make a retried batch create nothing new.
-          // A runRole fills provider, model and effort before the usual resolution; a role's
-          // choice that cannot run is refused with the role named, never swapped silently.
-          const filled = tasks.map((task) => roleTask(task, caller, extensions.runRole));
+          // A runRole fills provider, model, effort and tier before the usual resolution; a
+          // role's choice that cannot run is refused with the role named, never swapped silently.
+          const filled = tasks.map((task) => roleTask(task, extensions.runRole));
           const requests = filled.map(({ task }) => DelegationRequest.parse(resolved(task)));
           checkNames(requests);
           const configured: (string | undefined)[] = [];

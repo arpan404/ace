@@ -1,4 +1,4 @@
-import { OffshiftCall, OffshiftRole } from "./offshift.ts";
+import { OffshiftCall } from "./offshift.ts";
 import { ForgePrWorktree } from "./forge-worktree.ts";
 import { AccessRequest } from "./permissions.ts";
 import { z } from "zod";
@@ -19,6 +19,12 @@ const key = z
   .min(1)
   .max(128)
   .regex(/^[a-zA-Z0-9_.-]+$/);
+/**
+ * Kinds of work a delegated task can run as: writing code, planning and design, review,
+ * verification. The person sets each in Settings → Roles.
+ */
+export const RunRole = z.enum(["build", "judgment", "review", "verify"]);
+export type RunRole = z.infer<typeof RunRole>;
 /** A model effort: the catalog's native id or its canonical level ("xhigh" names "extra-high"). */
 export const AgentEffort = z.string().min(1).max(64);
 export const AgentServiceOptions = z.strictObject({
@@ -68,10 +74,10 @@ export type DelegationRequest = z.infer<typeof DelegationRequest>;
 export const DelegationTask = DelegationRequest.omit({ wait: true, waitMs: true }).extend({
   provider: ProviderKind.optional(),
   /**
-   * Fill provider, model and effort from the caller's Offshift run role, else the project's
-   * default; fields the task sets win. Resolved before admission, never stored on the request.
+   * Fill provider, model, effort and tier from the person's role setting; fields the task sets
+   * win. Resolved before admission, never stored on the request.
    */
-  runRole: OffshiftRole.optional(),
+  runRole: RunRole.optional(),
 });
 export type DelegationTask = z.infer<typeof DelegationTask>;
 /** A single delegation as an operation states it: the provider may still be resolved. */

@@ -1,4 +1,6 @@
 import { logError } from "@ace/diagnostics";
+import type { RunRole } from "@ace/protocol";
+import { runRoles } from "@ace/settings/roles";
 import { agentControlCall } from "./agent-control-failure.ts";
 import { AgentControlError } from "../agent-control/failure.ts";
 import { createAgentOwners } from "../agent-control/owners.ts";
@@ -26,27 +28,20 @@ export function startAgentControl(context: ServiceContext): void {
     providerEnabled: (provider, instance) =>
       services.providerConfigurations?.for(provider, instance).enabled !== false,
     ...(services.modelsReady ? { modelsReady: services.modelsReady } : {}),
-    async configuredModel(caller, request) {
-      const settings = services.settings;
-      if (!settings) return undefined;
-      const role = /review/i.test(request.role)
-        ? "reviewer"
+    // A model the person set in Settings → Roles for this provider covers an invalid agent
+    // guess; the role the child's name suggests is tried first.
+    async configuredModel(_caller, request) {
+      const roles = services.roles?.current() ?? {};
+      const named: RunRole = /review/i.test(request.role)
+        ? "review"
         : /plan/i.test(request.role)
-          ? "planner"
-          : "coder";
-      const thread = store.getThread(caller.threadId);
-      const workspace = thread ? store.getWorkspace(thread.workspaceId) : undefined;
-      const scope = {
-        thread: caller.threadId,
-        ...(workspace ? { workspace: workspace.path } : {}),
-      };
-      const roles = ["coder", "reviewer", "planner"] as const;
-      const candidates: (typeof roles)[number][] = [role, ...roles.filter((r) => r !== role)];
-      for (const candidate of candidates) {
-        const provider = await settings.get(`providers.${candidate}.provider`, scope);
-        if (provider.value !== request.provider) continue;
-        const model = await settings.get(`providers.${candidate}.model`, scope);
-        if (model.value !== "default") return model.value;
+          ? "judgment"
+          : /verif/i.test(request.role)
+            ? "verify"
+            : "build";
+      for (const role of [named, ...runRoles.filter((other) => other !== named)]) {
+        const choice = roles[role];
+        if (choice?.provider === request.provider && choice.model) return choice.model;
       }
       return undefined;
     },
@@ -79,7 +74,7 @@ export function startAgentControl(context: ServiceContext): void {
           ? services.machines.caller.cancel(child)
           : { ok: false, code: "not_found" },
     },
-    runRole: (caller, role) => owners.runRole(caller, role),
+    runRole: (role) => services.roles?.get(role),
     startConversation: createConversationStarts(context, delegations, delegations.conversations),
     pr: async (caller, operation, signal) => {
       const workspace = services.workspaceActions;

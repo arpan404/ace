@@ -114,7 +114,6 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
   const offshifts = createOffshifts(context, delegations);
   return {
     previews,
-    runRole: offshifts.roleFor,
     async execute(
       caller: McpAttribution,
       operation: ExtensionOperation,
