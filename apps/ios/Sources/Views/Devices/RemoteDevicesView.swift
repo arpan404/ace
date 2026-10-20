@@ -5,6 +5,7 @@ struct RemoteDevicesView: View {
     @State private var devices = RemoteDevices()
     var body: some View {
         List {
+            if model.connection != "ready" { InboxConnectionBanner(connection: model.connection, retry: model.retry) }
             Section {
                 Toggle("Devices", isOn: Binding(get: { devices.enabled }, set: { enabled in
                     Task { _ = await devices.perform(model, operation: ["op": "enable", "enabled": enabled]) }
@@ -50,9 +51,10 @@ private struct RemoteDeviceView: View {
     @State private var showingActions = false
     private var state: RemoteDeviceState? { devices.state(device.id) }
     private var active: Bool { state?.lifecycle == "live" }
-    private var controlling: Bool { state?.controller == "human" && state?.ownedHere == true && model.canOperate }
+    private var controlling: Bool { model.connection == "ready" && state?.controller == "human" && state?.ownedHere == true && model.canOperate }
     var body: some View {
         VStack(spacing: AceTheme.Spacing.none) {
+            if model.connection != "ready" { InboxConnectionBanner(connection: model.connection, retry: model.retry).padding(AceTheme.Spacing.md) }
             if active {
                 DeviceSurface(live: devices.live, interactive: controlling, input: gesture)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

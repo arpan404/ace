@@ -430,7 +430,11 @@ tracks verification and the remaining device work.
   View-only phones can watch while navigation and input remain disabled. The old
   screenshot-only browser has been removed. The native Devices view now uses the shared authenticated devices channel for H.264
   streaming, gestures, controller leases, boot, apps, URLs, appearance and recording.
-  Mac desktop screen control remains separate.
+  Mac app sessions use the separate authenticated screen channel with native H.264/JPEG
+  decoding, bounded frame acknowledgement, take/release/return control, touch/keyboard input,
+  foreground/background mode and recording. Browse > Computer use exposes the host enable
+  switch, OS permissions and blocked-app preferences. Live capture still requires the Mac
+  Screen Recording and Accessibility grants. Input is never replayed on reconnect.
 - Published images decode into native image views. Published HTML uses `@ace/html`
   inside a nonpersistent WKWebView, without native message handlers or network access.
 - A thread's menu can start a local Live Activity. Foreground updates use canonical

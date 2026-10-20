@@ -70,6 +70,9 @@ import Testing
         let devices = try await model.service(["type": "devices.request", "operation": ["op": "list"]], as: DeviceServiceReply<Inventory>.self)
         #expect(devices.ok, "Devices: \(devices.error?.message ?? "none")")
         #expect(devices.data != nil)
+        let screen = try await model.service(["type": "screen.request", "operation": ["op": "status"]], as: DeviceServiceReply<RemoteScreenStatus>.self)
+        #expect(screen.ok, "Screen status: \(screen.error?.message ?? "none")")
+        #expect(screen.data != nil)
     }
     @Test func thePhoneReachesItsPairedMachinesPinnedTicketEndpoint() async throws {
         struct Directory: Decodable { let machines: [MachineEntry] }

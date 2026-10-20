@@ -119,6 +119,24 @@ import XCTest
         capture("cli-skills", app)
         XCTAssertFalse(app.staticTexts["service.problem"].exists)
     }
+    func testComputerUseShowsMacPermissionsWithoutStartingCapture() {
+        let app = launch()
+        app.buttons["inbox.library"].tap()
+        let computer = app.buttons["library.computer"]
+        if !computer.isHittable { app.swipeUp() }
+        XCTAssertTrue(computer.waitForExistence(timeout: 10)); computer.tap()
+        XCTAssertTrue(app.navigationBars["Computer use"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.switches["Let agents use apps"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts["Screen Recording"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts["Accessibility"].exists)
+        capture("computer-use", app)
+        XCTAssertFalse(app.staticTexts["service.problem"].exists)
+        app.buttons["App access and device preferences"].tap()
+        XCTAssertTrue(app.staticTexts["Apps agents can't use"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.switches["Show emulator window"].waitForExistence(timeout: 30))
+        capture("app-access-preferences", app)
+        XCTAssertFalse(app.staticTexts["service.problem"].exists)
+    }
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launch()

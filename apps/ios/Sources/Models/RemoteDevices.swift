@@ -47,19 +47,19 @@ private struct DeviceStatesReply: Decodable { let states: [RemoteDeviceState]; l
         } catch { if !Task.isCancelled { problem = error.localizedDescription } }
     }
     func perform(_ model: ClientModel, operation: [String: Any]) async -> Bool {
-        guard model.canOperate, !busy else { return false }
+        guard model.connection == "ready", model.canOperate, !busy else { return false }
         busy = true; problem = nil
         defer { busy = false }
         do { let _: ServiceValue = try await request(model, operation); await refresh(model); return true }
         catch { if !Task.isCancelled { problem = error.localizedDescription }; return false }
     }
     func input(_ model: ClientModel, deviceId: String, _ input: [String: Any]) async -> Bool {
-        guard model.canOperate, state(deviceId)?.ownedHere == true, state(deviceId)?.controller == "human" else { return false }
+        guard model.connection == "ready", model.canOperate, state(deviceId)?.ownedHere == true, state(deviceId)?.controller == "human" else { return false }
         do { let _: ServiceValue = try await request(model, ["op": "input", "deviceId": deviceId, "input": input]); return true }
         catch { if !Task.isCancelled { problem = error.localizedDescription }; return false }
     }
     func watch(_ model: ClientModel, deviceId: String) async {
-        guard let session = model.browserSession else { return }
+        guard model.connection == "ready", let session = model.browserSession else { return }
         live.open(deviceId: deviceId, session: session)
         do {
             // Match the host's native decoder. JPEG is reserved for stills.
@@ -70,10 +70,8 @@ private struct DeviceStatesReply: Decodable { let states: [RemoteDeviceState]; l
     }
     func unwatch(_ model: ClientModel, deviceId: String) async {
         live.close(deviceId: deviceId)
-        let _: ServiceValue? = try? await request(model, ["op": "unsubscribe", "deviceId": deviceId])
-        if state(deviceId)?.ownedHere == true {
-            let _: ServiceValue? = try? await request(model, ["op": "controller", "deviceId": deviceId, "controller": "none"])
-        }
+        model.action(["type": "native.devices.unwatch", "deviceId": deviceId])
+        if state(deviceId)?.ownedHere == true { model.action(["type": "native.devices.release", "deviceId": deviceId]) }
     }
     private func request<T: Decodable>(_ model: ClientModel, _ operation: [String: Any]) async throws -> T {
         let reply = try await model.service(["type": "devices.request", "operation": operation], as: DeviceServiceReply<T>.self)

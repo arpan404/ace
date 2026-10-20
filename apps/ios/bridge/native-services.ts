@@ -29,6 +29,7 @@ import { NativeMediaRequest, readNativeMedia } from "./native-media.ts";
 import { NativeHistoryWindow, readHistoryWindow } from "./native-search.ts";
 import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
 import { NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
+import { NativeScreenRequest, type NativeScreen } from "./native-screen.ts";
 
 // The SDK validates every request and reply. The native bridge exposes only these services;
 // mutations of threads continue to go through the SDK's durable command outbox.
@@ -66,10 +67,12 @@ export class NativeServices {
   readonly owner: ClientCore;
   readonly sink: PatchSink;
   readonly devices: NativeDevices | undefined;
-  constructor(owner: ClientCore, sink: PatchSink, devices?: NativeDevices) {
+  readonly screen: NativeScreen | undefined;
+  constructor(owner: ClientCore, sink: PatchSink, devices?: NativeDevices, screen?: NativeScreen) {
     this.owner = owner;
     this.sink = sink;
     this.devices = devices;
+    this.screen = screen;
   }
   handle(action: z.infer<typeof NativeServiceAction>): void {
     if (action.type === "service.cancel") {
@@ -87,6 +90,24 @@ export class NativeServices {
     }
     this.#pending.set(id, controller);
     try {
+      const screen = NativeScreenRequest.safeParse(raw);
+      if (screen.success && this.screen) {
+        try {
+          const data = await this.screen.request(screen.data.operation, controller.signal);
+          this.#reply(id, true, { ok: true, data }, "");
+        } catch (error) {
+          this.#reply(
+            id,
+            true,
+            {
+              ok: false,
+              error: { message: error instanceof Error ? error.message : "Screen request failed" },
+            },
+            "",
+          );
+        }
+        return;
+      }
       const device = NativeDeviceRequest.safeParse(raw);
       if (device.success && this.devices) {
         try {

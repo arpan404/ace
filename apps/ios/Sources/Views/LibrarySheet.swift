@@ -35,6 +35,8 @@ struct LibrarySheet: View {
                         NavigationLink { ProviderSettingsView(model: model) } label: { Label("Providers and accounts", systemImage: "person.crop.circle") }
                         NavigationLink { SourceControlView(model: model) } label: { Label("Source control", systemImage: "arrow.triangle.branch") }
                         NavigationLink { PromptsView(model: model) } label: { Label("Prompts", systemImage: "text.alignleft") }
+                        NavigationLink { RemoteScreenView(model: model) } label: { Label("Computer use", systemImage: "macwindow") }
+                            .accessibilityIdentifier("library.computer")
                         NavigationLink { RemoteDevicesView(model: model) } label: { Label("Simulators and devices", systemImage: "iphone.and.arrow.forward") }
                             .accessibilityIdentifier("library.devices")
                     } header: {
@@ -54,7 +56,10 @@ struct LibrarySheet: View {
             .navigationTitle("Browse").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
-        .onDisappear { inbox.client(machineId)?.action(["type": "native.devices.close"]) }
+        .onDisappear {
+            inbox.client(machineId)?.action(["type": "native.devices.close"])
+            inbox.client(machineId)?.action(["type": "native.screen.close"])
+        }
         .presentationDetents([.large]).presentationDragIndicator(.visible)
     }
 }

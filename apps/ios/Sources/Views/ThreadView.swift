@@ -18,6 +18,7 @@ struct ThreadView: View {
     @State private var media: TranscriptRow?
     @State private var fullMessage: TranscriptRow?
     @State private var showTools = false
+    @State private var showComputer = false
     @State private var activityProblem: String?
     @State private var showChanges = false
     @State private var showTerminal = false
@@ -153,6 +154,7 @@ struct ThreadView: View {
             .alert("Live Activity", isPresented: Binding(get: { activityProblem != nil }, set: { if !$0 { activityProblem = nil } })) {
                 Button("OK") { activityProblem = nil }
             } message: { Text(activityProblem ?? "") }
+            .sheet(isPresented: $showComputer) { NavigationStack { RemoteScreenView(model: model, threadId: thread.id) } }
             .sheet(isPresented: $showTools) {
                 NavigationStack { ThreadToolsView(model: model, thread: thread, openThread: openThread) }.presentationDetents([.large]).presentationDragIndicator(.visible)
             }
@@ -211,6 +213,7 @@ struct ThreadView: View {
             Button("Files", systemImage: "folder") { showFiles = true }
             Button("Terminal", systemImage: "terminal") { showTerminal = true }
             if model.threadHasBrowser { Button("Browser", systemImage: "safari") { showBrowser = true } }
+            Button("Computer use", systemImage: "macwindow") { showComputer = true }
             Button("Skills and tools", systemImage: "wrench.and.screwdriver") { showTools = true }
         } label: { Image(systemName: "sidebar.right") }
         .accessibilityLabel("Right panel").accessibilityIdentifier("thread.panel")

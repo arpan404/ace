@@ -20,8 +20,8 @@ final class LatestDevicePicture: @unchecked Sendable {
 }
 
 /// One bounded decoding queue. Acknowledgement frees the host's window only after decode.
-final class NativeDeviceRenderer: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "ace.device.render", qos: .userInteractive)
+final class NativeRemotePictureRenderer: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "ace.remotePicture.render", qos: .userInteractive)
     private let deviceId: String
     private let present: @Sendable (NativeDevicePicture) -> Void
     private let acknowledge: @Sendable (NativeDeviceAck) -> Void
@@ -32,8 +32,16 @@ final class NativeDeviceRenderer: @unchecked Sendable {
     init(deviceId: String, present: @escaping @Sendable (NativeDevicePicture) -> Void, acknowledge: @escaping @Sendable (NativeDeviceAck) -> Void) {
         self.deviceId = deviceId; self.present = present; self.acknowledge = acknowledge
     }
-    func receive(_ chunk: DeviceFrameChunk) {
-        guard chunk.deviceId == deviceId, chunk.isLiveVideo else { return }
+    func receiveVideo(_ chunk: DeviceFrameChunk) {
+        guard chunk.isLiveVideo else { return }
+        receive(chunk)
+    }
+    func receiveScreen(_ chunk: DeviceFrameChunk) {
+        guard !chunk.still else { return }
+        receive(chunk)
+    }
+    private func receive(_ chunk: DeviceFrameChunk) {
+        guard chunk.deviceId == deviceId else { return }
         queue.async { [self] in
             guard !closed else { return }
             if streamId != chunk.streamId { streamId = chunk.streamId; sequence = -1; decoder = nil }
@@ -42,12 +50,17 @@ final class NativeDeviceRenderer: @unchecked Sendable {
             sequence = chunk.sequence
             var needsKeyframe = false
             do {
-                if chunk.key {
-                    guard let sets = AnnexB.parameterSets(chunk.bytes) else { throw AnnexB.ParseError.noNALUnits }
-                    if decoder?.parameterSets != sets.sequence + sets.picture { decoder = try H264Decoder(annexBKeyframe: chunk.bytes) }
+                if chunk.isJPEG {
+                    present(NativeDevicePicture(image: try NativeJPEG.decode(chunk), chunk: chunk))
+                    decoder = nil
+                } else {
+                    if chunk.key {
+                        guard let sets = AnnexB.parameterSets(chunk.bytes) else { throw AnnexB.ParseError.noNALUnits }
+                        if decoder?.parameterSets != sets.sequence + sets.picture { decoder = try H264Decoder(annexBKeyframe: chunk.bytes) }
+                    }
+                    if let decoder { present(NativeDevicePicture(image: try decoder.decode(annexB: chunk.bytes), chunk: chunk)) }
+                    else { needsKeyframe = true }
                 }
-                if let decoder { present(NativeDevicePicture(image: try decoder.decode(annexB: chunk.bytes), chunk: chunk)) }
-                else { needsKeyframe = true }
             } catch { decoder = nil; needsKeyframe = true }
             acknowledge(NativeDeviceAck(deviceId: deviceId, streamId: chunk.streamId, sequence: chunk.sequence, keyframe: needsKeyframe))
         }
@@ -58,20 +71,20 @@ final class NativeDeviceRenderer: @unchecked Sendable {
 @MainActor final class DeviceLiveModel {
     private var latest = LatestDevicePicture()
     private(set) var deviceId: String?
-    private var renderer: NativeDeviceRenderer?
+    private var renderer: NativeRemotePictureRenderer?
     private var streams: BrowserStreamHub?
     func open(deviceId: String, session: any ClientSession) {
         close()
         self.deviceId = deviceId
         let latest = LatestDevicePicture()
         self.latest = latest
-        let renderer = NativeDeviceRenderer(deviceId: deviceId, present: { latest.put($0) }) { ack in
+        let renderer = NativeRemotePictureRenderer(deviceId: deviceId, present: { latest.put($0) }) { ack in
             var value: [String: Any] = ["type": "devices.ack", "deviceId": ack.deviceId, "streamId": ack.streamId, "sequence": ack.sequence]
             if ack.keyframe { value["keyframe"] = true }
             ClientModel.action(value, to: session)
         }
         self.renderer = renderer; streams = session.browserStreams
-        streams?.attachDevice { renderer.receive($0) }
+        streams?.attachDevice { renderer.receiveVideo($0) }
     }
     func nextPicture() -> NativeDevicePicture? { latest.take() }
     func close(deviceId: String? = nil) {

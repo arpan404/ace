@@ -39,13 +39,20 @@ Private conversation captures and pairing material are not committed.
 | UI correction                    | Both live transcript and machine-tool checks passed                             | `/tmp/ace-iphone-tour-5.xcresult`                                      |
 | Source control and CLI discovery | 4 native tests plus 1 UI flow passed; final labeled form rechecked              | `/tmp/ace-iphone-tools-6.xcresult`, `/tmp/ace-iphone-tools-7.xcresult` |
 
-Seven distinct connected-phone UI flows passed across the final focused runs: projects,
+Eight distinct connected-phone UI flows passed across the final focused runs: projects,
 live conversation, machine tools, task composer/keyboard, content search, thread composer/
-keyboard, and source control/CLI discovery. Captures were inspected in
+keyboard, source control/CLI discovery, and Mac computer-use preferences. Captures were inspected in
 `/tmp/ace-iphone-tour-4-attachments`, `/tmp/ace-iphone-tour-5.xcresult` and
 `/tmp/ace-iphone-tools-6-attachments`. No provider tasks, simulator boots or remote-device
 input were started by these real-daemon checks. The early layout probe's exact test text
 was removed from the draft without changing its other fields.
+
+The Mac computer-use follow-up passed 29 native tests in six suites and one UI flow
+on the phone (`/tmp/ace-iphone-screen-9.xcresult`). It covers screen/device stream isolation,
+H.264, native JPEG decoding, viewport mapping, pinned authenticated services and the Mac
+permissions/preferences UI. The preceding run caught a JPEG fixture whose UIKit scale did
+not match its wire dimensions; correcting the fixture passed without relaxing the decoder.
+Computer-use captures are in `/tmp/ace-iphone-screen-8-attachments`.
 
 ## Checks and limits
 
@@ -60,7 +67,9 @@ The old loopback-fixture contracts require a separately reachable fixture and ar
 as physical passes. The native device decoder was exercised with real H.264 on the phone;
 this is not a GPU FPS or input-latency measurement. Remote simulator input on this Mac still
 needs serve-sim/idb; Android tools are absent. These are host setup notices in Devices.
-Mac desktop screen control, full VT terminal emulation and APNs remain separate native
-capability gaps. Mutating plugin installation/account flows were implemented but not
+Mac desktop sessions now have native viewing, controller, input, background/foreground,
+secure-input and recording controls over the shared screen channel. Live capture/control
+was not started: the Mac still needs Screen Recording and Accessibility grants.
+Full VT terminal emulation and APNs remain separate native capability gaps. Mutating plugin installation/account flows were implemented but not
 performed against the owner's live environment by this read-only tour. This record does
 not claim exhaustive browser parity or production performance certification.

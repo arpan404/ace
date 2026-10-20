@@ -21,6 +21,7 @@ import { NativeServices, NativeServiceAction } from "./native-services.ts";
 import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
 import { BrowserLive } from "./browser-live.ts";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
+import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -76,6 +77,7 @@ let services: NativeServices | undefined;
 let terminal: NativeTerminal | undefined;
 let browser: BrowserLive | undefined;
 let devices: NativeDevices | undefined;
+let screen: NativeScreen | undefined;
 const pump = new PatchPump();
 const trust = new TrustMonitor();
 const sheets = new Sheets(pump, preview);
@@ -146,7 +148,7 @@ async function start(json: string): Promise<void> {
   machine = new MachineProviders(client, pump);
   archive = new ArchiveBrowser(client, pump);
   compose = new ComposeActions(client, pump, preview, () => host.now());
-  devices = new NativeDevices({
+  const featureConfig = {
     deviceId: config.deviceId,
     hostId: config.hostId,
     credential: paired
@@ -157,8 +159,10 @@ async function start(json: string): Promise<void> {
             .parse(JSON.parse(await call("credential"))),
     id: () => host.uuid(),
     trust,
-  });
-  services = new NativeServices(client, pump, devices);
+  };
+  devices = new NativeDevices(featureConfig);
+  screen = new NativeScreen(featureConfig);
+  services = new NativeServices(client, pump, devices, screen);
   terminal = new NativeTerminal(client, pump);
   browser = new BrowserLive(client, pump, preview, scheduler.set);
   await client.start();
@@ -208,6 +212,11 @@ function action(json: string): void {
     const deviceControl = NativeDeviceControl.safeParse(raw);
     if (deviceControl.success) {
       devices?.handle(deviceControl.data);
+      return;
+    }
+    const screenControl = NativeScreenControl.safeParse(raw);
+    if (screenControl.success) {
+      screen?.handle(screenControl.data);
       return;
     }
     const terminalAction = NativeTerminalAction.safeParse(raw);

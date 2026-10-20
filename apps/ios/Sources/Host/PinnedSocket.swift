@@ -108,6 +108,7 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Send
                     case .none: break
                     case .stream(let message): self.streams?.deliver(message)
                     case .device(let message): self.streams?.deliver(message)
+                    case .screen(let message): self.streams?.deliverScreen(message)
                     case .sdk: self.event("binary", bytes.base64EncodedString())
                     case .broken: self.finish(1002); return
                     }
