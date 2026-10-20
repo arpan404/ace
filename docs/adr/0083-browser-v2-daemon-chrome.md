@@ -182,8 +182,13 @@ A thread's browser holds ordered tabs on whichever backend serves it.
   Amended for #953: after 2 hours idle it is discarded (its target closed, its budget place
   freed, the tab still listed at its address) and reopens at that address with the same id on
   its next command or when the person shows it, listed with `pageStateLost` until it navigates.
-  A dialog, a download still arriving or a recording pins a tab against both. Freezing and
-  discarding run only in ace's Chrome.
+  A dialog, a download still arriving or a recording pins a tab against both. Amended
+  2026-10-19 for #1113: freezing and discarding run in the desktop's views too (ADR 0085), from
+  the same policy. A frozen view gets `Page.setWebLifecycleState` through `ace.tabs.cdp`; a
+  discarded one has its view closed (`ace.tabs.close`) while ace keeps listing the tab, and
+  reopens with `ace.tabs.open {tabId}` at its address. A dropped link the desktop re-adopts
+  keeps discarded tabs listed as discarded; fresh views after a lost desktop reopen only the
+  tabs that were not discarded. The person's own Chrome (ADR 0084) still has neither.
 - **Restore**: tabs are kept in the daemon's SQLite `browser_tabs` table (thread, tab id,
   position, URL, title, label, opener, last activity) behind the `BrowserTabStore` port. A
   restarted daemon reopens them lazily, on the first viewer or tool call, with the same tab ids;

@@ -19,8 +19,11 @@ import Observation
     var models: [ModelOption] = []
     /// Follow-ups waiting in the daemon's queue, outside the transcript until delivered.
     var queue: QueueRow?
-    /// Stop was pressed; cleared when the tree stops working.
+    /// Stop was pressed; cleared when the tree stops working, or when this Stop's own request
+    /// fails to save or is refused while the tree keeps working.
     var stopping = false
+    /// The local request id of the Stop in flight, so a late result of an older one is ignored.
+    @ObservationIgnored var stopRequest: String?
     /// Finished turns' steps read on demand, by turn ordinal.
     var steps: [Int: TurnStepsModel] = [:]
     /// Effort and speed for the next message.
@@ -61,7 +64,7 @@ import Observation
             reorder = true
         case .controls(_, _, let row):
             controls = row
-            if row?.busy != true { stopping = false }
+            if row?.busy != true { stopping = false; stopRequest = nil }
         case .history(_, _, let older, let loading):
             hasOlder = older
             loadingOlder = loading
@@ -72,6 +75,12 @@ import Observation
             models = list
         default: break
         }
+    }
+    /// The Stop sent as `id` failed or was refused: offer Stop again unless a newer one is in flight.
+    func stopFailed(_ id: String) {
+        guard stopRequest == id else { return }
+        stopRequest = nil
+        stopping = false
     }
     /// Ends a frame: one ordering pass when membership or positions moved.
     func commit() {

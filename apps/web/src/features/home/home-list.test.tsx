@@ -92,11 +92,13 @@ test("tasks expose status, linked PR, provider and branch details", async () => 
   expect(within(refund).getByText("billing-api")).toBeTruthy();
   expect(within(threads()).queryAllByRole("heading")).toHaveLength(0);
 
-  // Working rows expose their worktree and subagents too.
+  // Rows waiting on their subagents expose their worktree and subagents too.
   const dedupe = card(/^Dedupe thread events after reconnect/);
   expect(within(dedupe).getByText("fix/replay-dedupe")).toBeTruthy();
   expect(dedupe.getAttribute("aria-label")).toContain("Claude Code · 2 subagents running");
-  expect(dedupe.getAttribute("aria-label") ?? dedupe.textContent).toMatch(/\. Working, /);
+  expect(dedupe.getAttribute("aria-label") ?? dedupe.textContent).toMatch(
+    /\. Waiting for 2 subagents, /,
+  );
   // The branch stays available while diff totals stay out of the sidebar.
   const install = card(/^Rewrite the install page for the daemon/);
   expect(install.getAttribute("aria-label")).toContain("OpenCode");
@@ -152,7 +154,7 @@ test("a row's name says its status, provider and subagents, branch, pull request
   ).toBeTruthy();
   expect(
     card(
-      /^Dedupe thread events after reconnect\. Working, Claude Code · 2 subagents running, Worktree fix\/replay-dedupe/,
+      /^Dedupe thread events after reconnect\. Waiting for 2 subagents, Claude Code · 2 subagents running, Worktree fix\/replay-dedupe/,
     ),
   ).toBeTruthy();
   expect(card(/^Backpressure on broadcast fan-out\..*Running on build-box/)).toBeTruthy();

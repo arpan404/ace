@@ -33,3 +33,25 @@ it.each([false, true])(
     expect(h.agent("root")?.status).toEqual({ state: "unresponsive", lastSignalAt: 252 });
   },
 );
+
+it("a provider process that dies mid-thought leaves no thought still going", () => {
+  const h = harness("opencode");
+  h.start();
+  h.send({ type: "item.delta", agent: "root", item: "thought", field: "reasoning", append: "Hm" });
+  h.send({ type: "process.exited", deliberate: false }, 300);
+  expect(h.item("thought")).toMatchObject({ type: "reasoning", text: "Hm", complete: true });
+});
+
+it("one agent's turn ending keeps another agent's reply streaming", () => {
+  const h = harness("claude");
+  h.start();
+  h.see("child", "root");
+  h.start("child");
+  h.send({ type: "item.delta", agent: "child", item: "reply", field: "text", append: "Wo" });
+  h.send({ type: "item.delta", agent: "root", item: "thought", field: "reasoning", append: "A" });
+  h.end("root", "interrupted");
+  expect(h.item("thought")?.complete).toBe(true);
+  expect(h.item("reply")?.complete).toBe(false);
+  h.end("child");
+  expect(h.item("reply")?.complete).toBe(true);
+});

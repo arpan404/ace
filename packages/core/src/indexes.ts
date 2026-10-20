@@ -1,6 +1,17 @@
+import type { Item } from "@ace/protocol";
 import type { Key } from "./facts.ts";
 import { get, put } from "./emit.ts";
 import { dictionary, type ThreadState } from "./state.ts";
+
+/** Text the provider is still streaming: a turn's end closes it. */
+function isOpenText(item: Item | undefined): boolean {
+  if (!item || item.complete) return false;
+  return (
+    item.type === "reasoning" ||
+    item.type === "compaction" ||
+    (item.type === "message" && item.role === "assistant")
+  );
+}
 
 export function refreshItemIndex(state: ThreadState, key: Key): void {
   const item = get(state.items, key);
@@ -10,6 +21,8 @@ export function refreshItemIndex(state: ThreadState, key: Key): void {
   ) {
     put(state.indexes.liveTools, key, true);
   } else delete state.indexes.liveTools[key];
+  if (isOpenText(item)) put(state.indexes.openText, key, true);
+  else delete state.indexes.openText[key];
   if (get(state.itemLinks, key)) registerItemLink(state, key);
 }
 
@@ -77,5 +90,11 @@ export function pendingInteractionKeys(state: ThreadState, agentId?: string): Ke
 export function runningTaskKeys(state: ThreadState, agentId?: string): Key[] {
   return Object.keys(state.indexes.runningTasks).filter(
     (key) => agentId === undefined || get(state.tasks, key)?.agentId === agentId,
+  );
+}
+
+export function openTextKeys(state: ThreadState, agentId?: string): Key[] {
+  return Object.keys(state.indexes.openText).filter(
+    (key) => agentId === undefined || get(state.items, key)?.agentId === agentId,
   );
 }

@@ -1,4 +1,4 @@
-import { replayCursor } from "@ace/fake-daemon";
+import { facts, replayCursor } from "@ace/fake-daemon";
 import { Capabilities } from "@ace/protocol";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -9,6 +9,8 @@ const threadId = "thread-replay-cursor";
 async function open(goals: boolean) {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
+  // The main agent is back at its own work: nothing it only waits on outranks the goal.
+  app.daemon.apply(threadId, [facts.toolDone("root", "spawn-test")]);
   app.daemon.updateThread(threadId, {
     capabilities: Capabilities.parse({
       steer: false,

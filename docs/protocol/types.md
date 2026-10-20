@@ -10313,13 +10313,13 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | kind | yes | `"key"` |  |
-| key | yes | ["home","back","rotate","enter","power","recents"] |  |
+| key | yes | ["home","back","rotate","enter","power","recents","volumeUp","volumeDown","action","side"] |  |
 
 Example:
 
 ```json
 {
-  "key": "rotate",
+  "key": "enter",
   "kind": "key"
 }
 ```
