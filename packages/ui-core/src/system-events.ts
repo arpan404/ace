@@ -181,6 +181,39 @@ export function switchLine(
   };
 }
 
+const xmlEntities: Record<string, string> = {
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&apos;": "'",
+  "&#39;": "'",
+  "&amp;": "&",
+};
+
+/** One pass, so "&amp;lt;" stays "&lt;". */
+const unescapeXml = (text: string) =>
+  text.replace(/&(?:lt|gt|quot|apos|#39|amp);/g, (entity) => xmlEntities[entity] ?? entity);
+
+/**
+ * The command a background-completion input names: from a Claude `<task-notification>` summary,
+ * an opencode `<shell>` tag, or the first backtick span of ace's own text. Provider notices are
+ * matched by their leading tag, so backticks in their output never become the title.
+ */
+function backgroundTitle(text: string): string | undefined {
+  const notice =
+    /^\s*<task-notification>[\s\S]*?<summary>Background command "([^<]*)"[^"<]*<\/summary>/.exec(
+      text,
+    ) ?? /^\s*<shell\b[^>]*?\scommand="([^"]*)"/.exec(text);
+  if (notice)
+    return (
+      unescapeXml(notice[1] ?? "")
+        .split("\n")[0]
+        ?.trim() || undefined
+    );
+  if (/^\s*<(?:task-notification|shell)\b/.test(text)) return undefined;
+  return /`([^`\n]+)`/.exec(text)?.[1];
+}
+
 /** The divider for an ace input shown as one line; undefined for the kinds that are cards. */
 export function inputLine(input: SystemInput): EventLine | undefined {
   switch (input.kind) {
@@ -189,7 +222,7 @@ export function inputLine(input: SystemInput): EventLine | undefined {
     case "limit_resume":
       return { icon: "resume", text: "Resumed after the usage limit" };
     case "background_completion": {
-      const title = /`([^`\n]+)`/.exec(input.text)?.[1];
+      const title = backgroundTitle(input.text);
       return {
         icon: "background",
         text: title ? `Background task finished: ${title}` : "Background task finished",
