@@ -170,7 +170,7 @@ const startup = createStartup({
 });
 
 async function start(root: Root) {
-  // iOS covers the page with its keyboard instead of resizing it; bottom UI reads --kb-inset.
+  // iOS covers the page with its keyboard instead of resizing it; the app shell ends above it.
   watchKeyboardInset(window, document.documentElement);
   const daemon = desktopDaemon();
   const render = (children: ReactNode) =>
