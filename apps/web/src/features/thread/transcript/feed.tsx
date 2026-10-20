@@ -202,6 +202,7 @@ export function Feed(props: FeedProps) {
     nav,
     detached,
     following: pinned,
+    now,
   });
   useGutter(viewport);
   // Leaving a window (back to live, or a link that failed) shows the live tail from its end,
