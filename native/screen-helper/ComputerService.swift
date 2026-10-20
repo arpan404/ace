@@ -180,13 +180,13 @@ import ApplicationServices
                 failure = ["index": index, "code": fault.code, "message": fault.message]
                 break
             }
-            if index < actions.count - 1 { await session.settler.settle(minimumMs: 40, quietMs: 100, maximumMs: 1_200) }
+            if index < actions.count - 1 { await session.settler.settle(minimumMs: 40, quietMs: 100, respondedQuietMs: 40, maximumMs: 1_200) }
         }
         var result: CUObject = ["done": done]
         if let failure { result["error"] = failure }
         let cancelled = cancellations.isCancelled(id)
         if request.bool("observe") ?? true, !cancelled {
-            if !session.notResponding { await session.settler.settle(minimumMs: 60, quietMs: 150, maximumMs: 2_000) }
+            if !session.notResponding { await session.settler.settle(minimumMs: 60, quietMs: 150, respondedQuietMs: 60, maximumMs: 2_000) }
             // Follow a window or dialog the actions opened.
             let focusedAfter = session.notResponding ? nil : cuElementAttribute(session.element, "AXFocusedWindow")
             if let focusedAfter, focusedBefore.map({ !CFEqual($0, focusedAfter) }) ?? true {
