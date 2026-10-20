@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn.ts";
 
 /**
  * The thread's Offshift run: its state and phase, what blocks it, the evidence it still needs,
- * and its outcome and criteria behind a disclosure.
+ * and its outcome, criteria and roles behind a disclosure.
  */
 export function OffshiftRun(props: { run: OffshiftSummary }) {
   const { run } = props;
@@ -51,17 +51,23 @@ export function OffshiftRun(props: { run: OffshiftSummary }) {
           <ul aria-label="Criteria" className="flex min-w-0 flex-col">
             {run.criteria.map((criterion) => (
               <li key={criterion.id} className="flex min-w-0 flex-col py-1">
-                <span className="min-w-0 break-words">{criterion.description}</span>
-                <span className="flex min-w-0 flex-wrap gap-x-2 text-xs text-muted-foreground">
+                <span className="min-w-0 break-words">
+                  {criterion.description}
+                  {criterion.independent && (
+                    <span className="ml-2 text-xs text-subtle-foreground">Independent</span>
+                  )}
+                </span>
+                <span className="flex min-w-0 flex-col text-xs text-muted-foreground">
                   {criterion.evidence.map((evidence) => (
-                    <span key={evidence.kind}>
-                      {evidence.kind}{" "}
+                    <span key={evidence.kind} className="min-w-0 truncate">
+                      {evidence.kind} ·{" "}
                       <span
                         data-tone={evidence.tone}
                         className={cn(evidence.tone && "text-(--tone-text)")}
                       >
                         {evidence.state}
                       </span>
+                      {evidence.by && ` · ${evidence.by}`}
                     </span>
                   ))}
                 </span>
@@ -73,6 +79,18 @@ export function OffshiftRun(props: { run: OffshiftSummary }) {
               </li>
             )}
           </ul>
+          {run.roles.length > 0 && (
+            <ul aria-label="Roles" className="flex min-w-0 flex-col">
+              {run.roles.map((role) => (
+                <li key={role.role} className="flex h-7 min-w-0 items-center gap-2">
+                  <span className="shrink-0">{role.role}</span>
+                  <span className="min-w-0 truncate text-xs text-muted-foreground">
+                    {role.selection}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </Disclosure>
     </div>

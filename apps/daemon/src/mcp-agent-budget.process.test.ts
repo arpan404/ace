@@ -101,8 +101,9 @@ it("each provider's per-request ace context stays within its budget", async () =
     ].join("\n");
     // Every client starts small: deferred names, or the core list with tools_find (and, where the
     // list never reloads, tools_call). Deferring raised from 2,600 to 2,625 for offshift (#899):
-    // its deferred name, its guide topic and its clause in the instructions.
-    const budget = deferring.has(provider) ? 2_625 : reloading.has(provider) ? 3_200 : 3_300;
+    // its deferred name, its guide topic and its clause in the instructions. Then to 2,655 for
+    // delegate's runRole field (Offshift roles), which the always-loaded delegate schema carries.
+    const budget = deferring.has(provider) ? 2_655 : reloading.has(provider) ? 3_200 : 3_300;
     expect(tokens(always), provider).toBeLessThanOrEqual(budget);
   }
 });

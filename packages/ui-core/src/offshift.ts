@@ -1,11 +1,14 @@
-import type { ThreadRunMetadata, ThreadStatus } from "@ace/protocol";
+import { modelDisplayName } from "@ace/models/display-name";
+import type { ProviderKind, ThreadRunMetadata, ThreadStatus } from "@ace/protocol";
 import type {
   OffshiftEvidenceKind,
   OffshiftEvidenceState,
   OffshiftPhase,
+  OffshiftRole,
   OffshiftRunCard,
 } from "@ace/protocol/offshift";
 import { listTreeFacts, treeWorking } from "./live-status.ts";
+import { providerNames } from "./providers.ts";
 import type { Tone } from "./status.ts";
 
 /*
@@ -33,11 +36,20 @@ export interface OffshiftEvidenceRow {
   state: string;
   /** Status hue for a current pass or failure; none while out of date or not checked. */
   tone: Tone | undefined;
+  /** Who recorded it: "Claude Code · Opus 4.5". Undefined when nothing is recorded. */
+  by: string | undefined;
 }
 export interface OffshiftCriterionRow {
   id: string;
   description: string;
+  /** Passes count only from another provider or model than the run owner's. */
+  independent: boolean;
   evidence: OffshiftEvidenceRow[];
+}
+/** "Verify", "Claude Code · Opus 4.5 · high". */
+export interface OffshiftRoleRow {
+  role: string;
+  selection: string;
 }
 export interface OffshiftSummary {
   word: OffshiftWord;
@@ -53,6 +65,8 @@ export interface OffshiftSummary {
   criteria: OffshiftCriterionRow[];
   /** Criteria beyond the card's list. */
   moreCriteria: number;
+  /** Who does which kind of work, from the run or the project default. */
+  roles: OffshiftRoleRow[];
   done: boolean;
 }
 
@@ -71,12 +85,33 @@ const kindNames: Record<OffshiftEvidenceKind, string> = {
   human: "Human review",
   manual: "Manual check",
 };
+/** A kind still needing a pass from another provider or model than the owner's. */
+const independentKindNames: Record<OffshiftEvidenceKind, string> = {
+  automated: "Independent automated check",
+  source: "Independent source review",
+  ui: "Independent UI check",
+  human: "Independent human review",
+  manual: "Independent manual check",
+};
 const stateNames: Record<OffshiftEvidenceState, string> = {
   pass: "Passed",
   fail: "Failed",
   stale: "Out of date",
   missing: "Not checked",
+  not_independent: "Not independent",
 };
+const roleNames: Record<OffshiftRole, string> = {
+  build: "Build",
+  judgment: "Judgment",
+  review: "Review",
+  verify: "Verify",
+};
+/** A provider and model in words, no ids: "Claude Code · Opus 4.5". */
+function who(provider: ProviderKind | undefined, model: string | null | undefined): string {
+  return [provider && providerNames[provider], model && modelDisplayName(model).displayName]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 /**
  * The tree's own state in the fixed vocabulary, or undefined when it is done: nothing works,
@@ -118,20 +153,26 @@ export function offshiftSummary(card: OffshiftRunCard, tree: OffshiftTree): Offs
     missing: card.pending.map((item) => ({
       key: `${item.criterionId}:${item.kind}`,
       description: descriptions.get(item.criterionId) ?? item.criterionId,
-      kind: kindNames[item.kind],
+      kind: (item.needs ? independentKindNames : kindNames)[item.kind],
     })),
     moreMissing: card.pendingCount - card.pending.length,
     outcome: card.outcome,
     criteria: card.criteria.map((item) => ({
       id: item.id,
       description: item.description,
+      independent: item.independent,
       evidence: item.evidence.map((evidence) => ({
         kind: kindNames[evidence.kind],
         state: stateNames[evidence.state],
         tone: evidence.state === "pass" ? "done" : evidence.state === "fail" ? "failed" : undefined,
+        by: evidence.by ? who(evidence.by.provider, evidence.by.model) : undefined,
       })),
     })),
     moreCriteria: card.criteriaCount - card.criteria.length,
+    roles: card.roles.map((item) => ({
+      role: roleNames[item.role],
+      selection: [who(item.provider, item.model), item.effort].filter(Boolean).join(" · "),
+    })),
     done: state.word === "Done",
   };
 }
