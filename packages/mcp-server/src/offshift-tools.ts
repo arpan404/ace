@@ -82,11 +82,11 @@ const Input = z
     ),
   })
   .superRefine((input, context) => {
-    const fields: readonly string[] =
+    const required: readonly (keyof Input)[] =
       input.action === "roles" && input.scope !== "project"
         ? [...needs.roles, ...mutation]
         : needs[input.action];
-    for (const field of fields as (keyof Input)[])
+    for (const field of required)
       if (input[field] === undefined)
         context.addIssue({
           code: "custom",
