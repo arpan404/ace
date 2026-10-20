@@ -5,7 +5,7 @@ import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { Event, Item, ItemId, ThreadId, type TextSource, type ItemsPage } from "@ace/protocol";
 import { outputStreamId, summarizeOutput, utf8Tail } from "@ace/projection";
 import { ItemTextStore } from "./item-text-store.ts";
-import { appendTextSource } from "./text-preview.ts";
+import { appendTextSource, hasTextPreview, textPreview } from "./text-preview.ts";
 
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const Stream = z.object({ id: z.string(), size: count });
@@ -193,8 +193,17 @@ export class HistoryIndex {
   record(event: Event): void {
     const p = event.payload;
     if (p.type === "item.created" || p.type === "item.updated") {
-      const row = this.statement("SELECT item FROM item_previews WHERE id=?").get(p.item.id);
-      const item = Item.parse(JSON.parse(String(row?.item)));
+      // Text items carry the sources their preview was just given; any other item's preview
+      // policy is the identity, so it is taken from the event instead of a stored copy.
+      const item = hasTextPreview(p.item)
+        ? Item.parse(
+            JSON.parse(
+              String(
+                this.statement("SELECT item FROM item_previews WHERE id=?").get(p.item.id)?.item,
+              ),
+            ),
+          )
+        : textPreview(p.item).item;
       this.revision(event, item);
       this.sources(event, item);
     } else if (p.type === "item.delta") {

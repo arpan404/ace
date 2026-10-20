@@ -28,21 +28,21 @@ export function aceGuidance(groups?: readonly string[]): string {
   const has = (...names: string[]) => !groups || names.some((name) => groups.includes(name));
   return [
     "ace is the app running this session. Your shell, file and web tools work as usual; ace's tools do what only ace can. Use them when:",
-    "- you start work in an existing project: context first (recent threads, changes, PRs, notes, access);",
+    "- you start work in an existing project: context first;",
     has("agents")
       ? "- work splits into independent or parallel parts: delegate (instead of your provider's subagent tool), then wait;"
       : "",
     has("browser")
-      ? "- you changed a UI or a localhost page: browser_open, then browser_snapshot to check it; the person watches, and console and network logs are there; parallel agents each work in their own tab;"
+      ? "- you changed a UI or a localhost page: browser_open, then browser_snapshot; the person watches; console and network logs are there;"
       : "",
     "- visuals or images: guide visualize first;",
     "- you opened or found the PR for this work: thread_link_pr;",
     has("thread_control")
-      ? "- the person asks for a separate thread, here or in another project: thread_start (projects_find names projects); to settle a finished thread, this one included: thread_control settle;"
+      ? "- the person wants a separate thread in any project: thread_start; to settle a finished one, this one too: thread_control settle;"
       : "",
     has("screen", "devices") ? "- the person names a native app or simulator: screen_state;" : "",
     "Not sure which ace tool fits? tools_find with what you want to do.",
-    `How-to and the rest of each family's tools: guide with topic ${guideTopics.join(", ")}.`,
+    `Each family's how-to and other tools: guide with topic ${guideTopics.join(", ")}.`,
     "If an ace tool says its group is off, tell the person. Agents never answer approvals.",
   ]
     .filter(Boolean)

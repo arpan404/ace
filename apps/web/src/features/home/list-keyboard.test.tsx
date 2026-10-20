@@ -65,13 +65,19 @@ test("typing a letter on a row jumps to the next thread whose title starts with 
 
 test("when the focused row is settled, focus moves to the next row rather than the page", async () => {
   await openApp();
-  const settle = within(screen.getByRole("list", { name: "Threads" })).getAllByRole("button", {
-    name: /^Settle /,
-    hidden: true,
-  })[0];
-  if (!settle) throw new Error("A row must offer Settle");
-  const title = settle.getAttribute("aria-label")?.replace(/^Settle /, "") ?? "";
   const all = rows();
+  // A thread waiting on the person or still running stays in the list once settled, so the row
+  // settled here is one whose work has stopped.
+  const stays = /^[^.]*\. (?:Waiting for your|Working|Running in background)/;
+  const settle = within(screen.getByRole("list", { name: "Threads" }))
+    .getAllByRole("button", { name: /^Settle /, hidden: true })
+    .find((button) => {
+      const title = button.getAttribute("aria-label")?.replace(/^Settle /, "");
+      const row = all.find((candidate) => titleOf(candidate) === title);
+      return row !== undefined && !stays.test(row.getAttribute("aria-label") ?? "");
+    });
+  if (!settle) throw new Error("A stopped row must offer Settle");
+  const title = settle.getAttribute("aria-label")?.replace(/^Settle /, "") ?? "";
   const at = all.findIndex((row) => titleOf(row) === title);
   const next = all[at + 1] ?? all[at - 1];
   if (at < 0 || !next) throw new Error("The settled row needs a neighbour");

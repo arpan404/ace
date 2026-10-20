@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { appendTextSource, textPreview } from "./text-preview.ts";
+import { appendTextSource, hasTextPreview, textPreview } from "./text-preview.ts";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { Item, EventPayload, ThreadId, type TextSource } from "@ace/protocol";
 const StreamRow = z.object({
@@ -52,6 +52,12 @@ export class ItemTextStore {
       );
   }
   seed(item: Item, revision: number): void {
+    if (!hasTextPreview(item)) {
+      // A non-text preview would be a second full copy of `items.item`: nothing reads it.
+      this.statement("DELETE FROM item_text_targets WHERE item_id=?").run(item.id);
+      this.statement("DELETE FROM item_previews WHERE id=?").run(item.id);
+      return;
+    }
     const threadId = ThreadId.parse(
       this.statement("SELECT thread_id FROM items WHERE id=?").get(item.id)?.thread_id,
     );

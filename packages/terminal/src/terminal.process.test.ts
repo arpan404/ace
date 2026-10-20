@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { execFile } from "node:child_process";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import { setImmediate } from "node:timers/promises";
 import { fixture, until, collect, runNode, quote } from "./test-support.ts";
@@ -167,6 +168,29 @@ test("environment overrides reach a login interactive shell with terminal colors
   expect(text(await collect(attachment))).toContain(
     "LOGIN:INTERACTIVE:override:xterm-256color:truecolor\r\n",
   );
+});
+
+test("a daemon started with no locale still gets typed UTF-8 through the shell", async () => {
+  const { manager, home } = await open();
+  // As launchd or a desktop app starts the daemon: no locale variable at all.
+  const terminal = manager.openTerminal({
+    cwd: home,
+    shell: "/bin/bash",
+    cols: 80,
+    rows: 24,
+    name: "no-locale",
+    env: {
+      HOME: home,
+      INPUTRC: join(home, ".inputrc"),
+      LANG: undefined,
+      LC_ALL: undefined,
+      LC_CTYPE: undefined,
+    },
+  });
+  const attachment = terminal.attach();
+  await until(attachment, "__READY__\r\n");
+  terminal.write("printf 'TYPED:%s\\n' '漢字🙂'; exit\r");
+  expect(text(await collect(attachment))).toContain("TYPED:漢字🙂\r\n");
 });
 
 test("detaching resolves a pending read without affecting the shell or other watchers", async () => {

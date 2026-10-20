@@ -9719,7 +9719,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | running | yes | `true` |  |
-| version | yes | union | {"anyOf":[{"type":"string","const":"development"},{"type":"string","maxLength":80,"pattern":"^\\d+\\.\\d+\\.\\d+(?:-[a-z0-9.]+)?$","x-ace-constraint":"Daemon version must have a nonzero major version; legacy ace 0.x is incompatible."}]} |
+| version | yes | union | {"anyOf":[{"type":"string","const":"development"},{"$ref":"https://ace.local/protocol/v1/ReleaseVersion.json"}]} |
 | ready | no | `true` |  |
 
 Example:
@@ -25105,7 +25105,7 @@ Example:
     "highlights": [],
     "text": "example"
   },
-  "status": "needs_you",
+  "status": "limited",
   "statusSeq": 8,
   "threadId": "example",
   "threadTitle": "example",
@@ -25255,7 +25255,7 @@ Example:
 
 [JSON Schema](schema/SearchState.json), input validation.
 
-Type: ["new","working","waiting","needs_you","done","failed","unresponsive"]. See JSON Schema for constraints.
+Type: ["new","working","waiting","needs_you","limited","done","failed","unresponsive"]. See JSON Schema for constraints.
 
 Example:
 

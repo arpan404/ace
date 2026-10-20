@@ -175,7 +175,7 @@ const tabTools: Tool[] = [
     name: "browser_open",
     title: "Open browser page",
     description:
-      "Open or join this thread's ace browser: a real Chromium the person watches live in ace and can take over. Pass url (http/https, localhost included) to load it in your tab; omit it to report where you are. Returns your tabId. Prefer it to web fetch when you need to verify UI, test a dev server, show the person a page, or read console and network. Next: browser_snapshot. How-to: guide ace-browser.",
+      "Open or join this thread's ace browser: a real Chromium the person watches in ace and can take over. Pass url to load it in your tab; omit it to report where you are. Prefer it to web fetch when you need to verify UI, test a dev server, show the person a page, or read console and network. Next: browser_snapshot. How-to: guide ace-browser.",
     riskClass: "external-effect",
     input: browserOpenShape,
     timeoutMs: 300_000,

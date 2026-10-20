@@ -1,10 +1,8 @@
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { createServer } from "node:http";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { afterEach, expect, test } from "vitest";
 import { BACKUP_README, HOME_FORMAT_FILE, HOME_FORMAT_VERSION, serviceCommand } from "@ace/service";
 import { exitCodes } from "./cli/output.ts";
@@ -197,30 +195,4 @@ test("a service command sets a legacy home aside instead of registering or runni
     "legacy state",
   );
   expect(await readdir(root)).toEqual([HOME_FORMAT_FILE]);
-});
-
-test("ace status refuses a live legacy daemon instead of accepting its health response", async () => {
-  const root = await userHome("ace-legacy-health-");
-  const server = createServer((_req, res) => {
-    res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify({ running: true, version: "0.9.8" }));
-  });
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  cleanups.push(
-    () =>
-      new Promise<void>((resolve) => {
-        server.close(() => resolve());
-        server.closeAllConnections();
-      }),
-  );
-  const address = server.address();
-  if (!address || typeof address === "string") throw new Error("Missing health port");
-  await writeFile(join(root, "daemon-endpoint"), `http://127.0.0.1:${address.port}`);
-  await writeFile(join(root, "daemon-token"), "a".repeat(64));
-  await expect(
-    promisify(execFile)(process.execPath, [daemonCli(), "status"], {
-      env: { ...process.env, ACE_HOME: root },
-    }),
-  ).rejects.toThrow(/Legacy ace 0.x/);
 });

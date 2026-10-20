@@ -1,5 +1,6 @@
 import { ItemId, type EventPayload, type Item, type RunId } from "@ace/protocol";
-import type { AgentRecord, ApplyContext, ThreadState } from "./state.ts";
+import { dictionary, type AgentRecord, type ApplyContext, type ThreadState } from "./state.ts";
+import type { Key } from "./facts.ts";
 import { emit, get, put } from "./emit.ts";
 
 /** Preserve JSON facts verbatim, and describe values JSON cannot represent. */
@@ -38,7 +39,7 @@ function publishNotice(
   ctx: ApplyContext,
   events: EventPayload[],
   runId?: RunId,
-): void {
+): Key {
   const id = ItemId.parse(ctx.ids.next("item"));
   const item: Item = {
     id,
@@ -53,7 +54,11 @@ function publishNotice(
   while (get(state.items, key)) key += ":";
   put(state.items, key, item);
   emit(events, { type: "item.created", item });
+  return key;
 }
+
+/** A repeated rejection keeps the raw facts of its first few occurrences and counts the rest. */
+const repeatRawLimit = 10;
 
 /** Rejection never creates agents or refreshes liveness. */
 export function rejectFact(
@@ -63,14 +68,39 @@ export function rejectFact(
   ctx: ApplyContext,
 ): EventPayload[] {
   const events: EventPayload[] = [];
-  const notice = {
-    createdAt: ctx.now,
-    text: `Ignored adapter fact: ${reason}`,
-    raw: [{ type: "core.rejected_fact", data: diagnosticData(input) }],
-  };
+  const text = `Ignored adapter fact: ${reason}`;
+  const raw = { type: "core.rejected_fact", data: diagnosticData(input) };
   const owner = state.rootKey === undefined ? undefined : get(state.agents, state.rootKey);
-  if (owner) publishNotice(state, owner, notice, ctx, events, owner.activeRun);
-  else state.pendingNotices.push(notice);
+  if (!owner) {
+    state.pendingNotices.push({ createdAt: ctx.now, text, raw: [raw] });
+    return events;
+  }
+  // An adapter that keeps re-sending a fact core cannot accept must not flood the transcript.
+  const run = owner.activeRun ?? "";
+  if (state.rejectionNotices?.run !== run) state.rejectionNotices = { run, notices: dictionary() };
+  const factType =
+    input !== null && typeof input === "object" && "type" in input && typeof input.type === "string"
+      ? input.type
+      : "";
+  const signature = `${factType}\u0000${reason}`;
+  const repeated = get(state.rejectionNotices.notices, signature);
+  const item = repeated && get(state.items, repeated.item);
+  if (repeated && item?.type === "notice") {
+    repeated.count++;
+    item.text = `${text} (${repeated.count} times)`;
+    if (item.raw.length < repeatRawLimit) item.raw.push(raw);
+    emit(events, { type: "item.updated", item });
+    return events;
+  }
+  const key = publishNotice(
+    state,
+    owner,
+    { createdAt: ctx.now, text, raw: [raw] },
+    ctx,
+    events,
+    owner.activeRun,
+  );
+  put(state.rejectionNotices.notices, signature, { item: key, count: 1 });
   return events;
 }
 

@@ -74,3 +74,53 @@ it("deferred rejection warnings survive snapshots and preserve the first valid i
       .filter((event) => event.type === "item.created"),
   ).toEqual([]);
 });
+
+const rejectionNotices = (h: ReturnType<typeof harness>) =>
+  Object.values(h.view.items).flatMap((item) =>
+    item.type === "notice" && item.raw.some((raw) => raw.type === "core.rejected_fact")
+      ? [item]
+      : [],
+  );
+/** A child claiming the root's pending approval; each attempt differs only in its raw data. */
+const stray = (index: number) => ({
+  type: "interaction.opened",
+  agent: "child",
+  interaction: "approval",
+  blocking: true,
+  request: { kind: "question", questions: [], attempt: index },
+});
+
+it("repeated identical rejected facts show one notice that counts them", () => {
+  const h = harness();
+  h.see();
+  h.start();
+  h.see("child", "root");
+  h.question("approval", "root");
+  for (let index = 0; index < 30; index++) h.send(stray(index));
+  const [notice, ...others] = rejectionNotices(h);
+  expect(others).toEqual([]);
+  expect(notice).toMatchObject({
+    text: "Ignored adapter fact: live key has a different owner (30 times)",
+  });
+  // The first occurrences keep their raw facts; the count covers the rest.
+  expect(notice?.raw.slice(0, 2)).toEqual([
+    { type: "core.rejected_fact", data: stray(0) },
+    { type: "core.rejected_fact", data: stray(1) },
+  ]);
+  expect(h.view.status).toEqual({ state: "needs_you", interactions: 1 });
+});
+
+it("different rejections and a later root run each get their own notice", () => {
+  const h = harness();
+  h.see();
+  h.start();
+  const negativeUsage = { type: "usage", agent: "root", inputTokens: -1, outputTokens: 0 };
+  h.send(negativeUsage);
+  h.send({ type: "provider.future", agent: "root" });
+  h.send(negativeUsage);
+  expect(rejectionNotices(h)).toHaveLength(2);
+  h.end();
+  h.start("root", "second-turn");
+  h.send(negativeUsage);
+  expect(rejectionNotices(h)).toHaveLength(3);
+});

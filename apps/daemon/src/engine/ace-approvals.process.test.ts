@@ -135,14 +135,15 @@ function codexGate(tool: string, input: unknown): Fact[] {
     },
   ];
 }
-const merge = { threadId: "child", requestId: "merge-1" };
+// automation_remove is the destructive ace tool: removing an automation deletes saved work.
+const remove = { id: "nightly-review" };
 
 test.each(["full-access", "auto-review"] as const)(
   "in %s Codex's gate on a destructive ace tool waits for the person on that call's row",
   async (mode) => {
     const frames = scriptFrames();
     const h = await harness(
-      [{ on: "send", frames: [frames.frame(start, ...codexGate("thread_merge", merge))] }],
+      [{ on: "send", frames: [frames.frame(start, ...codexGate("automation_remove", remove))] }],
       frames,
       { permissionSettings: async () => ({ access: mode }) },
     );
@@ -155,7 +156,7 @@ test.each(["full-access", "auto-review"] as const)(
       expect(interaction).toMatchObject({
         state: "pending",
         toolCallId: call?.id,
-        request: { target: { tool: "thread_merge", origin: "ace" } },
+        request: { target: { tool: "automation_remove", origin: "ace" } },
       });
     } finally {
       await h.close();
@@ -206,8 +207,8 @@ test("a request from another machine shown during an ace tool call reads on that
 test("a provider's approval of tools_call on a destructive tool reads exactly as approving that tool", async () => {
   const seen: unknown[] = [];
   for (const [tool, input] of [
-    ["thread_merge", merge],
-    ["tools_call", { name: "thread_merge", arguments: merge }],
+    ["automation_remove", remove],
+    ["tools_call", { name: "automation_remove", arguments: remove }],
   ] as const) {
     const frames = scriptFrames();
     const h = await harness(
@@ -229,7 +230,7 @@ test("a provider's approval of tools_call on a destructive tool reads exactly as
       await h.close();
     }
   }
-  expect(seen[0]).toMatchObject({ target: { tool: "thread_merge", origin: "ace" } });
+  expect(seen[0]).toMatchObject({ target: { tool: "automation_remove", origin: "ace" } });
   expect(seen[1]).toEqual(seen[0]);
 });
 

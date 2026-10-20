@@ -27,7 +27,7 @@ export const contextToolCatalog = [
         .min(1)
         .max(ContextTopic.options.length)
         .default(defaultTopics)
-        .describe("Only the topics you need. Default: status, recent, changes, prs, notes."),
+        .describe("Only the topics you need."),
     }),
     output: ContextResult,
     // One open field per topic: the full shapes would cost context on every listing.
