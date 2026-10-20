@@ -22,8 +22,9 @@ afterEach(async () => {
   vi.resetModules();
 });
 
-test("a primary shared-worker module error is actionable and retry selects a dedicated worker without stopping another tab", async () => {
+test("a primary shared-worker module error recovers through a dedicated worker without stopping another tab, and the desktop log hears why", async () => {
   const workers: EventTarget[] = [];
+  const dedicated: EventTarget[] = [];
   let moduleFailed = false;
   class Shared extends EventTarget {
     port = new Port();
@@ -38,12 +39,20 @@ test("a primary shared-worker module error is actionable and retry selects a ded
     }
   }
   class Dedicated extends Port {
+    constructor() {
+      super();
+      dedicated.push(this);
+    }
     terminate(): void {
       this.close();
     }
   }
+  const reported: { event: string; data?: Record<string, unknown> }[] = [];
   vi.stubGlobal("SharedWorker", Shared);
   vi.stubGlobal("Worker", Dedicated);
+  vi.stubGlobal("ace", {
+    diagnostics: { report: (event: (typeof reported)[number]) => reported.push(event) },
+  });
   const { createWorkerClient } = await import("./worker-client.ts");
   const target = { url: "ws://localhost:4242", token: "a".repeat(64) };
   const failed = createWorkerClient(target, "device");
@@ -56,19 +65,23 @@ test("a primary shared-worker module error is actionable and retry selects a ded
   moduleFailed = true;
   workers[0]?.dispatchEvent(new Event("error"));
   await rejected;
-  expect(failed.state).toBe("fatal");
-  expect(failed.error?.message).toContain("Retry");
-  await failed.close();
+  expect(failed.state).not.toBe("fatal");
+  // No Retry: the client brings up a dedicated worker on its own and is ready again.
+  await vi.waitFor(() => expect(failed.state).toBe("ready"));
+  expect(dedicated).toHaveLength(1);
   expect(healthy.state).toBe("ready");
-  const retry = createWorkerClient(target, "device");
-  if (!retry) throw new Error("Expected dedicated fallback");
-  clients.push(retry);
-  await retry.start();
-  expect(retry.state).toBe("ready");
-  expect(healthy.state).toBe("ready");
+  expect(reported).toContainEqual({
+    event: "client-worker.lost",
+    data: expect.objectContaining({ cause: "error" }),
+  });
+  expect(reported).toContainEqual({
+    event: "client-worker.recovered",
+    data: expect.objectContaining({ kind: "dedicated" }),
+  });
+  expect(JSON.stringify(reported)).not.toContain(target.token);
 });
 
-test("an asynchronous module error settles primary attachment before any welcome", async () => {
+test("an asynchronous module error before any welcome recovers instead of failing the start", async () => {
   const workers: EventTarget[] = [];
   class Broken extends EventTarget {
     port = new Port();
@@ -77,7 +90,14 @@ test("an asynchronous module error settles primary attachment before any welcome
       workers.push(this);
     }
   }
+  class Dedicated extends Port {
+    terminate(): void {
+      this.close();
+    }
+  }
   vi.stubGlobal("SharedWorker", Broken);
+  vi.stubGlobal("Worker", Dedicated);
+  vi.stubGlobal("console", { ...console, warn: () => {} });
   const { createWorkerClient } = await import("./worker-client.ts");
   const client = createWorkerClient(
     { url: "ws://localhost:4242", token: "a".repeat(64) },
@@ -86,8 +106,8 @@ test("an asynchronous module error settles primary attachment before any welcome
   if (!client) throw new Error("Expected worker client");
   clients.push(client);
   const start = client.start();
-  const rejected = expect(start).rejects.toMatchObject({ code: "offline" });
   workers[0]?.dispatchEvent(new Event("error"));
-  await rejected;
-  expect(client.state).toBe("fatal");
+  expect(client.state).toBe("reconnecting");
+  await start;
+  expect(client.state).toBe("ready");
 });

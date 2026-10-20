@@ -16,6 +16,8 @@ export function browserClientOptions(options: {
   readSnapshots?: ClientOptions["readSnapshots"];
   /** The desktop's own daemon: the identity its current home names (`localHostId`). */
   expectedHostId?: string | undefined;
+  /** Where connection drops and recoveries are logged (`diagnostics.ts`). */
+  report?: ClientOptions["report"];
 }): ClientOptions {
   return {
     deviceId: DeviceId.parse(options.deviceId),
@@ -32,6 +34,8 @@ export function browserClientOptions(options: {
     },
     random: () => Math.random(),
     id: () => crypto.randomUUID(),
+    now: () => Date.now(),
+    ...(options.report ? { report: options.report } : {}),
   };
 }
 
