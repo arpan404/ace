@@ -9,8 +9,9 @@ test("Chrome screencasts JPEG only while an agent drives the page, never for a v
   for (const method of ["Page.startScreencast", "Page.stopScreencast", "Page.captureScreenshot"])
     f.requests.on(method, () => sent.push(method));
   await f.open();
-  // Nothing records and nobody drives the page: no seed screenshot, no screencast.
-  expect(sent).toEqual([]);
+  // Nothing records and nobody drives the page: one tiny screenshot proves it draws, and no
+  // screencast runs.
+  expect(sent).toEqual(["Page.captureScreenshot"]);
 
   // A viewer watches video; the JPEG screencast stays off.
   const leave = f.service.subscribe("thread", "viewer", {}, () => {});
