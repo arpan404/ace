@@ -111,6 +111,12 @@ export function createPiExtensionHost(
     errors,
     notices,
     active: () => [...active],
+    /** The "Available tools" lines Pi writes into its system prompt: active tools with a snippet. */
+    promptToolLines: () =>
+      active.flatMap((name) => {
+        const snippet = tools.get(name)?.promptSnippet?.replace(/\s+/g, " ").trim();
+        return snippet ? [`- ${name}: ${snippet}`] : [];
+      }),
     /** The handlers registered for an event, for peers that call them with their own context. */
     handlers: (event: string): readonly unknown[] => handlers.get(event) ?? [],
     emit,

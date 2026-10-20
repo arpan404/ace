@@ -230,8 +230,10 @@ async function listen(
       pi.registerTool({
         name,
         label: name,
+        // No promptSnippet: Pi would copy each description into its system prompt (the model
+        // already reads it in the tool's definition), and every family that opens would change
+        // that prompt and bill the conversation uncached.
         description: tool.description ?? tool.name,
-        promptSnippet: tool.description ?? tool.name,
         parameters: tool.inputSchema,
         async execute(_id, params, signal) {
           const args = z.record(z.string(), z.unknown()).parse(params);

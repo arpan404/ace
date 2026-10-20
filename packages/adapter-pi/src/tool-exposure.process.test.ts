@@ -86,3 +86,40 @@ test("read-only Pi can call ace's read tools under its tool allowlist and is nev
     await server.close();
   }
 });
+
+test("ace's tools add nothing to Pi's system prompt tool list, so their descriptions are sent once", async () => {
+  const registry = new ToolRegistry({ scheduler: nodeScheduler });
+  const credentials = new CredentialRegistry(() => randomBytes(32).toString("hex"));
+  guideToolkit([{ name: "ace-agents", description: "agents", body: "How to delegate." }]).register(
+    registry,
+  );
+  const server = await startMcpServer({ registry, credentials });
+  const lease = credentials.issue(
+    {
+      threadId: ThreadId.parse("thread"),
+      agentId: AgentId.parse("agent"),
+      sessionId: "session",
+      capabilities: [],
+    },
+    new AbortController().signal,
+  );
+  const configuration = privateMcpConfig(
+    JSON.stringify({
+      controlSecret: "a".repeat(64),
+      mcp: { url: server.url, bearer: lease.bearer },
+    }),
+  );
+  onTestFinished(configuration.remove);
+  const host = createPiExtensionHost();
+  try {
+    await host.start((pi) =>
+      registerAcePiExtension(pi, { ACE_PI_SESSION_FILE: configuration.path }),
+    );
+    expect(host.tools.has("ace_guide")).toBe(true);
+    expect(host.promptToolLines()).toEqual([]);
+  } finally {
+    await host.shutdown();
+    lease.end();
+    await server.close();
+  }
+});

@@ -34,7 +34,8 @@ export interface PiExtensionApi {
     name: string;
     label: string;
     description: string;
-    promptSnippet: string;
+    /** Pi copies a snippet into its system prompt's tool list; without one the tool is left out. */
+    promptSnippet?: string;
     parameters: Record<string, unknown>;
     execute: (
       id: string,
