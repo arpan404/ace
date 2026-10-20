@@ -156,6 +156,12 @@ export class ClaudeState {
     }
     this.start(agent, "parent_agent");
   }
+  /** Route frames that name `spawn` to a child Claude already registered under another call. */
+  bindChild(spawn: string, agent: Key): void {
+    if (this.children.get(spawn) === agent) return;
+    this.children.set(spawn, agent);
+    this.bindings.push(spawn);
+  }
   agentFor(data: Data): Key {
     const parent = string(data["parent_tool_use_id"]);
     return parent ? (this.children.get(parent) ?? this.root) : this.root;
