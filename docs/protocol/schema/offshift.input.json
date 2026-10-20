@@ -4,7 +4,7 @@
   "additionalProperties": false,
   "properties": {
     "action": {
-      "description": "start: open a run with its outcome, endpoint, criteria, and optional playbook, steps and roles. get: the run, revision, pending evidence and next. list: this thread's runs. playbooks: the built-in playbooks and their steps. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record one check's result. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked. roles: replace the run's roles (runId, version), or the project default with scope project. step: mark stepId done or skipped (note: what you saw, or why).",
+      "description": "start: open a run with its outcome, endpoint, criteria, and optional playbook and steps. get: the run, revision, pending evidence and next. list: this thread's runs. playbooks: the built-in playbooks and their steps. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record one check's result. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked. step: mark stepId done or skipped (note: what you saw, or why).",
       "enum": [
         "start",
         "get",
@@ -15,7 +15,6 @@
         "resume",
         "evidence",
         "revise",
-        "roles",
         "step"
       ],
       "type": "string"
@@ -65,10 +64,6 @@
       "pattern": "^[a-zA-Z0-9_.-]+$",
       "type": "string"
     },
-    "roles": {
-      "$ref": "https://ace.local/protocol/v1/OffshiftRoles.json",
-      "description": "start and roles: who does build, judgment, review and verify work ({provider, model, effort} each)."
-    },
     "runId": {
       "description": "Every action but list: the run's id, chosen at start (letters, digits, _ . -).",
       "maxLength": 128,
@@ -79,14 +74,6 @@
     "runOwner": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json",
       "description": "get and evidence only: the ancestor thread whose run you check, as its brief named it."
-    },
-    "scope": {
-      "description": "roles: run (default) or project, the default for runs without that role.",
-      "enum": [
-        "run",
-        "project"
-      ],
-      "type": "string"
     },
     "state": {
       "description": "step: done or skipped.",
@@ -118,5 +105,5 @@
     "action"
   ],
   "type": "object",
-  "x-ace-constraint": "start needs runId, outcome, endpoint and criteria; get needs runId; advance needs runId, version, phase and note; block and resume need runId, version and note; evidence needs runId, version and evidence; revise needs runId, version, criterion and note; step needs runId, version, stepId and state; roles needs roles, plus runId and version unless scope is project."
+  "x-ace-constraint": "start needs runId, outcome, endpoint and criteria; get needs runId; advance needs runId, version, phase and note; block and resume need runId, version and note; evidence needs runId, version and evidence; revise needs runId, version, criterion and note; step needs runId, version, stepId and state."
 }

@@ -686,7 +686,7 @@ Example:
     "pendingCount": 5,
     "phase": "plan",
     "revision": "example",
-    "roles": [],
+    "steps": [],
     "updatedAt": 8,
     "version": 4
   },
@@ -707,8 +707,7 @@ Example:
 {
   "meter": {
     "agentId": "example",
-    "epoch": 8,
-    "model": "example",
+    "epoch": 5,
     "source": "provider",
     "usedTokens": null,
     "windowTokens": null
@@ -735,8 +734,7 @@ Example:
   "agentId": "example",
   "sessionId": "example",
   "type": "context.sampled",
-  "usedTokens": 9,
-  "windowTokens": 5
+  "usedTokens": 3
 }
 ```
 
@@ -769,12 +767,16 @@ Example:
 
 ```json
 {
+  "accountId": "example",
   "agentId": "example",
-  "cacheWrite1hTokens": 1,
-  "contextWindow": 6,
-  "inputTokens": 6,
-  "outputTokens": 9,
-  "reasoningTokens": 6,
+  "billingMode": "api",
+  "cacheWrite1hTokens": 5,
+  "contextSessionId": "example",
+  "contextTokens": 6,
+  "inputTokens": 3,
+  "model": "example",
+  "outputTokens": 8,
+  "reasoningTokens": 0,
   "type": "usage.updated"
 }
 ```
@@ -792,11 +794,9 @@ Example:
 ```json
 {
   "change": {
-    "destination": "example",
     "id": "example",
     "op": "example",
     "path": "example",
-    "trashId": "example",
     "version": "example"
   },
   "type": "workspace.files_changed",

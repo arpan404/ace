@@ -65,9 +65,6 @@
     "playbook": {
       "$ref": "https://ace.local/protocol/v1/OffshiftPlaybookId.json"
     },
-    "roles": {
-      "$ref": "https://ace.local/protocol/v1/OffshiftRoles.json"
-    },
     "steps": {
       "default": [],
       "items": {
@@ -94,7 +91,6 @@
     "outcome",
     "endpoint",
     "criteria",
-    "roles",
     "phase",
     "version",
     "blocker",

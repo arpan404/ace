@@ -13,7 +13,7 @@ the agent-facing tool surface.
 ## Decision
 
 Add `@ace/offshift` in erasable TypeScript for Node 24. Its pure transitions own bounded
-acceptance criteria, phase changes, blockers, criterion revisions, roles and revision-bound
+acceptance criteria, phase changes, blockers, criterion revisions and revision-bound
 evidence. A synchronous SQLite journal shares the daemon's transaction boundary, so state and
 idempotency receipts commit together. Optimistic versions reject conflicting updates; an
 identical retry returns a fresh view without repeating the mutation. `requestId` is optional on
@@ -23,7 +23,7 @@ identical request is never mistaken for a replay.
 
 Agents reach it through one control tool, `offshift`, in its own `offshift` family (ADR 0086). Its
 `action` is one of `start`, `get`, `list`, `playbooks`, `advance`, `block`, `resume`, `evidence`,
-`revise`, `roles` or `step`.
+`revise` or `step`.
 The input is one flat object, with each action's required fields checked before anything runs.
 It sits behind the `thread_control` capability, like the other tools that write to the caller's
 own thread. The daemon routes the `offshift` agent-control operation through the agent owners
@@ -49,17 +49,39 @@ counts a pass only from another thread whose provider differs from the owner's, 
 known on both sides and differs. An unknown model never counts as different. Until then the view
 lists the kind as pending with `needs: "independent"`.
 
-Roles name who does which kind of work: `build`, `judgment`, `review` and `verify`, each an
-optional provider, model and effort with `delegate`'s bounds. A run sets them at `start` or
-replaces them with `roles`; `roles` with `scope: "project"` replaces the project's defaults,
-stored per workspace in `offshift_project_roles`, created by the owner on startup, and kept when
-transcripts are purged because it has no thread column. A `delegate` task's `runRole` fills its
-provider, model and effort from the caller's most recently updated run not yet in delivery, else
-the project default; a provider or model on the task wins (an effort-only role still sets effort).
-A role set nowhere is refused with the calls that set it, rather than run on the caller's own
-provider, and a role whose choice the catalog or admission refuses is reported with the role
-named. Resolution is pure (`resolveRole`, `applyRole`); the daemon applies it before the usual
-selection resolution.
+Roles name who does which kind of work: `build`, `judgment`, `review` and `verify`. They are the
+person's settings, not run state: `providers.coder.*`, `providers.planner.*`,
+`providers.reviewer.*` and `providers.verifier.*`, each a provider, model, tier and reasoning
+effort, set in Settings → Roles (the Roles section on General). A role is set only when its
+provider is not null, which is the shipped default; `default` model, tier or effort leaves that
+field to the provider. The settings existed unused, and an earlier version of this ADR also kept
+per-run roles, a `roles` action and project defaults in their own table. Two sources for one
+choice was duplicate logic, and roles fetched or changed through tool calls would have reached the
+model as tool results that differ between sessions, so the run record now carries none. Roles are
+global only: the settings service refuses them on a project or thread layer, because every session
+reads them synchronously when it starts and a workspace layer would need a per-project read there.
+
+A `delegate` task's `runRole` fills its provider, model, effort and service tier (priority or flex;
+other tiers are the provider's default) from the role setting; a provider or model on the task
+wins and then takes nothing from the role, and the task's own effort always wins. A role that is
+not set is refused with where the person sets it, rather than run on the caller's own provider,
+and a role whose choice the catalog or admission refuses is reported with the role named.
+Resolution is pure (`applyRole`, `roleTask` in the daemon's `run-roles.ts`); the daemon holds the
+role settings in memory, kept current by a settings subscription, and applies them before the
+usual selection resolution. The same settings supply the existing fallback when a task names a
+provider whose model guess the catalog lacks: the model set for a role on that provider.
+
+Each session learns its roles from its own instructions. When at least one role is set, the
+developer channel carries one line, rendered by the pure `renderRoles`, such as
+`Roles: build codex gpt-5.5 high · review claude opus-5.5 xhigh. Delegate with runRole.` It is
+rendered once, on the session's first guidance read, and kept for the session's lifetime, so the
+instruction prefix never changes mid-session and stays in the provider's prompt cache. A settings
+change applies to sessions started afterwards. The line never enters the shared MCP server
+instructions, which stay identical for every session. Codex and Claude take it in their native
+developer instructions at session start, OpenCode in its session instruction entry, ACP agents in
+the guidance block each prompt carries, Pi in its system prompt from the `ace://session` resource (from its
+second turn, as for the brief, since that read is asynchronous),
+and Cursor's SDK in its always-applied rule, rendered by the daemon when it issues the lease.
 
 Every view carries `next`: one imperative sentence, worked out by a pure function from the view
 and the count of unsettled descendants, naming the one step to take now (resolve the blocker,
@@ -102,8 +124,7 @@ Run and evidence byte caps and per-thread and per-run limits bound reads and rec
 Records cascade on owner-thread deletion and are purged with transcript payloads. Artifact
 references stay inert data. Agent-reported evidence proves neither authenticity nor
 authorization; `by` proves which session recorded it, not that the check ran. The workflow adds
-no permission mode and grants no publication or deployment authority. Project roles are bounded
-by construction: four roles of three bounded fields.
+no permission mode and grants no publication or deployment authority.
 
 ## Playbooks and steps
 
@@ -140,12 +161,12 @@ steps names its work in them, so a phase without steps of its own just advances.
 ## Clients
 
 The person sees the run, not only the agent. Every successful change (start, advance, block,
-resume, evidence, revise, roles on a run) appends an `offshift.updated` thread-log event in the same transaction
+resume, evidence, revise, step) appends an `offshift.updated` thread-log event in the same transaction
 as the run write; reads, receipt replays and refused requests append nothing. The event carries a
 bounded `OffshiftRunCard` of that one run as observed at the write: outcome (512 characters,
 with a truncated flag), endpoint, phase, blocker, version, revision, the first 16 criteria with
 each required kind's state (pass, fail, stale, missing or not independent) and who recorded it
-(provider and model, no ids), the first 16 pending kinds with full counts, the roles in use, and
+(provider and model, no ids), the first 16 pending kinds with full counts, and
 the current phase's steps with their state and, for a skipped step, its reason clipped to 160
 characters. The card carries only the current phase's steps because that is what the person can
 act on now; the run's 24-step limit bounds the list. Notes, actions, artifacts and done-step notes
@@ -155,7 +176,7 @@ Thread views and snapshots keep only the most recently updated run's card, so a 
 bounded however many runs a thread starts; the daemon materializes it beside the queue and it
 survives restarts. The card says what the run recorded, but the agent writes it mid-turn, so the
 card alone can never mean done. The Summary tab words it against the whole tree with the fixed
-status words, and shows the current phase's steps (Done, Skipped with its reason, To do), roles,
+status words, and shows the current phase's steps (Done, Skipped with its reason, To do),
 independent criteria and who checked each kind: Waiting while a blocker is recorded; otherwise the tree's own state (Working,
 Approve, Answer, Failed, Waiting) while anything in it works, waits on the person or is held;
 Waiting while a settled tree leaves the run unfinished; Done only for a delivered run with every
@@ -164,12 +185,8 @@ Summary's status line names the playbook first when the run started from one ("F
 of 5"); the card carries it as an optional field so cards stored earlier still parse. There is no
 route, palette entry or composer strip.
 
-When a project's default roles change, cards that use them would go stale. The same transaction
-that writes the defaults republishes the latest card of the workspace's threads whose run is
-unfinished and whose roles in use change under the new defaults. The run is untouched: the
-version stays, and evidence states stay as of the card's own revision, since republishing does
-no Git I/O. The fan-out is capped at the 32 most recently updated unfinished cards in the
-workspace; older ones refresh on their run's next write.
+Runs and cards written while runs carried roles still load: neither schema is strict, so their
+`roles` field is dropped on read.
 
 ## Notifications
 
@@ -227,7 +244,7 @@ out: the recipe is a choice made per task, not a step every run of a kind should
 
 Behaviour coverage uses real SQLite through the public journal: reopening, concurrent versions,
 request replay with and without a requestId, failed and stale evidence, criterion revision,
-blockers, roles and their project fallback, independent criteria, and live or human-waiting
+blockers, runs stored with roles by an earlier build, independent criteria, and live or human-waiting
 trees. Pure tests cover starting from a playbook or custom steps, refusing to leave a phase with
 steps to do, skipping without a reason, delivery steps holding completion and the card's steps.
 `next` is tested across states as a pure function, including its order around steps. Daemon coverage calls `offshift` through a real MCP client, checks
@@ -235,14 +252,16 @@ authenticated thread isolation and the real Git revision boundary, and covers th
 `unavailable` answer. A delegated child on another provider records an independent check on its
 parent's run and it counts, while the owner's own pass does not; a thread outside the tree is
 refused; an agent lists `playbooks`, starts from `fix`, is refused leaving plan until it marks
-both steps, and advances; `delegate` with `runRole` starts the child on the run's role or the project default, and
-task fields win. It also proves that a change publishes the card to subscribers and
+both steps, and advances; `delegate` with `runRole` starts the child on the person's role setting,
+task fields win, and an unset role is refused. A session started with roles set carries the roles
+line, one without has none, and a settings change leaves a running session's instructions as they
+were. Settings → Roles is tested against the fake daemon: a picked model and effort are saved and
+shown, and Not set clears the role. It also proves that a change publishes the card to subscribers and
 snapshots, that replays and refusals publish nothing, and that the snapshot keeps the card after
 the store reopens. The web Summary is tested against the fake daemon for a blocked run, missing
 evidence, a delivered run that is not Done while a subagent still works, and the playbook in its
 status line. `runMark` and `runNotice` are tested as pure functions across run and tree states;
 the notification service is tested with real SQLite for the stopped, blocked and delivered
 wording, one notice per settle and the once-per-version delivered notice; a daemon test drives a
-real run through two settles and checks the notices and the sidebar mark; and changing project
-roles republishes the card to subscribers and the snapshot. The web row is tested for the mark on
+real run through two settles and checks the notices and the sidebar mark. The web row is tested for the mark on
 a settled thread, its absence on a working tree and on a delivered run.

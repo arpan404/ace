@@ -49,8 +49,8 @@
             "$ref": "https://ace.local/protocol/v1/DelegationRole.json"
           },
           "runRole": {
-            "$ref": "https://ace.local/protocol/v1/OffshiftRole.json",
-            "description": "Fill unset fields from your Offshift role."
+            "$ref": "https://ace.local/protocol/v1/RunRole.json",
+            "description": "Run as a role from your Roles line."
           },
           "task": {
             "description": "The whole assignment: goal, files, constraints, project notes that apply, and how to verify. The child sees none of your conversation.",

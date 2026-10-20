@@ -12,7 +12,7 @@ It does not launch providers, schedule background turns, resolve approvals, publ
 the authority the person granted.
 
 Start a run with `{action: "start", runId, outcome, endpoint, criteria: [{id, description,
-requiredKinds: ["automated", "source"], independent?}], roles?}`. Read it with `{action: "get",
+requiredKinds: ["automated", "source"], independent?}]}`. Read it with `{action: "get",
 runId}`. Every view carries `next`, one sentence naming the step to take now; agents follow it.
 `list` returns summaries capped at 128 Unicode characters with `outcomeTruncated`; use `get` for
 the full outcome. Every view includes the current host-captured source revision and canonical tree
@@ -35,12 +35,10 @@ or on a model known to differ from the owner's at start. Until then its kind is 
 passing `runOwner` (the ancestor's thread id) to `get` and `evidence`, from the owner's checkout;
 the daemon checks the ancestry and refuses every other action.
 
-Roles name who does `build`, `judgment`, `review` and `verify` work, each `{provider, model,
-effort}`. Set them at start, replace them with `{action: "roles", runId, version, roles}`, or set
-the project default with `{action: "roles", scope: "project", roles}`. A run without a role falls
-back to the project default. `delegate` tasks with `runRole` take that role's provider, model and
-effort (task fields win); a role set nowhere is refused. `resolveRole` and `applyRole` hold the
-pure rules; `OffshiftProjectRoles` stores the defaults per workspace, outside transcript purges.
+Runs carry no roles. Who does `build`, `judgment`, `review` and `verify` work is the person's
+choice in Settings → Roles; each session sees the roles set in its instructions, and `delegate`
+tasks with `runRole` take them (ADR 0090). Runs and cards stored with a `roles` field by earlier
+builds still load; the field is dropped.
 
 Playbooks are built-in step lists for one kind of work: `fix`, `feature`, `refactor`, `perf`,
 `investigate`, `ui` and `land` (`playbooks.ts`, pure data). `{action: "playbooks"}` returns the
@@ -63,9 +61,7 @@ agent's final tool call, `waiting_on_tree` is expected until the agent itself se
 Each successful change also publishes a bounded card of the run (`runCard`) as an
 `offshift.updated` thread event, so the person sees the latest run in the Summary tab, worded
 against the whole tree, with the current phase's steps. The card names its `playbook` and the
-view's `next` at that write; cards stored before either existed still read. When a project's
-default roles change, the latest card of up to 32 of its threads with an unfinished run is
-republished if the roles it uses changed (same version, same revision).
+view's `next` at that write; cards stored before either existed still read.
 
 `@ace/projection` reduces a card to a run mark (`runMark`: phase, `open` / `blocked` /
 `delivered`, pending count, playbook) that the thread's list entry carries, and decides what a

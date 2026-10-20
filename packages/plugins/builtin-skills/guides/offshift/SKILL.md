@@ -5,7 +5,7 @@ description: Own a multi-step coding outcome through verified delivery, keeping 
 
 # Offshift
 
-`offshift` is this thread's durable record of one outcome: its steps, criteria, phase, blocker, roles and evidence bound to the workspace's Git revision. ace stores it, checks it and shows it to the person. It records work and never does it: you work with your own tools and ace's. Reading this guide (`guide` with topic `offshift`) loads the tool.
+`offshift` is this thread's durable record of one outcome: its steps, criteria, phase, blocker and evidence bound to the workspace's Git revision. ace stores it, checks it and shows it to the person. It records work and never does it: you work with your own tools and ace's. Reading this guide (`guide` with topic `offshift`) loads the tool.
 
 ## When to use it
 
@@ -50,7 +50,7 @@ Every change after `start` takes the last returned `version`; on a conflict, `ge
 
 ## Roles and independent checks
 
-Roles say who does which work: `build` (code), `judgment` (planning, hard design, prose), `review` and `verify`, each `{provider, model, effort}`. Set them at `start` or with `roles` (`runId`, `version`); `scope: "project"` sets the default for runs that leave a role out. Delegate by role with `runRole` on a `delegate` task; fields you set on the task win.
+Roles say who does which work: `build` (code), `judgment` (planning, hard design, prose), `review` and `verify`. The person sets them in Settings → Roles, and the ones set appear in your instructions as a `Roles:` line. Delegate by role with `runRole` on a `delegate` task; fields you set on the task win. A role that is not set is refused: pass `provider` and `model` instead, or ask the person to set it.
 
 For an independent criterion, delegate the check in the same checkout and put your thread id from `next` in the brief as `runOwner`. The child calls `get` and `evidence` with `runOwner`; it can change nothing else. ace records who checked from the session, never from the note.
 

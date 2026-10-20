@@ -31,9 +31,6 @@
           "pattern": "^[a-zA-Z0-9_.-]+$",
           "type": "string"
         },
-        "roles": {
-          "$ref": "https://ace.local/protocol/v1/OffshiftRoles.json"
-        },
         "runId": {
           "maxLength": 128,
           "minLength": 1,
@@ -292,42 +289,6 @@
         "version",
         "criterion",
         "note"
-      ],
-      "type": "object"
-    },
-    {
-      "additionalProperties": false,
-      "properties": {
-        "action": {
-          "const": "roles",
-          "type": "string"
-        },
-        "requestId": {
-          "maxLength": 128,
-          "minLength": 1,
-          "pattern": "^[a-zA-Z0-9_.-]+$",
-          "type": "string"
-        },
-        "roles": {
-          "$ref": "https://ace.local/protocol/v1/OffshiftRoles.json"
-        },
-        "runId": {
-          "maxLength": 128,
-          "minLength": 1,
-          "pattern": "^[a-zA-Z0-9_.-]+$",
-          "type": "string"
-        },
-        "version": {
-          "maximum": 9007199254740991,
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "action",
-        "runId",
-        "version",
-        "roles"
       ],
       "type": "object"
     },

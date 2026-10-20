@@ -67,41 +67,6 @@
     "revision": {
       "$ref": "https://ace.local/protocol/v1/OffshiftRevision.json"
     },
-    "roles": {
-      "default": [],
-      "items": {
-        "properties": {
-          "effort": {
-            "maxLength": 64,
-            "type": "string"
-          },
-          "model": {
-            "maxLength": 64,
-            "type": "string"
-          },
-          "provider": {
-            "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
-          },
-          "role": {
-            "$ref": "https://ace.local/protocol/v1/OffshiftRole.json"
-          },
-          "source": {
-            "enum": [
-              "run",
-              "project"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "role",
-          "source"
-        ],
-        "type": "object"
-      },
-      "maxItems": 4,
-      "type": "array"
-    },
     "steps": {
       "default": [],
       "items": {
