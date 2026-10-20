@@ -24,6 +24,28 @@ export function isPing(data: RawData): boolean {
 /** Closes a peer or browser makes on purpose: going away, a normal close, or no status. */
 const ordinary = new Set([1000, 1001, 1005]);
 
+/** Which kind of client a socket belongs to, from its User-Agent alone. Never an identity. */
+export type ClientAgent = "desktop" | "ios" | "android" | "browser" | "node" | "other";
+
+export function clientAgent(userAgent: string | undefined): ClientAgent {
+  if (!userAgent) return "node";
+  if (/\bElectron\//.test(userAgent)) return "desktop";
+  if (/\bCFNetwork\/|\bDarwin\//.test(userAgent) && !/Mozilla\//.test(userAgent)) return "ios";
+  if (/\bokhttp\/|\bDalvik\//.test(userAgent)) return "android";
+  if (/^Mozilla\//.test(userAgent)) return "browser";
+  return "other";
+}
+
+/** What a close record says about the peer; nothing here identifies a person or device. */
+export interface ClosePeer {
+  client: ClientAgent;
+  /** Which kind of credential the hello presented, once one did. */
+  access?: "host" | "desktop" | "paired";
+  /** A side channel (files, devices, browser, screen, provider_auth); absent for the main one. */
+  channel?: string;
+  remote: boolean;
+}
+
 /**
  * The log record for a WebSocket close worth explaining (heartbeat loss, limits, auth,
  * daemon-initiated closes), or undefined for an ordinary one.
@@ -33,7 +55,10 @@ export function closeRecord(
   reason: Buffer,
   durationMs: number,
   authenticated: boolean,
-): { code: number; reason: string; durationMs: number; authenticated: boolean } | undefined {
+  peer: ClosePeer,
+):
+  | ({ code: number; reason: string; durationMs: number; authenticated: boolean } & ClosePeer)
+  | undefined {
   // Unauthenticated drops are mostly probes and abandoned handshakes; keep the daemon's own.
   if (ordinary.has(code) || (!authenticated && code < 4000)) return undefined;
   return {
@@ -41,5 +66,6 @@ export function closeRecord(
     reason: reason.toString("utf8").slice(0, 123),
     durationMs: Math.max(0, durationMs),
     authenticated,
+    ...peer,
   };
 }
