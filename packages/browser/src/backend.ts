@@ -89,6 +89,11 @@ export interface DownloadSource {
 export interface BackendRestoreTab {
   tabId: string;
   url: string;
+  /**
+   * The tab was discarded while idle (ADR 0083 lifecycle): a backend that can list it without a
+   * page keeps it discarded, so it reopens only when it is next used or shown.
+   */
+  discarded?: boolean;
 }
 export interface BackendOpen {
   options: BrowserOpen;
@@ -198,10 +203,15 @@ export interface BrowserBackendTabs {
   /** The person turns a tab's sound off or on (its `muted`). */
   mute?(tabId: string, muted: boolean): Promise<void>;
   page?(tabId: string): BrowserBackendPage;
-  /** Drops an idle tab's page, keeping the tab listed at its address (ace's Chrome only). */
+  /**
+   * Drops an idle tab's page (ace's Chrome closes its target, the desktop its view), keeping the
+   * tab listed at its address.
+   */
   discard?(tabId: string): Promise<void>;
   /** Reopens a discarded tab at its address, with the same id. */
   revive?(tabId: string): Promise<void>;
+  /** Whether the tab is listed without a page, discarded and not yet revived. */
+  discarded?(tabId: string): boolean;
 }
 /** One page's surface. Everything here acts on that page only. */
 export interface BrowserBackendPage {

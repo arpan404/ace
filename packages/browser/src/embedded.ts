@@ -4,7 +4,7 @@ import { mkdir } from "node:fs/promises";
 import { EmbeddedTabs } from "./embedded-tabs.ts";
 import { decodeNativeTabs } from "./native-tabs.ts";
 import { modelScreenshot } from "./model-screenshot.ts";
-import { restoreEmbeddedTabs } from "./embedded-restore.ts";
+import { holdDiscardedTabs, restoreEmbeddedTabs, reviveEmbeddedTab } from "./embedded-restore.ts";
 import { EventEmitter } from "node:events";
 import { z } from "zod";
 import {
@@ -539,6 +539,8 @@ export class EmbeddedBackend implements BrowserBackend {
         // Fresh views (not kept ones) take back the thread's tabs from before.
         if (!opened.adopted && request.restoreTabs?.length)
           await restoreEmbeddedTabs(tabs, request.restoreTabs, request.signal, this.clock);
+        // Kept views come back without the tabs discarded before the link dropped.
+        else if (request.restoreTabs?.length) holdDiscardedTabs(tabs, request.restoreTabs);
       } else guard = await installOriginGuard(cdp, request.allowed, request.initiator);
       await cdp.send("Page.enable");
       await cdp.send("Runtime.enable");
@@ -555,7 +557,7 @@ export class EmbeddedBackend implements BrowserBackend {
         get cdp() {
           return currentCdp();
         },
-        ...(tabs ? embeddedTabSurface(tabs, call) : {}),
+        ...(tabs ? embeddedTabSurface(tabs, call, this.clock) : {}),
         url: () => tabs?.list().find((tab) => tab.tabId === tabs?.active())?.url ?? remote.url,
         navigate: async (url, _timeout, signal) => {
           const adopted = adoptedUrl;
@@ -655,13 +657,21 @@ export class EmbeddedBackend implements BrowserBackend {
 function embeddedTabList(
   tabs: EmbeddedTabs,
   build: (id: string) => BrowserBackendPage,
+  clock: NavigationClock,
 ): NonNullable<BrowserBackendSession["tabs"]> {
   const pages = new Map<string, BrowserBackendPage>();
   return {
     list: () => tabs.list(),
     active: () => tabs.active(),
     open: (options) => tabs.open(options),
-    switch: (id) => tabs.switch(id),
+    switch: async (id) => {
+      // A discarded tab gets its view back before it is shown.
+      await reviveEmbeddedTab(tabs, id, clock);
+      await tabs.switch(id);
+    },
+    discard: (id) => tabs.discard(id),
+    revive: (id) => reviveEmbeddedTab(tabs, id, clock),
+    discarded: (id) => tabs.discarded(id),
     close: async (id) => {
       await tabs.close(id);
       pages.delete(id);
@@ -687,13 +697,17 @@ function embeddedTabList(
 function embeddedTabSurface(
   tabs: EmbeddedTabs,
   call: (operation: BrowserBackendOperation) => Promise<unknown>,
+  clock: NavigationClock,
 ) {
   return {
-    tabs: embeddedTabList(tabs, (id) =>
-      embeddedTabPage(tabs, id, {
-        press: (key) => call({ kind: "press", key }),
-        resize: (width, height) => call({ kind: "resize", width, height }),
-      }),
+    tabs: embeddedTabList(
+      tabs,
+      (id) =>
+        embeddedTabPage(tabs, id, {
+          press: (key) => call({ kind: "press", key }),
+          resize: (width, height) => call({ kind: "resize", width, height }),
+        }),
+      clock,
     ),
     networkBody: tabs.inspection.body.bind(tabs.inspection),
     networkPending: () => tabs.inspection.pending(tabs.active()),
