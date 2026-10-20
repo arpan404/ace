@@ -33,7 +33,12 @@ async function runningCommand(h: Harness): Promise<ThreadId> {
 }
 
 const steer = (h: Harness, id: ThreadId, text: string) =>
-  h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text }], delivery: "steer" });
+  h.command({
+    type: "thread.send",
+    threadId: id,
+    input: [{ type: "text", text }],
+    delivery: "steer",
+  });
 
 const activeRuns = (h: Harness, id: ThreadId) =>
   Object.values(h.store.snapshotThread(id).runs).filter((run) => run.state === "active");

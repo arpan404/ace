@@ -22,7 +22,8 @@ function project(frames: Frame[]) {
   let id = 0;
   const ids = { next: (kind: string) => `${kind}_${++id}` };
   for (const frame of frames)
-    for (const fact of translator.translate(frame, frame.t)) apply(state, fact, { now: frame.t, ids });
+    for (const fact of translator.translate(frame, frame.t))
+      apply(state, fact, { now: frame.t, ids });
   return state;
 }
 
