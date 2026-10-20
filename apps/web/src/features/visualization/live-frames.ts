@@ -36,6 +36,17 @@ export const LiveFramesContext = createContext<LiveFrames | undefined>(undefined
 const innerMargin = "200% 0px";
 const outerMargin = "400% 0px";
 
+/** The nearest scrolling ancestor, so the margins reach past the transcript's visible area. */
+function scrollRoot(element: HTMLElement): Element | null {
+  let node = element.parentElement;
+  while (node) {
+    const overflowY = getComputedStyle(node).overflowY;
+    if (overflowY === "auto" || overflowY === "scroll") return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
 /** Whether a frame stays near: in the inner margin it loads, outside the outer it unloads. */
 export function nextNear(previous: boolean, inInner: boolean, inOuter: boolean): boolean {
   if (inInner) return true;
@@ -59,6 +70,7 @@ export function useLiveFrame(id: string, element: HTMLElement | null): boolean {
     let inInner = false;
     let inOuter = false;
     let current = false;
+    const root = scrollRoot(element);
     const report = () => {
       const next = nextNear(current, inInner, inOuter);
       if (next === current) return;
@@ -72,7 +84,7 @@ export function useLiveFrame(id: string, element: HTMLElement | null): boolean {
         inInner = entry.isIntersecting;
         report();
       },
-      { rootMargin: innerMargin },
+      { root, rootMargin: innerMargin },
     );
     const outerObserver = new IntersectionObserver(
       (entries) => {
@@ -81,7 +93,7 @@ export function useLiveFrame(id: string, element: HTMLElement | null): boolean {
         inOuter = entry.isIntersecting;
         report();
       },
-      { rootMargin: outerMargin },
+      { root, rootMargin: outerMargin },
     );
     innerObserver.observe(element);
     outerObserver.observe(element);
