@@ -103,6 +103,7 @@ export class Snapshot {
     state.itemLinks = segment("itemLinks", recordSchemas.itemLinks, state.itemLinks);
     const indexes = state.indexes;
     indexes.liveTools = segment("liveTools", recordSchemas.keys, indexes.liveTools);
+    indexes.openText = segment("openText", recordSchemas.keys, indexes.openText ?? {});
     indexes.pendingInteractions = segment(
       "pendingInteractions",
       recordSchemas.keys,
@@ -217,6 +218,7 @@ export class Snapshot {
       itemLinks: {},
       indexes: {
         liveTools: {},
+        openText: {},
         pendingInteractions: {},
         runningTasks: {},
         agentKeysById: {},
