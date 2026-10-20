@@ -36,7 +36,7 @@ export class MirrorThread implements ThreadSource {
   private copy = false;
   private meta: ThreadView["thread"] | undefined;
   private queued: ThreadView["queue"] | undefined;
-  private run: ThreadView["offshift"];
+  private card: ThreadView["offshift"];
   private ids: readonly string[] = none;
   private seq: number | undefined;
   private before: number | null | undefined;
@@ -74,7 +74,7 @@ export class MirrorThread implements ThreadSource {
       this.snapshots,
     ];
     const held: unknown[] = [this.meta, this.queued, this.ids, this.links, this.interactionList];
-    held.push(this.taskList, this.run);
+    held.push(this.taskList, this.card);
     for (const map of maps) held.push(Array.from(map));
     return JSON.stringify(held).length * 2 + (this.cut.size + this.removed.size) * 64;
   }
@@ -94,7 +94,7 @@ export class MirrorThread implements ThreadSource {
     return this.queued;
   }
   get offshift() {
-    return this.run;
+    return this.card;
   }
   get context() {
     const root = this.meta?.rootAgentId;
@@ -171,7 +171,7 @@ export class MirrorThread implements ThreadSource {
     this.copy = copy.unconfirmed ?? false;
     this.meta = view?.thread;
     this.queued = view?.queue;
-    this.run = view?.offshift;
+    this.card = view?.offshift;
     this.ids = view?.itemOrder ?? none;
     this.seq = view?.seq;
     this.before = view?.itemsBefore;
@@ -220,7 +220,7 @@ export class MirrorThread implements ThreadSource {
         this.queued = trusted<ThreadView["queue"]>(v);
         return;
       case "offshift":
-        this.run = trusted<ThreadView["offshift"]>(v);
+        this.card = trusted<ThreadView["offshift"]>(v);
         return;
       case "order":
         this.ids = trusted<readonly string[] | undefined>(v) ?? none;

@@ -8,7 +8,9 @@ const key = z
   .regex(/^[a-zA-Z0-9_.-]+$/);
 const text = z.string().min(1).max(4096);
 export const OffshiftEvidenceKind = z.enum(["automated", "source", "ui", "human", "manual"]);
+export type OffshiftEvidenceKind = z.infer<typeof OffshiftEvidenceKind>;
 export const OffshiftPhase = z.enum(["plan", "implement", "verify", "review", "delivery"]);
+export type OffshiftPhase = z.infer<typeof OffshiftPhase>;
 export const OffshiftCriterion = z.strictObject({
   id: key.describe("A stable id for the criterion (letters, digits, _ . -)."),
   description: text.describe("The observable behaviour that must hold."),

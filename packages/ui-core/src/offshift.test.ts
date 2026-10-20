@@ -41,7 +41,10 @@ test("a delivered run with current evidence is Done only once the whole tree is"
     runningAgents: 0,
   });
   expect(background).toMatchObject({ word: "Waiting", done: false });
-  const working = offshiftSummary(card(), { status: { state: "working" }, runningAgents: 0 });
+  const working = offshiftSummary(card(), {
+    status: { state: "working", agents: 1 },
+    runningAgents: 0,
+  });
   expect(working.word).toBe("Working");
 });
 
@@ -60,7 +63,7 @@ test("a request waiting on the person outranks the run: Approve for approvals, e
 
 test("a blocked run waits and carries its blocker, even while agents work", () => {
   const blocked = offshiftSummary(card({ phase: "implement", blocker: "Need a test account" }), {
-    status: { state: "working" },
+    status: { state: "working", agents: 1 },
     runningAgents: 2,
   });
   expect(blocked).toMatchObject({

@@ -59,6 +59,21 @@ function fold(payloads: EventPayload[]) {
   });
   return { view, list };
 }
+const offshiftCard = (id: string, version: number) => ({
+  id,
+  outcome: "Restore works",
+  outcomeTruncated: false,
+  endpoint: "Local change",
+  phase: "verify" as const,
+  blocker: null,
+  version,
+  updatedAt: version,
+  revision: "r1",
+  criteria: [],
+  criteriaCount: 1,
+  pending: [],
+  pendingCount: 0,
+});
 describe("projection", () => {
   it("folds every payload type and preserves JSON data and tree links", () => {
     const run = Run.parse({
@@ -285,25 +300,10 @@ describe("projection", () => {
     expect(JSON.parse(JSON.stringify(list)).threads["__proto__"].title).toBe(thread.title);
   });
   it("keeps only the latest-updated Offshift run's card, off the sidebar", () => {
-    const card = (id: string, version: number) => ({
-      id,
-      outcome: "Restore works",
-      outcomeTruncated: false,
-      endpoint: "Local change",
-      phase: "verify" as const,
-      blocker: null,
-      version,
-      updatedAt: version,
-      revision: "r1",
-      criteria: [],
-      criteriaCount: 1,
-      pending: [],
-      pendingCount: 0,
-    });
     const { view, list } = fold([
       { type: "thread.created", thread },
-      { type: "offshift.updated", card: card("first", 0) },
-      { type: "offshift.updated", card: card("second", 3) },
+      { type: "offshift.updated", card: offshiftCard("first", 0) },
+      { type: "offshift.updated", card: offshiftCard("second", 3) },
     ]);
     expect(view.offshift).toMatchObject({ id: "second", version: 3 });
     expect(list.threads["t"]?.updatedAt).toBe(1);
