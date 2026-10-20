@@ -6,20 +6,56 @@ import { aceToolDispatch, aceToolSearch, bareToolName } from "./tool-names.ts";
  * - `all` (no header): Claude Code and Codex defer MCP tools behind their own tool search, so
  *   every tool is listed and `tools_find` loads upfront.
  * - `core`: clients that load every listed tool upfront and reload on `tools/list_changed`
- *   (OpenCode 2.0.22 debounces a reload; Pi's extension re-registers). They start with the core
- *   tools and `tools_find`; a guide, an entry point or a search adds a family.
- * - `static`: clients that never reload (Cursor's SDK caches its list per connection; most ACP
- *   agents and Antigravity never refresh). They keep the core tools and `tools_find`, and reach
- *   every other tool through `tools_call`.
+ *   (OpenCode 2.0.32 debounces a reload; Pi's extension re-registers; Gemini CLI reloads). They
+ *   start with the core tools, `tools_find` and `tools_call`; a guide, an entry point or a search
+ *   adds a family, and `tools_call` reaches a found tool before the reload lands.
+ * - `static`: clients that never reload (Cursor's SDK caches its list per connection; ACP agents
+ *   not known to refresh, Antigravity included). They keep the core tools and `tools_find`, and
+ *   reach every other tool through `tools_call`.
  */
 export type ToolListing = "all" | "core" | "static";
 export const coreToolsHeader = { name: "X-Ace-Tools", value: "core" } as const;
 export const staticToolsHeader = { name: "X-Ace-Tools", value: "static" } as const;
 
+/**
+ * Who the client is, where its model meets ace's tools differently from what its listing says.
+ * Codex lists every tool, but its code-mode models see only `exec`: they call ace tools as
+ * `tools.mcp__ace__<name>(args)` without ever seeing an input schema, so `guide` and `tools_find`
+ * return schemas and that call form to it.
+ */
+export type AceClient = "codex";
+export const codexClientHeader = { name: "X-Ace-Client", value: "codex" } as const;
+export function aceClient(header: string | null | undefined): AceClient | undefined {
+  return header === codexClientHeader.value ? "codex" : undefined;
+}
+
 /** The listing a client asked for; anything unrecognised lists every tool. */
 export function toolListing(header: string | null | undefined): ToolListing {
   if (header === coreToolsHeader.value) return "core";
   return header === staticToolsHeader.value ? "static" : "all";
+}
+/** The header that asks for a listing; listing every tool needs none. */
+export function toolListingHeader(
+  listing: ToolListing,
+): typeof coreToolsHeader | typeof staticToolsHeader | undefined {
+  if (listing === "core") return coreToolsHeader;
+  return listing === "static" ? staticToolsHeader : undefined;
+}
+
+/**
+ * The listing for an ACP agent, by the reviewed CLI behind it (`acpAgentCli`). ACP leaves tool
+ * refresh to each agent:
+ * - Gemini CLI (0.43, ace's floor for it) sends every tool upfront and reloads on
+ *   `tools/list_changed`, so it starts with the core tools and grows.
+ * - claude-agent-acp runs the Claude Agent SDK, which defers MCP tools behind its own tool
+ *   search and honours `anthropic/alwaysLoad`, as Claude Code does.
+ * - Every other agent, Antigravity included, stays static: a conservative default for agents
+ *   not verified to reload, not a claim that they never refresh. Antigravity defers behind its
+ *   own tool search and reloads, but switching it needs a live check first.
+ */
+export function acpToolListing(cli: string | undefined): ToolListing {
+  if (cli === "gemini") return "core";
+  return cli === "claude-acp" ? "all" : "static";
 }
 
 /**
@@ -80,8 +116,8 @@ export class OpenToolsets {
     return set.size > before;
   }
   /**
-   * Whether this session lists a tool now. `tools_call` is listed only where the client never
-   * reloads; in core mode a tool without a family is always listed.
+   * Whether this session lists a tool now. `tools_call` is listed wherever the list is not
+   * complete; in core mode a tool without a family is always listed.
    */
   lists(
     principal: Principal,
@@ -90,11 +126,20 @@ export class OpenToolsets {
     toolset: string | undefined,
   ): boolean {
     const bare = bareToolName(tool);
-    if (bare === aceToolDispatch) return listing === "static";
+    if (bare === aceToolDispatch) return dispatches(listing);
     if (listing === "all" || bare === aceToolSearch || coreTools.has(bare)) return true;
     if (listing === "static") return false;
     return toolset === undefined || (this.open.get(principal)?.has(toolset) ?? false);
   }
+}
+
+/**
+ * Whether a session is offered `tools_call`: wherever its list lacks tools. A core client's list
+ * grows, but a found tool may be listed a model step late; a client listing every tool calls
+ * each one directly.
+ */
+export function dispatches(listing: ToolListing): boolean {
+  return listing !== "all";
 }
 
 function guideTopic(args: unknown): string | undefined {

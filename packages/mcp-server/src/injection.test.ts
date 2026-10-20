@@ -4,6 +4,8 @@ import {
   claudeInjection,
   openCodeInjection,
   acpInjection,
+  acpStdioInjection,
+  acpToolListing,
   cursorSdkInjection,
   developerInstructions,
   aceInstructions,
@@ -14,7 +16,12 @@ it("delivers Codex authority only in native thread configuration", () => {
   const result = codexInjection(connection);
   expect(result.config["mcp_servers.ace"]).toMatchObject({
     url: connection.url,
-    http_headers: { Authorization: `Bearer ${connection.bearer}`, "X-Ace-Notifications": "stream" },
+    http_headers: {
+      Authorization: `Bearer ${connection.bearer}`,
+      "X-Ace-Notifications": "stream",
+      // Codex says who it is, so guide and tools_find return schemas and the exec call form.
+      "X-Ace-Client": "codex",
+    },
     tool_timeout_sec: 660,
   });
 });
@@ -33,7 +40,8 @@ it("builds Claude Agent SDK HTTP mcpServers with bearer headers", () => {
       headers: { Authorization: `Bearer ${connection.bearer}`, "X-Ace-Notifications": "stream" },
     },
   });
-  expect(result.developerInstructions).toContain("mcp__ace__delegate");
+  // Claude loads a deferred ace tool through its own tool search, by exact name.
+  expect(result.developerInstructions).toContain("select:mcp__ace__thread_start");
   expect(result.env.MCP_TOOL_TIMEOUT).toBe("660000");
 });
 it("exposes OpenCode tools directly through the v2 runtime server configuration", () => {
@@ -144,6 +152,17 @@ it("each client asks for the tool listing its tool-list refresh supports", () =>
     expect(
       acpInjection(connection, provider).mcpServers[0]?.headers.map((h) => [h.name, h.value]),
     ).toContainEqual(fixed);
+  // An ACP agent known to reload grows its list; one on the Claude Agent SDK defers like Claude.
+  const acpHeaders = (cli: string) =>
+    acpInjection({ ...connection, listing: acpToolListing(cli) }).mcpServers[0]?.headers.map(
+      (h) => [h.name, h.value],
+    );
+  expect(acpHeaders("gemini")).toContainEqual(core);
+  expect(acpHeaders("claude-acp")?.map(([name]) => name)).not.toContain("X-Ace-Tools");
+  expect(acpHeaders("antigravity")).toContainEqual(fixed);
+  expect(
+    acpStdioInjection({ ...connection, listing: acpToolListing("gemini") }).mcpServers[0]?.env,
+  ).toContainEqual({ name: "ACE_MCP_BRIDGE_TOOLS", value: "core" });
   // Claude Code and Codex defer MCP tools behind their own tool search.
   expect(claudeInjection(connection).mcpServers.ace.headers).not.toHaveProperty("X-Ace-Tools");
   expect(codexInjection(connection).config["mcp_servers.ace"].http_headers).not.toHaveProperty(

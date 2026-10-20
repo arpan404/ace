@@ -1,10 +1,10 @@
 import { daemonMcpCapabilities } from "./services/mcp-capabilities.ts";
 import { createAcpAdapter, genericQuirks } from "@ace/adapter-acp";
 import { acpModelInstanceId } from "./acp-model-instance.ts";
-import { type AgentRegistry } from "@ace/agent-registry";
+import { acpAgentCli, type AgentRegistry } from "@ace/agent-registry";
 import type { ModelCatalog, InstanceInput } from "@ace/models";
 import { AcpIdentity, type McpCapability } from "@ace/protocol";
-import { acpInjection, acpStdioInjection } from "@ace/mcp-server";
+import { acpInjection, acpStdioInjection, acpToolListing } from "@ace/mcp-server";
 import type { EngineOptions, AdapterRegistry } from "./engine/index.ts";
 import type { Services } from "./services/types.ts";
 import type { DaemonOptions } from "./services/options.ts";
@@ -84,7 +84,14 @@ export function acpEngineOptions(input: {
         },
         signal,
       );
-      const connection = { url: input.mcp.url, bearer: lease.bearer };
+      // Each agent lists what its own tool refresh supports: Gemini CLI reloads, the Claude
+      // Agent SDK defers behind its tool search, and the rest keep a fixed list.
+      const connection = {
+        url: input.mcp.url,
+        bearer: lease.bearer,
+        listing: acpToolListing(acpAgentCli(identity.acpAgentId)),
+        session: lease.session,
+      };
       const instance: InstanceInput = {
         id: acpModelInstanceId(identity),
         provider: "acp",
@@ -130,14 +137,17 @@ export function acpEngineOptions(input: {
           metadataFlight = false;
         }
       };
+      // Rendered once here, where the agent's listing is known, so its guidance stays stable.
+      const injected = acpInjection(connection);
       return {
         acpLaunch: plan,
         env: account.env,
         mcp: {
-          httpServers: acpInjection(connection).mcpServers,
+          httpServers: injected.mcpServers,
           stdioServers: acpStdioInjection(connection).mcpServers,
           configuredServers: input.options.acpMcpServers ?? [],
           secrets: [lease.bearer],
+          instructions: injected.developerInstructions,
           end: lease.end,
         },
         onSessionMetadata(metadata) {

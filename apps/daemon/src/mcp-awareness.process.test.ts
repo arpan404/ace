@@ -1,7 +1,7 @@
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
 import type { ThreadId } from "@ace/protocol";
-import { changesKey, structuredClientHeader } from "@ace/mcp-server";
+import { changesKey, codexClientHeader } from "@ace/mcp-server";
 import { EvalAgent } from "./evals/agent.ts";
 import { evalWorld, type EvalWorld } from "./evals/world.ts";
 
@@ -69,7 +69,7 @@ it("a client that reads structured results gets the change note there, once, and
     bearer: connection.bearer,
     nativeInstructions: "",
     serverInstructions: false,
-    headers: { [structuredClientHeader.name]: structuredClientHeader.value },
+    headers: { [codexClientHeader.name]: codexClientHeader.value },
   });
   const working = childId(
     (

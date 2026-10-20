@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import type { Principal } from "./credentials.ts";
 import type { SessionAwareness } from "./awareness.ts";
+import type { AceClient } from "./toolsets.ts";
 
 const FailureCode = z.object({ code: z.string().max(64) });
 const ControlFailure = z.object({ ok: z.literal(false), code: z.string().max(64) });
@@ -12,11 +13,9 @@ const ControlFailure = z.object({ ok: z.literal(false), code: z.string().max(64)
  * are present (its code mode hands the script both).
  */
 export type ResultReader = "text" | "structured";
-/** The header a client sends to say it reads `structuredContent` (Codex). */
-export const structuredClientHeader = { name: "X-Ace-Client", value: "codex" } as const;
-/** The reader a client's headers name; anything else reads text. */
-export function resultReader(header: string | null | undefined): ResultReader {
-  return header === structuredClientHeader.value ? "structured" : "text";
+/** The part of a result this client's model reads: Codex reads `structuredContent`, others text. */
+export function resultReader(client: AceClient | undefined): ResultReader {
+  return client === "codex" ? "structured" : "text";
 }
 /** Reserved `structuredContent` key for the digest; no tool's own output uses it. */
 export const changesKey = "aceChanges";

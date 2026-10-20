@@ -27,7 +27,7 @@ const Found = z.object({
       name: z.string(),
       purpose: z.string(),
       effect: z.string(),
-      inputSchema: z.object({ type: z.literal("object") }),
+      inputSchema: z.object({ type: z.literal("object") }).optional(),
     }),
   ),
   how: z.string().optional(),
@@ -74,6 +74,17 @@ it.skipIf(!chromium)("tools_find ranks the browser's tab tool first for tab work
   const { agent } = await world.agent({});
   for (const query of ["open a new browser tab for a parallel agent", "list the open tabs"])
     expect(found(await agent.call("tools_find", { query }))[0], query).toBe("browser_tabs");
+});
+
+it("tools_find narrows to any family a guide opens, offshift included", async () => {
+  world = await evalWorld({ browser: false });
+  const { agent } = await world.agent({});
+  const result = await agent.call("tools_find", {
+    query: "own a coding outcome end to end",
+    family: "offshift",
+  });
+  expect(result.failed, result.text).toBe(false);
+  expect(found(result)).toEqual(["offshift"]);
 });
 
 it("tools_find answers a query nothing matches with where to look next", async () => {
@@ -147,19 +158,24 @@ it("tools_call refuses to run tools_call or tools_find, and points an unknown na
   await cursor.close();
 });
 
-it("tools_call is offered only to clients that never reload their list", async () => {
+it("tools_call is offered to every client whose list lacks tools, never to one listing them all", async () => {
   world = await evalWorld({ browser: false });
   const { full, other: core } = await connect({ [coreToolsHeader.name]: coreToolsHeader.value });
-  for (const agent of [full, core]) {
-    expect(agent.has("tools_find")).toBe(true);
-    expect(agent.has("tools_call")).toBe(false);
-    const refused = await agent.call("tools_call", { name: "automations_list", arguments: {} });
-    expect(refused.failed).toBe(true);
-    expect(refused.text).toContain("tool_unavailable");
-  }
-  // Claude Code defers ace's tools but keeps tools_find loaded.
+  expect(full.has("tools_find")).toBe(true);
+  expect(full.has("tools_call")).toBe(false);
+  const refused = await full.call("tools_call", { name: "automations_list", arguments: {} });
+  expect(refused.failed).toBe(true);
+  expect(refused.text).toContain("tool_unavailable");
+  // A core client's list grows a step late: tools_call reaches a tool it hasn't listed yet.
+  expect(core.has("tools_call")).toBe(true);
+  expect(core.has("automations_list")).toBe(false);
+  const early = await core.call("tools_call", { name: "automations_list", arguments: {} });
+  expect(early.failed, early.text).toBe(false);
+  expect(early.data).toEqual((await full.call("automations_list", {})).data);
+  // Claude Code defers ace's tools but keeps tools_find loaded; Antigravity reads its own key.
   expect(full.tools.find((tool) => tool.name === "tools_find")?.["_meta"]).toMatchObject({
     "anthropic/alwaysLoad": true,
+    "antigravity/alwaysLoad": true,
   });
   await core.close();
 });
@@ -173,6 +189,9 @@ it("a core-mode search adds the found family to the list and tells the agent how
   );
   expect(result.matches[0]?.name).toBe("automations_list");
   expect(result.how).toContain("tool list");
+  expect(result.how).toContain("tools_call");
+  // The reload brings each found tool's schema: the search doesn't pay for it twice.
+  expect(result.matches.every((match) => match.inputSchema === undefined)).toBe(true);
   await core.refreshTools();
   expect(core.has("automations_list")).toBe(true);
   await core.close();

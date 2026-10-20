@@ -1,10 +1,11 @@
 import { z } from "zod";
-import { nodeScheduler, ToolRegistry, type CatalogTool, type SessionTools } from "./registry.ts";
+import { nodeScheduler, ToolRegistry, type CatalogTool } from "./registry.ts";
 import { PublicToolError } from "./public-error.ts";
 import { maxBatchInputBytes } from "./result-budgets.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
-import { guideTopics } from "./status.ts";
+import { guideTopics, toolFamilies } from "./status.ts";
 import { rankTools } from "./tool-search.ts";
+import { findDelivery } from "./tool-delivery.ts";
 import { aceToolDispatch, aceToolSearch, bareToolName } from "./tool-names.ts";
 
 const maxMatches = 10;
@@ -16,7 +17,8 @@ const Match = z.strictObject({
   purpose: z.string(),
   family: z.string().optional(),
   effect: z.enum(["read-only", "changes", "destructive"]),
-  inputSchema: z.record(z.string(), z.unknown()),
+  /** Absent where the session's own tool list carries it (`tool-delivery.ts`). */
+  inputSchema: z.record(z.string(), z.unknown()).optional(),
 });
 const FindResult = z.strictObject({
   matches: z.array(Match).max(maxMatches),
@@ -26,12 +28,6 @@ const FindResult = z.strictObject({
   hint: z.string().optional(),
 });
 type Match = z.infer<typeof Match>;
-
-const hows: Readonly<Record<SessionTools["listing"], string | undefined>> = {
-  all: undefined,
-  core: "These are now in your tool list; call them by name with these schemas.",
-  static: "Call these with tools_call {name, arguments}.",
-};
 
 /** What a tool's annotations say it does, in one word. */
 function effect({ tool }: CatalogTool): Match["effect"] {
@@ -67,7 +63,7 @@ const toolsFind = {
       .max(500)
       .describe('What you want to do, in plain words, e.g. "click a button in Safari".'),
     limit: z.number().int().min(1).max(maxMatches).default(5).describe("At most this many."),
-    family: z.enum(guideTopics).optional().describe("Only this family's tools."),
+    family: z.enum(toolFamilies).optional().describe("Only this family's tools."),
   }),
   output: FindResult,
   capability: null,
@@ -130,13 +126,14 @@ export function createMetaRegistry(): ToolRegistry {
         family: entry.family,
         inputSchema: entry.tool.inputSchema,
       }));
+      const delivery = findDelivery(session.listing, context.client);
       const matches = rankTools(query, entries, { limit, family }).map((found) => {
         const match: Match = {
           name: found.name,
           purpose: purpose(found.description),
           effect: effect(found.entry),
-          inputSchema: found.inputSchema,
         };
+        if (delivery.schemas) match.inputSchema = found.inputSchema;
         if (found.title) match.title = found.title;
         if (found.family) match.family = found.family;
         return match;
@@ -146,8 +143,7 @@ export function createMetaRegistry(): ToolRegistry {
           matches,
           hint: `No ace tool here matched. Try other words, a family (${guideTopics.join(", ")}), or guide with one of those topics. A tool whose group is off is not offered; context with topics [status] lists the groups.`,
         };
-      const how = hows[session.listing];
-      return { matches, ...(how ? { how } : {}) };
+      return { matches, ...(delivery.how ? { how: delivery.how } : {}) };
     },
   });
   const { output: _documented, ...dispatcher } = toolsCall;

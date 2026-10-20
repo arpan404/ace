@@ -46,8 +46,9 @@ agent, installation and instance ids, so agents never pass them.
 **Core mode per client.** Upfront-loading clients that reload on `tools/list_changed` (OpenCode
 2.0.22, Pi) send `X-Ace-Tools: core`. Cursor's SDK 1.0.35 caches tools per connection and never
 handles the notification, and ACP leaves it to each agent, so Cursor, ACP and Antigravity list
-every tool: a tool a client never lists cannot be called. In core mode `guide` returns its
-family's schemas inline. Tools without a family are always listed.
+every tool: a tool a client never lists cannot be called. In core mode `guide` returned its
+family's schemas inline (superseded by "Schemas are paid once" below). Tools without a family
+are always listed.
 
 **Instructions and errors.** The always-on text names situations and tools (context first in an
 existing project, delegate for parallel work, browser_open then a snapshot after a UI change,
@@ -102,20 +103,51 @@ Code. It ranks only the tools this session could call (capabilities, groups that
 `ask` availability already applied) against the query: stemmed words from each tool's name,
 title, description, family and field descriptions, a small synonym table ("Safari" → app,
 "tap" → click) and rarer words weighted higher. The ranking is pure and deterministic
-(`tool-search.ts`). Each match carries its name, title, purpose, family, effect and full input
-schema, so the next call needs no second lookup. In core mode a search also opens the families
-it returned, the way reading a guide does.
+(`tool-search.ts`). Each match carries its name, title, purpose, family and effect, plus its
+input schema wherever the session's own list would not bring it (see "Schemas are paid once"
+below). In core mode a search also opens the families it returned, the way reading a guide does.
 
 **Listing per client.** `X-Ace-Tools` now takes three values:
 
-- no header (Claude Code, Codex): every tool, with `tools_find` beside their own tool search.
-  `tools_call` would only duplicate a direct call there, so it is not offered.
-- `core` (OpenCode, Pi): the core tools plus `tools_find`, growing on `guide`, entry points and
-  searches. These clients reload, so a found tool becomes a listed tool with its own
-  annotations. `tools_call` is not offered, because it would replace each tool's accurate
-  annotations with its own destructive one.
-- `static` (Cursor's SDK, ACP over HTTP and the stdio bridge, Antigravity): the core tools,
-  `tools_find` and `tools_call` (11 tools with the browser and computer use on), and the list never grows.
+- no header (Claude Code, Codex, claude-agent-acp): every tool, with `tools_find` beside their
+  own tool search. `tools_call` would only duplicate a direct call there, so it is not offered.
+- `core` (OpenCode, Pi, Gemini CLI over ACP): the core tools plus `tools_find` and `tools_call`,
+  growing on `guide`, entry points and searches. These clients reload, so a found tool becomes a
+  listed tool with its own annotations. The reload can land a model step late (OpenCode
+  debounces it, then lists again), so `tools_call` reaches a found tool until it is listed.
+- `static` (Cursor's SDK, other ACP agents over HTTP and the stdio bridge, Antigravity): the core
+  tools, `tools_find` and `tools_call` (12 tools with the browser and computer use on), and the
+  list never grows. Static is the conservative default for an ACP agent not known to reload,
+  not a claim that it never refreshes.
+
+**Schemas are paid once (2026-10-20).** A core client's reload delivers every listed tool's
+schema, so `guide` and `tools_find` there return names, purposes and how to call them, never
+the schemas again (a browser guide read cost 7,945 tokens in core against 2,635 elsewhere).
+Static clients cannot reload and keep inline schemas. Codex lists every tool but its code-mode
+models see only `exec` and call `tools.mcp__ace__<name>(args)` without a schema; it sends
+`X-Ace-Client: codex`, and `guide` and `tools_find` return it the schemas and that call form.
+The rule lives in one place (`tool-delivery.ts`). Codex's developer prefix adds a short recipe
+(call ace from `exec`, ace's `wait` is `tools.mcp__ace__wait`, filter `ALL_TOOLS` or ask
+`tools_find` for a schema) and the bare names this session can call, folded by family and capped
+near 300 tokens, so it stops dumping `ALL_TOOLS` before its first ace call.
+
+**Per-ACP-agent listing.** The daemon picks the listing by the reviewed CLI behind an ACP agent
+(`acpToolListing`): Gemini CLI (it reloads on `tools/list_changed`) is core, claude-agent-acp (the
+Claude Agent SDK defers behind its tool search) lists every tool, and every other agent stays
+static. The stdio bridge carries the choice in `ACE_MCP_BRIDGE_TOOLS`. Always-loaded tools also
+carry `antigravity/alwaysLoad`, which Antigravity reads; it stays static until a live check.
+
+**Guidance per session.** The shared server text stays the same for everyone and under 315
+tokens. What differs goes in the provider's own channel, rendered once per session so its
+cached prefix holds: how to reach a tool the list may lack (Claude's tool search by exact name,
+`select:mcp__ace__thread_start`; core's `guide` or `tools_call`; static's `tools_call`), and in a
+read-only session which ace read tools still work. ACP's text is rendered by the daemon, which
+knows the agent's listing, and handed to the adapter.
+
+**`tools/list_changed` reaches only the session whose list changed.** A core session that opens
+a family is told; every other session keeps its list and its provider's prompt cache. Listen
+streams are tied to the lease of the request that opened them; legacy streams are matched by
+lease. Changes that concern every session (a group turned on or off) still reach all.
 
 **`tools_call {name, arguments}`** runs the named tool through the server's direct call path:
 the same registry lookup, capability and group checks, schema validation and error text,
@@ -130,4 +162,4 @@ can reach `thread_merge` and `automation_remove`. Marking it `destructiveHint: t
 cost is that it also asks before a dispatched read. ace adds no gate of its own (ADR 0002), so
 under-declaring would let a destructive call through unasked. Clients that list tools
 individually keep per-tool annotations, which is why `tools_call` is offered only where the
-list cannot grow.
+list is incomplete: a core client calls a found tool directly once its list reloads.

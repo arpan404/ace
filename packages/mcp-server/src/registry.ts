@@ -17,7 +17,7 @@ import {
   dispatchedAceCall,
   toolNamePattern,
 } from "./tool-names.ts";
-import type { ToolListing } from "./toolsets.ts";
+import type { AceClient, ToolListing } from "./toolsets.ts";
 
 /** A tool this session could call, with the guide topic of its family. */
 export interface CatalogTool {
@@ -32,7 +32,7 @@ export interface SessionTools {
   catalog(): readonly CatalogTool[];
   /**
    * Runs a tool exactly as this session calling it directly would. Present only where the
-   * client never reloads its list, the one place `tools_call` is offered.
+   * client does not list every tool, where `tools_call` is offered (`toolsets.ts`).
    */
   readonly dispatch?:
     | ((name: string, input: unknown, signal: AbortSignal) => Promise<CallToolResult>)
@@ -48,6 +48,8 @@ export interface ToolContext {
    * returns its family's schemas inline.
    */
   readonly listing?: ToolListing;
+  /** The client, where it reads tools differently from its listing (`toolsets.ts`). */
+  readonly client?: AceClient;
   /** Set by the server for the meta tools only. */
   readonly session?: SessionTools;
 }
@@ -281,7 +283,11 @@ export class ToolRegistry {
       _meta: {
         "ace/timeoutMs": timeoutMs,
         "ace/riskClass": risk,
-        ...(alwaysLoadedTools.has(bareToolName(name)) ? { "anthropic/alwaysLoad": true } : {}),
+        // Antigravity's ACP agent (1.4.1) defers behind its own tool search and reads its own
+        // key; it keeps a static list for now, where the key is harmless.
+        ...(alwaysLoadedTools.has(bareToolName(name))
+          ? { "anthropic/alwaysLoad": true, "antigravity/alwaysLoad": true }
+          : {}),
       },
       inputSchema,
       ...(output
@@ -382,7 +388,7 @@ export class ToolRegistry {
     input: unknown,
     principal: Principal,
     requestSignal: AbortSignal,
-    options: { listing?: ToolListing; session?: SessionTools } = {},
+    options: { listing?: ToolListing; client?: AceClient; session?: SessionTools } = {},
   ): Promise<CallToolResult> {
     if (principal.signal.aborted) return failure("session_ended");
     const { sessionId, threadId, agentId } = principal.scope;
@@ -393,6 +399,7 @@ export class ToolRegistry {
       capabilities: principal.scope.capabilities,
       signal,
       ...(options.listing ? { listing: options.listing } : {}),
+      ...(options.client ? { client: options.client } : {}),
       ...(options.session ? { session: options.session } : {}),
     };
     const observe = this.observeCall?.(name, input, context);

@@ -392,7 +392,7 @@ class AcpSession implements ProviderSession {
       // ACP has no portable system-instruction field, so ace's guidance rides in prompt context:
       // once per connection (a new or loaded session), never every turn, where each copy would
       // stay in history and re-bill. ACP reports no compaction, so there is no signal to resend on.
-      const guidance = this.ctx.mcp && !this.guided;
+      const guidance = this.guided ? undefined : this.ctx.mcp;
       const result = await this.rpc.request(
         "session/prompt",
         {
@@ -402,7 +402,7 @@ class AcpSession implements ProviderSession {
               ? [
                   {
                     type: "text",
-                    text: `<ace-tool-guidance>\n${developerInstructions(this.quirks.provider, this.ctx.aceMcp?.session?.())}\n</ace-tool-guidance>`,
+                    text: `<ace-tool-guidance>\n${guidance.instructions ?? developerInstructions(this.quirks.provider, this.ctx.aceMcp?.session?.())}\n</ace-tool-guidance>`,
                   },
                 ]
               : []),

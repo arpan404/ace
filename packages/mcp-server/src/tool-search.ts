@@ -4,6 +4,7 @@
  * synonym table bridges task words to tool words ("safari" → app, "tap" → click), and rarer
  * words count for more (IDF), so a family's shared vocabulary doesn't drown the specific tool.
  */
+import { bareToolName } from "./tool-names.ts";
 
 /** One tool as the session could call it. */
 export interface SearchableTool {
@@ -41,6 +42,7 @@ const familyWords: Readonly<Record<string, string>> = {
   "ace-computer-use": "computer native app desktop window simulator",
   "ace-threads": "thread conversation history",
   visualize: "visual chart diagram",
+  offshift: "outcome deliver delivery own",
 };
 
 /** Each group's words stand in for one another. Stems, as `stem` returns them. */
@@ -55,7 +57,9 @@ const synonymGroups: readonly string[] = [
   "screenshot image picture capture visual look",
   "run start launch spawn kick begin execute",
   "task job work subtask",
-  "other another remote different elsewhere paired machine host laptop server",
+  // "other" and "another" are stopwords ("switch to another tab" is not about machines), so they
+  // never reach this group; "machine" carries "another machine".
+  "remote different elsewhere paired machine host laptop server",
   "agent subagent child worker helper parallel delegate",
   "wait until finish done block result",
   "thread conversation chat session history transcript",
@@ -158,7 +162,8 @@ export function rankTools<T extends SearchableTool>(
     for (const [term, weight] of terms)
       if (weight >= weights.description) frequency.set(term, (frequency.get(term) ?? 0) + 1);
   const rarity = (term: string) => Math.log(1 + indexed.length / (1 + (frequency.get(term) ?? 0)));
-  const exact = query.trim().toLowerCase();
+  // Any provider's spelling names the tool: mcp__ace__thread_read and ace_thread_read too.
+  const exact = bareToolName(query.trim().toLowerCase());
   const scored = indexed.map(({ tool, terms }) => {
     let score = 0;
     let matched = 0;
@@ -172,7 +177,7 @@ export function rankTools<T extends SearchableTool>(
       score += best;
     }
     // Naming the tool outright always ranks it first.
-    if (exact === tool.name) score += 100;
+    if (exact === bareToolName(tool.name)) score += 100;
     return { tool, score: score * (0.5 + (0.5 * matched) / asked.length) };
   });
   const top = Math.max(0, ...scored.map((entry) => entry.score));

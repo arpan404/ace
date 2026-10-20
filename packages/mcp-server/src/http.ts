@@ -1,14 +1,22 @@
 import { legacySessions } from "./legacy-sessions.ts";
 import { mcpStatusGroups, type StatusReader, aceInstructions } from "./status.ts";
 import { SessionAwareness, type AwarenessPort } from "./awareness.ts";
-import { resultReader, structuredClientHeader, withChanges } from "./changes.ts";
+import { resultReader, withChanges } from "./changes.ts";
 import { progressHeartbeat } from "./progress-heartbeat.ts";
 import { contextResources, createContextRegistry } from "./context-tool.ts";
 import type { KnowledgePort } from "./knowledge-tools.ts";
-import { OpenToolsets, coreToolsHeader, toolListing } from "./toolsets.ts";
+import {
+  OpenToolsets,
+  aceClient,
+  codexClientHeader,
+  coreToolsHeader,
+  dispatches,
+  toolListing,
+} from "./toolsets.ts";
 import { aceToolDispatch, aceToolSearch, bareToolName, dispatchedAceCall } from "./tool-names.ts";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { createMetaRegistry, foundFamilies } from "./meta-tools.ts";
+import { PrincipalEventBus } from "./principal-bus.ts";
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import { CredentialRegistry, type Principal } from "./credentials.ts";
@@ -47,16 +55,26 @@ export async function startMcpServer(options: McpServerOptions) {
   });
   const status = createContextRegistry(options.registry, options.status, options.knowledge);
   const awareness = options.awareness
-    ? new SessionAwareness(options.awareness, (principal) => {
-        const state = options.status?.(principal.scope);
-        return mcpStatusGroups(
-          options.registry.capabilities(),
-          principal.scope.capabilities,
-          state?.disabled,
-        )
-          .filter((group) => group.enabled && group.name !== "thread")
-          .map((group) => group.name);
-      })
+    ? new SessionAwareness(
+        options.awareness,
+        (principal) => {
+          const state = options.status?.(principal.scope);
+          return mcpStatusGroups(
+            options.registry.capabilities(),
+            principal.scope.capabilities,
+            state?.disabled,
+          )
+            .filter((group) => group.enabled && group.name !== "thread")
+            .map((group) => group.name);
+        },
+        // What a session listing every tool can call; tools_call is offered only to the others.
+        (principal) =>
+          [
+            ...status.list(principal).map((tool) => tool.name),
+            aceToolSearch,
+            ...options.registry.list(principal).map((tool) => tool.name),
+          ].map(bareToolName),
+      )
     : undefined;
   const credentials =
     options.credentials ?? new CredentialRegistry(() => randomBytes(32).toString("hex"));
@@ -179,8 +197,8 @@ async function createHandler(
     if (bare === "context") return status;
     return bare === aceToolSearch || bare === aceToolDispatch ? meta : options.registry;
   };
-  // Set once the handlers exist: a call that opens a toolset re-announces the tool list.
-  let announce: () => void = noop;
+  // Set once the handlers exist: a call that opens a toolset re-announces that session's list.
+  let announce: (principal: Principal) => void = noop;
   const factory: import("@modelcontextprotocol/server").McpServerFactory = ({ requestInfo }) => {
     const principal = credentials.authenticate(
       bearer(requestInfo?.headers.get("authorization") ?? undefined),
@@ -188,7 +206,8 @@ async function createHandler(
     if (!principal) throw new Error("Unauthorized");
     const caller = principal;
     const listing = toolListing(requestInfo?.headers.get(coreToolsHeader.name));
-    const reader = resultReader(requestInfo?.headers.get(structuredClientHeader.name));
+    const client = aceClient(requestInfo?.headers.get(codexClientHeader.name));
+    const reader = resultReader(client);
     const catalog = (): CatalogTool[] =>
       [...status.list(principal), ...options.registry.list(principal)].map((tool) => ({
         tool,
@@ -199,13 +218,14 @@ async function createHandler(
       const registry = registryFor(name);
       return registry.call(name, args, principal, signal, {
         listing,
+        ...(client ? { client } : {}),
         ...(registry === meta ? { session } : {}),
       });
     };
     const session: SessionTools = {
       listing,
       catalog,
-      ...(listing === "static" ? { dispatch: direct } : {}),
+      ...(dispatches(listing) ? { dispatch: direct } : {}),
     };
     // The HTTP SDK validates mirrored parameters only for McpServer products. Reuse
     // our prepared schema by name instead of registering/scanning every tool per call.
@@ -289,11 +309,16 @@ async function createHandler(
         ],
       };
     });
-    /** Whether a successful call adds families to a core-mode session's list. */
-    const opens = (name: string, args: unknown, result: CallToolResult): boolean =>
-      bareToolName(name) === aceToolSearch
+    /**
+     * Whether a successful call adds families to a core-mode session's list. A dispatched call
+     * opens what calling its tool directly would.
+     */
+    const opens = (name: string, args: unknown, result: CallToolResult): boolean => {
+      const call = dispatchedAceCall(name, args);
+      return bareToolName(call.name) === aceToolSearch
         ? listing === "core" && toolsets.add(principal, foundFamilies(result.structuredContent))
-        : toolsets.opened(principal, name, args);
+        : toolsets.opened(principal, call.name, call.input);
+    };
     server.setRequestHandler("tools/list", async () => ({
       tools: [
         ...status.list(principal),
@@ -330,7 +355,8 @@ async function createHandler(
           args,
           AbortSignal.any([context.mcpReq.signal, controller.signal]),
         ).finally(stopBeats);
-        if (!result.isError && opens(name, args, result)) announce();
+        // Only a core session's list grows, and only that session needs to reload it.
+        if (!result.isError && listing === "core" && opens(name, args, result)) announce(principal);
         // A dispatched call is remembered as the tool it ran.
         const tool = dispatchedAceCall(name, args).name;
         return awareness ? withChanges(awareness, principal, tool, result, reader) : result;
@@ -346,14 +372,16 @@ async function createHandler(
     });
     return product;
   };
+  const bus = new PrincipalEventBus();
   const handler = createMcpHandler(factory, {
     legacy: "stateless",
     maxRequestBodySize: options.maxBodyBytes ?? 64 * 1024,
     maxSubscriptions: 16,
+    bus,
   });
-  const legacy = await legacySessions(factory, (request) =>
-    credentials.authenticate(bearer(request.headers.get("authorization") ?? undefined)),
-  );
+  const authenticate = (request: Request) =>
+    credentials.authenticate(bearer(request.headers.get("authorization") ?? undefined));
+  const legacy = await legacySessions(factory, authenticate);
   const nodeHandler = toNodeHandler(
     {
       fetch: async (request: Request) => {
@@ -362,16 +390,17 @@ async function createHandler(
           (await isLegacyRequest(request))
         )
           return legacy.fetch(request);
-        return handler.fetch(request);
+        // A listen stream opened by this request belongs to its lease (`principal-bus.ts`).
+        return bus.serving(authenticate(request), () => handler.fetch(request));
       },
     },
     {
       maxRequestBodySize: options.maxBodyBytes ?? 64 * 1024,
     },
   );
-  announce = () => {
-    handler.notify.toolsChanged();
-    legacy.toolsChanged();
+  announce = (principal) => {
+    bus.publishTo(principal, { kind: "tools_list_changed" });
+    legacy.toolsChangedFor(principal);
   };
   const validateHost = localhostHostValidation();
   const validateOrigin = localhostOriginValidation();

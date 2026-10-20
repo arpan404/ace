@@ -1,4 +1,4 @@
-import type { McpAttribution } from "@ace/protocol";
+import type { AccessMode, McpAttribution } from "@ace/protocol";
 import type { Principal } from "./credentials.ts";
 import { renderBrief, renderDigest, type SessionFacts } from "./brief.ts";
 import { renderRoles, type SessionRoles } from "./roles.ts";
@@ -14,6 +14,23 @@ export interface AwarenessPort {
   roles?(): SessionRoles;
 }
 
+/** What a session's guidance is rendered from, fixed at its first read. */
+type SessionGuidanceFacts = {
+  brief?: string;
+  groups?: string[];
+  roles?: string;
+  tools?: string[];
+  access?: AccessMode;
+};
+
+function copyGuidance(guidance: SessionGuidanceFacts): SessionGuidanceFacts {
+  return {
+    ...guidance,
+    ...(guidance.groups ? { groups: [...guidance.groups] } : {}),
+    ...(guidance.tools ? { tools: [...guidance.tools] } : {}),
+  };
+}
+
 /**
  * Per-lease brief and "since your last ace call" digest. The last-seen facts live with the lease
  * (a WeakMap on its principal), so they end with it and are never shared between sessions.
@@ -24,17 +41,21 @@ export class SessionAwareness {
   /** Each session's roles line as first read; a later settings change never alters it. */
   private readonly roles = new WeakMap<Principal, string | null>();
   /** Each session's guidance as first rendered; the session's prefix never changes after. */
-  private readonly fixed = new WeakMap<
-    Principal,
-    { brief: string; groups: string[]; roles?: string }
-  >();
+  private readonly fixed = new WeakMap<Principal, SessionGuidanceFacts>();
   /** Recent failed calls per session id, newest last; bounded in sessions and entries. */
   private readonly failureLog = new Map<string, { tool: string; code: string; count: number }[]>();
   private readonly port: AwarenessPort;
   private readonly groups: (principal: Principal) => string[];
-  constructor(port: AwarenessPort, groups: (principal: Principal) => string[]) {
+  private readonly tools: (principal: Principal) => string[];
+  /** `tools` names what the session can call, for providers whose model never sees the list. */
+  constructor(
+    port: AwarenessPort,
+    groups: (principal: Principal) => string[],
+    tools: (principal: Principal) => string[] = () => [],
+  ) {
     this.port = port;
     this.groups = groups;
+    this.tools = tools;
   }
   private current(principal: Principal, delegates: boolean): SessionFacts | undefined {
     const facts = this.port.facts(principal.scope);
@@ -51,25 +72,34 @@ export class SessionAwareness {
     return this.current(principal, true);
   }
   /**
-   * The brief, enabled groups and roles line, as this session first read them. Every provider
-   * puts them in a prefix it re-sends each turn, so they stay fixed for the session and its
-   * cache holds; later changes reach the agent in the digest. The first read also marks what
-   * this session has seen.
+   * The brief, enabled groups, roles line, callable tools and access mode, as this session first
+   * read them. Every provider puts them in a prefix it re-sends each turn, so they stay fixed for
+   * the session and its cache holds; later changes reach the agent in the digest. The first read
+   * also marks what this session has seen.
    */
-  guidance(principal: Principal): { brief?: string; groups?: string[]; roles?: string } {
+  guidance(principal: Principal): {
+    brief?: string;
+    groups?: string[];
+    roles?: string;
+    tools?: string[];
+    access?: AccessMode;
+  } {
     const fixed = this.fixed.get(principal);
-    if (fixed) return { ...fixed, groups: [...fixed.groups] };
+    if (fixed) return copyGuidance(fixed);
     const facts = this.current(principal, true);
     if (!facts) return {};
     if (!this.seen.has(principal)) this.seen.set(principal, facts);
     const roles = this.rolesLine(principal);
-    const guidance = {
+    const tools = this.tools(principal);
+    const guidance: SessionGuidanceFacts = {
       brief: renderBrief(facts),
       groups: [...facts.groups],
       ...(roles ? { roles } : {}),
+      ...(tools.length ? { tools } : {}),
+      ...(facts.access ? { access: facts.access } : {}),
     };
     this.fixed.set(principal, guidance);
-    return { ...guidance, groups: [...guidance.groups] };
+    return copyGuidance(guidance);
   }
   /** This session's roles line, rendered on its first read and kept as it was. */
   rolesLine(principal: Principal): string | undefined {

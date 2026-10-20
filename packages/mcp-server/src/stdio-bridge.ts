@@ -5,7 +5,7 @@ import { outputGate, RpcWriter, SseParser } from "@ace/provider-kit/streams";
 import { nodeScheduler, type Scheduler } from "./registry.ts";
 import { AceMcpConnectionSchema, type AceMcpConnection } from "./injection.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
-import { staticToolsHeader } from "./toolsets.ts";
+import { toolListingHeader, type ToolListing } from "./toolsets.ts";
 import {
   maxBridgeResponseBytes,
   maxBridgeQueuedBytes,
@@ -25,10 +25,14 @@ export type BridgeOptions = {
   signal: AbortSignal;
   fetch?: typeof fetch;
   scheduler?: Scheduler;
+  /** The listing the agent's tool refresh supports (`acpToolListing`); static by default. */
+  listing?: ToolListing;
 };
 /** One supervised stdio child, bounded request admission and callback-plus-drain writes. */
 export async function runStdioBridge(options: BridgeOptions): Promise<void> {
   const connection = AceMcpConnectionSchema.parse(options.connection);
+  const header = toolListingHeader(options.listing ?? "static");
+  const listingHeaders: Record<string, string> = header ? { [header.name]: header.value } : {};
   const lifetime = new AbortController();
   const signal = AbortSignal.any([options.signal, lifetime.signal]);
   const writer = new RpcWriter(options.output, maxBridgeQueuedBytes);
@@ -63,13 +67,9 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
     (listening ??= (async () => {
       await notifications.connect(
         new StreamableHTTPClientTransport(new URL(connection.url), {
-          // Only ACP agents use this bridge. Most never refresh on tools/list_changed, so they
-          // keep the core tools plus tools_find and reach the rest through tools_call.
+          // Only ACP agents use this bridge; each lists what its own tool refresh supports.
           requestInit: {
-            headers: {
-              Authorization: `Bearer ${connection.bearer}`,
-              [staticToolsHeader.name]: staticToolsHeader.value,
-            },
+            headers: { Authorization: `Bearer ${connection.bearer}`, ...listingHeaders },
           },
           ...(options.fetch ? { fetch: options.fetch } : {}),
         }),
@@ -116,7 +116,7 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
           Accept: "application/json, text/event-stream",
           Authorization: `Bearer ${connection.bearer}`,
           "MCP-Protocol-Version": "2025-11-25",
-          [staticToolsHeader.name]: staticToolsHeader.value,
+          ...listingHeaders,
         },
         body: line,
       });
