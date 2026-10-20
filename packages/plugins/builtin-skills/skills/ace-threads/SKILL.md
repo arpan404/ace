@@ -11,7 +11,7 @@ With **full access** (see `context` topic `status`), you act for the person: you
 
 ## Know the project
 
-- `context` reads in one call what ace already knows: `status` (this thread, project, access mode, which ace tool groups are on), `recent` threads with their outcomes, `changes` (branch, upstream, uncommitted paths), `prs` with CI state, `notes`, and `diagnostics` (this session's failed ace calls and what keeps the thread from settling). Pass only the `topics` you need.
+- `context` reads in one call what ace already knows: `status` (this thread, project, access mode, which ace tool groups are off), the 5 most `recent` threads with their outcomes, `changes` (branch, upstream, uncommitted paths), `prs` with CI state, `notes`, and `diagnostics` (this session's failed ace calls and what keeps the thread from settling). Pass only the `topics` you need.
 - `note_add` saves one lasting project fact for every future thread and provider, such as how to run the tests or a pitfall you hit. `note_retire` removes a wrong one by its id from `context`. Notes are facts; the person sees and edits them.
 
 ## Read threads

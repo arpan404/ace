@@ -118,7 +118,7 @@ const wait = controlTool({
   riskClass: "read-only",
   capability: null,
   description:
-    "Block until threads settle, up to timeoutSeconds. Returns early with needs_you, naming each request, when a thread waits on the person: tell the person and treat it as unfinished. timeout or interrupted: the threads keep working; call wait again, never a polling loop.",
+    "Wait for child agents or other threads to finish, up to timeoutSeconds. Returns early with needs_you, naming each request, when a thread waits on the person: tell the person and treat it as unfinished. timeout or interrupted: the threads keep working; call wait again, never a polling loop.",
   input: z.strictObject({
     threadIds: z
       .array(ThreadId)

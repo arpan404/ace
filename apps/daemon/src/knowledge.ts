@@ -62,8 +62,8 @@ export function knowledgePort(deps: KnowledgeDeps): KnowledgePort {
       const thread = callerThread(caller);
       const want = new Set<KnowledgeTopic>(topics);
       const result: KnowledgeResult = {};
-      const recent = want.has("recent") || want.has("prs") ? recentThreads(deps, thread) : [];
-      if (want.has("recent")) result.recent = recent;
+      const recent = want.has("recent") || want.has("prs") ? recentIds(deps, thread) : [];
+      if (want.has("recent")) result.recent = recentThreads(deps, recent.slice(0, shownRecent));
       if (want.has("changes")) result.changes = await changes(deps.git, cwd(thread));
       signal.throwIfAborted();
       if (want.has("prs")) result.prs = await prs(deps, thread, cwd(thread), recent, signal);
@@ -108,18 +108,33 @@ export function knowledgePort(deps: KnowledgeDeps): KnowledgePort {
   };
 }
 
-function recentThreads(deps: KnowledgeDeps, self: Thread): NonNullable<KnowledgeResult["recent"]> {
-  const ids = deps.store.atomic((db) =>
-    db
-      .prepare(
-        "SELECT id FROM threads WHERE workspace_id=? AND id<>? AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 10",
-      )
-      .all(self.workspaceId, self.id)
-      .map((row) => ThreadId.parse(row["id"])),
-  );
+/** Recent threads `context` shows; PR links still come from the wider recent set. */
+const shownRecent = 5;
+
+/** The project's other live threads, most recently updated first. */
+function recentIds(deps: KnowledgeDeps, self: Thread): ThreadId[] {
+  return deps.store
+    .atomic((db) =>
+      db
+        .prepare(
+          "SELECT id FROM threads WHERE workspace_id=? AND id<>? AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 10",
+        )
+        .all(self.workspaceId, self.id)
+        .map((row) => ThreadId.parse(row["id"])),
+    )
+    .filter((id) => {
+      const thread = deps.store.getThread(id);
+      return thread !== undefined && thread.deletedAt === undefined;
+    });
+}
+
+function recentThreads(
+  deps: KnowledgeDeps,
+  ids: readonly ThreadId[],
+): NonNullable<KnowledgeResult["recent"]> {
   return ids.flatMap((id) => {
     const thread = deps.store.getThread(id);
-    if (!thread || thread.deletedAt !== undefined) return [];
+    if (!thread) return [];
     const outcome = deps.delegations()?.journal.get(id)?.outcome?.result ?? lastAnswer(deps, id);
     const linked = (thread.details?.linkedPrs ?? []).slice(0, 8);
     return [
@@ -127,12 +142,11 @@ function recentThreads(deps: KnowledgeDeps, self: Thread): NonNullable<Knowledge
         threadId: id,
         title: thread.title.slice(0, 256),
         status: thread.status.state,
-        updatedAt: thread.updatedAt,
         ...(thread.details?.branch ? { branch: thread.details.branch.slice(0, 256) } : {}),
         ...(linked.length
           ? { prs: linked.map((pr) => ({ number: pr.number, state: pr.state, url: pr.url })) }
           : {}),
-        ...(outcome ? { outcome: oneLine(outcome, 400) } : {}),
+        ...(outcome ? { outcome: oneLine(outcome, 160) } : {}),
       },
     ];
   });
@@ -178,7 +192,7 @@ async function prs(
   deps: KnowledgeDeps,
   self: Thread,
   cwd: string | undefined,
-  recent: NonNullable<KnowledgeResult["recent"]>,
+  recent: readonly ThreadId[],
   signal: AbortSignal,
 ): Promise<NonNullable<KnowledgeResult["prs"]>> {
   const own = self.details?.linkedPrs ?? [];
@@ -195,13 +209,8 @@ async function prs(
     }
   const listed = [
     ...own.map((pr) => ({ threadId: self.id, pr })),
-    ...recent.flatMap((thread) =>
-      (deps.store.getThread(ThreadId.parse(thread.threadId))?.details?.linkedPrs ?? []).map(
-        (pr) => ({
-          threadId: thread.threadId,
-          pr,
-        }),
-      ),
+    ...recent.flatMap((threadId) =>
+      (deps.store.getThread(threadId)?.details?.linkedPrs ?? []).map((pr) => ({ threadId, pr })),
     ),
   ];
   return listed.slice(0, 20).map(({ threadId, pr }) => {

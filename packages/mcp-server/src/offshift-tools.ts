@@ -169,7 +169,7 @@ export const offshift = controlTool({
   riskClass: "thread-write",
   capability: "thread_control",
   description:
-    "Keep this thread's durable record of a multi-step coding outcome: criteria, steps (from a playbook or your own), phase (plan, implement, verify, review, delivery), blocker and evidence bound to the workspace's Git revision. It records work and never runs it. Changes take the last version. Every result's next says what to do now. Each action's fields are named in action's description.",
+    "Track a multi-step coding outcome in this thread's durable record: criteria, steps, phase, blocker and evidence. Steps come from a playbook or your own; phases are plan, implement, verify, review and delivery; evidence binds to the workspace's Git revision. It records work and never runs it. Changes take the last version. Every result's next says what to do now. Each action's fields are named in action's description.",
   input: Input,
   output: controlResult(OffshiftResult),
   run: (input, control) =>

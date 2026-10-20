@@ -40,7 +40,7 @@ it("rich results preserve image bytes while structured tools retain their smalle
   });
   expect(await f.call("ace_text")).toMatchObject({
     isError: true,
-    content: [{ text: "Tool result too large" }],
+    content: [{ text: expect.stringContaining('"code":"result_too_large"') }],
   });
 });
 it("rich result validation rejects malformed and oversized content before exposing it", async () => {
@@ -66,7 +66,7 @@ it("rich result validation rejects malformed and oversized content before exposi
   });
   expect(await f.call("screen_invalid", { large: true })).toMatchObject({
     isError: true,
-    content: [{ text: "Tool result too large" }],
+    content: [{ text: expect.stringContaining('"code":"result_too_large"') }],
   });
 });
 it("screen names require screen authority and revoked callers cannot receive a late image", async () => {

@@ -103,7 +103,9 @@ it("each provider's per-request ace context stays within its budget", async () =
     // list never reloads, tools_call). Deferring raised from 2,600 to 2,625 for offshift (#899):
     // its deferred name, its guide topic and its clause in the instructions. Then to 2,655 for
     // delegate's runRole field (Offshift roles), which the always-loaded delegate schema carries.
-    const budget = deferring.has(provider) ? 2_655 : reloading.has(provider) ? 3_200 : 3_300;
+    // Lowered to 2,600 / 3,050 / 3,150 once schemas dropped ace's internal constraint notes,
+    // spelled unions flat and shortened the shared requestId description.
+    const budget = deferring.has(provider) ? 2_600 : reloading.has(provider) ? 3_050 : 3_150;
     expect(tokens(always), provider).toBeLessThanOrEqual(budget);
   }
 });

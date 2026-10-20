@@ -220,12 +220,15 @@ export async function executeBrowserCommand(
             task.blocked.reason,
             error instanceof Error ? error.message : "Browser navigation blocked",
           );
-        if (task.deadlineExpired)
+        // Out of time while a site approval was pending: the person did not answer. Out of
+        // time otherwise: the page loads slowly, which is no refusal and blocks nothing.
+        if (task.deadlineExpired && task.expiredOrigin !== undefined)
           throw new BrowserOriginError(
-            task.expiredOrigin ?? browserOrigin(command.url) ?? command.url,
+            task.expiredOrigin,
             "timeout",
-            error instanceof Error ? error.message : "Browser navigation timed out",
+            error instanceof Error ? error.message : "Browser navigation approval timed out",
           );
+        if (task.deadlineExpired) throw new BrowserActionError("page_timeout");
         throw error;
       } finally {
         // Only this page is stopped; sibling sessions share no cancellation.
@@ -428,7 +431,11 @@ export async function executeBrowserCommand(
       context.beforeInput?.();
       await page.wheel(command.x, command.y);
       return { ok: true };
-    case "wait_for":
+    case "wait_for": {
+      // Only a navigation refused during this wait ends it. A refusal left over from an
+      // earlier navigation (or another tab) stays on the browser's state until the next
+      // navigation, and used to fail every later wait at once with its stale reason.
+      const before = context.blocked();
       return waitForBrowser({
         command,
         page,
@@ -440,7 +447,7 @@ export async function executeBrowserCommand(
         currentUrl: () => page.url(),
         checkNavigation: () => {
           const blocked = context.blocked();
-          if (blocked)
+          if (blocked && blocked !== before)
             throw new BrowserOriginError(
               blocked.origin,
               blocked.reason,
@@ -448,6 +455,7 @@ export async function executeBrowserCommand(
             );
         },
       });
+    }
     case "screenshot": {
       if (command.sizes) {
         if (command.ref) throw new BrowserActionError("invalid_arguments");

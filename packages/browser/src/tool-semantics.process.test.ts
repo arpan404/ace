@@ -168,6 +168,15 @@ describe.skipIf(!executablePath)("browser tools agents can aim and pace", () => 
     await expect(f.evaluate("window.settled")).resolves.toBe(true);
   });
 
+  it("browser_find takes query, as every other find tool does, and matches it as the name", async () => {
+    const f = await fixture();
+    await f.navigate();
+    const agent = agentMcp(toolPort(f.service));
+    const found = agent.raw(await agent.ok("browser_find", { query: "save" }));
+    expect(found).toMatch(/button "Save" \[ref=/);
+    expect(found).not.toContain('"Name"');
+  });
+
   it("record_start records the background tab it is given, not the tab the person views", async () => {
     const f = await fixture();
     await f.navigate();

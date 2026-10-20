@@ -1,7 +1,8 @@
 import { legacySessions } from "./legacy-sessions.ts";
 import { mcpStatusGroups, type StatusReader, aceInstructions } from "./status.ts";
 import { SessionAwareness, type AwarenessPort } from "./awareness.ts";
-import { withChanges } from "./changes.ts";
+import { resultReader, structuredClientHeader, withChanges } from "./changes.ts";
+import { progressHeartbeat } from "./progress-heartbeat.ts";
 import { contextResources, createContextRegistry } from "./context-tool.ts";
 import type { KnowledgePort } from "./knowledge-tools.ts";
 import { OpenToolsets, coreToolsHeader, toolListing } from "./toolsets.ts";
@@ -11,7 +12,13 @@ import { createMetaRegistry, foundFamilies } from "./meta-tools.ts";
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import { CredentialRegistry, type Principal } from "./credentials.ts";
-import type { CatalogTool, SessionTools, ToolRegistry } from "./registry.ts";
+import {
+  nodeScheduler,
+  type CatalogTool,
+  type Scheduler,
+  type SessionTools,
+  type ToolRegistry,
+} from "./registry.ts";
 
 export interface McpServerOptions {
   registry: ToolRegistry;
@@ -24,6 +31,8 @@ export interface McpServerOptions {
   port?: number;
   maxRequests?: number;
   maxBodyBytes?: number;
+  /** Timers for progress beats on long calls (`progress-heartbeat.ts`); tests pass their own. */
+  scheduler?: Scheduler;
 }
 export async function startMcpServer(options: McpServerOptions) {
   // A provider's own permission mode, read-only included, decides each call; ace only hides a
@@ -179,6 +188,7 @@ async function createHandler(
     if (!principal) throw new Error("Unauthorized");
     const caller = principal;
     const listing = toolListing(requestInfo?.headers.get(coreToolsHeader.name));
+    const reader = resultReader(requestInfo?.headers.get(structuredClientHeader.name));
     const catalog = (): CatalogTool[] =>
       [...status.list(principal), ...options.registry.list(principal)].map((tool) => ({
         tool,
@@ -310,15 +320,20 @@ async function createHandler(
       try {
         const { name } = request.params;
         const args = request.params.arguments ?? {};
+        const stopBeats = progressHeartbeat(
+          context.mcpReq["_meta"]?.progressToken,
+          (notification) => context.mcpReq.notify(notification),
+          options.scheduler ?? nodeScheduler,
+        );
         const result = await direct(
           name,
           args,
           AbortSignal.any([context.mcpReq.signal, controller.signal]),
-        );
+        ).finally(stopBeats);
         if (!result.isError && opens(name, args, result)) announce();
         // A dispatched call is remembered as the tool it ran.
         const tool = dispatchedAceCall(name, args).name;
-        return awareness ? withChanges(awareness, principal, tool, result) : result;
+        return awareness ? withChanges(awareness, principal, tool, result, reader) : result;
       } finally {
         pending.delete(id);
         if (!pending.size) calls.delete(principal);

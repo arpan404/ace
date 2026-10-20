@@ -55,8 +55,10 @@ thread_link_pr after opening a PR). Error hints name the agent's own next call a
 person only for what only they can do.
 
 **Annotations.** Every tool has a `title`; `openWorldHint` is true only for tools that reach past
-this machine. Control results are advertised as a small envelope; each tool still validates its
-own data.
+this machine. Control tools advertise no output schema (the generic envelope told a model
+nothing its result does not); each tool still validates its own data. Advertised input and output
+schemas drop bounds a model never approaches, ace's internal `x-ace-constraint` notes and closed
+objects, and spell string-choice and discriminated unions flat (`advertised-schema.ts`).
 
 ## Consequences
 

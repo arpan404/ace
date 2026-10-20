@@ -88,7 +88,7 @@ export const browserSnapshotShape = {
     .int()
     .min(1)
     .max(2000)
-    .default(120)
+    .default(80)
     .describe("Most lines to return; the result says when more exist."),
   depth: z
     .number()
@@ -274,6 +274,12 @@ export const browserFindShape = {
     .max(1024)
     .optional()
     .describe("Accessible name; a case-insensitive substring unless exact is true."),
+  query: z
+    .string()
+    .min(1)
+    .max(1024)
+    .optional()
+    .describe("Same as name, as other *_find tools spell it."),
   exact: z.boolean().default(false).describe("Match the whole name exactly."),
   text: z
     .string()
@@ -342,7 +348,13 @@ export const browserLogsShape = {
     .max(599)
     .optional()
     .describe("Keep network entries with this HTTP status."),
-  limit: z.number().int().min(1).max(200).default(50).describe("Most recent entries to return."),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(200)
+    .default(25)
+    .describe("Most recent entries to return; the result says how many older ones exist."),
   requestId: z
     .string()
     .min(1)

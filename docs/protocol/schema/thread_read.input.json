@@ -10,7 +10,7 @@
       "type": "integer"
     },
     "limit": {
-      "default": 20,
+      "default": 10,
       "description": "Items per page, 1 to 50.",
       "maximum": 50,
       "minimum": 1,

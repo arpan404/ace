@@ -20,7 +20,7 @@ export const contextToolCatalog = [
     title: "Read project and session context",
     riskClass: "read-only",
     description:
-      "What ace already knows, in one read; call it before working in an existing project. status: this thread, project, access mode and which ace tool groups are on. recent: recent threads with outcomes and PRs. changes: this worktree's branch, upstream and uncommitted paths. prs: linked PRs with CI. notes: project notes. diagnostics: this session's failed ace calls and what keeps the thread from settling.",
+      "Recent threads, uncommitted changes, PRs, notes and session status in one read; call it first in an existing project. status: this thread, project, access mode and ace tool groups that are off. recent: the 5 latest threads with outcomes. changes: branch, upstream and uncommitted paths. prs: linked PRs with CI. notes: project notes. diagnostics: this session's failed ace calls and what keeps the thread from settling.",
     input: z.strictObject({
       topics: z
         .array(ContextTopic)
@@ -68,7 +68,10 @@ export function createContextRegistry(
           agentId: caller.agentId,
           access: state.access,
           ...(state.project ? { project: state.project } : {}),
-          groups: mcpStatusGroups(registry.capabilities(), capabilities, state.disabled),
+          // Only what is off, with why: a group that is on needs no words.
+          groups: mcpStatusGroups(registry.capabilities(), capabilities, state.disabled).filter(
+            (group) => !group.enabled,
+          ),
         },
         ...known,
       };
