@@ -240,9 +240,11 @@ test("a Claude-spelled thread_control call reads as the action it took", () => {
   );
 });
 
+const offshiftWords = (args: Record<string, unknown>) =>
+  aceStep(mcp("mcp__ace__offshift", args, { server: "claude" }))?.words;
+
 test("an offshift call reads as the record it changed", () => {
-  const words = (args: Record<string, unknown>) =>
-    aceStep(mcp("mcp__ace__offshift", args, { server: "claude" }))?.words;
+  const words = offshiftWords;
   expect(words({ action: "advance", runId: "r", phase: "review" })?.past).toBe(
     "Moved an Offshift run to review",
   );

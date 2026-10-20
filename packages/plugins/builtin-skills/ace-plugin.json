@@ -4,49 +4,16 @@
   "version": "1.2.0",
   "description": "Skills shipped with ace",
   "skills": [
-    {
-      "name": "ace-agents",
-      "path": "skills/ace-agents"
-    },
-    {
-      "name": "ace-browser",
-      "path": "skills/ace-browser"
-    },
-    {
-      "name": "visualize",
-      "path": "skills/visualize"
-    },
-    {
-      "name": "ace-threads",
-      "path": "skills/ace-threads"
-    },
-    {
-      "name": "ace-computer-use",
-      "path": "skills/ace-computer-use"
-    },
-    {
-      "name": "review-changes",
-      "path": "skills/review-changes"
-    },
-    {
-      "name": "fix-failing-tests",
-      "path": "skills/fix-failing-tests"
-    },
-    {
-      "name": "plan-and-delegate",
-      "path": "skills/plan-and-delegate"
-    },
-    {
-      "name": "investigate-bug",
-      "path": "skills/investigate-bug"
-    },
-    {
-      "name": "prepare-pr",
-      "path": "skills/prepare-pr"
-    },
-    {
-      "name": "offshift",
-      "path": "skills/offshift"
-    }
+    { "name": "ace-agents", "path": "skills/ace-agents" },
+    { "name": "ace-browser", "path": "skills/ace-browser" },
+    { "name": "visualize", "path": "skills/visualize" },
+    { "name": "ace-threads", "path": "skills/ace-threads" },
+    { "name": "ace-computer-use", "path": "skills/ace-computer-use" },
+    { "name": "review-changes", "path": "skills/review-changes" },
+    { "name": "fix-failing-tests", "path": "skills/fix-failing-tests" },
+    { "name": "plan-and-delegate", "path": "skills/plan-and-delegate" },
+    { "name": "investigate-bug", "path": "skills/investigate-bug" },
+    { "name": "prepare-pr", "path": "skills/prepare-pr" },
+    { "name": "offshift", "path": "skills/offshift" }
   ]
 }
