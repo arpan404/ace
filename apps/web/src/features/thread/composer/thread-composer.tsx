@@ -289,6 +289,9 @@ export function ThreadComposer({
     if (again) stop();
   };
   const subagents = meta ? (meta.live?.runningSubagentCount ?? runningSubagents(meta.status)) : 0;
+  // While the strip shows what the agent only waits on, Stop sits there instead of the send slot.
+  const [waitingShown, setWaitingShown] = useState(false);
+  const waiting = waitingShown && canStop;
   const toMessage = () =>
     box.current
       ?.querySelector<HTMLElement>('[role="combobox"][contenteditable]')
@@ -347,6 +350,7 @@ export function ThreadComposer({
         onStop={canStop ? stop : undefined}
         onStopKey={stopKey}
         stopping={stopping}
+        stopInStrip={waiting}
         onReturnedOptions={(options) => {
           const identity = selectionIdentity(runsOn(meta));
           if (options) setPicked({ threadId: props.thread.id, identity, options });
@@ -362,6 +366,9 @@ export function ThreadComposer({
               threadId={props.thread.id}
               status={props.status}
               confirmStop={armed ? { subagents } : undefined}
+              onStop={canStop ? stop : undefined}
+              stopping={stopping}
+              onWaitingShown={setWaitingShown}
               requestTarget={props.requestTarget}
               onLeave={toMessage}
               onChooseModel={() => requestPicker((count) => count + 1)}

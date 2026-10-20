@@ -1,4 +1,4 @@
-import { longHistory, replayCursor } from "@ace/fake-daemon";
+import { facts, longHistory, replayCursor } from "@ace/fake-daemon";
 import { CommandId } from "@ace/protocol";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -160,7 +160,7 @@ test("Stop reads Stopping… on its disabled button until the turn ends", async 
   const storage = memoryStorage();
   const saved = Promise.withResolvers<void>();
   let hold = false;
-  await open("busy", {
+  const { app } = await open("busy", {
     outbox: {
       load: storage.load,
       save: async (value) => {
@@ -169,6 +169,9 @@ test("Stop reads Stopping… on its disabled button until the turn ends", async 
       },
     },
   });
+  // The main agent works itself, so its turn's Stop and live line are the composer's own.
+  act(() => app.daemon.apply("thread-replay-cursor", [facts.toolDone("root", "spawn-test")]));
+  await waitFor(() => expect(screen.queryByRole("status", { name: /^Waiting for/ })).toBeNull());
   // Keep the stop pending at its durable outbox boundary while the connection stays ready.
   hold = true;
   try {

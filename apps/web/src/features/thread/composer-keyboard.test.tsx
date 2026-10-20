@@ -1,5 +1,5 @@
-import { longHistory, replayCursor } from "@ace/fake-daemon";
-import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { facts, longHistory, replayCursor } from "@ace/fake-daemon";
+import { act, configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -25,7 +25,9 @@ async function open(scenario: "idle" | "busy") {
 }
 
 test("typing replaces Stop with Queue and clearing the draft brings Stop back", async () => {
-  const { message } = await open("busy");
+  const { app, message } = await open("busy");
+  // The main agent stops waiting on its subagents and works itself: Stop is the send slot's.
+  act(() => app.daemon.apply("thread-replay-cursor", [facts.toolDone("root", "spawn-test")]));
   expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
   await userEvent.type(message, "Also check cold start");
   expect(screen.getByRole("button", { name: "Queue message" })).toBeTruthy();

@@ -398,7 +398,7 @@ function ComposerBody({
               otherKeys={otherKeys}
               otherHint={props.otherSend?.hint}
               describedBy={props.unavailable?.describedBy ?? props.sendBlocked?.describedBy}
-              canStop={canStop && empty}
+              canStop={canStop && empty && !props.stopInStrip}
               stopping={!!props.stopping}
               onSend={footer.onSend}
               onStop={footer.onStop}

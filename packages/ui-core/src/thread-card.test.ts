@@ -262,11 +262,24 @@ test("a row says what its thread is doing when the daemon's live hints know more
     tone: "background",
   });
 
+  // The root does nothing itself while its subagents work: Waiting, with the same running time.
   const subagents = card({ state: "working", agents: 3 }, { waitingOn: 2 });
-  expect(subagents.pill).toMatchObject({ label: "Working", tone: "working" });
-  expect(subagents.status).toMatchObject({ label: "Working", compact: "Working" });
-  expect(subagents.status.label).not.toMatch(/Waiting/);
+  expect(subagents.pill).toMatchObject({ label: "Waiting", tone: "waiting" });
+  expect(subagents.status).toMatchObject({
+    label: "Waiting for 2 subagents",
+    compact: "Waiting",
+    tone: "waiting",
+  });
+  expect(subagents.status.since).toBeDefined();
   expect(subagents.status.since).toBe(subagents.pill?.since);
+
+  // Every working agent is a subagent: the root's turn is over while they carry on.
+  const carryOn = card({ state: "working", agents: 3 }, { runningSubagentCount: 3 });
+  expect(carryOn.status).toMatchObject({ label: "Waiting for 3 subagents", compact: "Waiting" });
+
+  // The root works beside its subagents: Working.
+  const beside = card({ state: "working", agents: 3 }, { runningSubagentCount: 2 });
+  expect(beside.status).toMatchObject({ label: "Working", compact: "Working", tone: "working" });
 
   const asking = card(
     { state: "needs_you", interactions: 1 },

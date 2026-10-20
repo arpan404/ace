@@ -49,8 +49,8 @@ test("the live line, the subagents block and the Summary count subagents by one 
   app.play(failingSubagent()).runThrough("tester-failed");
   await app.open("/t/thread-settings");
   await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });
-  const live = await screen.findByRole("group", { name: "Turn in progress" });
-  await waitFor(() => expect(live.textContent).toContain("Waiting for 1 subagent"));
+  // The live line steps aside for the composer strip while the main agent only waits.
+  expect(await screen.findByRole("status", { name: "Waiting for 1 subagent" })).toBeTruthy();
   const block = await screen.findByRole("region", { name: "2 subagents" });
   await waitFor(() =>
     expect(within(block).getByRole("status").textContent).toBe("1 working · 1 failed"),

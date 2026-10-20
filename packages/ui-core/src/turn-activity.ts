@@ -53,7 +53,18 @@ export interface TurnActivity {
    * "Waiting for 2 subagents", not "Working", with the same timer.
    */
   waitingOnSubagents?: boolean | undefined;
+  /**
+   * What the root waits on while it does nothing itself, also while a Stop is on its way: its
+   * subagents, or (its turn over) background commands it started. The composer's strip shows it
+   * with a Stop.
+   */
+  waitingOn?: TurnWait | undefined;
 }
+
+/** What a root that does nothing itself waits on; `title` names a single background command. */
+export type TurnWait =
+  | { kind: "subagents"; count: number }
+  | { kind: "background"; count: number; title: string | undefined };
 
 export type ActivityReader = Pick<
   ThreadReader,
@@ -222,6 +233,11 @@ export function readTurnActivity(
     (status?.state === "interrupted" || run?.state === "interrupted") && !subagents && !needsYou;
   const working = !stopped && treeWorking({ needsYou, root, subagents, backgroundCommands });
   const waitingOnSubagents = working && rootWaitsOnSubagents(status, subagents);
+  const waitingOn: TurnWait | undefined = waitingOnSubagents
+    ? { kind: "subagents", count: subagents }
+    : !working && !needsYou && status?.state === "blocked" && status.on === "background_task"
+      ? backgroundWait(reader, status.refs)
+      : undefined;
   const shown = stopped
     ? undefined
     : working
@@ -249,9 +265,27 @@ export function readTurnActivity(
             tree.currentCommand(),
           subagents,
           backgroundCommands,
+          waitingOn,
         }
-      : activity;
+      : activity && waitingOn
+        ? { ...activity, waitingOn }
+        : activity;
   return { activity: shown, watch: [...new Set(watch)] };
+}
+
+/** The background commands a finished turn waits on: how many, and the name of a single one. */
+function backgroundWait(reader: ActivityReader, refs: readonly string[]): TurnWait | undefined {
+  const titles: string[] = [];
+  for (const id of refs) {
+    const task = reader.task(id);
+    if (task && !task.ambient) titles.push(task.title);
+  }
+  if (!titles.length) return undefined;
+  return {
+    kind: "background",
+    count: titles.length,
+    title: titles.length === 1 ? titles[0] : undefined,
+  };
 }
 
 /**
@@ -421,6 +455,13 @@ export function sameActivity(a: TurnActivity | undefined, b: TurnActivity | unde
       a.subagents === b.subagents &&
       a.backgroundCommands === b.backgroundCommands &&
       a.asker === b.asker &&
-      a.waitingOnSubagents === b.waitingOnSubagents)
+      a.waitingOnSubagents === b.waitingOnSubagents &&
+      sameWait(a.waitingOn, b.waitingOn))
   );
+}
+
+function sameWait(a: TurnWait | undefined, b: TurnWait | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.kind !== b.kind || a.count !== b.count) return false;
+  return a.kind === "subagents" || (b.kind === "background" && a.title === b.title);
 }

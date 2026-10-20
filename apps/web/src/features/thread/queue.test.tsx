@@ -648,6 +648,8 @@ test.each(["steer", "queue"] as const)(
     const { app, feed, message } = await openBusy({ followUp });
     act(() =>
       app.daemon.apply(threadId, [
+        // The main agent is done waiting on its subagents and runs a command itself.
+        scenarioFacts.toolDone("root", "spawn-test"),
         scenarioFacts.tool("root", "foreground-build", {
           kind: "shell",
           title: "Build",

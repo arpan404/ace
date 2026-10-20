@@ -7,6 +7,7 @@ const facts = (patch: Partial<StripFacts>): StripFacts => ({
   sending: false,
   connection: false,
   stopped: false,
+  waiting: false,
   queue: false,
   goal: false,
   plan: false,
@@ -21,6 +22,16 @@ test("a pending Stop takes the slot over a request and a choice, and is never an
   });
   const later = { ...now, confirmStop: false };
   expect(stripSlot(later, undefined).others).not.toContain("confirm-stop");
+});
+
+test("what the agent waits on ranks below the queue, above the goal and plan", () => {
+  const now = facts({ waiting: true, goal: true, plan: true });
+  expect(stripSlot(now, undefined)).toEqual({ shown: "waiting", others: ["goal", "plan"] });
+  expect(stripSlot({ ...now, queue: true }, undefined)).toEqual({
+    shown: "queue",
+    others: ["waiting", "goal", "plan"],
+  });
+  expect(stripSlot({ ...now, requests: ["approval-1"] }, undefined).shown).toBe("request");
 });
 
 test("background commands left by a stopped turn rank below the connection, above the queue", () => {

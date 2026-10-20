@@ -59,6 +59,8 @@ export interface ComposerProps {
   onStopKey?: ((at: number) => void) | undefined;
   /** A Stop is on its way: the button says so until the turn ends. */
   stopping?: boolean | undefined;
+  /** Stop sits in the strip above (the agent only waits): the primary slot keeps sending. */
+  stopInStrip?: boolean | undefined;
   /** Edit on a failed message brought back the effort and speed it was sent with. */
   onReturnedOptions?: ((options: ReturnedDraft["options"]) => void) | undefined;
   /** Footer controls after +: the approvals icon. They read `useComposerCompact()`. */
