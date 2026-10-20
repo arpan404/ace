@@ -24,6 +24,10 @@ export type CapsuleState =
 /** A capsule's outer shell: a plain list row, a hover fill and nothing at rest. */
 export const capsule = plainRow;
 
+/** A row's Stop on a narrow Summary: only its icon, its name still spoken. */
+export const narrowStop =
+  "@max-[30rem]/summary:px-1.5 @max-[30rem]/summary:[&_[data-slot=stop-label]]:sr-only";
+
 const tones: Record<CapsuleState, Tone> = {
   working: "working",
   waiting: "waiting",
