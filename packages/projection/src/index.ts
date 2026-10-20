@@ -338,6 +338,11 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       view.queue = queue;
       break;
     }
+    case "offshift.updated":
+      // Only the latest-updated run is kept so a snapshot stays bounded however many runs a
+      // thread starts; the agent reads the others through its tool.
+      view.offshift = structuredCopy(p.card);
+      break;
     case "context_meter.updated":
       view.contextMeters ??= {};
       put(view.contextMeters, p.meter.agentId, structuredCopy(p.meter));
