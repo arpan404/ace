@@ -24,12 +24,16 @@ function card(overrides: Partial<OffshiftRunCard>): OffshiftRunCard {
       {
         id: "error",
         description: criterion,
-        evidence: [{ kind: "ui", state: "pass", recordedAt: 1 }],
+        independent: false,
+        evidence: [
+          { kind: "ui", state: "pass", recordedAt: 1, by: { provider: "claude", model: null } },
+        ],
       },
     ],
     criteriaCount: 1,
     pending: [],
     pendingCount: 0,
+    roles: [],
     ...overrides,
   };
 }
@@ -94,7 +98,8 @@ test("a run that lacks evidence lists each missing check, and its criteria open 
         {
           id: "error",
           description: criterion,
-          evidence: [{ kind: "ui", state: "stale", recordedAt: 1 }],
+          independent: false,
+          evidence: [{ kind: "ui", state: "stale", recordedAt: 1, by: null }],
         },
       ],
       pending: [{ criterionId: "error", kind: "ui" }],
@@ -106,8 +111,46 @@ test("a run that lacks evidence lists each missing check, and its criteria open 
   expect(within(section).getByRole("status").textContent).not.toContain("Done");
   await userEvent.click(within(section).getByText("Outcome and criteria"));
   const criteria = within(section).getByRole("list", { name: "Criteria" });
-  expect(criteria.textContent).toContain("UI check Out of date");
+  expect(within(criteria).getByText(/^UI check ·/).textContent).toBe("UI check · Out of date");
   expect(within(section).getByText("The login page shows a helpful error")).toBeTruthy();
+});
+
+test("an independent criterion shows who checked it, and the run's roles open with the criteria", async () => {
+  const section = await openRun(
+    card({
+      phase: "verify",
+      criteria: [
+        {
+          id: "error",
+          description: criterion,
+          independent: true,
+          evidence: [
+            {
+              kind: "manual",
+              state: "not_independent",
+              recordedAt: 1,
+              by: { provider: "claude", model: null },
+            },
+          ],
+        },
+      ],
+      pending: [{ criterionId: "error", kind: "manual", needs: "independent" }],
+      pendingCount: 1,
+      roles: [{ role: "verify", source: "run", provider: "codex", effort: "high" }],
+    }),
+  );
+  const missing = within(section).getByRole("list", { name: "Missing evidence" });
+  expect(within(missing).getByRole("listitem").textContent).toBe(
+    `${criterion}Independent manual check`,
+  );
+  await userEvent.click(within(section).getByText("Outcome and criteria"));
+  const criteria = within(section).getByRole("list", { name: "Criteria" });
+  expect(within(criteria).getByText("Independent")).toBeTruthy();
+  expect(within(criteria).getByText(/^Manual check ·/).textContent).toBe(
+    "Manual check · Not independent · Claude Code",
+  );
+  const roles = within(section).getByRole("list", { name: "Roles" });
+  expect(within(roles).getByRole("listitem").textContent).toBe("VerifyCodex · high");
 });
 
 test("a delivered run with every check passing is not Done while a subagent still works", async () => {

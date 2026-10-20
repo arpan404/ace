@@ -17,12 +17,16 @@ function card(overrides: Partial<OffshiftRunCard> = {}): OffshiftRunCard {
       {
         id: "error",
         description: "Bad password shows an error",
-        evidence: [{ kind: "ui", state: "pass", recordedAt: 1 }],
+        independent: false,
+        evidence: [
+          { kind: "ui", state: "pass", recordedAt: 1, by: { provider: "codex", model: null } },
+        ],
       },
     ],
     criteriaCount: 1,
     pending: [],
     pendingCount: 0,
+    roles: [],
     ...overrides,
   };
 }
@@ -98,9 +102,15 @@ test("missing evidence names each criterion and kind and never reads Done", () =
         {
           id: "error",
           description: "Bad password shows an error",
+          independent: false,
           evidence: [
-            { kind: "ui", state: "stale", recordedAt: 1 },
-            { kind: "automated", state: "fail", recordedAt: 2 },
+            { kind: "ui", state: "stale", recordedAt: 1, by: null },
+            {
+              kind: "automated",
+              state: "fail",
+              recordedAt: 2,
+              by: { provider: "claude", model: "claude-opus-4-5" },
+            },
           ],
         },
       ],
@@ -122,12 +132,60 @@ test("missing evidence names each criterion and kind and never reads Done", () =
   ]);
   expect(needs.moreMissing).toBe(2);
   expect(needs.criteria[0]?.evidence).toEqual([
-    { kind: "UI check", state: "Out of date", tone: undefined },
-    { kind: "Automated check", state: "Failed", tone: "failed" },
+    { kind: "UI check", state: "Out of date", tone: undefined, by: undefined },
+    { kind: "Automated check", state: "Failed", tone: "failed", by: "Claude Code · Opus 4.5" },
   ]);
 });
 
 test("a run still in progress on a settled tree waits instead of claiming Working", () => {
   const idle = offshiftSummary(card({ phase: "review" }), settled);
   expect(idle).toMatchObject({ word: "Waiting", phase: "Review · 4 of 5", done: false });
+});
+
+test("an independent criterion with only the owner's pass reads not independent and stays missing", () => {
+  const summary = offshiftSummary(
+    card({
+      phase: "verify",
+      criteria: [
+        {
+          id: "error",
+          description: "Bad password shows an error",
+          independent: true,
+          evidence: [
+            {
+              kind: "ui",
+              state: "not_independent",
+              recordedAt: 1,
+              by: { provider: "codex", model: "gpt-5" },
+            },
+          ],
+        },
+      ],
+      pending: [{ criterionId: "error", kind: "ui", needs: "independent" }],
+      pendingCount: 1,
+    }),
+    settled,
+  );
+  expect(summary.word).toBe("Waiting");
+  expect(summary.criteria[0]).toMatchObject({
+    independent: true,
+    evidence: [{ state: "Not independent", tone: undefined, by: "Codex · GPT-5" }],
+  });
+  expect(summary.missing.map((item) => item.kind)).toEqual(["Independent UI check"]);
+});
+
+test("roles read as the kind of work and who does it, in words", () => {
+  const summary = offshiftSummary(
+    card({
+      roles: [
+        { role: "build", source: "run", provider: "codex", model: "gpt-5" },
+        { role: "verify", source: "project", provider: "claude", effort: "high" },
+      ],
+    }),
+    settled,
+  );
+  expect(summary.roles).toEqual([
+    { role: "Build", selection: "Codex · GPT-5" },
+    { role: "Verify", selection: "Claude Code · high" },
+  ]);
 });
