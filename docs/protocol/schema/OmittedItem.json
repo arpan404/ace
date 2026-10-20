@@ -1,0 +1,48 @@
+{
+  "$id": "https://ace.local/protocol/v1/OmittedItem.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bytes": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "dropped": {
+      "enum": [
+        "raw",
+        "text",
+        "item"
+      ],
+      "type": "string"
+    },
+    "itemId": {
+      "$ref": "https://ace.local/protocol/v1/ItemId.json"
+    },
+    "kind": {
+      "maxLength": 64,
+      "type": "string"
+    },
+    "seq": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "title": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "type": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "itemId",
+    "seq",
+    "type",
+    "bytes",
+    "dropped"
+  ],
+  "type": "object"
+}

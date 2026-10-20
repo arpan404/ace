@@ -3,6 +3,7 @@ import SwiftUI
 struct ThreadView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.scenePhase) private var scenePhase
     @Bindable var model: ClientModel
     @Bindable var thread: ThreadModel
     /// Push another thread (a delegated child or a conversation this one started).
@@ -154,6 +155,9 @@ struct ThreadView: View {
             .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
             // The agent may open its browser after the thread was opened: ask again as it works.
             .onChange(of: metadata?.state) { model.probeBrowser() }
+            // A browser opened mid-turn leaves the state unchanged: follow it, bounded, while this
+            // thread is on screen, working and the app is active. Leaving cancels the follow.
+            .task(id: browserFollow) { if browserFollow != nil { await model.followBrowser() } }
             .fullScreenCover(isPresented: $showBrowser) {
                 let help = thread.approvals.first { $0.kind == "browser_help" }
                 BrowserLiveView(model: model, help: help) { answer in if let help { model.resolve(help, answer: answer) } }
@@ -169,6 +173,11 @@ struct ThreadView: View {
             }
             #endif
         }
+    }
+    /// Restarts the browser follow on a new visit, a new turn or a return to the foreground.
+    private var browserFollow: Int? {
+        guard scenePhase == .active, screen.controls?.busy == true, !model.threadHasBrowser else { return nil }
+        return thread.epoch
     }
     /// Title, the whole tree's canonical status, and where it runs.
     private var header: some View {

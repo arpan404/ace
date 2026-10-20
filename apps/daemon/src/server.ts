@@ -1,4 +1,4 @@
-import { shutdownDeadline } from "./shutdown.ts";
+import { shutdownDeadline, trackStage } from "./shutdown.ts";
 import { relayRoute } from "./relay-route.ts";
 import { startTransports, startLocalTransports } from "./services/transports.ts";
 import { createSocketRegistry, parseSocketMessage } from "./services/registry.ts";
@@ -9,7 +9,7 @@ import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import { generateSecret, systemCredentials } from "./credential-runtime.ts";
 import { z } from "zod";
 import { defaultTicketLimits } from "./ticket-pool.ts";
-import type { Server } from "node:http";
+import type { IncomingMessage, Server } from "node:http";
 import { createServer as httpsServer } from "node:https";
 import { httpChains } from "./server-http.ts";
 import { webOriginAllowlist } from "./web-origins.ts";
@@ -27,7 +27,7 @@ import { readCore } from "./socket-reads.ts";
 import { admitUpgrades } from "./socket-upgrade.ts";
 import { enrollNotifications, helloActor } from "./socket-hello.ts";
 import { admitCommand } from "./socket-commands.ts";
-import { isPing, closeRecord } from "./socket-liveness.ts";
+import { isPing, closeRecord, clientAgent, type ClosePeer } from "./socket-liveness.ts";
 import { WireEncoder } from "./wire-encoder.ts";
 import { bindListener as bind, closeListener } from "./listener.ts";
 import { remoteRuntime } from "./remote-runtime.ts";
@@ -46,6 +46,8 @@ export async function startServer(options: ServerOptions): Promise<{
   diagnosticsQueues(): { socketInput: number; healthRequests: number };
   remoteUrl?: string | undefined;
   fingerprint?: string | undefined;
+  /** Shutdown stages that started and have not finished. */
+  pendingShutdown(): string[];
   close(): Promise<void>;
 }> {
   options.hostName ??= await computerName();
@@ -164,13 +166,18 @@ export async function startServer(options: ServerOptions): Promise<{
   const input = new SocketInput();
   const lanes = new CommandLanes();
   const cleanups = new Map<WebSocket, () => void>();
+  let closing: Promise<void> | undefined;
   let disconnects = Promise.resolve();
   const receivers = new Map<DeviceId, Map<WebSocket, (message: ServerMessage) => void>>();
   // A suspended phone can keep its socket open, so a frame sent there is not a delivery.
   const backgrounded = new WeakSet<WebSocket>();
   const encoder = new WireEncoder();
   const ticks = new Map<WebSocket, () => void>();
-  const connected = (socket: WebSocket, isLocal: boolean) => {
+  const connected = (socket: WebSocket, isLocal: boolean, request?: IncomingMessage) => {
+    const peer: ClosePeer = {
+      client: clientAgent(request?.headers["user-agent"]),
+      remote: !isLocal,
+    };
     socket.on("error", (error) => {
       options.log?.(error);
       // A protocol error (an oversized frame is 1009) already started a close with its code;
@@ -284,7 +291,10 @@ export async function startServer(options: ServerOptions): Promise<{
     const opened = auth.now();
     socket.on("close", (code: number, reason: Buffer) => {
       cleanup();
-      const record = closeRecord(code, reason, auth.now() - opened, device !== undefined);
+      // The daemon's own shutdown closes every socket; that is not a client failure.
+      const record = closing
+        ? undefined
+        : closeRecord(code, reason, auth.now() - opened, device !== undefined, peer);
       if (record) options.warn?.("WebSocket closed", record);
       options.onDisconnect?.(device);
     });
@@ -323,6 +333,12 @@ export async function startServer(options: ServerOptions): Promise<{
           return;
         }
         device = actor.id;
+        peer.access = !actor.revocable
+          ? "host"
+          : actor.scopes.includes("desktop") || actor.scopes.includes("user-browser")
+            ? "desktop"
+            : "paired";
+        if (message.channel !== undefined) peer.channel = message.channel;
         preAuth.authenticated(socket);
         authenticated.set(socket, actor);
         try {
@@ -479,8 +495,11 @@ export async function startServer(options: ServerOptions): Promise<{
     await closeServers();
     throw error;
   }
-  let closing: Promise<void> | undefined;
+  const closingStages = new Set<string>();
+  const stage = <T>(name: string, task: Promise<T> | undefined) =>
+    trackStage(closingStages, name, task);
   return {
+    pendingShutdown: () => [...closingStages],
     ...(preview ? { preview } : {}),
     get relayHostId() {
       return dynamicRemote?.relayHostId ?? transports?.relayHostId;
@@ -524,18 +543,21 @@ export async function startServer(options: ServerOptions): Promise<{
             socket.terminate();
           }
         void Promise.all([
-          closeListener(local),
-          ...(remote ? [closeListener(remote)] : []),
-          preview?.close(),
-          transports?.close(),
-          dynamicRemote?.close(),
+          stage("local listener", closeListener(local)),
+          ...(remote ? [stage("remote listener", closeListener(remote))] : []),
+          stage("preview", preview?.close()),
+          stage("transports", transports?.close()),
+          stage("dynamic remote", dynamicRemote?.close()),
         ]).then(() => {
           // An upgrade can finish while listeners close; ws waits for every client to go.
           for (const server of servers) for (const socket of server.clients) socket.terminate();
-          return closeServers().then((error) => {
+          return stage("socket servers", closeServers()).then((error) => {
             void shutdownDeadline(
               "Socket tasks",
-              Promise.all([Promise.allSettled(serviceTasks), lanes.settled(), disconnects]),
+              stage(
+                "socket tasks",
+                Promise.all([Promise.allSettled(serviceTasks), lanes.settled(), disconnects]),
+              ),
               runtime.delay,
               5_000,
             ).then(() => {

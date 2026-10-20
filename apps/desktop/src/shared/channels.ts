@@ -33,6 +33,7 @@ import {
   WindowAction,
   WindowState,
 } from "./contract.ts";
+import { DiagnosticReport } from "./diagnostics.ts";
 import { DoctorReport, ProviderSummary, Toolchain } from "./onboarding.ts";
 
 const None = z.undefined();
@@ -101,6 +102,8 @@ export const requests = {
   /** Print or developer tools for the thread's shown native tab; false: no such view here. */
   "browser.page": { request: BrowserPageAction, result: z.boolean() },
   "updates.check": { request: None, result: UpdateStatus },
+  /** A page diagnostic for the desktop log, rate-limited there; the page never waits on it. */
+  "diagnostics.report": { request: DiagnosticReport, result: None },
 } as const;
 export type RequestChannel = keyof typeof requests;
 export type RequestOf<C extends RequestChannel> = z.input<(typeof requests)[C]["request"]>;

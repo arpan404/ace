@@ -10,6 +10,7 @@ import { z } from "zod";
 import { startDaemon, readConfig } from "./index.ts";
 import { Resources } from "./services/resources.ts";
 import { runDaemonProcess } from "./process-daemon.ts";
+import { daemonLogRecords } from "./daemon-log-test-support.ts";
 
 async function stalledWorker() {
   const root = await mkdtemp(join(tmpdir(), "ace-shutdown-audit-"));
@@ -119,6 +120,39 @@ test("the overall deadline removes discovery but retains the home lock until sta
     await f.settle();
     const unlock = acquireLock(f.root);
     unlock();
+  } finally {
+    await f.release();
+  }
+});
+
+test("when a resource hangs, the deadline log names it and the next start reports the overrun, not a crash", async () => {
+  const f = await stalledWorker();
+  try {
+    const closing = f.daemon.close();
+    const failed = expect(closing).rejects.toThrow("Daemon shutdown deadline exceeded");
+    await f.held;
+    (await f.overallDeadline)();
+    await failed;
+    const overran = (await daemonLogRecords(f.root)).find(
+      (record) => record.message === "Daemon shutdown deadline exceeded",
+    );
+    expect(overran?.data?.pending).toEqual(
+      expect.arrayContaining([expect.stringContaining("service notifications")]),
+    );
+    await f.settle();
+    const next = await startDaemon({
+      config: readConfig({ ACE_HOME: f.root, ACE_PORT: "0", ACE_LOG_LEVEL: "info" }),
+      modelInstances: [],
+      history: { instances: [] },
+    });
+    await next.close();
+    const messages = (await daemonLogRecords(f.root)).map((record) => record.message);
+    expect(messages).toContain(
+      "Previous daemon run stopped after its shutdown deadline; some resources had not closed",
+    );
+    expect(messages).not.toContain(
+      "Previous daemon run ended without stopping: it crashed or was killed",
+    );
   } finally {
     await f.release();
   }

@@ -77,7 +77,7 @@ export function admitUpgrades(
         websocket.once("close", () => remoteSockets.delete(websocket));
       }
       preAuth.track(websocket, kind, address);
-      wss.emit("connection", websocket, isLocal);
+      wss.emit("connection", websocket, isLocal, request);
     });
   });
 }

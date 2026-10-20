@@ -244,6 +244,7 @@ Semantic rule: itemSeqs holds the creation sequence of every item.
 | itemSeqs | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}} |
 | itemsBefore | yes | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
 | itemsAfter | yes | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+| omitted | no | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/OmittedItem.json"}} |
 
 Example:
 
@@ -278,13 +279,13 @@ Example:
 
 ```json
 {
-  "after": 6,
-  "endSeq": 8,
+  "after": null,
+  "endSeq": 3,
   "requestId": "example",
-  "seq": 5,
+  "seq": 8,
   "steps": [],
   "threadId": "example",
-  "turnOrdinal": 10,
+  "turnOrdinal": 6,
   "type": "turn.steps"
 }
 ```
@@ -328,6 +329,24 @@ Example:
   "ref": "a88e4a77333a344c304d454f64e46941e908d37bef02d93d7e651c1f11b066ec",
   "requestId": "example",
   "type": "icons.read"
+}
+```
+
+### avatars.resolve
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"avatars.resolve"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| icons | yes | array | {"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/IconResult.json"}} |
+
+Example:
+
+```json
+{
+  "icons": [],
+  "requestId": "example",
+  "type": "avatars.resolve"
 }
 ```
 
@@ -1257,7 +1276,7 @@ Example:
 }
 ```
 
-### Variant 48
+### Variant 49
 
 Type: union. See JSON Schema for constraints.
 
@@ -1308,7 +1327,7 @@ Example:
 }
 ```
 
-### Variant 51
+### Variant 52
 
 Type: union. See JSON Schema for constraints.
 
@@ -3045,6 +3064,7 @@ Semantic rule: itemSeqs holds the creation sequence of every item.
 | items | yes | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/Item.json"}} |
 | itemSeqs | no | object | {"propertyNames":{"type":"string"},"additionalProperties":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 | itemsBefore | yes | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+| omitted | no | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/OmittedItem.json"}} |
 | type | yes | `"items.page"` |  |
 | requestId | yes | string |  |
 
@@ -3054,6 +3074,7 @@ Example:
 {
   "items": [],
   "itemsBefore": 5,
+  "omitted": [],
   "requestId": "example",
   "seq": 0,
   "threadId": "example",

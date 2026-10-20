@@ -218,7 +218,10 @@ it("logging a circular object or an object with getters does not throw or invoke
       ]),
     ),
   ).not.toThrow();
-  expect(logger.recent()[0]).toContain("<UNPREPARED OBJECT OMITTED>");
+  const line = logger.recent()[0] ?? "";
+  expect(line).toContain("<CYCLE>");
+  expect(line).toContain("<ACCESSOR OMITTED>");
+  expect(line).not.toContain("getter invoked");
   await logger.close();
 });
 it("ordinary array values remain available in recent and persisted logs", async () => {
@@ -284,6 +287,7 @@ it("a wrapped error keeps the redacted message and SQLite code of the failure th
       cause: "UNIQUE constraint failed: item_text_chunks.item_id",
       causeCode: "ERR_SQLITE_ERROR",
       causeErrcode: 1555,
+      stack: expect.arrayContaining([expect.stringContaining("logger.test.ts")]),
     },
   });
   expect(JSON.stringify(second)).not.toContain(context.env.CUSTOM);
@@ -373,7 +377,7 @@ it("error summaries omit long and multiline messages whole instead of exposing p
     logger.log("warn", "long", Object.assign(new Error("x".repeat(500) + secret), { code: "EIO" }));
     logger.log("warn", "multiline", new Error("first line\nprivate-stderr"));
     const lines = logger.recent();
-    expect(JSON.parse(lines[0] ?? "null").data).toEqual({
+    expect(JSON.parse(lines[0] ?? "null").data).toMatchObject({
       message: "<OVERSIZED ERROR MESSAGE OMITTED>",
       name: "Error",
       code: "EIO",

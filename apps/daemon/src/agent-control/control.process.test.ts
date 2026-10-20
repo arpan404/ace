@@ -157,7 +157,10 @@ test("request retries reuse the independent thread and conflicting payloads are 
   const parent = await h.parent();
   const edge = h.delegate(parent, "retry");
   expect(h.delegate(parent, "retry").childId).toBe(edge.childId);
-  expect(() => h.delegate(parent, "retry", true)).toThrow("identity conflict");
+  // The agent learns why, so it can pick a new requestId.
+  expect(() => h.delegate(parent, "retry", true)).toThrow(
+    expect.objectContaining({ code: "request_conflict", message: "Request identity conflict" }),
+  );
   await h.engine.flush();
   expect(h.store.listThreads()).toHaveLength(2);
 });

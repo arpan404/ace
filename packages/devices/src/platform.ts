@@ -27,7 +27,7 @@ import {
   nativeId,
 } from "./commands.ts";
 import { AndroidOperations } from "./android-operations.ts";
-import { AndroidPlatform } from "./android-platform.ts";
+import { AndroidPlatform, type AndroidOptions } from "./android-platform.ts";
 import { deviceScreenshot, emulatorScreenshot, type DeviceShot } from "./one-off-screenshot.ts";
 import { androidClipboardUnavailable, type ClipboardRead } from "./clipboard.ts";
 import { simulatorCopy, simulatorPaste } from "./simulator-clipboard.ts";
@@ -39,6 +39,7 @@ export type PlatformOptions = SDKOptions & {
   screen?: ScreenManager;
   /** Where ace keeps downloaded device tools (the pinned scrcpy server), inside ace's home. */
   toolsDirectory?: string;
+  emulatorWindow?: NonNullable<AndroidOptions["emulatorWindow"]>;
 };
 export type ScreenBinding = { sessionId: string; actor: "human" | "agent"; owner: string };
 const Text = z

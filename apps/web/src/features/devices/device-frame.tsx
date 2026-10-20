@@ -12,6 +12,7 @@ import type { IconGlyph } from "@/components/icon.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { DeviceKind } from "./device-catalog.ts";
 import { fitFrame, type FrameGeometry, type Size } from "./device-frame-geometry.ts";
+import { HomeButton, SideButtons, type Hardware } from "./hardware-buttons.tsx";
 
 /** One glyph per kind of device, so a list of them reads at a glance. */
 export const deviceGlyphs: Record<DeviceKind, IconGlyph> = {
@@ -31,22 +32,26 @@ export const bareGeometry: FrameGeometry = {
   bodyRadius: 0.02,
   cutout: { kind: "none" },
   homeButton: false,
-  crown: false,
 };
 
 const px = (value: number) => `${Math.round(value * 10) / 10}px`;
 
+/** The bezel the home button sits in once the body has turned. */
+const homeBezel = { 0: "bottom", 90: "left", 180: "top", 270: "right" } as const;
+
 /**
  * A device drawn around its screen, sized to fit `room`: a graphite body with a lit rim, the
- * screen's black glass, and the cutout, home button or crown its kind has. Drawn with boxes
- * only; `children` (the live screen) fill the screen and are clipped to its corners, and
- * `overlay` sits over them in the same box.
+ * screen's black glass, its cutout, and `hardware`: the buttons on its sides and an older
+ * iPhone's home button, pressable when `hardware.press` says how. Drawn with boxes only;
+ * `children` (the live screen) fill the screen and are clipped to its corners, and `overlay`
+ * sits over them in the same box.
  */
 export function DeviceFrame(props: {
   geometry: FrameGeometry;
   /** The screen's size in points: only its aspect and the one-point-per-pixel cap matter. */
   screen: Size;
   room: Size;
+  hardware?: Hardware | undefined;
   children?: ReactNode;
   overlay?: ReactNode;
   className?: string;
@@ -67,32 +72,7 @@ export function DeviceFrame(props: {
         className="absolute inset-0 bg-(--device-body) shadow-(--device-rim)"
         style={{ borderRadius: px(geometry.bodyRadius * unit) }}
       />
-      {geometry.crown && (
-        <>
-          <span
-            aria-hidden
-            className="absolute bg-(--device-body) shadow-(--device-rim)"
-            style={{
-              left: "100%",
-              top: px(fit.body.height * 0.26),
-              width: px(unit * 0.045),
-              height: px(unit * 0.2),
-              borderRadius: px(unit * 0.02),
-            }}
-          />
-          <span
-            aria-hidden
-            className="absolute bg-(--device-body) shadow-(--device-rim)"
-            style={{
-              left: "100%",
-              top: px(fit.body.height * 0.56),
-              width: px(unit * 0.025),
-              height: px(unit * 0.26),
-              borderRadius: px(unit * 0.012),
-            }}
-          />
-        </>
-      )}
+      {props.hardware && <SideButtons hardware={props.hardware} body={fit.body} unit={unit} />}
       <div
         data-device-screen=""
         className="absolute overflow-hidden bg-(--device-glass)"
@@ -141,18 +121,11 @@ export function DeviceFrame(props: {
         )}
         {props.overlay}
       </div>
-      {geometry.homeButton && (
-        <span
-          aria-hidden
-          className="absolute left-1/2 -translate-x-1/2 rounded-full shadow-(--device-rim)"
-          style={{
-            top: px(
-              (bezel.top + props.screen.height / props.screen.width) * unit +
-                bezel.bottom * unit * 0.25,
-            ),
-            width: px(bezel.bottom * unit * 0.5),
-            height: px(bezel.bottom * unit * 0.5),
-          }}
+      {geometry.homeButton && props.hardware && (
+        <HomeButton
+          hardware={props.hardware}
+          body={fit.body}
+          bezel={bezel[homeBezel[props.hardware.turn]] * unit}
         />
       )}
     </div>

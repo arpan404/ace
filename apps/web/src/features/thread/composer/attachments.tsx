@@ -1,5 +1,5 @@
 import { ClientError } from "@ace/client";
-import { useConnectionState } from "@ace/client-react";
+import { useClient, useConnectionState } from "@ace/client-react";
 import type { Attachment } from "@ace/protocol";
 import { attachmentLimits, attachmentSizeProblem } from "@ace/ui-core";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -44,14 +44,18 @@ const ChipRow = deferredComponent(() =>
   import("@/components/attachment-chips.tsx").then((module) => module.AttachmentChipRow),
 );
 
+const connectionFailures = new Set<string>(["offline", "timeout", "stale", "aborted"]);
+
 /** Why an upload failed, in words the person can act on. */
 function uploadError(error: unknown): string {
-  if (
-    error instanceof ClientError &&
-    ["offline", "timeout", "stale", "aborted"].includes(error.code)
-  )
-    return "Connection lost";
+  if (error instanceof ClientError && connectionFailures.has(error.code)) return "Connection lost";
   return error instanceof Error && error.message ? error.message : "The upload failed";
+}
+
+/** A file waiting for the client to be ready (and a draft for its scope) before it uploads. */
+interface Waiting {
+  file: File;
+  settle(outcome: Promise<Outcome>): void;
 }
 
 /**
@@ -63,9 +67,11 @@ export function useAttachments(
   restored: readonly { sha256: string; name: string }[] = [],
 ) {
   const sources = useThreadSources();
+  const client = useClient();
   const toast = useToast();
   const removed = useRef(new Set<number>());
   const inFlight = useRef(new Set<number>());
+  const waiting = useRef(new Map<number, Waiting>());
   const [items, setItems] = useState<PendingAttachment[]>(() =>
     restored.map((file, index) => ({
       key: -1 - index,
@@ -136,6 +142,8 @@ export function useAttachments(
   }, []);
   /** Take one chip away, its preview and what was kept for it included. */
   const drop = useCallback((key: number) => {
+    waiting.current.get(key)?.settle(Promise.resolve(lost));
+    waiting.current.delete(key);
     outcomes.current.delete(key);
     files.current.delete(key);
     known.current.delete(key);
@@ -156,12 +164,26 @@ export function useAttachments(
       }),
     [sources, thread.id, thread.draft, drop],
   );
+  // Whether an upload can start now: a client that is ready, and a draft's scope granted.
+  const unavailable = useCallback(
+    () => client.state !== "ready" || (!!thread.draft && !thread.id),
+    [client, thread.draft, thread.id],
+  );
   const upload = useCallback(
-    (key: number, file: File) => {
-      inFlight.current.add(key);
+    (key: number, file: File): Promise<Outcome> => {
       const patch = (change: Partial<PendingAttachment>) =>
         setItems((list) => list.map((item) => (item.key === key ? { ...item, ...change } : item)));
-      const outcome = sources.context
+      // While the client reconnects (a socket or its worker being replaced) the chip waits, still
+      // uploading, and goes on its own once the client is ready again: never a red error.
+      const wait = () => {
+        patch({ state: "uploading", progress: 0, error: undefined, retryable: undefined });
+        return new Promise<Outcome>((settle) =>
+          waiting.current.set(key, { file, settle: (outcome) => void outcome.then(settle) }),
+        );
+      };
+      if (unavailable()) return wait();
+      inFlight.current.add(key);
+      return sources.context
         .upload(thread, file, (progress) => patch({ progress }))
         .then(
           (attachment) => {
@@ -204,18 +226,33 @@ export function useAttachments(
             });
             return ready;
           },
-          (error: unknown): Outcome => {
+          (error: unknown): Outcome | Promise<Outcome> => {
             inFlight.current.delete(key);
+            if (
+              !removed.current.has(key) &&
+              error instanceof ClientError &&
+              connectionFailures.has(error.code) &&
+              error.code !== "aborted" &&
+              unavailable()
+            )
+              return wait();
             removed.current.delete(key);
             const reason = uploadError(error);
             patch({ state: "failed", error: reason, retryable: true });
             return { error: reason };
           },
         );
-      outcomes.current.set(key, outcome);
     },
-    [sources, thread, drop, toast],
+    [sources, thread, drop, toast, unavailable],
   );
+  const connected = connection === "ready";
+  useEffect(() => {
+    if (!connected || unavailable()) return;
+    for (const [key, entry] of waiting.current) {
+      waiting.current.delete(key);
+      entry.settle(upload(key, entry.file));
+    }
+  }, [connected, unavailable, upload]);
   /**
    * Attach files: each gets its chip and starts uploading. A file already attached (same name,
    * size and date) is skipped; one over the per-file or per-message size limit gets a chip that
@@ -267,7 +304,7 @@ export function useAttachments(
           continue;
         }
         files.current.set(key, file);
-        upload(key, file);
+        outcomes.current.set(key, upload(key, file));
       }
       return left;
     },
@@ -284,7 +321,7 @@ export function useAttachments(
           : item,
       ),
     );
-    upload(key, file);
+    outcomes.current.set(key, upload(key, file));
   };
   const forget = (keys: Iterable<number>) => {
     for (const key of keys) {

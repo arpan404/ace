@@ -33,6 +33,9 @@
       "$ref": "https://ace.local/protocol/v1/IconsReadResponse.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/AvatarsResolveResponse.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ThreadSearchResponse.json"
     },
     {
@@ -1596,6 +1599,13 @@
               "type": "null"
             }
           ]
+        },
+        "omitted": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/OmittedItem.json"
+          },
+          "maxItems": 200,
+          "type": "array"
         },
         "requestId": {
           "type": "string"

@@ -1,4 +1,6 @@
 import { ItemTextStore } from "./item-text-store.ts";
+import { ItemPageCapacityExceeded } from "./item-page-capacity.ts";
+import { boundedItemPage } from "./bounded-item-page.ts";
 import { z } from "zod";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import {
@@ -7,6 +9,7 @@ import {
   ItemId,
   type Event,
   type ItemsPage,
+  type OmittedItem,
   type ThreadId,
 } from "@ace/protocol";
 import { applyDelta, inRootLane, retainedTail } from "@ace/projection";
@@ -187,15 +190,13 @@ export class ItemStore {
       // loading their body into JS, parsing it, or allocating its serialized copy.
       // Text items instead carry bounded previews and separate full-text sources.
       if (!preview && bytes + row.size + overhead > byteLimit) {
-        if (!items.length) throw new Error("Item detail exceeds page capacity");
+        if (!items.length) throw new ItemPageCapacityExceeded("Item detail exceeds page capacity");
         break;
       }
-      const item = preview
-        ? this.texts.read(id)
-        : this.materialize(id, this.statement("SELECT item FROM items WHERE id = ?").get(id)?.item);
+      const item = this.pageItem(id, row.item_type);
       const size = Buffer.byteLength(JSON.stringify(item)) + overhead;
       if (bytes + size > byteLimit) {
-        if (!items.length) throw new Error("Item detail exceeds page capacity");
+        if (!items.length) throw new ItemPageCapacityExceeded("Item detail exceeds page capacity");
         break;
       }
       items.push(item);
@@ -209,6 +210,57 @@ export class ItemStore {
       itemSeqs: Object.fromEntries(cursors),
       itemsBefore: rows.length > items.length ? (cursors.at(-1)?.[1] ?? before) : null,
     };
+  }
+  /** An item as a page shows it: text cut to its bounded preview, other bodies whole. */
+  private pageItem(id: string, type: string): Item {
+    return type === "message" || type === "notice" || type === "reasoning"
+      ? this.texts.read(id)
+      : this.materialize(id, this.statement("SELECT item FROM items WHERE id = ?").get(id)?.item);
+  }
+  /** The newest item created before `before`, as a page shows it, with its creation cursor. */
+  newestBefore(threadId: ThreadId, before: number): { item: Item; seq: number } | undefined {
+    const row = this.statement(
+      "SELECT id, created_seq, item_type FROM item_heads WHERE thread_id = ? AND created_seq < ? ORDER BY created_seq DESC LIMIT 1",
+    ).get(threadId, before);
+    if (!row) return undefined;
+    const head = z
+      .object({
+        id: ItemId,
+        created_seq: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+        item_type: z.string().min(1).max(64),
+      })
+      .parse(row);
+    return { item: this.pageItem(String(head.id), head.item_type), seq: head.created_seq };
+  }
+  hasItemBefore(threadId: ThreadId, before: number): boolean {
+    return (
+      this.statement(
+        "SELECT 1 FROM item_heads WHERE thread_id = ? AND created_seq < ? LIMIT 1",
+      ).get(threadId, before) !== undefined
+    );
+  }
+  private fitsAlone(threadId: ThreadId, seq: number, byteLimit: number): boolean {
+    try {
+      this.wirePage(threadId, seq + 1, 1, byteLimit);
+      return true;
+    } catch (error) {
+      if (error instanceof ItemPageCapacityExceeded) return false;
+      throw error;
+    }
+  }
+  /** The item at `seq`, reduced to fit `byteLimit`, or an omission marker alone. */
+  private reducedPage(threadId: ThreadId, seq: number, byteLimit: number) {
+    return boundedItemPage(
+      {
+        page: (from, count, limit) => this.wirePage(threadId, from, count, limit),
+        newestBefore: (from) => this.newestBefore(threadId, from),
+        hasItemBefore: (from) => this.hasItemBefore(threadId, from),
+      },
+      threadId,
+      seq + 1,
+      1,
+      byteLimit,
+    );
   }
   /** One item as a step list shows it: text cut to its bounded preview, tool bodies whole. */
   stepItem(threadId: ThreadId, itemId: string): Item | undefined {
@@ -261,6 +313,7 @@ export class ItemStore {
       "SELECT created_seq FROM item_heads WHERE thread_id=? AND created_seq>? ORDER BY created_seq LIMIT ?",
     ).all(threadId, targetSeq, after);
     const selected = new Map<number, Item>();
+    const omitted: OmittedItem[] = [];
     let bytes = 512;
     // Read the target first so a byte-limited window always includes the jump point.
     const add = (seq: number): boolean => {
@@ -271,19 +324,24 @@ export class ItemStore {
         // that fit a standalone page but cannot fit alongside the jump target.
         page = this.wirePage(threadId, seq + 1, 1, byteLimit - bytes + 512);
       } catch (error) {
-        if (
-          seq !== targetSeq &&
-          error instanceof Error &&
-          error.message === "Item detail exceeds page capacity"
-        )
+        if (!(error instanceof ItemPageCapacityExceeded)) throw error;
+        // A neighbor that fits a window of its own waits for the next one.
+        if (seq !== targetSeq && this.fitsAlone(threadId, seq, byteLimit)) return false;
+        // Larger than any window: it comes reduced to an eighth of one, leaving room for its
+        // neighbors, so a window that starts at it still reaches older items.
+        page = this.reducedPage(threadId, seq, Math.min(byteLimit - bytes, byteLimit / 8) + 512);
+        if (!page.items[0]) {
+          if (seq === targetSeq) throw error;
           return false;
-        throw error;
+        }
       }
       const item = page.items[0];
       if (!item) return false;
       const size =
         Buffer.byteLength(JSON.stringify(item)) + Buffer.byteLength(JSON.stringify(item.id)) + 64;
-      bytes += size;
+      const marks = page.omitted ?? [];
+      bytes += size + (marks.length ? Buffer.byteLength(JSON.stringify(marks)) : 0);
+      omitted.push(...marks);
       selected.set(seq, item);
       return true;
     };
@@ -321,6 +379,7 @@ export class ItemStore {
       ).get(threadId, last)
         ? last
         : null,
+      ...(omitted.length ? { omitted: omitted.toSorted((a, b) => a.seq - b.seq) } : {}),
     };
   }
   /**

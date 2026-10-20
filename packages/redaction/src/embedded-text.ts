@@ -3,6 +3,8 @@ import type { EnvironmentMatcher } from "./environment.ts";
 import { embeddedRecordEnd, consumedRecordEnd } from "./embedded-record.ts";
 import { jsonCredentialSpans } from "./json-credentials.ts";
 
+const proseTag = /^\[[A-Za-z][\w .:#/-]{0,63}\]/;
+
 /** One forward scan; malformed embedded records omit the remaining text. */
 export function redactEmbeddedText(
   text: string,
@@ -42,6 +44,10 @@ export function redactEmbeddedText(
     if (first !== "{" && first !== "[" && first !== '"') continue;
     // ESC [ introduces a terminal control sequence (colours in CLI stderr), not a record.
     if (first === "[" && text[start - 1] === "\u001b") continue;
+    // A bracketed word (`[DEP0040]`, `[AbortSignal]`, `[object Object]`) is prose, as in Node's
+    // own warnings. It holds no quote, brace or nested bracket, so it cannot hide a record,
+    // and it stays in the plain text the lexical rules scrub.
+    if (first === "[" && proseTag.test(text.slice(start, start + 66))) continue;
     parts.push(scrubPlain(text.slice(plain, start)));
     const end = embeddedRecordEnd(text, start) - 1;
     let crossing: typeof sensitive;

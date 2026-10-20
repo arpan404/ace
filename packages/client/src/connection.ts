@@ -29,6 +29,8 @@ export function sameConnectionInfo(a: ConnectionInfo, b: ConnectionInfo): boolea
 }
 
 /** A server frame this build's schemas reject: the daemon is another version. */
+const heartbeatMissed = "Heartbeat missed";
+
 const versionMismatch = () =>
   new ClientError("version_mismatch", "The daemon sent a message this app can't read");
 
@@ -124,6 +126,13 @@ export class Connection {
     };
   }
 
+  #report(event: string, data: Record<string, string | number | boolean | null>): void {
+    try {
+      this.#options.report?.({ event, data });
+    } catch {
+      /* A broken log never breaks the connection. */
+    }
+  }
   #setState(state: ConnectionState): void {
     if (state !== this.state) this.#since = this.#options.now?.();
     this.state = state;
@@ -148,6 +157,7 @@ export class Connection {
     }
   }
   fail(error: ClientError): void {
+    this.#report("connection.failed", { code: error.code });
     this.error = error;
     this.#cleanup();
     this.#setState("fatal");
@@ -161,6 +171,16 @@ export class Connection {
     const at = this.#options.now?.();
     this.#lastClose = { code, reason, ...(at === undefined ? {} : { at }) };
     const decision = disconnectDecision(this.#active, this.#online, code);
+    const closed = {
+      code,
+      // Close reasons are short protocol phrases; bounded so a log line stays one line.
+      reason: reason.slice(0, 120),
+      heartbeatMissed: reason === heartbeatMissed,
+      wasReady: this.state === "ready",
+      attempt: this.#attempt,
+    };
+    if (decision !== "reconnecting")
+      this.#report("connection.closed", { ...closed, next: decision });
     if (decision === "fatal") {
       this.fail(new ClientError(code === 4002 ? "protocol" : "auth"));
       return;
@@ -192,6 +212,11 @@ export class Connection {
     // the same way on the next socket; backoff grows with every such failure until a
     // connection stays healthy, so they can't turn into a retry storm.
     const wait = code === 4013 ? Math.max(5000, delay) : delay;
+    this.#report("connection.closed", {
+      ...closed,
+      next: decision,
+      retryInMs: Math.round(wait),
+    });
     this.#cancel = this.#options.scheduler.set(wait, () => this.#connect());
     const now = this.#options.now?.();
     this.#retry = { at: now === undefined ? undefined : now + wait };
@@ -248,6 +273,8 @@ export class Connection {
   }
   #receiveFrame(frame: Frame, epoch: number): void {
     if (epoch !== this.#epoch) return;
+    // Every frame proves the socket alive, so a pong queued behind a busy stream never drops it.
+    this.#heartbeat.heard();
     if (frame instanceof Uint8Array && (frame.length <= 16 || frame.length > 65536 + 16)) {
       this.#broken("Binary frame out of bounds");
       return;
@@ -329,9 +356,19 @@ export class Connection {
         this.error = undefined;
         this.#since = this.#lastReadyAt = this.#options.now?.();
         this.state = "ready";
+        if (this.#lastClose) {
+          const down =
+            this.#since !== undefined && this.#lastClose.at !== undefined
+              ? this.#since - this.#lastClose.at
+              : undefined;
+          this.#report("connection.recovered", {
+            attempts: this.#attempt,
+            ...(down === undefined ? {} : { downMs: down }),
+          });
+        }
         this.#heartbeat.start({
           ping: () => this.send({ type: "ping" }) && this.state === "ready",
-          missed: () => this.#lost(1006, "Heartbeat missed"),
+          missed: () => this.#lost(1006, heartbeatMissed),
         });
         this.#received(message);
         this.#changed();
@@ -344,7 +381,6 @@ export class Connection {
         this.#receiveFragment(message, epoch);
         return;
       }
-      if (message.type === "pong") this.#heartbeat.pong();
       this.#received(message);
     } catch (error) {
       this.fail(error instanceof ClientError ? error : new ClientError("protocol"));

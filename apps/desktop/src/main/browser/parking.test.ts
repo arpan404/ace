@@ -35,3 +35,10 @@ it("parking stays invisible where the OS pulls it back on screen", () => {
     hiddenInMissionControl: true,
   });
 });
+
+it("parking never opens its own full-screen Space beside a full-screen app window", () => {
+  // macOS opens a new full-screen-capable window as a full-screen Space while the app is full screen.
+  expect(parkingWindowOptions({ width: 800, height: 600 })).toMatchObject({
+    fullscreenable: false,
+  });
+});

@@ -9,6 +9,7 @@ export type {
   ConnectionState,
   ConnectionInfo,
   ConnectionClose,
+  DiagnosticEvent,
   Transport,
   TransportEvents,
   Storage,
