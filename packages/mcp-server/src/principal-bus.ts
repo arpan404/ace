@@ -77,7 +77,8 @@ export class PrincipalEventBus implements ServerEventBus {
   private trim(principal: Principal, keep: number): void {
     const owned = this.streams.get(principal);
     if (!owned) return;
-    for (const stream of [...owned]) {
+    // Deleting visited entries while iterating a Set is safe.
+    for (const stream of owned) {
       if (owned.size <= keep) break;
       // Aborting tears the stream down, which unsubscribes and releases it; release it here
       // too so the count is right even if the SDK defers its teardown.

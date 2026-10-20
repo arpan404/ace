@@ -83,9 +83,10 @@ async function fixture(limits?: Partial<NotificationStreamLimits>) {
     };
     return { client, nextChange, heard: () => heard };
   };
-  const openFamily = (client: Client) =>
-    client.callTool({ name: "guide", arguments: { topic: "ace-threads" } });
   return { server, lease, connect, openFamily };
+}
+function openFamily(client: Client) {
+  return client.callTool({ name: "guide", arguments: { topic: "ace-threads" } });
 }
 
 test("twenty concurrent sessions each hold a stream and hear only their own list change", async () => {
