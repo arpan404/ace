@@ -196,7 +196,7 @@ function SkipNote(props: {
       <Input
         ref={field}
         aria-label={`Note for ${props.asker}`}
-        placeholder={`Note for ${props.asker} (optional)`}
+        placeholder="Note (optional)"
         value={note}
         maxLength={8192}
         disabled={props.disabled}
