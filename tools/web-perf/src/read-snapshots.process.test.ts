@@ -21,7 +21,7 @@ test("read snapshots enforce hard disk budgets and isolate credentials without p
     const cache = fileURLToPath(new URL("../../../apps/web/src/lib/idb-cache.ts", import.meta.url));
     await writeFile(
       entry,
-      `export { browserReadSnapshots } from ${JSON.stringify(adapter)};\nexport { idbCache } from ${JSON.stringify(cache)};`,
+      `export { browserReadSnapshots, forgetAllReadSnapshots } from ${JSON.stringify(adapter)};\nexport { idbCache } from ${JSON.stringify(cache)};`,
     );
     const bundle = join(root, "adapter.js");
     await promisify(execFile)("bun", ["build", entry, "--target=browser", `--outfile=${bundle}`]);
@@ -41,7 +41,7 @@ test("read snapshots enforce hard disk budgets and isolate credentials without p
     const page = await browser.newPage();
     await page.goto(`http://127.0.0.1:${address.port}`);
     const result: unknown = await page.evaluate(`(async () => {
-      const { browserReadSnapshots, idbCache } = await import('/adapter.js');
+      const { browserReadSnapshots, forgetAllReadSnapshots, idbCache } = await import('/adapter.js');
       let clock = 0;
       const options = { name: 'bounds', maxEntries: 2, maxBytes: 24,
         decode: v => v, weigh: v => v.length * 2, now: () => ++clock, later: () => {} };
@@ -65,23 +65,34 @@ test("read snapshots enforce hard disk budgets and isolate credentials without p
         { token: 'another-token' }, { deviceId: 'another-device' },
         { url: 'ws://localhost:4321/' }, { localHostId: 'new-home' }, { pairedDeviceId: 'another-account' },
       ].map(change => browserReadSnapshots({ ...target, ...change }).get('thread:one')));
-      for (let i = 0; i < 35; i++) await browserReadSnapshots(target).set('thread:' + i, { version: 1, text: 'small' });
+      const otherTarget = { ...target, token: 'other-token' };
+      await browserReadSnapshots(otherTarget).set('thread:kept', { version: 1, text: 'other connection' });
+      await browserReadSnapshots(target).clear();
+      const forgotten = await browserReadSnapshots(target).get('thread:one');
+      const survivor = await browserReadSnapshots(otherTarget).get('thread:kept');
+      for (let i = 0; i < 131; i++) await browserReadSnapshots(target).set('thread:' + i, { version: 1, text: 'small' });
       const db = await new Promise((resolve, reject) => { const r = indexedDB.open('ace.read-snapshots'); r.onsuccess = () => resolve(r.result); r.onerror = reject; });
       const rows = await Promise.all(['values','usage'].map(name => new Promise((resolve, reject) => {
         const r = db.transaction(name).objectStore(name).getAll(); r.onsuccess = () => resolve(r.result); r.onerror = reject;
       })));
       const keys = await new Promise((resolve, reject) => { const r = db.transaction('values').objectStore('values').getAllKeys(); r.onsuccess = () => resolve(r.result); r.onerror = reject; });
       db.close();
-      return { retained, afterLarge, recentlyUsed, entries: keys.length, huge: huge ?? null, warm, misses: misses.map(v => v ?? null), disk: JSON.stringify([rows, keys]) };
+      await forgetAllReadSnapshots();
+      const wiped = await browserReadSnapshots(target).get('thread:130');
+      return { retained, afterLarge, recentlyUsed, entries: keys.length, huge: huge ?? null, warm, misses: misses.map(v => v ?? null), forgotten: forgotten ?? null, survivor, wiped: wiped ?? null, disk: JSON.stringify([rows, keys]) };
     })()`);
     expect(result).toMatchObject({
       retained: [undefined, "1234", "1234"],
       afterLarge: [undefined, undefined, "12345678"],
       recentlyUsed: ["first", undefined, "third"],
-      entries: 32,
+      entries: 128,
       huge: null,
       warm: { version: 1, text: "cached" },
       misses: [null, null, null, null, null],
+      // Clearing one connection leaves another's; forgetting all leaves nothing.
+      forgotten: null,
+      survivor: { version: 1, text: "other connection" },
+      wiped: null,
     });
     expect(JSON.stringify(result)).not.toContain("private-token");
   } finally {

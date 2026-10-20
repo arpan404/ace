@@ -57,6 +57,7 @@ import {
 } from "./command-admission.ts";
 import { Sidebar } from "./sidebar.ts";
 import { Subscriptions, type ThreadSubscription } from "./subscriptions.ts";
+import { HostSnapshots } from "./read-snapshot-scope.ts";
 import { retryDelay } from "./lifecycle.ts";
 import {
   ClientError,
@@ -152,6 +153,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     }
   });
   #hostId: string | undefined;
+  /** Read snapshots under the verified host id; forgotten once the daemon refuses us. */
+  #snapshots: HostSnapshots | undefined;
   #binding: Promise<void> | undefined;
   #pendingSendEntries = new Map<string, PendingSend>();
   #waitingHints = new Map<string, () => void>();
@@ -159,6 +162,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     options = { ...options };
     this.options = options;
     this.#hostId = options.expectedHostId;
+    this.#snapshots =
+      options.readSnapshots && new HostSnapshots(options.readSnapshots, options.expectedHostId);
     const limits = { ...defaultLimits, ...options.limits };
     for (const value of Object.values(limits))
       if (!Number.isSafeInteger(value) || value <= 0) throw new ClientError("limit");
@@ -200,6 +205,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
             if (this.#hostId && this.#hostId !== message.hostId)
               throw new ClientError("identity", "Transport changed daemon identity");
             this.#hostId = message.hostId;
+            this.#snapshots?.identify(message.hostId);
             if (options.storage.hostBinding) {
               void this.#bindHost(message.hostId).then(
                 () => this.#replay(),
@@ -249,7 +255,12 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
             this.#observeInputs(message);
         }
       },
-      () => this.notifications.emit(["connection"]),
+      () => {
+        // Revoked, or a credential the daemon no longer accepts: what was read through it goes.
+        if (this.state === "fatal" && this.connection.error?.code === "auth")
+          void this.#snapshots?.forget();
+        this.notifications.emit(["connection"]);
+      },
       () => {
         this.#readMarkers.disconnect();
         this.#streams.reset();
@@ -460,6 +471,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
           if (this.#hostId && this.#hostId !== host)
             throw new ClientError("identity", "Outbox belongs to another daemon");
           this.#hostId = host;
+          this.#snapshots?.identify(host);
           this.options.expectedHostId = host;
           this.#binding = Promise.resolve();
         }
@@ -473,7 +485,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     }
   }
   #persistence() {
-    const storage = this.options.readSnapshots;
+    const storage = this.#snapshots;
     return storage ? { storage, scheduler: this.options.scheduler } : undefined;
   }
   /** Settles once durable intents and every view's last read snapshot are written. */

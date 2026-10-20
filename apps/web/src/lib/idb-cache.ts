@@ -9,6 +9,10 @@
 export interface PersistentCache<V> {
   get(key: string): Promise<V | undefined>;
   set(key: string, value: V): Promise<void>;
+  /** Delete every entry whose key starts with `prefix`. */
+  forget(prefix: string): Promise<void>;
+  /** Delete every entry. */
+  clear(): Promise<void>;
 }
 
 interface Usage {
@@ -82,7 +86,12 @@ export function idbCache<V>(options: {
   now: () => number;
   later?: (task: () => void) => void;
 }): PersistentCache<V> {
-  const none: PersistentCache<V> = { get: async () => undefined, set: async () => {} };
+  const none: PersistentCache<V> = {
+    get: async () => undefined,
+    set: async () => {},
+    forget: async () => {},
+    clear: async () => {},
+  };
   if (typeof indexedDB === "undefined") return none;
   const later = options.later ?? ((task) => void setTimeout(task, 2_000));
   let opened: Promise<IDBDatabase | undefined> | undefined;
@@ -153,6 +162,21 @@ export function idbCache<V>(options: {
     });
   };
 
+  /** Delete the entries `keys` names, values and records together, in one transaction. */
+  const remove = async (keys: IDBKeyRange | undefined) => {
+    const db = await database();
+    if (!db) return;
+    const transaction = db.transaction(["values", "usage"], "readwrite");
+    const committed = done(transaction);
+    for (const store of ["values", "usage"]) {
+      const target = transaction.objectStore(store);
+      if (keys) target.delete(keys);
+      else target.clear();
+    }
+    // Pending use stamps only touch records that still exist, so none brings one back.
+    await committed;
+  };
+
   return {
     async get(key) {
       try {
@@ -198,5 +222,9 @@ export function idbCache<V>(options: {
         /* A cache that cannot store simply misses next time. */
       }
     },
+    // Unlike reads and writes, a failed delete is reported: the caller is dropping data that
+    // must not outlive a credential.
+    forget: (prefix) => remove(IDBKeyRange.bound(prefix, `${prefix}\uffff`)),
+    clear: () => remove(undefined),
   };
 }

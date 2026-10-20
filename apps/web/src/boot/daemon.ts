@@ -23,16 +23,26 @@ export async function createDaemonClient(target: DaemonTarget): Promise<ClientAp
 
 /**
  * The person trusts the daemon now at `target`'s address, though it isn't the one this window
- * met there before: forget the old one's identity and the work saved for it, in both outboxes
- * a client may have used (the worker's IndexedDB one and the in-page one).
+ * met there before: forget the old one's identity, the work saved for it, in both outboxes a
+ * client may have used (the worker's IndexedDB one and the in-page one), and the threads read
+ * from it.
  */
 export async function forgetDaemonIdentity(target: DaemonTarget): Promise<void> {
-  const key = outboxKey({ ...target, deviceId: target.pairedDeviceId ?? deviceId() });
-  const [{ forgetIdbOutbox }, { forgetLocalOutbox }] = await Promise.all([
+  const device = target.pairedDeviceId ?? deviceId();
+  const key = outboxKey({ ...target, deviceId: device });
+  const [{ forgetIdbOutbox }, { forgetLocalOutbox }, { forgetReadSnapshots }] = await Promise.all([
     import("@ace/client-worker/idb-outbox"),
     import("./client.ts"),
+    import("./read-snapshots.ts"),
   ]);
-  if (typeof indexedDB !== "undefined") await forgetIdbOutbox(key);
+  if (typeof indexedDB !== "undefined") {
+    await forgetIdbOutbox(key);
+    // Records are filed under the host that served them, so the new daemon can't read these
+    // either way: a failed delete leaves them to the cache's pruning, never blocks reconnecting.
+    await forgetReadSnapshots({ ...target, deviceId: device }).catch((error: unknown) =>
+      console.error("ace: couldn't delete the old daemon's cached threads", error),
+    );
+  }
   try {
     forgetLocalOutbox(key);
   } catch {

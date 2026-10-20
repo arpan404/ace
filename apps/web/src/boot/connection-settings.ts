@@ -79,7 +79,14 @@ export function saveTarget(stores: ConnectionStores, target: DaemonTarget, remem
     safeSet(remember ? stores.local : stores.session, keys.device, target.pairedDeviceId);
 }
 
+/**
+ * Forget this window's credentials: the daemon's token and every machine's. What was read
+ * through them (cached threads and lists) goes too, since nothing here can reach it again.
+ */
 export function forgetToken(stores: ConnectionStores) {
+  void import("./read-snapshots.ts")
+    .then((snapshots) => snapshots.forgetAllReadSnapshots())
+    .catch((error: unknown) => console.error("ace: couldn't delete cached threads", error));
   forgetMachineTokens(stores.local, stores.session);
   safeRemove(stores.local, keys.device);
   safeRemove(stores.session, keys.device);
