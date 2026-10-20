@@ -113,8 +113,8 @@ test("reconciliation rejects foreign owners and malformed native drafts without 
     draft: { type: "tool_call", call: { kind: "shell", detail: { kind: "shell", output: 1 } } },
   });
   expect(shell(h).call.detail).toMatchObject({ output: { tail: "original" } });
-  const rejected = Object.values(h.view.items).filter(
-    (i) => i.type === "notice" && i.raw.some((r) => r.type === "core.rejected_fact"),
+  const rejected = Object.values(h.view.items).flatMap((i) =>
+    i.type === "notice" ? i.raw.filter((r) => r.type === "core.rejected_fact") : [],
   );
   expect(rejected).toHaveLength(2);
 });

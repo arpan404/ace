@@ -100,7 +100,10 @@ export function startBackground(
   if (fact.kind === "shell" && fact.item !== undefined && get(state.items, fact.item)?.complete)
     return;
   const previous = get(state.tasks, fact.task);
-  if (previous?.status === "running") return;
+  if (previous?.status === "running") {
+    refineBackground(state, fact, previous, ctx, events);
+    return;
+  }
   if (previous) put(state.taskHistory, previous.id, structuredClone(previous));
   const record = ensureAgent(state, fact.agent, ctx, events);
   const child =
@@ -157,6 +160,52 @@ export function startBackground(
     item.call.backgroundTaskId = task.id;
     emit(events, { type: "item.updated", item });
   }
+  if (fact.childAgent !== undefined)
+    linkAgent(
+      state,
+      {
+        type: "agent.linked",
+        agent: fact.childAgent,
+        parent: fact.agent,
+        ...(fact.item === undefined ? {} : { spawnedBy: fact.item }),
+      },
+      ctx,
+      events,
+    );
+}
+
+/**
+ * Re-announcing running work never restarts it. An adapter that first saw the task without its
+ * spawn (Claude lists background work before naming the spawning tool) supplies the owning
+ * descendant, child and tool once it knows them.
+ */
+function refineBackground(
+  state: ThreadState,
+  fact: BackgroundStarted,
+  task: BackgroundTask,
+  ctx: ApplyContext,
+  events: EventPayload[],
+): void {
+  const record = ensureAgent(state, fact.agent, ctx, events);
+  let changed = task.agentId !== record.agent.id;
+  task.agentId = record.agent.id;
+  if (fact.childAgent !== undefined && task.childAgentId === undefined) {
+    task.childAgentId = ensureAgent(state, fact.childAgent, ctx, events).agent.id;
+    changed = true;
+  }
+  const item = fact.item === undefined ? undefined : get(state.items, fact.item);
+  if (task.toolCallId === undefined && item?.type === "tool_call") {
+    task.toolCallId = item.id;
+    item.call.backgroundTaskId = task.id;
+    emit(events, { type: "item.updated", item });
+    changed = true;
+  }
+  if (task.outputPath === undefined && fact.outputPath !== undefined) {
+    task.outputPath = fact.outputPath;
+    changed = true;
+  }
+  if (!changed) return;
+  emit(events, { type: "background_task.started", task: structuredClone(task) });
   if (fact.childAgent !== undefined)
     linkAgent(
       state,

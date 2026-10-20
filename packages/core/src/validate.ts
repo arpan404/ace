@@ -134,6 +134,18 @@ function relationError(state: ThreadState, agent: string, parent: string): strin
   return undefined;
 }
 
+function descendsFrom(state: ThreadState, agent: string, ancestorId: string): boolean {
+  const visited = new Set<string>();
+  let key = get(state.agents, agent)?.parentKey;
+  while (key !== undefined && !visited.has(key)) {
+    const record = get(state.agents, key);
+    if (record?.agent.id === ancestorId) return true;
+    visited.add(key);
+    key = record?.parentKey;
+  }
+  return false;
+}
+
 function detailCandidate(draft: ToolDetailDraft) {
   if (draft.kind === "agent.spawn") {
     const { childAgent, ...detail } = draft;
@@ -444,7 +456,16 @@ function checkedFact(
         : get(state.tasks, input.task as string);
     const live =
       current && ("state" in current ? current.state === "pending" : current.status === "running");
-    if (live && current.agentId !== get(state.agents, input.agent as string)?.agent.id)
+    // An adapter may announce live work before it learns which agent spawned it, then name the
+    // agent once it knows. Narrowing a running task to a descendant refines it; anything else is
+    // a different owner claiming the key.
+    if (
+      live &&
+      current.agentId !== get(state.agents, input.agent as string)?.agent.id &&
+      !(
+        type === "background.started" && descendsFrom(state, input.agent as string, current.agentId)
+      )
+    )
       return { error: "live key has a different owner" };
   }
   if (type === "interaction.closed" && object(input.resolution)) {
