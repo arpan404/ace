@@ -423,7 +423,7 @@ export function buildBlocks(source: BlockSource): Block[] {
   const ordered: TurnMark[] = [];
   // `work` is the stretch's open log segment. `earlier` is its segment above a background row:
   // steps after the row open a new segment below it, so the row stays where its call started.
-  let stretch: { work?: { block: WorkBlock; at: number }; earlier?: WorkBlock } = {};
+  let stretch: { work?: { block: WorkBlock; at: number }; earlier?: WorkBlock | undefined } = {};
   // Launch batches belong to their launching agent's own run, independent of work-log stretches.
   const batches = new Map<string, { run: string | undefined; itemIds: string[]; at: number }>();
   const launched = new Map<string, { run: string | undefined; itemIds: string[]; at: number }>();

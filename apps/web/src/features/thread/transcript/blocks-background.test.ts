@@ -86,12 +86,15 @@ function source(
   };
 }
 
+/** The items a row shows: a background row its calls, any other row what `blockItems` says. */
+const rowItems = (block: Block) =>
+  block.kind === "background" ? block.itemIds : blockItems(block);
+
 /** Where each item shows, by the index of the top-level block that holds it. */
 const rowOf = (blocks: readonly Block[]) => {
   const at = new Map<string, number>();
   for (const [index, block] of blocks.entries())
-    for (const id of block.kind === "background" ? block.itemIds : blockItems(block))
-      at.set(id, index);
+    for (const id of rowItems(block)) at.set(id, index);
   return at;
 };
 
@@ -148,7 +151,7 @@ test("a settled turn folds its background task between the steps around it", () 
   // "Worked for" runs until the background task ended, past the run's end.
   expect(head.until).toBe(150);
   expect(head.folded?.map((block) => block.kind)).toEqual(["work", "background", "work"]);
-  expect(head.folded?.flatMap((block) => block.itemIds)).toEqual([
+  expect(head.folded?.flatMap((block) => rowItems(block))).toEqual([
     "build",
     "call-server",
     "next",
