@@ -107,6 +107,7 @@ export {
 export { guideToolkit, type AceGuide } from "./guide-tools.ts";
 export { metaToolCatalog } from "./meta-tools.ts";
 export {
+  codexClientHeader,
   coreTools,
   coreToolsHeader,
   openedToolset,

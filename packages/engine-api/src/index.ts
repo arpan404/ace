@@ -124,8 +124,16 @@ export interface SessionContext {
     bearer: string;
     signal?: AbortSignal;
     end?(): void;
-    /** This session's brief and enabled ace groups, for the provider's native instructions. */
-    session?(): { brief?: string; groups?: readonly string[] };
+    /**
+     * This session's brief, enabled ace groups, roles line and callable ace tools, for the
+     * provider's native instructions.
+     */
+    session?(): {
+      brief?: string;
+      groups?: readonly string[];
+      roles?: string;
+      tools?: readonly string[];
+    };
     /** What changed since this session's last ace call; for native turn-start hooks. */
     changes?(): string | undefined;
   };

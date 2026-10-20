@@ -17,7 +17,7 @@ import {
   dispatchedAceCall,
   toolNamePattern,
 } from "./tool-names.ts";
-import type { ToolListing } from "./toolsets.ts";
+import type { AceClient, ToolListing } from "./toolsets.ts";
 
 /** A tool this session could call, with the guide topic of its family. */
 export interface CatalogTool {
@@ -48,6 +48,8 @@ export interface ToolContext {
    * returns its family's schemas inline.
    */
   readonly listing?: ToolListing;
+  /** The client, where it reads tools differently from its listing (`toolsets.ts`). */
+  readonly client?: AceClient;
   /** Set by the server for the meta tools only. */
   readonly session?: SessionTools;
 }
@@ -368,7 +370,7 @@ export class ToolRegistry {
     input: unknown,
     principal: Principal,
     requestSignal: AbortSignal,
-    options: { listing?: ToolListing; session?: SessionTools } = {},
+    options: { listing?: ToolListing; client?: AceClient; session?: SessionTools } = {},
   ): Promise<CallToolResult> {
     if (principal.signal.aborted) return failure("Session ended");
     const { sessionId, threadId, agentId } = principal.scope;
@@ -379,6 +381,7 @@ export class ToolRegistry {
       capabilities: principal.scope.capabilities,
       signal,
       ...(options.listing ? { listing: options.listing } : {}),
+      ...(options.client ? { client: options.client } : {}),
       ...(options.session ? { session: options.session } : {}),
     };
     const observe = this.observeCall?.(name, input, context);

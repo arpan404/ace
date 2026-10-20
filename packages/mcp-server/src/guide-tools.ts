@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Toolkit } from "./toolkits.ts";
 import { coreTools } from "./toolsets.ts";
 import { bareToolName } from "./tool-names.ts";
+import { guideDelivery } from "./tool-delivery.ts";
 
 /** One on-demand guide: a shipped ace skill, read whole only when a task needs it. */
 export interface AceGuide {
@@ -60,14 +61,13 @@ export function guideToolkit(guides: readonly AceGuide[]): Toolkit {
           const family = registry
             .describe(topic, context)
             .filter((tool) => !coreTools.has(bareToolName(tool.name)));
+          const delivery = guideDelivery(context.listing, context.client);
           return {
             topic,
             guide: guide.body,
             tools: family.map((tool) => tool.name),
-            ...(context.listing === "static"
-              ? { how: "Call these with tools_call {name, arguments}." }
-              : {}),
-            ...(context.listing && context.listing !== "all"
+            ...(delivery.how ? { how: delivery.how } : {}),
+            ...(delivery.schemas
               ? {
                   schemas: family.map(({ name, description, inputSchema }) =>
                     description === undefined

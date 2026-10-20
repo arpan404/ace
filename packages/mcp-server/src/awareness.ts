@@ -27,9 +27,16 @@ export class SessionAwareness {
   private readonly failureLog = new Map<string, { tool: string; code: string; count: number }[]>();
   private readonly port: AwarenessPort;
   private readonly groups: (principal: Principal) => string[];
-  constructor(port: AwarenessPort, groups: (principal: Principal) => string[]) {
+  private readonly tools: (principal: Principal) => string[];
+  /** `tools` names what the session can call, for providers whose model never sees the list. */
+  constructor(
+    port: AwarenessPort,
+    groups: (principal: Principal) => string[],
+    tools: (principal: Principal) => string[] = () => [],
+  ) {
     this.port = port;
     this.groups = groups;
+    this.tools = tools;
   }
   private current(principal: Principal, delegates: boolean): SessionFacts | undefined {
     const facts = this.port.facts(principal.scope);
@@ -46,15 +53,26 @@ export class SessionAwareness {
     return this.current(principal, true);
   }
   /**
-   * The brief, enabled groups and roles line. The first read also marks what this session has
-   * seen and fixes its roles line for the rest of the session.
+   * The brief, enabled groups, roles line and callable tools. The first read also marks what
+   * this session has seen and fixes its roles line for the rest of the session.
    */
-  guidance(principal: Principal): { brief?: string; groups?: string[]; roles?: string } {
+  guidance(principal: Principal): {
+    brief?: string;
+    groups?: string[];
+    roles?: string;
+    tools?: string[];
+  } {
     const facts = this.current(principal, true);
     if (!facts) return {};
     if (!this.seen.has(principal)) this.seen.set(principal, facts);
     const roles = this.rolesLine(principal);
-    return { brief: renderBrief(facts), groups: [...facts.groups], ...(roles ? { roles } : {}) };
+    const tools = this.tools(principal);
+    return {
+      brief: renderBrief(facts),
+      groups: [...facts.groups],
+      ...(roles ? { roles } : {}),
+      ...(tools.length ? { tools } : {}),
+    };
   }
   /** This session's roles line, rendered on its first read and kept as it was. */
   rolesLine(principal: Principal): string | undefined {

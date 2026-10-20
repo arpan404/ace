@@ -14,7 +14,12 @@ it("delivers Codex authority only in native thread configuration", () => {
   const result = codexInjection(connection);
   expect(result.config["mcp_servers.ace"]).toMatchObject({
     url: connection.url,
-    http_headers: { Authorization: `Bearer ${connection.bearer}`, "X-Ace-Notifications": "stream" },
+    http_headers: {
+      Authorization: `Bearer ${connection.bearer}`,
+      "X-Ace-Notifications": "stream",
+      // Codex says who it is, so guide and tools_find return schemas and the exec call form.
+      "X-Ace-Client": "codex",
+    },
     tool_timeout_sec: 660,
   });
 });

@@ -16,6 +16,18 @@ export type ToolListing = "all" | "core" | "static";
 export const coreToolsHeader = { name: "X-Ace-Tools", value: "core" } as const;
 export const staticToolsHeader = { name: "X-Ace-Tools", value: "static" } as const;
 
+/**
+ * Who the client is, where its model meets ace's tools differently from what its listing says.
+ * Codex lists every tool, but its code-mode models see only `exec`: they call ace tools as
+ * `tools.mcp__ace__<name>(args)` without ever seeing an input schema, so `guide` and `tools_find`
+ * return schemas and that call form to it.
+ */
+export type AceClient = "codex";
+export const codexClientHeader = { name: "X-Ace-Client", value: "codex" } as const;
+export function aceClient(header: string | null | undefined): AceClient | undefined {
+  return header === codexClientHeader.value ? "codex" : undefined;
+}
+
 /** The listing a client asked for; anything unrecognised lists every tool. */
 export function toolListing(header: string | null | undefined): ToolListing {
   if (header === coreToolsHeader.value) return "core";

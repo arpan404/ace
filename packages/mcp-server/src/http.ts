@@ -4,7 +4,13 @@ import { SessionAwareness, type AwarenessPort } from "./awareness.ts";
 import { withChanges } from "./changes.ts";
 import { contextResources, createContextRegistry } from "./context-tool.ts";
 import type { KnowledgePort } from "./knowledge-tools.ts";
-import { OpenToolsets, coreToolsHeader, toolListing } from "./toolsets.ts";
+import {
+  OpenToolsets,
+  aceClient,
+  codexClientHeader,
+  coreToolsHeader,
+  toolListing,
+} from "./toolsets.ts";
 import { aceToolDispatch, aceToolSearch, bareToolName, dispatchedAceCall } from "./tool-names.ts";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { createMetaRegistry, foundFamilies } from "./meta-tools.ts";
@@ -38,16 +44,26 @@ export async function startMcpServer(options: McpServerOptions) {
   });
   const status = createContextRegistry(options.registry, options.status, options.knowledge);
   const awareness = options.awareness
-    ? new SessionAwareness(options.awareness, (principal) => {
-        const state = options.status?.(principal.scope);
-        return mcpStatusGroups(
-          options.registry.capabilities(),
-          principal.scope.capabilities,
-          state?.disabled,
-        )
-          .filter((group) => group.enabled && group.name !== "thread")
-          .map((group) => group.name);
-      })
+    ? new SessionAwareness(
+        options.awareness,
+        (principal) => {
+          const state = options.status?.(principal.scope);
+          return mcpStatusGroups(
+            options.registry.capabilities(),
+            principal.scope.capabilities,
+            state?.disabled,
+          )
+            .filter((group) => group.enabled && group.name !== "thread")
+            .map((group) => group.name);
+        },
+        // What a session listing every tool can call; tools_call is offered only to the others.
+        (principal) =>
+          [
+            ...status.list(principal).map((tool) => tool.name),
+            aceToolSearch,
+            ...options.registry.list(principal).map((tool) => tool.name),
+          ].map(bareToolName),
+      )
     : undefined;
   const credentials =
     options.credentials ?? new CredentialRegistry(() => randomBytes(32).toString("hex"));
@@ -179,6 +195,7 @@ async function createHandler(
     if (!principal) throw new Error("Unauthorized");
     const caller = principal;
     const listing = toolListing(requestInfo?.headers.get(coreToolsHeader.name));
+    const client = aceClient(requestInfo?.headers.get(codexClientHeader.name));
     const catalog = (): CatalogTool[] =>
       [...status.list(principal), ...options.registry.list(principal)].map((tool) => ({
         tool,
@@ -189,6 +206,7 @@ async function createHandler(
       const registry = registryFor(name);
       return registry.call(name, args, principal, signal, {
         listing,
+        ...(client ? { client } : {}),
         ...(registry === meta ? { session } : {}),
       });
     };
