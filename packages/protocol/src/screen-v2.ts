@@ -301,23 +301,6 @@ export const ScreenInput = z.discriminatedUnion("kind", [
 ]);
 export type ScreenInput = z.infer<typeof ScreenInput>;
 
-export const ScreenFrameHeaderV2 = z.object({
-  version: z.literal(2),
-  sessionId: ScreenId,
-  seq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-  ts: z.number().finite().nonnegative(),
-  width: z.number().int().min(1).max(3840),
-  height: z.number().int().min(1).max(2160),
-  scale: z.number().finite().positive(),
-  captureGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
-  codec: z.literal("jpeg"),
-  bytes: z
-    .number()
-    .int()
-    .min(1)
-    .max(8 * 1024 * 1024),
-  dirtyRects: z.array(ScreenRect).max(32).optional(),
-});
 const Envelope = z.object({ version: z.literal(2), id: ScreenId });
 export const ScreenHelperRequestV2 = z.discriminatedUnion("op", [
   Envelope.extend({ op: z.literal("hello") }),
@@ -420,5 +403,3 @@ export const ScreenNamedKey = z.object({
   key: ScreenKey,
   modifiers: ScreenKeyModifiers,
 });
-export const ScreenTransportFrameHeader = z.union([ScreenFrameHeaderV2]);
-export type ScreenTransportFrameHeader = z.infer<typeof ScreenTransportFrameHeader>;
