@@ -118,15 +118,15 @@ test("a thread's header names its project before the title, and a fork's names i
   expect(banner().queryByRole("link", { name: "Document the router" })).toBeNull();
 });
 
-test("a fork's details card shows its parent under Lineage and opens it; the parent has none", async () => {
+test("a fork's details card shows its parent under Agents and opens it; the parent has none", async () => {
   await fork();
   const card = await openWorkCard();
-  const lineage = within(card).getByRole("region", { name: "Lineage" });
+  const lineage = within(card).getByRole("region", { name: "Agents" });
   await userEvent.click(
     within(lineage).getByRole("button", { name: /^Open parent Document the router\b/ }),
   );
   await screen.findByRole("heading", { level: 1, name: "Document the router" });
-  expect(within(await openWorkCard()).queryByRole("region", { name: "Lineage" })).toBeNull();
+  expect(within(await openWorkCard()).queryByRole("region", { name: "Agents" })).toBeNull();
 });
 
 test("bringing a summary and code changes back shows the fork's name and edited summary in the parent", async () => {

@@ -294,7 +294,7 @@ test("the branch keeps its complete status and one commit entry point", async ()
       name: "Uncommitted changes, 3 files: 38 added, 6 removed",
     }),
   ).toBeTruthy();
-  const git = within(card).getByRole("region", { name: "Git" });
+  const git = within(card).getByRole("region", { name: "Branch" });
   await userEvent.hover(within(git).getByText(branch));
   expect((await screen.findByRole("tooltip")).textContent).toBe(`${branch} → main`);
   await userEvent.unhover(within(git).getByText(branch));
@@ -311,7 +311,7 @@ test("a provider MCP server waiting for its own sign-in shows nowhere in the thr
   await app.open("/t/thread-mcp");
   await screen.findByRole("feed", { name: "Transcript" });
   const card = await openWorkCard();
-  await within(within(card).getByRole("region", { name: "Git" })).findByText("sketch/parser");
+  await within(within(card).getByRole("region", { name: "Branch" })).findByText("sketch/parser");
   expect(within(card).queryByRole("region", { name: "Sources" })).toBeNull();
   // Nothing in the header, card, transcript, composer or sidebar names the server or its state.
   expect(screen.queryAllByText(/vercel|not signed in|MCP|connector/i)).toHaveLength(0);

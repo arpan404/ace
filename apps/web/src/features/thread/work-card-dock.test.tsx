@@ -79,7 +79,7 @@ test("at a mid-width window the open work card docks beside a narrower reading c
   const card = await screen.findByRole("dialog", { name: "Thread details" });
   // The side card, not the header popover.
   expect(card.getAttribute("data-edge")).toBe("right");
-  await within(card).findByRole("region", { name: "Environment" });
+  await within(card).findByRole("region", { name: "Workspace" });
   const area = threadColumn();
   expect(area.getAttribute("data-work-docked")).toBe("");
   // 1000px leaves 672px for the column after the 280px card and its 48px of gaps.
@@ -99,7 +99,7 @@ test("below the minimum the card opens as a popover from the icon", async () => 
   resized();
   await userEvent.click(await workButton());
   const card = await screen.findByRole("dialog", { name: "Thread details" });
-  await within(card).findByRole("region", { name: "Environment" });
+  await within(card).findByRole("region", { name: "Workspace" });
   // The header popover, not the docked side card.
   expect(card.hasAttribute("data-edge")).toBe(false);
   const area = threadColumn();
