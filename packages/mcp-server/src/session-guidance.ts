@@ -55,8 +55,8 @@ const reach: Record<ToolListing, string> = {
   static:
     "Your ace list is fixed: call other ace tools, such as thread_start or thread_control, with tools_call {name, arguments}; tools_find or guide gives the schema.",
 };
-/** ace's read-only tools: what still works when the provider refuses changes. */
-export const readOnlyAceTools = [
+/** The read tools a read-only session is told about; the full set is `readOnlyAceTools`. */
+const namedReadTools = [
   "context",
   "guide",
   "tools_find",
@@ -65,7 +65,7 @@ export const readOnlyAceTools = [
   "agents_status",
   "wait",
 ] as const;
-const readOnly = `This session is read-only: ace's read tools (${readOnlyAceTools.join(", ")}) still work; your provider decides on any that change things.`;
+const readOnly = `This session is read-only: ace's read tools (${namedReadTools.join(", ")}) still work; your provider decides on any that change things.`;
 
 /**
  * Guidance for the provider's own system/developer channel. Each provider receives ace's
