@@ -19,6 +19,7 @@ import { moveThread } from "./thread-move.ts";
 import { WorkspaceRoots, type WorkspaceGit } from "./workspace-roots.ts";
 import { hostname, homedir } from "node:os";
 import { join } from "node:path";
+import { providerNotice } from "@ace/projection";
 import { existsSync } from "node:fs";
 import { GitError, GitService, type GitOptions } from "@ace/git";
 import { TerminalManager, type Terminal, type TerminalManagerOptions } from "@ace/terminal";
@@ -440,7 +441,9 @@ export class WorkspaceRuntime {
             : undefined;
         const messages =
           page?.items.flatMap((item) =>
-            item.type === "message" && ["user", "assistant"].includes(item.role)
+            item.type === "message" &&
+            ["user", "assistant"].includes(item.role) &&
+            !providerNotice(item)
               ? item.parts.flatMap((part) => (part.type === "text" ? [part.text] : []))
               : [],
           ) ?? [];

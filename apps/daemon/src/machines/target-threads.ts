@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isAgentProse } from "@ace/projection";
 import { z } from "zod";
 import {
   Command,
@@ -272,7 +273,7 @@ export class TargetThreads {
     const page = store.readBoundedItemPage(thread.id, store.headSeq() + 1, 5, 16384);
     for (let index = page.items.length - 1; index >= 0; index--) {
       const item = page.items[index];
-      if (item?.type !== "message" || item.role !== "assistant") continue;
+      if (!isAgentProse(item)) continue;
       for (const part of item.parts.toReversed()) {
         const line = part.type === "text" ? lastLine(part.text, 160) : undefined;
         if (line) return line;

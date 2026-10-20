@@ -5,7 +5,7 @@ import type { Frame, Translator } from "@ace/engine-api";
 import { NativeEvent, eventSession } from "./boundaries.ts";
 import { object, array, string, number, retryReason, raw, type Data } from "./data.ts";
 import { NativeState } from "./native-state.ts";
-import { tool, text, projected } from "./native-content.ts";
+import { tool, text, projected, syntheticKind } from "./native-content.ts";
 import { interaction } from "./interactions.ts";
 import { sessionUsage, stepContext, selectModel } from "./usage.ts";
 export class OpenCodeTranslator implements Translator {
@@ -319,10 +319,7 @@ export class OpenCodeTranslator implements Translator {
       const item = object(p.item);
       if (item.type === "synthetic") {
         const metadata = object(object(item.payload).metadata);
-        state.triggers.set(
-          id,
-          metadata.source === "subagent" ? "subagent_result" : "background_completion",
-        );
+        state.triggers.set(id, syntheticKind(metadata) ?? "background_completion");
         facts.push(...state.completion(metadata, number(e.created, -1)));
       }
       return facts;
@@ -362,10 +359,7 @@ export class OpenCodeTranslator implements Translator {
       // mid-turn, a result the running step reads) is consumed by that execution. Only one that
       // arrives while the session is idle starts another turn, so only it is a wake.
       if (state.active.has(id)) return state.completion(meta, number(e.created, -1));
-      state.triggers.set(
-        id,
-        meta.source === "subagent" ? "subagent_result" : "background_completion",
-      );
+      state.triggers.set(id, syntheticKind(meta) ?? "background_completion");
       return [
         ...state.completion(meta, number(e.created, -1)),
         ...state.wake(id, number(e.created, Number.MAX_SAFE_INTEGER)),

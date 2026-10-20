@@ -13,7 +13,7 @@ function fakeRef(data: string): string {
   return hash.toString(16).padStart(8, "0").repeat(8);
 }
 
-/** `icons.resolve` and `icons.read` over a few fixture favicons and app icons. */
+/** `icons.resolve`, `avatars.resolve` and `icons.read` over a few fixture favicons and app icons. */
 export class FakeIcons {
   private readonly byRef = new Map<string, string>();
   private readonly byKey = new Map<string, string>();
@@ -53,6 +53,15 @@ export class FakeIcons {
           const ref = icon ? this.ref(icon) : undefined;
           return ref ? { state: "found", ref } : { state: "none" };
         }),
+      });
+      return true;
+    }
+    if (message.type === "avatars.resolve") {
+      // Fake mode has no avatars: rows show each person's initial.
+      send({
+        type: "avatars.resolve",
+        requestId: message.requestId,
+        icons: message.urls.map((): IconResult => ({ state: "none" })),
       });
       return true;
     }

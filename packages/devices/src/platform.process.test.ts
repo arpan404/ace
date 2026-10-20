@@ -523,10 +523,9 @@ for (const operation of ["install", "openApp", "boot"] as const) {
       tool: "adb",
       args: ["-s", "emulator-5554", "install", "-r", join(f.home, "Example.apk")],
     });
-    expect(commands).not.toContainEqual({
-      tool: "emulator",
-      args: ["-avd", "Pixel_API_35", "-port", "5554"],
-    });
+    expect(
+      commands.filter(({ tool, args }) => tool === "emulator" && args.includes("-avd")),
+    ).toEqual([]);
   });
 }
 for (const operation of ["install", "openApp", "boot"] as const) {

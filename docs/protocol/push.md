@@ -332,6 +332,24 @@ Example:
 }
 ```
 
+### avatars.resolve
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"avatars.resolve"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| icons | yes | array | {"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/IconResult.json"}} |
+
+Example:
+
+```json
+{
+  "icons": [],
+  "requestId": "example",
+  "type": "avatars.resolve"
+}
+```
+
 ### thread.search
 
 | Field | Required | Type | Constraints |
@@ -1258,7 +1276,7 @@ Example:
 }
 ```
 
-### Variant 48
+### Variant 49
 
 Type: union. See JSON Schema for constraints.
 
@@ -1309,7 +1327,7 @@ Example:
 }
 ```
 
-### Variant 51
+### Variant 52
 
 Type: union. See JSON Schema for constraints.
 

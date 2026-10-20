@@ -22,6 +22,9 @@ export const railKeys = {
   record: "mod+alt+r",
 } as const;
 
+/** Why the device's keys and buttons do nothing while it's live: someone else drives it. */
+export const takeControlReason = "Take control to use the device";
+
 /** How long a recording has run, ticking each second while it does. */
 function useRecordingTime(recording: boolean): string | undefined {
   const [elapsed, setElapsed] = useState(0);
@@ -58,7 +61,7 @@ export function ControlRail(props: {
   onRecord(): void;
 }) {
   const time = useRecordingTime(props.recording);
-  const reason = "Take control to use the device";
+  const reason = takeControlReason;
   const when = (event: KeyboardEvent) =>
     !isEditable(event.target) && props.scope.current?.contains(document.activeElement) === true;
   const drive = props.controlled && props.live;

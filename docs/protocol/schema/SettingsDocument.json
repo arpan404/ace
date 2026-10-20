@@ -73,6 +73,9 @@
           "maxItems": 200,
           "type": "array"
         },
+        "devices.emulatorWindow": {
+          "type": "boolean"
+        },
         "generation.autoDraftCommits": {
           "type": "boolean"
         },

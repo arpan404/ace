@@ -11,6 +11,7 @@ import { BrowserInspection } from "./inspection.ts";
 import { removeStaleOverlays } from "./annotation-install.ts";
 import { consoleEntry } from "./console-entry.ts";
 import { certificateErrors } from "./certificate-errors.ts";
+import { navigateCdp } from "./cdp-navigation.ts";
 
 const TabEvent = z.object({ tabId: z.string(), method: z.string(), params: z.unknown() });
 const Crashed = z.object({ crashes: z.number().int().optional(), reason: z.string().optional() });
@@ -32,6 +33,12 @@ interface Tab {
   crashed?: string;
   /** Waiting for the renderer a reload brings back to be re-armed. */
   revived: Set<() => void>;
+  /**
+   * Idle long enough that the daemon closed its view (ADR 0083 lifecycle): still listed at its
+   * address and title, with no view on the desktop until it is restored.
+   */
+  discarded?: boolean;
+  restoring?: Promise<void> | undefined;
 }
 /** Per-target CDP and guards keep background tabs isolated from active-page commands. */
 export class EmbeddedTabs {
@@ -202,21 +209,19 @@ export class EmbeddedTabs {
   private async update(state: NativeTabsState): Promise<void> {
     if (this.stopped) return;
     for (const [id, tab] of this.entries)
-      if (!state.tabs.some((entry) => entry.tabId === id)) {
-        tab.guard?.close();
-        tab.status.close();
-        tab.certificates.close();
-        this.inspection.detach(tab.cdp);
-        tab.release();
-        tab.events.removeAllListeners();
+      if (!tab.discarded && !state.tabs.some((entry) => entry.tabId === id)) {
+        this.unbind(tab);
         this.entries.delete(id);
       }
     for (const item of state.tabs) {
       const existing = this.entries.get(item.tabId);
-      if (existing) {
+      // A restored tab's new view replaces its discarded entry, in the same place in the list.
+      if (existing && !existing.discarded) {
         existing.state = item;
         continue;
       }
+      // A view still closing under its discard, not one opened to restore it.
+      if (existing && !existing.restoring) continue;
       const events = new EventEmitter();
       const cdp: BrowserCdp = {
         send: (method, params) =>
@@ -261,6 +266,92 @@ export class EmbeddedTabs {
     this.activeId = state.activeTabId;
     await Promise.all([...this.entries.values()].map((tab) => tab.ready));
     this.request.changed?.();
+  }
+  /** Ends a tab's guards and listeners and gives back its place in the daemon's tab budget. */
+  private unbind(tab: Tab): void {
+    tab.guard?.close();
+    tab.status.close();
+    tab.certificates.close();
+    this.inspection.detach(tab.cdp);
+    tab.release();
+    tab.release = () => {};
+    tab.events.removeAllListeners();
+  }
+  /**
+   * Lists tabs the thread had discarded before its link dropped or its views were replaced,
+   * at their addresses, with no view: each reopens when it is next used or shown.
+   */
+  hold(entries: readonly { tabId: string; url: string; title?: string }[]): void {
+    for (const entry of entries) {
+      if (this.entries.has(entry.tabId)) continue;
+      const events = new EventEmitter();
+      const cdp: BrowserCdp = {
+        send: () => Promise.reject(new Error("Browser tab unavailable")),
+        on: (method, listener) => events.on(method, listener),
+        off: (method, listener) => events.off(method, listener),
+      };
+      this.entries.set(entry.tabId, {
+        state: { tabId: entry.tabId, url: entry.url, title: entry.title ?? "" },
+        cdp,
+        events,
+        release: () => {},
+        ready: Promise.resolve(),
+        status: pageStatus(cdp, () => {}),
+        certificates: certificateErrors(cdp, () => {}),
+        viewport: { width: 1280, height: 720 },
+        revived: new Set(),
+        discarded: true,
+      });
+    }
+  }
+  /** Whether the tab's view was closed while idle (`discard`). */
+  discarded(id: string): boolean {
+    return this.entries.get(id)?.discarded === true;
+  }
+  /**
+   * Closes an idle tab's view to free its renderer, its memory and its place in the daemon's tab
+   * budget (ADR 0083 lifecycle). The tab stays listed at its address and title; `restore`
+   * opens a view for it again with the same id. The shown tab and the last one stay.
+   */
+  async discard(id: string): Promise<void> {
+    const tab = this.entries.get(id);
+    if (!tab || tab.discarded || tab.restoring || id === this.activeId) return;
+    if (![...this.entries.values()].some((other) => other !== tab && !other.discarded)) return;
+    tab.discarded = true;
+    delete tab.dialog;
+    this.unbind(tab);
+    try {
+      await this.read(await this.root.send("ace.tabs.close", { tabId: id }));
+    } catch (error) {
+      // The view is still there: the tab is not discarded, and its next use binds it again.
+      if (this.entries.get(id) === tab) this.entries.delete(id);
+      await this.read(await this.root.send("ace.tabs.list")).catch(() => {});
+      throw error;
+    }
+    this.request.changed?.();
+  }
+  /**
+   * Opens a view for a discarded tab with its id, unshown, and loads its address there. A page
+   * that fails to load stays open where it got to, as any navigation would leave it.
+   */
+  restore(id: string, signal: AbortSignal): Promise<void> {
+    const tab = this.entries.get(id);
+    if (!tab?.discarded) return Promise.resolve();
+    tab.restoring ??= (async () => {
+      const opened = await this.open({ background: true, tabId: id });
+      const fresh = this.entries.get(id);
+      if (opened !== id || !fresh || fresh.discarded) {
+        // A desktop that could not give the id back: the tab cannot come back as itself.
+        if (opened !== id && opened !== this.activeId) await this.close(opened).catch(() => {});
+        throw new Error("Browser tab unavailable");
+      }
+      if (tab.state.url !== "about:blank")
+        await navigateCdp(fresh.cdp, tab.state.url, signal).catch(() => {});
+      this.request.changed?.();
+    })().finally(() => {
+      tab.restoring = undefined;
+    });
+    return tab.restoring;
   }
   /** `adopted`: the desktop kept these pages through a lost link; clean up after the old link. */
   async start(raw: unknown, adopted = false) {
@@ -382,6 +473,13 @@ export class EmbeddedTabs {
     await this.read(await this.root.send("ace.tabs.switch", { tabId }));
   }
   async close(tabId: string) {
+    const tab = this.entries.get(tabId);
+    if (tab?.discarded) {
+      // Its view is gone already; only ace's list holds it.
+      this.entries.delete(tabId);
+      this.request.changed?.();
+      return;
+    }
     await this.read(await this.root.send("ace.tabs.close", { tabId }));
   }
   dialog() {
@@ -421,13 +519,7 @@ export class EmbeddedTabs {
     this.root.off("Page.screencastFrame", this.frame);
     this.root.off("ace.popupRequested", this.popup);
     this.root.off("ace.permissionDenied", this.permission);
-    for (const tab of this.entries.values()) {
-      tab.guard?.close();
-      tab.status.close();
-      tab.certificates.close();
-      tab.release();
-      tab.events.removeAllListeners();
-    }
+    for (const tab of this.entries.values()) this.unbind(tab);
     this.inspection.clear();
   }
 }

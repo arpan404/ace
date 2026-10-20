@@ -43,6 +43,11 @@ export type DaemonOptions = {
   files?: Pick<import("@ace/files").FilesOptions, "workspaceRuntime" | "maxReservedBytes">;
   /** Startup deadlines and scheduler are injected at the timer boundary. */
   startup?: Partial<import("./startup.ts").StartupRuntime>;
+  /**
+   * Stops every child process group the daemon still owns, SIGTERM then SIGKILL after
+   * `graceMs`, once a shutdown's polite window has passed. Tests substitute it.
+   */
+  stopProcesses?: (graceMs: number) => Promise<void>;
   agentControl?: {
     policy?: Partial<import("@ace/protocol").DelegationPolicy>;
     /** Inject the host Git boundary; never exposed as MCP input. */

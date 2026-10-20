@@ -49,9 +49,22 @@ const SimActFields = z.strictObject({
   durationMs: z.number().int().min(1).max(10_000).optional().describe("Gesture length in ms."),
   text: z.string().max(4096).optional().describe("Text to type, or to put on the clipboard."),
   key: z
-    .enum(["home", "back", "rotate", "enter", "power", "recents"])
+    .enum([
+      "home",
+      "back",
+      "rotate",
+      "enter",
+      "power",
+      "recents",
+      "volumeUp",
+      "volumeDown",
+      "action",
+      "side",
+    ])
     .optional()
-    .describe("Hardware or navigation key. recents is Android's app overview."),
+    .describe(
+      "Hardware or navigation key. recents is Android's app overview; action is the iPhone Action button (iPhone 15 Pro and later); side is Apple Watch's side button (home presses its Digital Crown).",
+    ),
   appId: z.string().min(1).max(256).optional().describe("Bundle id or Android package to launch."),
   url: z.string().min(1).max(4096).optional().describe("URL or deep link to open."),
   path: z

@@ -122,6 +122,7 @@ export * from "./project-commands.ts";
 export * from "./project-requests.ts";
 export * from "./long-thread.ts";
 export * from "./turn-steps.ts";
+export * from "./avatars.ts";
 
 export * from "./cli-version.ts";
 export * from "./provider-status.ts";

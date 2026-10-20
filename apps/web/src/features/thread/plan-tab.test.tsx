@@ -10,6 +10,8 @@ const todo = (content: string, status: TodoEntry["status"]): TodoEntry => ({ con
 async function open() {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
+  // The main agent works itself again, its plan's step on its live line.
+  app.daemon.apply(threadId, [facts.toolDone("root", "spawn-test")]);
   await app.open(`/t/${threadId}`);
   const plan = (todos: TodoEntry[]) =>
     act(() =>

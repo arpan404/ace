@@ -92,8 +92,8 @@ keyframe request resets the device encoder; size, frame rate and bitrate come fr
 the shared stream profile. There is no time limit and no ffmpeg in the live view.
 JPEG viewers, screenshots and recordings decode that H.264 once through ffmpeg;
 without ffmpeg every viewer stays on H.264. Input goes over the control socket:
-multi-touch with pointer ids (`pointer.pointerId`), keys including back, home and
-recents, rotation, and text. Printable ASCII is injected as text; anything else
+multi-touch with pointer ids (`pointer.pointerId`), keys including back, home,
+recents and volume up/down, rotation, and text. Printable ASCII is injected as text; anything else
 (accents, emoji) is pasted through the device clipboard and the action completes
 when the device acknowledges it, so it replaces the emulator's clipboard. The
 `clipboard.get`/`clipboard.set` operations (sim_act `clipboard_get`/`clipboard_set`) use
@@ -148,7 +148,11 @@ Settings hint. The screenrecord fallback's `adb shell input` text accepts printa
 ASCII and rejects Unicode and the special `%s` sequence rather than corrupting it,
 and accepts one finger only. Android semantic
 actions validate a fresh accessibility ref and disclose coordinate fallback.
-iOS back and recents keys are unsupported; home, rotate and enter use Simulator keys.
+iOS back and recents keys are unsupported, as are the Action button on Android and the
+side key on anything but Apple Watch; home, rotate and enter use Simulator keys. Power,
+volume up/down, the Action button and the watch's side button press the Simulator's
+hardware buttons: through serve-sim as the HID usage Xcode's device chrome gives each
+one, otherwise by name on the Simulator window (idb has no volume buttons).
 
 Recording requires `ACE_WORKSPACE_ROOT` so the daemon has a file artifact
 registry, and ffmpeg for MP4 export. Raw recordings are capped at 512 MiB;

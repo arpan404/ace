@@ -11,7 +11,7 @@ import { keymap } from "@/lib/keymap.ts";
 import { cn } from "@/lib/cn.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { ActivityCaption, useFreshActivity } from "./activity-overlay.tsx";
-import { ControlRail } from "./control-rail.tsx";
+import { ControlRail, takeControlReason } from "./control-rail.tsx";
 import { controllerOf } from "./controller-label.tsx";
 import { DeviceDrawer } from "./device-drawer.tsx";
 import { DeviceHeader } from "./device-header.tsx";
@@ -153,6 +153,11 @@ function SelectedDevice(props: { devices: Devices }) {
           live={live}
           interactive={controlled}
           bare={bare}
+          press={{
+            enabled: controlled && live,
+            reason: live ? takeControlReason : undefined,
+            onPress: (key) => void devices.input({ kind: "key", key }),
+          }}
           onInput={devices.input}
           onFrame={onFrame}
           activity={shown}

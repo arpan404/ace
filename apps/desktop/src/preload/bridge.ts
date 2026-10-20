@@ -178,6 +178,15 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       onStatus: (listener: (value: EventOf<"updates.status">) => void) =>
         subscribe("updates.status", listener),
     },
+    diagnostics: {
+      /**
+       * Writes one event to the desktop log (component `renderer`). Fire-and-forget: a report
+       * that is malformed, too large or over the rate limit is dropped, never thrown.
+       */
+      report(event: RequestOf<"diagnostics.report">): void {
+        call("diagnostics.report", event).catch(() => {});
+      },
+    },
     onDeepLink: (listener: (value: EventOf<"deep-link">) => void) =>
       subscribe("deep-link", listener),
     onSystemResumed: (listener: () => void) => subscribe("system.resumed", () => listener()),

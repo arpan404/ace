@@ -49,6 +49,23 @@ test("apps the person lists are saved as the apps agents can't use, each once", 
   expect((field as HTMLInputElement).value).toBe("Messages, com.apple.mail");
 });
 
+test("Show emulator window starts off and the person's choice is what the daemon keeps", async () => {
+  const { app } = await openSettings();
+  await app.open("/settings/computer-use");
+  const toggle = await screen.findByRole("switch", { name: "Show emulator window" });
+  await waitFor(() => expect(toggle.getAttribute("aria-disabled")).not.toBe("true"));
+  expect(toggle.getAttribute("aria-checked")).toBe("false");
+
+  await userEvent.click(toggle);
+  await waitFor(() =>
+    expect(app.daemon.services.settings.get("devices.emulatorWindow")).toBe(true),
+  );
+  await userEvent.click(toggle);
+  await waitFor(() =>
+    expect(app.daemon.services.settings.get("devices.emulatorWindow")).toBe(false),
+  );
+});
+
 test("secure input says what it is from the session menu, and once allowed, on the card", async () => {
   const { app, world } = await openSettings();
   const sessionId = await world.agentApp("com.apple.TextEdit");
