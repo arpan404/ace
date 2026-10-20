@@ -70,6 +70,7 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Send
     func open() {
         do { try target.validate() } catch { event("close", "4003"); return }
         let config = URLSessionConfiguration.ephemeral
+        config.tlsMinimumSupportedProtocolVersion = .TLSv12
         config.urlCache = nil
         config.httpCookieStorage = nil
         let session = URLSession(configuration: config, delegate: self, delegateQueue: queue)
