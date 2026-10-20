@@ -104,7 +104,7 @@ export function useBrowserTab(
   useEffect(() => {
     if (superseded) setPhase(key, idle);
   }, [superseded, key]);
-  // The screencast follows the daemon's shown tab: it is this tab's picture only once shown.
+  // The video follows the daemon's shown tab: it is this tab's picture only once shown.
   // Another tab's half of a split view keeps that tab's last picture meanwhile.
   const frame = !live
     ? undefined
@@ -243,6 +243,8 @@ export function useBrowserTab(
   return {
     data,
     frame,
+    /** Whether this client can show a live page at all (it streams only as video). */
+    decodesVideo: source.decodesVideo?.(),
     state: own,
     loading: own.phase === "loading" || !!shown?.loading || !!live?.loading,
     /** The address the bar shows: what is loading or failed here, else the tab's own. */

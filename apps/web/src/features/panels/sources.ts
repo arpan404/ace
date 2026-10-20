@@ -185,22 +185,24 @@ export type PageToolCommand =
   | { action: "clear_data" }
   | { action: "context_target"; x: number; y: number }
   | { action: "image_data"; url: string };
+/**
+ * A tab's live picture (ADR 0088): the newest decoded video picture, drawn on a canvas. The
+ * object stays the same while the page's size and the picture's pixels do, so views render only
+ * when those change; each newer picture is announced through `subscribe`, outside React.
+ */
 export interface ScreenFrame {
-  sequence: number;
-  /** The picture as an image URL; empty for a video picture. */
-  src: string;
+  /** The newest picture's chunk sequence. */
+  readonly sequence: number;
   /** CSS pixels of the page: input coordinates map to these. */
-  width: number;
-  height: number;
-  /** A decoded video picture (ADR 0088), drawn onto a canvas instead of an `<img>`. */
-  video?: ScreenVideo;
-}
-export interface ScreenVideo {
+  readonly width: number;
+  readonly height: number;
   /** The picture's own pixels: the canvas bitmap's size. */
-  codedWidth: number;
-  codedHeight: number;
-  /** Draws the picture over the whole canvas; false once it was released. */
-  draw(canvas: HTMLCanvasElement): boolean;
+  readonly codedWidth: number;
+  readonly codedHeight: number;
+  /** Draws the newest picture over the whole canvas; false once it was released. */
+  draw(context: CanvasRenderingContext2D, width: number, height: number): boolean;
+  /** Calls `listener` whenever a newer picture replaces the one shown; the result stops it. */
+  subscribe(listener: () => void): () => void;
 }
 export interface PreviewServer {
   port: number;
@@ -293,10 +295,19 @@ export interface PreviewSource {
    */
   watch(threadId: string): () => void;
   view(threadId: string): BrowserView | undefined;
+  /**
+   * The shown tab's live picture once its video decodes; undefined before the first keyframe
+   * of a fresh view. Kept through a reconnect or a pause, so the last picture stays meanwhile.
+   */
   frame(threadId: string): ScreenFrame | undefined;
   /**
-   * A tab's last frame from when it was the shown one (the screencast follows the shown tab),
-   * for split view's other half; undefined when this client never saw it.
+   * Whether this client decodes any codec the daemon encodes live pages in (WebCodecs'
+   * `VideoDecoder`); undefined while it is still being asked. A page shows only as video.
+   */
+  decodesVideo?(): boolean | undefined;
+  /**
+   * A tab's last picture from when it was the shown one (the video follows the shown tab), for
+   * split view's other half; undefined when this client never saw it.
    */
   still?(threadId: string, tabId: string): ScreenFrame | undefined;
   servers(threadId: string): readonly PreviewServer[];

@@ -1,10 +1,12 @@
 import { coldStartReplay, seedPanels } from "@ace/fake-daemon";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { browserVideo } from "@/test/browser-video.ts";
 import { harness } from "@/test/harness.tsx";
 
 /** The cold-start thread, with its Browser open in the side panel on the agent's page. */
 export async function openThreadBrowser(through?: string) {
+  const video = browserVideo();
   const scenario = coldStartReplay();
   const app = harness();
   const script = app.play(scenario);
@@ -17,7 +19,7 @@ export async function openThreadBrowser(through?: string) {
   await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   await within(panel).findByRole("img", { name: "Live view of localhost:5173/settings/devices" });
-  return { app, panel, browser: app.daemon.browser, script, thread: "thread-cold-start" };
+  return { app, panel, browser: app.daemon.browser, script, thread: "thread-cold-start", video };
 }
 
 /** Open the page's ⋯ menu and pick an item by name. */

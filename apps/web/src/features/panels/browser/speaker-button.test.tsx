@@ -29,12 +29,13 @@ function soundSource(playable: boolean) {
 
 const video: ScreenFrame = {
   sequence: 1,
-  src: "",
   width: 390,
   height: 800,
-  video: { codedWidth: 1170, codedHeight: 2400, draw: () => true },
+  codedWidth: 1170,
+  codedHeight: 2400,
+  draw: () => true,
+  subscribe: () => () => {},
 };
-const jpeg: ScreenFrame = { sequence: 1, src: "blob:frame", width: 390, height: 800 };
 
 test("a video view's sound starts muted, and one tap turns it on and off again", () => {
   const { source, on } = soundSource(true);
@@ -48,9 +49,11 @@ test("a video view's sound starts muted, and one tap turns it on and off again",
   expect(screen.getByRole("button", { name: "Unmute the page" })).toBeTruthy();
 });
 
-test("no speaker where sound can't come: a JPEG view, or a client that can't play it", () => {
+test("no speaker where sound can't come: no picture yet, or a client that can't play it", () => {
   const { source } = soundSource(true);
-  const { unmount } = render(<SpeakerButton source={source} threadId="thread-1" frame={jpeg} />);
+  const { unmount } = render(
+    <SpeakerButton source={source} threadId="thread-1" frame={undefined} />,
+  );
   expect(screen.queryByRole("button", { name: /mute the page/i })).toBeNull();
   unmount();
   render(<SpeakerButton source={soundSource(false).source} threadId="thread-1" frame={video} />);

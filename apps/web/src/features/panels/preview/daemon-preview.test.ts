@@ -5,6 +5,7 @@ import { fakeClient } from "@/test/fake-client.ts";
 import type { Schedule } from "../schedule.ts";
 import type { PageVisibility } from "@/lib/page-visibility.ts";
 import { daemonPreview } from "./daemon-preview.ts";
+import { heldDecoder, instantDecoder, playsH264 } from "./video-test-support.ts";
 
 /** Timers the test fires by hand. */
 function manualTimers() {
@@ -74,30 +75,40 @@ test("a hidden window stops polling for dev servers and reads them again once sh
   stop();
 });
 
-test("native visibility holds the fallback frame until screencast viewing resumes", async () => {
+test("while a native view shows the page, video isn't decoded; once it steps away, pictures resume", async () => {
   const daemon = new FakeDaemon({ clock: () => 1000 });
   new ScenarioPlayer(daemon, failingSubagent()).step();
   daemon.browser.drive("thread-settings", { url: "http://localhost:5173", backend: "embedded" });
   const client = fakeClient(daemon);
   await client.start();
   await waitFor(() => expect(client.state).toBe("ready"));
-  const timers = manualTimers();
-  const preview = daemonPreview(client, { schedule: timers.schedule, visibility: page() });
+  const decoder = instantDecoder();
+  const preview = daemonPreview(client, {
+    schedule: manualTimers().schedule,
+    visibility: page(),
+    videoDecoder: decoder.factory,
+    videoSupport: playsH264,
+  });
   const stop = preview.watch("thread-settings");
   await preview.open("thread-settings", failingSubagent().thread.workspaceId);
   await waitFor(() => expect(preview.frame("thread-settings")).toBeDefined());
-  const before = preview.frame("thread-settings")?.src;
+  const before = preview.frame("thread-settings")?.sequence;
   preview.nativeShown?.("thread-settings", true);
   daemon.browser.type("thread-settings", "native-only-edit");
   await client.request({ type: "browser.tabs.list", threadId: "thread-settings" });
-  expect(preview.frame("thread-settings")?.src).toBe(before);
+  expect(preview.frame("thread-settings")?.sequence).toBe(before);
+  expect(decoder.pictures.map((picture) => picture.sequence)).toEqual([before]);
   preview.nativeShown?.("thread-settings", false);
   daemon.browser.type("thread-settings", "remote-edit");
-  await waitFor(() => expect(preview.frame("thread-settings")?.src).not.toBe(before));
+  await waitFor(() =>
+    expect(preview.frame("thread-settings")?.sequence).toBe(
+      daemon.browser.frame("thread-settings")?.sequence,
+    ),
+  );
   stop();
 });
 
-test("retired preview sources release warm cached frames and document listeners", async () => {
+test("retired preview sources free their kept pictures and document listeners", async () => {
   const daemon = new FakeDaemon({ clock: () => 1000 });
   new ScenarioPlayer(daemon, failingSubagent()).step();
   daemon.browser.drive("thread-settings", { url: "http://localhost:5173" });
@@ -109,8 +120,7 @@ test("retired preview sources release warm cached frames and document listeners"
       return () => listeners.delete(listener);
     },
   };
-  const released: string[] = [];
-  const live: string[] = [];
+  const decoder = instantDecoder();
   for (let n = 0; n < 8; n++) {
     const client = fakeClient(daemon);
     await client.start();
@@ -119,23 +129,15 @@ test("retired preview sources release warm cached frames and document listeners"
     const preview = daemonPreview(client, {
       visibility,
       schedule: timers.schedule,
-      decode: async () => {
-        const src = `frame-${n}-${live.length}`;
-        live.push(src);
-        return {
-          src,
-          release: () => {
-            released.push(src);
-          },
-        };
-      },
+      videoDecoder: decoder.factory,
+      videoSupport: playsH264,
     });
     const unwatch = preview.watch("thread-settings");
     await preview.open("thread-settings", failingSubagent().thread.workspaceId);
     await waitFor(() => expect(preview.frame("thread-settings")).toBeDefined());
     unwatch();
     await Promise.resolve();
-    // Unwatch preserves this frame for a quick return while the client lives.
+    // Unwatch keeps this picture for a quick return while the client lives.
     expect(preview.frame("thread-settings")).toBeDefined();
     preview.dispose();
     preview.dispose();
@@ -147,37 +149,29 @@ test("retired preview sources release warm cached frames and document listeners"
     expect(preview.version).toBe(version);
   }
   expect(listeners.size).toBe(0);
-  expect(released.toSorted()).toEqual(live.toSorted());
+  expect(decoder.pictures.length).toBeGreaterThanOrEqual(8);
+  expect(decoder.pictures.every((picture) => picture.closed)).toBe(true);
 });
 
-test("a frame decoded after its preview owner retires is released without being shown", async () => {
+test("a picture decoded after its preview owner retires is freed without being shown", async () => {
   const daemon = new FakeDaemon({ clock: () => 1000 });
   new ScenarioPlayer(daemon, failingSubagent()).step();
   const client = fakeClient(daemon);
   await client.start();
   await waitFor(() => expect(client.state).toBe("ready"));
-  const decoded = Promise.withResolvers<{ src: string; release: () => void }>();
-  let decoding = false;
-  let releases = 0;
+  const decoder = heldDecoder();
   const preview = daemonPreview(client, {
     schedule: manualTimers().schedule,
     visibility: page(),
-    decode: () => {
-      decoding = true;
-      return decoded.promise;
-    },
+    videoDecoder: decoder.factory,
+    videoSupport: playsH264,
   });
   preview.watch("thread-settings");
   await preview.open("thread-settings", failingSubagent().thread.workspaceId);
-  await waitFor(() => expect(decoding).toBe(true));
+  await waitFor(() => expect(decoder.decoders[0]?.pending.length).toBe(1));
   preview.dispose();
-  decoded.resolve({
-    src: "late-frame",
-    release: () => {
-      releases++;
-    },
-  });
-  await waitFor(() => expect(releases).toBe(1));
+  decoder.decoders[0]?.flush();
+  expect(decoder.pictures.map((picture) => picture.closed)).toEqual([true]);
   expect(preview.frame("thread-settings")).toBeUndefined();
 });
 

@@ -21,7 +21,7 @@ export function SpeakerButton(props: {
   );
   const read = useCallback(() => source?.audio?.(threadId), [source, threadId]);
   const on = useSyncExternalStore(subscribe, read, read);
-  if (on === undefined || (!on && !props.frame?.video)) return null;
+  if (on === undefined || (!on && !props.frame)) return null;
   return (
     <IconButton
       icon={on ? SpeakerHighIcon : SpeakerSlashIcon}

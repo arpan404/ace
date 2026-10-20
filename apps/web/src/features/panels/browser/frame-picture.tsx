@@ -2,63 +2,45 @@ import { useLayoutEffect, useRef, type CSSProperties, type Ref } from "react";
 import type { ScreenFrame } from "../sources.ts";
 
 /**
- * A live frame's picture: a JPEG in an `<img>`, or a decoded video picture on a `<canvas>` whose
- * bitmap is the picture's own pixels (the pane's CSS size times its device pixel ratio, ADR 0088),
- * so nothing is scaled up by CSS. Either way the picture's intrinsic size is its pixels, and the
- * same classes fit it to the pane.
+ * A live page's picture: decoded video on a `<canvas>` whose bitmap is the picture's own pixels
+ * (the pane's CSS size times its device pixel ratio, ADR 0088), so nothing is scaled up by CSS;
+ * the bitmap's size is the canvas's intrinsic size, and the classes fit it to the pane.
+ *
+ * The canvas draws outside React: it draws the newest picture once on mount, then on the next
+ * animation frame after each newer one arrives, however many arrived since (each replaced one
+ * is already freed). A hidden page has no animation frames, so it draws nothing until shown.
  */
 export function FramePicture(props: {
   frame: ScreenFrame;
   alt: string;
-  width?: number | undefined;
-  height?: number | undefined;
   className?: string | undefined;
   style?: CSSProperties | undefined;
-  /** Where the shown picture element goes (an `<img>` or a `<canvas>`). */
-  pictureRef?: Ref<HTMLElement | null> | undefined;
-}) {
-  const { frame, pictureRef } = props;
-  if (frame.video)
-    return (
-      <VideoPicture
-        video={frame.video}
-        alt={props.alt}
-        className={props.className}
-        style={props.style}
-        pictureRef={pictureRef}
-      />
-    );
-  return (
-    <img
-      data-page-picture=""
-      ref={(element) => assign(pictureRef, element)}
-      src={frame.src}
-      alt={props.alt}
-      draggable={false}
-      style={props.style}
-      width={props.width}
-      height={props.height}
-      className={props.className}
-    />
-  );
-}
-
-function VideoPicture(props: {
-  video: NonNullable<ScreenFrame["video"]>;
-  alt: string;
-  className?: string | undefined;
-  style?: CSSProperties | undefined;
+  /** Where the canvas goes, for anything that maps points through the drawn picture. */
   pictureRef?: Ref<HTMLElement | null> | undefined;
 }) {
   const canvas = useRef<HTMLCanvasElement | null>(null);
-  const { video } = props;
+  const { frame } = props;
   useLayoutEffect(() => {
     const element = canvas.current;
     if (!element) return;
-    if (element.width !== video.codedWidth) element.width = video.codedWidth;
-    if (element.height !== video.codedHeight) element.height = video.codedHeight;
-    video.draw(element);
-  }, [video]);
+    if (element.width !== frame.codedWidth) element.width = frame.codedWidth;
+    if (element.height !== frame.codedHeight) element.height = frame.codedHeight;
+    const context = element.getContext("2d", { alpha: false });
+    if (!context) return;
+    let scheduled = 0;
+    const paint = () => {
+      scheduled = 0;
+      frame.draw(context, element.width, element.height);
+    };
+    paint();
+    const stop = frame.subscribe(() => {
+      scheduled ||= requestAnimationFrame(paint);
+    });
+    return () => {
+      stop();
+      if (scheduled) cancelAnimationFrame(scheduled);
+    };
+  }, [frame]);
   const attach = (element: HTMLCanvasElement | null) => {
     canvas.current = element;
     assign(props.pictureRef, element);
@@ -69,15 +51,13 @@ function VideoPicture(props: {
       ref={attach}
       role="img"
       aria-label={props.alt}
-      // Like an `<img>` of a device-pixel JPEG, the bitmap's size is its intrinsic size, and the
-      // same classes fit it to the pane.
       style={props.style}
       className={props.className}
     />
   );
 }
 
-/** Hands the element to a ref given for any picture element. */
+/** Hands the canvas to a ref given for the picture element. */
 function assign(ref: Ref<HTMLElement | null> | undefined, element: HTMLElement | null): void {
   if (typeof ref === "function") ref(element);
   else if (ref) ref.current = element;

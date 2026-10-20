@@ -1,5 +1,4 @@
 import type { Schedule } from "../schedule.ts";
-import type { ScreenFrame } from "../sources.ts";
 import type { StreamMessage } from "@ace/client";
 import { within, type VideoDecoderFactory, type VideoSupport } from "@/lib/video/codecs.ts";
 import { VideoStream, type VideoPicture } from "@/lib/video/stream.ts";
@@ -7,13 +6,8 @@ import { VideoStream, type VideoPicture } from "@/lib/video/stream.ts";
 /** One encoded chunk of a thread's video, as the daemon's stream message carries it. */
 export type BrowserVideoChunk = Extract<StreamMessage, { kind: "browser.video" }>["chunk"];
 
-/** A picture ready to show, and how to free it. */
-export interface ShownVideo extends ScreenFrame {
-  release(): void;
-}
-
 export interface ThreadVideosOptions {
-  /** Absent: this client plays no video and asks for JPEG frames. */
+  /** Absent: this client decodes no video, so it shows no live page. */
   decoder: VideoDecoderFactory | undefined;
   support: VideoSupport;
   schedule: Schedule;
@@ -21,7 +15,8 @@ export interface ThreadVideosOptions {
   seen(threadId: string): boolean;
   /** Whether the thread's view is watched at all. */
   watching(threadId: string): boolean;
-  present(threadId: string, frame: ShownVideo, timestamp: number): void;
+  /** A decoded picture to show; it is the receiver's to close. */
+  present(threadId: string, picture: VideoPicture): void;
   ack(threadId: string, sequence: number, keyframe: boolean): void;
 }
 
@@ -34,24 +29,37 @@ interface Owed {
 }
 
 /**
- * Each watched thread's video (ADR 0088): decoding, presenting and acking. Acks for pictures
+ * Each watched thread's video (ADR 0088): decoding, presenting and acking. Every chunk is acked
+ * as soon as the decoder has it out (or at once when it can't be decoded), so the daemon's
+ * window of unacknowledged chunks frees at decode speed, not at display rate. Acks for pictures
  * nobody sees (a hidden page, a native view on top) are owed until `settle`, which pauses the
- * daemon's stream as JPEG's owed acks do; a native view on top also skips decoding, so the
- * owed ack asks for a keyframe to pick up again.
+ * daemon's stream; a native view on top also skips decoding, so the owed ack asks for a
+ * keyframe to pick up again.
  */
 export class ThreadVideos {
   #options: ThreadVideosOptions;
   #streams = new Map<string, VideoStream>();
   #owed = new Map<string, Owed>();
   #codecs: Promise<readonly string[]> | undefined;
+  #decodes: boolean | undefined;
   constructor(options: ThreadVideosOptions) {
     this.#options = options;
+    if (!options.decoder) this.#decodes = false;
   }
-  /** The codecs to ask for in `browser.subscribe`; empty: ask for JPEG. Probed once. */
+  /** The codecs to ask for in `browser.subscribe`; empty: none. Probed once. */
   codecs(): Promise<readonly string[]> {
     if (!this.#options.decoder) return Promise.resolve([]);
-    this.#codecs ??= within(this.#options.support(), probeMs, [], this.#options.schedule);
+    this.#codecs ??= within(this.#options.support(), probeMs, [], this.#options.schedule).then(
+      (codecs) => {
+        this.#decodes = codecs.length > 0;
+        return codecs;
+      },
+    );
     return this.#codecs;
+  }
+  /** Whether this client decodes any codec; undefined until `codecs()` has answered. */
+  decodes(): boolean | undefined {
+    return this.#decodes;
   }
   receive(threadId: string, chunk: BrowserVideoChunk, painted: boolean): void {
     const decoder = this.#options.decoder;
@@ -72,7 +80,7 @@ export class ThreadVideos {
     }
     stream.receive(chunk);
   }
-  /** The thread's stream starts over (a new subscription, another tab, a JPEG frame). */
+  /** The thread's stream starts over (a new subscription, another tab). */
   reset(threadId: string): void {
     this.#streams.get(threadId)?.reset();
     this.#owed.delete(threadId);
@@ -107,39 +115,9 @@ export class ThreadVideos {
     });
   }
   #present(threadId: string, video: VideoPicture): void {
-    const { picture } = video;
-    if (!this.#options.watching(threadId)) return picture.close();
-    let closed = false;
-    this.#options.present(
-      threadId,
-      {
-        sequence: picture.sequence,
-        src: "",
-        width: video.width,
-        height: video.height,
-        video: {
-          codedWidth: video.codedWidth,
-          codedHeight: video.codedHeight,
-          draw(canvas) {
-            if (closed) return false;
-            const context = canvas.getContext("2d");
-            if (!context) return false;
-            try {
-              picture.draw(context, canvas.width, canvas.height);
-              return true;
-            } catch {
-              return false;
-            }
-          },
-        },
-        release() {
-          if (closed) return;
-          closed = true;
-          picture.close();
-        },
-      },
-      video.timestamp,
-    );
-    this.#ack(threadId, picture.sequence, false);
+    const sequence = video.picture.sequence;
+    if (!this.#options.watching(threadId)) return video.picture.close();
+    this.#options.present(threadId, video);
+    this.#ack(threadId, sequence, false);
   }
 }

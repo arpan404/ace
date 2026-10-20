@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import type { ScreenFrame } from "../sources.ts";
 import { LocalStore } from "../store.ts";
 import { ScrollEcho, nextLatency } from "./local-echo.ts";
 
@@ -16,22 +17,25 @@ export interface Ripple {
 const settleAfter = 600;
 
 /**
- * The person's own input shown at once, before the page's frame catches up: a ripple where a
- * tap or click lands, the last frame moved by scrolls still in flight (`pictureStyle`), and the
- * round trip of every input for the ⋯ menu. Each new frame (`frame.sequence`) settles the
- * scrolls the page already had.
+ * The person's own input shown at once, before the page's picture catches up: a ripple where a
+ * tap or click lands, the last picture moved by scrolls still in flight (`pictureStyle`), and
+ * the round trip of every input for the ⋯ menu. A newer picture settles the scrolls the page
+ * already had; pictures are watched only while there is such a scroll, so a steady stream of
+ * them renders nothing.
  */
-export function useLocalEcho(
-  threadId: string,
-  frame: { sequence: number; width: number; height: number },
-) {
+export function useLocalEcho(threadId: string, frame: ScreenFrame | undefined) {
   const [ripples, setRipples] = useState<readonly Ripple[]>([]);
   const [scrolls, setScrolls] = useState(() => new ScrollEcho());
-  const [shownFrame, setShownFrame] = useState(frame.sequence);
-  if (shownFrame !== frame.sequence) {
-    setShownFrame(frame.sequence);
+  const [shownFrame, setShownFrame] = useState(frame);
+  if (shownFrame !== frame) {
+    setShownFrame(frame);
     setScrolls((echo) => echo.framed());
   }
+  const settles = scrolls.framed() !== scrolls;
+  useEffect(() => {
+    if (!frame || !settles) return;
+    return frame.subscribe(() => setScrolls((echo) => echo.framed()));
+  }, [frame, settles]);
   const ids = useRef(0);
   const latency = useRef<number | undefined>(undefined);
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
@@ -85,13 +89,13 @@ export function useLocalEcho(
     setRipples((before) => before.filter((shown) => shown.id !== id));
   }, []);
 
-  // A frame never slides more than a third of itself; percentages are of the picture's own size.
-  const offset = scrolls.offset({ x: frame.width / 3, y: frame.height / 3 });
+  // A picture never slides more than a third of itself; percentages are of its own size.
+  const width = frame?.width ?? 0;
+  const height = frame?.height ?? 0;
+  const offset = scrolls.offset({ x: width / 3, y: height / 3 });
   const pictureStyle: CSSProperties | undefined =
-    (offset.x || offset.y) && frame.width > 0 && frame.height > 0
-      ? {
-          transform: `translate(${(offset.x / frame.width) * 100}%, ${(offset.y / frame.height) * 100}%)`,
-        }
+    (offset.x || offset.y) && width > 0 && height > 0
+      ? { transform: `translate(${(offset.x / width) * 100}%, ${(offset.y / height) * 100}%)` }
       : undefined;
 
   return { ripples, ripple, settled, scroll, timed, pictureStyle };
