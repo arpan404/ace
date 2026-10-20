@@ -13,6 +13,7 @@ import type { AgentControlResult, McpAttribution, ThreadId } from "@ace/protocol
 import type { ThreadStatus } from "@ace/protocol/thread-status";
 import type { ServiceContext } from "../services/types.ts";
 import type { DelegationService } from "./delegations.ts";
+import { republishProjectRoles } from "./offshift-freshness.ts";
 import type { ExtensionOperation } from "./tools.ts";
 
 type Offshift = Extract<ExtensionOperation, { op: "offshift" }>;
@@ -97,10 +98,13 @@ export function createOffshifts(context: ServiceContext, delegations: Delegation
         const workspace = workspaceOf(caller.threadId);
         if (!workspace || !store.getMcpAgent(caller.threadId, caller.agentId))
           return { ok: false, code: "forbidden" };
-        return {
-          ok: true,
-          data: { scope: "project", roles: projectRoles.set(workspace, request.roles) },
-        };
+        // The defaults and the cards they change commit together.
+        const roles = store.atomic(() => {
+          const set = projectRoles.set(workspace, request.roles);
+          republishProjectRoles(store, journal, workspace, set, now());
+          return set;
+        });
+        return { ok: true, data: { scope: "project", roles } };
       }
       const workspace = services.workspaceActions;
       if (!workspace) return { ok: false, code: "unavailable", hint: noRevision };

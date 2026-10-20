@@ -361,3 +361,36 @@ it("an agent picks a playbook from the catalogue, starts from it, and marks step
   expect(advanced.run.phase).toBe("implement");
   expect(advanced.next).toContain("Step `failing-test`");
 });
+
+it("changing the project's default roles republishes an open run's card with the roles it now uses", async () => {
+  world = await evalWorld({ browser: false });
+  const { agent, threadId } = await world.agent({});
+  const cards: OffshiftRunCard[] = [];
+  world.store.subscribe((events) => {
+    for (const event of events)
+      if (event.threadId === threadId && event.payload.type === "offshift.updated")
+        cards.push(event.payload.card);
+  });
+  await agent.call("offshift", { ...start, roles: { build: { provider: "codex" } } });
+  expect(cards.at(-1)?.roles).toEqual([{ role: "build", source: "run", provider: "codex" }]);
+  await agent.call("offshift", {
+    action: "roles",
+    scope: "project",
+    roles: { review: { provider: "claude", effort: "high" } },
+  });
+  expect(cards).toHaveLength(2);
+  const fresh = cards[1];
+  expect(fresh).toMatchObject({ id: "login", version: cards[0]?.version });
+  expect(fresh?.roles).toEqual([
+    { role: "build", source: "run", provider: "codex" },
+    { role: "review", source: "project", provider: "claude", effort: "high" },
+  ]);
+  expect(world.store.snapshotThread(threadId).offshift).toEqual(fresh);
+  // The same defaults again change no card, so nothing is published.
+  await agent.call("offshift", {
+    action: "roles",
+    scope: "project",
+    roles: { review: { provider: "claude", effort: "high" } },
+  });
+  expect(cards).toHaveLength(2);
+});

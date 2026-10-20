@@ -56,6 +56,15 @@ export class OffshiftJournal {
       return row ? OffshiftRun.parse(JSON.parse(stored.parse(row).body)).roles : undefined;
     });
   }
+  /** One stored run of a thread, without a view; for republishing its card. */
+  run(threadId: string, runId: string): OffshiftRun | undefined {
+    return this.transactions.atomic((db) => {
+      const row = db
+        .prepare("SELECT body FROM offshift_runs WHERE thread_id=? AND id=?")
+        .get(threadId, runId);
+      return row ? OffshiftRun.parse(JSON.parse(stored.parse(row).body)) : undefined;
+    });
+  }
   execute(input: unknown, context: Context): Executed {
     const request = OffshiftRequest.parse(input);
     if (request.action === "playbooks") return { result: playbookCatalogue() };
