@@ -94,7 +94,7 @@ export function DeviceScreen(props: {
         gestures: TouchGestures;
         fingers: DeviceFingers;
         pointers: Set<number>;
-        /** Each finger's newest move not yet sent; sent together, one batch in flight. */
+        /** Each finger's newest move not yet sent; sent together, a few batches in flight. */
         moved: Map<number, DeviceInput>;
         moves: ReturnType<typeof coalescedPointerMoves<true>>;
       }
@@ -315,7 +315,8 @@ export function DeviceScreen(props: {
         async () => {
           const batch = [...moved.values()];
           moved.clear();
-          for (const input of batch) await latestInput.current(input);
+          // Sent in order at once: the transport keeps the order, so fingers don't wait in turn.
+          await Promise.all(batch.map((input) => latestInput.current(input)));
         },
         () => {},
       ),
