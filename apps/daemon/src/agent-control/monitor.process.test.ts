@@ -69,6 +69,7 @@ const ask = (text: string): Fact => ({
         options: [{ id: "pg", label: "Postgres" }],
         multiSelect: false,
         allowOther: false,
+        secret: false,
       },
     ],
   },

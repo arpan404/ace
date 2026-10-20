@@ -98,6 +98,7 @@ const seeds: Record<RequestScenario, (daemon: FakeDaemon, id: string, details: D
               text: "Should the notes include the archived 0.x entries?",
               multiSelect: false,
               allowOther: true,
+              secret: false,
               options: [
                 {
                   id: "skip",

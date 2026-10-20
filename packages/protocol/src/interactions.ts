@@ -21,6 +21,8 @@ export const Question = z.object({
   multiSelect: z.boolean().default(false),
   /** Free-text answers are accepted. */
   allowOther: z.boolean().default(false),
+  /** The answer is sensitive (a token, a password): typed hidden and never shown back. */
+  secret: z.boolean().default(false),
 });
 export type Question = z.infer<typeof Question>;
 

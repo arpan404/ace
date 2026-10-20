@@ -331,6 +331,20 @@ test("a finished turn has no live line unless a question still waits on the pers
   });
 });
 
+test("waiting only on the root's own questions is marked as asked in the transcript", () => {
+  const blocking = { ...question("which", 5 * second), blocking: true };
+  expect(turnActivity(world(working, [], [blocking]).reader, "root")?.askedInline).toBe(true);
+  // An approval beside it, or a subagent's question, has no line of its own there.
+  expect(
+    turnActivity(world(working, [], [blocking, approval("run", 6 * second)]).reader, "root")
+      ?.askedInline,
+  ).toBeUndefined();
+  const asking = world(working, []);
+  asking.subagent("audit", working);
+  asking.ask({ ...blocking, agentId: agent("audit", working).id });
+  expect(turnActivity(asking.reader, "root")?.askedInline).toBeUndefined();
+});
+
 test("Stop on its way reads Stopping", () => {
   expect(turnActivity(world(working, []).reader, "root", { stopping: true })?.label).toBe(
     "Stopping…",

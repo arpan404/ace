@@ -47,6 +47,7 @@ test("a child keeps working through a non-blocking question and requests attenti
               text: "Which cases?",
               multiSelect: false,
               allowOther: true,
+              secret: false,
               options: [],
             },
           ],

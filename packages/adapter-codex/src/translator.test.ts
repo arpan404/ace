@@ -180,6 +180,28 @@ test("a question without a backing item emits an ask-user tool and resolves once
   expect(h.state.status.state).toBe("done");
   expect(h.state.interactions[requestKey(7)]?.state).toBe("resolved");
 });
+test("a question Codex marks secret asks for a hidden answer; others stay plain", () => {
+  const h = setup();
+  h.start();
+  h.recv(
+    "item/tool/requestUserInput",
+    {
+      threadId: "native",
+      turnId: "turn",
+      itemId: "token",
+      questions: [
+        { id: "token", question: "Paste the npm token", options: [], isSecret: true },
+        { id: "name", question: "Package name?", options: [], isSecret: "yes" },
+      ],
+    },
+    8,
+  );
+  const request = h.state.interactions[requestKey(8)]?.request;
+  expect(request?.kind === "question" && request.questions.map((q) => [q.id, q.secret])).toEqual([
+    ["token", true],
+    ["name", false],
+  ]);
+});
 test("parallel approvals remain blocked until both requests resolve", () => {
   const h = setup();
   h.start();

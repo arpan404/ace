@@ -282,6 +282,7 @@ test.each(["child", "descendant"])(
                 text: "Include generated files?",
                 options: [],
                 allowOther: true,
+                secret: false,
                 multiSelect: false,
               },
             ],

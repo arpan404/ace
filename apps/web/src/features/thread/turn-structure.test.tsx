@@ -491,6 +491,7 @@ test("a question still waiting in an old turn stays in view in a long thread", a
               text: "Keep the legacy flag reader?",
               multiSelect: false,
               allowOther: false,
+              secret: false,
               options: [
                 { id: "yes", label: "Keep it" },
                 { id: "no", label: "Remove it" },

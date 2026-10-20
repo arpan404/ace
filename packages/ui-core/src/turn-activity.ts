@@ -49,6 +49,11 @@ export interface TurnActivity {
   /** While waiting on the person: the subagent or delegated child that asks, when not the root. */
   asker?: string | undefined;
   /**
+   * While waiting on the person: every open request is a question the root asked, each with its
+   * own line in the transcript where it was asked, which already says the turn waits.
+   */
+  askedInline?: boolean | undefined;
+  /**
    * The root does nothing itself and its turn goes on only for its subagents: the line reads
    * "Waiting for 2 subagents", not "Working", with the same timer.
    */
@@ -126,12 +131,18 @@ function waitingOnYou(
   const label = askingLabel(
     kinds.has("approval") ? "approval" : kinds.has("plan_review") ? "plan_review" : "question",
   );
+  const inline =
+    interactions.length > 0 &&
+    interactions.every(
+      (interaction) => interaction.request.kind === "question" && interaction.agentId === rootId,
+    );
   return {
     label,
     tone: "needs-you",
     elapsedFrom: undefined,
     current: undefined,
     asker: askerOf(reader, rootId, interactions),
+    ...(inline ? { askedInline: true } : {}),
   };
 }
 

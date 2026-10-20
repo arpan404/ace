@@ -94,9 +94,10 @@ test("a thread waiting on its subagents reads Waiting in its row, its strip time
 });
 
 test("a thread that asked a question keeps the waiting state in the thread, row and details icon", async () => {
-  const { header, row } = await open(askingQuestion());
+  const { feed, header, row } = await open(askingQuestion());
   expect(await screen.findByRole("region", { name: "Waiting for you" })).toBeTruthy();
-  expect(screen.getByRole("status", { name: "Waiting for your answer" })).toBeTruthy();
+  // The question's own line in the transcript is the waiting state.
+  expect(await within(feed).findByRole("button", { name: /is asking · / })).toBeTruthy();
   expect(row.getAttribute("aria-label")).toContain("Waiting for your answer");
   expect(within(header).queryByRole("status")).toBeNull();
   expect(
@@ -118,8 +119,9 @@ test.each([
   async (_provider, scenario) => {
     const { feed, header, row } = await open(scenario());
     expect(await screen.findByRole("region", { name: "Waiting for you" })).toBeTruthy();
-    const head = within(feed).getByRole("group", { name: "Turn in progress" });
-    expect(head.textContent).toBe("Waiting for your answer");
+    // The question's own "is asking" line says the turn waits; no second waiting line.
+    expect(await within(feed).findByRole("button", { name: /is asking · / })).toBeTruthy();
+    expect(within(feed).queryByRole("group", { name: "Turn in progress" })).toBeNull();
     expect(within(feed).queryByRole("status", { name: /^Working/ })).toBeNull();
     expect(row.getAttribute("aria-label")).toContain("Waiting for your answer");
     expect(row.getAttribute("aria-label")).not.toContain("Working");

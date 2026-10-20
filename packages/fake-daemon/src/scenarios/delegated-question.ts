@@ -54,6 +54,7 @@ export function delegatedQuestion(): Scenario[] {
                   text: "Should the review include the archived blog posts?",
                   multiSelect: false,
                   allowOther: false,
+                  secret: false,
                   options: [
                     { id: "yes", label: "Include them" },
                     { id: "no", label: "Skip the archive" },
