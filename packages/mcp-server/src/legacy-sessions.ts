@@ -146,6 +146,12 @@ export async function legacySessions(
       for (const session of sessions.values())
         void session.server.server.sendToolListChanged().catch(() => {});
     },
+    /** Only this lease's streams: its list changed, nobody else's did. */
+    toolsChangedFor(principal: Principal): void {
+      for (const session of sessions.values())
+        if (session.principal === principal)
+          void session.server.server.sendToolListChanged().catch(() => {});
+    },
     async close(): Promise<void> {
       const stops = [...sessions.values(), ...pending].map((session) => session.close());
       await Promise.all([...stops, ...stopping]);

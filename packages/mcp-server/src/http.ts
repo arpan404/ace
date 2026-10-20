@@ -15,6 +15,7 @@ import {
 import { aceToolDispatch, aceToolSearch, bareToolName, dispatchedAceCall } from "./tool-names.ts";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { createMetaRegistry, foundFamilies } from "./meta-tools.ts";
+import { PrincipalEventBus } from "./principal-bus.ts";
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import { CredentialRegistry, type Principal } from "./credentials.ts";
@@ -187,8 +188,8 @@ async function createHandler(
     if (bare === "context") return status;
     return bare === aceToolSearch || bare === aceToolDispatch ? meta : options.registry;
   };
-  // Set once the handlers exist: a call that opens a toolset re-announces the tool list.
-  let announce: () => void = noop;
+  // Set once the handlers exist: a call that opens a toolset re-announces that session's list.
+  let announce: (principal: Principal) => void = noop;
   const factory: import("@modelcontextprotocol/server").McpServerFactory = ({ requestInfo }) => {
     const principal = credentials.authenticate(
       bearer(requestInfo?.headers.get("authorization") ?? undefined),
@@ -339,7 +340,8 @@ async function createHandler(
           args,
           AbortSignal.any([context.mcpReq.signal, controller.signal]),
         );
-        if (!result.isError && opens(name, args, result)) announce();
+        // Only a core session's list grows, and only that session needs to reload it.
+        if (!result.isError && listing === "core" && opens(name, args, result)) announce(principal);
         // A dispatched call is remembered as the tool it ran.
         const tool = dispatchedAceCall(name, args).name;
         return awareness ? withChanges(awareness, principal, tool, result) : result;
@@ -355,14 +357,16 @@ async function createHandler(
     });
     return product;
   };
+  const bus = new PrincipalEventBus();
   const handler = createMcpHandler(factory, {
     legacy: "stateless",
     maxRequestBodySize: options.maxBodyBytes ?? 64 * 1024,
     maxSubscriptions: 16,
+    bus,
   });
-  const legacy = await legacySessions(factory, (request) =>
-    credentials.authenticate(bearer(request.headers.get("authorization") ?? undefined)),
-  );
+  const authenticate = (request: Request) =>
+    credentials.authenticate(bearer(request.headers.get("authorization") ?? undefined));
+  const legacy = await legacySessions(factory, authenticate);
   const nodeHandler = toNodeHandler(
     {
       fetch: async (request: Request) => {
@@ -371,16 +375,17 @@ async function createHandler(
           (await isLegacyRequest(request))
         )
           return legacy.fetch(request);
-        return handler.fetch(request);
+        // A listen stream opened by this request belongs to its lease (`principal-bus.ts`).
+        return bus.serving(authenticate(request), () => handler.fetch(request));
       },
     },
     {
       maxRequestBodySize: options.maxBodyBytes ?? 64 * 1024,
     },
   );
-  announce = () => {
-    handler.notify.toolsChanged();
-    legacy.toolsChanged();
+  announce = (principal) => {
+    bus.publishTo(principal, { kind: "tools_list_changed" });
+    legacy.toolsChangedFor(principal);
   };
   const validateHost = localhostHostValidation();
   const validateOrigin = localhostOriginValidation();
