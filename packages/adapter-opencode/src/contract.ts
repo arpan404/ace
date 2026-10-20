@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { parseCliVersion } from "@ace/provider-kit/cli-versions";
 import {
   admitsVersion,
   checkCli,
@@ -8,16 +7,16 @@ import {
 } from "@ace/provider-kit/cli-requirements";
 
 /**
- * The OpenCode v2 HTTP contract ace drives through `@opencode/client` 2.0.22.
+ * The OpenCode HTTP contract ace drives through `@opencode/client` 2.0.22.
  *
- * Patch releases are admitted by range, not by an exact allowlist: OpenCode 2.0.x
- * ships additive changes (new optional fields, new operations, new error variants),
- * and the client only depends on the method and route of each operation below.
- * The server's own OpenAPI document is probed at startup, so a patch that really
- * moves or drops one of these operations is still refused, naming what changed.
+ * Every release at or above the minimum is admitted; there is no upper bound. OpenCode ships
+ * additive changes (new optional fields, operations, events), ace decodes leniently, and the
+ * client only depends on the method and route of each operation below. The server's own
+ * OpenAPI document is probed at startup, so a release that really moves or drops one of
+ * these operations is still refused, naming what changed.
  */
 export const minimumVersion = cliRequirements.opencode.minimum;
-export const supportedRange = `OpenCode 2.0.x, ${minimumVersion} or newer`;
+export const supportedRange = `OpenCode ${minimumVersion} or newer`;
 
 export const requiredRoutes: Readonly<Record<string, string>> = {
   "server.info": "GET /api/info",
@@ -42,31 +41,22 @@ export const requiredRoutes: Readonly<Record<string, string>> = {
   "model.list": "GET /api/model",
 };
 
-/** The 2.0 release line, whose API ace drives; a newer line is a different contract, not "too old". */
-function checkedLine(value: string): boolean {
-  const parsed = parseCliVersion(value);
-  return parsed?.major === 2 && parsed.minor === 0 && !parsed.prerelease.length;
-}
-
-/** True for OpenCode 2.0.x at or above the minimum; the contract probe decides the rest. */
+/** True for OpenCode at or above the minimum; the contract probe decides the rest. */
 export function version(value: unknown): boolean {
-  return typeof value === "string" && admitsVersion("opencode", value) && checkedLine(value);
+  return typeof value === "string" && admitsVersion("opencode", value);
 }
 
 /**
- * Why an installed OpenCode is refused before its contract is probed. Older than the minimum is
- * a `CliTooOldError`; a newer line ace hasn't checked (or an unreadable version) is
- * `cli_unsupported`, never "too old".
+ * Why an installed OpenCode is refused before its contract is probed: older than the minimum
+ * is a `CliTooOldError`, an unreadable version is `cli_unsupported`.
  */
 export function versionRefusal(installed: string | undefined): Error & { code: string } {
   const check = checkCli("opencode", installed);
   if (check.status === "too_old")
     return new CliTooOldError("opencode", check.installed, check.required);
-  const message =
-    check.status === "unreadable"
-      ? `OpenCode's version is unknown; ace supports ${supportedRange}`
-      : `OpenCode ${check.installed} is newer than ace has checked; ace supports ${supportedRange}`;
-  return Object.assign(new Error(message), { code: "cli_unsupported" });
+  return Object.assign(new Error(`OpenCode's version is unknown; ace supports ${supportedRange}`), {
+    code: "cli_unsupported",
+  });
 }
 
 const HttpMethods = new Set(["get", "put", "post", "delete", "patch", "head", "options", "trace"]);

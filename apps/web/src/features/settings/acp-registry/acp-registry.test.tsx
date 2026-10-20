@@ -152,7 +152,7 @@ test("registry prerequisites and failures give a way to retry on the agent's pag
     }),
   );
   expect(await within(dialog).findByRole("button", { name: "Retry" })).toBeTruthy();
-  expect(dialog.textContent).toContain("The installer couldn't finish");
+  expect(dialog.textContent).toContain("The official installer failed. Try again.");
   app.daemon.services.providerInstalls.scenarios.acp = "success";
   await userEvent.click(within(dialog).getByRole("button", { name: "Retry" }));
   expect(await within(dialog).findByRole("button", { name: "Sign in to Cline" })).toBeTruthy();

@@ -3,6 +3,7 @@ import { open, access } from "node:fs/promises";
 import { dirname, join, parse } from "node:path";
 import { constants } from "node:fs";
 import { z } from "zod";
+import { checkCliVersion } from "./cli-versions.ts";
 
 export type SdkInstallation = {
   installed: boolean;
@@ -36,10 +37,13 @@ export interface SdkDiscoveryOptions {
   arch?: string;
   nodeVersion?: string;
 }
-/** Resolve without importing the SDK into the daemon's credential-cache domain. */
+/**
+ * Resolve without importing the SDK into the daemon's credential-cache domain. `minimum` is a
+ * floor, never a pin: any newer resolved SDK is admitted.
+ */
 export async function discoverSdk(
   name: string,
-  version: string,
+  minimum: string,
   options: SdkDiscoveryOptions = {},
 ): Promise<SdkInstallation> {
   const resolve = options.resolve ?? createRequire(import.meta.url).resolve;
@@ -52,6 +56,7 @@ export async function discoverSdk(
       return { installed: false, supported: false };
     return { installed: true, supported: false, error: "SDK resolution failed" };
   }
+  let version: string | undefined;
   try {
     let directory = dirname(module);
     let found: z.infer<typeof manifest> | undefined;
@@ -71,13 +76,14 @@ export async function discoverSdk(
       directory = dirname(directory);
     }
     if (!found) throw new Error("SDK manifest missing");
-    if (found.version !== version)
+    version = found.version;
+    if (checkCliVersion(minimum, version).status !== "ok")
       return {
         installed: true,
         supported: false,
         module,
-        version: found.version,
-        error: `Install ${name} ${version}; resolved ${found.version}`,
+        version,
+        error: `Install ${name} ${minimum} or newer; resolved ${version}`,
       };
     const node = (options.nodeVersion ?? process.versions.node).split(".").map(Number);
     if (
@@ -112,7 +118,7 @@ export async function discoverSdk(
       installed: true,
       supported: false,
       module,
-      version,
+      ...(version ? { version } : {}),
       error: error instanceof Error ? error.message : "SDK admission failed",
     };
   }
