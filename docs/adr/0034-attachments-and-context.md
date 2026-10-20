@@ -264,8 +264,28 @@ existing authenticated attachment transport, including on another device.
 
 Assistant markdown resolves local references through the thread's owning client.
 Captured images render inline and open the existing lightbox. File links inside
-the thread checkout open its file panel. Uncaptured files outside that checkout
-remain unavailable. No link reads the viewing device's local filesystem.
+the thread checkout open its file panel. Files outside that checkout download
+through the message that links them (below). No link reads the viewing device's
+local filesystem.
+
+## Linked files outside the checkout, 2026-10-20
+
+An assistant message that links a local file outside the thread checkout (a PDF in
+Downloads, say) makes that file downloadable from any device that can read the
+thread. The `link.download` file operation names the thread, the message item and
+the link target exactly as the message wrote it. The daemon lexes the message's
+text with the same Markdown parser as the web client and serves the file only if
+that target is one of its links. It never reads a path the client chose. Only
+assistant messages grant this, never the person's own messages. `file:` URLs,
+absolute paths and paths relative to the answering agent's folder resolve, and
+a `:line:col` suffix is ignored. The download is read-only and streamed in place
+through the existing chunked transport. Nothing is copied into the attachment
+store. Only regular files are served, and revoking the device or deleting the
+thread ends an open download.
+
+This widens what a paired read-only device can fetch to whatever the agent chose
+to link. That adds no exposure the agent didn't already have: it can read those
+files and paste their contents into the same message.
 
 ## Idle context indexes and batched reconciliation, 2026-10-17
 

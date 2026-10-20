@@ -228,6 +228,12 @@ export function attachRelayService(
             const files = options.threadFiles;
             if (!threadId || !files || !threadAccess(threadId))
               throw new Error("File thread unavailable");
+            if (operation?.op === "link.download")
+              return files.linkedFiles.bind(
+                threadId,
+                operation,
+                () => authorize("read") && threadAccess(threadId),
+              );
             if (
               operation?.op === "artifact.download" &&
               operation.artifactId.startsWith("browser-")

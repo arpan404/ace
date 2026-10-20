@@ -4,6 +4,7 @@ const reads = new Set<FileOperation["op"]>([
   "list",
   "stat",
   "download",
+  "link.download",
   "artifact.download",
   "archive.preview",
   "archive.download",

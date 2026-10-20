@@ -21,6 +21,8 @@ type Binding = {
   service: FilesService;
   release?(): void;
   allowed(access: "read" | "operate"): boolean;
+  /** What the service runs instead of the request, when the binding translated it. */
+  operation?: FileOperation;
 };
 type Channel = {
   binding: Binding;
@@ -195,8 +197,11 @@ export function chunkFilesChannel(options: {
     const binding = await options.resolve(threadId, message.scope, message.operation, workspaceId);
     try {
       assertOpening();
-      const op = message.operation;
-      const access = fileCapability(op) === "files.read" ? "read" : "operate";
+      const op = binding.operation ?? message.operation;
+      const access =
+        fileCapability(message.operation) === "files.read" && fileCapability(op) === "files.read"
+          ? "read"
+          : "operate";
       assert(binding, access);
       if (op.op === "download" || op.op === "artifact.download" || op.op === "archive.download") {
         const id = allocate();
@@ -332,6 +337,7 @@ export function chunkFilesChannel(options: {
         message.type === "files.request" &&
         [
           "download",
+          "link.download",
           "artifact.download",
           "archive.download",
           "upload.begin",

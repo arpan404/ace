@@ -146,19 +146,41 @@ test("a native image captured after the answer arrives appears inline from its o
   expect(image.closest("p")?.querySelector("div")).toBeNull();
 });
 
-test("source links open the thread checkout while unrelated host paths remain unavailable", async () => {
-  const { feed } = await openMessage({}, [
+test("source links open the thread checkout and links outside it download from the host", async () => {
+  const { app, feed } = await openMessage({}, [
     facts.message(
       "root",
       "answer",
       "assistant",
-      "Read [source](/work/shop/src/main.ts:12) and [other](/remote/other/main.ts).",
+      "Read [source](/work/shop/src/main.ts:12) and [the guide](</Users/me/Downloads/Study Guide.pdf>).",
     ),
   ]);
+  app.daemon.checkouts.seedLinked(
+    "thread-shots",
+    app.daemon.itemId("thread-shots", "answer") ?? "",
+    "/Users/me/Downloads/Study Guide.pdf",
+    "%PDF guide",
+  );
   await userEvent.click(await within(feed).findByRole("button", { name: "source" }));
   await screen.findByRole("tab", { name: /main.ts/ });
-  expect(within(feed).queryByRole("button", { name: "other" })).toBeNull();
-  expect(within(feed).getByText("other").getAttribute("title")).toContain("not available");
+  const downloads: { name: string; blob: Blob | undefined }[] = [];
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    downloads.push({ name: this.download, blob: objectUrls.get(this.href) });
+  });
+  await userEvent.click(within(feed).getByRole("button", { name: "the guide" }));
+  await waitFor(() => expect(downloads).toHaveLength(1));
+  expect(downloads[0]?.name).toBe("Study Guide.pdf");
+  expect(await downloads[0]?.blob?.text()).toBe("%PDF guide");
+});
+
+test("a link outside the checkout that the host can't serve says so", async () => {
+  const { feed } = await openMessage({}, [
+    facts.message("root", "answer", "assistant", "See [other](/remote/other/main.ts)."),
+  ]);
+  await userEvent.click(await within(feed).findByRole("button", { name: "other" }));
+  expect(await screen.findByRole("heading", { name: "Couldn't open main.ts" })).toBeTruthy();
 });
 
 test("an older relative image stays visible after its agent changes folders", async () => {
