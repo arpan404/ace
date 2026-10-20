@@ -13,6 +13,10 @@ import { useLiveFrame } from "./live-frames.ts";
 import { useHtmlTheme, usePageHtml } from "./page-source.ts";
 import { visualizationTab } from "./visualization-tab.ts";
 
+/** An outlined action, dimmed until hovered, focused or pressed. */
+const action =
+  "shadow-[inset_0_0_0_1px_var(--border)] opacity-60 transition-[background-color,color,transform,opacity] hover:opacity-100 focus-visible:opacity-100 active:opacity-100 motion-reduce:transition-none";
+
 /**
  * A published HTML page, inline in the agent's reply at the message column's full width: no
  * card, no title bar, so it reads as part of the conversation. It shows its whole content height,
@@ -48,8 +52,6 @@ export function HtmlVisualizationView(props: {
     typeof HTMLIFrameElement !== "undefined" && "sandbox" in HTMLIFrameElement.prototype;
   // The page is shown whole; the agent's height only holds its place until it measures itself.
   const initialHeight = visualization.height ?? 160;
-  const actionClassName =
-    "shadow-[inset_0_0_0_1px_var(--border)] opacity-60 transition-opacity hover:opacity-100 focus-visible:opacity-100 active:opacity-100 motion-reduce:transition-none";
   return (
     <section ref={attach} aria-label={title} className="group/visualization w-full min-w-0">
       {html && (
@@ -62,21 +64,21 @@ export function HtmlVisualizationView(props: {
             size="sm"
             icon={CornersOutIcon}
             label="Full screen"
-            className={actionClassName}
+            className={action}
             onClick={() => panel.open(visualizationTab(visualization))}
           />
           <IconButton
             size="sm"
             icon={actions.copied ? CheckIcon : CopyIcon}
             label={actions.copied ? "Copied" : "Copy source"}
-            className={actionClassName}
+            className={action}
             onClick={actions.copy}
           />
           <IconButton
             size="sm"
             icon={DownloadSimpleIcon}
             label="Download"
-            className={actionClassName}
+            className={action}
             onClick={actions.save}
           />
         </div>
