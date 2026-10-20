@@ -39,7 +39,7 @@ import { ToolStep } from "./work-log-steps.tsx";
 import { RailMark, StepRail } from "./step-rail.tsx";
 import { LiveGroupTitle } from "./live-group-title.tsx";
 import { useAnswerText } from "./answer-text.ts";
-import { useStreaming } from "../transcript/use-streaming.ts";
+import { useRunEnded, useStreaming } from "../transcript/use-streaming.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { StaticRow, TranscriptRow, pressableRowClass, rowDetailIndent } from "./transcript-row.tsx";
@@ -236,6 +236,7 @@ function ThoughtRow(props: { threadId: string; itemId: string }) {
   const item = useStepItem(props.threadId, props.itemId);
   const answer = useAnswerText(item);
   const streaming = useStreaming(props.threadId, item);
+  const ended = useRunEnded(props.threadId, item);
   const [toggled, setOpen] = useStepOpen(props.itemId);
   const panel = useId();
   const open = toggled ?? false;
@@ -246,11 +247,13 @@ function ThoughtRow(props: { threadId: string; itemId: string }) {
   const took = useThread(props.threadId, thoughtKeys, readTook, Object.is);
   if (item?.type !== "reasoning") return null;
   const text = answer.text.trim();
+  // A thought whose turn is over is finished, whatever its stream last said.
+  const done = item.complete || ended;
   // Still thinking with no words yet: the same header as a thinking turn with no step in flight.
-  if (!item.complete && !text) return <ThinkingRow />;
+  if (!done && !text) return <ThinkingRow />;
   return (
     <li className="relative min-w-0">
-      <RailMark state={item.complete ? "done" : "running"} />
+      <RailMark state={done ? "done" : "running"} />
       <TranscriptRow
         expanded={open}
         stepGroup
@@ -258,8 +261,8 @@ function ThoughtRow(props: { threadId: string; itemId: string }) {
         onToggle={() => setOpen(!open)}
         lead={<Icon icon={BrainIcon} size={16} />}
         leadKind="thought"
-        title={thoughtLabel(item.complete, took)}
-        titleClassName={item.complete ? undefined : "step-shimmer"}
+        title={thoughtLabel(done, took)}
+        titleClassName={done ? undefined : "step-shimmer"}
       />
       {open && (
         <div
