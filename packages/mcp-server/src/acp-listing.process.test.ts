@@ -15,8 +15,8 @@ import {
 
 /**
  * Each ACP agent lists what its own tool refresh supports, through ace's stdio bridge as a real
- * child process: Gemini CLI reloads (core), claude-agent-acp defers like Claude Code (every
- * tool), and any other agent keeps a fixed list.
+ * child process: Gemini CLI reloads (core), claude-agent-acp and Antigravity defer like Claude
+ * Code (every tool), and any other agent keeps a fixed list.
  */
 async function bridged(cli: string | undefined) {
   const tools = new ToolRegistry({ scheduler: nodeScheduler });
@@ -89,16 +89,20 @@ test("Gemini CLI starts with the core list and grows it as the agent finds tools
   expect(gemini.http.mcpServers[0]?.headers).toContainEqual({ name: "X-Ace-Tools", value: "core" });
 });
 
-test("claude-agent-acp lists every tool, as Claude Code does", async () => {
-  const claude = await bridged("claude-acp");
-  expect(await claude.listed()).toEqual(["context", "notify", "thread_read", "tools_find"]);
-  expect(claude.http.mcpServers[0]?.headers.map((header) => header.name)).not.toContain(
-    "X-Ace-Tools",
-  );
+test("claude-agent-acp and Antigravity list every tool, as Claude Code does", async () => {
+  // Both load only always-load tools upfront and reach the rest on demand.
+  for (const cli of ["claude-acp", "antigravity"]) {
+    const agent = await bridged(cli);
+    expect(await agent.listed(), cli).toEqual(["context", "notify", "thread_read", "tools_find"]);
+    expect(
+      agent.http.mcpServers[0]?.headers.map((header) => header.name),
+      cli,
+    ).not.toContain("X-Ace-Tools");
+  }
 });
 
 test("any other ACP agent keeps a fixed list and reaches the rest through tools_call", async () => {
-  for (const cli of ["antigravity", "goose", undefined]) {
+  for (const cli of ["goose", undefined]) {
     const agent = await bridged(cli);
     // A fixed list keeps only the core tools: even a tool without a family waits for tools_call.
     expect(await agent.listed(), cli).toEqual(["context", "tools_call", "tools_find"]);

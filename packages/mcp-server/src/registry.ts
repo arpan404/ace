@@ -282,8 +282,8 @@ export class ToolRegistry {
       _meta: {
         "ace/timeoutMs": timeoutMs,
         "ace/riskClass": risk,
-        // Antigravity's ACP agent (1.4.1) defers behind its own tool search and reads its own
-        // key; it keeps a static list for now, where the key is harmless.
+        // Antigravity (1.4.2, CLI and ACP server) loads tools carrying its own key in full and
+        // reaches the rest through its call_mcp_tool.
         ...(alwaysLoadedTools.has(bareToolName(name))
           ? { "anthropic/alwaysLoad": true, "antigravity/alwaysLoad": true }
           : {}),

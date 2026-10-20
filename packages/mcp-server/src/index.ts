@@ -30,6 +30,7 @@ export {
   acpInjection,
   cursorSdkInjection,
   developerInstructions,
+  usualToolListing,
   type AceMcpConnection,
 } from "./injection.ts";
 export {

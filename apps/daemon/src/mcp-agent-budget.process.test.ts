@@ -26,8 +26,15 @@ import { evalWorld, type EvalWorld } from "./evals/world.ts";
 const tokens = (text: string) => Math.ceil(text.length / 4);
 const descriptor = ({ name, description, inputSchema }: ListedTool) =>
   JSON.stringify({ name, description, inputSchema });
-/** Claude Code defers ace tools behind its own tool search, listing their names. */
-const deferring = new Set<ProviderKind>(["claude"]);
+/**
+ * These defer ace tools and load upfront only the ones carrying their always-load key. Claude
+ * lists the deferred names; Antigravity writes each deferred definition to a file and is counted
+ * as listing the names too.
+ */
+const deferring = new Map<ProviderKind, string>([
+  ["claude", "anthropic/alwaysLoad"],
+  ["antigravity", "antigravity/alwaysLoad"],
+]);
 /**
  * Codex defers every ace tool and its code-mode models see no MCP schema or name: it pays only
  * for its developer instructions, which carry the names this session can call.
@@ -45,7 +52,7 @@ const budgets: Record<ProviderKind, number> = {
   codex: 1_150,
   opencode: 3_800,
   cursor: 3_800,
-  antigravity: 3_200,
+  antigravity: 2_100,
   acp: 3_200,
   pi: 3_800,
 };
@@ -94,8 +101,8 @@ type Agents = Pick<Awaited<ReturnType<typeof session>>, "full" | "core" | "fixed
 /** The tools a provider's model has in context on every request. */
 function upfront(provider: ProviderKind, { full, core, fixed }: Agents): ListedTool[] {
   if (instructionsOnly.has(provider)) return [];
-  if (deferring.has(provider))
-    return full.tools.filter((tool) => tool["_meta"]?.["anthropic/alwaysLoad"] === true);
+  const alwaysLoad = deferring.get(provider);
+  if (alwaysLoad) return full.tools.filter((tool) => tool["_meta"]?.[alwaysLoad] === true);
   return reloading.has(provider) ? core.tools : fixed.tools;
 }
 const bareNames = (tools: ListedTool[]) => tools.map((tool) => bareToolName(tool.name)).toSorted();

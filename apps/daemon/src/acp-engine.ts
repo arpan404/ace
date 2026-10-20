@@ -85,11 +85,12 @@ export function acpEngineOptions(input: {
         signal,
       );
       // Each agent lists what its own tool refresh supports: Gemini CLI reloads, the Claude
-      // Agent SDK defers behind its tool search, and the rest keep a fixed list.
+      // Agent SDK and Antigravity defer, and the rest keep a fixed list.
+      const cli = acpAgentCli(identity.acpAgentId);
       const connection = {
         url: input.mcp.url,
         bearer: lease.bearer,
-        listing: acpToolListing(acpAgentCli(identity.acpAgentId)),
+        listing: acpToolListing(cli),
         session: lease.session,
       };
       const instance: InstanceInput = {
@@ -138,7 +139,7 @@ export function acpEngineOptions(input: {
         }
       };
       // Rendered once here, where the agent's listing is known, so its guidance stays stable.
-      const injected = acpInjection(connection);
+      const injected = acpInjection(connection, cli === "antigravity" ? "antigravity" : "acp");
       return {
         acpLaunch: plan,
         env: account.env,

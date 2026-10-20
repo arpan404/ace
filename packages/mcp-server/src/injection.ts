@@ -9,7 +9,11 @@ import {
 } from "./toolsets.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
 import { destructiveAceTools } from "./agent-control.ts";
-import { developerInstructions, type SessionGuidance } from "./session-guidance.ts";
+import {
+  developerInstructions,
+  usualToolListing,
+  type SessionGuidance,
+} from "./session-guidance.ts";
 
 export const AceMcpConnectionSchema = z.strictObject({
   url: z.url().refine((value) => {
@@ -28,7 +32,11 @@ export const AceMcpConnectionSchema = z.strictObject({
   bearer: z.string().regex(/^[a-f0-9]{64}$/),
 });
 export type AceMcpConnection = z.infer<typeof AceMcpConnectionSchema>;
-export { developerInstructions, type SessionGuidance } from "./session-guidance.ts";
+export {
+  developerInstructions,
+  usualToolListing,
+  type SessionGuidance,
+} from "./session-guidance.ts";
 /** A lease plus, when the daemon has one, this session's guidance (read once at injection). */
 type Injected = AceMcpConnection & { session?: (() => SessionGuidance) | undefined };
 export function codexInjection(input: Injected) {
@@ -102,9 +110,10 @@ export function acpInjection(
   provider: "cursor" | "antigravity" | "acp" = "acp",
 ) {
   const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
-  // ACP leaves tools/list_changed to each agent. Without a known agent the list stays the core
-  // tools, tools_find and tools_call, the one listing every agent can use.
-  const listing = input.listing ?? "static";
+  // ACP leaves tools/list_changed to each agent. Without a known agent the provider's usual
+  // listing applies: Antigravity defers like Claude; the rest keep the core tools, tools_find
+  // and tools_call, the one listing every agent can use.
+  const listing = input.listing ?? usualToolListing(provider);
   const header = toolListingHeader(listing);
   return {
     mcpServers: [

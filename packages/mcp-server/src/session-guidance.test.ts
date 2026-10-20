@@ -14,10 +14,15 @@ it("each session hears how to reach thread_start in the way its tool list allows
     expect(text, provider).toContain("come with ace-threads");
     expect(text, provider).toContain("tools_call {name, arguments}");
   }
-  for (const provider of ["cursor", "antigravity", "acp"] as const)
+  for (const provider of ["cursor", "acp"] as const)
     expect(developerInstructions(provider), provider).toContain(
       "such as thread_start or thread_control, with tools_call",
     );
+  // Antigravity reaches a deferred tool through its own call_mcp_tool, never Claude's search.
+  const antigravity = developerInstructions("antigravity");
+  expect(antigravity).toContain('call_mcp_tool (ServerName "ace", ToolName, Arguments)');
+  expect(antigravity).toContain("thread_start");
+  expect(antigravity).not.toContain("select:mcp__ace__");
 });
 
 const guidance = (cli: string) =>
@@ -28,6 +33,12 @@ it("an ACP agent's guidance follows the listing its tool refresh supports", () =
   expect(guidance("claude-acp")).toContain("select:mcp__ace__thread_start");
   expect(guidance("goose")).toContain("with tools_call");
   expect(guidance("goose")).not.toContain("select:mcp__ace__");
+  const antigravity = acpInjection(
+    { ...connection, listing: acpToolListing("antigravity") },
+    "antigravity",
+  ).developerInstructions;
+  expect(antigravity).toContain("call_mcp_tool");
+  expect(antigravity).not.toContain("tools_call");
 });
 
 it("a read-only session hears which ace tools still work, on every provider", () => {

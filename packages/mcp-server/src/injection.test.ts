@@ -67,7 +67,8 @@ for (const provider of ["cursor", "antigravity", "acp"] as const) {
         headers: [
           { name: "Authorization", value: `Bearer ${connection.bearer}` },
           { name: "X-Ace-Notifications", value: "stream" },
-          { name: "X-Ace-Tools", value: "static" },
+          // Antigravity defers tools it doesn't always load, so it lists every tool.
+          ...(provider === "antigravity" ? [] : [{ name: "X-Ace-Tools", value: "static" }]),
         ],
       },
     ]);
@@ -148,7 +149,7 @@ it("each client asks for the tool listing its tool-list refresh supports", () =>
   expect(Object.entries(cursorSdkInjection(connection).mcpServers.ace.headers)).toContainEqual(
     fixed,
   );
-  for (const provider of ["cursor", "antigravity", "acp"] as const)
+  for (const provider of ["cursor", "acp"] as const)
     expect(
       acpInjection(connection, provider).mcpServers[0]?.headers.map((h) => [h.name, h.value]),
     ).toContainEqual(fixed);
@@ -159,7 +160,11 @@ it("each client asks for the tool listing its tool-list refresh supports", () =>
     );
   expect(acpHeaders("gemini")).toContainEqual(core);
   expect(acpHeaders("claude-acp")?.map(([name]) => name)).not.toContain("X-Ace-Tools");
-  expect(acpHeaders("antigravity")).toContainEqual(fixed);
+  // Antigravity loads only its always-load tools and reads the rest on demand, as Claude does.
+  expect(acpHeaders("antigravity")?.map(([name]) => name)).not.toContain("X-Ace-Tools");
+  expect(
+    acpStdioInjection({ ...connection, listing: acpToolListing("antigravity") }).mcpServers[0]?.env,
+  ).toContainEqual({ name: "ACE_MCP_BRIDGE_TOOLS", value: "all" });
   expect(
     acpStdioInjection({ ...connection, listing: acpToolListing("gemini") }).mcpServers[0]?.env,
   ).toContainEqual({ name: "ACE_MCP_BRIDGE_TOOLS", value: "core" });

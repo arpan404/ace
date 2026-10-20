@@ -113,13 +113,13 @@ below). In core mode a search also opens the families it returned, the way readi
 
 **Listing per client.** `X-Ace-Tools` now takes three values:
 
-- no header (Claude Code, Codex, claude-agent-acp): every tool, with `tools_find` beside their
-  own tool search. `tools_call` would only duplicate a direct call there, so it is not offered.
+- no header (Claude Code, Codex, claude-agent-acp, Antigravity): every tool, with `tools_find`
+  beside their own tool search. `tools_call` would only duplicate a direct call there, so it is not offered.
 - `core` (OpenCode, Pi, Gemini CLI over ACP): the core tools plus `tools_find` and `tools_call`,
   growing on `guide`, entry points and searches. These clients reload, so a found tool becomes a
   listed tool with its own annotations. The reload can land a model step late (OpenCode
   debounces it, then lists again), so `tools_call` reaches a found tool until it is listed.
-- `static` (Cursor's SDK, other ACP agents over HTTP and the stdio bridge, Antigravity): the core
+- `static` (Cursor's SDK, other ACP agents over HTTP and the stdio bridge): the core
   tools, `tools_find` and `tools_call` (12 tools with the browser and computer use on), and the
   list never grows. Static is the conservative default for an ACP agent not known to reload,
   not a claim that it never refreshes.
@@ -139,12 +139,24 @@ near 300 tokens, so it stops dumping `ALL_TOOLS` before its first ace call.
 (`acpToolListing`): Gemini CLI (it reloads on `tools/list_changed`) is core, claude-agent-acp (the
 Claude Agent SDK defers behind its tool search) lists every tool, and every other agent stays
 static. The stdio bridge carries the choice in `ACE_MCP_BRIDGE_TOOLS`. Always-loaded tools also
-carry `antigravity/alwaysLoad`, which Antigravity reads; it stays static until a live check.
+carry `antigravity/alwaysLoad`.
+
+**Antigravity loads on demand (2026-10-20).** Checked live on the Antigravity CLI (`agy`) 1.4.2:
+it loads in full only the MCP tools whose `_meta` carries `"antigravity/alwaysLoad": true`. Every
+other tool's definition is written to `~/.gemini/antigravity-cli/mcp/<server>/<tool>.json`; the
+agent reads that file, then calls the tool through its generic `call_mcp_tool` (`ServerName`,
+`ToolName`, `Arguments`). ace reaches Antigravity through `agy_acp_server`, the same harness, and
+the ACP binary reads the same key. So Antigravity lists every tool, like Claude, and no longer
+pays about 2,700 tokens of core schemas per request; its per-request ace context fell from about
+3,200 to 2,100 tokens. Its guidance line says deferred ace tools are reached with
+`call_mcp_tool` (server `ace`) after reading their definition. It shares Claude's always-loaded
+set.
 
 **Guidance per session.** The shared server text stays the same for everyone and under 315
 tokens. What differs goes in the provider's own channel, rendered once per session so its
 cached prefix holds: how to reach a tool the list may lack (Claude's tool search by exact name,
-`select:mcp__ace__thread_start`; core's `guide` or `tools_call`; static's `tools_call`), and in a
+`select:mcp__ace__thread_start`; Antigravity's `call_mcp_tool`; core's `guide` or `tools_call`;
+static's `tools_call`), and in a
 read-only session which ace read tools still work. ACP's text is rendered by the daemon, which
 knows the agent's listing, and handed to the adapter.
 

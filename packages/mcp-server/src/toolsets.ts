@@ -3,14 +3,14 @@ import { aceToolDispatch, aceToolSearch, bareToolName } from "./tool-names.ts";
 
 /**
  * How a client lists ace's tools, chosen by its `X-Ace-Tools` header:
- * - `all` (no header): Claude Code and Codex defer MCP tools behind their own tool search, so
- *   every tool is listed and `tools_find` loads upfront.
+ * - `all` (no header): Claude Code, Codex and Antigravity defer MCP tools (behind a tool search,
+ *   or Antigravity's definition files), so every tool is listed and `tools_find` loads upfront.
  * - `core`: clients that load every listed tool upfront and reload on `tools/list_changed`
  *   (OpenCode 2.0.32 debounces a reload; Pi's extension re-registers; Gemini CLI reloads). They
  *   start with the core tools, `tools_find` and `tools_call`; a guide, an entry point or a search
  *   adds a family, and `tools_call` reaches a found tool before the reload lands.
  * - `static`: clients that never reload (Cursor's SDK caches its list per connection; ACP agents
- *   not known to refresh, Antigravity included). They keep the core tools and `tools_find`, and
+ *   not known to refresh). They keep the core tools and `tools_find`, and
  *   reach every other tool through `tools_call`.
  */
 export type ToolListing = "all" | "core" | "static";
@@ -49,13 +49,15 @@ export function toolListingHeader(
  *   `tools/list_changed`, so it starts with the core tools and grows.
  * - claude-agent-acp runs the Claude Agent SDK, which defers MCP tools behind its own tool
  *   search and honours `anthropic/alwaysLoad`, as Claude Code does.
- * - Every other agent, Antigravity included, stays static: a conservative default for agents
- *   not verified to reload, not a claim that they never refresh. Antigravity defers behind its
- *   own tool search and reloads, but switching it needs a live check first.
+ * - Antigravity (checked live on 1.4.2) loads only tools marked `antigravity/alwaysLoad` in full;
+ *   it writes every other tool's definition to a file its agent reads, then calls the tool
+ *   through its own `call_mcp_tool`. So it lists every tool, as Claude does.
+ * - Every other agent stays static: a conservative default for agents not verified to reload,
+ *   not a claim that they never refresh.
  */
 export function acpToolListing(cli: string | undefined): ToolListing {
   if (cli === "gemini") return "core";
-  return cli === "claude-acp" ? "all" : "static";
+  return cli === "claude-acp" || cli === "antigravity" ? "all" : "static";
 }
 
 /**

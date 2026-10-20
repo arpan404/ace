@@ -29,9 +29,13 @@ const usualListing: Record<ProviderKind, ToolListing> = {
   opencode: "core",
   pi: "core",
   cursor: "static",
-  antigravity: "static",
+  antigravity: "all",
   acp: "static",
 };
+/** The listing a provider's sessions use unless the daemon knows better (an ACP agent's CLI). */
+export function usualToolListing(provider: ProviderKind): ToolListing {
+  return usualListing[provider];
+}
 /**
  * How each provider spells ace's bare tool names (its MCP namespace for server `ace`), then
  * where it lists ace's skills. Claude's names are in the `all` reach line; Codex has its recipe.
@@ -54,6 +58,14 @@ const reach: Record<ToolListing, string> = {
   core: "Your ace list starts small: guide or tools_find adds a family (thread_start and thread_control come with ace-threads); call one not listed yet with tools_call {name, arguments}.",
   static:
     "Your ace list is fixed: call other ace tools, such as thread_start or thread_control, with tools_call {name, arguments}; tools_find or guide gives the schema.",
+};
+/**
+ * How a deferring provider other than Claude reaches a tool it lists but has not loaded.
+ * Antigravity loads only always-load tools and keeps each other tool's definition in a file.
+ */
+const deferredReach: Partial<Record<ProviderKind, string>> = {
+  antigravity:
+    'Most ace tools are deferred: read the tool\'s definition file, then call it with call_mcp_tool (ServerName "ace", ToolName, Arguments), e.g. ToolName thread_start or browser_open.',
 };
 /** The read tools a read-only session is told about; the full set is `readOnlyAceTools`. */
 const namedReadTools = [
@@ -83,7 +95,11 @@ export function developerInstructions(
     readsServerInstructions.has(provider) ? undefined : aceGuidance(session.groups),
     // Codex's recipe replaces the naming and reach lines: its models call ace from exec.
     provider === "codex" ? codexPrefix(session.tools, skills) : naming[provider],
-    provider === "codex" ? undefined : reach[listing],
+    provider === "codex"
+      ? undefined
+      : listing === "all"
+        ? (deferredReach[provider] ?? reach.all)
+        : reach[listing],
     provider === "claude" ? skills : undefined,
     session.access === "read-only" ? readOnly : undefined,
     session.roles,
