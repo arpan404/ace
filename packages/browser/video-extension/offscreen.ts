@@ -1,4 +1,5 @@
 import { EncodePacer, EncoderWatchdog } from "../src/video-pacing.ts";
+import { QuantizerControl } from "../src/quantizer-control.ts";
 import { TabAudio } from "./audio.ts";
 
 /*
@@ -39,6 +40,8 @@ interface Encoder {
   configs: VideoEncoderConfig[];
   /** The configuration the running encoder took. */
   active: VideoEncoderConfig | undefined;
+  /** ace's own rate control, while the encoder runs in `quantizer` mode. */
+  quantizer: QuantizerControl | undefined;
   description: string | undefined;
   /** Bumped per configuration: output from a replaced encoder is ignored. */
   generation: number;
@@ -94,11 +97,32 @@ function configsFor(spec: EncodeSpec): VideoEncoderConfig[] {
     latencyMode: "realtime",
     bitrateMode: "variable",
     ...(spec.codec.startsWith("avc1.") ? { avc: { format: "avc" } } : {}),
+    ...(spec.codec.startsWith("hvc1.") ? { hevc: { format: "hevc" } } : {}),
   };
   return [
+    // Every frame at a quantizer ace picks (`QuantizerControl`): a hardware encoder given a bit
+    // rate skips frames to hold it.
+    ...(quantized(spec.codec)
+      ? [{ ...base, bitrateMode: "quantizer", hardwareAcceleration: "prefer-hardware" } as const]
+      : []),
     { ...base, hardwareAcceleration: "prefer-hardware" },
     { ...base, hardwareAcceleration: "prefer-software" },
   ];
+}
+
+/** Codecs whose frames take a quantizer each (`VideoEncoderEncodeOptions`). */
+function quantized(codec: string): boolean {
+  return codec.startsWith("avc1.") || codec.startsWith("hvc1.");
+}
+
+/** A frame's encode options: its keyframe flag, and its quantizer in `quantizer` mode. */
+function frameOptions(entry: Encoder, key: boolean): VideoEncoderEncodeOptions {
+  const control = entry.quantizer;
+  if (!control) return { keyFrame: key };
+  const quantizer = control.next(key);
+  return entry.spec.codec.startsWith("hvc1.")
+    ? ({ keyFrame: key, hevc: { quantizer } } as VideoEncoderEncodeOptions)
+    : { keyFrame: key, avc: { quantizer } };
 }
 
 /** The next configuration this encode can run with; none left reports it failed. */
@@ -124,6 +148,7 @@ async function configure(capture: Capture, entry: Encoder, reason: string): Prom
         const bytes = new Uint8Array(chunk.byteLength);
         chunk.copyTo(bytes);
         const key = chunk.type === "key";
+        entry.quantizer?.observe(bytes.length, key);
         emit(
           {
             t: "chunk",
@@ -147,6 +172,10 @@ async function configure(capture: Capture, entry: Encoder, reason: string): Prom
     });
     encoder.configure(config);
     entry.active = config;
+    entry.quantizer =
+      config.bitrateMode === "quantizer"
+        ? new QuantizerControl(entry.spec.bitrate, entry.spec.fps)
+        : undefined;
     entry.encoder = encoder;
     entry.watchdog = new EncoderWatchdog();
     entry.pacer.requestKeyframe();
@@ -161,8 +190,10 @@ function retune(entry: Encoder, bitrate: number): void {
   entry.spec = { ...entry.spec, bitrate };
   // Configurations not tried yet take the new rate too.
   entry.configs = entry.configs.map((config) => ({ ...config, bitrate }));
+  // In `quantizer` mode the rate is ace's own: frames aim for it from the next one.
+  entry.quantizer?.retarget(bitrate, entry.spec.fps);
   const encoder = entry.encoder;
-  if (!encoder || encoder.state !== "configured" || !entry.active) return;
+  if (!encoder || encoder.state !== "configured" || !entry.active || entry.quantizer) return;
   entry.active = { ...entry.active, bitrate };
   try {
     encoder.configure(entry.active);
@@ -177,7 +208,7 @@ function encode(entry: Encoder, frame: VideoFrame, key: boolean): void {
   // Our own clock: a still frame encoded again needs a later timestamp than last time.
   const stamped = new VideoFrame(frame, { timestamp: Math.round(now() * 1000) });
   try {
-    encoder.encode(stamped, { keyFrame: key });
+    encoder.encode(stamped, frameOptions(entry, key));
     entry.watchdog.submitted(now());
   } finally {
     stamped.close();
@@ -403,6 +434,7 @@ Object.assign(globalThis, {
           watchdog: new EncoderWatchdog(),
           configs: configsFor(spec),
           active: undefined,
+          quantizer: undefined,
           description: undefined,
           generation: 0,
         };

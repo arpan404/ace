@@ -7,7 +7,9 @@
  * round trip seen lately. While round trips stay near that floor, the rate climbs; when they
  * grow, a queue is building somewhere on the path and the rate falls to what was delivered.
  * A dropped chunk cuts it hard. The rate never climbs far above what the link has shown it
- * can deliver, so a still page (which sends almost nothing) doesn't hide a slow link.
+ * can deliver, so a still page (which sends almost nothing) doesn't hide a slow link. A new
+ * viewer starts low and climbs fast until the link first shows a queue (a slow start), so a
+ * thin link never begins with seconds of backlog.
  */
 
 export interface LinkRateLimits {
@@ -28,6 +30,8 @@ const stepMs = 200;
 const queuedMs = 80;
 const calmMs = 30;
 const rise = 1.08;
+/** Before the link has first shown a queue, the rate climbs this fast (a slow start). */
+const startRise = 1.25;
 /** A queue lowers the rate to this share of what was delivered, but never below `deepest`. */
 const deliveredShare = 0.9;
 const deepest = 0.6;
@@ -57,6 +61,8 @@ export class LinkRate {
   /** After a cut, the queue it found needs a round trip to drain before it says anything new. */
   #holdUntil = -Infinity;
   #dropped = false;
+  /** No queue or drop seen yet: still finding what the link carries. */
+  #starting = true;
   constructor(limits: LinkRateLimits) {
     this.#limits = limits;
     this.#rate = limits.initial;
@@ -128,6 +134,7 @@ export class LinkRate {
     const proven = this.#provenRate(at, delivered);
     let rate = this.#rate;
     const cut = (to: number) => {
+      this.#starting = false;
       rate = Math.max(rate * deepest, Math.min(rate, to));
       this.#holdUntil = at + (this.#smoothed ?? 0) + stepMs;
     };
@@ -137,7 +144,10 @@ export class LinkRate {
     } else if (queueing < calmMs && at >= this.#holdUntil)
       rate = Math.max(
         rate,
-        Math.min(rate * rise, Math.max(this.#limits.initial, proven * headroom)),
+        Math.min(
+          rate * (this.#starting ? startRise : rise),
+          Math.max(this.#limits.initial, proven * headroom),
+        ),
       );
     this.#dropped = false;
     this.#rate = Math.round(Math.min(max, Math.max(min, rate)));

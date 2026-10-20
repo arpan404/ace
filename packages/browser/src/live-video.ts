@@ -36,13 +36,13 @@ export interface LiveVideoSource {
 }
 
 /** Codecs asked of the encoder, whatever viewers prefer; a viewer's order picks among them. */
-const knownCodecs = ["avc1.42E033", "vp09.00.41.08", "vp8"];
+const knownCodecs = ["hvc1.1.6.L153.B0", "avc1.640033", "avc1.42E033", "vp09.00.41.08", "vp8"];
 /** A capture size change waits for the pane to stop moving. */
 const settleMs = 300;
 /** After the encoder failed to start, try again this much later. */
 const retryMs = 5_000;
 /** Where a new viewer's bit rate starts, before its link has shown what it carries. */
-const initialBitrate = 4_000_000;
+const initialBitrate = 1_500_000;
 /** An encode's bit rate changes in place when it moves this much, at most this often. */
 const bitrateChange = 0.1;
 const bitrateEveryMs = 400;
