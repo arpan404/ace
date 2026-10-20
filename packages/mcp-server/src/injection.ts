@@ -33,7 +33,7 @@ export interface SessionGuidance {
   groups?: readonly string[] | undefined;
 }
 /** Where the provider natively lists ace's shipped skills; the rest read them via `guide`. */
-const skills = "The ace guides are also installed as skills of the same names.";
+const skills = "The ace guides except offshift are also installed as skills.";
 /** How each provider spells ace's bare tool names (its MCP namespace for server `ace`). */
 const prefix: Record<ProviderKind, string> = {
   codex: `ace tools come from the ace MCP server (mcp__ace__<tool>) and may be deferred: search for ace when a task matches. ${skills}`,
