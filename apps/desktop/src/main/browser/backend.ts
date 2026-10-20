@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { traceBatches } from "./trace-batches.ts";
 import { compactPolicyEvent } from "@ace/browser/policy-events";
+import { videoRelay, type VideoRelaySource } from "./video-relay.ts";
 import {
   type BrowserOpen,
   type BrowserBackendClientMessage,
@@ -69,6 +70,11 @@ export interface BackendLink {
   backendId: string;
   connectionId: string;
   send(serialized: string): boolean;
+  /**
+   * A binary message (the video encoder's events). `droppable`: refused, without closing the
+   * socket, when the socket is backed up; false when it was not sent.
+   */
+  sendBinary?(frame: Uint8Array<ArrayBuffer>, droppable: boolean): boolean;
 }
 
 export interface BackendOptions {
@@ -82,6 +88,8 @@ export interface BackendOptions {
    */
   drawable?: () => boolean;
   log(message: string): void;
+  /** The app's video encoder: its events go to the daemon as binary messages (ADR 0088). */
+  video?: VideoRelaySource;
 }
 
 const TabTrace = z.looseObject({
@@ -154,6 +162,7 @@ export class BrowserBackend {
   constructor(host: ViewHost, options: BackendOptions) {
     this.host = host;
     this.options = options;
+    options.video?.onEvent(videoRelay(options.video, () => this.link));
   }
 
   /** The daemon accepted this app's registration on a new connection. */
@@ -168,6 +177,8 @@ export class BrowserBackend {
    */
   detach(): void {
     this.link = undefined;
+    // The daemon forgot every capture with the link.
+    this.options.video?.stopAll();
     for (const pending of this.opening.values()) pending.canceled = true;
     for (const session of this.sessions.values()) {
       this.sessions.delete(session.id);
@@ -182,6 +193,7 @@ export class BrowserBackend {
    */
   async closeAll(): Promise<void> {
     this.link = undefined;
+    this.options.video?.stopAll();
     for (const pending of this.opening.values()) pending.canceled = true;
     await Promise.all([
       ...[...this.sessions.values()].map((session) => this.dispose(session)),

@@ -15,6 +15,7 @@ import { modelScreenshot } from "./model-screenshot.ts";
 import { clearHeadlessData } from "./browsing-data.ts";
 import { ChromeVideo } from "./chrome-video.ts";
 import type { ChromeInstance } from "./chrome-instance.ts";
+import { plantCookies } from "./cookie-carry.ts";
 
 export interface ChromeBackendOptions {
   executable(signal: AbortSignal): Promise<string>;
@@ -95,6 +96,14 @@ export class ChromeBackend implements BrowserBackend {
       const browserContextId = isolated
         ? await instance.targets.createContext(instance.stagingDir)
         : undefined;
+      // Sign-ins carried from the desktop go in before any tab loads (and again into the fresh
+      // context of a restarted browser).
+      if (request.cookies?.length)
+        await plantCookies(
+          (method, params) => instance.connection.send(method, params),
+          request.cookies,
+          browserContextId,
+        );
       current = { instance, browserContextId };
       void instance.exited.then((reason) => {
         if (current?.instance === instance && !signal.aborted) recover(reason);

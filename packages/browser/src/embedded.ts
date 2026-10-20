@@ -20,8 +20,11 @@ import type {
   BackendOpen,
   BrowserBackendPage,
   BrowserBackendSession,
+  BrowserCdp,
+  VideoHost,
 } from "./backend.ts";
 import { embeddedTabPage } from "./embedded-page.ts";
+import { EmbeddedVideo } from "./embedded-video.ts";
 import { installOriginGuard } from "./origin-guard.ts";
 import { Screencast } from "./cdp.ts";
 import { navigateCdp } from "./cdp-navigation.ts";
@@ -77,6 +80,11 @@ interface Waiter {
 export interface EmbeddedTransport {
   send(message: BrowserBackendServerMessage, serialized?: string): boolean;
   close(reason: string): void;
+  /**
+   * The desktop encodes its views as video (`ace.video.*`, ADR 0088); its encoder's events
+   * arrive through `EmbeddedBackend.binary`.
+   */
+  video?: boolean;
 }
 /** No send queue: reliable writes either enter the bounded socket or lose the backend. */
 export class EmbeddedBackend implements BrowserBackend {
@@ -91,6 +99,7 @@ export class EmbeddedBackend implements BrowserBackend {
   private closed = false;
   private lost: () => void;
   private clock: NavigationClock;
+  private video: EmbeddedVideo | undefined;
   constructor(
     id: string,
     transport: EmbeddedTransport,
@@ -108,6 +117,12 @@ export class EmbeddedBackend implements BrowserBackend {
     this.transport = transport;
     this.lost = lost;
     this.clock = clock;
+    this.video = transport.video ? new EmbeddedVideo(id) : undefined;
+  }
+  /** A binary message from the desktop; false when it is none of this backend's. */
+  binary(frame: Uint8Array): boolean {
+    if (this.closed || !this.video) return false;
+    return this.video.receive(frame);
   }
   private send(message: BrowserBackendServerMessage): void {
     const serialized = JSON.stringify(message);
@@ -256,10 +271,11 @@ export class EmbeddedBackend implements BrowserBackend {
   }
   handle(raw: unknown): void {
     const message = BrowserBackendClientMessage.parse(raw);
-    // Registration and wake notices are the connection's business, not a session's.
+    // Registration, wake and screen notices are the connection's business, not a session's.
     if (
       message.type === "browser.backend.register" ||
       message.type === "browser.backend.resumed" ||
+      message.type === "browser.backend.drawable" ||
       message.backendId !== this.id ||
       this.closed
     )
@@ -426,6 +442,7 @@ export class EmbeddedBackend implements BrowserBackend {
       waiter.reject(new Error(reason));
     }
     this.lost();
+    this.video?.endAll();
     for (const sessionId of this.sessions.keys()) {
       try {
         this.loseSession(sessionId, reason);
@@ -557,7 +574,8 @@ export class EmbeddedBackend implements BrowserBackend {
         get cdp() {
           return currentCdp();
         },
-        ...(tabs ? embeddedTabSurface(tabs, call, this.clock) : {}),
+        ...(tabs ? embeddedTabSurface(tabs, call, this.clock, this.video) : {}),
+        ...(this.video ? { video: videoOf(this.video, currentCdp) } : {}),
         url: () => tabs?.list().find((tab) => tab.tabId === tabs?.active())?.url ?? remote.url,
         navigate: async (url, _timeout, signal) => {
           const adopted = adoptedUrl;
@@ -694,10 +712,16 @@ function embeddedTabList(
   };
 }
 
+/** A page's `video`: the desktop's encoder, asked through the page's current CDP. */
+function videoOf(video: EmbeddedVideo, cdp: () => BrowserCdp): () => VideoHost {
+  return () => video.host(cdp());
+}
+
 function embeddedTabSurface(
   tabs: EmbeddedTabs,
   call: (operation: BrowserBackendOperation) => Promise<unknown>,
   clock: NavigationClock,
+  video: EmbeddedVideo | undefined,
 ) {
   return {
     tabs: embeddedTabList(
@@ -706,6 +730,7 @@ function embeddedTabSurface(
         embeddedTabPage(tabs, id, {
           press: (key) => call({ kind: "press", key }),
           resize: (width, height) => call({ kind: "resize", width, height }),
+          ...(video ? { video: videoOf(video, () => tabs.tab(id).cdp) } : {}),
         }),
       clock,
     ),

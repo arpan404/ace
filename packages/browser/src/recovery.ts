@@ -2,14 +2,17 @@ import type { BrowserBackend, BackendOpen } from "./backend.ts";
 import type { BrowserSession } from "./session.ts";
 
 /**
- * Fresh private pages in ace's browser. A request that restores tabs brings every tab back
- * with its id and address; otherwise only the shown page's URL and privacy survive.
+ * The thread's pages in ace's browser. A request that restores tabs brings every tab back
+ * with its id and address; otherwise only the shown page's URL and privacy survive. By default
+ * the pages are fresh and private (a throwaway context); a caller carrying the thread's sign-ins
+ * names the profile they belong in and passes them as the request's `cookies`.
  */
 export async function recoverHeadless(options: {
   request: BackendOpen;
   backend: BrowserBackend;
   session: BrowserSession;
   url: string;
+  profile?: BackendOpen["options"]["profile"];
   lost(reason: string): void;
 }): Promise<void> {
   const { request, backend, session } = options;
@@ -19,7 +22,7 @@ export async function recoverHeadless(options: {
   const signal = AbortSignal.any([request.signal, lifetime.signal]);
   const replacement = await backend.open({
     ...request,
-    options: { ...request.options, profile: "ephemeral", headed: false },
+    options: { ...request.options, profile: options.profile ?? "ephemeral", headed: false },
     signal,
     lost: (reason) => {
       if (lifetime.signal.aborted) return;

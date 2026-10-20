@@ -109,6 +109,12 @@ export interface BackendOpen {
    * ids (the desktop's views) ignores it; the thread browser then keeps what the backend reports.
    */
   restoreTabs?: readonly BackendRestoreTab[];
+  /**
+   * Sign-ins brought from another backend (the desktop's partition, when its screen locked):
+   * set in the page's browser context before any tab loads. A backend that has no context of
+   * its own to set them in (the desktop's views) ignores it.
+   */
+  cookies?: readonly import("./cookie-carry.ts").CarriedCookie[];
   /** Most tabs one thread may hold in this backend, popups included. */
   maxTabs?: number;
   changed?(): void;
@@ -258,7 +264,8 @@ export interface BrowserBackendPage {
   captureScale?(): number;
   /**
    * The engine's video encoder for this page's tab (ADR 0088). Absent, or undefined: remote
-   * viewers take JPEG frames (the desktop's views, the person's Chrome, private contexts).
+   * viewers take JPEG frames (the person's Chrome, private contexts, a desktop without the
+   * `video` capability).
    */
   video?(): VideoHost | undefined;
   viewport(): { width: number; height: number };

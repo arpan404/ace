@@ -77,6 +77,10 @@ export class BrowserService {
   private seeded = new Set<string>();
   /** Sessions paused by desktop loss, with a single-flight recovery on the available backend. */
   private resumable = new Map<string, () => Promise<void>>();
+  /** Whether the desktop's screen draws its views (false while locked). */
+  private desktopCanDraw = true;
+  /** Per `auto` session: move its pages from the desktop to ace's Chromium. */
+  private handOffs = new Map<string, () => Promise<void>>();
   get hasActiveSessions(): boolean {
     return this.sessions.size > 0 || this.opening.size > 0 || this.recoveries.size > 0;
   }
@@ -192,7 +196,9 @@ export class BrowserService {
     const preference = (await this.options.backendPreference?.(options)) ?? "auto";
     const lossPolicy = (await this.options.backendLoss?.(options)) ?? "pause";
     const embedded = this.embedded;
-    const candidates = backendCandidates(preference, embedded !== undefined).map((kind) =>
+    // A desktop that can't draw (its screen locked) is no place for an `auto` page.
+    const offered = embedded !== undefined && (preference !== "auto" || this.desktopCanDraw);
+    const candidates = backendCandidates(preference, offered).map((kind) =>
       kind === "embedded" && embedded ? embedded : this.headless,
     );
     let backend = candidates[0] ?? this.headless;
@@ -220,6 +226,7 @@ export class BrowserService {
       if (this.policyScopes.get(options.threadId) === scope)
         this.policyScopes.delete(options.threadId);
       if (this.resumable.get(options.threadId) === resume) this.resumable.delete(options.threadId);
+      if (this.handOffs.get(options.threadId) === handOff) this.handOffs.delete(options.threadId);
     };
     /** Tells viewers the thread's pages are gone and why. */
     const announce = (url: string, reason: string) => {
@@ -309,6 +316,56 @@ export class BrowserService {
         .finally(() => this.recoveries.delete(options.threadId));
       this.recoveries.set(options.threadId, recovery);
       return recovery;
+    };
+    /**
+     * The desktop can't draw (its screen locked): its views give no live picture, so the pages
+     * move to ace's Chromium, every tab with its address and the shown one still shown. They
+     * stay there after the screen unlocks; moving back mid-work would reload them again.
+     */
+    const handOff = (): Promise<void> => {
+      const owned = session;
+      if (!owned || owned.state.closed || !opening || backendLost) return Promise.resolve();
+      if (owned.state.backend !== "embedded" || this.desktopCanDraw) return Promise.resolve();
+      // A tab the person keeps agents out of moves too, still private: they keep a live picture
+      // and agents stay out. (Desktop-loss recovery keeps `agentResumes`.)
+      const running = this.recoveries.get(options.threadId);
+      if (running) return running;
+      const opened = opening;
+      const move = async () => {
+        const restoreTabs = owned.restoreEntries();
+        // The person stays signed in: the partition's cookies go into the context the thread's
+        // profile opens in ace's Chrome (the shared persistent profile, or a throwaway one for a
+        // private session) before any tab loads.
+        const cookies = await owned.signIns();
+        const generation = ++recoveryGeneration;
+        await recoverHeadless({
+          request: {
+            ...opened,
+            ...(restoreTabs.length ? { restoreTabs } : {}),
+            ...(cookies.length ? { cookies } : {}),
+          },
+          backend: this.headless,
+          session: owned,
+          url: owned.state.url,
+          profile: options.profile,
+          lost: (reason) => {
+            if (signal.aborted || owned.state.closed || recoveryGeneration !== generation) return;
+            owned.suspend(reason);
+            this.resumable.set(options.threadId, resume);
+          },
+        });
+      };
+      const moving = move()
+        .catch((error: unknown) => {
+          this.options.onError?.(error);
+          // Still locked: try again shortly; the desktop's frozen view stays meanwhile.
+          if (signal.aborted) return;
+          const retry = setTimeout(() => void handOff(), 5_000);
+          retry.unref();
+        })
+        .finally(() => this.recoveries.delete(options.threadId));
+      this.recoveries.set(options.threadId, moving);
+      return moving;
     };
     try {
       const policies = sessionPolicies(
@@ -502,6 +559,12 @@ export class BrowserService {
       this.generations.set(session, ++this.sequence);
       this.subscriptions.replace(options.threadId, session.live);
       this.emit(session.state);
+      // Only an `auto` page may leave the desktop; an explicit `embedded` never falls back.
+      if (preference === "auto") {
+        this.handOffs.set(options.threadId, handOff);
+        // The screen locked while this page was opening.
+        void handOff();
+      }
       return session;
     } catch (error) {
       await session?.close().catch(() => {});
@@ -557,6 +620,16 @@ export class BrowserService {
       },
     };
   }
+  /**
+   * The desktop's screen locked (false) or unlocked. A locked desktop draws no frames, so its
+   * `auto` pages move to ace's Chromium, whose viewers keep a live picture, and new `auto` pages
+   * open there. Unlocking moves nothing back.
+   */
+  desktopDrawable(drawable: boolean): void {
+    this.desktopCanDraw = drawable;
+    if (drawable) return;
+    for (const handOff of this.handOffs.values()) void handOff();
+  }
   registerEmbedded(transport: EmbeddedTransport): EmbeddedBackend {
     if (this.closing) throw new Error("Browser service shutting down");
     if (this.embedded) throw new Error("Desktop browser backend already registered");
@@ -569,6 +642,8 @@ export class BrowserService {
       this.navigationClock,
     );
     this.embedded = backend;
+    // A new desktop draws until it says otherwise (it reports a locked screen on registering).
+    this.desktopCanDraw = true;
     // After this returns the caller sends the registration reply; requests follow it.
     queueMicrotask(() => {
       this.options.onEmbeddedRegistered?.();

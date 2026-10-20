@@ -9,6 +9,9 @@
       "$ref": "https://ace.local/protocol/v1/BrowserBackendResumed.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/BrowserBackendDrawable.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/BrowserBackendResponse.json"
     },
     {

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BrowserBackendPage } from "./backend.ts";
+import type { BrowserBackendPage, VideoHost } from "./backend.ts";
 import { navigateCdp } from "./cdp-navigation.ts";
 import { chromeInput } from "./chrome-input.ts";
 import type { EmbeddedTabs } from "./embedded-tabs.ts";
@@ -16,6 +16,8 @@ export function embeddedTabPage(
   shown: {
     press(key: string): Promise<unknown>;
     resize(width: number, height: number): Promise<unknown>;
+    /** The desktop's video encoder for this tab, when it has one (ADR 0088). */
+    video?: () => VideoHost;
   },
 ): BrowserBackendPage {
   const cdp = () => tabs.tab(id).cdp;
@@ -57,6 +59,7 @@ export function embeddedTabPage(
       else await tabs.resize(id, width, height);
     },
     viewport: () => tabs.tab(id).viewport,
+    ...(shown.video ? { video: shown.video } : {}),
     // The desktop applies these to the view itself: native zoom, and its partition's data.
     zoom: async (factor) => {
       await cdp().send("ace.zoom", { factor });

@@ -14,6 +14,11 @@ export const BrowserBackendCapabilities = z.object({
   downloads: z.literal(true),
   /** The desktop reports the person's own input on its views (`ace.humanInput` events). */
   humanInput: z.literal(true),
+  /**
+   * The desktop encodes its views as video (ADR 0088): it answers `ace.video.*` commands on a
+   * tab's CDP and sends its encoder's events as binary messages on this socket.
+   */
+  video: z.literal(true).optional(),
 });
 export const BrowserBackendRegister = z.object({
   type: z.literal("browser.backend.register"),
@@ -78,9 +83,19 @@ export const BrowserBackendEvent = session.extend({
 });
 /** The desktop's computer woke from sleep: the daemon checks every browser engine (#947). */
 export const BrowserBackendResumed = z.object({ type: z.literal("browser.backend.resumed") });
+/**
+ * Whether the desktop's screen can draw its views now: false while it is locked (a locked Mac
+ * draws no frames). Sent on registration and on every change. While false, the daemon moves
+ * the desktop's `auto` pages to ace's own Chromium, so their viewers keep a live picture.
+ */
+export const BrowserBackendDrawable = z.object({
+  type: z.literal("browser.backend.drawable"),
+  drawable: z.boolean(),
+});
 export const BrowserBackendClientMessage = z.discriminatedUnion("type", [
   BrowserBackendRegister,
   BrowserBackendResumed,
+  BrowserBackendDrawable,
   BrowserBackendResponse,
   BrowserBackendEvent,
 ]);

@@ -42,12 +42,15 @@ export function deviceStreamProfile(
   };
 }
 
-/** Whether this client's WebCodecs decodes the H.264 a device live view streams. */
+/**
+ * Whether this client's WebCodecs decodes the H.264 device live views stream: High profile
+ * level 5.1, as Simulators send it (scrcpy's Baseline decodes wherever High does).
+ */
 export async function deviceVideoSupported(): Promise<boolean> {
   if (typeof VideoDecoder === "undefined") return false;
   try {
     return (
-      (await VideoDecoder.isConfigSupported({ codec: "avc1.42E01F", optimizeForLatency: true }))
+      (await VideoDecoder.isConfigSupported({ codec: "avc1.640033", optimizeForLatency: true }))
         .supported === true
     );
   } catch {

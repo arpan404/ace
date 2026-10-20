@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import { afterEach } from "vitest";
 import { installOriginGuard } from "./origin-guard.ts";
+import type { CarriedCookie } from "./cookie-carry.ts";
 import { BrowserBackendServerMessage } from "@ace/protocol";
 import {
   BrowserService,
@@ -25,6 +26,10 @@ export class FakePage {
   effects: string[] = [];
   /** Whether the backend was told an agent uses the page. */
   agent = false;
+  /** The desktop partition's cookies, as Electron's cookie store reports them (`ace.cookies`). */
+  signIns: unknown[] = [];
+  /** Cookies a headless backend set in this page's context before it loaded. */
+  planted: readonly CarriedCookie[] = [];
   events = new EventEmitter();
   readonly cdp = {
     send: (method: string, params?: Record<string, unknown>) =>
@@ -40,6 +45,7 @@ export class FakePage {
       return { result: { value: 1 } };
     if (method === "Page.captureScreenshot") return { data: "AA==" };
     if (method === "Memory.getDOMCounters") return { nodes: 1 };
+    if (method === "ace.cookies") return { cookies: this.signIns };
     if (method === "Accessibility.getFullAXTree")
       return {
         nodes: [
@@ -82,6 +88,7 @@ export class FakeHeadless implements BrowserBackend {
   readonly opens: BackendOpen[] = [];
   async open(request: BackendOpen): Promise<BrowserBackendSession> {
     const page = new FakePage();
+    page.planted = request.cookies ?? [];
     this.pages.push(page);
     this.opens.push(request);
     let viewport = { width: 1280, height: 720 };
@@ -181,14 +188,15 @@ export class GuardedHeadless extends FakeHeadless {
 }
 export async function backendFixture(
   options: Partial<BrowserServiceOptions> = {},
-  fixture: { nativeTabs?: boolean } = {},
+  /** `realHeadless`: ace's own Chromium takes headless pages instead of the fake. */
+  fixture: { nativeTabs?: boolean; realHeadless?: boolean } = {},
 ) {
   const home = await mkdtemp(join(tmpdir(), "ace-backend-"));
   const headless = new FakeHeadless();
   // These desktops never re-adopt a view: a dropped link reports its loss at once.
   const service = new BrowserService({
     dataDir: home,
-    headlessBackend: headless,
+    ...(fixture.realHeadless ? {} : { headlessBackend: headless }),
     desktopReadoptionGraceMs: 0,
     ...options,
   });

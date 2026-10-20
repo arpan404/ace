@@ -24,6 +24,7 @@ import { DroppedFiles } from "./dropped-files.ts";
 import { readDownload } from "./download-read.ts";
 import { OfflineRetries } from "./offline-retry.ts";
 import { printPdf } from "./page-capture.ts";
+import { carriedCookies, type CarriedCookie } from "./cookie-carry.ts";
 
 import type { Actor, SessionOptions } from "./session-options.ts";
 import type { BrowserTabActor } from "@ace/protocol";
@@ -848,6 +849,17 @@ export class BrowserSession {
   /** The thread's tabs as a restore brings them back: ids, addresses, labels, order. */
   tabRecords(): import("./tab-store.ts").BrowserTabRecord[] {
     return this.tabs.records();
+  }
+  /**
+   * The sign-ins of the context these pages run in (the desktop's partition), to carry to
+   * another backend; none when the backend can't say. Never logged.
+   */
+  async signIns(): Promise<CarriedCookie[]> {
+    try {
+      return carriedCookies(await this.options.backend.cdp.send("ace.cookies"));
+    } catch {
+      return [];
+    }
   }
   /** The tabs a recovering backend reopens: each with its id and address, discarded ones so. */
   restoreEntries(): import("./backend.ts").BackendRestoreTab[] {

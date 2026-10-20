@@ -36,6 +36,10 @@ export interface ConnectionOptions {
   maxRetryMs?: number;
   /** Bytes the socket may buffer before a reliable send counts as refused. */
   bufferLimit?: number;
+  /** Bytes the socket may buffer before a droppable send (video) is refused. */
+  videoBufferLimit?: number;
+  /** The app encodes its views as video (ADR 0088): registered as the `video` capability. */
+  video?: boolean;
 }
 
 const Reply = z.object({
@@ -67,7 +71,8 @@ const capabilities = {
 export class BackendConnection {
   private backend: BrowserBackend;
   private ports: ConnectionPorts;
-  private options: Required<ConnectionOptions>;
+  private options: Required<Omit<ConnectionOptions, "video">>;
+  private video: boolean;
   private wanted = false;
   private generation = 0;
   private socket: WebSocket | undefined;
@@ -85,7 +90,10 @@ export class BackendConnection {
       handshakeMs: options.handshakeMs ?? 10_000,
       maxRetryMs: options.maxRetryMs ?? 60_000,
       bufferLimit: options.bufferLimit ?? 8 * 1024 * 1024,
+      // Half a second of video at the highest bit rate: a slow daemon drops frames, not lags.
+      videoBufferLimit: options.videoBufferLimit ?? 1024 * 1024,
     };
+    this.video = options.video === true;
   }
 
   state(): BackendState {
@@ -106,6 +114,22 @@ export class BackendConnection {
 
   /** Writes to the registered socket, if there is one. */
   private notify: ((serialized: string) => boolean) | undefined;
+  /** Whether the screen draws the views (false while it is locked). */
+  private drawable = true;
+
+  /**
+   * The screen locked (false) or unlocked. A locked screen draws no frames, so the daemon moves
+   * this app's pages to ace's own Chromium meanwhile. Told on registering and on every change.
+   */
+  setDrawable(drawable: boolean): void {
+    if (drawable === this.drawable) return;
+    this.drawable = drawable;
+    this.tellDrawable();
+  }
+  private tellDrawable(): void {
+    if (!this.registered || !this.notify) return;
+    this.notify(JSON.stringify({ type: "browser.backend.drawable", drawable: this.drawable }));
+  }
 
   /**
    * The daemon (re)started or the machine woke: try again now, or, while registered, tell the
@@ -163,6 +187,18 @@ export class BackendConnection {
       socket.send(serialized);
       return true;
     };
+    /** A droppable message is refused while the socket is backed up; a reliable one is `write`'s. */
+    const writeBinary = (frame: Uint8Array<ArrayBuffer>, droppable: boolean): boolean => {
+      if (socket.readyState !== WebSocket.OPEN) return false;
+      if (droppable) {
+        if (socket.bufferedAmount + frame.byteLength > this.options.videoBufferLimit) return false;
+      } else if (socket.bufferedAmount > this.options.bufferLimit) {
+        socket.close();
+        return false;
+      }
+      socket.send(frame);
+      return true;
+    };
     const ping = () => {
       stopPing = this.ports.timers.set(this.options.pingMs, () => {
         if (write('{"type":"ping"}')) ping();
@@ -198,7 +234,7 @@ export class BackendConnection {
             requestId,
             credential: credential.token,
             version: 1,
-            capabilities,
+            capabilities: this.video ? { ...capabilities, video: true } : capabilities,
           }),
         );
         return;
@@ -224,8 +260,11 @@ export class BackendConnection {
           backendId: message.data.backendId,
           connectionId: message.data.connectionId,
           send: write,
+          sendBinary: writeBinary,
         });
         this.setState("registered");
+        // A daemon assumes a drawing screen; a locked one says so at once.
+        if (!this.drawable) this.tellDrawable();
         ping();
       }
     });

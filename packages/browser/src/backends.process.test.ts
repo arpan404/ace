@@ -61,6 +61,148 @@ it("an explicit desktop preference never moves a slow first picture to another b
   expect(await opened).toMatchObject({ backend: "embedded", closed: false });
   expect(f.headless.opens).toHaveLength(0);
 });
+it("a desktop page moves to ace's Chromium when the desktop's screen locks and stays there after unlock", async () => {
+  const f = await backendFixture();
+  expect(await f.open()).toMatchObject({ backend: "embedded" });
+  await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/page" });
+  const moved = Promise.withResolvers<void>();
+  const states: BrowserState[] = [];
+  f.service.subscribe("thread", "viewer", {}, (state) => {
+    states.push(state);
+    if (state.backend === "headless" && state.status === "ready") moved.resolve();
+  });
+  const desktopClosed = once(f.requests, "close");
+  f.service.desktopDrawable(false);
+  await moved.promise;
+  await desktopClosed;
+  expect(f.pages.size).toBe(0);
+  expect(f.service.state("thread")).toMatchObject({
+    backend: "headless",
+    url: "http://localhost:3000/page",
+    closed: false,
+  });
+  expect(f.headless.pages.map((page) => page.url)).toEqual(["http://localhost:3000/page"]);
+  // The agent keeps working on the moved page.
+  await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/next" });
+  expect(f.headless.pages.map((page) => page.url)).toEqual(["http://localhost:3000/next"]);
+  // A new page while the screen is locked never asks the desktop.
+  let desktopOpens = 0;
+  f.requests.on("open", () => desktopOpens++);
+  expect(await f.open("other")).toMatchObject({ backend: "headless" });
+  expect(desktopOpens).toBe(0);
+  // Unlocking moves nothing back mid-work.
+  f.service.desktopDrawable(true);
+  await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/after" });
+  expect(f.service.state("thread")).toMatchObject({ backend: "headless", closed: false });
+  expect(states.some((state) => state.closed)).toBe(false);
+});
+/** Locks the desktop's screen and waits for the thread's page to land in ace's Chromium. */
+async function lockAndMove(f: Awaited<ReturnType<typeof backendFixture>>, threadId = "thread") {
+  const moved = Promise.withResolvers<void>();
+  f.service.subscribe(threadId, `viewer-${threadId}`, {}, (state) => {
+    if (state.backend === "headless" && state.status === "ready") moved.resolve();
+  });
+  f.service.desktopDrawable(false);
+  await moved.promise;
+}
+it("a signed-in desktop page stays signed in when the desktop's screen locks", async () => {
+  const f = await backendFixture();
+  await f.open();
+  await f.service.execute("thread", { action: "navigate", url: "https://app.example.com/" });
+  const desktop = [...f.pages.values()][0];
+  if (!desktop) throw new Error("Missing desktop page");
+  desktop.signIns = [
+    // A host-only session sign-in, as Electron's cookie store reports it.
+    {
+      name: "sid",
+      value: "signed-in",
+      domain: "app.example.com",
+      hostOnly: true,
+      path: "/",
+      secure: true,
+      httpOnly: true,
+      session: true,
+      sameSite: "lax",
+    },
+    // A remembered sign-in shared by the site's subdomains.
+    {
+      name: "remember",
+      value: "yes",
+      domain: ".example.com",
+      hostOnly: false,
+      path: "/",
+      secure: true,
+      httpOnly: false,
+      session: false,
+      expirationDate: 2_000_000_000,
+      sameSite: "no_restriction",
+    },
+    // Something the desktop sent that isn't a cookie stays behind.
+    { name: 7 },
+  ];
+  await lockAndMove(f);
+  expect(f.headless.pages.at(-1)?.planted).toEqual([
+    {
+      name: "sid",
+      value: "signed-in",
+      url: "https://app.example.com/",
+      path: "/",
+      secure: true,
+      httpOnly: true,
+      sameSite: "Lax",
+    },
+    {
+      name: "remember",
+      value: "yes",
+      domain: ".example.com",
+      path: "/",
+      secure: true,
+      httpOnly: false,
+      sameSite: "None",
+      expires: 2_000_000_000,
+    },
+  ]);
+  // A persistent thread's sign-ins land where its later pages in ace's Chrome open too.
+  expect(f.headless.opens.at(-1)?.options.profile).toBe("persistent");
+  expect(f.service.state("thread")).toMatchObject({ url: "https://app.example.com/" });
+});
+it("a private desktop session's sign-ins move into a throwaway context", async () => {
+  const f = await backendFixture();
+  await f.service.open({ threadId: "thread", workspaceId: "workspace", profile: "ephemeral" });
+  const desktop = [...f.pages.values()][0];
+  if (!desktop) throw new Error("Missing desktop page");
+  desktop.signIns = [{ name: "sid", value: "x", domain: "example.com", hostOnly: true }];
+  await lockAndMove(f);
+  expect(f.headless.opens.at(-1)?.options.profile).toBe("ephemeral");
+  expect(f.headless.pages.at(-1)?.planted).toEqual([
+    { name: "sid", value: "x", url: "http://example.com/", path: "/" },
+  ]);
+});
+it("a tab the person keeps agents out of still moves when the screen locks, and stays private", async () => {
+  const f = await backendFixture();
+  await f.open();
+  await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/bank" });
+  keepAgentsOut(f.service, "thread");
+  await lockAndMove(f);
+  expect(f.service.state("thread")).toMatchObject({
+    backend: "headless",
+    url: "http://localhost:3000/bank",
+  });
+  expect(f.headless.pages.map((page) => page.url)).toEqual(["http://localhost:3000/bank"]);
+  await expect(f.service.execute("thread", { action: "snapshot" })).rejects.toMatchObject({
+    code: "human_private",
+  });
+});
+it("an explicit desktop page stays on the desktop when its screen locks", async () => {
+  const f = await backendFixture({ backendPreference: () => "embedded" });
+  expect(await f.open()).toMatchObject({ backend: "embedded" });
+  f.service.desktopDrawable(false);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/page" });
+  expect(f.service.state("thread")).toMatchObject({ backend: "embedded", closed: false });
+  expect([...f.pages.values()].map((page) => page.url)).toEqual(["http://localhost:3000/page"]);
+  expect(f.headless.opens).toHaveLength(0);
+});
 const quick = {
   quietMs: 400,
   maxWaitMs: 1_200,

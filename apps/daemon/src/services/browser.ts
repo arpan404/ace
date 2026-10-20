@@ -241,6 +241,8 @@ export function createBrowserSession(context: SocketContext): SocketService {
     },
   });
   return {
+    // The desktop's video encoder events (ADR 0088), once it registered as the backend.
+    binary: (frame) => backend?.binary(frame) ?? false,
     close() {
       stopRevocation?.();
       backend?.disconnect("Desktop app disconnected");
@@ -270,6 +272,7 @@ export function createBrowserSession(context: SocketContext): SocketService {
                 return true;
               },
               close: (reason) => socket.close(4009, reason.slice(0, 120)),
+              video: backendMessage.data.capabilities.video === true,
             });
             stopRevocation = options.store.devices.onRevoke((id) => {
               if (id === device) backend?.disconnect("Desktop credential revoked");
@@ -286,6 +289,10 @@ export function createBrowserSession(context: SocketContext): SocketService {
             // The desktop's computer woke: check every engine, ace's Chrome included (#947).
             if (!backend) throw new Error("Desktop backend not registered");
             options.browser?.wake();
+          } else if (backendMessage.data.type === "browser.backend.drawable") {
+            // The desktop's screen locked or unlocked: while it can't draw, its pages move.
+            if (!backend) throw new Error("Desktop backend not registered");
+            options.browser?.desktopDrawable(backendMessage.data.drawable);
           } else {
             if (!backend) throw new Error("Desktop backend not registered");
             backend.handle(backendMessage.data);
