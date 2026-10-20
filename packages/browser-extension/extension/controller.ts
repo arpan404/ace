@@ -5,7 +5,7 @@ import type {
   UserBrowserTab,
 } from "@ace/protocol";
 import type { ChromeApi, ChromeTab, DebuggeeSource, DebuggerSession } from "./chrome-api.ts";
-import { cdpAllowed, cdpNavigation, pageAllowed } from "./policy.ts";
+import { cdpAllowed, cdpNavigation, pageAllowed, unrelayableFrame } from "./policy.ts";
 import { DownloadReporter } from "./downloads.ts";
 
 const groupTitle = "ace";
@@ -302,6 +302,14 @@ export class Controller {
     // Events of a child session ace does not control (a worker) stay here.
     if (sessionId !== undefined && !this.frames.get(tabId)?.has(sessionId)) return;
     if (sessionId === undefined) this.downloads.pageEvent(tabId, method, params);
+    const unrelayable = unrelayableFrame(method, params);
+    if (unrelayable !== undefined) {
+      const target: DebuggerSession = sessionId === undefined ? { tabId } : { tabId, sessionId };
+      void this.chrome.debugger
+        .sendCommand(target, "Page.screencastFrameAck", { sessionId: unrelayable })
+        .catch(() => {});
+      return;
+    }
     this.post({
       type: "user_browser.event",
       event: {

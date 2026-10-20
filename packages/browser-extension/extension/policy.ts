@@ -66,3 +66,21 @@ export function cdpNavigation(method: string, params: Record<string, unknown> | 
   if (method !== "Page.navigate") return undefined;
   return typeof params?.url === "string" ? params.url : "";
 }
+
+/**
+ * The native host drops a message to the daemon over about 1 MiB (its socket's limit), and Chrome
+ * stops screencasting while frames go unacknowledged: a picture that large (a full-size page of
+ * noise-like pixels) is acknowledged here and left out, so the screencast keeps going and the
+ * next picture that fits reaches ace.
+ */
+const relayedFrameLimit = 1024 * 1024 - 16 * 1024;
+
+/** The screencast session to acknowledge in the browser, for a frame too large to relay. */
+export function unrelayableFrame(method: string, params: unknown): number | undefined {
+  if (method !== "Page.screencastFrame" || typeof params !== "object" || params === null)
+    return undefined;
+  const data: unknown = Reflect.get(params, "data");
+  const sessionId: unknown = Reflect.get(params, "sessionId");
+  if (typeof data !== "string" || typeof sessionId !== "number") return undefined;
+  return data.length > relayedFrameLimit ? sessionId : undefined;
+}
