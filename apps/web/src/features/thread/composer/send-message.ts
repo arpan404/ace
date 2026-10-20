@@ -3,7 +3,7 @@ import { type TurnOptions } from "@ace/protocol";
 import type { KeyValueStorage } from "@ace/ui-core";
 import type { Draft } from "./draft.ts";
 import { type StagedSend } from "./send-store.ts";
-import { sendWhenUploaded, stage, stagedSends } from "./staged-sends.ts";
+import { fileArrived, sendWhenUploaded, stage, stagedSends } from "./staged-sends.ts";
 import type { UploadClock } from "@/features/thread/composer/upload-interruption.ts";
 
 /*
@@ -24,10 +24,10 @@ export interface SendRequest {
 }
 
 /**
- * Enqueue the message under `commandId`. Files still uploading (or one that didn't) hold it as
- * its bubble, kept on this device until they're done; it then goes under the same id, so the
- * held bubble carries on as the outbox entry, and a failed upload leaves the bubble with Retry
- * and Edit. Resolves false only when this device couldn't save it: the composer gives it back.
+ * Enqueue the message under `commandId`. Files still uploading (or one that didn't) hold it in
+ * the composer's strip, kept on this device until they're done; it then goes under the same id,
+ * so the held line carries on as the outbox entry, and a failed upload leaves it there with
+ * Retry and Edit. Resolves false only when this device couldn't save it: the composer gives it back.
  */
 export async function sendMessage(request: SendRequest): Promise<boolean> {
   const { client, commandId, draft } = request;
@@ -43,6 +43,13 @@ export async function sendMessage(request: SendRequest): Promise<boolean> {
     )
   )
     return refuseStage(request);
+  // A screenshot still being taken joins the bubble when it arrives; its upload is in hand.
+  files.later?.forEach((later, index) => {
+    void later?.then(
+      (file) => file && fileArrived(commandId, index, file),
+      () => {},
+    );
+  });
   void sendWhenUploaded(client, commandId, files.outcomes, request.storage);
   return true;
 }

@@ -9,10 +9,11 @@ import { resetSendStore } from "./composer/send-store.ts";
 import { reloadPage, resetStaged } from "./composer/staged-sends.ts";
 
 /*
- * A message sent while its files upload (UX audit SY-2, AT-2; review of #126): it waits as its
- * bubble, is kept on this device, goes once the files are up, and never disappears: an upload
- * that fails, or a page that closes mid-upload, leaves it as a failed bubble with Retry and
- * Edit, whatever the composer holds by then.
+ * A message sent while its files upload (UX audit SY-2, AT-2; review of #126): it waits in the
+ * composer's strip (the transcript shows only what the daemon has), is kept on this device, goes
+ * once the files are up, and never disappears: an upload that fails, or a page that closes
+ * mid-upload, leaves it there as not sent with Retry and Edit, whatever the composer holds by
+ * then.
  */
 
 beforeEach(() => {
@@ -34,6 +35,10 @@ async function open(storage = memoryKeyValue()) {
   const message = (await screen.findByRole("combobox", { name: "Message" })) as HTMLDivElement;
   return { app, feed, message, storage };
 }
+
+/** The composer's strip of messages on their way, once it shows. */
+const strip = () => screen.findByRole("region", { name: "Messages on their way" });
+const stripShown = () => screen.queryByRole("region", { name: "Messages on their way" });
 
 /** The person's message as the daemon holds it, once it has it. */
 function delivered(app: ReturnType<typeof harness>) {
@@ -75,18 +80,19 @@ async function sendWhileReading(message: HTMLDivElement) {
   return { finish: () => gate.resolve() };
 }
 
-test("an upload that fails after Enter leaves the message as a failed bubble, and Retry delivers it", async () => {
+test("an upload that fails after Enter leaves the message as not sent in the composer's strip, and Retry delivers it", async () => {
   const { app, feed, message } = await open();
   await sendWhileUploading(app, message);
-  expect(await within(feed).findByText("Uploading an image…")).toBeTruthy();
+  expect(await within(await strip()).findByText("Uploading an image…")).toBeTruthy();
   // The person moves on: the next draft is already in the composer.
   await userEvent.type(message, "And the footer colour");
 
   // The connection drops mid-upload, so the upload fails.
   act(() => app.daemon.disconnectAll());
-  const alert = await within(feed).findByRole("alert");
+  const alert = await within(await strip()).findByRole("alert");
   expect(within(alert).getByText(/screen\.png didn't upload/)).toBeTruthy();
-  expect(within(feed).getByText("Why is this banner orange?")).toBeTruthy();
+  expect(within(await strip()).getByText("Why is this banner orange?")).toBeTruthy();
+  expect(within(feed).queryByText("Why is this banner orange?")).toBeNull();
   expect(message.textContent).toBe("And the footer colour");
 
   app.daemon.restoreRequests();
@@ -96,9 +102,10 @@ test("an upload that fails after Enter leaves the message as a failed bubble, an
   await waitFor(() =>
     expect(delivered(app)).toMatchObject({ attachments: [{ name: "screen.png" }] }),
   );
-  await waitFor(() => expect(within(feed).queryByRole("alert")).toBeNull());
-  expect(within(feed).queryByText("Uploading an image…")).toBeNull();
-  expect(within(feed).getAllByText("Why is this banner orange?")).toHaveLength(1);
+  await waitFor(() => expect(stripShown()).toBeNull());
+  expect(screen.queryByText("Uploading an image…")).toBeNull();
+  expect(await within(feed).findAllByText("Why is this banner orange?")).toHaveLength(1);
+  expect(screen.getAllByText("Why is this banner orange?")).toHaveLength(1);
 });
 
 test("Edit on a failed held message gives back its text, beside what the composer holds", async () => {
@@ -106,7 +113,7 @@ test("Edit on a failed held message gives back its text, beside what the compose
   await sendWhileUploading(app, message);
   await userEvent.type(message, "And the footer colour");
   act(() => app.daemon.disconnectAll());
-  const alert = await within(feed).findByRole("alert");
+  const alert = await within(await strip()).findByRole("alert");
 
   await userEvent.click(within(alert).getByRole("button", { name: "Edit" }));
   await waitFor(() =>
@@ -114,20 +121,22 @@ test("Edit on a failed held message gives back its text, beside what the compose
       "And the footer colour\n\nWhy is this banner orange?",
     ),
   );
+  expect(stripShown()).toBeNull();
   expect(within(feed).queryByText("Why is this banner orange?")).toBeNull();
 });
 
 test("a message held for its uploads survives a reload as interrupted, and Edit takes its text back", async () => {
   const first = await open();
   await sendWhileUploading(first.app, first.message);
-  expect(await within(first.feed).findByText("Uploading an image…")).toBeTruthy();
+  expect(await within(await strip()).findByText("Uploading an image…")).toBeTruthy();
 
   cleanup();
   reloadPage();
   const again = await open(first.storage);
-  const alert = await within(again.feed).findByRole("alert");
+  const alert = await within(await strip()).findByRole("alert");
   expect(within(alert).getByText(/Upload interrupted$/)).toBeTruthy();
-  expect(within(again.feed).getByText("Why is this banner orange?")).toBeTruthy();
+  expect(within(await strip()).getByText("Why is this banner orange?")).toBeTruthy();
+  expect(within(again.feed).queryByText("Why is this banner orange?")).toBeNull();
   // The image's bytes went with the old page: nothing here can resend it as it was.
   expect(within(alert).queryByRole("button", { name: "Retry" })).toBeNull();
   expect(within(alert).getByRole("button", { name: "Remove" })).toBeTruthy();
@@ -138,7 +147,7 @@ test("a message held for its uploads survives a reload as interrupted, and Edit 
     ),
   );
   await screen.findByRole("heading", { name: "Attach again" });
-  await waitFor(() => expect(within(again.feed).queryByRole("alert")).toBeNull());
+  await waitFor(() => expect(stripShown()).toBeNull());
   expect(delivered(again.app)).toBeUndefined();
 });
 
@@ -175,16 +184,16 @@ test("a completion storage refusal exposes Retry and Edit, and Retry sends the a
       backing.setItem(key, value);
     },
   };
-  const { app, feed, message } = await open(storage);
+  const { app, message } = await open(storage);
   const upload = await sendWhileReading(message);
-  expect(await within(feed).findByText("Uploading an image…")).toBeTruthy();
+  expect(await within(await strip()).findByText("Uploading an image…")).toBeTruthy();
   full = true;
   act(() => upload.finish());
-  const alert = await within(feed).findByRole("alert");
+  const alert = await within(await strip()).findByRole("alert");
   expect(within(alert).getByText(/This device couldn't save the upload results/)).toBeTruthy();
   expect(within(alert).getByRole("button", { name: "Retry" })).toBeTruthy();
   expect(within(alert).getByRole("button", { name: "Edit" })).toBeTruthy();
-  expect(within(feed).queryByText("Uploading an image…")).toBeNull();
+  expect(screen.queryByText("Uploading an image…")).toBeNull();
   expect(delivered(app)).toBeUndefined();
 
   // A second refusal stays actionable. No new context requests may finish: Retry must reuse
@@ -192,18 +201,18 @@ test("a completion storage refusal exposes Retry and Edit, and Retry sends the a
   app.daemon.holdRequests("context.request");
   await userEvent.click(within(alert).getByRole("button", { name: "Retry" }));
   await screen.findByRole("heading", { name: "It still didn't go" });
-  expect(within(feed).queryByText("Uploading an image…")).toBeNull();
-  expect(within(feed).getByRole("button", { name: "Edit" })).toBeTruthy();
+  expect(screen.queryByText("Uploading an image…")).toBeNull();
+  expect(within(await strip()).getByRole("button", { name: "Edit" })).toBeTruthy();
   full = false;
-  await userEvent.click(within(feed).getByRole("button", { name: "Retry" }));
+  await userEvent.click(within(await strip()).getByRole("button", { name: "Retry" }));
   await waitFor(() =>
     expect(delivered(app)).toMatchObject({ attachments: [{ name: "screen.png" }] }),
   );
-  expect(within(feed).queryByRole("alert")).toBeNull();
+  await waitFor(() => expect(stripShown()).toBeNull());
 });
 
 test.each([false, true])(
-  "Edit keeps the recovery bubble and full draft when deletion is refused, including draft write refusal: %s",
+  "Edit keeps the recovery line and full draft when deletion is refused, including draft write refusal: %s",
   async (refuseDraft) => {
     const backing = memoryKeyValue();
     let full = false;
@@ -225,24 +234,24 @@ test.each([false, true])(
         backing.setItem(key, value);
       },
     };
-    const { app, feed, message } = await open(storage);
+    const { app, message } = await open(storage);
     const upload = await sendWhileReading(message);
     full = true;
     act(() => upload.finish());
-    const alert = await within(feed).findByRole("alert");
+    const alert = await within(await strip()).findByRole("alert");
     await userEvent.type(screen.getByRole("combobox", { name: "Message" }), "Newer work");
     await userEvent.click(within(alert).getByRole("button", { name: "Edit" }));
     const field = await screen.findByRole("combobox", { name: "Message" });
     await waitFor(() => expect(field.textContent).toBe("Newer work\n\nWhy is this banner orange?"));
     expect(screen.getByRole("button", { name: "Remove screen.png" })).toBeTruthy();
-    expect(within(feed).getByRole("button", { name: "Save edit" })).toBeTruthy();
+    expect(within(await strip()).getByRole("button", { name: "Save edit" })).toBeTruthy();
     expect(delivered(app)).toBeUndefined();
-    await userEvent.click(within(feed).getByRole("button", { name: "Save edit" }));
+    await userEvent.click(within(await strip()).getByRole("button", { name: "Save edit" }));
     expect(field.textContent).toBe("Newer work\n\nWhy is this banner orange?");
-    expect(within(feed).getByRole("button", { name: "Save edit" })).toBeTruthy();
+    expect(within(await strip()).getByRole("button", { name: "Save edit" })).toBeTruthy();
     full = false;
-    await userEvent.click(within(feed).getByRole("button", { name: "Save edit" }));
-    await waitFor(() => expect(within(feed).queryByRole("alert")).toBeNull());
+    await userEvent.click(within(await strip()).getByRole("button", { name: "Save edit" }));
+    await waitFor(() => expect(stripShown()).toBeNull());
     cleanup();
     await app.open("/t/thread-router");
     expect((await screen.findByRole("combobox", { name: "Message" })).textContent).toBe(

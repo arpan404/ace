@@ -1,5 +1,6 @@
 import { startSupportFiles } from "./support-files.ts";
 import { fileExportSource } from "../file-export-source.ts";
+import { projectFilesBinding } from "../project-files-binding.ts";
 import type { ThreadId } from "@ace/protocol";
 import { FilesWorkspaces } from "../files-workspaces.ts";
 import { warmup } from "./warmup.ts";
@@ -143,7 +144,7 @@ export function createFilesSession(context: SocketContext): SocketService {
             reject(new Error("Attachment channel disconnected or full"));
             return;
           }
-          context.socket.send(bytes, { binary: true }, (error) =>
+          context.socket.send(bytes, { binary: true, compress: false }, (error) =>
             error ? reject(error) : resolve(),
           );
         });
@@ -161,7 +162,16 @@ export function createFilesSession(context: SocketContext): SocketService {
     chunks ??= chunkFilesChannel({
       device,
       send: context.send,
-      async resolve(threadId, scope, operation) {
+      async resolve(threadId, scope, operation, workspaceId) {
+        if (workspaceId !== undefined) {
+          if (!files) throw new Error("Project files unavailable");
+          return projectFilesBinding(
+            files,
+            workspaceId,
+            operation,
+            () => context.connected() && context.authorize("read"),
+          );
+        }
         if (scope === "support") {
           const service = context.options.supportFiles;
           if (!service) throw new Error("Support export unavailable");
@@ -282,7 +292,8 @@ export function createFilesSession(context: SocketContext): SocketService {
         message.type === "files.abort" ||
         message.type === "files.pull" ||
         message.type === "files.chunk" ||
-        (message.type === "files.request" && (message.threadId || message.scope === "support"))
+        (message.type === "files.request" &&
+          (message.threadId || message.workspaceId || message.scope === "support"))
       ) {
         const scoped = getChunks();
         if (scoped) scoped.accept(message);

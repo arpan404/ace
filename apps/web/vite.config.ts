@@ -3,6 +3,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig } from "vite";
 import { cssWithoutLegacyPolyfills } from "./css-polyfills.ts";
+import { katexWoff2 } from "./katex-woff2.ts";
 import { phosphorWeights } from "./icon-weights.ts";
 import { initialChunk, initialPreloads } from "./initial-preloads.ts";
 import { initialBundle } from "./initial-bundle.ts";
@@ -24,6 +25,8 @@ import { workerJsonZod } from "./worker-json-zod.ts";
 import { pageZod, workerZod } from "./worker-zod.ts";
 
 const preloads = initialPreloads();
+/** Names this build, so data kept by another build (persisted lookups) is never read as ours. */
+const build = Date.now().toString(36);
 
 // The router plugin must precede the React plugin so route files are generated and split first.
 export default defineConfig(({ mode }) => ({
@@ -32,6 +35,7 @@ export default defineConfig(({ mode }) => ({
     ...reactPlugins(),
     tailwindcss(),
     cssWithoutLegacyPolyfills(),
+    katexWoff2(),
     phosphorWeights(),
     zodWithoutJsonSchema(),
     zodWithoutMetadata(),
@@ -43,6 +47,7 @@ export default defineConfig(({ mode }) => ({
     notificationWorker(),
   ],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
+  define: { "import.meta.env.VITE_ACE_BUILD": JSON.stringify(build) },
   build: {
     target: "es2023",
     // Standard compression keeps the full validated worker within its existing byte budget.

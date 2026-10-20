@@ -5,6 +5,7 @@ import { DiscoveryBackoff } from "./discovery-backoff.ts";
 import { connectionRevision } from "./discovery-revision.ts";
 import { discoveryError } from "./discovery-errors.ts";
 import { discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
+import { providerCli, requireMinimum } from "@ace/provider-kit/cli-requirements";
 import { refreshedSources, sourceFailed } from "./catalog-sources.ts";
 import { cleanCatalog } from "./catalog-cleanup.ts";
 import { createCleanModelView, providerConfiguration } from "./preferences.ts";
@@ -601,10 +602,21 @@ export class ModelCatalog implements ModelCatalogApi {
     void write.then(cleanup, cleanup);
     return write;
   }
-  loginChanged(instance: string, revision: string): Promise<ModelInstanceStatus[]> {
+  /** `signInMethod`: the ACP method now signed in with, or null once signed out; omitted, kept. */
+  loginChanged(
+    instance: string,
+    revision: string,
+    signInMethod?: string | null,
+  ): Promise<ModelInstanceStatus[]> {
     const state = this.#states.get(instance);
     if (!state) throw new Error("Unknown instance");
-    this.registerInstance({ ...state.config, loginRevision: revision });
+    const { signInMethod: previous, ...config } = state.config;
+    const method = signInMethod === undefined ? previous : (signInMethod ?? undefined);
+    this.registerInstance({
+      ...config,
+      loginRevision: revision,
+      ...(method ? { signInMethod: method } : {}),
+    });
     return this.refresh({ instance });
   }
   removeInstance(instance: string): Promise<void> {
@@ -903,6 +915,9 @@ export class ModelCatalog implements ModelCatalogApi {
           };
           const configuration = this.#configuration(state.config);
           if (configuration.enabled === false) return;
+          // A CLI older than ace's minimum is reported as such, not probed into a vaguer failure.
+          const cli = providerCli(state.config.provider);
+          if (cli) requireMinimum(cli, state.config.installationVersion);
           const discovery = this.#options.discover(
             { ...state.config, executable: configuration.binaryPath ?? state.config.executable },
             abort.signal,

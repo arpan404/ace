@@ -72,6 +72,8 @@ test("whole-tree CLI wait times out while a delegated child remains working", as
       "claude",
       "--idempotency-key",
       "child-once",
+      "--role",
+      "Synthetic child",
       "--json",
     ]);
     expect(spawned.code, spawned.stderr).toBe(0);
@@ -115,6 +117,8 @@ test("whole-tree CLI wait times out while a delegated child remains working", as
       "claude",
       "--idempotency-key",
       "child-once",
+      "--role",
+      "Synthetic child",
       "--json",
     ]);
     expect(JSON.parse(retried.stdout)).toMatchObject({ data: { threadId: child.data.threadId } });
@@ -140,6 +144,8 @@ test("CLI tree waits hand back control for a descendant approval instead of repo
       f.caller.threadId,
       "--provider",
       "claude",
+      "--role",
+      "Synthetic approval",
       "--json",
     ]);
     const child = ThreadId.parse(
@@ -195,6 +201,8 @@ test("task status returns to working when a completed child starts autonomous na
       f.caller.threadId,
       "--provider",
       "claude",
+      "--role",
+      "Synthetic task",
       "--json",
     ]);
     expect(output.code, output.stderr).toBe(0);

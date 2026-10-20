@@ -2,6 +2,8 @@
 export interface ViewActivity {
   /** Drawn in the Browser panel right now. */
   visible: boolean;
+  /** Out of the way only while one of the app's menus covers it: the person still watches it. */
+  covered: boolean;
   /** The person's own input reaches the view (a `human` lease held here). */
   nativeInput: boolean;
   /** The daemon's lease gives the page to an agent, so commands are the agent's. */
@@ -14,9 +16,9 @@ export interface ViewActivity {
 
 /**
  * - `placed`: drawn in a renderer's Browser panel;
- * - `parked`: rendering, unseen, in the app's hidden parking window. Chromium produces no
- *   frames for a hidden view, so screenshots and `requestAnimationFrame` would stall while an
- *   agent drives a view nobody shows;
+ * - `parked`: rendering, unseen, in the app's offscreen parking window (shown, never focused).
+ *   Chromium produces no frames for a hidden view or a hidden window, so screenshots and
+ *   `requestAnimationFrame` would stall while an agent drives a view nobody shows;
  * - `hidden`: not rendering; page timers and state live on.
  */
 export type ViewPresence = "placed" | "parked" | "hidden";
@@ -33,7 +35,8 @@ export type ThrottleDecision = { presence: ViewPresence } & (
 /**
  * A view nobody sees and nobody drives runs its timers at background rate (Chromium's
  * background throttling) instead of at full speed, and stops rendering. Anything that could
- * depend on page timing keeps it at full speed: being on screen, the person's control, a
+ * depend on page timing keeps it at full speed: being on screen (or under one of the app's
+ * menus, drawn from its screencast meanwhile, so it renders parked), the person's control, a
  * screencast, or an agent command within `idleMs`; an agent command also keeps an unseen view
  * rendering (parked) while the agent holds the lease. Neither ever closes the view or loses page
  * state, so the daemon's session is untouched (ADR 0055, ADR 0069).
@@ -44,6 +47,7 @@ export function throttleDecision(
   idleMs: number,
 ): ThrottleDecision {
   if (activity.visible) return { presence: "placed", throttle: false };
+  if (activity.covered) return { presence: "parked", throttle: false };
   if (activity.screencasting) return { presence: "parked", throttle: false };
   const idleFor = now - activity.lastDrivenAt;
   if (idleFor < idleMs)

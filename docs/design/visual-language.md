@@ -71,20 +71,21 @@ by every theme.
 
 | Step | Name           | Light   | Dark    | For                                      |
 | ---- | -------------- | ------- | ------- | ---------------------------------------- |
-| 1    | `canvas`       | #FFFFFF | #121212 | Page and reading column                  |
-| 2    | `sidebar`      | #F7F7F7 | #0C0C0C | Sidebar and side panel                   |
-| 3    | `surface`      | #F2F2F2 | #1A1A1A | Cards, bubbles, settings groups          |
-| 4    | `raised`       | #FFFFFF | #1F1F1F | Floating layers when solid               |
-| 5    | `hover`        | #EFEFEF | #1C1C1C | Solid hover fill                         |
-| 6    | `active`       | #E9E9E9 | #2A2A2A | Solid pressed or selected fill           |
-| 7    | `border`       | #E6E6E6 | #262626 | Hairlines                                |
-| 8    | `borderStrong` | #CCCCCC | #383838 | Control edges, switch tracks (`--input`) |
-| 9    | `faint`        | #939393 | #636363 | Decorative icons (3:1)                   |
-| 10   | `subtle`       | #646464 | #979797 | Quiet text (`--subtle-foreground`)       |
-| 11   | `muted`        | #454545 | #B2B2B2 | Secondary text (`--muted-foreground`)    |
-| 12   | `text`         | #111111 | #F0F0F0 | Text (`--foreground`)                    |
+| 1    | `canvas`       | #FFFFFF | #0C0C0C | Page and reading column                  |
+| 2    | `sidebar`      | #F9F9F9 | #090909 | Sidebar and side panel                   |
+| 3    | `surface`      | #FAFAFA | #101010 | Cards, bubbles, settings groups          |
+| 4    | `raised`       | #FFFFFF | #121212 | Floating layers when solid               |
+| 5    | `hover`        | #F8F8F8 | #101010 | Solid hover fill                         |
+| 6    | `active`       | #F0F0F0 | #191919 | Solid pressed or selected fill           |
+| 7    | `border`       | #E2E2E2 | #1E1E1E | Hairlines                                |
+| 8    | `borderStrong` | #CFCFCF | #2B2B2B | Control edges, switch tracks (`--input`) |
+| 9    | `faint`        | #8D8D8D | #5E5E5E | Decorative icons (3:1)                   |
+| 10   | `subtle`       | #676767 | #898989 | Quiet text (`--subtle-foreground`)       |
+| 11   | `muted`        | #545454 | #A3A3A3 | Secondary text (`--muted-foreground`)    |
+| 12   | `text`         | #222222 | #DEDEDE | Text (`--foreground`)                    |
 
-(Values shown are ace's; every other theme has its own.) Each step is a token by name and by
+(Values shown are ace's source values; every other theme has its own. Text is a softened ink,
+never pure white or black, and the ace ink is also the accent fill.) Each step is a token by name and by
 number: `--neutral-1` … `--neutral-12`. Each theme also sets `--font-sans`, `--font-prose`
 (transcript text, the `font-prose` utility) and `--font-mono`, all system stacks.
 
@@ -115,6 +116,7 @@ existing components need no edits.
 | Sidebar, right panel      | `--sidebar`, `--panel`                                                           |
 | Hover and selected washes | `--fill` (= `--accent`, `--muted`), `--fill-strong` (= `--sidebar-accent`)       |
 | Controls                  | `--secondary`, `--seg-bg`, `--seg-thumb`, `--seg-thumb-shadow`, `--switch-off`   |
+| Devices                   | `--device-stage`, `--device-body`, `--device-rim`, `--device-glass`              |
 | Lines                     | `--border`, `--border-soft`, `--border-strong` (= `--input`), `--sidebar-border` |
 | Text fields               | `--field` (white with a hairline in light, a quiet lift in dark)                 |
 | Text                      | `--foreground`, `--muted-foreground`, `--subtle-foreground`                      |
@@ -125,7 +127,7 @@ existing components need no edits.
 | Errors                    | `--destructive`                                                                  |
 | Code                      | `--code`, `--syn-{kw,str,num,fn,type,com,punc}`, `--diff-{add,del}` (+ `-text`)  |
 | Loading                   | `--skel`, `--skel-hi`                                                            |
-| Modal backdrop            | `--scrim` (solid), `--scrim-glass` (over blur)                                   |
+| Modal backdrop            | `--scrim` (solid), `--scrim-glass` over a `--backdrop-blur` (7px) blur           |
 | Floating material         | `--float-edge`, `--float-shadow` (= `--glass-shadow`), `--glass-*`, `--sliver`   |
 | Project badges            | `--project-1` … `--project-12`                                                   |
 | Chat visualization series | `--chart-1` … `--chart-6`                                                        |
@@ -149,7 +151,7 @@ Static tokens (`tokens.css`):
 
 - **Type:** `--font-sans`, `--font-prose` and `--font-mono`, the same in every theme.
 - **Layout:** `--header-h`, `--column` and `--composer-control`.
-- **Radii** (Default; `[data-corners]` rescales them, see DESIGN.md §2 Radius):
+- **Radii** (see DESIGN.md §2 Radius):
   - `--radius-xs` is 4 px, for tags and inline code.
   - `--radius-sm` is 6 px, for small controls and tooltips.
   - `--radius` is 8 px, for buttons, inputs and rows.
@@ -246,7 +248,8 @@ The material, in order:
 Every iOS browser counts as WebKit.
 
 The command palette (`.ace-modal`) sits over `.ace-backdrop`, which blurs the page once, so the
-panel has the tint and rim with no blur of its own.
+panel has the rim with no blur of its own, and the near-solid modal tint (`--glass-tint-modal`)
+in place of the thin floating one.
 
 Corners are concentric: rows inside a 12px popup with 4px padding are 8px (`rounded-md`).
 
@@ -298,18 +301,24 @@ On, or when it's System and the OS prefers reduced motion. Under it:
 
 Dialogs, sheets and the command palette (`components/ui/dialog.tsx`, `sheet.tsx`, `command.tsx`):
 
-- **Backdrop** (`.ace-backdrop`): under Translucent the page is blurred once, 16px with a light
-  saturate, under a faint tint (`--scrim-glass`); there is no dark dim. Under Solid or reduced
-  transparency it is a light neutral scrim (`--scrim`). It fades in by opacity with the motion
-  tokens; the blur radius never animates.
-- **Panel** (`.ace-modal` with `.ace-floating`) for dialogs and the palette: a 90–92% tint over
-  the already blurred page, with no blur or displacement of its own, so text and fields read as on
-  a solid surface. Sheet panels are solid (`--popover`) over the same backdrop.
+- **Backdrop** (`.ace-backdrop`): under Translucent the page is blurred once, `--backdrop-blur`
+  (7px) with a light saturate, under a faint tint (`--scrim-glass`); there is no dark dim. Under
+  Solid or reduced transparency it is a light neutral scrim (`--scrim`). It fades in by opacity
+  with the motion tokens; the blur radius never animates.
+- **Panel:** dialogs are solid (`.ace-floating-solid`). The palette (`.ace-modal` with
+  `.ace-floating`) takes `--glass-tint-modal`, the glass tint never thinner than 92% at any
+  Translucency (`modalTintFloor`), over the already blurred page, with no blur or displacement
+  of its own, so text and fields read as on a solid surface. Sheet panels are solid (`--popover`)
+  over the same backdrop.
 - A dialog or sheet is its own surface: settings rows inside it are not rows of the card that
   opened it (`components/ui/surface-context.ts`).
 - **Placement:** centred with insets and auto margins, never with a translate. Dialogs centre in
   the window; the palette and search are 640px wide (less on phones), 13vh from the top, and as
   tall as their content.
+- **Key hints** (`components/ui/key-hints.tsx`): the palette, its steps and search end in a
+  36px bar of key caps and muted labels (↑ ↓ Navigate, ↵ Select, ⌫ Back, esc Close), listing
+  only what the step on screen does. A step with actions puts them on the bar's right. Hidden on
+  touch and from assistive tech.
 - **Empty states act:** before a query, search offers recent threads, recent searches and quick
   commands. No explanatory prose.
 

@@ -25,3 +25,9 @@ export const mcpReadyRpc = {
   },
   events: {},
 } as const;
+
+/**
+ * OpenCode names an MCP tool `<server>_<tool>`, so ace's always-listed `context` tool is
+ * `ace_context`. Its native registration is what readiness waits for.
+ */
+export const aceReadinessTool = "ace_context";

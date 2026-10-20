@@ -4,8 +4,10 @@ import type { Item } from "@ace/protocol";
 import {
   displayNotice,
   sanitizeUserText,
+  stripAceOriginMarker,
   echoesEarlierError,
   failureCount,
+  handoffMarker,
   handoffSummary,
   inputLine,
   interruptionNotice,
@@ -33,21 +35,22 @@ import {
   WarningIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
-import { lazy, Suspense, useCallback, useState } from "react";
+import { Suspense, useCallback, useState } from "react";
 import { ArtifactLine } from "@/components/attachment-artifact.tsx";
+import { PostedImage } from "@/components/attachment-tiles.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { cn } from "@/lib/cn.ts";
 import { DelegationCard } from "./delegation-card.tsx";
+import { HandoffDivider } from "./handoff-divider.tsx";
 import { ErrorRow, noticeError } from "./error-row.tsx";
+import { NotSentNotice } from "./not-sent-notice.tsx";
+import { notSentCommand } from "./send-failure.ts";
 import { RefusalRow } from "./refusal-row.tsx";
 import { SystemRow } from "./system-row.tsx";
 import { TaskCard } from "./task-card.tsx";
 import { MergedForkNotice } from "../transitions/merged-fork-notice.tsx";
 import { UserMessage } from "./user-message.tsx";
-
-const HtmlView = lazy(() =>
-  import("./html-visualization.tsx").then((module) => ({ default: module.HtmlVisualizationView })),
-);
+import { VisualizationItem } from "@/features/visualization/index.ts";
 
 const icons: Record<EventIcon, PhosphorIcon> = {
   restart: ArrowClockwiseIcon,
@@ -173,6 +176,8 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
   if (!input && item.type === "message" && item.role === "user" && !item.synthetic)
     return <UserMessage threadId={props.threadId} itemId={props.itemId} />;
   if (input) {
+    const handoff = input.kind === "handoff" ? handoffMarker(item) : undefined;
+    if (handoff) return <HandoffDivider marker={handoff} at={item.createdAt} />;
     switch (input.kind) {
       // The question block above already shows the answer with its question.
       case "interaction_answer":
@@ -181,18 +186,13 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
         const results = parseDelegationResults(input.text);
         if (results.length)
           return (
-            <DelegationCard
-              threadId={props.threadId}
-              results={results}
-              received={input.text}
-              at={item.createdAt}
-            />
+            <DelegationCard threadId={props.threadId} results={results} received={input.text} />
           );
         return (
           <EventRow
             line={{ icon: "automation", text: "Delegated work finished" }}
             at={item.createdAt}
-            received={input.text}
+            received={stripAceOriginMarker(input.text.trimStart())}
           />
         );
       }
@@ -233,6 +233,9 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
       const kind = noticeInput(item);
       const line = kind && inputLine({ kind, text: item.text });
       if (line) return <EventRow line={line} at={item.createdAt} received={item.text} />;
+      const notSent = notSentCommand(item);
+      if (notSent)
+        return <NotSentNotice threadId={props.threadId} notice={item} commandId={notSent} />;
       if (item.level === "error") {
         if (!failures) return null;
         const error = noticeError(item);
@@ -262,8 +265,17 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
         <Suspense
           fallback={<div role="status" aria-label="Loading visualization" className="h-40" />}
         >
-          <HtmlView threadId={props.threadId} visualization={item.visualization} />
+          <VisualizationItem threadId={props.threadId} visualization={item.visualization} />
         </Suspense>
+      );
+    case "image":
+      return (
+        <PostedImage
+          threadId={props.threadId}
+          attachment={item.image.attachment}
+          alt={item.image.alt}
+          caption={item.image.caption}
+        />
       );
     case "artifact":
       return (
@@ -332,7 +344,5 @@ function QuietText(props: { text: string }) {
 /** Canonical result receipts render at their delivery point; launches belong to the grouped card. */
 function DelegationItem(props: { threadId: string; item: Item }) {
   const results = settledResults(props.item);
-  return results?.length ? (
-    <DelegationCard threadId={props.threadId} results={results} at={props.item.createdAt} />
-  ) : null;
+  return results?.length ? <DelegationCard threadId={props.threadId} results={results} /> : null;
 }

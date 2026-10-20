@@ -1,8 +1,7 @@
-import { readdir } from "node:fs/promises";
-import { join } from "node:path";
 import { expect, it } from "vitest";
 import type { BrowserFrame } from "@ace/protocol";
 import { backendFixture, FakeHeadless } from "./backend-test-support.ts";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 it("simultaneous opens join replacement recovery and both return a usable ready page", async () => {
   const headless = new FakeHeadless();
@@ -45,7 +44,7 @@ it("simultaneous opens join replacement recovery and both return a usable ready 
   expect(await complete).toHaveLength(2);
 });
 
-it("ordinary agent opens recover after repeated losses of the replacement headless page and release old profiles", async () => {
+it("ordinary agent opens recover after repeated losses of the replacement headless page", async () => {
   const f = await backendFixture({ backendLoss: () => "headless" });
   await f.open();
   await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/page" });
@@ -83,52 +82,39 @@ it("ordinary agent opens recover after repeated losses of the replacement headle
     // Late traffic from the retired page cannot suspend the new page.
     lost.lost("Late context close");
     expect(f.service.state("thread").status).toBe("ready");
-    expect(
-      (await readdir(join(f.home, "browser"))).filter((name) => name.startsWith("recovery-")),
-    ).toHaveLength(1);
   }
   expect(frames.length).toBeGreaterThanOrEqual(4);
   await f.service.closeThread("thread");
-  expect(
-    (await readdir(join(f.home, "browser"))).filter((name) => name.startsWith("recovery-")),
-  ).toEqual([]);
+  expect(() => f.service.state("thread")).toThrow("not open");
 });
 
-it.each(["shared", "private"] as const)(
-  "replacement loss retains %s ownership until an explicit human open",
-  async (mode) => {
-    const f = await backendFixture({ backendLoss: () => "headless" });
-    await f.open();
-    f.service.takeover("thread", "owner", mode);
-    const ready = Promise.withResolvers<void>();
-    f.service.subscribe("thread", "owner", { send: () => true }, (state) => {
-      if (state.backend === "headless" && state.status === "ready") ready.resolve();
-    });
-    await f.disconnect();
-    await ready.promise;
-    f.headless.opens.at(-1)?.lost("Headless context closed");
-    expect(
-      await f.service.open({
-        threadId: "thread",
-        workspaceId: "workspace-thread",
-        background: true,
-      }),
-    ).toMatchObject({ status: "paused", owner: "owner", takeoverMode: mode });
-    expect(await f.open()).toMatchObject({
-      status: "ready",
-      controller: "human",
-      owner: "owner",
-      takeoverMode: mode,
-    });
-    await expect(f.service.execute("thread", { action: "press", key: "Enter" })).rejects.toThrow(
-      mode === "private" ? "private while a human has control" : "controlled by human",
-    );
-    await f.service.input("thread", { kind: "key", event: "char", key: "x" }, "owner");
-    expect(f.headless.pages.at(-1)?.text).toBe("x");
-  },
-);
+it("replacement loss keeps a private page paused until the person opens it", async () => {
+  const f = await backendFixture({ backendLoss: () => "headless" });
+  await f.open();
+  keepAgentsOut(f.service);
+  const ready = Promise.withResolvers<void>();
+  f.service.subscribe("thread", "owner", { send: () => true }, (state) => {
+    if (state.backend === "headless" && state.status === "ready") ready.resolve();
+  });
+  await f.disconnect();
+  await ready.promise;
+  f.headless.opens.at(-1)?.lost("Headless context closed");
+  expect(
+    await f.service.open({
+      threadId: "thread",
+      workspaceId: "workspace-thread",
+      background: true,
+    }),
+  ).toMatchObject({ status: "paused" });
+  expect(await f.open()).toMatchObject({ status: "ready" });
+  await expect(
+    f.service.execute("thread", { action: "press", key: "Enter" }),
+  ).rejects.toMatchObject({ code: "human_private" });
+  await f.service.input("thread", { kind: "key", event: "char", key: "x" }, "owner");
+  expect(f.headless.pages.at(-1)?.text).toBe("x");
+});
 
-it.each(["open", "controller"])(
+it.each(["open"])(
   "headless loss during replacement %s never publishes a dead page as ready and can retry",
   async (phase) => {
     const headless = new FakeHeadless();
@@ -137,13 +123,6 @@ it.each(["open", "controller"])(
     headless.open = async (request) => {
       const backend = await open(request);
       if (fail && phase === "open") request.lost("Replacement closed during startup");
-      if (fail && phase === "controller")
-        return {
-          ...backend,
-          controller: async () => {
-            request.lost("Replacement closed during controller setup");
-          },
-        };
       return backend;
     };
     const errors = Promise.withResolvers<void>();

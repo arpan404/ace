@@ -2,6 +2,7 @@ import { killAll } from "./kill-all.ts";
 import { AgentId, CliTaskStatus, type CliOperation, type AgentControlResult } from "@ace/protocol";
 import { agentTaskView } from "../agent-control/task-view.ts";
 import { readThreadTree } from "../thread-tree.ts";
+import { simCli } from "./cli-sim.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
@@ -23,6 +24,7 @@ export function cliControl(context: ServiceContext) {
       operation.op === "mcp.revoke"
     )
       return services.externalMcp?.execute(operation) ?? { ok: false, code: "unsupported" };
+    if (operation.op === "sim") return simCli(context, operation, signal);
     const owner = services.agentControl;
     const threadId = operation.op === "task.spawn" ? operation.parentId : operation.threadId;
     const thread = store.getThread(threadId);

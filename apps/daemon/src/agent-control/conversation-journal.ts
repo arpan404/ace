@@ -78,7 +78,7 @@ export class ConversationJournal {
       .atomic((db) =>
         db
           .prepare(
-            `SELECT c.thread_id,c.root_id,CASE WHEN json_extract(t.status,'$.state')='working'
+            `SELECT c.thread_id,c.root_id,CASE WHEN json_extract(t.status,'$.state') NOT IN ('done','failed','new')
           AND json_extract(t.client,'$.deletedAt') IS NULL THEN 1 ELSE 0 END AS active
           FROM agent_conversations c JOIN threads t ON t.id=c.thread_id
           WHERE NOT EXISTS (SELECT 1 FROM delegation_participants p WHERE p.thread_id=c.thread_id)

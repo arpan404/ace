@@ -111,11 +111,13 @@ export function endTurn(
   }
   run.state = fact.outcome;
   run.endedAt = ctx.now;
+  if (fact.endedBy) run.endedBy = fact.endedBy;
   if (fact.trigger !== undefined) run.trigger = fact.trigger;
   emit(events, {
     type: "run.ended",
     runId: run.id,
     state: fact.outcome,
+    ...(fact.endedBy ? { endedBy: fact.endedBy } : {}),
     endedAt: ctx.now,
     ...(fact.trigger === undefined ? {} : { trigger: fact.trigger }),
   });

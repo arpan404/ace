@@ -3,6 +3,7 @@ import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import { WebSocket } from "ws";
 import type { DeliveryEvent, ServerMessage } from "@ace/protocol";
 import { WireEncoder, eventFrameBytes } from "./wire-encoder.ts";
+import { mayCompress } from "./compression-policy.ts";
 
 export const RESYNC_CLOSE_CODE = 4009;
 // Service envelopes can contain a 1 MiB artifact plus metadata. Events have a smaller budget.
@@ -60,6 +61,8 @@ interface SerializedFrame {
   type: "serialized";
   chargedBytes: number;
   encoded: string;
+  /** Whether per-message deflate may compress it (`compression-policy.ts`). */
+  compress: boolean;
 }
 interface FragmentStream {
   type: "stream";
@@ -185,6 +188,7 @@ export class Outbox {
       type: "serialized",
       encoded,
       chargedBytes: charge,
+      compress: mayCompress(message.type),
     });
     this.bytes += charge;
     this.flush();
@@ -240,7 +244,9 @@ export class Outbox {
         return;
       }
       if (!this.admit(Buffer.byteLength(encoded))) return;
-      this.socket.send(encoded, (error) => {
+      // Event batches and snapshot fragments are transcript streams; replies follow the policy.
+      const compress = frame.type !== "serialized" || frame.compress;
+      this.socket.send(encoded, { compress }, (error) => {
         if (error) this.socket.terminate();
         else this.flush();
       });

@@ -40,6 +40,14 @@
           ],
           "type": "string"
         },
+        "browser.downloadDefault": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "browser.downloadDir": {
+          "maxLength": 4096,
+          "type": "string"
+        },
         "browser.profile": {
           "enum": [
             "persistent",
@@ -47,11 +55,23 @@
           ],
           "type": "string"
         },
+        "browser.userChrome.storageReads": {
+          "type": "boolean"
+        },
         "clients.keybindings": {
           "$ref": "https://ace.local/protocol/v1/JsonValue.json"
         },
         "clients.theme": {
           "$ref": "https://ace.local/protocol/v1/JsonValue.json"
+        },
+        "computer.blockedApps": {
+          "items": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 200,
+          "type": "array"
         },
         "generation.autoDraftCommits": {
           "type": "boolean"
@@ -258,6 +278,14 @@
         },
         "threads.settleOnMerge": {
           "type": "boolean"
+        },
+        "threads.sortBy": {
+          "enum": [
+            "activity",
+            "created",
+            "manual"
+          ],
+          "type": "string"
         },
         "threads.unresponsiveAfter": {
           "enum": [

@@ -128,7 +128,10 @@ test("a failed create remains reachable as Not sent after leaving its pending ro
   const rows = await screen.findByRole("list", { name: "Starting threads" });
   const row = await within(rows).findByRole("link", { name: /Keep my failed start/ });
   await waitFor(() => expect(row.textContent).toContain("Not sent"));
+  // With several projects New thread asks which.
   await userEvent.click(screen.getByRole("link", { name: "New thread" }));
+  const step = await screen.findByRole("dialog", { name: "New thread in" });
+  await userEvent.click(within(step).getByRole("option", { name: "relay" }));
   expect(await screen.findByRole("heading", { name: "New thread", level: 1 })).toBeTruthy();
   expect(field().textContent).toBe("");
   await userEvent.click(within(rows).getByRole("link", { name: /Keep my failed start/ }));
@@ -171,15 +174,15 @@ test("a failed local save leaves one recoverable copy outside the composer", asy
   await userEvent.type(field(), "Retain this once{Enter}");
   await screen.findByRole("button", { name: "Retry" });
   expect(field().textContent).toBe("");
-  expect(
-    within(screen.getByRole("feed", { name: "Transcript" })).getAllByText("Retain this once"),
-  ).toHaveLength(1);
-  fail = false;
-  await userEvent.click(screen.getByRole("button", { name: "Edit" }));
-  await waitFor(() => expect(field().textContent).toBe("Retain this once"));
+  const kept = screen.getByRole("region", { name: "Messages on their way" });
+  expect(within(kept).getAllByText("Retain this once")).toHaveLength(1);
   expect(
     within(screen.getByRole("feed", { name: "Transcript" })).queryByText("Retain this once"),
   ).toBeNull();
+  fail = false;
+  await userEvent.click(within(kept).getByRole("button", { name: "Edit" }));
+  await waitFor(() => expect(field().textContent).toBe("Retain this once"));
+  expect(screen.queryByRole("region", { name: "Messages on their way" })).toBeNull();
   expect(made.client.pendingSends("thread-router").getSnapshot()).toHaveLength(1);
 });
 
@@ -410,7 +413,9 @@ test("Retry after a local save failure still retains only one recoverable messag
   await screen.findByRole("heading", { name: "It still didn't go" });
   await waitFor(() =>
     expect(
-      within(screen.getByRole("feed", { name: "Transcript" })).getAllByText("Keep the retry once"),
+      within(screen.getByRole("region", { name: "Messages on their way" })).getAllByText(
+        "Keep the retry once",
+      ),
     ).toHaveLength(1),
   );
   expect(field().textContent).toBe("");
@@ -418,8 +423,11 @@ test("Retry after a local save failure still retains only one recoverable messag
   await userEvent.click(screen.getByRole("button", { name: "Retry" }));
   await waitFor(() => expect(screen.queryByRole("button", { name: "Retry" })).toBeNull());
   expect(
-    within(screen.getByRole("feed", { name: "Transcript" })).getAllByText("Keep the retry once"),
+    await within(screen.getByRole("feed", { name: "Transcript" })).findAllByText(
+      "Keep the retry once",
+    ),
   ).toHaveLength(1);
+  expect(screen.getAllByText("Keep the retry once")).toHaveLength(1);
   expect(
     made.client
       .pendingSends("thread-router")
@@ -460,9 +468,11 @@ test("Continue uses the live restart reason while an older queue page remains on
   expect(page.queue.paused).toBe(false);
 });
 
-test("Stop names the active root even after a reload retains only child output", async () => {
+test("Stop names the active root even when a reload's window holds only child output", async () => {
   const { facts } = await import("@ace/fake-daemon");
-  const made = harness({ snapshotItems: 200 });
+  // A window keeps the root's share of its items (ADR 0062), so only a one-item window can
+  // hold child output alone: the newest item is all that fits.
+  const made = harness({ snapshotItems: 1 });
   made.play(replayCursor()).runThrough("finding");
   made.daemon.apply("thread-replay-cursor", [
     facts.subagent("cursor", "busy-child", "Child", "search"),

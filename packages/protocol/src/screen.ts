@@ -7,7 +7,6 @@ import {
   ScreenUITreeOptions,
   ScreenUIFindOptions,
   ScreenUIActOptions,
-  ScreenRect,
 } from "./screen-v2.ts";
 export * from "./screen-v2.ts";
 // Daemon-to-helper messages: a module of their own, so clients that never talk to a screen
@@ -29,52 +28,6 @@ import {
   ScreenTarget,
   ScreenAction,
 } from "./screen-base.ts";
-export const ScreenLegacyFrameHeader = z.object({
-  version: z.literal(1),
-  sessionId: ScreenId,
-  sequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-  timestamp: z.number().finite().nonnegative(),
-  width: z.number().int().positive().max(3840),
-  height: z.number().int().positive().max(2160),
-  codec: z.enum(["jpeg", "h264"]),
-  keyframe: z.boolean().optional(),
-  videoCodec: z
-    .string()
-    .regex(/^avc1\.[0-9a-fA-F]{6}$/)
-    .optional(),
-  scale: z.number().finite().positive().optional(),
-  captureGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
-  bytes: z
-    .number()
-    .int()
-    .positive()
-    .max(8 * 1024 * 1024),
-});
-export const ScreenV2FrameHeader = z.object({
-  version: z.literal(2),
-  sessionId: ScreenId,
-  captureGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
-  seq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-  ts: z.number().finite().nonnegative(),
-  width: z.number().int().positive().max(3840),
-  height: z.number().int().positive().max(2160),
-  scale: z.number().finite().positive().max(8),
-  codec: z.enum(["jpeg", "h264"]),
-  keyframe: z.boolean().optional(),
-  videoCodec: z
-    .string()
-    .regex(/^avc1\.[0-9a-fA-F]{6}$/)
-    .optional(),
-  dirtyRects: z.array(ScreenRect).max(64).optional(),
-  bytes: z
-    .number()
-    .int()
-    .positive()
-    .max(8 * 1024 * 1024),
-});
-export const ScreenFrameHeader = z.union([ScreenLegacyFrameHeader, ScreenV2FrameHeader]);
-export type ScreenFrameHeader = z.infer<typeof ScreenFrameHeader>;
-export type ScreenLegacyFrameHeader = z.infer<typeof ScreenLegacyFrameHeader>;
 export const ScreenMode = z.enum(["background", "foreground"]);
 export const ScreenOpenedApp = z.object({
   bundleId: ScreenBundle,
@@ -190,6 +143,19 @@ export const ScreenClientMessage = z.object({
   requestId: ScreenId,
   operation: ScreenOperation,
 });
+/**
+ * A viewer showed a screen session's pictures (stream kind `screenFrame`) up to `sequence` of
+ * capture `streamId`, cumulatively, as `devices.ack` does for a device. No reply.
+ */
+export const ScreenAck = z.object({
+  type: z.literal("screen.ack"),
+  sessionId: ScreenId,
+  streamId: ScreenId,
+  sequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  /** The viewer's decoder lost its place (a decode error): send it a keyframe. */
+  keyframe: z.literal(true).optional(),
+});
+export type ScreenAck = z.infer<typeof ScreenAck>;
 export const ScreenServerMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("screen.enabled"), enabled: z.boolean() }),
   z.object({ type: z.literal("screen.state"), state: ScreenState }),

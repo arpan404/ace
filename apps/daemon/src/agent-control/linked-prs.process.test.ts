@@ -62,19 +62,17 @@ test("agent PR links appear live in thread details, deduplicate and can be remov
     const connection = f.h.contexts.get(f.caller.threadId)?.aceMcp;
     if (!connection) throw new Error("Missing scoped MCP connection");
     expect(
-      (await callMcp(connection, "ace_thread_link_pr", { number: 283 })).result?.structuredContent
-        ?.ok,
+      (await callMcp(connection, "thread_link_pr", { number: 283 })).result?.structuredContent?.ok,
     ).toBe(true);
     expect(
       (
-        await callMcp(connection, "ace_thread_link_pr", {
+        await callMcp(connection, "thread_link_pr", {
           url: "https://github.com/test/project/pull/284",
         })
       ).result?.structuredContent?.ok,
     ).toBe(true);
     expect(
-      (await callMcp(connection, "ace_thread_link_pr", { number: 283 })).result?.structuredContent
-        ?.ok,
+      (await callMcp(connection, "thread_link_pr", { number: 283 })).result?.structuredContent?.ok,
     ).toBe(true);
     const links = listed.parse((await f.call({ op: "thread.list_prs" })).data).linkedPrs;
     expect(links.map((link) => link.number)).toEqual([284, 283]);
@@ -85,8 +83,9 @@ test("agent PR links appear live in thread details, deduplicate and can be remov
     ).toMatchObject({ linkedPrs: links });
     expect(
       (
-        await callMcp(connection, "ace_thread_unlink_pr", {
+        await callMcp(connection, "thread_link_pr", {
           url: "https://github.com/test/project/pull/283",
+          unlink: true,
         })
       ).result?.structuredContent?.ok,
     ).toBe(true);
@@ -96,8 +95,8 @@ test("agent PR links appear live in thread details, deduplicate and can be remov
         .linkedPrs.map((link) => link.number),
     ).toEqual([284]);
     expect(
-      (await callMcp(connection, "ace_thread_unlink_pr", { all: true })).result?.structuredContent
-        ?.ok,
+      (await callMcp(connection, "thread_link_pr", { unlink: true, all: true })).result
+        ?.structuredContent?.ok,
     ).toBe(true);
     expect(listed.parse((await f.call({ op: "thread.list_prs" })).data).linkedPrs).toEqual([]);
     expect(f.daemon.store.getThread(f.caller.threadId)?.details?.linkedPrs).toEqual([]);
@@ -120,13 +119,13 @@ test("MCP PR operations reject thread selection and ambiguous targets without ch
     const child = z.object({ threadId: z.string() }).parse(childResult.data);
     for (const [name, args] of [
       [
-        "ace_thread_link_pr",
+        "thread_link_pr",
         { threadId: child.threadId, url: "https://github.com/test/project/pull/283" },
       ],
-      ["ace_thread_link_pr", { url: "https://github.com/test/project/pull/283", number: 284 }],
-      ["ace_thread_unlink_pr", { threadId: child.threadId, all: true }],
-      ["ace_thread_unlink_pr", { number: 283, all: true }],
-      ["ace_thread_list_prs", { threadId: child.threadId }],
+      ["thread_link_pr", { url: "https://github.com/test/project/pull/283", number: 284 }],
+      ["thread_link_pr", { threadId: child.threadId, unlink: true, all: true }],
+      ["thread_link_pr", { number: 283, unlink: true, all: true }],
+      ["thread_link_pr", { all: true }],
     ] satisfies [string, unknown][]) {
       const result = await callMcp(connection, name, args);
       expect(result.error !== undefined || result.result?.isError === true).toBe(true);

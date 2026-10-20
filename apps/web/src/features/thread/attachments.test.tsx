@@ -1,5 +1,6 @@
-import { facts, fixtureImage, type FakeDaemon } from "@ace/fake-daemon";
-import type { Attachment, ContentPart } from "@ace/protocol";
+import { Client, type ClientApi, type RequestOptions } from "@ace/client";
+import { facts, fakeTransport, fixtureImage, type FakeDaemon } from "@ace/fake-daemon";
+import { DeviceId, type Attachment, type ContentPart, type ContextResult } from "@ace/protocol";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -38,8 +39,9 @@ async function openMessage(
   draft: { parts?: ContentPart[]; attachments?: Attachment[] },
   extra: Parameters<FakeDaemon["apply"]>[1] = [],
   readyText = "What changed here?",
+  client?: (daemon: FakeDaemon) => ClientApi,
 ) {
-  const app = harness();
+  const app = harness(client ? { client } : {});
   app.daemon.createThread({
     id: "thread-shots",
     workspaceId: "shop",
@@ -321,18 +323,21 @@ test("a sent file says how the agent received it, and its tooltip explains", asy
     }),
   ).toBeTruthy();
   await user.hover(log);
-  expect((await screen.findByRole("tooltip")).textContent).toBe(
+  const tooltip = await screen.findByRole("tooltip");
+  expect(tooltip.textContent).toContain("48 KB · Log · inline text, truncated");
+  expect(tooltip.textContent).toContain(
     "The first 16 KB of text went into the message, with a path to the rest",
   );
 });
 
-test("more than four images show three and a +N tile that opens the rest", async () => {
+test("more than four images show a 2×2 grid whose last tile, dimmed, opens the rest", async () => {
   const user = userEvent.setup();
   const { feed } = await openMessage({
     parts: Array.from({ length: 5 }, () => ({ type: "image", mimeType: "image/png", url: dot })),
   });
   const grid = await within(feed).findByRole("list", { name: "5 images" });
-  expect(within(grid).getAllByRole("img")).toHaveLength(3);
+  await waitFor(() => expect(within(grid).getAllByRole("img")).toHaveLength(4));
+  expect(within(grid).getByText("+2")).toBeTruthy();
   await user.click(within(grid).getByRole("button", { name: "Show 2 more images" }));
   const dialog = await screen.findByRole("dialog");
   expect(within(dialog).getByText("4 of 5")).toBeTruthy();
@@ -364,6 +369,43 @@ test("the lightbox steps through the message's images and gives focus back on Es
   await user.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   await waitFor(() => expect(document.activeElement).toBe(thumbnail));
+});
+
+test("opening an image moves focus into the viewer and closing returns it to the thumbnail", async () => {
+  const user = userEvent.setup();
+  const { feed } = await openMessage({ attachments: [home] });
+  const thumbnail = await within(feed).findByRole("button", { name: "home.png" });
+
+  // What Chromium blocks: an ancestor taking aria-hidden while it holds the focused thumbnail.
+  const hiddenWhileFocused: string[] = [];
+  const originalSetAttribute = Element.prototype.setAttribute;
+  Element.prototype.setAttribute = function (name: string, value: string) {
+    if (name === "aria-hidden" && value === "true" && this instanceof HTMLElement) {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && this.contains(active)) {
+        hiddenWhileFocused.push(this.className);
+      }
+    }
+    return originalSetAttribute.call(this, name, value);
+  };
+  try {
+    await user.click(thumbnail);
+    const dialog = await screen.findByRole("dialog", { name: "home.png" });
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    // While open, the focused element must not sit inside an aria-hidden ancestor.
+    let node: HTMLElement | null = document.activeElement as HTMLElement | null;
+    while (node) {
+      expect(node.getAttribute("aria-hidden")).not.toBe("true");
+      node = node.parentElement;
+    }
+    expect(hiddenWhileFocused).toEqual([]);
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(thumbnail));
+  } finally {
+    Element.prototype.setAttribute = originalSetAttribute;
+  }
 });
 
 test("a saved artifact opens its checkout file and downloads the original bytes", async () => {
@@ -413,4 +455,191 @@ test("a saved artifact opens its checkout file and downloads the original bytes"
     (within(panel).getByRole("textbox", { name: "Edit src/index.ts" }) as HTMLTextAreaElement)
       .value,
   ).toContain("// Unsaved note");
+});
+
+/*
+ * The lightbox must show the full-resolution bytes once loaded, not the thumbnail stretched:
+ * a retina screenshot looks blurry otherwise. The fake daemon serves the same bytes for both
+ * variants, so these tests serve variant-dependent bytes at the request boundary instead.
+ */
+
+// Full-resolution bytes the daemon holds for `big`, and its small bounded preview.
+const fullBytes = new Uint8Array(3000).fill(7);
+const thumbBytes = Uint8Array.from(atob(dot.split(",")[1] ?? ""), (char) => char.charCodeAt(0));
+
+const big: Attachment = {
+  sha256: "b".repeat(64),
+  bytes: fullBytes.length,
+  mimeType: "image/png",
+  name: "big.png",
+  width: 2900,
+  height: 1800,
+  thumbnailAvailable: true,
+};
+
+function b64encode(bytes: Uint8Array): string {
+  let binary = "";
+  for (let at = 0; at < bytes.length; at += 0x8000)
+    binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+  return btoa(binary);
+}
+
+/** A real client whose attachment reads serve full bytes for originals, preview bytes else. */
+function variantClient(daemon: FakeDaemon): ClientApi {
+  let ids = 0;
+  const client = new Client({
+    deviceId: DeviceId.parse("test-device"),
+    transport: () => fakeTransport(daemon),
+    credential: async () => daemon.token,
+    storage: { load: async () => null, save: async () => {} },
+    scheduler: {
+      set: (delay, callback) => {
+        const timer = setTimeout(callback, delay);
+        return () => clearTimeout(timer);
+      },
+    },
+    random: () => 0.5,
+    id: () => `variant-${++ids}`,
+  });
+  const fallback = client.request.bind(client);
+  vi.spyOn(client, "request").mockImplementation((input, options?: RequestOptions) => {
+    if (input.type === "context.request" && input.operation.op === "attachment.read") {
+      const op = input.operation;
+      const payload = op.variant === "original" ? fullBytes : thumbBytes;
+      const offset = op.offset ?? 0;
+      const chunk = payload.subarray(offset, offset + (op.limit ?? 65536));
+      return Promise.resolve({
+        type: "context.result",
+        requestId: "read",
+        result: {
+          kind: "attachment.data",
+          sha256: op.sha256,
+          variant: op.variant ?? "thumbnail",
+          mimeType: "image/png",
+          bytes: payload.length,
+          offset,
+          data: b64encode(chunk),
+          eof: offset + chunk.length === payload.length,
+        },
+      } satisfies ContextResult);
+    }
+    return fallback(input, options);
+  });
+  return client;
+}
+
+async function openBig() {
+  return openMessage({ attachments: [big] }, [], "What changed here?", variantClient);
+}
+
+async function openLightbox(feed: HTMLElement) {
+  const user = userEvent.setup();
+  await user.click(await within(feed).findByRole("button", { name: "big.png" }));
+  return { dialog: await screen.findByRole("dialog", { name: "big.png" }), user };
+}
+
+test("the lightbox shows the full-resolution bytes once loaded, not the stretched preview", async () => {
+  const { feed } = await openBig();
+  // The transcript keeps the cheap preview.
+  const tile = await within(feed).findByRole("img", { name: "big.png" });
+  expect(objectUrls.get(tile.getAttribute("src") ?? "")?.size).toBe(thumbBytes.length);
+  const { dialog } = await openLightbox(feed);
+  // The stage swaps to the full bytes once they arrive.
+  await waitFor(() => {
+    const img = within(dialog).getByRole("img", { name: "big.png" });
+    expect(objectUrls.get(img.getAttribute("src") ?? "")?.size).toBe(fullBytes.length);
+  });
+  // Download saves the full image under its own name.
+  const link = within(dialog).getByRole("link", { name: "Download" });
+  expect(link.getAttribute("download")).toBe("big.png");
+  expect(objectUrls.get(link.getAttribute("href") ?? "")?.size).toBe(fullBytes.length);
+});
+
+/** The platform's ClipboardItem, recording what the page hands the clipboard. */
+class ClipboardItemStub {
+  readonly types: string[];
+  private readonly data: Record<string, Blob | Promise<Blob>>;
+  constructor(data: Record<string, Blob | Promise<Blob>>) {
+    this.data = data;
+    this.types = Object.keys(data);
+  }
+  async getType(type: string): Promise<Blob> {
+    const value = this.data[type];
+    if (!value) throw new Error(`missing ${type}`);
+    return value;
+  }
+}
+
+/**
+ * jsdom has no ClipboardItem and its fetch knows no blob: URLs; stub both boundaries. The
+ * clipboard itself comes from user-event's own stub (installed by userEvent.setup()), which
+ * the test reads back through navigator.clipboard.read().
+ */
+async function withBlobFetch(run: () => Promise<void>): Promise<void> {
+  const realFetch = globalThis.fetch;
+  vi.stubGlobal("ClipboardItem", ClipboardItemStub);
+  globalThis.fetch = (async (input: unknown) => {
+    const url = typeof input === "string" ? input : String((input as Request).url ?? input);
+    if (!url.startsWith("blob:")) return realFetch(input as RequestInfo);
+    // Hand back the blob itself: a real fetch(blob:) resolves to the same bytes and type.
+    const blob = objectUrls.get(url);
+    if (!blob) throw new Error("revoked");
+    return { blob: async () => blob };
+  }) as typeof fetch;
+  try {
+    await run();
+  } finally {
+    globalThis.fetch = realFetch;
+    vi.unstubAllGlobals();
+  }
+}
+
+test("copy image writes the full-resolution PNG to the clipboard", async () => {
+  await withBlobFetch(async () => {
+    const { feed } = await openBig();
+    const { dialog, user } = await openLightbox(feed);
+    // The buttons enable once the full image is here.
+    await waitFor(() => {
+      const img = within(dialog).getByRole("img", { name: "big.png" });
+      expect(objectUrls.get(img.getAttribute("src") ?? "")?.size).toBe(fullBytes.length);
+    });
+    await user.click(await within(dialog).findByRole("button", { name: "Copy image" }));
+    const items = await navigator.clipboard.read();
+    expect(items).toHaveLength(1);
+    expect(items[0]?.types).toEqual(["image/png"]);
+    const blob = await items[0]?.getType("image/png");
+    expect(blob?.type).toBe("image/png");
+    expect(blob && new Uint8Array(await blob.arrayBuffer())).toEqual(fullBytes);
+  });
+});
+
+test("a refused copy says what happened instead of failing silently", async () => {
+  await withBlobFetch(async () => {
+    const { feed } = await openBig();
+    const { dialog, user } = await openLightbox(feed);
+    await waitFor(() => {
+      const img = within(dialog).getByRole("img", { name: "big.png" });
+      expect(objectUrls.get(img.getAttribute("src") ?? "")?.size).toBe(fullBytes.length);
+    });
+    vi.spyOn(navigator.clipboard, "write").mockRejectedValueOnce(new Error("denied"));
+    await user.click(await within(dialog).findByRole("button", { name: "Copy image" }));
+    expect(
+      await screen.findByRole("alertdialog", { name: "Couldn't copy the image" }),
+    ).toBeTruthy();
+  });
+});
+
+test("download triggers a save of the full image under its own name", async () => {
+  const clicked: HTMLAnchorElement[] = [];
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    clicked.push(this);
+  });
+  const { feed } = await openBig();
+  const { dialog } = await openLightbox(feed);
+  within(dialog).getByRole("link", { name: "Download" }).click();
+  expect(clicked).toHaveLength(1);
+  expect(clicked[0]?.getAttribute("download")).toBe("big.png");
+  expect(objectUrls.get(clicked[0]?.getAttribute("href") ?? "")?.size).toBe(fullBytes.length);
 });

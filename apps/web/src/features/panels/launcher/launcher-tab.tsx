@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import {
+  launchRequest,
   useWorkspaceActions,
   useWorkspaceStore,
   type OpenRequest,
@@ -11,7 +12,7 @@ import { PageNav, PageToolbar } from "../browser/page-toolbar.tsx";
 import { usePanelServices } from "../services.ts";
 import { WithServices } from "../with-services.tsx";
 import { Suggested } from "./suggested.tsx";
-import { ToolGrid } from "./tool-grid.tsx";
+import { newTabId, ToolGrid } from "./tool-grid.tsx";
 import { useSuggested, type SuggestedSite } from "./use-suggested.ts";
 
 /** The Suggested row, once the panel services (the thread's dev servers) have loaded. */
@@ -85,7 +86,7 @@ export function LauncherTab(props: TabViewProps) {
             tools={tools}
             definition={definition}
             actions={actions}
-            onPick={(kind) => openHere({ kind: kind.kind })}
+            onPick={(kind) => openHere(launchRequest(kind, newTabId))}
           />
           <WithServices quiet>
             <SuggestedSites scope={props.scope} openHere={openHere} openAddress={openAddress} />

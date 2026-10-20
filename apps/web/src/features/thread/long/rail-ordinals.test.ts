@@ -20,6 +20,13 @@ describe("conversation rail overview", () => {
     expect(ordinals[0]).toBe(1);
     expect(ordinals.at(-1)).toBe(10_000);
   });
+  it("keeps every turn on screen, even between the evenly spread ticks", () => {
+    const ordinals = railOrdinals(10_000, 5_001, 40, 5_004);
+    expect(ordinals.length).toBeLessThanOrEqual(40);
+    for (const ordinal of [5_001, 5_002, 5_003, 5_004]) expect(ordinals).toContain(ordinal);
+    expect(ordinals[0]).toBe(1);
+    expect(ordinals.at(-1)).toBe(10_000);
+  });
   it("keeps every small-thread turn and clamps stale reading positions after a thread switch", () => {
     expect(railOrdinals(4, 20)).toEqual([1, 2, 3, 4]);
     expect(railOrdinals(4, -2)).toEqual([1, 2, 3, 4]);

@@ -6,12 +6,11 @@ import { backendFixture } from "@ace/browser/testing";
 import { BrowserClient } from "../browser-test-client.ts";
 import { sendBrowserMessage } from "./browser-transport.ts";
 
-it.each(["takeover", "rejected handback"])(
-  "a pressured %s reply fails its exact pending request by disconnecting the live app",
-  async (operation) => {
+it.each([true, false])(
+  "a pressured privacy reply (private: %s) fails its exact pending request by disconnecting the live app",
+  async (value) => {
     const f = await backendFixture();
     await f.open();
-    if (operation === "rejected handback") f.service.takeover("thread", "another-owner");
     const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
     onTestFinished(() => new Promise<void>((resolve) => server.close(() => resolve())));
     await once(server, "listening");
@@ -43,16 +42,16 @@ it.each(["takeover", "rejected handback"])(
     const closed = once(client.socket, "close");
     await expect(
       client.request({
-        type: operation === "takeover" ? "browser.takeover" : "browser.handback",
+        type: "browser.tabs.private",
         requestId: "pressured-operation",
         threadId: "thread",
+        tabId: "page",
+        private: value,
       }),
     ).rejects.toThrow("Browser socket closed");
     expect((await closed)[0]).toBe(1006);
     buffered = 0;
     expect(client.socket.readyState).toBe(WebSocket.CLOSED);
-    if (operation === "rejected handback")
-      expect(f.service.state("thread").owner).toBe("another-owner");
     // The sibling thread can still perform work after the app connection fails.
     await f.open("sibling");
     await f.service.execute("sibling", { action: "press", key: "Enter" });

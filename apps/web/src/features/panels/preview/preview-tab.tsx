@@ -10,7 +10,7 @@ import { usePanelServices } from "../services.ts";
 import type { PreviewServer, PreviewSource, PreviewSuggestion } from "../sources.ts";
 import { AddressBar } from "../browser/address-bar.tsx";
 import { setLoading } from "../browser/loading.ts";
-import { PageNav, PageToolbar, toolbarButton } from "../browser/page-toolbar.tsx";
+import { PageNav, PageToolbar, ToolPill, toolbarButton } from "../browser/page-toolbar.tsx";
 import type { FramePhase } from "./dev-server-frame.tsx";
 import { portLabel, portTab } from "./port.ts";
 import { forwardFailure } from "./preview-errors.ts";
@@ -293,28 +293,32 @@ function DevServer(props: {
                 className="h-7 w-32"
               />
             )}
-            {server.source === "listener" && (
+            <ToolPill>
+              {server.source === "listener" && (
+                <IconButton
+                  icon={StopIcon}
+                  label="Stop previewing"
+                  className={toolbarButton}
+                  onClick={() =>
+                    void props.source
+                      .unforward(props.threadId, server.port)
+                      .catch((error: unknown) =>
+                        toast.error({
+                          title: "Couldn’t stop previewing",
+                          description: error instanceof Error ? error.message : String(error),
+                        }),
+                      )
+                  }
+                />
+              )}
               <IconButton
-                icon={StopIcon}
-                label="Stop previewing"
+                icon={BrowsersIcon}
+                label="Open in its own tab"
                 className={toolbarButton}
-                onClick={() =>
-                  void props.source.unforward(props.threadId, server.port).catch((error: unknown) =>
-                    toast.error({
-                      title: "Couldn’t stop previewing",
-                      description: error instanceof Error ? error.message : String(error),
-                    }),
-                  )
-                }
+                onClick={() => workspace.open(portTab(server))}
               />
-            )}
-            <IconButton
-              icon={BrowsersIcon}
-              label="Open in its own tab"
-              className={toolbarButton}
-              onClick={() => workspace.open(portTab(server))}
-            />
-            <OpenPreviewOutside source={props.source} threadId={props.threadId} server={server} />
+              <OpenPreviewOutside source={props.source} threadId={props.threadId} server={server} />
+            </ToolPill>
           </>
         }
         progress={loading ? `Loading ${url}` : undefined}

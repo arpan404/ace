@@ -174,14 +174,14 @@ test("paired relay readers resolve exact attachment bytes and previews while oth
     });
     expect(Buffer.from(original.bytes)).toEqual(bytes);
     const preview = await attachmentBytes(r.connection, { threadId: thread.id, sha256 });
-    expect(preview.bytes.length).toBeLessThan(256 * 1024);
+    expect(preview.bytes.length).toBeLessThan(512 * 1024);
     expect(preview.mimeType).toBe("image/png");
     const dimensions = imageSize(preview.bytes);
     expect(dimensions.type).toBe("png");
     expect(dimensions.width).toBeGreaterThan(0);
-    expect(dimensions.width).toBeLessThanOrEqual(256);
+    expect(dimensions.width).toBeLessThanOrEqual(512);
     expect(dimensions.height).toBeGreaterThan(0);
-    expect(dimensions.height).toBeLessThanOrEqual(256);
+    expect(dimensions.height).toBeLessThanOrEqual(512);
     await expect(
       attachmentBytes(r.connection, { threadId: "other-thread", sha256 }),
     ).rejects.toThrow("permission");

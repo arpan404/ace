@@ -33,31 +33,34 @@ test("a viewer keeps DPR-sized capture after reconnect without taking control or
   const source = daemonPreview(client);
   const stop = source.watch("thread");
   const view = render(<Viewer source={source} />);
+  // The pane's size reaches the daemon with the subscribe, or right after it if the subscribe
+  // went out before the pane measured itself.
+  const reported = expect.objectContaining({ width: 900, height: 600, devicePixelRatio: 2 });
   await waitFor(() =>
     expect(
-      requests.filter(
-        (request) =>
+      requests.some((request) => {
+        const shape = expect.objectContaining({ threadId: "thread", viewport: reported });
+        return (
           typeof request === "object" &&
           request !== null &&
           "type" in request &&
-          request.type === "browser.capture",
-      ),
-    ).toEqual([
-      {
-        type: "browser.capture",
-        threadId: "thread",
-        viewport: { width: 900, height: 600, devicePixelRatio: 2 },
-      },
-    ]),
+          (request.type === "browser.capture" || request.type === "browser.subscribe") &&
+          shape.asymmetricMatch(request)
+        );
+      }),
+    ).toBe(true),
   );
   requests.length = 0;
   daemon.disconnectAll();
+  // The subscribe after the reconnect carries the pane, so the first frame is already sized.
   await waitFor(() =>
-    expect(requests).toContainEqual({
-      type: "browser.capture",
-      threadId: "thread",
-      viewport: { width: 900, height: 600, devicePixelRatio: 2 },
-    }),
+    expect(requests).toContainEqual(
+      expect.objectContaining({
+        type: "browser.subscribe",
+        threadId: "thread",
+        viewport: expect.objectContaining({ width: 900, height: 600, devicePixelRatio: 2 }),
+      }),
+    ),
   );
   expect(
     requests.some(

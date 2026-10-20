@@ -1,12 +1,21 @@
 # 0055: Embedded browser and daemon headless fallback
 
-Date: 2026-10-02. Status: proposed. Amends ADR 0009.
+Date: 2026-10-02. Status: accepted, amended by ADR 0083. Amends ADR 0009.
+
+Amended 2026-10-17 by [ADR 0083](0083-browser-v2-daemon-chrome.md): the desktop's embedded view stays the primary renderer. The daemon's fallback is its own Chrome for Testing over a pipe, without Playwright, instead of a Chromium per thread. Tabs follow ADR 0083's multi-tab model on both backends. The Chromium acquisition section below still applies.
+
+Amended 2026-10-17 by [ADR 0085](0085-desktop-native-view-lifecycle.md): the embedded backend
+stays as the in-app renderer. A lost link keeps the views for re-adoption (`adopted: true` in
+the open result), a timed-out command fails alone unless an `ace.ping` also fails, and
+`ace.tabs.*` carries several native tabs per thread.
 
 Superseded 2026-10-14: ace's MCP tools are always allowed; permissions are provider-native (owner decision). Evaluation and origin approval mentioned below are removed; scheme checks and request interception for non-http(s) URLs remain.
 
 The background backend default, tabs, files and private-control behavior is amended by
 [ADR 0067](0067-browser-parity.md). Agent backend choice, unseen-view rendering, profiles and
-thread deletion are amended by [ADR 0069](0069-shared-native-browser.md).
+thread deletion are amended by [ADR 0069](0069-shared-native-browser.md). Annotate mode, an
+isolated-world overlay the relay carries unchanged, is added by
+[ADR 0082](0082-browser-annotation.md).
 
 ## Decision
 
@@ -40,7 +49,8 @@ host-token hello and the credential's device id, then sends:
 
 - `browser.backend.register`: `requestId`, `credential`, `version: 1`, and
   `capabilities`. All version-1 capabilities are required: `cdp`, `targets`,
-  `permissions`, `downloads`, `controllerLease`.
+  `permissions`, `downloads`, `humanInput` (amended 2026-10-17: was `controllerLease`; see
+  ADR 0067, Collaboration).
 - `browser.backend.registered`: matching `requestId`, `backendId`, `connectionId`.
 
 The second credential is desktop-scoped, checked against the authenticated
@@ -53,7 +63,7 @@ Daemon sends `browser.backend.request` with `backendId`, unique `id`,
 `sessionId`, and `operation`. Desktop responds `browser.backend.response` with
 the same identifiers and either `result` or `error`. Supported operations:
 
-- `open`: thread/workspace/profile, viewport, and a daemon controller lease.
+- `open`: thread/workspace/profile and viewport.
   Create an ace-only WebContentsView partition. Persistent partitions belong
   exclusively to the workspace; ephemeral partitions are removed on close.
   Return `{url}`. Install deny-all permission handlers and deny downloads,
@@ -71,12 +81,10 @@ the same identifiers and either `result` or `error`. Supported operations:
   recovery use this URL.
 - `press`: Playwright-compatible keyboard key/chord string.
 - `resize`: width/height. Resize the actual view and CDP viewport.
-- `controller`: monotonically increasing `generation`, controller and optional
-  human connection owner. Return after applying the lease. Native view input
-  is enabled only when `controller` is `human` and `owner` equals the registered
-  `connectionId`; another device's human lease keeps native input disabled.
-  Native take-control uses the existing
-  browser.takeover connection; local pointer input follows that lease.
+- `agentUse`: `active`, whether an agent uses the shown view (amended 2026-10-17;
+  replaces the controller lease). The person's native input always reaches the
+  view; the desktop reports it as the event `ace.humanInput` (`{tabId?}`, at most
+  every 250 ms) so agent input in that tab waits for the person (ADR 0067).
 - `close`: destroy the view, detach CDP, remove ephemeral partition data.
 
 Screenshots, accessibility, ref actions, evaluation, mouse/text/touch input,

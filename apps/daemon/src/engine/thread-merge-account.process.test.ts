@@ -55,7 +55,9 @@ test("cross-account switching migrates the native session and ancestors before f
     env: {},
     safety: {
       acquire: async () =>
-        h.sessions.some((session) => !session.closed) ? undefined : { release: async () => {} },
+        h.sessions.some((session) => !session.closed)
+          ? { status: "busy", reason: "Session is open" }
+          : { status: "held", release: async () => {} },
     },
   });
   const id = await h.create();

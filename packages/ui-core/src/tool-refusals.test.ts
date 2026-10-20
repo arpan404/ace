@@ -12,14 +12,14 @@ const refusal = (id: string, text = 'Allowed claude modes: "plan".'): Item =>
     code: "delegation_denied",
     title: "Child permissions exceed the parent permission ceiling",
     text,
-    raw: [{ type: "ace.agent_control.failed", data: { operation: "delegate_task" } }],
+    raw: [{ type: "ace.agent_control.failed", data: { operation: "delegate" } }],
   }) as Item;
 const call = (id: string): Item =>
   ({
     ...base,
     id,
     type: "tool_call",
-    call: { kind: "mcp", title: "delegate_task", status: "failed", detail: {}, raw: [] },
+    call: { kind: "mcp", title: "delegate", status: "failed", detail: {}, raw: [] },
   }) as unknown as Item;
 const answer = (id: string): Item =>
   ({ ...base, id, type: "message", role: "assistant", parts: [] }) as unknown as Item;

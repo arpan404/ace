@@ -2,6 +2,26 @@
   "$id": "https://ace.local/protocol/v1/BrowserCaptureViewport.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "audio": {
+      "type": "boolean"
+    },
+    "cursor": {
+      "properties": {
+        "fill": {
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "outline": {
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "fill",
+        "outline"
+      ],
+      "type": "object"
+    },
     "devicePixelRatio": {
       "maximum": 4,
       "minimum": 1,

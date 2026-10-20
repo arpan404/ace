@@ -2,16 +2,18 @@ import { nextFrame } from "./lib/next-frame.ts";
 import type { ClientApi } from "@ace/client";
 import type { MachinePool } from "@ace/client-worker/machines";
 import { frameBatch } from "@ace/client-react";
-import { StrictMode, type ReactNode } from "react";
+import { StrictMode, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { App, AppFrame } from "./app.tsx";
-import { ConnectionGate } from "./app/connection-gate.tsx";
+import { App, AppFrame, createQueryClient } from "./app.tsx";
+import { scheduleMathWarmup } from "./components/markdown/math-warm.ts";
+import { ConnectionGate, type GateConnection } from "./app/connection-gate.tsx";
 import { defaultDaemonUrl, forgetToken, type DaemonTarget } from "./boot/connection-settings.ts";
 import { pairingLinkFromUrl } from "./boot/fragment-handoff.ts";
 import { DaemonConnectionContext } from "./boot/connection.tsx";
 import { createDaemonClient, forgetDaemonIdentity } from "./boot/daemon.ts";
-import { useRemoteAgentBroker } from "./boot/remote-agent-broker.ts";
 import { useBrowserMachinePool } from "./boot/machine-pool-boot.ts";
+import { useKeptQueries } from "./boot/kept-queries.ts";
+import { KeptTurnStepsConnection } from "./boot/kept-turn-steps.ts";
 import {
   desktopConnection,
   desktopDaemon,
@@ -58,21 +60,30 @@ const batch = frameBatch(nextFrame);
 const app = (client: ClientApi, machines?: MachinePool) => (
   <App client={client} storage={local} batch={batch} machines={machines} />
 );
-/** A real daemon's app, with the machine pool this browser has stored for its connection. */
-function DaemonApp(props: { client: ClientApi }) {
+/**
+ * A real daemon's app, with the machine pool this browser has stored for its connection and its
+ * lookups kept between sessions.
+ */
+function DaemonApp(props: { client: ClientApi; connection: GateConnection }) {
   const { pool, ensure } = useBrowserMachinePool(local, session);
-  useRemoteAgentBroker(props.client, pool);
+  const [queryClient] = useState(createQueryClient);
+  useKeptQueries(queryClient, props.client, props.connection);
   return (
-    <App
-      client={props.client}
-      storage={local}
-      batch={batch}
-      machines={pool}
-      ensureMachines={ensure}
-    />
+    <KeptTurnStepsConnection.Provider value={props.connection}>
+      <App
+        client={props.client}
+        queryClient={queryClient}
+        storage={local}
+        batch={batch}
+        machines={pool}
+        ensureMachines={ensure}
+      />
+    </KeptTurnStepsConnection.Provider>
   );
 }
-const daemonApp = (client: ClientApi) => <DaemonApp client={client} />;
+const daemonApp = (client: ClientApi, connection: GateConnection) => (
+  <DaemonApp client={client} connection={connection} />
+);
 const forgetFragment = () => history.replaceState(null, "", location.pathname + location.search);
 
 const pairingLink = pairingLinkFromUrl(new URL(location.href));
@@ -185,6 +196,7 @@ async function start(root: Root) {
           ? () => {
               manual = true;
               render(gate({ desktop: true }));
+              scheduleMathWarmup();
             }
           : undefined
       }
@@ -193,6 +205,9 @@ async function start(root: Root) {
   try {
     const shown = await content();
     if (!manual) render(shown);
+    // The shell has rendered: warm KaTeX at idle so the first formula shows
+    // with no chunk wait. Idle-gated, once per session, never mobile/metered.
+    scheduleMathWarmup();
   } catch (error) {
     console.error("ace couldn't start", error);
     render(<BootFailure error={error} onConnectionSettings={connectionSettings} />);

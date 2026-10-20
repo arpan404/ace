@@ -56,7 +56,7 @@ The repo owner's current rule permits only static checks before merge. Behavior 
 
 The original mutation runner describes 16 cases, the review runner describes 28 cases, and `packages/context/bench/verify-mutations.ts` describes 19 verifier-round cases. They require behavior assertions rather than compilation errors or timeouts. Their execution is reserved for the merge-time owner.
 
-The context benchmark creates a real 50,000-file Git repository and measures indexing, completion, incremental updates, autonomous recovery, mentions, upload throughput, projection and GC, plus peak RSS. The daemon benchmark measures the real loopback WebSocket; both stream a 16 MiB payload as 64 KiB chunks. `packages/context/bench/delivery.ts` measures native delivery and lease lifetime for 64 references. These are non-gating and need run at merge; no new benchmark is run under the current policy.
+The context benchmark creates a real 50,000-file Git repository and measures indexing, completion, incremental updates, autonomous recovery, mentions, upload throughput, projection and GC, plus peak RSS. The daemon benchmark measures the real loopback WebSocket; both stream a 16 MiB payload as 64 KiB chunks. `packages/context/bench/delivery.ts` measures native delivery and lease lifetime for 64 references. These are non-gating and need run at merge; no new benchmark is run under the current policy. `bun run bench:resources` counts Git launches for batched watcher hints and ignored-output churn, idle-expiry CPU and retained heap for four 80,000-file indexes, using temporary repositories only.
 
 ## Reading images
 

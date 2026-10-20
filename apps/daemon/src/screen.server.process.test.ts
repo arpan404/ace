@@ -1,8 +1,14 @@
 import { once } from "node:events";
 import { WebSocket } from "ws";
 import { afterEach, expect, it } from "vitest";
-import { ScreenFrameHeader, ScreenState, ServerMessage } from "@ace/protocol";
-import { FrameDecoder, ScreenManager, type Frame } from "@ace/screen";
+import { ScreenState, ServerMessage } from "@ace/protocol";
+import { ScreenManager } from "@ace/screen";
+import {
+  decodeStreamMessage,
+  isStreamPiece,
+  StreamAssembler,
+  type StreamMessage,
+} from "@ace/browser/stream";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -11,7 +17,7 @@ const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
 });
-it("authenticated devices receive visible screen state and binary frames and disconnect relinquishes control", async () => {
+it("authenticated devices receive visible screen state and stream pictures and disconnect relinquishes control", async () => {
   const directory = await mkdtemp(join(tmpdir(), "daemon-screen-"));
   let id = 0;
   const screen = new ScreenManager({
@@ -32,21 +38,26 @@ it("authenticated devices receive visible screen state and binary frames and dis
   const socket = new WebSocket(f.server.url);
   await once(socket, "open");
   const messages: ServerMessage[] = [];
-  const frames: Frame[] = [];
+  type Picture = Extract<StreamMessage, { kind: "screen.frame" }>;
+  const frames: Picture[] = [];
   const waiting = new Map<string, (message: ServerMessage) => void>();
-  let frameResolve: (value: Frame) => void = ignore;
-  const frameReady = new Promise<Frame>((resolve) => {
+  let frameResolve: (value: Picture) => void = ignore;
+  const frameReady = new Promise<Picture>((resolve) => {
     frameResolve = resolve;
   });
+  const assembler = new StreamAssembler();
+  let foreign = 0;
   socket.on("message", (data, binary) => {
     if (binary) {
-      const decoder = new FrameDecoder((frame) => {
-        frames.push(frame);
-        frameResolve(frame);
-      });
       if (!Buffer.isBuffer(data)) throw new Error("Expected binary Buffer");
-      decoder.push(data);
-      decoder.end();
+      // Every binary message is a stream piece: nothing else reaches a viewer.
+      if (!isStreamPiece(data)) return void foreign++;
+      const envelope = assembler.push(data);
+      const message = envelope && decodeStreamMessage(envelope);
+      if (message?.kind === "screen.frame") {
+        frames.push(message);
+        frameResolve(message);
+      }
     } else {
       const message = ServerMessage.parse(JSON.parse(data.toString()));
       messages.push(message);
@@ -80,8 +91,18 @@ it("authenticated devices receive visible screen state and binary frames and dis
       action: { kind: "type", text: "hello" },
     }),
   ).toMatchObject({ ok: true });
-  expect(ScreenFrameHeader.parse((await frameReady).header).sessionId).toBe(state.sessionId);
-  expect(frames[0]?.payload.toString()).toBe("jpeg-0");
+  expect((await frameReady).sourceId).toBe(state.sessionId);
+  expect(Buffer.from(frames[0]?.frame.bytes ?? []).toString()).toBe("jpeg-0");
+  expect(foreign).toBe(0);
+  // The viewer's ack is taken without a reply.
+  socket.send(
+    JSON.stringify({
+      type: "screen.ack",
+      sessionId: state.sessionId,
+      streamId: frames[0]?.frame.streamId,
+      sequence: frames[0]?.frame.sequence,
+    }),
+  );
   expect(
     messages.some(
       (message) =>

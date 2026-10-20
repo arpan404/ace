@@ -6,7 +6,7 @@ import { beforeEach, expect, test } from "vitest";
 import * as z from "zod/mini";
 import { memoryStorage } from "@/boot/client.ts";
 import { harness } from "@/test/harness.tsx";
-import { openWorkPanel } from "@/test/open-work.ts";
+import { openDoneAgents, openWorkPanel } from "@/test/open-work.ts";
 
 beforeEach(() => localStorage.clear());
 const cases = [
@@ -36,7 +36,9 @@ async function open(app: ReturnType<typeof harness>, target: (typeof cases)[numb
 }
 async function expectStopped(work: HTMLElement, target: (typeof cases)[number]) {
   if (target.target === "agent")
-    await within(work).findByRole("treeitem", { name: "resume-sweep: Interrupted" });
+    await within(await openDoneAgents(work)).findByRole("treeitem", {
+      name: "resume-sweep: Interrupted",
+    });
   else
     await waitFor(() =>
       expect(within(work).queryByRole("listitem", { name: target.row })).toBeNull(),

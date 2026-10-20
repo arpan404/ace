@@ -27,6 +27,7 @@ import type {
 import type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 import type { Intent } from "./intents.ts";
 import type { OneWayMessage } from "./one-way.ts";
+import type { StreamMessage } from "@ace/browser/stream";
 import type { ServiceRequest, ServiceResponse } from "./service-requests.ts";
 import type { ChangeTap, Selection } from "./observable.ts";
 import type { SidebarKey, SidebarReader, ThreadKey, ThreadReader } from "./readers.ts";
@@ -101,6 +102,13 @@ export interface ClientApi {
   reconnectNow(): void;
   thread(id: string): Lease<ThreadSource>;
   threads(): Lease<SidebarSource>;
+  /**
+   * The store `thread(id)` would lease, if one is cached, without taking a lease: a view paints
+   * it on its first render, before the lease reconciles it. It may be behind (`syncing`).
+   */
+  cachedThread?(id: string): ThreadSource | undefined;
+  /** Likewise for `threads()`. */
+  cachedThreads?(): SidebarSource | undefined;
   threadsWindow(input: {
     project?: string | undefined;
     archived?: boolean | undefined;
@@ -122,6 +130,11 @@ export interface ClientApi {
   ): Promise<ServiceResponse<Q>>;
   /** Uncorrelated service messages (such as `settings.changed`); call the result to stop. */
   onMessage(listener: (message: ServerMessage) => void): () => void;
+  /**
+   * Binary stream messages (a browser frame's JPEG as bytes); call the result to stop. Absent
+   * where the client can't receive them, so a viewer asks for frames as JSON instead.
+   */
+  onStream?(listener: (message: StreamMessage) => void): () => void;
   /**
    * One-way service controls (a browser frame ACK, a terminal credit). Never queued or replayed:
    * throws `offline` unless connected and `protocol` for a message that isn't one-way.
@@ -151,7 +164,11 @@ export interface ClientApi {
     payload: { threadId: string; before?: number | undefined; limit: number },
     options?: RequestOptions,
   ): Promise<ItemsPage>;
-  /** Fetch the page before a leased thread's window and merge it into that thread's store. */
+  /**
+   * Fetch the page before a leased thread's window and merge it into that thread's store. Pages
+   * only fill the window's free capacity and never evict live items; a full window reads deeper
+   * history through `itemsWindow` instead (ADR 0062).
+   */
   loadOlder(threadId: string, limit: number, options?: RequestOptions): Promise<void>;
   outputRead(
     payload: { streamId: string; offset: number; limit: number },
@@ -177,12 +194,15 @@ export interface ConnectionControl {
 /** Everything a thread store holds, for copying it to another realm in one message. */
 export interface ThreadExport {
   syncing?: boolean;
+  unconfirmed?: boolean;
   error: { code: ClientError["code"]; message: string } | undefined;
-  view: Omit<ThreadView, "itemSeqs" | "kind"> | undefined;
+  view: Omit<ThreadView, "kind"> | undefined;
   truncated: string[];
   deleted?: string[];
 }
 export interface SidebarExport {
+  syncing?: boolean;
+  unconfirmed?: boolean;
   loaded?: boolean | undefined;
   homeWindow?: import("@ace/protocol").ThreadListWindow | undefined;
   error: { code: ClientError["code"]; message: string } | undefined;

@@ -17,8 +17,13 @@
       "enum": [
         "git",
         "xcode",
-        "android"
+        "android",
+        "serve-sim"
       ],
+      "type": "string"
+    },
+    "version": {
+      "maxLength": 64,
       "type": "string"
     }
   },

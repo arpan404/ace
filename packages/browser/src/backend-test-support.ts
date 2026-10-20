@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import { afterEach } from "vitest";
 import { installOriginGuard } from "./origin-guard.ts";
-import { BrowserBackendServerMessage, type BrowserControllerLease } from "@ace/protocol";
+import { BrowserBackendServerMessage } from "@ace/protocol";
 import {
   BrowserService,
   type BrowserServiceOptions,
@@ -23,7 +23,8 @@ export class FakePage {
   url = "about:blank";
   text = "";
   effects: string[] = [];
-  lease: BrowserControllerLease = { generation: 0, controller: "agent" };
+  /** Whether the backend was told an agent uses the page. */
+  agent = false;
   events = new EventEmitter();
   readonly cdp = {
     send: (method: string, params?: Record<string, unknown>) =>
@@ -57,6 +58,17 @@ export class FakePage {
       if (expression.includes("this.scrollIntoView")) this.effects.push("scroll");
       if (expression.includes("this.focus()")) this.effects.push("focus");
       if (expression.includes("this.select()")) this.effects.push("selection");
+      if (expression.includes("elementFromPoint"))
+        return {
+          result: { value: { x: 0, y: 0, width: 100, height: 100, point: { x: 50, y: 50 } } },
+        };
+      // An agent typing beside the person: its text goes after the field's.
+      if (expression.includes("execCommand('insertText'")) {
+        const args = z.array(z.object({ value: z.string() })).parse(params?.["arguments"]);
+        const kept = this.text.length > 0;
+        this.text += args[0]?.value ?? "";
+        return { result: { value: { kept } } };
+      }
       return { result: { value: { x: 0, y: 0, width: 100, height: 100 } } };
     }
     if (method === "Runtime.evaluate") return { result: { value: "1" } };
@@ -97,8 +109,8 @@ export class FakeHeadless implements BrowserBackend {
       },
       viewport: () => viewport,
       media: async () => {},
-      controller: async (lease: BrowserControllerLease) => {
-        page.lease = lease;
+      agentUse: async (_tabId: string, active: boolean) => {
+        page.agent = active;
       },
       close: async () => {},
     };
@@ -173,7 +185,13 @@ export async function backendFixture(
 ) {
   const home = await mkdtemp(join(tmpdir(), "ace-backend-"));
   const headless = new FakeHeadless();
-  const service = new BrowserService({ dataDir: home, headlessBackend: headless, ...options });
+  // These desktops never re-adopt a view: a dropped link reports its loss at once.
+  const service = new BrowserService({
+    dataDir: home,
+    headlessBackend: headless,
+    desktopReadoptionGraceMs: 0,
+    ...options,
+  });
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0, maxPayload: 1024 * 1024 });
   await once(server, "listening");
   const address = server.address();
@@ -198,7 +216,6 @@ export async function backendFixture(
   const requests = new EventEmitter();
   let hold: string | undefined;
   let redirectUrl: string | undefined;
-  let controllerError: string | undefined;
   let openError: string | undefined;
   const sendEvent = (sessionId: string, method: string, params: unknown) =>
     desktop.send(
@@ -280,7 +297,7 @@ export async function backendFixture(
           });
       }
     }
-    if (op.kind === "controller" && !controllerError) page.lease = op.lease;
+    if (op.kind === "agentUse") page.agent = op.active;
     if (op.kind === "navigate") {
       page.url = redirectUrl ?? op.url;
       result = { url: page.url };
@@ -293,7 +310,7 @@ export async function backendFixture(
         backendId: backend.id,
         sessionId: message.sessionId,
         id: message.id,
-        ...(op.kind === "controller" && controllerError ? { error: controllerError } : { result }),
+        result,
       }),
     );
   });
@@ -318,9 +335,6 @@ export async function backendFixture(
     },
     failOpen(reason: string) {
       openError = reason;
-    },
-    failController(reason: string) {
-      controllerError = reason;
     },
     pressure() {
       pressured = true;

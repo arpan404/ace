@@ -4,10 +4,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { discoverPi } from "./pi.ts";
-import { piVersionSupported } from "./pi-version.ts";
+import { admitsVersion } from "../cli-requirements.ts";
 import type { DiscoveryOptions } from "./index.ts";
 import type { DiscoveryResult } from "./types.ts";
 import { probeOutput } from "../process.ts";
+import { piCredentialProviders } from "./pi-sdk.ts";
 
 /** Only non-secret settings select the native readiness check. Never open Pi's auth files. */
 export async function discoverPiStatus(
@@ -43,12 +44,29 @@ export async function discoverPiStatus(
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
       return { ...result, error: "Pi settings or readiness probe unavailable" };
   }
-  if (!piVersionSupported(result.version))
+  // Too old is reported through `versionCheck`; only an unreadable version is an error here.
+  if (result.versionCheck?.status === "too_old") return result;
+  if (!admitsVersion("pi", result.version))
     return { ...result, error: "Pi auth status is unsupported for this version" };
-  const providers = [
-    ...new Set([...(provider ? [provider] : []), "openai-codex", "anthropic", "github-copilot"]),
-  ];
   const executable = result.path;
+  // Every provider Pi saved a credential for, so a sign-in to any of them (xAI, OpenRouter, ...)
+  // reads as signed in, not only the default and the common subscriptions.
+  const saved = await piCredentialProviders(executable, {
+    version: result.version,
+    env,
+    timeoutMs: options.timeoutMs,
+    signal: options.signal,
+    probe: options.probe,
+  });
+  const providers = [
+    ...new Set([
+      ...(provider ? [provider] : []),
+      ...(saved ?? []),
+      "openai-codex",
+      "anthropic",
+      "github-copilot",
+    ]),
+  ].slice(0, 32);
   const statuses = await Promise.all(
     providers.map(async (upstream) => {
       try {

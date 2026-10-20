@@ -1,25 +1,28 @@
-import type { BrowserState, BrowserOriginBlock } from "@ace/protocol";
-import type { SessionOwnership } from "./session-ownership.ts";
+import type { BrowserState, BrowserOriginBlock, BrowserTab, BrowserTabActor } from "@ace/protocol";
 import type { SessionOptions } from "./session-options.ts";
 
-/** Project ownership and lifecycle facts without changing control. */
+/**
+ * The thread browser's state as clients read it. Who uses which tab (an agent's mark, a
+ * private tab) is carried per tab; nobody holds the browser as a whole.
+ */
 export function browserState(
   options: SessionOptions,
-  ownership: SessionOwnership,
   lifecycle: {
+    tabs?: BrowserTab[] | undefined;
+    activeTabId?: string | undefined;
     paused: boolean;
     closed: boolean;
     reason?: string | undefined;
     pageStateLost: boolean;
     lastUrl?: string | undefined;
     blocked?: BrowserOriginBlock | undefined;
+    annotation?: string | undefined;
+    recording?: BrowserTabActor | undefined;
   },
 ): BrowserState {
   const tabs = options.backend.tabs;
   return {
     threadId: options.threadId,
-    controller: lifecycle.paused ? "none" : ownership.controller,
-    ...(ownership.owner ? { owner: ownership.owner } : {}),
     url: (lifecycle.lastUrl ?? options.backend.url()).slice(0, 8192),
     backend: options.backendKind,
     ...options.backend.pageStatus?.(),
@@ -28,12 +31,19 @@ export function browserState(
     ...(lifecycle.pageStateLost ? { pageStateLost: true } : {}),
     ...(lifecycle.blocked ? { blocked: lifecycle.blocked } : {}),
     closed: lifecycle.closed,
-    takeoverMode: ownership.mode,
+    features: [
+      "annotate",
+      "tabs",
+      "collaborate",
+      ...(options.cursor?.visible ? ["page-cursor"] : []),
+    ],
+    ...(lifecycle.annotation ? { annotation: { owner: lifecycle.annotation } } : {}),
+    ...(lifecycle.recording ? { recording: { by: lifecycle.recording } } : {}),
     ...(tabs
       ? {
-          activeTabId: tabs.active(),
-          tabs: tabs.list(),
-          downloads: tabs.downloads(),
+          ...(lifecycle.activeTabId ? { activeTabId: lifecycle.activeTabId } : {}),
+          tabs: lifecycle.tabs ?? tabs.list(),
+          ...(tabs.downloads ? { downloads: tabs.downloads() } : {}),
           pending_dialog: tabs.dialog(),
         }
       : {}),

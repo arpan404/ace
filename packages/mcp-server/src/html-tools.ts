@@ -2,6 +2,7 @@ import { z } from "zod";
 import { HtmlRenderInput, ItemId, type McpAttribution } from "@ace/protocol";
 import { validateHtml } from "@ace/html";
 import { PublicToolError } from "./public-error.ts";
+import { maxHtmlInputBytes } from "./result-budgets.ts";
 import type { Toolkit } from "./toolkits.ts";
 
 export interface HtmlPublicationPort {
@@ -11,17 +12,32 @@ export interface HtmlPublicationPort {
     signal: AbortSignal,
   ): Promise<{ itemId: string }>;
 }
+const { title, html, height, mode } = HtmlRenderInput.shape;
+const RenderInput = HtmlRenderInput.extend({
+  title: title.describe("A short caption shown above the page."),
+  html: html.describe(
+    "A complete self-contained HTML document: inline CSS, JS, SVG and data: images, no network.",
+  ),
+  height: height.describe(
+    "Height in CSS pixels to hold while the page loads; the frame then fits the whole page.",
+  ),
+  mode: mode.describe(
+    "interactive runs its scripts in a sandbox; static strips them (charts, diagrams). Default: inferred.",
+  ),
+});
 export const htmlToolCatalog = [
   {
-    name: "ace_html_render",
+    name: "html_render",
+    title: "Show an HTML visual inline",
     description:
-      'Show a self-contained HTML page (inline CSS, JS, SVG and data: images; no network) inline in your reply. mode "interactive" runs its scripts in a sandbox; "static" strips them and suits charts and diagrams. An invalid page returns invalid_html listing every problem and publishes nothing. Design and sandbox rules: ace_guide visualize.',
-    input: HtmlRenderInput,
+      "Show a chart, diagram, mockup or interactive page inline in your reply. First read guide visualize and follow it: ace's style kit, responsive from 360 px, no decoration. invalid_html lists every problem and publishes nothing.",
+    input: RenderInput,
     output: z.object({ itemId: ItemId }),
     capability: null,
     riskClass: "thread-write",
+    toolset: "visualize",
     timeoutMs: 30000,
-    maxInputBytes: 2 * 1024 * 1024,
+    maxInputBytes: maxHtmlInputBytes,
   },
 ] as const;
 export function htmlToolkit(port: HtmlPublicationPort): Toolkit {

@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { coalescedPointerMoves } from "./video-client.ts";
+import { coalescedPointerMoves } from "./pointer-moves.ts";
 it("slow input sends only the latest move and discards waiting motion before the up event", async () => {
   const seen: (number | "up")[] = [];
   const first = Promise.withResolvers<void>();

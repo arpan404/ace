@@ -1,4 +1,4 @@
-import { hasNextTurnSelection } from "./input-delivery.ts";
+import { restatesSelection } from "./input-delivery.ts";
 import { handleQueue } from "./queue-commands.ts";
 import { lostWork } from "./lost-work.ts";
 import { z } from "zod";
@@ -26,10 +26,11 @@ export type RecoveryPreferences = z.infer<typeof RecoveryPreferences>;
 export interface RecoveryPorts {
   preferences?(thread: ThreadId | undefined): Promise<RecoveryPreferences>;
   resetAt?(thread: ThreadId): number | null | undefined;
-  migrate?(
-    thread: ThreadId,
-    target?: string,
-  ): Promise<{ nativeSessionId: string; instanceId: string }>;
+  /**
+   * The account a usage-limit move goes to: `requested`, or another available account of the
+   * thread's provider. Throws when there is none. The move itself is a thread transition.
+   */
+  moveTarget?(thread: ThreadId, requested?: string): string;
   contextWindow?: ContextWindowLookup;
   /** Reports a deadline pass that failed and will be retried. */
   onError?(error: unknown): void;
@@ -95,17 +96,32 @@ export class Recovery {
       Buffer.byteLength(JSON.stringify(command)) > maxMessageBytes
     )
       return undefined;
-    const p = command.payload;
-    return p.type === "thread.send" && (p.delivery === undefined || hasNextTurnSelection(p))
+    const sent = this.withoutRestatedSelection(command, id);
+    const p = sent.payload;
+    // A steer that also changes the model or options is split by `admitSteer`.
+    return p.type === "thread.send" && p.delivery === undefined
       ? Command.parse({
-          ...command,
-          payload: {
-            ...p,
-            // A selection belongs to the next turn, never a steer into the active run.
-            delivery: hasNextTurnSelection(p) ? "queue" : this.preferences(id).followUpBehavior,
-          },
+          ...sent,
+          payload: { ...p, delivery: this.preferences(id).followUpBehavior },
         })
-      : command;
+      : sent;
+  }
+  /**
+   * Drops a send's model and options when they only repeat what the thread runs on, so it can
+   * steer or start the next turn while background work runs. Kept when a queued switch or
+   * selecting send would change what the thread runs on before this one is delivered.
+   */
+  private withoutRestatedSelection(command: Command, id: ThreadId): Command {
+    const p = command.payload;
+    if (
+      p.type !== "thread.send" ||
+      !restatesSelection(this.repo.transitions.get(id).selection, p) ||
+      this.repo.transitions.guarded(id) ||
+      this.repo.pending.selectionAhead(id)
+    )
+      return command;
+    const { model: _model, options: _options, ...rest } = p;
+    return Command.parse({ ...command, payload: rest });
   }
   sync(id: ThreadId): void {
     const queue = this.repo.queue.shown(id);
@@ -139,6 +155,16 @@ export class Recovery {
         this.repo.queue.set(id, { paused: true, reason: "stopped" }, this.clock.now());
     });
   }
+  /**
+   * Builds before the Stop rule captured a restart "continue" behind a Stop, which left a
+   * cancelled thread waiting on its queue forever. Startup drops it; the Stop's hold stays.
+   */
+  dropContinuationBehindStop(id: ThreadId): void {
+    const queue = this.repo.queue.get(id);
+    if (!stoppedHold(queue) || queue.trigger !== "restart") return;
+    this.repo.queue.set(id, { continuation: null, trigger: null }, this.clock.now());
+    this.sync(id);
+  }
   discard(id: ThreadId): void {
     this.repo.store.atomic(() => {
       const queue = this.repo.queue.get(id);
@@ -169,6 +195,8 @@ export class Recovery {
   }
   capture(id: ThreadId): void {
     if (this.repo.pending.uncertainContinuation(id)) return;
+    // A Stop is final: the stopped turn never carries on, so a restart has nothing to resume.
+    if (stoppedHold(this.repo.queue.get(id))) return;
     const text = lostWork(
       this.repo.requireState(id),
       this.repo.pending.recoveryAcknowledgement(id) ? 1 : 0,
@@ -187,6 +215,7 @@ export class Recovery {
   holdInterrupted(id: ThreadId): void {
     if (this.repo.pending.uncertainContinuation(id)) return;
     const queue = this.repo.queue.get(id);
+    if (stoppedHold(queue)) return;
     this.repo.queue.set(
       id,
       {
@@ -269,7 +298,7 @@ export class Recovery {
       },
       at,
     );
-    if (policy === "migrate_now" && this.ports.migrate)
+    if (policy === "migrate_now" && this.ports.moveTarget)
       this.automatic(state.threadId, "migrate_now");
     this.schedule();
     if (this.ports.preferences)
@@ -282,7 +311,7 @@ export class Recovery {
         const queue = this.repo.queue.get(id);
         if (this.closed || !queue.limited || !this.owns(id, token)) return;
         const policy = this.preferences(id).limitPolicy;
-        if (policy === "migrate_now" && this.ports.migrate) this.automatic(id, "migrate_now");
+        if (policy === "migrate_now" && this.ports.moveTarget) this.automatic(id, "migrate_now");
         else if (
           (policy === "resume_at_reset" || policy === "snooze_until_reset") &&
           queue.resetAt !== null &&
@@ -320,6 +349,8 @@ export class Recovery {
             this.clock.now(),
           );
       })
+      // The notice itself is a write; a store that refuses it is reported, never unhandled.
+      .catch((error: unknown) => (this.ports.onError ?? console.error)(error))
       .finally(() => this.pendingPolicy.delete(id));
     this.pendingPolicy.set(id, task);
   }
@@ -398,22 +429,9 @@ export class Recovery {
       return;
     }
   }
-  async migrate(id: ThreadId, target?: string): Promise<void> {
-    if (!this.ports.migrate) throw new Error("Account migration is unavailable");
-    const result = await this.ports.migrate(id, target);
-    await this.repo.store.writable();
-    this.repo.nativeSession(id, result.nativeSessionId, this.repo.backend(id), result.instanceId);
-    const metadata = this.repo.transitions.get(id);
-    if (metadata.selection) {
-      metadata.selection.instanceId = result.instanceId;
-      this.repo.transitions.set(id, metadata);
-      this.repo.transitions.remember(id, metadata.selection);
-      this.repo.store.appendEvents(
-        id,
-        [{ type: "thread.updated", execution: metadata.selection }],
-        this.clock.now(),
-      );
-    }
+  moveTarget(id: ThreadId, requested?: string): string {
+    if (!this.ports.moveTarget) throw new Error("Account migration is unavailable");
+    return this.ports.moveTarget(id, requested);
   }
   bindingChanged(id: ThreadId): void {
     const queue = this.repo.queue.get(id);
@@ -543,4 +561,8 @@ export class Recovery {
     this.closed = true;
     this.cancel?.();
   }
+}
+
+function stoppedHold(queue: { paused: boolean; reason: string | null }): boolean {
+  return queue.paused && queue.reason === "stopped";
 }

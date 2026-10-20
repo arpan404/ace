@@ -1,5 +1,5 @@
 import { workbench } from "@ace/fake-daemon";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
@@ -21,7 +21,7 @@ function textAfterComposer(): string {
   return after.trim();
 }
 
-test("nothing renders below the New thread composer, even its save warning", async () => {
+test("without open work nothing renders below the New thread composer, even its save warning", async () => {
   const backing = memoryKeyValue();
   const storage = {
     ...backing,
@@ -74,11 +74,48 @@ test("where the thread runs is one row in the strip above the composer; a notice
     composer && where.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
   expect(within(where).getByRole("checkbox", { name: "Worktree" })).toBeTruthy();
-  expect(within(where).getByRole("img", { name: /machine icon/ })).toBeTruthy();
+  // One device: the machine goes without saying.
+  expect(within(where).queryByRole("img", { name: /machine icon/ })).toBeNull();
 
   refuse = true;
   await userEvent.type(message, "Keep this editor open");
   expect((await screen.findByRole("alert")).textContent).toContain("Couldn't save");
   expect(screen.queryByRole("region", { name: "Where this thread runs" })).toBeNull();
+  // The project stays in reach beside the notice.
+  expect(screen.getByRole("button", { name: "Project: relay" })).toBeTruthy();
   expect(textAfterComposer()).toBe("");
+});
+
+test("the page asks what to build in the project, and the project's name picks another", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  await app.open("/new?project=relay");
+  await screen.findByRole("combobox", { name: "Message" });
+  const main = screen.getByRole("main");
+  const question = within(main).getByRole("heading", { level: 2 });
+  expect(question.textContent).toBe("What should we build in relay?");
+  expect(within(main).queryByText("ace", { exact: true })).toBeNull();
+  const composer = document.querySelector("[data-slot=composer]");
+  expect(
+    composer && question.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  await userEvent.click(within(question).getByRole("button", { name: "Project: relay" }));
+  const popup = await screen.findByRole("dialog", { name: "Choose project" });
+  await userEvent.type(
+    await within(popup).findByRole("combobox", { name: "Search projects" }),
+    "billing{Enter}",
+  );
+  await waitFor(() =>
+    expect(within(screen.getByRole("main")).getByRole("heading", { level: 2 }).textContent).toBe(
+      "What should we build in billing-api?",
+    ),
+  );
+});
+
+test("the strip names the machine only while more than one device is connected", async () => {
+  const app = harness({ machines: [{ hostId: "build", name: "Build server" }] });
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  await app.open("/new?project=relay");
+  const where = await screen.findByRole("region", { name: "Where this thread runs" });
+  expect(await within(where).findByRole("img", { name: /machine icon/ })).toBeTruthy();
 });

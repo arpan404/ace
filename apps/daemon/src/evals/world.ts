@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
-import { detectChromium } from "@ace/browser";
+import { detectChromium, type BrowserBackend } from "@ace/browser";
 import { claudeInjection, codexInjection, type AceMcpConnection } from "@ace/mcp-server";
 import { ScreenManager } from "@ace/screen";
 import type { Fact } from "@ace/core";
@@ -28,7 +28,11 @@ fetch("/api/session").finally(() => document.body.insertAdjacentHTML("beforeend"
  * The parent thread is created the way a person creates one; its provider session receives the
  * real ace MCP lease, which the scripted agent then uses exactly as a provider CLI would.
  */
-export async function evalWorld(options: { browser: boolean }) {
+export async function evalWorld(options: {
+  browser: boolean;
+  /** Pages without Chromium (`fakeHeadlessBackend`), for behaviour that needs only tabs. */
+  browserBackend?: BrowserBackend;
+}) {
   const h = setup();
   const project = join(h.home, "shop");
   mkdirSync(project, { recursive: true });
@@ -70,7 +74,11 @@ export async function evalWorld(options: { browser: boolean }) {
     engine: { registry: h.registry, clock: h.clock },
     modelInstances: [],
     screen,
-    ...(executablePath ? { browser: { executablePath } } : {}),
+    ...(options.browserBackend
+      ? { browser: { headlessBackend: options.browserBackend } }
+      : executablePath
+        ? { browser: { executablePath } }
+        : {}),
     workspaceActions: {
       forgeRunner: () => async () => ({ code: 1, stdout: "offline", truncated: false }),
     },
@@ -115,6 +123,8 @@ export async function evalWorld(options: { browser: boolean }) {
 
   return {
     daemon,
+    /** Computer use, on from the start; a test may turn it off. */
+    screen,
     store: daemon.store,
     workspaceId,
     devServerUrl,
@@ -192,7 +202,7 @@ export async function evalWorld(options: { browser: boolean }) {
     editFile(name: string, text: string) {
       writeFileSync(join(project, name), text);
     },
-    /** The thread's status once its ace_ask question is open. */
+    /** The thread's status once its ask question is open. */
     async whileAsking(thread: ThreadId) {
       for (let attempt = 0; attempt < 400; attempt++) {
         const open = daemon.store.atomic((db) =>
@@ -204,7 +214,7 @@ export async function evalWorld(options: { browser: boolean }) {
       await engine.flush();
       return daemon.store.getThread(thread)?.status.state;
     },
-    /** The person answers a pending ace_ask on `thread`, from their own device. */
+    /** The person answers a pending ask on `thread`, from their own device. */
     async answerAsk(thread: ThreadId, text: string) {
       const pending = () =>
         daemon.store.atomic((db) =>
@@ -289,11 +299,17 @@ export async function evalWorld(options: { browser: boolean }) {
         },
       });
     },
+    /** The text parts the scripted provider of `thread` received, in order. */
+    received: (thread: ThreadId): readonly string[] => h.inputs.get(thread) ?? [],
+    /** The scripted model starts a new turn, or ends the one it is in. */
+    startTurn: (thread: ThreadId) => emit(thread, start),
+    endTurn: (thread: ThreadId) => emit(thread, end),
     flush: () => engine.flush(),
     async close() {
       for (const agent of agents) await agent.close().catch(() => {});
       // Like a person closing the thread: its browser goes before the daemon does.
-      if (executablePath) for (const thread of threads) await daemon.browser.closeThread(thread);
+      if (executablePath || options.browserBackend)
+        for (const thread of threads) await daemon.browser.closeThread(thread);
       await daemon.close();
       await screen.close();
       pages.closeAllConnections();

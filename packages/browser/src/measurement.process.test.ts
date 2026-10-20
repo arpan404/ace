@@ -3,7 +3,12 @@ import { InteractionMeasurement, McpScope } from "@ace/protocol";
 import { CredentialRegistry, ToolRegistry, nodeScheduler } from "@ace/mcp-server";
 import { z } from "zod";
 import { browserToolkit } from "./index.ts";
+
+const unused = async () => {
+  throw new Error("not called");
+};
 import { executablePath, fixture, ref } from "./test-support.ts";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 if (!executablePath)
   console.warn("Skipping interaction measurements: no isolated Chromium executable is available.");
@@ -65,10 +70,10 @@ describe.skipIf(!executablePath)("browser interaction measurements", () => {
     expect(Buffer.from(data, "base64").subarray(0, 2)).toEqual(Buffer.from([255, 216]));
     expect(data.length).toBeLessThanOrEqual(1024 * 1024);
   }, 60_000);
-  it("allows shared observations during human control and blocks measured agent input", async () => {
+  it("observes while the person works in the tab and stops at a private tab", async () => {
     const f = await fixture();
     await f.navigate();
-    f.service.takeover("thread", "human");
+    await f.service.input("thread", { kind: "key", event: "char", key: "x" }, "person");
     const observed = InteractionMeasurement.parse(
       await f.execute({
         action: "measure_interaction",
@@ -78,15 +83,7 @@ describe.skipIf(!executablePath)("browser interaction measurements", () => {
       }),
     );
     expect(observed.repeat?.runs).toHaveLength(2);
-    await expect(
-      f.execute({
-        action: "measure_interaction",
-        interaction: { action: "scroll", x: 0, y: 100 },
-        observeMs: 300,
-        filmstrip: false,
-      }),
-    ).rejects.toMatchObject({ code: "human_controlled" });
-    f.service.takeover("thread", "human", "private");
+    keepAgentsOut(f.service, "thread");
     await expect(
       f.execute({ action: "measure_interaction", observeMs: 300, filmstrip: false }),
     ).rejects.toMatchObject({ code: "human_private" });
@@ -112,8 +109,14 @@ it("measurement MCP validates bounded inputs and returns numbers plus an image",
     },
   });
   browserToolkit({
+    open: unused,
+    tab: unused,
+    state: () => {
+      throw new Error("not called");
+    },
     execute: async () => model,
-    screenshot: async () => Buffer.from("unused"),
+    screenshot: async () => ({ bytes: Buffer.from("unused") }),
+    close: unused,
   }).register(registry);
   const credentials = new CredentialRegistry(() => "a".repeat(64));
   const lease = credentials.issue(
@@ -127,29 +130,21 @@ it("measurement MCP validates bounded inputs and returns numbers plus an image",
   );
   try {
     const call = (args: unknown) =>
-      registry.call(
-        "ace_browser_measure_interaction",
-        args,
-        lease.principal,
-        new AbortController().signal,
-      );
+      registry.call("browser_measure", args, lease.principal, new AbortController().signal);
     const response = z
       .object({ content: z.array(z.looseObject({ type: z.string() })) })
       .parse(await call({ observeMs: 300 }));
     expect(response.content.map((part) => part.type)).toEqual(["text", "image"]);
     for (const args of [{ observeMs: 10_001 }, { repeat: 6 }, { observeMs: 10_000, repeat: 3 }])
       expect(await call(args)).toHaveProperty("isError", true);
-    expect(registry.action("ace_browser_measure_interaction", { observeMs: 300 })).toMatchObject({
+    expect(registry.action("browser_measure", { observeMs: 300 })).toMatchObject({
       riskClass: "read-only",
       access: "read",
     });
     expect(
-      registry.action("ace_browser_measure_interaction", {
+      registry.action("browser_measure", {
         interaction: { action: "scroll", x: 0, y: 10 },
       }),
-    ).toMatchObject({ riskClass: "external-effect", access: "write" });
-    expect(
-      registry.action("ace_browser_measure_interaction", { tabId: "selected-tab" }),
     ).toMatchObject({ riskClass: "external-effect", access: "write" });
   } finally {
     credentials.close();

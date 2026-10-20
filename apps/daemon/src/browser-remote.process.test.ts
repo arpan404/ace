@@ -57,9 +57,14 @@ describe.skipIf(!executablePath)("paired remote browser clients", () => {
       sequence: delivered.frame.sequence,
     });
     expect(
-      await phone.request({ type: "browser.takeover", requestId: "denied", threadId: f.thread.id }),
+      await phone.request({
+        type: "browser.tabs.private",
+        requestId: "denied",
+        threadId: f.thread.id,
+        tabId: browser.state(f.thread.id).activeTabId ?? "page",
+        private: true,
+      }),
     ).toMatchObject({ ok: false });
-    expect(browser.state(f.thread.id).controller).toBe("agent");
     expect(
       await phone.request({
         type: "browser.execute",
@@ -76,13 +81,6 @@ describe.skipIf(!executablePath)("paired remote browser clients", () => {
         threadId: f.thread.id,
       }),
     ).toMatchObject({ ok: false });
-    expect(
-      await operator.request({
-        type: "browser.takeover",
-        requestId: "take",
-        threadId: f.thread.id,
-      }),
-    ).toMatchObject({ ok: true });
     expect(
       await operator.request({
         type: "browser.execute",
@@ -104,14 +102,13 @@ describe.skipIf(!executablePath)("paired remote browser clients", () => {
       revoked: true,
     });
     await disconnected;
-    // A request on the surviving viewer synchronizes after the closed owner's
-    // socket cleanup; it receives the resulting controller state.
+    // A request on the surviving viewer synchronizes after the closed operator's
+    // socket cleanup; the viewer keeps watching.
     await phone.request({
       type: "browser.execute",
       requestId: "after-close",
       threadId: f.thread.id,
       command: { action: "snapshot" },
     });
-    expect(browser.state(f.thread.id).controller).toBe("agent");
   }, 60_000);
 });

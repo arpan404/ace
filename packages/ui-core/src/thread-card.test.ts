@@ -320,3 +320,32 @@ test("another surface naming a thread uses its sidebar row's word", () => {
   );
   expect(threadRowStatus(entry("t", { state: "done" }, now), now)).toBe("Done");
 });
+
+test.each([
+  { state: "done" as const },
+  { state: "needs_you" as const, interactions: 2 },
+  { state: "working" as const, agents: 3 },
+])("an unconfirmed $state card says Syncing and claims no status, request or work", (status) => {
+  const card = threadCard(
+    input({ entry: entry("t", status, now - 1000, { title: "Saved title" }), unconfirmed: true }),
+  );
+  expect(card.title).toBe("Saved title");
+  expect(card.attention).toMatchObject({ level: "syncing", word: "Syncing", muted: true });
+  expect(card.status).toMatchObject({ label: "Syncing", tone: "idle", compact: "Syncing" });
+  expect(card.pill).toBeUndefined();
+  expect(card.announceUnread).toBe(false);
+  expect(card.subagents).toBe(0);
+  // Settled rows claim nothing either.
+  const settled = threadCard(
+    input({ entry: entry("t", status, now - 1000), unconfirmed: true, settled: true }),
+  );
+  expect(settled.attention.level).toBe("syncing");
+});
+
+test("an unconfirmed card still shows a send that failed on this device", () => {
+  const card = threadCard(
+    input({ entry: entry("t", { state: "done" }, now), unconfirmed: true, failedSend: true }),
+  );
+  expect(card.attention).toMatchObject({ level: "needs-you", word: "Not sent" });
+  expect(card.status.label).toBe("Not sent");
+});

@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, cp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { create } from "tar";
-import { hashFile, installableVersion, unpackArchive } from "@ace/service";
+import { hashFile, unpackArchive } from "@ace/service";
 import { InstalledRelease, ReleaseTarget, ReleaseManifest } from "@ace/protocol";
 import { releaseFiles } from "./archive.ts";
 
@@ -10,7 +10,7 @@ import { releaseFiles } from "./archive.ts";
 export async function createNpxPackage(directory: string, input: ReleaseManifest) {
   const manifest = ReleaseManifest.parse(input);
   const target = ReleaseTarget.parse(manifest.target);
-  const version = installableVersion(manifest.version);
+  const version = manifest.version;
   const archive = join(directory, manifest.archive);
   if ((await hashFile(archive)) !== manifest.sha256) throw new Error("npm artifact mismatch");
   const scratch = await mkdtemp(join(tmpdir(), "ace-npx-publication-"));

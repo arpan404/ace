@@ -1,6 +1,6 @@
 import type { CatalogModel } from "@ace/protocol";
 import type { SidebarReader } from "@ace/client";
-import { useSidebarAll } from "@ace/client-react";
+import { useSidebar } from "@ace/client-react";
 import { useCallback } from "react";
 import { useModelCatalog } from "@/lib/model-catalog.ts";
 import { useNow } from "@/lib/time.ts";
@@ -24,7 +24,13 @@ function waiting(
   );
 }
 
-/** Open requests across unsnoozed threads: the tab title's count. */
+const countKeys = ["ids", "threads", "unconfirmed"] as const;
+
+/**
+ * Open requests across unsnoozed threads: the tab title's count. While the list is a copy the
+ * daemon hasn't confirmed, only sends that failed on this device count: a saved request may
+ * have been answered since.
+ */
 export function useNeedsYouCount(): number {
   const models = useModelCatalog();
   const failed = useFailedSendThreads();
@@ -33,6 +39,7 @@ export function useNeedsYouCount(): number {
   const pendingTotal = useCallback(
     (reader: SidebarReader) =>
       reader.ids.reduce((sum, id) => {
+        if (reader.unconfirmed) return failed.has(id) ? sum + 1 : sum;
         const status = reader.thread(id)?.status;
         return status && waiting(reader, id, minute * 60_000, models, failed)
           ? sum + (status.state === "needs_you" ? status.interactions : 1)
@@ -40,5 +47,5 @@ export function useNeedsYouCount(): number {
       }, 0),
     [minute, models, failed],
   );
-  return useSidebarAll(pendingTotal) ?? 0;
+  return useSidebar(countKeys, pendingTotal) ?? 0;
 }

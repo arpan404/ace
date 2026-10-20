@@ -33,8 +33,16 @@ import {
   type ServerMessage,
   type CommandPayload,
 } from "@ace/protocol";
-import type { ClientCoreApi, ConnectionControl, RegistryQuery } from "./api.ts";
+import type {
+  ClientCoreApi,
+  ConnectionControl,
+  RegistryQuery,
+  SidebarSource,
+  ThreadSource,
+} from "./api.ts";
 import { Connection, sameConnectionInfo } from "./connection.ts";
+import { StreamMessages } from "./stream-messages.ts";
+import { isStreamPiece, type StreamMessage } from "@ace/browser/stream";
 import { WireCodec, type ServiceWire } from "./wire-codec.ts";
 import { isOneWayMessage, type OneWayMessage } from "./one-way.ts";
 import { Intents, type Intent } from "./intents.ts";
@@ -49,6 +57,7 @@ import {
 } from "./command-admission.ts";
 import { Sidebar } from "./sidebar.ts";
 import { Subscriptions, type ThreadSubscription } from "./subscriptions.ts";
+import { HostSnapshots } from "./read-snapshot-scope.ts";
 import { retryDelay } from "./lifecycle.ts";
 import {
   ClientError,
@@ -123,6 +132,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   #subscriptions: Subscriptions;
   #sidebar: Sidebar;
   #collections = new Set<Sidebar>();
+  /** Read snapshots still being written by collections already closed. */
+  #checkpoints = new Set<Promise<void>>();
   #intents: Intents;
   #statusChecks: CommandStatusChecks;
   #admissions: CommandAdmissions;
@@ -131,7 +142,19 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   protected closed = false;
   #readMarkers: ReadMarkers;
   #serviceListeners = new Set<(message: ServerMessage) => void>();
+  #streamListeners = new Set<(message: StreamMessage) => void>();
+  #streams = new StreamMessages((message) => {
+    for (const listener of this.#streamListeners) {
+      try {
+        listener(message);
+      } catch {
+        // A consumer cannot break protocol delivery.
+      }
+    }
+  });
   #hostId: string | undefined;
+  /** Read snapshots under the verified host id; forgotten once the daemon refuses us. */
+  #snapshots: HostSnapshots | undefined;
   #binding: Promise<void> | undefined;
   #pendingSendEntries = new Map<string, PendingSend>();
   #waitingHints = new Map<string, () => void>();
@@ -139,6 +162,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     options = { ...options };
     this.options = options;
     this.#hostId = options.expectedHostId;
+    this.#snapshots =
+      options.readSnapshots && new HostSnapshots(options.readSnapshots, options.expectedHostId);
     const limits = { ...defaultLimits, ...options.limits };
     for (const value of Object.values(limits))
       if (!Number.isSafeInteger(value) || value <= 0) throw new ClientError("limit");
@@ -180,6 +205,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
             if (this.#hostId && this.#hostId !== message.hostId)
               throw new ClientError("identity", "Transport changed daemon identity");
             this.#hostId = message.hostId;
+            this.#snapshots?.identify(message.hostId);
             if (options.storage.hostBinding) {
               void this.#bindHost(message.hostId).then(
                 () => this.#replay(),
@@ -229,9 +255,15 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
             this.#observeInputs(message);
         }
       },
-      () => this.notifications.emit(["connection"]),
+      () => {
+        // Revoked, or a credential the daemon no longer accepts: what was read through it goes.
+        if (this.state === "fatal" && this.connection.error?.code === "auth")
+          void this.#snapshots?.forget();
+        this.notifications.emit(["connection"]);
+      },
       () => {
         this.#readMarkers.disconnect();
+        this.#streams.reset();
         this.requests.disconnect();
         this.#subscriptions.disconnect();
         this.#intents.disconnect();
@@ -239,6 +271,10 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         for (const sidebar of this.#collections) sidebar.disconnect();
       },
       (bytes) => {
+        if (isStreamPiece(bytes)) {
+          this.#streams.receive(bytes);
+          return;
+        }
         if (!this.#attachmentStreams) throw new ClientError("protocol");
         this.#attachmentStreams.receive(bytes);
       },
@@ -248,12 +284,14 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       (message) => this.connection.send(message),
       options.id,
       () => this.state === "ready",
+      this.#persistence(),
     );
     this.#sidebar = new Sidebar(
       limits,
       (message) => this.connection.send(message),
       options.id,
       () => this.state === "ready",
+      this.#persistence(),
     );
     this.#collections.add(this.#sidebar);
     this.#intents = new Intents({
@@ -433,6 +471,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
           if (this.#hostId && this.#hostId !== host)
             throw new ClientError("identity", "Outbox belongs to another daemon");
           this.#hostId = host;
+          this.#snapshots?.identify(host);
           this.options.expectedHostId = host;
           this.#binding = Promise.resolve();
         }
@@ -445,8 +484,18 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       throw failure;
     }
   }
+  #persistence() {
+    const storage = this.#snapshots;
+    return storage ? { storage, scheduler: this.options.scheduler } : undefined;
+  }
+  /** Settles once durable intents and every view's last read snapshot are written. */
   close(): Promise<void> {
     this.closed = true;
+    const checkpoints = [
+      this.#subscriptions.close(),
+      ...[...this.#collections].map((collection) => collection.close()),
+      ...this.#checkpoints,
+    ];
     this.#recordings.close();
     this.requests.clear(new ClientError("offline"));
     this.#readMarkers.close();
@@ -454,8 +503,9 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     this.#waitingHints.clear();
     this.#statusChecks.disconnect();
     this.#serviceListeners.clear();
+    this.#streamListeners.clear();
     this.connection.stop();
-    return this.#intents.settled();
+    return Promise.all([this.#intents.settled(), ...checkpoints]).then(() => {});
   }
   networkOnline(online: boolean): void {
     this.connection.networkOnline(online);
@@ -463,6 +513,12 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   thread(id: string): ThreadSubscription {
     if (this.closed) throw new ClientError("offline");
     return this.#subscriptions.acquire(id);
+  }
+  cachedThread(id: string): ThreadSource | undefined {
+    return this.closed ? undefined : this.#subscriptions.cached(id);
+  }
+  cachedThreads(): SidebarSource | undefined {
+    return this.closed ? undefined : this.#sidebar;
   }
   threads(): { store: Sidebar; release(): void } {
     if (this.closed) throw new ClientError("offline");
@@ -479,6 +535,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       (message) => this.connection.send(message),
       this.options.id,
       () => this.state === "ready",
+      this.#persistence(),
     );
     this.#collections.add(sidebar);
     const leases = new Set<() => void>();
@@ -515,6 +572,9 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         for (const release of leases) release();
         leases.clear();
         this.#collections.delete(sidebar);
+        const written = sidebar.close();
+        this.#checkpoints.add(written);
+        void written.finally(() => this.#checkpoints.delete(written));
       },
     };
   }
@@ -683,6 +743,9 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   ): Promise<ServiceResponse<Q>> {
     const parsed = wire.ClientMessage.safeParse({ ...input, requestId: id });
     if (!parsed.success) return Promise.reject(new ClientError("protocol", "Invalid request"));
+    // Binary frames only where this transport carries binary messages.
+    if (parsed.data.type === "browser.subscribe" && !this.connection.supportsBinary)
+      delete parsed.data.binaryFrames;
     let sent = false;
     return this.requests
       .wait(
@@ -704,6 +767,16 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
           this.connection.send({ type: "files.abort", sourceRequestId: id });
         throw error;
       });
+  }
+  /** Binary stream messages (browser frames); the caller releases it. */
+  onStream(listener: (message: StreamMessage) => void): () => void {
+    if (this.closed) throw new ClientError("offline");
+    if (this.#streamListeners.size >= (this.options.limits?.listeners ?? defaultLimits.listeners))
+      throw new ClientError("limit");
+    this.#streamListeners.add(listener);
+    return () => {
+      this.#streamListeners.delete(listener);
+    };
   }
   /** Uncorrelated service messages (such as `settings.changed`); the caller releases it. */
   onMessage(listener: (message: ServerMessage) => void): () => void {
@@ -847,7 +920,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     if (!store) throw new ClientError("offline", "Thread is not leased");
     const before = store.itemsBefore;
     if (before === null || before === undefined) return;
-    store.page(await this.itemsPage({ threadId, before, limit }, options));
+    store.page(await this.itemsPage({ threadId, before, limit }, options), before);
   }
   outputRead(
     payload: { streamId: string; offset: number; limit: number },

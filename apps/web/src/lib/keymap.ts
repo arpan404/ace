@@ -9,7 +9,16 @@
  * Where a shortcut works. `global` ones work on every screen; the others only while that
  * context is showing (or focused), so a key may mean one thing in each of them.
  */
-export type KeyScope = "global" | "home" | "thread" | "composer" | "terminal" | "notifications";
+export type KeyScope =
+  | "global"
+  | "home"
+  | "thread"
+  | "composer"
+  | "newThread"
+  | "panel"
+  | "files"
+  | "terminal"
+  | "notifications";
 
 export interface KeymapEntry {
   /** The default binding, and the spelling call sites pass (`keymap.x.keys`). */
@@ -32,10 +41,34 @@ export const keymap = {
   // One launcher: ⇧⌘K, once a separate search sheet, opens the same palette.
   palette: { keys: "mod+k", also: ["shift+mod+k"], label: "Command palette" },
   newThread: { keys: "mod+n", web: "alt+mod+n", label: "New thread" },
+  // In the current project without asking which (⌘N asks when there are several).
+  newThreadHere: {
+    keys: "shift+mod+n",
+    web: "shift+alt+mod+n",
+    label: "New thread in the current project",
+  },
   addProject: { keys: "shift+mod+o", label: "Add project" },
   nextThread: { keys: "alt+mod+arrowdown", label: "Next thread" },
   previousThread: { keys: "alt+mod+arrowup", label: "Previous thread" },
   nextNeedsYou: { keys: "alt+mod+j", label: "Next thread that needs you" },
+  // ⌘1 to ⌘9 open the list's first nine threads; a browser keeps ⌘1–9 for its tabs. Holding
+  // the modifiers shows each row's number. Bound as nine keys, so shown but not rebound.
+  jumpToThread: {
+    keys: "mod+1",
+    web: "alt+mod+1",
+    label: "Open thread 1 to 9 in the list",
+    fixed: true,
+  },
+  // F6 walks the window's regions: thread list, main view, side panel, composer.
+  nextRegion: { keys: "f6", label: "Focus the next region" },
+  previousRegion: { keys: "shift+f6", label: "Focus the previous region" },
+  focusThreadList: { keys: "shift+mod+e", label: "Focus the thread list" },
+  focusComposer: { keys: "mod+l", web: "alt+mod+l", label: "Focus the composer" },
+  stopAgent: { keys: "mod+.", label: "Stop the agent", scope: "thread" },
+  // The latest archive, settle, snooze, unpin or discard, while its Undo still shows.
+  undo: { keys: "mod+z", label: "Undo the last thread action" },
+  // Opens the focused item's menu (a row, a tab, a file), as a right-click does.
+  contextMenu: { keys: "shift+f10", label: "Open the focused item's menu", fixed: true },
   back: { keys: "mod+[", label: "Back" },
   forward: { keys: "mod+]", label: "Forward" },
   toggleSidebar: { keys: "mod+\\", label: "Hide or show the sidebar" },
@@ -50,8 +83,11 @@ export const keymap = {
   previousTab: { keys: "shift+mod+[", label: "Previous tab" },
   changes: { keys: "shift+mod+d", label: "Changes" },
   agents: { keys: "ctrl+shift+a", label: "Summary" },
-  // ⌘J showed the bottom panel, where terminals lived; it now shows the side panel's terminal.
-  terminal: { keys: "ctrl+`", also: ["mod+j"], label: "Terminal" },
+  // Both follow Settings' "Terminals open in": the bottom terminal panel (shown and focused,
+  // then hidden) or the side panel's terminal. ⌃` also works from inside a shell off Apple,
+  // where Ctrl+J is the shell's.
+  terminal: { keys: "ctrl+`", label: "Terminal" },
+  terminalPanel: { keys: "mod+j", label: "Show or hide the terminal panel" },
   files: { keys: "mod+p", label: "Open a file" },
   browser: { keys: "ctrl+shift+b", label: "Browser" },
   newTerminal: { keys: "ctrl+shift+`", label: "New terminal" },
@@ -81,8 +117,33 @@ export const keymap = {
   nextTurn: { keys: "shift+alt+mod+arrowdown", label: "Next turn" },
   findInThread: { keys: "mod+f", label: "Search this thread", scope: "thread" },
   settings: { keys: "mod+,", label: "Settings" },
-  // The composer's own keys (Enter sends, ⌘↵ the other of queue or steer). Shown, not rebindable.
-  send: { keys: "mod+enter", label: "Send", scope: "composer", fixed: true },
+  // Enter sends. While the agent works Enter queues or steers (Settings › Threads); this does
+  // the other.
+  followUpOther: {
+    keys: "mod+enter",
+    label: "Queue or steer the other way",
+    scope: "composer",
+  },
+  // New thread: start the thread and stay on New thread, ready for the next one.
+  startInBackground: {
+    keys: "mod+enter",
+    label: "Start a thread without opening it",
+    scope: "newThread",
+  },
+  // The first Esc asks in the strip; a second one soon after stops the agent tree.
+  stopFromComposer: {
+    keys: "escape escape",
+    label: "Stop the working agent",
+    scope: "composer",
+    fixed: true,
+  },
+  reorderQueued: {
+    keys: "alt+arrowup",
+    also: ["alt+arrowdown"],
+    label: "Move a queued message up or down",
+    scope: "composer",
+    fixed: true,
+  },
   goHome: { keys: "g h", label: "Go to Home" },
   goAutomations: { keys: "g u", label: "Go to Automations" },
   goSkills: { keys: "g s", label: "Go to Skills" },
@@ -94,13 +155,48 @@ export const keymap = {
     label: "Move the focused thread (↑ ↓ to choose, Space to drop)",
     scope: "home",
   },
-  // Base UI's toast viewport binds F6 itself; listed so shortcut help shows it.
-  focusToasts: {
-    keys: "f6",
-    label: "Focus notifications",
-    scope: "notifications",
+  "home.actions": {
+    keys: "arrowright",
+    also: ["arrowleft"],
+    label: "Into the focused thread's actions, and back",
+    scope: "home",
     fixed: true,
   },
+  "home.range": {
+    keys: "shift+arrowdown",
+    also: ["shift+arrowup"],
+    label: "Select a range of threads",
+    scope: "home",
+    fixed: true,
+  },
+  "home.ends": {
+    keys: "home",
+    also: ["end"],
+    label: "First or last thread (or type a title to jump to it)",
+    scope: "home",
+    fixed: true,
+  },
+  // The side panel's tab strip, on a focused tab.
+  "panel.closeTab": { keys: "delete", label: "Close the focused tab", scope: "panel", fixed: true },
+  "panel.moveTab": {
+    keys: "alt+shift+arrowleft",
+    also: ["alt+shift+arrowright"],
+    label: "Move the focused tab",
+    scope: "panel",
+    fixed: true,
+  },
+  // The file tree, on a focused file.
+  "files.rename": { keys: "f2", label: "Rename the focused file", scope: "files", fixed: true },
+  "files.delete": { keys: "delete", label: "Delete the focused file", scope: "files", fixed: true },
+  "files.move": {
+    keys: "shift+mod+m",
+    label: "Move the focused file",
+    scope: "files",
+    fixed: true,
+  },
+  // Base UI's toast viewport answers F6 itself; F6 walks regions now (`nextRegion`), so this
+  // hands Base UI its F6 under another key (features/shell/regions).
+  focusToasts: { keys: "alt+f6", label: "Focus notifications" },
 } as const satisfies Record<string, KeymapEntry>;
 
 export type KeymapId = keyof typeof keymap;
@@ -149,6 +245,10 @@ const glyphs: Record<string, [apple: string, other: string]> = {
   alt: ["⌥", "Alt+"],
   enter: ["↵", "Enter"],
   escape: ["esc", "Esc"],
+  backspace: ["⌫", "Backspace"],
+  delete: ["⌦", "Delete"],
+  home: ["Home", "Home"],
+  end: ["End", "End"],
   space: ["Space", "Space"],
   arrowup: ["↑", "↑"],
   arrowdown: ["↓", "↓"],

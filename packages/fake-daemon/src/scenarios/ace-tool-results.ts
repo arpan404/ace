@@ -30,7 +30,11 @@ function call(
   result: ToolResult,
 ): Fact {
   const nativeName =
-    provider === "claude" ? `mcp__ace__${name}` : provider === "opencode" ? `ace_${name}` : name;
+    provider === "claude"
+      ? `mcp__ace__${name}`
+      : ["opencode", "pi"].includes(provider)
+        ? `ace_${name}`
+        : name;
   const custom = ["opencode", "pi", "acp"].includes(provider);
   const native =
     provider === "claude"
@@ -38,7 +42,7 @@ function call(
       : provider === "opencode"
         ? { type: "session.tool.called", data: { name: nativeName, input: args } }
         : provider === "pi"
-          ? { type: "tool_execution_start", toolName: name, args }
+          ? { type: "tool_execution_start", toolName: nativeName, args }
           : provider === "acp"
             ? { title: name, rawInput: args }
             : provider === "cursor"
@@ -145,30 +149,24 @@ export function aceToolRows(): Scenario[] {
             message("root", "ask", "user", "Capture the document and check the text field."),
             call(provider, "capture", "screen_screenshot", {}, image),
             notice("capture", "screen_screenshot", image),
-            call(provider, "click", "screen_click", { x: 24, y: 16 }, failure),
-            notice("click", "screen_click", failure),
+            call(provider, "click", "screen_input", { action: "click", x: 24, y: 16 }, failure),
+            notice("click", "screen_input", failure),
             call(
               provider,
               "foreground",
-              "screen_request_foreground",
-              { reason: "Confirm the text destination" },
+              "screen_open_app",
+              { bundleId: "com.apple.TextEdit", mode: "foreground" },
               foreground,
             ),
-            notice("foreground", "screen_request_foreground", foreground),
+            notice("foreground", "screen_open_app", foreground),
             call(
               provider,
               "device",
-              "device_screenshot",
-              { deviceId: "android:fixture" },
+              "sim_screenshot",
+              { simId: "android:fixture" },
               { ...image, target: undefined },
             ),
-            call(
-              provider,
-              "browser",
-              "ace_browser_screenshot",
-              {},
-              { ...image, target: undefined },
-            ),
+            call(provider, "browser", "browser_screenshot", {}, { ...image, target: undefined }),
             message(
               "root",
               "done",

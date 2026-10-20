@@ -3,10 +3,12 @@ import { FakePromptFiles, type PromptSeed } from "./prompt-files.ts";
 import { FakeCatalogWire } from "./catalog-wire.ts";
 import { FakeHistory } from "./history-wire.ts";
 import { FakeMcpWire } from "./mcp-wire.ts";
+import { FakeNotificationFeed } from "./notification-feed.ts";
 import {
   SourceControlPreferences,
   BrowserClientMessage,
   ServerMessage,
+  ThreadId,
   type ClientMessage,
   type ServerMessage as Message,
   type CommandPayload,
@@ -15,8 +17,8 @@ import {
 } from "@ace/protocol";
 import { commandCatalog, listCommands } from "./services/commands.ts";
 import { FakeFilesWire } from "./files-wire.ts";
-import { bindFakeBrowserPrivate } from "./browser-private.ts";
 import { FakeBrowser } from "./browser.ts";
+import { FakeComputerUsing } from "./computer-using.ts";
 import { fakeBrowserSession } from "./browser-wire.ts";
 import { FakeTerminalStream } from "./terminal-stream.ts";
 import { fakeHealth } from "./health.ts";
@@ -76,7 +78,9 @@ export class FakeServicesWire {
   readonly history: FakeHistory;
   private notificationPublicKey: string | null = null;
   readonly mcp = new FakeMcpWire();
+  readonly notificationFeed = new FakeNotificationFeed();
   readonly browser = new FakeBrowser();
+  readonly computerUsing = new FakeComputerUsing();
   readonly context: FakeContextWire;
   readonly workspace: FakeWorkspaceWire;
   readonly files: FakeFilesWire;
@@ -95,10 +99,13 @@ export class FakeServicesWire {
     this.host = context;
     this.providerStatuses = providerStatuses;
     this.history = new FakeHistory(context);
-    bindFakeBrowserPrivate(this.browser, context);
-    this.files = new FakeFilesWire(context);
+    this.files = new FakeFilesWire(context, (id) => this.workspace.projects.get(id) !== undefined);
     this.settings = settings;
-    this.context = new FakeContextWire(context, (threadId) => this.files.paths(threadId));
+    this.context = new FakeContextWire(
+      context,
+      (threadId) => this.files.paths(threadId),
+      (workspaceId) => this.files.projectPaths(workspaceId),
+    );
     this.workspace = new FakeWorkspaceWire(context);
     this.automations = new FakeAutomationWire(
       context.now,
@@ -156,6 +163,27 @@ export class FakeServicesWire {
       emit,
       `fake-browser-${++this.connectionSequence}`,
     );
+    let stopBrowsing: (() => void) | undefined;
+    let browsing = "";
+    const reportBrowsing = (force: boolean) => {
+      const threads = this.browser
+        .browsingThreads()
+        .filter((id) => this.host.thread(id))
+        .map((id) => ThreadId.parse(id));
+      const key = threads.join("\u0000");
+      if (!force && key === browsing) return;
+      browsing = key;
+      emit({ type: "browser.browsing", threads });
+    };
+    let stopUsing: (() => void) | undefined;
+    const reportUsing = () =>
+      emit({
+        type: "computer.using",
+        threads: this.computerUsing
+          .threads()
+          .filter((entry) => this.host.thread(entry.threadId))
+          .map((entry) => ({ threadId: ThreadId.parse(entry.threadId), apps: [...entry.apps] })),
+      });
     return {
       authenticated: (device) => {
         owner = device;
@@ -163,6 +191,8 @@ export class FakeServicesWire {
       },
       close: () => {
         closed = true;
+        stopBrowsing?.();
+        stopUsing?.();
         catalog.close();
         picker?.abort();
         stopProjects();
@@ -174,6 +204,16 @@ export class FakeServicesWire {
         terminalStreams.clear();
       },
       handle: async (message, device) => {
+        if (message.type === "browser.browsing.watch") {
+          stopBrowsing ??= this.browser.subscribe(() => reportBrowsing(false));
+          reportBrowsing(true);
+          return;
+        }
+        if (message.type === "computer.using.watch") {
+          stopUsing ??= this.computerUsing.subscribe(reportUsing);
+          reportUsing();
+          return;
+        }
         if (message.type === "storage.request") {
           emit(this.storage.handle(device, message));
           return;
@@ -202,12 +242,8 @@ export class FakeServicesWire {
             });
             return;
           }
-          if (message.type === "notification.register") {
-            if (message.requestId)
-              emit({ type: "notification.register.result", requestId: message.requestId });
-            return;
-          }
           if (message.type === "notification.preferences") return;
+          if (this.notificationFeed.handle(message, emit, device)) return;
           if (message.type.startsWith("files.")) {
             await files.handle(message, device);
             return;
@@ -439,9 +475,17 @@ export class FakeServicesWire {
                       },
                       {
                         id: "xcode",
-                        available: false,
-                        detail: "Simulator tools not found",
+                        available: true,
+                        detail: "Xcode at /Applications/Xcode.app/Contents/Developer",
                         hint: "Install Xcode from the App Store and open it once to set up the iOS Simulator.",
+                        version: "26.0",
+                      },
+                      {
+                        id: "serve-sim",
+                        available: true,
+                        detail: "serve-sim 0.1.48",
+                        hint: "Install the pinned version: npm install -g serve-sim@0.1.48",
+                        version: "0.1.48",
                       },
                       {
                         id: "android",

@@ -49,9 +49,55 @@ test.each(["0.85.1", "1.1.0", "1.2.0"])(
 test("Pi stays usable through Codex while its configured Claude service is signed out", async () => {
   expect(await discoverPiStatus(await fixture("1.1.0", true))).toMatchObject({ auth: "logged_in" });
 });
-test("a Pi release older than 0.85.1 remains unknown without running an auth command", async () => {
-  expect(await discoverPiStatus(await fixture("0.84.4", false))).toMatchObject({
-    auth: "unknown",
-    error: "Pi auth status is unsupported for this version",
+test("a sign-in to any provider Pi saved a credential for reads as signed in, not only the common ones", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-pi-saved-"));
+  roots.push(root);
+  await mkdir(join(root, "dist"));
+  await writeFile(
+    join(root, "package.json"),
+    JSON.stringify({
+      name: "@earendil-works/pi-coding-agent",
+      version: "1.3.0",
+      type: "module",
+      main: "./dist/index.js",
+    }),
+  );
+  // The SDK lists metadata only; the secret field shows nothing else leaves the listing.
+  await writeFile(
+    join(root, "dist", "index.js"),
+    `export class ModelRuntime {
+      static async create() { return new ModelRuntime(); }
+      async listCredentials() { return [{ providerId: "xai", type: "oauth", access: "never-relayed" }]; }
+    }`,
+  );
+  await mkdir(join(root, "bin"));
+  const executable = await nodeBinary(
+    join(root, "bin"),
+    "pi",
+    `
+    const args = process.argv.slice(2);
+    if(args[0]==='--version') console.log('1.3.0');
+    else if(args[0]==='auth' && args[1]==='check') {
+      const ready=args[args.indexOf('--provider')+1]==='xai';
+      console.log(JSON.stringify(ready?{status:'ready',authType:'oauth'}:{status:'not_ready',reason:'credentials_not_configured'}));
+      process.exitCode=ready?0:1;
+    } else process.exitCode=2;
+  `,
+  );
+  const status = await discoverPiStatus({
+    executable,
+    env: { HOME: root, PI_CODING_AGENT_DIR: join(root, "profile"), PATH: root },
   });
+  expect(status).toMatchObject({ installed: true, auth: "logged_in", authDetail: "oauth" });
+  expect(JSON.stringify(status)).not.toContain("never-relayed");
+});
+
+test("a Pi release older than 0.85.1 reports too old, without running an auth command", async () => {
+  const status = await discoverPiStatus(await fixture("0.84.4", false));
+  expect(status).toMatchObject({
+    installed: true,
+    auth: "unknown",
+    versionCheck: { status: "too_old", installed: "0.84.4", required: "0.85.1" },
+  });
+  expect(status.error).toBeUndefined();
 });

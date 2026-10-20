@@ -191,7 +191,14 @@ test("Pi releases older than 0.85.1 are refused before process launch, naming th
       cli: { installed: true, path: "fake", version: "0.84.4", auth: "unknown", loginHint: "none" },
       runtime,
     }),
-  ).rejects.toThrow("Pi 0.84.4 is not supported; ace supports Pi 0.85.1 or newer");
+  ).rejects.toMatchObject({
+    code: "cli_too_old",
+    cli: "pi",
+    installed: "0.84.4",
+    required: "0.85.1",
+    message:
+      "Pi 0.84.4 is older than 0.85.1, the oldest version ace supports. Update Pi, then refresh.",
+  });
 });
 test("missing ace extension fails startup without falling through to a model prompt", async () => {
   await expect(sessionHarness({}, false, { FAKE_PI_EXTENSION_MISSING: "1" })).rejects.toThrow(
@@ -380,6 +387,32 @@ test("the fake Pi CLI receives text, PDF and arbitrary binary paths", async () =
     expect(JSON.parse(str(obj(proof.data).message))).toMatchObject({
       message: "File: /files/code.ts\nFile: /files/report.pdf\nFile: /files/archive.zip",
     });
+  } finally {
+    await h.dispose();
+  }
+});
+test("Pi echoing a run's images twice in one event does not end the session", async () => {
+  const image = Buffer.alloc(600 * 1024);
+  for (let i = 0; i < image.length; i++) image[i] = (i * 29 + (i >> 8)) % 256;
+  const data = image.toString("base64");
+  const h = await sessionHarness();
+  try {
+    await h.session.send(
+      [
+        ...text("image-echo"),
+        { type: "image", mimeType: "image/png", url: `data:image/png;base64,${data}` },
+      ],
+      "queue",
+    );
+    expect(
+      obj(h.frames.find((f) => f.dir === "send" && obj(f.data).type === "prompt")?.data).images,
+    ).toEqual([{ type: "image", data, mimeType: "image/png" }]);
+    // agent_end repeats the image in the user message and its tool result: past one line's limit.
+    const end = await h.wait(received("agent_end"));
+    expect(JSON.stringify(end.data)).not.toContain(data.slice(0, 4096));
+    // The same session still answers the next prompt.
+    await h.session.send(text("image-echo"), "queue");
+    expect(h.frames.filter(received("agent_end"))).toHaveLength(2);
   } finally {
     await h.dispose();
   }

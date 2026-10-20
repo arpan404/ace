@@ -8,6 +8,8 @@ export function capabilities(cli: DiscoveryResult): Capabilities {
   const supported = cli.installed && version(cli.version);
   return {
     steer: supported,
+    // A prompt into a busy session is picked up at the next step boundary.
+    steerTiming: "after_tool",
     sessionOptions: supported,
     launchOptions: supported ? ["effort"] : [],
     permissionModes: nativePermissionModes("opencode"),
@@ -29,7 +31,8 @@ export function capabilities(cli: DiscoveryResult): Capabilities {
     imageInput: supported,
     attachmentInput: {
       format: "opencode",
-      documents: [],
+      // OpenCode 2 sends a file:// PDF to the model as media (`toLLMMessage` attachmentContent).
+      documents: ["application/pdf"],
       embeddedContext: false,
       maxInlineBytes: 4 * 1024 * 1024,
     },

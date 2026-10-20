@@ -1,0 +1,15 @@
+{
+  "$id": "https://ace.local/protocol/v1/MessageContextItem.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "https://ace.local/protocol/v1/ThreadRefContextItem.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/BrowserTabContextItem.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/BrowserAnnotationsContextItem.json"
+    }
+  ]
+}

@@ -9,11 +9,26 @@ export async function openWorkPanel() {
   if (!screen.queryByRole("tab", { name: "Summary", selected: true }))
     await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const work = await screen.findByRole("tabpanel", { name: "Summary" });
-  // Its head line ("Working for 12s", "Nothing running") draws once the thread's facts are in.
+  // Its sections draw once the thread's facts are in (a skeleton stands in until then).
   await waitFor(() => {
-    if (!work.querySelector("[data-summary-head]")) throw new Error("The summary is still loading");
+    if (!work.querySelector("[data-summary]")) throw new Error("The summary is still loading");
   });
   return work;
+}
+
+/**
+ * Open the Summary's folded Done section (its "N done" header) and resolve to its tree: the
+ * agents whose work settled, finished, failed or stopped.
+ */
+export async function openDoneAgents(work: HTMLElement) {
+  const fold = await within(work).findByRole("button", { name: /^\d+ done$/ });
+  if (fold.getAttribute("aria-expanded") === "false") await userEvent.click(fold);
+  return within(work).findByRole("tree", { name: "Done agents" });
+}
+
+/** The Summary's one-line thread status: "Working · 2 agents running · 4m", "Done · finished …". */
+export async function summaryStatus(work: HTMLElement) {
+  return (await within(work).findByRole("status", { name: /^Thread status/ })).textContent ?? "";
 }
 
 /** The header's thread details icon; its name gains ", working" or ", something needs you" with a dot. */

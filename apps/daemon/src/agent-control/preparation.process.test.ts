@@ -55,13 +55,8 @@ test.each([1, 2])(
     agentControlToolkit(createAgentControlPort(h.store, h.service)).register(registry);
     const create = (requestId: string) =>
       registry.call(
-        "delegate_task",
-        {
-          requestId,
-          provider: "claude",
-          role: "late child",
-          task: "Hello",
-        },
+        "delegate",
+        { tasks: [{ requestId, provider: "claude", role: "late child", task: "Hello" }] },
         { scope: { ...caller, capabilities: ["agents", "thread_control"] }, signal },
         signal,
       );

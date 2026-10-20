@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { appendTextSource, textPreview } from "./text-preview.ts";
+import { appendTextSource, hasTextPreview, textPreview } from "./text-preview.ts";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { Item, EventPayload, ThreadId, type TextSource } from "@ace/protocol";
 const StreamRow = z.object({
@@ -52,6 +52,12 @@ export class ItemTextStore {
       );
   }
   seed(item: Item, revision: number): void {
+    if (!hasTextPreview(item)) {
+      // A non-text preview would be a second full copy of `items.item`: nothing reads it.
+      this.statement("DELETE FROM item_text_targets WHERE item_id=?").run(item.id);
+      this.statement("DELETE FROM item_previews WHERE id=?").run(item.id);
+      return;
+    }
     const threadId = ThreadId.parse(
       this.statement("SELECT thread_id FROM items WHERE id=?").get(item.id)?.thread_id,
     );
@@ -163,7 +169,8 @@ export class ItemTextStore {
     for (const row of this.statement(
       "SELECT substr(bytes, 1, ? - offset) AS bytes FROM item_source_chunks WHERE stream_id = ? AND offset < ? ORDER BY offset",
     ).iterate(end, source.streamId, end)) {
-      if (!(row.bytes instanceof Uint8Array)) throw new Error("Invalid text chunk");
+      // Checked by its internal slot, not instanceof: a host realm (a jsdom test) has its own Uint8Array.
+      if (!ArrayBuffer.isView(row.bytes)) throw new Error("Invalid text chunk");
       pieces.push(Buffer.from(row.bytes.buffer, row.bytes.byteOffset, row.bytes.byteLength));
     }
     return Buffer.concat(pieces).toString("utf16le");

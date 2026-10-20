@@ -2,7 +2,7 @@ import { aceWaitTargets } from "@ace/mcp-server";
 import type { Fact, ThreadState } from "@ace/core";
 
 /**
- * A live ace wait tool call (ace_wait, or delegate_task with a wait)
+ * A live ace wait tool call (`wait`, or `delegate` with `waitSeconds`)
  * marks its agent as waiting for the children it names, so the parent reads "Waiting on N
  * subagents" rather than plain working. Delegated children appear in the parent tree as
  * `ace-child:<threadId>` summary agents; ids that are not children never become refs.

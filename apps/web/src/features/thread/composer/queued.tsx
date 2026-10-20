@@ -1,24 +1,22 @@
-import type { Attachment, QueuedMessage } from "@ace/protocol";
+import type { Attachment } from "@ace/protocol";
 import {
   ArrowBendUpRightIcon,
   DotsSixVerticalIcon,
   PencilSimpleIcon,
-  TrayIcon,
+  QueueIcon,
   XIcon,
 } from "@phosphor-icons/react";
-import { Suspense, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { cn } from "@/lib/cn.ts";
+import { useLayout } from "@/lib/layout.tsx";
 import type { PendingQueued } from "./queued-pending.ts";
 import { QueuedAttachments } from "./queued-attachments.tsx";
 import { queuedText, type QueueControls } from "./use-queue.ts";
 import { useComposerCompact } from "./composer-compact.ts";
-
-const Edit = deferredComponent(() =>
-  import("./queued-edit.tsx").then((module) => module.QueuedEdit),
-);
+import { beginQueueEdit, cancelQueueEdit, useQueueEdit } from "./queue-edit.ts";
 const handleStyle =
   "focus-ring inline-grid size-5 shrink-0 cursor-grab place-items-center rounded-sm text-subtle-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing aria-disabled:cursor-default aria-disabled:opacity-40";
 
@@ -45,13 +43,13 @@ export function QueuedTray(props: {
   notice?: ReactNode;
   /** The strip's other items, on the header row. */
   indicators?: ReactNode;
-  /** The message being edited, held by the strip so the editor outlives an emptied queue. */
-  editing: QueuedMessage | undefined;
-  onEdit(message: QueuedMessage | undefined): void;
+  /** Put the caret in the composer, where an edit happens. */
+  onEditInComposer?(): void;
 }) {
   const { queue } = props;
   const compact = useComposerCompact();
-  const { editing, onEdit: setEditing } = props;
+  const { storage } = useLayout();
+  const editing = useQueueEdit(props.threadId)?.message;
   const [announcement, announce] = useState("");
   const restoreFocus = useRef<{ id: string; handle: HTMLButtonElement } | undefined>(undefined);
   const drag = useRef<{ id: string; revision: number | undefined; order: string } | undefined>(
@@ -107,7 +105,7 @@ export function QueuedTray(props: {
     <>
       <section aria-label="Message queue" className="w-full text-xs text-muted-foreground">
         <div className="flex h-5.5 min-w-0 items-center gap-1.5 px-1">
-          <Icon icon={TrayIcon} size={12} className="shrink-0" />
+          <Icon icon={QueueIcon} size={12} className="shrink-0" />
           <span className="min-w-0 truncate">
             Queued
             {count > 0 && (
@@ -120,23 +118,42 @@ export function QueuedTray(props: {
           {props.indicators}
         </div>
         {props.notice}
-        <div className="max-h-48 overflow-y-auto overscroll-contain">
+        <div className="max-h-48 overflow-y-auto">
           <p id={hintId} className="sr-only">
             Drag to reorder, or focus a handle and press Alt+Arrow Up or Alt+Arrow Down.
           </p>
+          {editing && !messages.some((message) => message.id === editing.id) && (
+            // Its row isn't shown (sent, or moved past the loaded page): Cancel still needs a home.
+            <p role="status" className="flex items-center gap-1 px-1 py-0.5 text-subtle-foreground">
+              <span className="min-w-0 flex-1 truncate">
+                {queue.allMessages.some((message) => message.id === editing.id)
+                  ? "Editing a message further down the queue."
+                  : "The message you're editing has left the queue."}
+              </span>
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => {
+                  cancelQueueEdit(props.threadId);
+                  props.onEditInComposer?.();
+                }}
+              >
+                Cancel
+              </Button>
+            </p>
+          )}
           <ul aria-label="Queued messages">
             {messages.map((message, index) => {
               const saving = "saving" in message;
               const ambiguous = !saving && message.state === "uncertain";
               const busy = saving || queue.busy(message.id);
+              const edited = editing?.id === message.id;
               const text = queuedText(message) || "Attached files";
               const reason = saving
                 ? "This message is still being saved."
                 : busy
                   ? "This message is being updated."
-                  : message.requiresNextTurn
-                    ? "This message changes model or turn options and must wait for the next turn."
-                    : props.steerReason;
+                  : props.steerReason;
               return (
                 <li
                   key={message.id}
@@ -151,7 +168,10 @@ export function QueuedTray(props: {
                           ? "Queued message, paused after Stop"
                           : "Queued message, not yet sent"
                   }
-                  className="flex min-h-6.5 min-w-0 items-center gap-0.5 py-px"
+                  className={cn(
+                    "flex min-h-6.5 min-w-0 items-center gap-0.5 rounded-sm py-px",
+                    edited && "bg-accent",
+                  )}
                   onDragOver={(event) => {
                     if (drag.current && !saving && !moving && !uncertain) event.preventDefault();
                   }}
@@ -211,20 +231,41 @@ export function QueuedTray(props: {
                   </div>
                   {saving && <span>Saving…</span>}
                   {ambiguous && <span>May have been sent</span>}
-                  <IconButton
-                    icon={PencilSimpleIcon}
-                    label="Edit queued message"
-                    size="sm"
-                    disabled={busy || ambiguous}
-                    reason={
-                      ambiguous
-                        ? "This message may have been sent. Remove it or send it again."
-                        : undefined
-                    }
-                    onClick={() => {
-                      if (!saving) setEditing(message);
-                    }}
-                  />
+                  {edited ? (
+                    <>
+                      <span className="shrink-0 px-1 text-subtle-foreground">
+                        Editing in composer
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        title="Stop editing and bring back what you were writing"
+                        onClick={() => {
+                          cancelQueueEdit(props.threadId);
+                          props.onEditInComposer?.();
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </>
+                  ) : (
+                    <IconButton
+                      icon={PencilSimpleIcon}
+                      label="Edit queued message"
+                      size="sm"
+                      disabled={busy || ambiguous}
+                      reason={
+                        ambiguous
+                          ? "This message may have been sent. Remove it or send it again."
+                          : undefined
+                      }
+                      onClick={() => {
+                        if (saving || "saving" in message) return;
+                        if (beginQueueEdit(storage, props.threadId, message))
+                          props.onEditInComposer?.();
+                      }}
+                    />
+                  )}
                   {ambiguous ? (
                     <Button
                       variant="ghost"
@@ -291,11 +332,6 @@ export function QueuedTray(props: {
       <p role="status" className="sr-only">
         {announcement}
       </p>
-      {editing && (
-        <Suspense fallback={null}>
-          <Edit.Component message={editing} queue={queue} onClose={() => setEditing(undefined)} />
-        </Suspense>
-      )}
     </>
   );
 }

@@ -33,6 +33,8 @@ export interface MarkdownStoreOptions {
   interval(lastMs: number): number;
   /** Told of each update: the text's length and the worker's time. */
   updated?(update: { stream: string; chars: number; ms: number }): void;
+  /** A reply carried a math opener: warm KaTeX before the formula's block settles. */
+  onMathSeen?(): void;
   /** What unwatched documents may hold, in UTF-16 units weighed as `park` does (16 Mi). */
   parkedWeight?: number;
   /**
@@ -292,6 +294,7 @@ export class MarkdownStore {
     const now = this.options.now();
     stream.readyAt = started + this.options.interval(now - started);
     this.options.updated?.({ stream: stream.key, chars: wanted.text.length, ms: reply.ms });
+    if (reply.mathSeen) this.options.onMathSeen?.();
     for (const listener of stream.listeners) listener();
     this.pump(stream);
   }

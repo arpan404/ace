@@ -6,6 +6,7 @@ import type {
   BrowserClientMessage,
   BrowserBackendClientMessage,
   ServerMessage,
+  UserBrowserExtensionMessage,
 } from "@ace/protocol";
 import type { PluginClientMessage, PluginServerMessage } from "@ace/protocol/plugins";
 import type { WebSocket } from "ws";
@@ -15,7 +16,8 @@ export type SocketMessage =
   | ClientMessage
   | PluginClientMessage
   | BrowserClientMessage
-  | BrowserBackendClientMessage;
+  | BrowserBackendClientMessage
+  | UserBrowserExtensionMessage;
 export interface CommandRegistration {
   types: readonly Command["payload"]["type"][];
   scope(command: Command): DeviceScope;
@@ -37,7 +39,8 @@ export interface SocketContext {
   local?: boolean;
   /** Host token on loopback only. Paired credentials need the encrypted relay. */
   canSubmitSecret?(): boolean;
-  onPresence(): void;
+  /** A presence update was admitted; `appState` says whether a phone app is in the background. */
+  onPresence(update: Extract<ClientMessage, { type: "presence.update" }>): void;
   subscriptions: Map<string, () => void>;
   tasks: Set<Promise<void>>;
   maintenance: MaintenanceGate;

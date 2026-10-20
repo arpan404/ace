@@ -10,7 +10,11 @@ import type {
   ServerMessage,
 } from "@ace/protocol";
 
-type Scenario = "device_code" | "browser" | "choice" | "failure";
+/** `paste_code`: Claude Code's own flow, a browser opened here plus a fallback page's code. */
+type Scenario = "device_code" | "browser" | "choice" | "failure" | "paste_code";
+/** Claude's fallback page: it shows `code#state`, pasted back into the CLI. */
+const claudeFallback =
+  "https://claude.com/cai/oauth/authorize?code=true&client_id=ace-fake&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback";
 interface Job {
   owner: string;
   requestId: string;
@@ -141,6 +145,10 @@ export class FakeProviderLogin {
   private challenge(job: Job): void {
     if (job.scenario === "failure") {
       this.complete(job.progress.session, false);
+      return;
+    }
+    if (job.scenario === "paste_code") {
+      this.update(job, { state: "awaiting_browser", url: claudeFallback, codeEntry: true });
       return;
     }
     if (
@@ -352,6 +360,15 @@ export class FakeProviderLogin {
       });
       job.terminalOwner = push;
       reply(job);
+      return true;
+    }
+    if (input.type === "provider.login.input" && "code" in input.input) {
+      // Only a CLI waiting for one takes a code; it answers that prompt and is never kept.
+      const waiting = job.progress.codeEntry === true;
+      input.input.code = "";
+      if (!waiting) error("invalid_input");
+      else this.complete(job.progress.session);
+      if (waiting) reply(job);
       return true;
     }
     if (input.type === "provider.login.input") {

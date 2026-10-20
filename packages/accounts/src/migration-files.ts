@@ -17,7 +17,7 @@ export class MigrationFailure extends Error {
 /** No recursion through symlinks, bounded directory depth and total entries. */
 export async function* walkFiles(
   root: string,
-  budget: { entries: number } = { entries: 0 },
+  budget: { entries: number; limit?: number } = { entries: 0 },
   depth = 0,
 ): AsyncGenerator<string> {
   if (depth > 16) throw new MigrationFailure("refused", "Directory depth limit exceeded");
@@ -26,7 +26,7 @@ export async function* walkFiles(
     throw new MigrationFailure("refused", "Expected a real directory");
   const dir = await opendir(root);
   for await (const entry of dir) {
-    if (++budget.entries > 20_000)
+    if (++budget.entries > (budget.limit ?? 20_000))
       throw new MigrationFailure("refused", "Session inventory limit exceeded");
     const path = join(root, entry.name);
     if (entry.isDirectory()) yield* walkFiles(path, budget, depth + 1);

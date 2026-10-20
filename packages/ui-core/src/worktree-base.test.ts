@@ -15,9 +15,14 @@ test("a new worktree starts from the remote's copy of the default branch when th
   expect(defaultWorktreeBase(refs, "main")).toEqual({ ref: "main", remote: "origin" });
 });
 
-test("local commits the remote doesn't have keep the default on the local branch", () => {
+test("a new worktree starts from the remote's default branch even when the local one is ahead", () => {
   const refs = [{ name: "main", upstream: "origin/main", ahead: 2, behind: 1 }, origin("main")];
-  expect(defaultWorktreeBase(refs, "main")).toEqual({ ref: "main" });
+  expect(defaultWorktreeBase(refs, "main")).toEqual({ ref: "main", remote: "origin" });
+});
+
+test("a new worktree starts from origin's default branch when the local one has no upstream", () => {
+  const refs = [{ name: "main" }, { name: "main", remote: "fork" }, origin("main")];
+  expect(defaultWorktreeBase(refs, "main")).toEqual({ ref: "main", remote: "origin" });
 });
 
 test("a default branch only the remote has is offered from the remote, and a local-only one locally", () => {

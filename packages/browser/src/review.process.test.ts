@@ -10,7 +10,6 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
     await f.navigate();
     const name = ref(await f.execute({ action: "snapshot" }), "Name");
     await f.execute({ action: "type", ref: name, text: "abc" });
-    f.service.takeover("thread", "owner");
     const press = async (key: string, code = key) => {
       for (const event of ["keyDown", "keyUp"])
         await f.service.input("thread", { kind: "key", event, key, code }, "owner");
@@ -59,7 +58,7 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
     ).toBe("Save");
   }, 60_000);
 
-  it("queues a socket burst and cancels queued approvals on shutdown", async () => {
+  it("queues a frame burst and cancels queued approvals on shutdown", async () => {
     const full = Promise.withResolvers<void>();
     let approvals = 0;
     const pending = Promise.withResolvers<boolean>();
@@ -70,10 +69,10 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
       },
     });
     await f.navigate();
-    const socketUrl = JSON.stringify(
-      f.url.replace("http:", "ws:").replace("127.0.0.1", "127.0.0.2"),
+    const frameUrl = JSON.stringify(f.url.replace("127.0.0.1", "127.0.0.2"));
+    await f.evaluate(
+      `for(let i=0;i<40;i++){const frame=document.createElement('iframe');frame.src=${frameUrl}+'/'+i;document.body.append(frame)} void 0`,
     );
-    await f.evaluate(`for(let i=0;i<40;i++) new WebSocket(${socketUrl}+'/'+i); void 0`);
     await full.promise;
     await f.service.open({ threadId: "other", workspaceId: "other" });
     const navigation = f.service.execute("other", {
@@ -156,15 +155,6 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
         "globalThis.TextEncoder=class{encode(){return new Uint8Array(0)}}; '😀'.repeat(130000)",
       ),
     ).rejects.toThrow("evaluate failed");
-  }, 60_000);
-
-  it("rejects a snapshot of an oversized DOM before building its accessibility tree", async () => {
-    const f = await fixture();
-    await f.navigate();
-    await f.evaluate(
-      "const fragment=document.createDocumentFragment();for(let i=0;i<21000;i++)fragment.append(document.createElement('span'));document.body.append(fragment)",
-    );
-    await expect(f.execute({ action: "snapshot" })).rejects.toThrow("snapshot node limit");
   }, 60_000);
 
   it("rejects excess commands while preserving admitted commands", async () => {

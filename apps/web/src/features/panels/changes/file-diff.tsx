@@ -10,7 +10,7 @@ import { LongRows } from "@/components/virtual-rows.tsx";
 import { DiffStat } from "./diff-stat.tsx";
 import { createPairedRowHeights } from "./paired-row-heights.ts";
 import { useDiffRenderer } from "./diff-renderer.ts";
-import type { FileView } from "./file-view.ts";
+import { diffRowHeight as rowHeight, type FileView } from "./file-view.ts";
 
 const GpuDiff = lazy(() => import("./gpu-diff.tsx"));
 
@@ -43,13 +43,8 @@ const ordered = (side: LineRange["side"], a: number, b: number): LineRange => {
 
 /** Above this many rows a file mounts only the rows near the viewport. */
 const virtualAbove = 400;
-const rowHeight = 20;
 
-export { freshView, type FileView } from "./file-view.ts";
-
-/** Typical height of a file block before it is measured: its header and, if open, its rows. */
-export const fileHeight = (file: FileDiff, view: FileView) =>
-  32 + (view.open ? file.rows.length * rowHeight : 0);
+export { freshView, fileHeight, type FileView } from "./file-view.ts";
 
 /**
  * One changed file: a sticky header that collapses it, then its lines in unified or split
@@ -133,7 +128,7 @@ export function FileDiffBlock(props: {
             type="button"
             aria-expanded={open}
             onClick={() => onView({ ...view, open: !open })}
-            className="flex h-8 min-w-0 flex-1 items-center gap-2 pl-3.5 text-left font-mono text-sm text-muted-foreground outline-none hover:text-foreground focus-ring-inset"
+            className="flex h-8 min-w-0 flex-1 items-center gap-2 pl-3.5 text-left font-mono text-sm text-muted-foreground outline-none hover:text-foreground hover:shadow-[inset_3px_0_0_var(--border-strong)] focus-ring-inset"
           >
             <CaretDownIcon
               aria-hidden
@@ -146,10 +141,16 @@ export function FileDiffBlock(props: {
             {props.statusIcon ?? (
               <CodeIcon aria-hidden size={14} className="shrink-0 text-subtle-foreground" />
             )}
-            <span className={cn("min-w-0 truncate", props.viewed && "opacity-70")}>
-              {file.movedFrom && <span>{file.movedFrom} → </span>}
-              {file.path.slice(0, slash + 1)}
-              <b className="font-medium text-foreground">{file.path.slice(slash + 1)}</b>
+            {/* Truncated from the left (an RTL box around an LTR run): the filename stays. */}
+            <span
+              dir="rtl"
+              className={cn("min-w-0 truncate text-left", props.viewed && "opacity-70")}
+            >
+              <bdi dir="ltr">
+                {file.movedFrom && <span>{file.movedFrom} → </span>}
+                {file.path.slice(0, slash + 1)}
+                <b className="font-medium text-foreground">{file.path.slice(slash + 1)}</b>
+              </bdi>
             </span>
             {file.status !== "modified" && (
               <span className="shrink-0 font-sans text-xs text-subtle-foreground">
@@ -164,6 +165,9 @@ export function FileDiffBlock(props: {
           </button>
           {props.actions}
         </div>
+        {open && !file.rows.length && (
+          <p className="px-3.5 py-2 text-xs text-subtle-foreground">No text changes to show.</p>
+        )}
         {open && renderer !== "dom" && !asText && (
           <Suspense fallback={<Spinner label="Loading the diff renderer" className="m-3.5" />}>
             <GpuDiff

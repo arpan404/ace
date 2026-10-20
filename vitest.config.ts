@@ -17,12 +17,13 @@ const browserStartupSuites = [
   "tools/web-perf/src/live-motion.process.test.ts",
 ];
 const historyScaleSuite = "packages/history-import/src/scale.process.test.ts";
+// Four workers by default; ACE_TEST_WORKERS raises it on machines with more cores.
+const workers = Number(process.env.ACE_TEST_WORKERS) || 4;
 
 export default defineConfig({
   test: {
     reporters: ["default", new FailureDetailsReporter()],
-    // Keep the staging validation bounded to four test workers.
-    maxWorkers: 4,
+    maxWorkers: workers,
     fsModuleCache: true,
     projects: [
       {
@@ -37,9 +38,10 @@ export default defineConfig({
             "packages/*/src/**/*.test.ts",
             "tools/*/src/**/*.test.ts",
             "apps/*/src/**/*.test.ts",
+            "apps/ios/bridge/**/*.test.ts",
           ],
           exclude: ["**/*.process.test.ts", historyWorkerReview, "**/node_modules/**", ...react],
-          maxWorkers: 4,
+          maxWorkers: workers,
           sequence: { groupOrder: 0 },
         },
       },
@@ -52,7 +54,7 @@ export default defineConfig({
             historyWorkerReview,
           ],
           exclude: ["**/node_modules/**", ...react, ...browserStartupSuites, historyScaleSuite],
-          maxWorkers: 4,
+          maxWorkers: workers,
           sequence: { groupOrder: 1 },
           testTimeout: PROCESS_TEST_TIMEOUT,
           hookTimeout: PROCESS_TEST_TIMEOUT,
@@ -68,7 +70,7 @@ export default defineConfig({
         test: {
           name: "browser-process",
           include: browserStartupSuites,
-          maxWorkers: 4,
+          maxWorkers: workers,
           // Browser startup follows the desktop and browser bundle-building suites.
           sequence: { groupOrder: 2 },
           testTimeout: PROCESS_TEST_TIMEOUT,
@@ -84,7 +86,7 @@ export default defineConfig({
         test: {
           name: "history-scale",
           include: [historyScaleSuite],
-          maxWorkers: 4,
+          maxWorkers: workers,
           // The production-memory scale workload runs after fixture builds and browsers close.
           sequence: { groupOrder: 3 },
           testTimeout: PROCESS_TEST_TIMEOUT,

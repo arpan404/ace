@@ -329,15 +329,19 @@ export class GhApi {
     }
     const apiHost = this.#host === "github.com" ? "api.github.com" : this.#host;
     const prefix = this.#host === "github.com" ? "/" : "/api/v3/";
-    if (
-      url.protocol !== "https:" ||
-      url.host !== apiHost ||
-      url.username ||
-      url.password ||
-      url.pathname !== `${prefix}${path.split("?")[0]}`
-    )
+    if (url.protocol !== "https:" || url.host !== apiHost || url.username || url.password)
       throw new ForgeError("invalid_data");
-    return `${url.pathname.slice(prefix.length)}${url.search}`;
+    const requested = path.split("?")[0] ?? "";
+    const linked = url.pathname.slice(prefix.length);
+    if (url.pathname.startsWith(prefix) && linked === requested) return `${linked}${url.search}`;
+    // GitHub may address the same resource by repository id (`repositories/123/issues/...`).
+    // Only the resource below the repository may differ; the request stays scoped to the
+    // repository named in the original path, so an id can never redirect to another one.
+    const named = /^repos\/[^/]+\/[^/]+\/(.+)$/.exec(requested);
+    const byId = /^repositories\/\d+\/(.+)$/.exec(linked);
+    if (url.pathname.startsWith(prefix) && named?.[1] && byId?.[1] === named[1])
+      return `${requested}${url.search}`;
+    throw new ForgeError("invalid_data");
   }
   async log(jobPath: string, signal: AbortSignal): Promise<{ text: string; truncated: boolean }> {
     const result = await this.#runner({

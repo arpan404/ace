@@ -15,6 +15,7 @@ import {
   seedColdStartState,
   turnStatuses,
   workbenchServices,
+  pullRequestDetails,
 } from "@ace/fake-daemon";
 import type { Client } from "@ace/client";
 import type { MachinePool } from "@ace/client-worker/machines";
@@ -81,10 +82,13 @@ export function bootFake(): {
   // The panels' terminals, browser and dev server, in the daemon's own services.
   if (!empty) seedPanels(daemon);
   // Automations, plugins and linked pull requests, served over the wire like a daemon's.
-  if (!empty)
+  if (!empty) {
     daemon.seedServices(
       workbenchServices(Date.now(), Intl.DateTimeFormat().resolvedOptions().timeZone),
     );
+    // The PR panel's three looks: ready to merge, failing with changes requested, merged.
+    daemon.workspace.seedPullRequests(pullRequestDetails(Date.now()));
+  }
   // `aceFakeWorld = "computer-use"` (or `?fakeWorld=computer-use`): agents using apps and the
   // browser on this Mac.
   if (world === "computer-use") seedComputerUse(daemon);

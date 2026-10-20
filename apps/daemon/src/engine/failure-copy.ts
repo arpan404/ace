@@ -17,6 +17,7 @@ const titles: Record<string, string> = {
 };
 
 /** Why a Cursor thread can't move to another provider or account in place (ADR 0043). */
+export const acpAgentRequired = "Choose the agent to switch to from the model picker.";
 export const switchNeedsNewThread =
   "Cursor keeps this conversation on its own account. Send your next message to continue in a new thread with this context.";
 

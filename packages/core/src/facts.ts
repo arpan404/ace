@@ -18,6 +18,7 @@ import type {
   ToolDetail,
   ThreadStatus,
   ThreadId,
+  ProviderGoal,
 } from "@ace/protocol";
 
 /** Adapter-owned identity, unique within an entity kind and provider process. */
@@ -97,6 +98,12 @@ export type Fact =
     }
   /** Durable provider admission transfers queue ownership; it is not a model turn. */
   | { type: "input.admitted"; agent: Key; nativeInputId: string; commandId?: string }
+  /**
+   * The provider reports these inputs (by the native ids their sends carried) taken into the
+   * agent's running turn, or with no turn running, into its next one. The engine binds each
+   * input's transcript item to that run; core keeps no state for it.
+   */
+  | { type: "input.consumed"; agent: Key; nativeInputIds: string[] }
   | {
       type: "turn.started";
       agent: Key;
@@ -109,6 +116,8 @@ export type Fact =
       agent: Key;
       nativeTurnId?: string;
       outcome: "completed" | "interrupted" | "failed";
+      /** The engine interrupted this turn so the person's steer reached the model now. */
+      endedBy?: "steer";
       trigger?: RunTrigger;
       error?: AgentError;
       /** Historical settlement records outcomes without applying current quota policy. */
@@ -179,6 +188,8 @@ export type Fact =
   /** Explicit quota recovery; ordinary stream activity is not quota evidence. */
   | { type: "limit.cleared"; agent: Key }
   | { type: "wake.expected"; agent: Key; until: number }
+  /** The provider's native goal changed; null when it was cleared. Only the root agent's counts. */
+  | { type: "goal.updated"; agent: Key; goal: ProviderGoal | null }
   | ({
       type: "usage";
       agent: Key;

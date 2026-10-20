@@ -4,6 +4,7 @@ import { configure, fireEvent, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import { terminalsOpenIn } from "@/test/terminal-place.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -18,6 +19,8 @@ async function openColdStart(storage = memoryKeyValue()) {
   app.play(coldStartReplay()).runThrough("turn-2");
   app.play(failingSubagent()).step();
   seedPanels(app.daemon);
+  // These tests are about the panel's own tabs: with no browser, no browser tab joins them.
+  app.daemon.browser.close("thread-cold-start");
   const view = await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: coldStart });
   return { app, view, storage };
@@ -99,7 +102,7 @@ test("tabs survive a reload with the one that was showing", async () => {
   expect(selected(panel).textContent).toBe("Devices");
 });
 
-test("from the keyboard: arrows show the next tab, Alt+Shift+arrow reorders, Delete closes and focus moves on", async () => {
+test("from the keyboard: arrows show the next tab, Alt+Shift+arrow reorders, Delete closes any tab and focus moves on", async () => {
   await openColdStart();
   await userEvent.keyboard("{Control>}{Shift>}l{/Shift}{/Control}");
   const panel = await sidePanel();
@@ -121,9 +124,9 @@ test("from the keyboard: arrows show the next tab, Alt+Shift+arrow reorders, Del
   expect(selected(panel).textContent).toBe("Devices");
   expect(document.activeElement?.textContent).toBe("Devices");
 
-  // Pinned tools don't close from the keyboard by accident.
+  // Pinned tools close too; the launcher opens them again.
   await userEvent.keyboard("{Home}{Delete}");
-  expect(tabNames(panel)).toEqual(["Summary", changes, "Files", "Devices"]);
+  expect(tabNames(panel)).toEqual([changes, "Files", "Devices"]);
 });
 
 test("dragging a tab onto another puts it beside that one", async () => {
@@ -161,6 +164,24 @@ test("a tool's shortcut shows it, and pressed again hides the panel", async () =
   expect(selected(panel).textContent).toBe("Summary");
   await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
+});
+
+test("a tool's shortcut puts focus in the panel, and hiding the panel from there hands focus to the composer", async () => {
+  await openColdStart();
+  await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
+  const panel = await sidePanel();
+  await waitFor(() => expect(document.activeElement).toBe(selected(panel)));
+
+  // Off Apple platforms the side panel is Ctrl+Alt+B.
+  await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Message" })),
+  );
+
+  await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
+  const back = await sidePanel();
+  await waitFor(() => expect(back.contains(document.activeElement)).toBe(true));
 });
 
 test("hiding the side panel keeps its tabs, and the header then keeps only its toggle", async () => {
@@ -229,12 +250,13 @@ test("full view gives the panel the work area; the way back restores the convers
   expect(within(panel).getByRole("button", { name: "Full view" })).toBeTruthy();
 });
 
-test("⌘J shows the thread's terminal as a side panel tab, and the panel's width is kept across a reload", async () => {
-  const { view, storage } = await openColdStart();
-  // There is no bottom panel any more: the old shortcut shows the terminal beside the thread.
+test("with terminals set to open in the side panel, ⌘J shows the thread's terminal as its tab, and the panel's width is kept across a reload", async () => {
+  const storage = memoryKeyValue();
+  terminalsOpenIn(storage, "side");
+  const { view } = await openColdStart(storage);
   await userEvent.keyboard("{Meta>}j{/Meta}");
   const panel = await sidePanel();
-  expect(screen.queryByRole("region", { name: "Bottom panel" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "Terminal panel" })).toBeNull();
   // Its terminal picks up the thread's running zsh.
   expect(await within(panel).findByRole("tab", { name: "zsh", selected: true })).toBeTruthy();
   const handle = within(panel).getByRole("separator", { name: "Resize thread panel" });
@@ -258,7 +280,7 @@ test("⌘J shows the thread's terminal as a side panel tab, and the panel's widt
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 });
 
-test("New tab offers an address, tools and suggested sites, and opens Files in its place", async () => {
+test("New tab offers an address, tools and suggested sites, and opens another Files tab in its place", async () => {
   await openColdStart();
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   const panel = await sidePanel();
@@ -268,7 +290,7 @@ test("New tab offers an address, tools and suggested sites, and opens Files in i
   expect(within(panel).getByRole("combobox", { name: "Address" })).toBeTruthy();
   await userEvent.click(within(tools).getByRole("button", { name: /^Files/ }));
   expect(selected(panel).textContent).toBe("Files");
-  expect(tabNames(panel)).toEqual(["Summary", changes, "Files"]);
+  expect(tabNames(panel)).toEqual(["Summary", changes, "Files", "Files"]);
 });
 
 test("the new tab's tools are one Tab stop that arrow keys move through by row and column", async () => {

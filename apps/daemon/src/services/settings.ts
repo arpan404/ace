@@ -2,12 +2,16 @@ import { SettingsKey } from "@ace/protocol";
 import { ProviderConfigurationsState } from "../provider-configurations.ts";
 import { SettingsService } from "@ace/settings";
 import type { ServiceContext } from "./types.ts";
+import { downloadsHost, systemDownloadsFolder, usableFolder } from "../download-folder.ts";
 export async function startSettings(context: ServiceContext): Promise<void> {
   const { config, resources, services } = context;
 
+  // This machine's Downloads folder, reported read-only so Settings can name it (or say it
+  // isn't usable); downloads re-check it each time.
+  const downloads = await usableFolder(await systemDownloadsFolder(downloadsHost()));
   const settings = new SettingsService({
     dataDir: config.dataDir,
-    ...(config.settingsOverrides ? { overrides: config.settingsOverrides } : {}),
+    overrides: { ...config.settingsOverrides, "browser.downloadDefault": downloads ?? "" },
   });
   resources.own(() => settings.close());
   services.settings = settings;
@@ -43,7 +47,9 @@ export function createSettingsSession(context: SocketContext): SocketService {
           (!(key.startsWith("host.") || key.startsWith("remote.")) ||
             (context.local === true && authorize("admin"))) &&
           (key !== "providers.configuration" || authorize("admin")) &&
-          (!key.startsWith("storage.") || authorize("admin")),
+          (!key.startsWith("storage.") || authorize("admin")) &&
+          (!key.startsWith("browser.download") || authorize("admin")) &&
+          (key !== "computer.blockedApps" || authorize("admin")),
       ),
     set: async (key, value, commit) => {
       if (options.applyRemoteSetting) await options.applyRemoteSetting(key, value, commit);
@@ -55,6 +61,10 @@ export function createSettingsSession(context: SocketContext): SocketService {
         request.key === "projects.roots" ||
         request.key === "providers.configuration" ||
         request.key.startsWith("storage.") ||
+        // Where the daemon writes downloaded files on its machine.
+        request.key.startsWith("browser.download") ||
+        // Which apps agents can't use: only the person may loosen it.
+        request.key === "computer.blockedApps" ||
         request.key.startsWith("host.") ||
         request.key.startsWith("remote."))
         ? request.layer.kind === "global" &&

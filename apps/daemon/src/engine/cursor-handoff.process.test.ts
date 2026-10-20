@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "vitest";
 import { ToolRegistry } from "@ace/mcp-server";
-import { HandoffChunk, HandoffPage, McpScope, PortableHandoff } from "@ace/protocol";
+import { HandoffChunk, HandoffPage, McpScope } from "@ace/protocol";
 import { handoffToolkit } from "../services/handoff-tools.ts";
-import { transitionHarness } from "./transition-test-support.ts";
+import { receivedHandoff, transitionHarness } from "./transition-test-support.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -42,13 +42,11 @@ test("Cursor portable forks deliver the shared manifest and retain scoped histor
   const delivered = h.inputs.at(-1);
   expect(delivered?.provider).toBe("cursor");
   const input = delivered?.text ?? "";
-  const manifest = PortableHandoff.parse(
-    JSON.parse(input.slice(0, input.indexOf("\ncontinue fork"))),
-  );
-  expect(manifest.origin).toEqual({ provider: "cursor", backend: "cursor-sdk" });
+  const manifest = receivedHandoff(input);
+  expect(manifest.block).toContain("cursor worked on before you");
   expect(manifest.throughSeq).toBe(cutoff);
-  expect(manifest.history.before).toBe(cutoff + 1);
-  expect(Buffer.byteLength(JSON.stringify(manifest))).toBeLessThanOrEqual(4096);
+  expect(manifest.read?.before).toBe(cutoff + 1);
+  expect(manifest.bytes).toBeLessThanOrEqual(4096);
   expect(input).not.toContain("later Cursor secret");
   expect(h.store.getThread(fork)?.lineage).toMatchObject({ mode: "portable", lossy: true });
 
@@ -65,7 +63,7 @@ test("Cursor portable forks deliver the shared manifest and retain scoped histor
     signal: new AbortController().signal,
   };
   const response = await registry.call(
-    manifest.history.tool,
+    "handoff_read",
     { sourceThreadId: source, before: h.store.headSeq() + 1, limit: 1 },
     principal,
     principal.signal,
@@ -76,8 +74,8 @@ test("Cursor portable forks deliver the shared manifest and retain scoped histor
     throw new Error("Missing Cursor full history pointer");
   expect(item.parts[0].text).not.toContain("later Cursor secret");
   const responseChunk = await registry.call(
-    manifest.history.chunkTool,
-    { sourceThreadId: source, streamId: item.parts[0].source.streamId, offset: 0, limit: 32768 },
+    "handoff_read",
+    { sourceThreadId: source, streamId: item.parts[0].source.streamId, offset: 0 },
     principal,
     principal.signal,
   );
@@ -86,7 +84,7 @@ test("Cursor portable forks deliver the shared manifest and retain scoped histor
   expect(chunk.eof).toBe(true);
   expect(
     await registry.call(
-      manifest.history.tool,
+      "handoff_read",
       { sourceThreadId: "unrelated" },
       principal,
       principal.signal,

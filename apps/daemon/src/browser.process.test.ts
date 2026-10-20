@@ -18,7 +18,7 @@ import { ownedBrowserPids, waitForBrowserExit } from "./browser-test-process.ts"
 const executablePath = await detectChromium();
 const exec = promisify(execFile);
 describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
-  it("streams to two authenticated clients, scopes control to a connection, and persists recordings as thread artifacts", async () => {
+  it("streams to two authenticated clients, lets both use the page beside an agent, and persists recordings as thread artifacts", async () => {
     if (!executablePath) throw new Error("Missing explicit test Chromium");
     const home = await mkdtemp(join(tmpdir(), "ace-browser-wire-"));
     const daemon = await startDaemon({
@@ -45,7 +45,7 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
       ).toMatchObject({ ok: true });
       expect(
         await second.request({
-          type: "browser.takeover",
+          type: "browser.subscribe",
           requestId: "unknown",
           threadId: "unknown",
         }),
@@ -66,10 +66,7 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
         if (reply.type !== "browser.frame") throw new Error("Expected frame");
         expect(BrowserFrame.parse(reply.frame).data.length).toBeGreaterThan(0);
       }
-      await first.request({ type: "browser.takeover", requestId: "take", threadId: thread.id });
-      await expect(
-        daemon.browser.execute(thread.id, { action: "scroll", x: 0, y: 1 }),
-      ).rejects.toThrow("controlled by human");
+      // Nobody takes control (ADR 0067, Collaboration): both people and an agent use the page.
       expect(
         await second.request({
           type: "browser.input",
@@ -77,7 +74,8 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
           threadId: thread.id,
           input: { kind: "scroll", x: 0, y: 0, deltaX: 0, deltaY: 1 },
         }),
-      ).toMatchObject({ ok: false, error: "Browser controller mismatch" });
+      ).toMatchObject({ ok: true });
+      await daemon.browser.execute(thread.id, { action: "scroll", x: 0, y: 1 });
       expect(
         await first.request({
           type: "browser.input",
@@ -94,7 +92,6 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
           input: { kind: "touch", event: "touchEnd", points: [] },
         }),
       ).toMatchObject({ ok: true });
-      await first.request({ type: "browser.handback", requestId: "back", threadId: thread.id });
       await first.request({
         type: "browser.recording.start",
         requestId: "start",

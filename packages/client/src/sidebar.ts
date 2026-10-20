@@ -3,6 +3,9 @@ import type { ClientMessage, ServerMessage, ThreadListView, ThreadListEntry } fr
 import type { Mirrorable, SidebarExport, SidebarSource } from "./api.ts";
 import type { SidebarKey, SidebarReader } from "./readers.ts";
 import { Notifications, type ChangeTap, type Selection } from "./observable.ts";
+import { parseSidebarRecord, sidebarRecord, type SidebarHalf } from "./read-records.ts";
+import { SnapshotBinding, contentChanges, type Persistence } from "./read-snapshots.ts";
+import { FilterMemory, type ProvisionalSource } from "./sidebar-memory.ts";
 import { ClientError, type Limits } from "./types.ts";
 
 export type { SidebarReader } from "./readers.ts";
@@ -12,14 +15,105 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   get error() {
     return this.#failure;
   }
+  #persistence: Persistence | undefined;
+  #binding: SnapshotBinding | undefined;
+  #checkpoints = new Set<Promise<void>>();
+  /**
+   * What the list still waits for before it is the daemon's: each subscription's snapshot, or
+   * a reason it has none (restored from disk, released, disconnected). Empty when live.
+   */
+  #pending = new Set<string>();
+  get syncing(): boolean {
+    return this.#pending.size > 0;
+  }
+  /** Halves held from a copy the daemon has not confirmed (from disk, or kept unfollowed). */
+  #unconfirmed = new Set<SidebarHalf>();
+  get unconfirmed(): boolean {
+    return this.#unconfirmed.size > 0;
+  }
+  #confirm(halves: readonly SidebarHalf[], unconfirmed: boolean): boolean {
+    const was = this.unconfirmed;
+    for (const half of halves)
+      if (unconfirmed) this.#unconfirmed.add(half);
+      else this.#unconfirmed.delete(half);
+    return was !== this.unconfirmed;
+  }
+  #await(reasons: readonly string[]): void {
+    const was = this.syncing;
+    this.#pending.clear();
+    for (const reason of reasons) this.#pending.add(reason);
+    if (was !== this.syncing) this.#notifications.emit(["sync"]);
+  }
+  /** Follow the read snapshot of the half the current filter shows, under its own key. */
+  #persist(): void {
+    this.#retire();
+    const persistence = this.#persistence;
+    if (!persistence) return;
+    const half = this.#filter.archived ? "archive" : "home";
+    this.#binding = new SnapshotBinding(
+      persistence,
+      `sidebar:${JSON.stringify([this.#filter.project ?? null, !!this.#filter.archived])}`,
+      contentChanges((tap) => this.observe(tap)),
+      // A derived list is part of another filter's: it is never written as this filter's.
+      () =>
+        this.#provisional.get(half) === "derived"
+          ? undefined
+          : sidebarRecord(half, half === "archive" ? this.#archive : this.#home),
+      (value) => this.#restore(value),
+    );
+  }
+  #retire(): void {
+    const written = this.#binding?.close();
+    this.#binding = undefined;
+    if (!written) return;
+    this.#checkpoints.add(written);
+    void written.finally(() => this.#checkpoints.delete(written));
+  }
+  /**
+   * Paint a half read back from disk until its subscription's snapshot arrives. A half is
+   * adopted only where none is held, or where the one held was derived from another filter's
+   * list; one that does not parse or is over the entity limit is skipped without blocking the
+   * other.
+   */
+  #restore(value: unknown): void {
+    const record = parseSidebarRecord(value);
+    const open = (half: SidebarHalf) =>
+      !(half === "archive" ? this.#archive : this.#home) ||
+      this.#provisional.get(half) === "derived";
+    const fits = (view: ThreadListView | undefined): view is ThreadListView =>
+      view !== undefined && Object.keys(view.threads).length <= this.#limits.entities;
+    const home = open("home") && fits(record.home) ? record.home : undefined;
+    const archive = open("archive") && fits(record.archive) ? record.archive : undefined;
+    if (!home && !archive) return;
+    if (home) this.#home = home;
+    if (archive) this.#archive = archive;
+    if (home) this.#provisional.delete("home");
+    if (archive) this.#provisional.delete("archive");
+    this.#confirm(
+      [...(home ? ["home" as const] : []), ...(archive ? ["archive" as const] : [])],
+      true,
+    );
+    if (!this.#pending.size) this.#pending.add("restored");
+    this.#merge();
+    this.#notifications.emitAll();
+  }
+  /** Checkpoint the read snapshot; resolves once it, and earlier ones, are written. */
+  close(): Promise<void> {
+    this.#retire();
+    return Promise.all(this.#checkpoints).then(() => {});
+  }
   reject(id: string, error: ClientError): void {
     if (id !== this.#wire && id !== this.#archiveWire) return;
     this.#failure = error;
+    this.#pending.delete(id);
     if (id === this.#archiveWire) this.#archiveWire = undefined;
     else this.#wire = undefined;
-    this.#notifications.emit(["error"]);
+    this.#notifications.emit(["error", "sync"]);
   }
   #view: ThreadListView | undefined;
+  #memory = new FilterMemory();
+  /** Halves painted from memory until their subscription's snapshot lands. */
+  #provisional = new Map<SidebarHalf, ProvisionalSource>();
   #home: ThreadListView | undefined;
   #archive: ThreadListView | undefined;
   #archiveWire: string | undefined;
@@ -31,14 +125,17 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     return this.#filter.archived ? this.#archive?.window : this.#home?.window;
   }
   #merge(): void {
-    if (!this.#home) {
+    // Either half paints before the other arrives: a list restored at the archive shows its
+    // rows at once. Screens filter rows by archived state, so home rows never show there.
+    const base = this.#home ?? this.#archive;
+    if (!base) {
       this.#view = undefined;
       this.#order = [];
       return;
     }
     this.#view = {
-      ...this.#home,
-      threads: { ...this.#home.threads, ...this.#archive?.threads },
+      ...base,
+      threads: { ...this.#home?.threads, ...this.#archive?.threads },
       ...(this.window ? { window: this.window } : {}),
     };
     this.#order = Object.keys(this.#view.threads);
@@ -46,19 +143,46 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   configure(input: { project?: string | undefined; archived?: boolean | undefined }): void {
     if (input.project === this.#filter.project && !!input.archived === !!this.#filter.archived)
       return;
+    this.#retire();
     const projectChanged = input.project !== this.#filter.project;
+    this.#keep("archive");
+    if (projectChanged) this.#keep("home");
     this.#filter = { ...input };
+    if (projectChanged) this.#pending.clear();
+    else if (this.#archiveWire) this.#pending.delete(this.#archiveWire);
     if (this.#archiveWire) this.#send({ type: "unsubscribe", subscriptionId: this.#archiveWire });
     this.#archiveWire = undefined;
     this.#archive = undefined;
+    this.#confirm(["archive"], false);
+    if (input.archived) this.#adopt("archive");
     if (projectChanged) {
       if (this.#wire) this.#send({ type: "unsubscribe", subscriptionId: this.#wire });
       this.#wire = undefined;
       this.#home = undefined;
+      this.#confirm(["home"], false);
+      this.#adopt("home");
       if (this.#refs && this.#ready()) this.#subscribe();
     } else if (input.archived && this.#refs && this.#ready()) this.#subscribeArchive();
+    if (this.#provisional.size && !this.#pending.size) this.#pending.add("provisional");
     this.#merge();
     this.#notifications.emitAll();
+    this.#persist();
+  }
+  /** Remember a half the filter is leaving, unless it was only derived from another's list. */
+  #keep(half: SidebarHalf): void {
+    const view = half === "archive" ? this.#archive : this.#home;
+    if (view && this.#provisional.get(half) !== "derived")
+      this.#memory.remember(half, this.#filter.project, view);
+    this.#provisional.delete(half);
+  }
+  /** Paint a half from memory, unconfirmed, until its subscription's snapshot lands. */
+  #adopt(half: SidebarHalf): void {
+    const held = this.#memory.provisional(half, this.#filter.project);
+    if (!held) return;
+    if (half === "archive") this.#archive = held.view;
+    else this.#home = held.view;
+    this.#provisional.set(half, held.source);
+    this.#confirm([half], true);
   }
   pageRequest() {
     const wire = this.#filter.archived ? this.#archiveWire : this.#wire;
@@ -80,12 +204,15 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     send: (message: ClientMessage) => boolean,
     id: () => string,
     ready: () => boolean,
+    persistence?: Persistence,
   ) {
+    this.#persistence = persistence;
     this.#limits = limits;
     this.#send = send;
     this.#id = id;
     this.#ready = ready;
     this.#notifications = new Notifications(limits.listeners);
+    this.#persist();
   }
   get ids(): readonly string[] {
     return this.#order;
@@ -109,6 +236,8 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   export(): SidebarExport {
     const failure = this.#failure;
     return {
+      ...(this.syncing ? { syncing: true } : {}),
+      ...(this.unconfirmed ? { unconfirmed: true } : {}),
       error: failure && { code: failure.code, message: failure.message },
       view: this.#view,
       homeWindow: this.#home?.window,
@@ -125,6 +254,13 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
         if (released) return;
         released = true;
         if (--this.#refs === 0 && this.#wire) {
+          this.#await(["released"]);
+          // Kept unfollowed: what a warm view paints from it is no longer confirmed.
+          const held = [
+            ...(this.#home ? ["home" as const] : []),
+            ...(this.#archive ? ["archive" as const] : []),
+          ];
+          if (this.#confirm(held, true)) this.#notifications.emit(["unconfirmed"]);
           this.#send({ type: "unsubscribe", subscriptionId: this.#wire });
           this.#wire = undefined;
           if (this.#archiveWire)
@@ -137,6 +273,7 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   #subscribe(): void {
     this.#homeSnapshotAllowed = true;
     this.#wire = this.#id();
+    this.#await([this.#wire]);
     this.#send({
       type: "subscribe",
       subscriptionId: this.#wire,
@@ -144,13 +281,15 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
         kind: "threads",
         window: { limit: 20, ...(this.#filter.project ? { project: this.#filter.project } : {}) },
       },
-      ...(this.#view ? { afterSeq: this.#view.seq } : {}),
+      // No cursor: a windowed list always starts from a fresh window.
     });
     if (this.#filter.archived) this.#subscribeArchive();
   }
   #subscribeArchive(): void {
     this.#archiveSnapshotAllowed = true;
     this.#archiveWire = this.#id();
+    if (!this.#pending.size) this.#notifications.emit(["sync"]);
+    this.#pending.add(this.#archiveWire);
     this.#send({
       type: "subscribe",
       subscriptionId: this.#archiveWire,
@@ -168,6 +307,7 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     if (this.#refs) this.#subscribe();
   }
   disconnect(): void {
+    if (this.#refs) this.#await(["disconnected"]);
     this.#wire = undefined;
     this.#archiveWire = undefined;
   }
@@ -207,9 +347,9 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     if (message.type === "snapshot") {
       if (message.view.kind !== "threads") throw new ClientError("protocol");
       const archived = message.subscriptionId === this.#archiveWire;
+      // A subscription's one snapshot is authoritative even below what is held: that may be a
+      // disk copy, or a tail a crashed daemon lost. Wire ids fence older subscriptions' frames.
       if (!(archived ? this.#archiveSnapshotAllowed : this.#homeSnapshotAllowed)) return;
-      const previous = archived ? this.#archive : this.#home;
-      if (previous && message.seq < previous.seq) return;
       if (archived) this.#archiveSnapshotAllowed = false;
       else this.#homeSnapshotAllowed = false;
       const ids = Object.keys(message.view.threads);
@@ -221,6 +361,9 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
       this.#failure = undefined;
       if (message.subscriptionId === this.#archiveWire) this.#archive = message.view;
       else this.#home = message.view;
+      this.#confirm([archived ? "archive" : "home"], false);
+      this.#provisional.delete(archived ? "archive" : "home");
+      this.#pending.delete(message.subscriptionId);
       this.#merge();
       this.#notifications.emitAll();
       return;

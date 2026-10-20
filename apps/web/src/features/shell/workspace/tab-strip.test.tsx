@@ -1,5 +1,5 @@
 import { FileIcon, GitDiffIcon } from "@phosphor-icons/react";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useSyncExternalStore } from "react";
 import { afterEach, beforeEach, expect, test } from "vitest";
@@ -214,4 +214,40 @@ test("the overflowing side panel menu opens and switches the selected tab", asyn
   expect(await screen.findByText("Open tabs")).toBeTruthy();
   await userEvent.click(screen.getByRole("menuitem", { name: "app.tsx" }));
   expect(screen.getByRole("tab", { name: "app.tsx", selected: true })).toBeTruthy();
+});
+
+test("a vertical wheel over an overflowing strip scrolls its tabs sideways", async () => {
+  Object.defineProperty(HTMLElement.prototype, "scrollBy", { configurable: true, value: () => {} });
+  Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.getAttribute("role") === "tablist"
+        ? 900
+        : (this.textContent?.length ?? 0) * charWidth;
+    },
+  });
+  const definition = defineWorkspace({
+    label: "Side panel",
+    launcher: "file",
+    initial: [
+      { kind: "file", id: "a", title: "notes.md" },
+      { kind: "file", id: "b", title: "todo.md" },
+    ],
+    kinds: () => Promise.resolve({ default: [changes, file] }),
+  });
+  await definition.load();
+  render(
+    <LayoutProvider>
+      <Strip definition={definition} />
+    </LayoutProvider>,
+  );
+  const strip = screen.getByRole("tablist", { name: "Tabs" });
+  strip.scrollLeft = 0;
+  // fireEvent returns false when the strip took the wheel for itself.
+  expect(fireEvent.wheel(strip, { deltaY: 120 })).toBe(false);
+  expect(strip.scrollLeft).toBe(120);
+  // At the far end the wheel goes on to the page.
+  strip.scrollLeft = 300;
+  expect(fireEvent.wheel(strip, { deltaY: 120 })).toBe(true);
+  expect(strip.scrollLeft).toBe(300);
 });

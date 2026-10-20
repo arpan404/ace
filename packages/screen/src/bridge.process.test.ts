@@ -2,6 +2,12 @@ import { afterEach, expect, it } from "vitest";
 import { computerUseHandler, screenConnection, Simulators } from "./index.ts";
 import { manager, ready } from "./testing/support.ts";
 import type { ScreenServerMessage } from "@ace/protocol";
+import {
+  decodeStreamMessage,
+  isStreamPiece,
+  StreamAssembler,
+  type StreamMessage,
+} from "@ace/browser/stream";
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
@@ -13,7 +19,7 @@ it("human devices can discover sessions, delegate to a scoped agent and observe 
   const messages: ScreenServerMessage[] = [];
   const connection = screenConnection(test.screen, new Simulators("linux"), "human-1", {
     send: (message) => messages.push(message),
-    frame: async () => {},
+    media: { write: async () => {}, bufferedBytes: () => 0 },
   });
   cleanups.push(async () => connection.close());
   await connection.request({
@@ -38,7 +44,7 @@ it("human devices can discover sessions, delegate to a scoped agent and observe 
     state.sessionId,
     JSON.stringify(["thread-1", "agent-1"]),
   );
-  await tool("screen_type", { text: "hello" });
+  await tool("screen_input", { action: "type", text: "hello" });
   await connection.request({
     type: "screen.request",
     requestId: "takeover",
@@ -49,7 +55,9 @@ it("human devices can discover sessions, delegate to a scoped agent and observe 
       (message) => message.type === "screen.state" && message.state.controller === "human",
     ),
   ).toBe(true);
-  await expect(tool("screen_type", { text: "hello" })).rejects.toThrow("ownership");
+  await expect(tool("screen_input", { action: "type", text: "hello" })).rejects.toThrow(
+    "ownership",
+  );
   connection.close();
   expect(test.screen.state(state.sessionId).controller).toBe("none");
 });
@@ -59,7 +67,7 @@ it("a disconnect while start is in progress closes the resulting capture", async
   await test.screen.enable(true);
   const connection = screenConnection(test.screen, new Simulators("linux"), "human-1", {
     send: () => {},
-    frame: async () => {},
+    media: { write: async () => {}, bufferedBytes: () => 0 },
   });
   const request = connection.request({
     type: "screen.request",
@@ -77,11 +85,11 @@ it("status exposes enablement without sessions and changes reach every human con
     second: ScreenServerMessage[] = [];
   const a = screenConnection(test.screen, new Simulators("linux"), "human-a", {
     send: (message) => first.push(message),
-    frame: async () => {},
+    media: { write: async () => {}, bufferedBytes: () => 0 },
   });
   const b = screenConnection(test.screen, new Simulators("linux"), "human-b", {
     send: (message) => second.push(message),
-    frame: async () => {},
+    media: { write: async () => {}, bufferedBytes: () => 0 },
   });
   cleanups.push(async () => {
     a.close();
@@ -128,4 +136,50 @@ it("an enablement observer cannot prevent the global stop from releasing live ta
   expect(test.screen.isEnabled()).toBe(false);
   expect(test.screen.states()).toEqual([]);
   release();
+});
+
+it("a subscribed session's pictures arrive as stream kind screenFrame, named by the session", async () => {
+  const test = await manager({ FAKE_V2: "1", FAKE_VIDEO: "1" });
+  cleanups.push(test.close);
+  const state = await ready(test.screen);
+  const assembler = new StreamAssembler();
+  const pictures: StreamMessage[] = [];
+  const first = Promise.withResolvers<void>();
+  const messages: ScreenServerMessage[] = [];
+  const connection = screenConnection(test.screen, new Simulators("linux"), "human-1", {
+    send: (message) => messages.push(message),
+    media: {
+      bufferedBytes: () => 0,
+      write: async (piece) => {
+        // Every binary message is a stream piece: no other framing reaches a viewer.
+        expect(isStreamPiece(piece)).toBe(true);
+        const envelope = assembler.push(piece);
+        const message = envelope && decodeStreamMessage(envelope);
+        if (message) pictures.push(message);
+        first.resolve();
+      },
+    },
+  });
+  cleanups.push(async () => connection.close());
+  await connection.request({
+    type: "screen.request",
+    requestId: "watch",
+    operation: { op: "subscribe", sessionId: state.sessionId },
+  });
+  await first.promise;
+  const [picture] = pictures;
+  expect(picture?.kind).toBe("screen.frame");
+  if (picture?.kind !== "screen.frame") return;
+  expect(picture.sourceId).toBe(state.sessionId);
+  expect(picture.frame.key).toBe(true);
+  // An ack is never answered; a malformed one is refused.
+  const before = messages.length;
+  connection.ack({
+    type: "screen.ack",
+    sessionId: state.sessionId,
+    streamId: picture.frame.streamId,
+    sequence: picture.frame.sequence,
+  });
+  expect(messages.length).toBe(before);
+  expect(() => connection.ack({ type: "screen.ack", sessionId: state.sessionId })).toThrow();
 });

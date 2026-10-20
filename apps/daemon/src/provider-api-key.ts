@@ -5,15 +5,15 @@ import {
 } from "@ace/provider-kit/process";
 import type { ProviderKind } from "@ace/protocol";
 import type { ProviderLoginDriver } from "@ace/accounts";
+import { admitsVersion, cliRequirements } from "@ace/provider-kit/cli-requirements";
 
 export function apiKeySupport(provider: ProviderKind, version?: string, help = "") {
-  if (
-    provider === "codex" &&
-    /^(?:0|1)\.\d+\.\d+$/.test(version ?? "") &&
-    help.includes("--with-api-key")
-  )
+  if (provider === "codex" && admitsVersion("codex", version) && help.includes("--with-api-key"))
     return { supported: true };
-  if (provider === "cursor" && version === "1.0.35") return { supported: true };
+  if (provider === "cursor" && version === cliRequirements["cursor-sdk"].minimum)
+    return { supported: true };
+  // Pi's SDK stores a provider key through its own `login(provider, "api_key")` prompt.
+  if (provider === "pi" && admitsVersion("pi", version)) return { supported: true };
   return {
     supported: false,
     reason:
@@ -22,7 +22,7 @@ export function apiKeySupport(provider: ProviderKind, version?: string, help = "
         : provider === "claude"
           ? "Claude supports browser login or an environment key/helper, but no reviewed stdin key-storage command."
           : provider === "pi"
-            ? "Pi exposes keys through argv, environment or a user-managed auth file, not a stdin key-storage command."
+            ? "This Pi version can't store a key for ace. Update Pi, or sign in from Pi's own terminal."
             : "The installed runtime has no reviewed stdin API-key credential path.",
   };
 }

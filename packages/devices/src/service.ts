@@ -3,7 +3,12 @@ import { watchDeviceLease } from "./lease-expiry.ts";
 import { deviceStreamSnapshot } from "./snapshot.ts";
 import { DeviceStreamControl, deviceImageStream } from "./stream-control.ts";
 import { type Frame, type FrameSink } from "@ace/screen";
-import { AppDevice as Device, DeviceOperation, DeviceState } from "@ace/protocol/devices";
+import {
+  AppDevice as Device,
+  DeviceOperation,
+  DeviceState,
+  type DeviceActivity,
+} from "@ace/protocol/devices";
 import { deviceFailure } from "./failure.ts";
 import { DeviceError } from "./sdk.ts";
 import {
@@ -22,6 +27,9 @@ import { enqueueDeviceInput } from "./input-queue.ts";
 import type { spawnSupervised } from "@ace/provider-kit/process";
 import { mirrorDeviceController } from "./screen-controller.ts";
 import { InventoryWatch, sameDevice, type DeviceLog, type Inventory } from "./inventory.ts";
+import { SimAgentState } from "./sim-state.ts";
+import { oneOffFrame } from "./one-off-screenshot.ts";
+import { deviceTouch } from "./touch-support.ts";
 
 /** Expected refusals a person can act on; anything else is a fault worth a warning. */
 const routine = new Set(["lease_required", "permission_denied", "busy", "not_booted"]);
@@ -34,6 +42,8 @@ export interface DevicesOptions extends LifecycleOptions {
   inventoryIntervalMs?: number;
 }
 export class DevicesService {
+  /** Element refs and how-to state for device agents, shared by the sim_* tools and `ace sim`. */
+  readonly agents = new SimAgentState();
   private readonly streamOwners = new DeviceStreamOwners();
   private enabled = false;
   private closed = false;
@@ -150,9 +160,22 @@ export class DevicesService {
       recordingNotice: session.recordingNotice,
       recording: session.recording !== undefined,
       streamId: session.streamId,
+      ...(session.capture ? { touch: deviceTouch(session.device, session.capture) } : {}),
       ...session.lease.status(),
       error: session.error,
+      activity: session.activity,
     });
+  }
+  /**
+   * An agent acted on a device: viewers are told what it did and where, numbered so each action
+   * shows once. A device with no session (never opened here) has no viewers to tell.
+   */
+  noteAgentActivity(deviceId: string, activity: Omit<DeviceActivity, "sequence">): void {
+    const session = this.sessions.get(deviceId);
+    if (!session) return;
+    session.activitySequence++;
+    session.activity = { ...activity, sequence: session.activitySequence };
+    this.emit(session);
   }
   /** Devices are on for this machine; a client with no device sessions yet needs this too. */
   isEnabled(): boolean {
@@ -178,13 +201,13 @@ export class DevicesService {
       throw new DeviceError(
         "lease_required",
         "A person is controlling this device",
-        "Wait until the person hands it back, then call device_start again.",
+        "Wait until the person hands it back, then call sim_start again.",
       );
     if (current && current.owner !== actor.owner)
       throw new DeviceError(
         "busy",
         "Another agent is using this device",
-        "Use another device, or retry after that agent finishes.",
+        "Use another simulator, or retry after that agent finishes.",
       );
     if (current && session.threadId === threadId) return;
     this.assertEnabled(session);
@@ -276,7 +299,7 @@ export class DevicesService {
       throw new DeviceError(
         "lease_required",
         "Device is not taken for this thread",
-        "Call device_start or device_boot to take this device first.",
+        "Call sim_start to take this simulator first.",
       );
   }
   private enqueue<T>(
@@ -312,7 +335,7 @@ export class DevicesService {
       throw new DeviceError(
         "permission_denied",
         "Only a person can do this",
-        "Use the device tools; device_start takes the device for this thread.",
+        "Use the sim_* tools; sim_start takes the simulator for this thread.",
       );
     if (operation.op === "enable") {
       if (this.disabling)
@@ -449,27 +472,33 @@ export class DevicesService {
         return await this.screenshot(session.device.id, actor);
       case "ui.tree":
         return this.ui(session, actor, () =>
-          session.capture?.screenSessionId && this.options.screen
-            ? this.options.screen.uiTree(session.capture.screenSessionId, operation)
-            : this.options.platform.uiTree(session.device, operation),
+          session.capture?.ui
+            ? session.capture.ui.tree(operation)
+            : session.capture?.screenSessionId && this.options.screen
+              ? this.options.screen.uiTree(session.capture.screenSessionId, operation)
+              : this.options.platform.uiTree(session.device, operation),
         );
       case "ui.find":
         return this.ui(session, actor, () =>
-          session.capture?.screenSessionId && this.options.screen
-            ? this.options.screen.uiFind(session.capture.screenSessionId, operation)
-            : this.options.platform.uiFind(session.device, operation),
+          session.capture?.ui
+            ? session.capture.ui.find(operation)
+            : session.capture?.screenSessionId && this.options.screen
+              ? this.options.screen.uiFind(session.capture.screenSessionId, operation)
+              : this.options.platform.uiFind(session.device, operation),
         );
       case "ui.act":
         return this.enqueue(session, actor, (guard) =>
-          session.capture?.screenSessionId && this.options.screen
-            ? this.options.screen.uiAct(
-                session.capture.screenSessionId,
-                actor.kind,
-                operation,
-                actor.owner,
-                guard,
-              )
-            : this.options.platform.uiAct(session.device, operation, guard),
+          session.capture?.ui
+            ? session.capture.ui.act(operation, guard)
+            : session.capture?.screenSessionId && this.options.screen
+              ? this.options.screen.uiAct(
+                  session.capture.screenSessionId,
+                  actor.kind,
+                  operation,
+                  actor.owner,
+                  guard,
+                )
+              : this.options.platform.uiAct(session.device, operation, guard),
         );
       case "logs.start":
         await this.startLogs(session, actor, () => viewer?.guard());
@@ -650,12 +679,16 @@ export class DevicesService {
       if (session.lifecycle !== "live") throw new Error("Capture stopped during screenshot");
       return image;
     }
-    if (!session.latest || session.lifecycle !== "live")
-      throw new DeviceError(
-        "not_found",
-        "No live device frame",
-        "Start the device stream and wait for its first frame.",
+    if (!session.latest || session.lifecycle !== "live") {
+      // No live view to read from: one frame straight from the device instead.
+      if (session.device.state !== "booted")
+        throw new DeviceError("not_booted", "Device is not booted", "Boot it, then retry.");
+      const shot = await this.options.platform.screenshot(session.device, () =>
+        this.authorize(session, actor),
       );
+      this.authorize(session, actor);
+      return oneOffFrame(shot, this.options.runtime);
+    }
     if (session.latest.header.codec === "h264") {
       const image = await deviceStreamSnapshot(
         session,
@@ -676,7 +709,36 @@ export class DevicesService {
     });
     return session.streamControl;
   }
+  /** The live view's frames, the newest one whenever `sink` is ready for another. */
   async subscribe(id: string, actor: Actor, sink: FrameSink): Promise<() => void> {
+    return this.view(id, actor, (session, check) =>
+      session.hub.subscribe(async (frame) => {
+        check();
+        await sink(frame);
+      }, session.latest),
+    );
+  }
+  /**
+   * Every frame of the live view, in order, as it is captured: for a viewer that paces itself
+   * (the shared media stream's ack window), which must not lose a delta to coalescing.
+   */
+  async subscribeEvery(
+    id: string,
+    actor: Actor,
+    sink: (frame: Frame) => void,
+  ): Promise<() => void> {
+    return this.view(id, actor, (session, check) =>
+      session.hub.subscribeEvery((frame) => {
+        check();
+        sink(frame);
+      }, session.latest),
+    );
+  }
+  private async view(
+    id: string,
+    actor: Actor,
+    attach: (session: DeviceSession, check: () => void) => () => void,
+  ): Promise<() => void> {
     const viewer = this.streamOwners.scope(actor.owner);
     const session = await this.session(id);
     viewer.guard();
@@ -687,13 +749,12 @@ export class DevicesService {
     const preferences = this.streamControlFor(session);
     if (!preferences.has(actor.owner)) await preferences.set(actor.owner, deviceImageStream);
     viewer.guard();
-    const stop = session.hub.subscribe(async (frame) => {
+    const stop = attach(session, () => {
       viewer.guard();
       if (actor.kind === "agent" && session.bindingEpoch !== epoch)
         throw new Error("Device binding changed");
       this.authorize(session, actor);
-      await sink(frame);
-    }, session.latest);
+    });
     const remove = viewer.subscribe(id, () => {
       void preferences
         .remove(actor.owner)

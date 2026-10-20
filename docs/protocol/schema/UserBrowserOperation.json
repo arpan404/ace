@@ -1,0 +1,158 @@
+{
+  "$id": "https://ace.local/protocol/v1/UserBrowserOperation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "op": {
+          "const": "tabs.list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "tabs.open",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 8192,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "tabs.attach",
+          "type": "string"
+        },
+        "tabId": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "op",
+        "tabId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "tabs.detach",
+          "type": "string"
+        },
+        "tabId": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "op",
+        "tabId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "tabs.close",
+          "type": "string"
+        },
+        "tabId": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "op",
+        "tabId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "muted": {
+          "type": "boolean"
+        },
+        "op": {
+          "const": "tabs.mute",
+          "type": "string"
+        },
+        "tabId": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "op",
+        "tabId",
+        "muted"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "op": {
+          "const": "cdp",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {},
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "sessionId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tabId": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "op",
+        "tabId",
+        "method"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "stop",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    }
+  ]
+}

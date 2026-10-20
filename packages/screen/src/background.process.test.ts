@@ -68,7 +68,7 @@ it("taking over one app cancels its queued actions while another agent keeps wor
   h.screen.controller(first.sessionId, "agent", "one");
   await expect(action).rejects.toThrow("Controller changed");
   const tool = computerUseHandler(h.screen, second.sessionId, "two");
-  const result = await tool("screen_type", { text: "second" });
+  const result = await tool("screen_input", { action: "type", text: "second" });
   expect(result.content[0]).toMatchObject({
     type: "text",
     text: expect.stringContaining('"mode":"background"'),
@@ -206,7 +206,7 @@ it("wire errors include the busy holder while takeover is scoped to the selected
   const { screenConnection, Simulators } = await import("./index.ts");
   const connection = screenConnection(h.screen, new Simulators("linux"), "human", {
     send: (message) => messages.push(message),
-    frame: async () => {},
+    media: { write: async () => {}, bufferedBytes: () => 0 },
   });
   onTestFinished(() => connection.close());
   await connection.request({
@@ -243,7 +243,7 @@ it("foreground consent allows otherwise ignored input and takeover resets that c
   expect(h.screen.state(state.sessionId).mode).toBe("background");
   h.screen.mode(state.sessionId, "foreground");
   const tool = computerUseHandler(h.screen, state.sessionId, "agent");
-  expect((await tool("screen_click", { x: 5, y: 5 })).content).toMatchObject([
+  expect((await tool("screen_input", { action: "click", x: 5, y: 5 })).content).toMatchObject([
     { text: expect.stringContaining('"mode":"foreground"') },
   ]);
   expect(

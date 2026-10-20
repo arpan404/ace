@@ -150,7 +150,8 @@ test("conversation ownership and launch deduplication survive reopening SQLite",
 
 test("thread discovery pages only the caller's project and rejects a cursor from another query", async () => {
   const h = setup();
-  const parent = await h.parent();
+  // Without full access an agent never reaches another project's threads.
+  const parent = await h.parent("auto-review");
   for (let index = 0; index < 3; index++)
     h.service.command(`thread-${index}`, {
       type: "thread.prepare",

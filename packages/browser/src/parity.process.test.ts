@@ -5,23 +5,37 @@ import { join } from "node:path";
 import { z } from "zod";
 import { ref, Snapshot } from "./test-support.ts";
 import { setup, tabs, executablePath, cleanups } from "./parity-test-support.ts";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 it.skipIf(!executablePath)(
-  "new-tab requests and agent popups reuse the thread's page",
+  "an opened tab is its own page while agent popups reuse the page that opened them",
   async () => {
     const f = await setup();
     const initial = tabs.parse(await f.execute({ action: "tabs" }));
-    const next = tabs.parse(await f.execute({ action: "tabs", operation: "open", url: f.url }));
-    expect(next.tabs).toHaveLength(1);
-    expect(next.activeTabId).toBe(initial.activeTabId);
+    const next = z
+      .object({ tabId: z.string(), tabs: tabs.shape.tabs })
+      .parse(await f.execute({ action: "tabs", operation: "open", url: f.url + "/other" }));
+    expect(next.tabs).toHaveLength(2);
+    expect(next.tabId).not.toBe(initial.activeTabId);
+    await f.until(
+      () =>
+        f.service.state("thread").tabs?.find((tab) => tab.tabId === next.tabId)?.url ===
+        f.url + "/other",
+    );
+    const first = initial.activeTabId;
     // The reloaded page's iframe commits invalidate refs; take them after the page loads.
-    await f.execute({ action: "wait_for", text: "Fixture ready" });
+    await f.execute({ action: "wait_for", text: "Fixture ready", tabId: first });
     await f.execute({
       action: "click",
-      ref: ref(await f.execute({ action: "snapshot" }), "Popup"),
+      tabId: first,
+      ref: ref(await f.execute({ action: "snapshot", tabId: first }), "Popup"),
     });
-    await f.until(() => f.service.state("thread").url === f.url + "/other");
-    expect(f.service.state("thread").tabs).toHaveLength(1);
+    await f.until(
+      () =>
+        f.service.state("thread").tabs?.find((tab) => tab.tabId === first)?.url ===
+        f.url + "/other",
+    );
+    expect(f.service.state("thread").tabs).toHaveLength(2);
   },
 );
 it.skipIf(!executablePath)(
@@ -164,15 +178,14 @@ it.skipIf(!executablePath)(
   },
 );
 it.skipIf(!executablePath)(
-  "private takeover blocks all agent reads and disconnect keeps the thread paused",
+  "a private tab blocks all agent reads, and stays private after the person disconnects",
   async () => {
     const f = await setup();
-    f.service.takeover("thread", "human", "private");
+    keepAgentsOut(f.service, "thread");
     for (const command of [
       { action: "snapshot" },
       { action: "screenshot" },
       { action: "logs" },
-      { action: "tabs" },
       { action: "find", role: "button", name: "Prompt" },
       { action: "wait_for", text: "Popup" },
       { action: "network_body", requestId: "private" },
@@ -188,19 +201,21 @@ it.skipIf(!executablePath)(
       code: "human_private",
     });
     await expect(f.service.screenshot("thread")).rejects.toMatchObject({ code: "human_private" });
+    // Agents still see that the tab exists, never where it is.
+    expect(tabs.parse(await f.execute({ action: "tabs" })).tabs).toEqual([
+      expect.objectContaining({ url: "about:blank" }),
+    ]);
     f.service.disconnect("human");
-    expect(f.service.state("thread").status).toBe("paused");
     await expect(f.execute({ action: "snapshot" })).rejects.toMatchObject({
       code: "human_private",
     });
-    f.service.takeover("thread", "reconnected", "private");
-    f.service.handback("thread", "reconnected");
+    keepAgentsOut(f.service, "thread", false);
     expect(Snapshot.parse(await f.execute({ action: "snapshot" })).nodes.length).toBeGreaterThan(0);
   },
 );
 
 it.skipIf(!executablePath)(
-  "private takeover cancels an in-flight download without publishing its bytes",
+  "keeping agents out cancels an in-flight download without publishing its bytes",
   async () => {
     const f = await setup();
     await f.execute({
@@ -208,11 +223,11 @@ it.skipIf(!executablePath)(
       ref: ref(await f.execute({ action: "snapshot" }), "Slow download"),
     });
     await f.until(() => f.service.state("thread").downloads?.[0]?.state === "pending");
-    f.service.takeover("thread", "human", "private");
+    keepAgentsOut(f.service, "thread");
     f.finishSlow();
     await f.until(() => f.service.state("thread").downloads?.[0]?.state === "denied");
     expect(f.artifacts).toEqual([]);
-    f.service.handback("thread", "human");
+    keepAgentsOut(f.service, "thread", false);
     expect(f.service.state("thread").downloads?.[0]?.path).toBeUndefined();
   },
 );
@@ -267,26 +282,43 @@ it.skipIf(!executablePath)("attachment-like reads cannot authorize a later downl
   await f.until(() => f.service.downloadsList("thread")[0]?.state === "denied");
   expect(f.artifacts).toEqual([]);
 });
-it.skipIf(!executablePath)("a pending dialog survives a read on the reused page", async () => {
-  const f = await setup(),
-    a = f.service.state("thread").activeTabId;
-  const b = tabs.parse(
-    await f.execute({ action: "tabs", operation: "open", url: f.url + "/other" }),
-  ).activeTabId;
-  await f.execute({ action: "tabs", operation: "switch", tabId: a });
-  const pending = z
-    .object({ pending_dialog: z.object({ dialogId: z.string(), tabId: z.string() }) })
-    .parse(await f.evaluate("document.body.dataset.answer = prompt('Across tabs')"));
-  const readB = f.execute({ action: "snapshot", tabId: b });
-  const answer = f.execute({
-    action: "dialog",
-    tabId: a,
-    dialogId: pending.pending_dialog.dialogId,
-    accept: true,
-    promptText: "answered",
-  });
-  expect(await readB).toMatchObject({ pending_dialog: { tabId: a } });
-  expect(await answer).toEqual({ ok: true });
-  expect(await f.evaluate("document.body.dataset.answer")).toBe("answered");
-  expect(await f.execute({ action: "snapshot", tabId: b })).toMatchObject({ tabId: b });
-});
+it.skipIf(!executablePath)(
+  "a pending dialog holds only its own tab while another tab keeps working",
+  async () => {
+    const f = await setup(),
+      a = f.service.state("thread").activeTabId;
+    const b = z
+      .object({ tabId: z.string() })
+      .parse(await f.execute({ action: "tabs", operation: "open", url: f.url + "/other" })).tabId;
+    const pending = z
+      .object({ pending_dialog: z.object({ dialogId: z.string(), tabId: z.string() }) })
+      .parse(
+        await f.execute({
+          action: "evaluate",
+          tabId: a,
+          expression: "document.body.dataset.answer = prompt('Across tabs')",
+        }),
+      );
+    expect(pending.pending_dialog.tabId).toBe(a);
+    expect(await f.execute({ action: "snapshot", tabId: a })).toMatchObject({
+      pending_dialog: { tabId: a },
+    });
+    expect(await f.execute({ action: "snapshot", tabId: b })).toMatchObject({ tabId: b });
+    expect(
+      await f.execute({
+        action: "dialog",
+        tabId: b,
+        dialogId: pending.pending_dialog.dialogId,
+        accept: true,
+        promptText: "answered",
+      }),
+    ).toEqual({ ok: true });
+    expect(
+      await f.execute({
+        action: "evaluate",
+        tabId: a,
+        expression: "document.body.dataset.answer",
+      }),
+    ).toBe("answered");
+  },
+);

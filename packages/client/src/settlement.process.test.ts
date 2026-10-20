@@ -55,29 +55,35 @@ test("200 large real-engine sends never block the 201st without a transcript lea
     await when(first.intent(id), (value) => value?.state === "acked");
     expect(await storage.load()).toBe("[]");
   }
+  // Accepted is not delivered: queued sends wait in the engine's queue and join the transcript
+  // only when the engine delivers them, one turn each (ADR 0065). Hold the queue so the checks
+  // below do not race that delivery.
+  const queued = await first.request({ type: "queue.get", threadId: created.threadId });
+  expect(
+    (
+      await first.command({
+        type: "queue.pause",
+        threadId: created.threadId,
+        expectedRevision: queued.queue.revision,
+      })
+    ).ok,
+  ).toBe(true);
   const page = await first.itemsPage({ threadId: created.threadId, limit: 200 });
-  expect(page.items.some((item) => item.id === "input:real-send-200")).toBe(true);
-  await when(first.pendingSends(created.threadId), (entries) =>
-    entries.some((entry) => entry.commandId === "real-send-200" && entry.state === "delivered"),
-  );
+  expect(page.items.some((item) => item.id === "input:real-send-200")).toBe(false);
   expect(
     first
       .pendingSends(created.threadId)
       .getSnapshot()
       .find((entry) => entry.commandId === "real-send-200"),
-  ).toMatchObject({ state: "delivered" });
+  ).toMatchObject({ state: "accepted" });
   await first.close();
   const second = h.make({ storage }).client;
   await ready(second);
+  // The receipt moved ownership to the daemon: the client keeps and replays nothing.
   expect(second.pendingSends().getSnapshot()).toEqual([]);
-  expect(
-    (await second.itemsPage({ threadId: created.threadId, limit: 200 })).items.filter(
-      (item) =>
-        item.type === "message" &&
-        item.role === "user" &&
-        item.origin?.commandId === "real-send-200",
-    ),
-  ).toHaveLength(1);
+  const held = await second.request({ type: "queue.get", threadId: created.threadId });
+  expect(held.queue).toMatchObject({ paused: true });
+  expect(held.queue.total).toBeGreaterThan(0);
 });
 
 test("oversized rejected drafts are never published or retained and storage failures remain bounded", async () => {

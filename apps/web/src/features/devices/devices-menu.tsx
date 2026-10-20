@@ -1,102 +1,130 @@
-import { DotsThreeIcon, PlayIcon, PowerIcon, ProhibitIcon, StopIcon } from "@phosphor-icons/react";
-import { useState } from "react";
-import { Button } from "@/components/ui/button.tsx";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog.tsx";
+  AppWindowIcon,
+  DotsThreeIcon,
+  FrameCornersIcon,
+  GlobeIcon,
+  MapPinIcon,
+  MoonIcon,
+  PackageIcon,
+  PlayIcon,
+  PowerIcon,
+  ProhibitIcon,
+  StopIcon,
+  TranslateIcon,
+} from "@phosphor-icons/react";
+import { useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
+import {
+  Menu,
+  MenuCheckboxItem,
+  MenuContent,
+  MenuItem,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+  MenuSub,
+  MenuSubTrigger,
+  MenuTrigger,
+} from "@/components/ui/menu.tsx";
 import { DeviceActionDialog, type DeviceAction } from "./device-action-dialog.tsx";
+import { setScreenOnly, useScreenOnly } from "./device-prefs.ts";
+import { DisableDevicesDialog } from "./disable-devices-dialog.tsx";
 import type { useDevices } from "./use-devices.ts";
 
+const icon = (Glyph: typeof PackageIcon) => <Glyph aria-hidden size={16} />;
+
 /**
- * The ⋯ beside the device: the live view, booting and shutting down, and turning devices off.
- * Disabling is machine-wide while the panel is per thread, so it asks first.
+ * The device's ⋯: install and open apps, appearance, location and language, the screen without
+ * its frame, the live view, booting and shutting down, and turning devices off (which asks
+ * first, as it is machine-wide).
  */
 export function DevicesMenu(props: { devices: ReturnType<typeof useDevices> }) {
   const { devices } = props;
   const { view } = devices;
   const controls = view.selected ? view.controls : undefined;
+  const screenOnly = useScreenOnly();
   const [action, setAction] = useState<DeviceAction>();
+  const [appearance, setAppearance] = useState<"light" | "dark">();
   const [confirm, setConfirm] = useState(false);
+  const unavailable = view.pending || !controls?.running;
+  const item = (name: DeviceAction, glyph: typeof PackageIcon) => (
+    <MenuItem icon={icon(glyph)} disabled={unavailable} onClick={() => setAction(name)}>
+      {name}
+    </MenuItem>
+  );
   return (
     <>
       <Menu>
-        <MenuTrigger
-          render={<IconButton icon={DotsThreeIcon} label="Device actions" size="sm" />}
-        />
+        <MenuTrigger render={<IconButton icon={DotsThreeIcon} label="Device actions" />} />
         <MenuContent align="end">
           {controls && (
             <>
-              {(
-                [
-                  "Install app…",
-                  "Open URL…",
-                  "Open app…",
-                  "Device settings…",
-                ] satisfies DeviceAction[]
-              ).map((name) => (
-                <MenuItem
-                  key={name}
-                  disabled={view.pending || !controls.running}
-                  onClick={() => setAction(name)}
-                >
-                  {name}
+              {item("Install app…", PackageIcon)}
+              {item("Open app…", AppWindowIcon)}
+              {item("Open URL…", GlobeIcon)}
+              <MenuSub>
+                <MenuSubTrigger icon={icon(MoonIcon)} disabled={unavailable}>
+                  Appearance
+                </MenuSubTrigger>
+                <MenuContent aria-label="Appearance" side="right" align="start" sideOffset={4}>
+                  <MenuRadioGroup
+                    value={appearance ?? ""}
+                    onValueChange={(value: string) => {
+                      if (value !== "light" && value !== "dark") return;
+                      setAppearance(value);
+                      devices.configure({ appearance: value });
+                    }}
+                  >
+                    <MenuRadioItem value="light" closeOnClick>
+                      Light
+                    </MenuRadioItem>
+                    <MenuRadioItem value="dark" closeOnClick>
+                      Dark
+                    </MenuRadioItem>
+                  </MenuRadioGroup>
+                </MenuContent>
+              </MenuSub>
+              {item("Location…", MapPinIcon)}
+              {item("Language and region…", TranslateIcon)}
+              <MenuSeparator />
+              <MenuCheckboxItem checked={screenOnly} onCheckedChange={setScreenOnly}>
+                <span className="inline-flex items-center gap-2">
+                  {icon(FrameCornersIcon)}
+                  Screen only
+                </span>
+              </MenuCheckboxItem>
+              {(controls.cleanupRequired || (controls.running && controls.live)) && (
+                <MenuItem icon={icon(StopIcon)} disabled={view.pending} onClick={devices.stop}>
+                  {controls.cleanupRequired ? "Retry cleanup" : "Stop live view"}
                 </MenuItem>
-              ))}
-              <MenuItem disabled={view.pending || !controls.live} onClick={devices.screenshot}>
-                Screenshot
-              </MenuItem>
-              <MenuItem disabled={view.pending || !controls.live} onClick={devices.record}>
-                {devices.recording ? "Stop recording" : "Record"}
-              </MenuItem>
+              )}
+              {controls.running && !controls.live && !controls.cleanupRequired && (
+                <MenuItem
+                  icon={icon(PlayIcon)}
+                  disabled={view.pending || controls.busy}
+                  onClick={devices.start}
+                >
+                  Start live view
+                </MenuItem>
+              )}
+              {controls.running ? (
+                <MenuItem icon={icon(PowerIcon)} disabled={view.pending} onClick={devices.shutdown}>
+                  Shut down
+                </MenuItem>
+              ) : (
+                <MenuItem
+                  icon={icon(PowerIcon)}
+                  disabled={view.pending || controls.busy}
+                  onClick={devices.boot}
+                >
+                  Boot
+                </MenuItem>
+              )}
               <MenuSeparator />
             </>
           )}
-          {controls && (controls.cleanupRequired || (controls.running && controls.live)) && (
-            <MenuItem
-              icon={<StopIcon aria-hidden size={16} />}
-              disabled={view.pending}
-              onClick={devices.stop}
-            >
-              {controls.cleanupRequired ? "Retry cleanup" : "Stop live view"}
-            </MenuItem>
-          )}
-          {controls?.running && !controls.live && !controls.cleanupRequired && (
-            <MenuItem
-              icon={<PlayIcon aria-hidden size={16} />}
-              disabled={view.pending || controls.busy}
-              onClick={devices.start}
-            >
-              Start live view
-            </MenuItem>
-          )}
-          {controls &&
-            (controls.running ? (
-              <MenuItem
-                icon={<PowerIcon aria-hidden size={16} />}
-                disabled={view.pending}
-                onClick={devices.shutdown}
-              >
-                Shut down
-              </MenuItem>
-            ) : (
-              <MenuItem
-                icon={<PowerIcon aria-hidden size={16} />}
-                disabled={view.pending || controls.busy}
-                onClick={devices.boot}
-              >
-                Boot
-              </MenuItem>
-            ))}
-          {controls && <MenuSeparator />}
           <MenuItem
-            icon={<ProhibitIcon aria-hidden size={16} />}
+            icon={icon(ProhibitIcon)}
             disabled={view.pending}
             onClick={() => setConfirm(true)}
           >
@@ -107,32 +135,11 @@ export function DevicesMenu(props: { devices: ReturnType<typeof useDevices> }) {
       {action && (
         <DeviceActionDialog action={action} devices={devices} close={() => setAction(undefined)} />
       )}
-      <Dialog open={confirm} onOpenChange={setConfirm}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Disable devices on this machine?</DialogTitle>
-            <DialogDescription>
-              This turns devices off for every thread, not just this one. Agents lose the devices
-              they are using, and live views stop.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => setConfirm(false)}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="danger"
-              onClick={() => {
-                setConfirm(false);
-                devices.enable(false);
-              }}
-            >
-              Disable devices
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DisableDevicesDialog
+        open={confirm}
+        onOpenChange={setConfirm}
+        onDisable={() => devices.enable(false)}
+      />
     </>
   );
 }

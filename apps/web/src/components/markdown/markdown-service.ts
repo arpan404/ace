@@ -1,6 +1,7 @@
 import { prefersReducedMotion } from "@/lib/motion.ts";
 import { updateInterval } from "./cadence.ts";
 import { MarkdownStore } from "./markdown-store.ts";
+import { warmMathNow } from "./math-warm.ts";
 import type { StreamReply } from "./stream-registry.ts";
 import { localStreams, markdownWorker } from "./worker.ts";
 
@@ -36,5 +37,9 @@ export const markdownService = new MarkdownStore({
     return () => clearTimeout(timer);
   },
   interval: (lastMs) => updateInterval(lastMs, prefersReducedMotion()),
+  // The parser saw a math opener mid-stream: load KaTeX at once so the
+  // formula renders the moment its block settles. Idempotent and off the
+  // critical path; the dynamic import keeps KaTeX out of the initial bundle.
+  onMathSeen: () => void warmMathNow(),
   ...(samples ? { updated: (update) => void samples.push(update) } : {}),
 });

@@ -197,6 +197,12 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
       deviceId: DeviceId,
       token: z.string().optional(),
       ticket: z.string().optional(),
+      /**
+       * Message compression this client can undo on a relayed channel: `deflate-raw` lets the
+       * daemon deflate bulk JSON messages, each alone, before encrypting them. Unknown names
+       * are ignored.
+       */
+      compression: z.array(z.string().max(32)).max(8).optional(),
     })
     .refine((hello) => (hello.token !== undefined) !== (hello.ticket !== undefined), {
       message: "Exactly one credential is required",
@@ -291,7 +297,18 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
     .refine((message) => message.seq === message.view.seq, {
       message: "Snapshot cursor must match view cursor",
     })
-    .meta({ "x-ace-constraint": "seq must equal view.seq." }),
+    .refine(
+      ({ view }) =>
+        view.kind !== "thread" ||
+        view.itemOrder.every(
+          (id) => view.itemSeqs !== undefined && Object.hasOwn(view.itemSeqs, id),
+        ),
+      { message: "Every snapshot item needs its creation sequence" },
+    )
+    .meta({
+      "x-ace-constraint":
+        "seq must equal view.seq; a thread view's itemSeqs holds the creation sequence of every item in itemOrder.",
+    }),
   z
     .object({
       type: z.literal("events"),
@@ -348,7 +365,15 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
     bytes: z.string(),
     eof: z.boolean(),
   }),
-  ItemsPage.extend({ type: z.literal("items.page"), requestId: z.string() }),
+  ItemsPage.extend({ type: z.literal("items.page"), requestId: z.string() })
+    .refine(
+      (page) =>
+        page.items.every(
+          (item) => page.itemSeqs !== undefined && Object.hasOwn(page.itemSeqs, item.id),
+        ),
+      { message: "Every page item needs its creation sequence" },
+    )
+    .meta({ "x-ace-constraint": "itemSeqs holds the creation sequence of every item." }),
   z.object({
     type: z.literal("command.status"),
     requestId: z.string(),

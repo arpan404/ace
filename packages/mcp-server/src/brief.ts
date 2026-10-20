@@ -68,7 +68,7 @@ export function renderBrief(facts: SessionFacts): string {
   ];
   if (facts.delegates.length)
     lines.push(
-      `Delegate with delegate_task to: ${facts.delegates
+      `Delegate (tool delegate) to: ${facts.delegates
         .map((entry) =>
           entry.modes.length
             ? `${entry.provider} (${entry.modes.slice(0, 3).join(", ")})`
@@ -117,7 +117,7 @@ export function renderDigest(before: SessionFacts, after: SessionFacts): string 
   if (before.groups.join() !== after.groups.join())
     notes.push(`ace tool groups on: ${after.groups.join(", ") || "none beyond threads"}`);
   if (before.notes.join("\n") !== after.notes.join("\n"))
-    notes.push("project notes changed (ace_context topic notes)");
+    notes.push("project notes changed (context topic notes)");
   if (after.liveSiblings !== before.liveSiblings)
     notes.push(`${after.liveSiblings} other thread(s) live in this project`);
   if (!notes.length) return undefined;

@@ -88,6 +88,34 @@ it("step completion and HTTP admission leave work unsettled until execution term
   expect(h.view.thread.status.state).toBe("done");
   expect(Object.values(h.view.runs)).toHaveLength(1);
 });
+it("inbox delivery reports which execution took a prompt, running or next", () => {
+  const h = setup();
+  const delivered = (seq: number) =>
+    h.translator.translate(
+      {
+        seq,
+        t: seq,
+        dir: "recv",
+        channel: "sse",
+        data: {
+          id: `delivered-${seq}`,
+          created: seq,
+          type: "session.inbox.delivered",
+          data: { sessionID: "s-root", inboxID: "steer-1" },
+          location: { directory: "/one" },
+        },
+      },
+      seq,
+    );
+  const consumed = { type: "input.consumed", agent: "root", nativeInputIds: ["steer-1"] };
+  // Between executions: the facts carry no turn, so the next execution takes it.
+  const idle = delivered(1000);
+  expect(idle).toContainEqual(expect.objectContaining(consumed));
+  expect(idle.some((fact) => fact.type === "turn.started")).toBe(false);
+  h.event("session.execution.started");
+  // Inside a running execution, after that execution's start.
+  expect(delivered(1001)).toContainEqual(expect.objectContaining(consumed));
+});
 it("empty inbox snapshots cannot settle an input with an uncertain admission receipt", () => {
   const h = setup();
   h.event("session.execution.started");
@@ -733,7 +761,7 @@ it("model socket retries show network waiting while MCP failures remain tool err
   h.event("session.tool.failed", {
     id: "call",
     assistantMessageID: "message",
-    name: "ace_ace_thread_info",
+    name: "ace_thread_read",
     error: { message: "MCP transport closed" },
   });
   expect(h.view.thread.status.state).toBe("working");

@@ -1,5 +1,6 @@
 import type { ThreadKey, ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
+import { agentName } from "@ace/ui-core";
 import { CaretDownIcon, FunnelSimpleIcon } from "@phosphor-icons/react";
 import { useMemo } from "react";
 import {
@@ -36,7 +37,7 @@ const readAgents = (reader: ThreadReader): AgentEntry[] => {
   const entries = reader.agentIds().flatMap((id) => {
     const agent = reader.agent(id);
     if (!agent) return [];
-    const name = id === root ? "Main agent" : (agent.name ?? agent.role ?? "Subagent");
+    const name = id === root ? "Main agent" : agentName(agent);
     return [{ id, parentId: agent.parentId, name, depth: 0 }];
   });
   const byId = new Map(entries.map((entry) => [entry.id, entry]));

@@ -33,6 +33,7 @@
         "restart",
         "limit_resume",
         "queue",
+        "steer",
         "automation",
         "schedule",
         "background_completion"
@@ -47,6 +48,13 @@
     },
     "role": {
       "type": "string"
+    },
+    "sources": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/HandoffModel.json"
+      },
+      "maxItems": 8,
+      "type": "array"
     },
     "threadIds": {
       "items": {

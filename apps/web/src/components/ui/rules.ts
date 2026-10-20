@@ -15,6 +15,8 @@ export const toolbarEdge = "shadow-[inset_0_-1px_0_var(--border)]";
 export const sectionRule = "border-t border-border";
 export const listDivider = "divide-y divide-border-soft";
 export const controlDivider = "mx-1 h-4 w-px shrink-0 bg-border";
+/** `controlDivider` turned on its side, between the groups of a vertical rail of controls. */
+export const railDivider = "my-1 h-px w-4 shrink-0 bg-border";
 
 /*
  * Containers:
@@ -27,4 +29,18 @@ export const controlDivider = "mx-1 h-4 w-px shrink-0 bg-border";
  * Everything else (the transcript, the sidebar, menus) is borderless.
  */
 export const groupCard = "rounded-lg border border-border-soft bg-card";
+/*
+ * `cardEdge`: the hairline edge of an inline transcript card (a code block, a task card, an
+ * answered question, a started-thread card, a command preview). An inset shadow rather than a
+ * border so the card's content box keeps its padding exact.
+ */
+export const cardEdge = "shadow-[inset_0_0_0_1px_var(--border)]";
 export const plainRow = "rounded-md transition-colors duration-(--motion-fast) hover:bg-accent";
+/*
+ * `rowCard`: one outlined row of a side-panel list that asks for action (the PR panel's Needs
+ * attention): a hairline edge, a hover wash.
+ * `hairlineGrid`: cells separated by 1px hairlines in the border colour (the PR merge gates);
+ * each cell paints its own surface over the grid's.
+ */
+export const rowCard = `rounded-md ${cardEdge} transition-colors duration-(--motion-fast) hover:bg-hover`;
+export const hairlineGrid = "grid gap-px bg-border";

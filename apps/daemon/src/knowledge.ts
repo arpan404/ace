@@ -5,7 +5,7 @@ import {
   type McpAttribution,
   type Thread,
 } from "@ace/protocol";
-import type { ContextResult, ContextTopic, KnowledgePort } from "@ace/mcp-server";
+import type { KnowledgeResult, KnowledgeTopic, KnowledgePort } from "@ace/mcp-server";
 import type { Store } from "./store.ts";
 import type { ProjectStorage } from "./project-storage.ts";
 import type { DelegationService } from "./agent-control/delegations.ts";
@@ -59,8 +59,8 @@ export function knowledgePort(deps: KnowledgeDeps): KnowledgePort {
   return {
     async context(caller, topics, signal) {
       const thread = callerThread(caller);
-      const want = new Set<ContextTopic>(topics);
-      const result: ContextResult = {};
+      const want = new Set<KnowledgeTopic>(topics);
+      const result: KnowledgeResult = {};
       const recent = want.has("recent") || want.has("prs") ? recentThreads(deps, thread) : [];
       if (want.has("recent")) result.recent = recent;
       if (want.has("changes")) result.changes = await changes(deps.git, cwd(thread));
@@ -107,7 +107,7 @@ export function knowledgePort(deps: KnowledgeDeps): KnowledgePort {
   };
 }
 
-function recentThreads(deps: KnowledgeDeps, self: Thread): NonNullable<ContextResult["recent"]> {
+function recentThreads(deps: KnowledgeDeps, self: Thread): NonNullable<KnowledgeResult["recent"]> {
   const ids = deps.store.atomic((db) =>
     db
       .prepare(
@@ -177,9 +177,9 @@ async function prs(
   deps: KnowledgeDeps,
   self: Thread,
   cwd: string | undefined,
-  recent: NonNullable<ContextResult["recent"]>,
+  recent: NonNullable<KnowledgeResult["recent"]>,
   signal: AbortSignal,
-): Promise<NonNullable<ContextResult["prs"]>> {
+): Promise<NonNullable<KnowledgeResult["prs"]>> {
   const own = self.details?.linkedPrs ?? [];
   let live: ForgePrStatus | null = null;
   if (own.length && cwd)
@@ -204,7 +204,7 @@ async function prs(
     ),
   ];
   return listed.slice(0, 20).map(({ threadId, pr }) => {
-    const entry: NonNullable<ContextResult["prs"]>[number] = {
+    const entry: NonNullable<KnowledgeResult["prs"]>[number] = {
       threadId,
       number: pr.number,
       url: pr.url,

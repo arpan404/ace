@@ -24,27 +24,35 @@ test("only verification and authorization links reach the client", () => {
     expect(loginUrl("codex", candidate)).toBeUndefined();
 });
 
-test("Claude's claude.com authorize link is relayed only with a localhost callback", () => {
+test("Claude's authorize link is relayed with a localhost callback or Claude's own paste-code page", () => {
   const link =
     "https://claude.com/cai/oauth/authorize?code=true&client_id=synthetic&response_type=code&scope=user%3Aprofile&code_challenge=public-pkce&code_challenge_method=S256&state=public";
   const local = `${link}&redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback`;
   expect(loginUrl("claude", local)).toBe(local);
-  // The paste-code page hands back a code ace has nowhere to enter.
+  // Its fallback page shows a code the person pastes back, from any device.
+  const paste = `${link}&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&login_method=sso&login_hint=person%40example.com`;
+  expect(loginUrl("claude", paste)).toBe(paste);
+  expect(loginUrl("pi", paste)).toBeUndefined();
+  expect(loginUrl("claude", paste.replace("platform.claude.com", "evil.test"))).toBeUndefined();
   expect(
-    loginUrl(
-      "claude",
-      `${link}&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback`,
-    ),
+    loginUrl("claude", paste.replace("%2Foauth%2Fcode%2Fcallback", "%2Fother")),
   ).toBeUndefined();
   expect(loginUrl("claude", local.replace("code=true", "code=private"))).toBeUndefined();
   expect(loginUrl("codex", local)).toBeUndefined();
 });
 
-test("Claude's optional paste prompt keeps the sign-in waiting on the browser", () => {
+test("Claude's sign-in takes a pasted code while it waits on the browser, and says when one fails", () => {
   expect(loginObservation("claude", "\u0004\b\bOpening browser to sign in\u2026")).toEqual({
     state: "awaiting_browser",
+    codeEntry: true,
   });
-  expect(loginObservation("claude", "Paste code here if prompted > ")).toBeUndefined();
+  expect(loginObservation("claude", "Paste code here if prompted > ")).toEqual({
+    state: "awaiting_browser",
+    codeEntry: true,
+  });
+  expect(
+    loginObservation("claude", "Invalid code. Please make sure the full code was copied."),
+  ).toMatchObject({ codeEntry: true, message: expect.stringContaining("didn't work") });
   expect(loginObservation("claude", "Paste authorization code:")).toMatchObject({
     manualRequired: true,
   });

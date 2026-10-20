@@ -79,8 +79,7 @@
   "required": [
     "requestId",
     "task",
-    "role",
-    "provider"
+    "role"
   ],
   "type": "object"
 }

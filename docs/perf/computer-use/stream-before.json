@@ -1,0 +1,35 @@
+{
+  "frame": "1600x1000 dense UI text at 2x, 30 scrolled frames then still",
+  "h264 1.2 Mbps": {
+    "encodedFrames": 5,
+    "encodeMsMean": 7.7,
+    "motionKbPerFrame": 61,
+    "stillAfterMotion": {
+      "psnr": 10.67,
+      "textError": 99.05
+    }
+  },
+  "h264 2.5 Mbps": {
+    "encodedFrames": 6,
+    "encodeMsMean": 2.9,
+    "motionKbPerFrame": 63,
+    "stillAfterMotion": {
+      "psnr": 10.33,
+      "textError": 100.2
+    }
+  },
+  "h264 6.0 Mbps": {
+    "encodedFrames": 30,
+    "encodeMsMean": 5.3,
+    "motionKbPerFrame": 14,
+    "stillAfterMotion": {
+      "psnr": 38.09,
+      "textError": 4.52
+    }
+  },
+  "jpeg motion": {
+    "kb": 517,
+    "psnr": 42.4,
+    "textError": 2.35
+  }
+}

@@ -129,5 +129,5 @@ it("Cursor SDK consumes the daemon lease and calls browser, screen and device to
   expect(() => f.screen.agentSession({ threadId: thread.id, agentId: "root" })).toThrow(
     "delegation required",
   );
-  expect((await invoke(lease.connection, "ace_browser_open", {})).status).toBe(401);
+  expect((await invoke(lease.connection, "browser_open", {})).status).toBe(401);
 });

@@ -16,3 +16,42 @@ export function mentionInComposer(threadId: string, mention: Mention): boolean {
   receive(mention);
   return true;
 }
+
+/** A browser tab handed to the thread's composer as an `@` mention. */
+export interface ComposerTab {
+  tabId: string;
+  url: string;
+  title: string;
+}
+const tabReceivers = new Map<string, (tab: ComposerTab) => void>();
+export function receiveComposerTabs(
+  threadId: string,
+  receive: (tab: ComposerTab) => void,
+): () => void {
+  tabReceivers.set(threadId, receive);
+  return () => {
+    if (tabReceivers.get(threadId) === receive) tabReceivers.delete(threadId);
+  };
+}
+/** Words handed to a thread's composer (the PR panel's "Fix with agent"), never sent for you. */
+const textReceivers = new Map<string, (text: string) => void>();
+export function receiveComposerText(threadId: string, receive: (text: string) => void): () => void {
+  textReceivers.set(threadId, receive);
+  return () => {
+    if (textReceivers.get(threadId) === receive) textReceivers.delete(threadId);
+  };
+}
+/** Put `text` in the thread's composer at the caret; false when no composer is mounted. */
+export function insertTextInComposer(threadId: string, text: string): boolean {
+  const receive = textReceivers.get(threadId);
+  if (!receive) return false;
+  receive(text);
+  return true;
+}
+/** Put a mention of `tab` in the thread's composer; false when no composer is mounted. */
+export function mentionTabInComposer(threadId: string, tab: ComposerTab): boolean {
+  const receive = tabReceivers.get(threadId);
+  if (!receive) return false;
+  receive(tab);
+  return true;
+}

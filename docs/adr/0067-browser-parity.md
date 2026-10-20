@@ -1,7 +1,13 @@
-# 0067: Background browser tabs and private human control
+# 0067: Background browser tabs, shared by people and agents
 
 Date: 2026-10-05. Status: accepted. Agent backend choice (MCP opens no longer force headless)
 is superseded by [ADR 0069](0069-shared-native-browser.md).
+
+Amended 2026-10-17 by [ADR 0083](0083-browser-v2-daemon-chrome.md): threads share one persistent ace profile (private contexts on request), and the tab model there replaces the eight-page context.
+
+Amended 2026-10-17 (H4, owner decision): nobody takes over or hands back. People and agents
+share every tab; the private takeover, its host gate and the control lease are removed. See
+"Collaboration" below, which replaces "Private takeover" wherever they disagree.
 
 Superseded 2026-10-14: ace's MCP tools are always allowed; permissions are provider-native (owner decision). Evaluate, download and upload approvals described below are removed; agents run them without a prompt. Private human control is unchanged.
 
@@ -55,9 +61,10 @@ Failed browser startup removes its unpublished session directory. Successful
 session directories retain their artifacts after close. Concurrent headless
 opens share the service's verified Chromium acquisition.
 
-`ace_browser_tabs` lists, opens, switches and closes tabs. `ace_browser_open`
-accepts `newTab`. Commands can select `tabId`; selection and input remain serialized
-within a thread. Another thread can work while one thread waits for approval.
+`ace_browser_tabs` lists, opens, selects, keeps and closes tabs (operations `list`, `open`,
+`select`, `close`, `keep`; the old `switch` is gone, ADR 0083 "Tabs"). `ace_browser_open`
+accepts `newTab`. Commands can select `tabId`; each tab serializes its own commands, and
+commands on different tabs run concurrently (ADR 0083, "Tabs"). Another thread can work while one thread waits for approval.
 Closing the last tab requires closing the browser. Switching capture stops the old
 screencast before starting the new one and retains increasing frame sequences.
 
@@ -99,7 +106,8 @@ Pending dialog ownership is checked across all tabs before switching or waiting.
 Dialog answers bypass the renderer command queue under the same submitting lease
 checks, so a read targeting another tab cannot block the answer. Other page
 commands return the outstanding dialog until it is answered. Obsolete IDs fail. Beforeunload is
-automatically accepted only under the agent lease. Native permissions remain denied;
+automatically accepted only when an agent's command leaves a page the person has not used
+(see "Leaving a page the person was editing" below). Native permissions remain denied;
 file chooser windows do not grant filesystem access.
 
 Snapshots collect same-origin and out-of-process frames through their own CDP
@@ -147,7 +155,150 @@ responses fail. No response headers or request bodies are retained. URL credenti
 and sensitive query fields are removed. Redaction detects known patterns and keys;
 it cannot infer every secret in arbitrary prose.
 
-## Private takeover and recording
+## Collaboration (amendment, 2026-10-17)
+
+The owner tested take over / hand back and rejected it: "we must have proper human–AI working
+together, no need of taking over or handing back." The rules now are:
+
+- **The person's input always lands at once**, in any tab, whoever else works there. It never
+  queues behind agent commands (it runs on the tab's ordered person's lane, which the person's
+  annotate commands share; ADR 0082) and is never refused for agent activity. Annotate mode belongs to whichever of the person's connections started it; a
+  second one starting replaces it (`ended` with reason `lease`).
+- **An agent marks the tab it uses.** A tab carries `inUse` (the agent, by `agentId`) while one
+  of its commands runs and for `inUseMs` (8 s) after, and `pointer`: where it last clicked,
+  hovered or dropped, in the tab's CSS pixels. Clients mark the tab; the daemon draws the agent
+  cursor in the page (ADR 0082, "Agent cursor"), and clients draw it over the frames only
+  without the `page-cursor` feature or while a recording keeps it out of the page. The backend hears about it (`agentUse`) so the desktop intercepts file choosers and
+  keeps an unseen view rendering for the agent.
+- **Agent input politely waits for the person.** An agent's page input (click, type, press,
+  scroll, drag, hover, select, check, uncheck, focus, fill_form, upload, navigate and history
+  except stop) in a tab where the person used the page within `quietMs` (1.5 s) waits until
+  they have paused that long, for at most `maxWaitMs` (10 s); past that it fails with
+  `human_active` ("snapshot again, then retry or use another tab"). Reads (snapshot,
+  screenshot, evaluate, logs, find, waits) never wait. The desktop reports the person's own
+  input on its native view as `ace.humanInput` (at most every 250 ms); the daemon sees the
+  screencast's input directly; Use my Chrome reports it from a watcher in the page (see "Sharing
+  a tab safely" below).
+- **The view follows an agent's new tab** only while the person has neither picked a tab nor
+  used the one they view within `followAfterMs` (30 s); otherwise the new tab joins the strip
+  without taking focus.
+- **"Keep agents out of this tab"** (`browser.tabs.private`, per tab, a person's choice) is the
+  only remaining gate: agents can neither read nor drive the tab (`human_private`), its logs,
+  downloads and recording frames are withheld as before, and agents listing tabs see it as
+  `about:blank`. It invalidates refs. Agent work that started before the tab turned private
+  never resumes, even once agents are let back in (each command carries its privacy epoch). The
+  flag is kept with the tab records, so it survives a daemon restart; there is no host gate and
+  nothing pauses the thread. An agent may not close a browser holding a private tab, or one the
+  person used within `quietMs`.
+
+Rejected: a lease handed back automatically after idle (still a lock the person can trip over);
+cancelling an agent's in-flight command on the person's input (an input already dispatched into
+Chromium cannot be recalled, and the next agent command waits anyway).
+
+The timings are pure functions in `packages/browser/src/collaboration.ts`, injected through
+`collaboration` in the service options.
+
+### Sharing a tab safely (amendment, 2026-10-17, browser audit)
+
+The audit found ways an agent could still trip over the person. The rules above now also mean:
+
+- **Reads never wait behind a waiting input.** An agent's input that waits for the person waits
+  in the tab's agent-input lane (`agent-input-lane.ts`), in arrival order, outside the tab's
+  command queue. Snapshot, find, screenshot and logs queued after it run at once. An input whose
+  queue turn comes while the person is busy again goes back to the lane, within the same
+  `maxWaitMs` budget.
+- **An agent's click never lets a page write the clipboard.** On the desktop's native view a
+  page gets `clipboard-sanitized-write` only while the last click or key press that activated
+  it was the person's own, within Chromium's five-second activation. Input the daemon relays
+  (an agent's, or the person's from another device) activates the page for popups but not for
+  the clipboard, so a page cannot replace what the person copied after an agent clicks it.
+- **All of the person's input counts.** The desktop view counts every key event (key up and IME
+  composition included) and every mouse event (moves included), not only key down, click and
+  wheel (`human-input.ts`). A pressed button keeps the person active, reported every 250 ms,
+  until it is released, so an agent never acts in the middle of their drag; a release lost to a
+  native drag-and-drop ends at the next move without a button, or after 30 s. In Use my Chrome
+  the extension's debugger never sees real input, so the daemon installs, over that debugger, a
+  listener in its own isolated world (`ace-person-input`) in every document of each controlled
+  tab, including the page a shared tab already shows. It reports trusted pointer, key, IME,
+  touch and drag events through a binding only that world can call; no content script and no
+  extension change is needed. Agent input is trusted too, so reports while one of the tab's
+  `Input.*` commands runs, and for 300 ms after, are ignored. Out-of-process iframes are not
+  watched.
+- **An agent's typing never takes the person's text, focus or caret.** While the person works
+  in the tab (used it within `presentMs`, 30 s), `type` and each `fill_form` field add the
+  agent's text after the field's own instead of replacing it, and give the person back their
+  focused element, caret and selection; focusing never scrolls the page. Focusing, inserting
+  and giving back run as one page task (`typing.ts`), so none of the person's keystrokes land
+  in the agent's field. The result carries `kept_text` when the field already held text. With
+  the person away, `type` replaces the field's text as before.
+- **Multi-step agent input looks again between steps.** `fill_form` is one waiting input per
+  field in the agent-input lane, so a person who returns between two fields makes the next
+  field wait. A drag checks before each pointer step; if the person used the tab within
+  `quietMs` it releases the button where it is and fails with `human_active`.
+
+### Leaving a page the person was editing (amendment, 2026-10-17, browser audit)
+
+ace's Chrome accepted every `beforeunload` prompt for 8 s after an agent used a tab, the
+person's own navigation included, and the desktop's view never answered Electron's
+`will-prevent-unload`, so an agent's navigation off such a page waited out its timeout. Now a
+tab remembers whether the person used the page it shows (any input of theirs, or a command of
+theirs that acts on the page) until the next main-frame navigation, and:
+
+- **An agent leaving a page only it used goes unasked.** While an agent's command runs in the
+  tab and the person has not used the page, its prompt is accepted (`leaveUnasked`, asked by
+  the engine when the prompt opens).
+- **Anything else asks the person.** In ace's Chrome and Use my Chrome the prompt becomes the
+  tab's pending `beforeunload` dialog, which the person answers (Leave page / Stay); an agent's
+  command gets it as `pending_dialog`. An agent may dismiss it (stay) but accepting it on a page
+  the person used fails with `unsaved_changes` ("ask the person, or use another tab").
+- **The desktop decides at once**, since Electron needs the answer synchronously
+  (`unload.ts`): if the person's own click or key press led away, or no agent drives the view,
+  it shows the native leave prompt; if an agent drives it and the person has not pressed a key
+  or button on this page, it leaves; otherwise it stays and reports `ace.unloadRefused`, and
+  the agent's navigation fails at once with `unsaved_changes`. Input relayed from the person's
+  other devices does not count on the desktop. A same-document navigation also clears the
+  person's mark.
+
+### Clicks land where they aim (amendment, 2026-10-17, browser audit)
+
+An agent's pointer input on a ref (click, hover, check, uncheck, both ends of a drag) used to
+measure the element's box once and press its centre, so a layout shift or an overlay took the
+click. Now, in the element's own document and in every engine (`hit-target.ts`):
+
+- **It waits for the element to hold still.** The element is scrolled into view and its box
+  read once per frame (or every 100 ms where frames do not run), in page coordinates, until the
+  centre has stayed put for two frames in a row. A button pulsing in place counts as still; one
+  still sliding after 1 s fails with `not_hittable`.
+- **It hit-tests before pressing.** Candidate points inside the visible part of the box, the
+  centre first and then the centres of its four quarters, are checked with `elementFromPoint`
+  (through open shadow roots). The first point whose hit is the element, a descendant, or one
+  of its labels is pressed; an element with `pointer-events: none` accepts a hit on an
+  ancestor. If something else is on top at every point the command fails with `covered`
+  ("dismiss or close what covers it"); if no point is inside the viewport, with `not_hittable`.
+  Nothing is dispatched in either case. Clicks at x, y are the agent's own aim and are not
+  checked.
+
+## Privacy in captures (amendment, 2026-10-17, #939)
+
+- **Secret fields.** Password fields (including ones a page switched to text to "show" the
+  password, which keep their password autocomplete token), one-time codes and card numbers and
+  codes (`secretFieldSelector`, `@ace/browser-annotate`) never reach agents. Agent screenshots and
+  the person's annotation captures adopt a stylesheet into the page and its same-origin frames
+  that renders those fields' text and bullets transparent, wait two frames, capture, then remove
+  it; the person's own view is untouched. Agent snapshots replace their values (and every name
+  and value inside them) with a fixed `••••••••`, whatever the length. Cross-origin
+  out-of-process frames are outside the mask; their own password fields still show bullets.
+- **Recording is visible and stoppable.** `BrowserState.recording` carries who started a
+  recording (`by`, an agent with its id, or the person). The browser panel shows it with Stop
+  recording (`browser.recording.stop`), and the sidebar's computer-use indicator lists the
+  browser while it records. A recording follows one tab (the agent's current tab or `tabId`),
+  whichever tab the person views: the live frames while it is shown, screenshots of it
+  otherwise; a private tab adds none. While a recording runs every tab's secret fields are
+  masked and agents' cursors are hidden in every tab, so neither is in its frames.
+- **Evaluate** is restricted in the person's own Chrome (ADR 0084, "Evaluate restriction").
+  Consistent with the 2026-10-14 decision, the restriction is a removed capability, not a prompt.
+
+## Private takeover (superseded by Collaboration above) and recording
 
 Takeover has shared and private modes. Shared takeover retains the existing
 agent-read behavior. Private takeover rejects every agent command and inline

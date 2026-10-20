@@ -1,39 +1,52 @@
-import { ArrowUpIcon, StopIcon } from "@phosphor-icons/react";
+import { ArrowBendUpRightIcon, ArrowUpIcon, StopIcon, QueueIcon } from "@phosphor-icons/react";
+import { memo } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { formatKeys } from "@/lib/keymap.ts";
 import { iconControl } from "./composer-styles.ts";
 
-export type PrimaryMode = "send" | "queue" | "steer" | "stop";
+export type PrimaryMode = "send" | "queue" | "steer";
 
-const labels: Record<Exclude<PrimaryMode, "stop">, string> = {
+const labels: Record<PrimaryMode, string> = {
   send: "Send",
   queue: "Queue message",
   steer: "Steer message",
 };
 
+/** Queue and Steer read apart from Send, in the queue strip's own glyphs. */
+const icons = {
+  send: ArrowUpIcon,
+  queue: QueueIcon,
+  steer: ArrowBendUpRightIcon,
+};
+
 /**
- * What Enter does now, and what ⌘↵ does instead while the agent works. A provider that can't
- * steer only queues, so ⌘↵ isn't offered (UX audit SY-14).
+ * What Enter does now, and what the other send key (⌘↵ unless rebound) does instead: the other
+ * follow-up while the agent works, or `otherHint` where it means something else. A provider
+ * that can't steer only queues, so the other follow-up isn't offered (UX audit SY-14).
  */
-function hint(mode: Exclude<PrimaryMode, "stop">, canSteer: boolean): string {
-  const mod = formatKeys("mod+enter");
-  if (mode === "steer") return `Steer into the running turn · ${mod} queues it instead`;
+function hint(
+  mode: PrimaryMode,
+  canSteer: boolean,
+  otherKeys: string,
+  otherHint: string | undefined,
+): string {
+  const other = formatKeys(otherKeys);
+  if (mode === "steer") return `Steer into the running turn · ${other} queues it instead`;
   if (mode === "queue")
     return canSteer
-      ? `Queue for after this turn · ${mod} steers it in now`
+      ? `Queue for after this turn · ${other} steers it now`
       : "Queue for after this turn";
-  return "Send";
+  return otherHint ? `Send · ${other} ${otherHint}` : "Send";
 }
 
 /**
- * The composer's one primary action, always in the same place: Send, Queue or Steer for a draft
- * (by the daemon's follow-up setting while the agent works), Stop when the agent works and the
- * composer is empty, and Answer, Submit or Next while the question card above it asks. A draft
- * never turns into Stop. Unavailable, it stays focusable and its tooltip says why.
+ * The composer's send control, always in the same place: Send, or Queue or Steer while the
+ * agent works (by the daemon's follow-up setting). Unavailable, it stays focusable and its
+ * tooltip says why. An empty busy draft shows Stop in this same slot.
  */
-export function PrimaryAction(props: {
+export const PrimaryAction = memo(function PrimaryAction(props: {
   mode: PrimaryMode;
   /** Why the draft can't go yet; undefined when it can. */
   blocked: string | undefined;
@@ -43,46 +56,17 @@ export function PrimaryAction(props: {
   describedBy?: string | undefined;
   /** The provider can steer a running turn; otherwise follow-ups only queue. */
   canSteer?: boolean | undefined;
-  /** A Stop is on its way: "Stopping…" until the turn ends. */
-  stopping?: boolean | undefined;
+  /** The other send key, as bound now. */
+  otherKeys: string;
+  /** What it does when that isn't the other follow-up (New thread). */
+  otherHint?: string | undefined;
   onSend(): void;
-  onStop(): void;
 }) {
-  if (props.mode === "stop")
-    return props.stopping ? (
-      <Tip label="Stopping… the agent stops at its next safe point" side="top">
-        <button
-          type="button"
-          aria-label="Stopping…"
-          aria-disabled
-          className={cn(
-            iconControl,
-            "rounded-full cursor-default bg-foreground/10 text-muted-foreground",
-          )}
-        >
-          <Spinner />
-        </button>
-      </Tip>
-    ) : (
-      <Tip label="Stop the agent and its subagents" side="top">
-        <button
-          type="button"
-          aria-label="Stop the agent"
-          onClick={props.onStop}
-          className={cn(
-            iconControl,
-            "rounded-full bg-tint text-tint-foreground shadow-none hover:bg-tint/85 hover:text-tint-foreground",
-          )}
-        >
-          <StopIcon aria-hidden size={12} weight="fill" />
-        </button>
-      </Tip>
-    );
-  const mode = props.mode;
-  const blocked = props.blocked;
+  const { mode, blocked } = props;
+  const Glyph = icons[mode];
   return (
     <Tip
-      label={blocked ?? hint(mode, props.canSteer !== false)}
+      label={blocked ?? hint(mode, props.canSteer !== false, props.otherKeys, props.otherHint)}
       {...(blocked ? {} : { keys: "enter" })}
       side="top"
     >
@@ -98,12 +82,45 @@ export function PrimaryAction(props: {
           iconControl,
           blocked
             ? "cursor-default bg-foreground/10 text-subtle-foreground hover:bg-foreground/10 hover:text-subtle-foreground active:scale-100"
-            : "bg-tint text-tint-foreground shadow-none hover:bg-tint/85 hover:text-tint-foreground",
+            : "bg-tint text-tint-foreground shadow-none hover:bg-tint/85 hover:text-tint-foreground focus-visible:bg-tint/85 focus-visible:text-tint-foreground",
           props.off && "opacity-40",
         )}
       >
-        <ArrowUpIcon aria-hidden size={16} weight="bold" />
+        <Glyph aria-hidden size={16} weight="bold" />
       </button>
     </Tip>
   );
-}
+});
+
+/**
+ * Stop occupies the primary slot while the agent works and the draft is empty.
+ * "Stopping…" until the turn ends; the stop shortcut also works with a draft.
+ */
+export const StopAction = memo(function StopAction(props: { stopping: boolean; onStop(): void }) {
+  return props.stopping ? (
+    <Tip label="Stopping… the agent stops at its next safe point" side="top">
+      <button
+        type="button"
+        aria-label="Stopping…"
+        aria-disabled
+        className={cn(iconControl, "cursor-default bg-foreground/10 text-muted-foreground")}
+      >
+        <Spinner />
+      </button>
+    </Tip>
+  ) : (
+    <Tip label="Stop the agent and its subagents" keys="escape escape" resolve={false} side="top">
+      <button
+        type="button"
+        aria-label="Stop the agent"
+        onClick={props.onStop}
+        className={cn(
+          iconControl,
+          "bg-foreground text-background hover:bg-foreground/85 hover:text-background focus-visible:bg-foreground/85 focus-visible:text-background",
+        )}
+      >
+        <StopIcon aria-hidden size={12} weight="fill" />
+      </button>
+    </Tip>
+  );
+});

@@ -10,7 +10,7 @@ it("only intentional fixed failures reach agents; raw messages, hints, stacks an
     new AbortController().signal,
   );
   registry.registerContent({
-    name: "ace_browser_click",
+    name: "browser_act",
     capability: "browser",
     description: "Click",
     timeoutMs: 1000,
@@ -42,7 +42,7 @@ it("only intentional fixed failures reach agents; raw messages, hints, stacks an
     },
   });
   const call = (ref: string) =>
-    registry.call("ace_browser_click", { ref }, lease.principal, new AbortController().signal);
+    registry.call("browser_act", { ref }, lease.principal, new AbortController().signal);
   for (const ref of ["public", "plain", "schema", "raw", "origin"]) {
     const result = await call(ref);
     expect(result.isError).toBe(true);
@@ -58,12 +58,7 @@ it("only intentional fixed failures reach agents; raw messages, hints, stacks an
     content: [{ text: expect.stringContaining('"code":"invalid_data"') }],
   });
   expect(
-    await registry.call(
-      "ace_browser_click",
-      { ref: 42 },
-      lease.principal,
-      new AbortController().signal,
-    ),
+    await registry.call("browser_act", { ref: 42 }, lease.principal, new AbortController().signal),
   ).toMatchObject({
     isError: true,
     content: [{ text: expect.stringContaining("invalid_arguments") }],
@@ -76,7 +71,7 @@ it("native delivery reasons and dispatch phases reach agents without raw helper 
   const credentials = new CredentialRegistry(() => "b".repeat(64));
   const lease = credentials.issue(scope("root", ["screen"]), new AbortController().signal);
   registry.registerContent({
-    name: "screen_key",
+    name: "screen_input",
     capability: "screen",
     description: "Key",
     timeoutMs: 1000,
@@ -94,7 +89,7 @@ it("native delivery reasons and dispatch phases reach agents without raw helper 
   try {
     for (const dispatched of [true, false]) {
       const result = await registry.call(
-        "screen_key",
+        "screen_input",
         { dispatched },
         lease.principal,
         new AbortController().signal,

@@ -5,12 +5,14 @@ import {
   type ThreadId,
   type ThreadStartOperation,
   type AgentControlResult,
+  WorkspaceId,
 } from "@ace/protocol";
 import { conversationAnswer } from "./conversation-answer.ts";
 import type { CreationWorkspace } from "../creation-workspace.ts";
 import { prepareAgentWorkspace, type AgentWorkspaceContext } from "./workspaces.ts";
 import { ConversationJournal } from "./conversation-journal.ts";
 import { controlCommandId } from "./command-id.ts";
+import { resolveProject } from "./projects.ts";
 import type { DelegationService } from "./delegations.ts";
 
 export function createConversationStarts(
@@ -63,9 +65,14 @@ export function createConversationStarts(
     const key = createHash("sha256")
       .update(JSON.stringify([caller.threadId, operation.requestId]))
       .digest("hex");
-    const { op: _op, title, text, requestId: _requestId, ...selection } = operation;
+    const { op: _op, title, text, requestId: _requestId, project, ...selection } = operation;
+    const target = project ? resolveProject(context.store, project) : undefined;
+    if (target && !target.ok) return { ok: false, code: target.code, hint: target.hint };
+    const provider = selection.provider ?? context.store.getThread(caller.threadId)?.provider;
+    if (!provider) return { ok: false, code: "forbidden" };
     const request = {
       ...selection,
+      provider,
       requestId: `conversation-${key}`,
       task: text,
       role: title,
@@ -81,13 +88,14 @@ export function createConversationStarts(
     try {
       const parent = context.store.getThread(caller.threadId);
       if (!parent) throw new Error("Parent missing");
+      const workspaceId = target ? WorkspaceId.parse(target.project.id) : parent.workspaceId;
       const command = Command.parse({
         id: controlCommandId(caller.threadId, request.requestId, "workspace"),
         deviceId: "ace-agent",
         payload: {
           type: "thread.prepare",
           threadId: reservation.record.childId,
-          workspaceId: parent.workspaceId,
+          workspaceId,
           provider: operation.provider,
           mode: "worktree",
           title,
@@ -96,20 +104,14 @@ export function createConversationStarts(
             : {}),
         },
       });
-      preparation = await prepareAgentWorkspace(
-        context,
-        caller,
-        command,
-        operation.workspace,
-        lifetime,
-      );
+      preparation = await prepareAgentWorkspace(context, command, operation.workspace, lifetime);
       lifetime.throwIfAborted();
       return context.store.atomic(() => {
         lifetime.throwIfAborted();
         const child = service.prepareConversation(
           caller,
           reservation,
-          parent.workspaceId,
+          workspaceId,
           preparation ? { preparedWorkspace: preparation.workspace } : undefined,
         );
         listed(child.id);

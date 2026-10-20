@@ -8,9 +8,9 @@ import {
 } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
-import { switchRoute } from "@ace/core";
 import { createEngineThread } from "./create-thread.ts";
 import { boundary, handoff, validateCitations } from "./transition-history.ts";
+import { recordSwitch, resolveSwitch, switchAgent } from "./switch-admission.ts";
 
 export function acceptTransition(
   repo: EngineRepository,
@@ -163,54 +163,22 @@ export function acceptTransition(
         if (repo.transitions.guarded(id)) return fail("thread_transition_in_progress");
         if (p.patch && !repo.quiescent(repo.requireState(id))) return fail("source_tree_is_live");
       } else {
-        const identity = p.selection.provider === "acp" ? AcpIdentity.safeParse(thread) : undefined;
-        if (p.selection.provider === "acp" && !identity?.success)
-          return fail("acp_identity_required");
-        if (!registry.has(p.selection.provider, identity?.success ? identity.data : undefined))
-          return fail("provider_unavailable");
-        const metadata = repo.session(id);
-        const fallback: ExecutionSelection = {
-          provider: state.config.provider,
-          options: {},
-          ...metadata,
-        };
-        const selection = repo.transitions.selection(id, fallback, p.selection);
-        const current = repo.transitions.get(id).selection ?? fallback;
-        if (switchRoute({ ...current, backend: repo.backend(id) }, selection) === "new_thread")
-          return fail("switch_requires_new_thread");
-        if (
-          Object.keys(selection.options).length &&
-          !registry.get(
-            selection.provider,
-            selection.provider === state.config.provider ? repo.backend(id) : undefined,
-          ).capabilities.sessionOptions
-        )
-          return fail("provider_options_unsupported");
-        repo.transitions.remember(id, repo.transitions.get(id).selection ?? fallback);
-        if (!repo.reserve(id)) return fail("engine_capacity_exceeded");
-        // Last selection wins while queued; in-flight transitions cannot be overwritten.
-        for (const previous of repo.pending.headers(id))
-          if (previous.kind === "thread.switch") {
-            if (previous.status === "running") return fail("switch_in_progress");
-            repo.mark(previous, "done");
-          }
-        const lossy = selection.provider !== state.config.provider;
-        repo.store.appendEvents(
+        const agent = switchAgent(thread, p.selection);
+        if (agent === "required") return fail("acp_identity_required");
+        if (!registry.has(p.selection.provider, agent)) return fail("provider_unavailable");
+        const selection = resolveSwitch(
+          repo,
           id,
-          [
-            {
-              type: "thread.updated",
-              switch: {
-                selection,
-                state: "queued",
-                lossy,
-                ...(lossy ? { recommendation: "delegate_task" } : {}),
-                at: now,
-              },
-            },
-          ],
-          now,
+          p.selection,
+          (provider) =>
+            registry.get(
+              provider,
+              provider === state.config.provider ? repo.backend(id) : undefined,
+            ).capabilities,
         );
+        if (typeof selection === "string") return fail(selection);
+        if (!repo.reserve(id)) return fail("engine_capacity_exceeded");
+        recordSwitch(repo, id, selection, now);
       }
       if (!repo.reserve(id)) return fail("engine_capacity_exceeded");
       if (p.type === "thread.merge" && p.patch) {

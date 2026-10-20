@@ -1,0 +1,23 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserTabActor.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "agentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "human",
+        "agent",
+        "page"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind"
+  ],
+  "type": "object"
+}

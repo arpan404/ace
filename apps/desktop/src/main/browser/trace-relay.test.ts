@@ -22,7 +22,10 @@ class NativePage extends FakePage {
   isShown() {
     return false;
   }
-  setAgentControl() {}
+  async picture() {
+    return undefined;
+  }
+  override setAgentControl() {}
 }
 
 async function setup(native: boolean, oversized: boolean) {

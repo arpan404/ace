@@ -13,7 +13,7 @@ export const inputMinLines = 2;
 
 /** One size for every footer control; labels are 13/16 so nothing lands on a half pixel. */
 const control =
-  "inline-flex h-(--composer-control) items-center justify-center gap-1.5 rounded-full text-ui leading-4 font-medium text-muted-foreground outline-none transition-[background-color,color,transform] duration-(--motion-fast) hover:bg-accent hover:text-foreground active:scale-95 aria-expanded:text-foreground focus-visible:bg-accent focus-visible:text-foreground disabled:pointer-events-none disabled:opacity-40 data-disabled:pointer-events-none data-disabled:opacity-40";
+  "inline-flex h-(--composer-control) items-center justify-center gap-1.5 rounded-full text-ui leading-4 font-medium text-muted-foreground focus-ring transition-[background-color,color,transform] duration-(--motion-fast) hover:bg-accent hover:text-foreground active:scale-95 aria-expanded:text-foreground focus-visible:bg-accent focus-visible:text-foreground disabled:pointer-events-none disabled:opacity-40 data-disabled:pointer-events-none data-disabled:opacity-40";
 
 /** A square icon control: plus, send and stop. It never gives up its room. */
 export const iconControl = `${control} size-(--composer-control) shrink-0 px-0`;
@@ -31,7 +31,7 @@ export const chipControl = `${control} min-w-(--composer-control) shrink px-2.5`
  * edge is a border with a soft lift shadow (styles/glass.css, "Depth"). Popovers opened
  * from it are solid.
  */
-export const composerSurface = "ace-glass-dock border border-sidebar-border outline-none";
+export const composerSurface = "ace-glass-dock border border-input outline-none";
 
 /** The top card's inset, overlap and lower padding share the surface spacing tokens. */
 export const attachedInset = "mx-[calc(var(--surface-gap)*2)]";

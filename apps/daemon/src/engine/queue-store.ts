@@ -148,9 +148,11 @@ export class QueueStore {
     });
   }
   count(id: ThreadId): number {
+    // Daemon-owned child results are pending ace input, not the person's queue:
+    // they never appear in the Queued strip, so they never count toward it.
     return Number(
       this.sql(
-        "SELECT COUNT(*) AS n FROM intents WHERE thread_id=? AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1))",
+        "SELECT COUNT(*) AS n FROM intents WHERE thread_id=? AND (trigger IS NULL OR trigger != 'subagent_result') AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1))",
       ).get(id)?.n,
     );
   }
@@ -199,8 +201,20 @@ export class QueueStore {
     );
   }
   snapshot(id: ThreadId): QueueSnapshot {
+    // A thread the engine never queued for (a development thread) has nothing waiting; reading
+    // it must not fail the read it is part of, such as an agent's thread_read.
+    if (!this.sql("SELECT 1 FROM engine_queue WHERE thread_id=?").get(id))
+      return QueueSnapshot.parse({
+        threadId: id,
+        pendingCount: 0,
+        revision: 0,
+        paused: false,
+        reason: null,
+        resumeAt: null,
+        messages: [],
+      });
     const rows = this.sql(
-      "SELECT payload,uncertain FROM intents WHERE thread_id=? AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1)) ORDER BY position,id LIMIT 256",
+      "SELECT payload,uncertain FROM intents WHERE thread_id=? AND (trigger IS NULL OR trigger != 'subagent_result') AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1)) ORDER BY position,id LIMIT 256",
     ).all(id);
     return QueueSnapshot.parse({
       ...this.shown(id),
@@ -217,12 +231,12 @@ export class QueueStore {
       throw new Error("queue_revision_required");
     const cursor = request.after
       ? this.sql(
-          "SELECT position,id FROM intents WHERE thread_id=? AND command_id=? AND (status IN ('pending','queued') OR uncertain=1)",
+          "SELECT position,id FROM intents WHERE thread_id=? AND command_id=? AND (trigger IS NULL OR trigger != 'subagent_result') AND (status IN ('pending','queued') OR uncertain=1)",
         ).get(request.threadId, request.after)
       : undefined;
     if (request.after && !cursor) throw new Error("invalid_queue_cursor");
     const rows = this.sql(
-      "SELECT payload,uncertain FROM intents WHERE thread_id=? AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1)) AND (position>? OR (position=? AND id>?)) ORDER BY position,id LIMIT ?",
+      "SELECT payload,uncertain FROM intents WHERE thread_id=? AND (trigger IS NULL OR trigger != 'subagent_result') AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1)) AND (position>? OR (position=? AND id>?)) ORDER BY position,id LIMIT ?",
     ).all(
       request.threadId,
       cursor?.position ?? -1,
@@ -257,8 +271,10 @@ export class QueueStore {
     id: ThreadId,
     message: string,
   ): { id: number; command: Command; uncertain: boolean } | undefined {
+    // Daemon-owned child results are never editable: the person's Queued strip
+    // only offers Edit/Steer/Remove for their own messages.
     const row = this.sql(
-      "SELECT id,payload,uncertain FROM intents WHERE thread_id=? AND command_id=? AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1))",
+      "SELECT id,payload,uncertain FROM intents WHERE thread_id=? AND command_id=? AND (trigger IS NULL OR trigger != 'subagent_result') AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1))",
     ).get(id, message);
     return row
       ? {
@@ -303,8 +319,10 @@ export class QueueStore {
     ).run(id);
   }
   move(id: ThreadId, message: number, after: number | null): boolean {
+    // Person reordering only spans their own messages; daemon-owned child
+    // results stay ordered by the delegation service (position 0, before all).
     const rows = this.sql(
-      "SELECT id FROM intents WHERE thread_id=? AND kind IN ('thread.send','thread.create') AND status IN ('pending','queued') ORDER BY position,id LIMIT 256",
+      "SELECT id FROM intents WHERE thread_id=? AND (trigger IS NULL OR trigger != 'subagent_result') AND kind IN ('thread.send','thread.create') AND status IN ('pending','queued') ORDER BY position,id LIMIT 256",
     )
       .all(id)
       .map((row) => Number(row.id));

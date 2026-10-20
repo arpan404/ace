@@ -38,6 +38,7 @@ import { DaemonNetwork } from "./daemon-network.ts";
 import { SettingsStore } from "./settings-store.ts";
 import { checkUserData, desktopUserData, legacyFolders } from "./user-data.ts";
 import { createMainWindow } from "./window/main-window.ts";
+import { applyZoom } from "./window/zoom.ts";
 import {
   disableDnsPrefetching,
   isolateVisualizationSession,
@@ -172,13 +173,13 @@ function main(target: DaemonTarget): void {
     userData: app.getPath("userData"),
     trayIcon: paths.trayIcon,
     browserPreload: join(dirname(paths.preload), "browser-preload.cjs"),
+    downloads: app.getPath("downloads"),
     runtime,
     settings: () => settings.get(),
     window: () => window,
     open: (link) => open(link),
     quitAll: () => app.quit(),
     log: (message) => log("warn", message),
-    onController: (state) => emit(contents(), "browser.controller", state),
   });
 
   /** Show the window (creating it if needed) and follow a deep link. */
@@ -212,6 +213,7 @@ function main(target: DaemonTarget): void {
       info: JSON.stringify(info),
       statePath: join(app.getPath("userData"), "window.json"),
       background: (osDark) => windowBackground(backgrounds.get(), osDark),
+      downloadsDir: app.getPath("downloads"),
       onRoute: (path) => {
         route = path;
         focusChanged();
@@ -231,10 +233,12 @@ function main(target: DaemonTarget): void {
     });
     renderer.on("render-process-gone", forget);
     renderer.on("destroyed", forget);
-    window.on("closed", () => {
+    const closing = window;
+    // Browser views move to the parking window before the window (and its views) go.
+    closing.on("close", () => background.windowClosing(closing));
+    closing.on("closed", () => {
       window = undefined;
-      // Embedded views live in the window: without one the app stops offering the backend,
-      // so the daemon pauses or moves those sessions instead of driving dead views.
+      // The app quits here only when nothing keeps it running (`appLifetime`).
       background.windowChanged();
       focusChanged();
     });
@@ -288,9 +292,22 @@ function main(target: DaemonTarget): void {
   });
 
   let quitting = false;
+  let systemShutdown = false;
   app.on("before-quit", (event) => {
     if (quitting) return;
     event.preventDefault();
+    // One clear question, only while agents are mid-browse; an answer of Quit is final.
+    if (background.agentsBrowsing(Date.now(), systemShutdown)) {
+      const choice = dialog.showMessageBoxSync({
+        type: "warning",
+        buttons: ["Quit", "Cancel"],
+        defaultId: 1,
+        cancelId: 1,
+        message: "Agents are using the browser",
+        detail: "Quitting closes the pages they are working in, and they stop where they are.",
+      });
+      if (choice !== 0) return;
+    }
     quitting = true;
     globalShortcut.unregisterAll();
     // The browser backend tells the daemon first, then the daemon this app started stops.
@@ -300,9 +317,9 @@ function main(target: DaemonTarget): void {
       .catch((error: unknown) => log("error", String(error)))
       .finally(() => app.quit());
   });
-  app.on("window-all-closed", () => {
-    if (!settings.get().background && process.platform !== "darwin") app.quit();
-  });
+  // Background decides when a windowless app quits (os/lifetime.ts): never while an agent
+  // works or a thread has a browser page. Listening here stops Electron quitting on its own.
+  app.on("window-all-closed", () => background.windowChanged());
   app.on("activate", () => open());
 
   void app.whenReady().then(async () => {
@@ -388,6 +405,9 @@ function main(target: DaemonTarget): void {
               void showLogs().catch((error: unknown) =>
                 log("warn", `Could not show the logs: ${String(error)}`),
               ),
+            // The focused window (a visualization's own window too), else the app window.
+            zoom: (change) =>
+              applyZoom(BrowserWindow.getFocusedWindow()?.webContents ?? contents(), change),
           }),
         ),
       );
@@ -400,6 +420,9 @@ function main(target: DaemonTarget): void {
     nativeTheme.on("updated", () => emit(contents(), "theme.changed", appearance()));
     runtime.onStatus((status) => emit(contents(), "daemon.status", status));
     settings.onChange(applySettings);
+    powerMonitor.on("shutdown", () => {
+      systemShutdown = true;
+    });
     powerMonitor.on("resume", () => {
       background.wake();
       emit(contents(), "system.resumed", undefined);

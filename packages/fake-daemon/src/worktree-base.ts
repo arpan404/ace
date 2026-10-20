@@ -71,3 +71,12 @@ export function fakeWorktreeBase(
     },
   };
 }
+
+/** Where a fake thread's checkout lives: its own worktree, or the project folder. */
+export function fakeCheckoutPath(
+  mode: "local" | "worktree" | undefined,
+  threadId: string,
+  workspaceId: string,
+): string {
+  return mode === "worktree" ? `/fake/worktrees/${threadId}` : `/fake/${workspaceId}`;
+}

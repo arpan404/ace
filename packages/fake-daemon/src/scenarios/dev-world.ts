@@ -1,6 +1,7 @@
 import { aceToolRows } from "./ace-tool-results.ts";
 import { uxAudit } from "./ux-audit.ts";
 import { aceTools } from "./ace-tools.ts";
+import { aceToolsComputerBackground } from "./ace-tools-computer.ts";
 import { aceToolApprovals } from "./ace-tool-approvals.ts";
 import type { ProviderKind } from "@ace/protocol";
 import type { Scenario } from "../scenario.ts";
@@ -8,6 +9,7 @@ import { teamAtLimit } from "./account-limit.ts";
 import { coldStartReplay } from "./cold-start-replay.ts";
 import { delegatedDocs } from "./delegated-docs.ts";
 import { failingSubagent } from "./failing-subagent.ts";
+import { summaryFleet } from "./summary-fleet.ts";
 import { childActions } from "./child-actions.ts";
 import { flakyCheckout } from "./flaky-checkout.ts";
 import { homeList } from "./home-list.ts";
@@ -15,7 +17,7 @@ import { multiDayDemo } from "./multi-day-demo.ts";
 import { longHistory } from "./long-history.ts";
 import { replayCursor } from "./replay-cursor.ts";
 import { startedConversation } from "./started-conversation.ts";
-import { explainer, visualization } from "./visualization.ts";
+import { explainer, postedImage, visualization } from "./visualization.ts";
 
 /** One thread of the development world and how it is played. */
 export interface WorldThread {
@@ -54,20 +56,25 @@ export function devWorld(): WorldThread[] {
     // the subagents report back live.
     { scenario: coldStartReplay(), agoMs: 0, through: "relay-output", live: { speed: 1 } },
     { scenario: failingSubagent(), agoMs: 12 * minute, live: { speed: 0.5 } },
+    // A coordinator thread with 33 subagents, five of them resumed after a daemon restart.
+    { scenario: summaryFleet(), agoMs: 40 * minute },
     // Children that hit a limit, keep working or went silent, under a parent still working.
     ...childActions().map((scenario) => ({ scenario, agoMs: 0 })),
     // A thread that delegated work to Codex through ace: the delegate is a thread of its own.
     ...delegatedDocs().map((scenario) => ({ scenario, agoMs: 3 * 60 * minute })),
-    // An OpenCode thread whose agent started a separate Codex conversation (ace_thread_start).
+    // An OpenCode thread whose agent started a separate Codex conversation (thread_start).
     ...startedConversation().map((scenario) => ({ scenario, agoMs: minute })),
     // Agents using ace's own tools: computer use, the browser and a simulator.
     ...aceTools().map((scenario) => ({ scenario, agoMs: 20 * minute })),
+    { scenario: aceToolsComputerBackground(), agoMs: 20 * minute },
     // A Codex browser thread whose approvals repeat: one row per call, the answer as its note.
     { scenario: aceToolApprovals(), agoMs: minute },
-    // A published HTML visualization (ace_html_render) above the agent's reply.
+    // A published HTML visualization (html_render) above the agent's reply.
     { scenario: visualization(), agoMs: 25 * minute },
     // An interactive learning page (slider, step-through, quick check) inline in the reply.
     { scenario: explainer(), agoMs: 12 * minute },
+    // An image the agent rendered and posted (image_show) above its reply.
+    { scenario: postedImage(), agoMs: 8 * minute },
     // The exhausted Codex Team account's threads, stopped at its limit (Usage & accounts).
     ...teamAtLimit().map((scenario) => ({ scenario, agoMs: 40 * minute })),
   ]);

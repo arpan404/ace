@@ -145,6 +145,11 @@ test("with no daemon running, ace config set saves the value for the next start"
     expect(JSON.parse(get.stdout)).toEqual([
       expect.objectContaining({ setting: "retention-days", value: 45 }),
       expect.objectContaining({ setting: "log-cap", value: 1024 ** 3, source: "default" }),
+      expect.objectContaining({
+        setting: "preparation-timeout",
+        value: 10 * 60 * 1000,
+        source: "default",
+      }),
     ]);
   } finally {
     await rm(home, { recursive: true, force: true });

@@ -1,0 +1,1399 @@
+{
+  "machine": {
+    "date": "2026-10-19",
+    "model": "MacBook Pro (Mac16,5)",
+    "cpu": "Apple M4 Max, 16 cores",
+    "memory": "128 GB",
+    "macos": "26.2",
+    "node": "26.8.1",
+    "sqlite": "3.53.4",
+    "chrome": "Google Chrome 155.0.8059.85",
+    "db": "2.7 GB, 136 threads, 45,378 items, 504,588 events",
+    "commits": [
+      "8006fd0bb Keep global search working for threads stopped at a usage limit",
+      "02f7c024c Store each non-text item body once",
+      "ef39a4621 Key stored records with time-ordered UUIDv7 ids",
+      "b1687a774 Add a store benchmark that runs on a copy of a real database",
+      "84754f136 Refresh the search entry of a streaming item every 2 s, not every 100 ms",
+      "7638a7408 Screencast a browser page only while someone watches it or an agent drives it"
+    ]
+  },
+  "store": {
+    "before": [
+      {
+        "bytesBefore": 2863599616,
+        "threadsMeasured": [4603, 2343, 2220, 1710, 1131, 171, 170, 162, 162, 161],
+        "openMs": 7.805,
+        "engineOpenMs": 0.354,
+        "liveBytesBefore": 2863575040,
+        "pragmas": [],
+        "searchBackfillMs": 0.2,
+        "sidebarPageFirst": 26.833,
+        "sidebarPage": {
+          "n": 15,
+          "p50": 0.006,
+          "p95": 0.025,
+          "max": 0.025,
+          "total": 0.117
+        },
+        "listThreads": {
+          "n": 15,
+          "p50": 13.77,
+          "p95": 22.912,
+          "max": 22.912,
+          "total": 222.764
+        },
+        "sidebarWindow": {
+          "n": 15,
+          "p50": 0.964,
+          "p95": 10.348,
+          "max": 10.348,
+          "total": 23.706
+        },
+        "threadOpenFirst": {
+          "n": 10,
+          "p50": 23.418,
+          "p95": 65.656,
+          "max": 65.656,
+          "total": 270.942,
+          "bytes": [716085, 585405, 546509, 666455, 980560, 455528, 501712, 737611, 498077, 510490]
+        },
+        "threadOpenRepeat": {
+          "n": 50,
+          "p50": 7.322,
+          "p95": 11.069,
+          "max": 12.321,
+          "total": 381.128
+        },
+        "scrollBackPages": {
+          "n": 243,
+          "p50": 8.432,
+          "p95": 13.477,
+          "max": 23.553,
+          "total": 2128.851
+        },
+        "turnsPage": {
+          "n": 30,
+          "p50": 7.61,
+          "p95": 84.097,
+          "max": 186.466,
+          "total": 582.585
+        },
+        "itemsWindow": {
+          "n": 30,
+          "p50": 13.045,
+          "p95": 21.635,
+          "max": 28.637,
+          "total": 402.822
+        },
+        "catchUp": {
+          "n": 30,
+          "p50": 0.897,
+          "p95": 7.999,
+          "max": 9.758,
+          "total": 61.746
+        },
+        "threadSearch": {
+          "n": 20,
+          "p50": 13.506,
+          "p95": 50.017,
+          "max": 50.017,
+          "total": 326.653
+        },
+        "readCpuMs": 3004.4,
+        "globalSearchFirst": 184.837,
+        "globalSearch": {
+          "n": 4,
+          "p50": 9.489,
+          "p95": 19.165,
+          "max": 19.165,
+          "total": 45.11,
+          "failures": [
+            "error: search_failed",
+            "bun run test: search_failed",
+            "sidebar: search_failed"
+          ]
+        },
+        "writes": {
+          "items": 200,
+          "deltas": 8000,
+          "bufferedDelta": {
+            "n": 8000,
+            "p50": 0.002,
+            "p95": 0.629,
+            "max": 45.98,
+            "total": 1005.289
+          },
+          "commit": {
+            "n": 420,
+            "p50": 4.433,
+            "p95": 13.275,
+            "max": 358.901,
+            "total": 2685.377
+          },
+          "totalMs": 4663.6,
+          "cpuMs": 2459.9,
+          "liveBytesPerItem": 77824,
+          "flushMs": 0.029,
+          "eventsPerSecond": 1805,
+          "flushes": 600,
+          "rows": 600,
+          "failures": 0,
+          "liveBytes": 3464000,
+          "peakBytes": 67728,
+          "replayResyncs": 0,
+          "bufferedBytes": 0,
+          "transactions": 1028,
+          "eventRows": 1021,
+          "walBytes": 3238352,
+          "reads": {
+            "hits": 0,
+            "misses": 303,
+            "hitBytes": 0,
+            "invalidations": 1029,
+            "evictions": 295,
+            "bytes": 0,
+            "staleServes": 0
+          }
+        },
+        "threadOpenAfterWrites": {
+          "ms": 4.298625000001266,
+          "bytes": 800061
+        },
+        "bytesAfter": 2879172608,
+        "writeBytesPerItem": 76546,
+        "pages": {
+          "page_count": 702923,
+          "page_size": 4096,
+          "freelist_count": 8
+        },
+        "rssMiB": 402
+      },
+      {
+        "bytesBefore": 2863599616,
+        "threadsMeasured": [4603, 2343, 2220, 1710, 1131, 171, 170, 162, 162, 161],
+        "openMs": 5.776,
+        "engineOpenMs": 0.177,
+        "liveBytesBefore": 2863575040,
+        "pragmas": [],
+        "searchBackfillMs": 0.2,
+        "sidebarPageFirst": 19.016,
+        "sidebarPage": {
+          "n": 15,
+          "p50": 0.006,
+          "p95": 0.023,
+          "max": 0.023,
+          "total": 0.109
+        },
+        "listThreads": {
+          "n": 15,
+          "p50": 14.969,
+          "p95": 23.348,
+          "max": 23.348,
+          "total": 230.052
+        },
+        "sidebarWindow": {
+          "n": 15,
+          "p50": 0.972,
+          "p95": 11.138,
+          "max": 11.138,
+          "total": 25.297
+        },
+        "threadOpenFirst": {
+          "n": 10,
+          "p50": 8.885,
+          "p95": 24.205,
+          "max": 24.205,
+          "total": 99.073,
+          "bytes": [716085, 585405, 546509, 666455, 980560, 455528, 501712, 737611, 498077, 510490]
+        },
+        "threadOpenRepeat": {
+          "n": 50,
+          "p50": 6.667,
+          "p95": 9.222,
+          "max": 9.622,
+          "total": 336.616
+        },
+        "scrollBackPages": {
+          "n": 243,
+          "p50": 2.264,
+          "p95": 3.358,
+          "max": 14.024,
+          "total": 580.76
+        },
+        "turnsPage": {
+          "n": 30,
+          "p50": 5.078,
+          "p95": 16.528,
+          "max": 20.762,
+          "total": 151.072
+        },
+        "itemsWindow": {
+          "n": 30,
+          "p50": 9.039,
+          "p95": 12.745,
+          "max": 16.562,
+          "total": 269.523
+        },
+        "catchUp": {
+          "n": 30,
+          "p50": 0.364,
+          "p95": 0.884,
+          "max": 1.614,
+          "total": 13.41
+        },
+        "threadSearch": {
+          "n": 20,
+          "p50": 4.212,
+          "p95": 7.76,
+          "max": 7.76,
+          "total": 91.129
+        },
+        "readCpuMs": 2251.9,
+        "globalSearchFirst": 128.776,
+        "globalSearch": {
+          "n": 4,
+          "p50": 2.775,
+          "p95": 3.923,
+          "max": 3.923,
+          "total": 11.156,
+          "failures": [
+            "error: search_failed",
+            "bun run test: search_failed",
+            "sidebar: search_failed"
+          ]
+        },
+        "writes": {
+          "items": 200,
+          "deltas": 8000,
+          "bufferedDelta": {
+            "n": 8000,
+            "p50": 0.002,
+            "p95": 0.54,
+            "max": 13.382,
+            "total": 576.163
+          },
+          "commit": {
+            "n": 420,
+            "p50": 2.412,
+            "p95": 9.297,
+            "max": 113.195,
+            "total": 1690.874
+          },
+          "totalMs": 3214,
+          "cpuMs": 1920.7,
+          "liveBytesPerItem": 78111,
+          "flushMs": 0.03,
+          "eventsPerSecond": 2620,
+          "flushes": 600,
+          "rows": 600,
+          "failures": 0,
+          "liveBytes": 3464000,
+          "peakBytes": 67728,
+          "replayResyncs": 0,
+          "bufferedBytes": 0,
+          "transactions": 1028,
+          "eventRows": 1021,
+          "walBytes": 3431992,
+          "reads": {
+            "hits": 0,
+            "misses": 303,
+            "hitBytes": 0,
+            "invalidations": 1029,
+            "evictions": 295,
+            "bytes": 0,
+            "staleServes": 0
+          }
+        },
+        "threadOpenAfterWrites": {
+          "ms": 3.62829099999999,
+          "bytes": 800061
+        },
+        "bytesAfter": 2879262720,
+        "writeBytesPerItem": 76791,
+        "pages": {
+          "page_count": 702945,
+          "page_size": 4096,
+          "freelist_count": 15
+        },
+        "rssMiB": 457
+      },
+      {
+        "bytesBefore": 2863599616,
+        "threadsMeasured": [4603, 2343, 2220, 1710, 1131, 171, 170, 162, 162, 161],
+        "openMs": 5.576,
+        "engineOpenMs": 0.174,
+        "liveBytesBefore": 2863575040,
+        "pragmas": [],
+        "searchBackfillMs": 0.2,
+        "sidebarPageFirst": 18.401,
+        "sidebarPage": {
+          "n": 15,
+          "p50": 0.006,
+          "p95": 0.022,
+          "max": 0.022,
+          "total": 0.111
+        },
+        "listThreads": {
+          "n": 15,
+          "p50": 13.739,
+          "p95": 21.722,
+          "max": 21.722,
+          "total": 217.858
+        },
+        "sidebarWindow": {
+          "n": 15,
+          "p50": 0.95,
+          "p95": 9.457,
+          "max": 9.457,
+          "total": 23.512
+        },
+        "threadOpenFirst": {
+          "n": 10,
+          "p50": 8.553,
+          "p95": 23.552,
+          "max": 23.552,
+          "total": 93.205,
+          "bytes": [716085, 585405, 546509, 666455, 980560, 455528, 501712, 737611, 498077, 510490]
+        },
+        "threadOpenRepeat": {
+          "n": 50,
+          "p50": 7.038,
+          "p95": 10.076,
+          "max": 10.228,
+          "total": 357.824
+        },
+        "scrollBackPages": {
+          "n": 243,
+          "p50": 2.374,
+          "p95": 3.533,
+          "max": 7.316,
+          "total": 605.967
+        },
+        "turnsPage": {
+          "n": 30,
+          "p50": 5.108,
+          "p95": 16.603,
+          "max": 19.871,
+          "total": 149.766
+        },
+        "itemsWindow": {
+          "n": 30,
+          "p50": 9.125,
+          "p95": 12.503,
+          "max": 12.791,
+          "total": 265.355
+        },
+        "catchUp": {
+          "n": 30,
+          "p50": 0.331,
+          "p95": 0.862,
+          "max": 1.632,
+          "total": 12.742
+        },
+        "threadSearch": {
+          "n": 20,
+          "p50": 4.264,
+          "p95": 8.133,
+          "max": 8.133,
+          "total": 91.767
+        },
+        "readCpuMs": 2282.1,
+        "globalSearchFirst": 141.892,
+        "globalSearch": {
+          "n": 4,
+          "p50": 2.961,
+          "p95": 3.982,
+          "max": 3.982,
+          "total": 11.532,
+          "failures": [
+            "error: search_failed",
+            "bun run test: search_failed",
+            "sidebar: search_failed"
+          ]
+        },
+        "writes": {
+          "items": 200,
+          "deltas": 8000,
+          "bufferedDelta": {
+            "n": 8000,
+            "p50": 0.002,
+            "p95": 0.563,
+            "max": 10.854,
+            "total": 584.178
+          },
+          "commit": {
+            "n": 420,
+            "p50": 2.806,
+            "p95": 10.749,
+            "max": 155.168,
+            "total": 1840.417
+          },
+          "totalMs": 3403.5,
+          "cpuMs": 2003.1,
+          "liveBytesPerItem": 77742,
+          "flushMs": 0.043,
+          "eventsPerSecond": 2474,
+          "flushes": 600,
+          "rows": 600,
+          "failures": 0,
+          "liveBytes": 3464000,
+          "peakBytes": 67728,
+          "replayResyncs": 0,
+          "bufferedBytes": 0,
+          "transactions": 1028,
+          "eventRows": 1021,
+          "walBytes": 3316632,
+          "reads": {
+            "hits": 0,
+            "misses": 303,
+            "hitBytes": 0,
+            "invalidations": 1029,
+            "evictions": 295,
+            "bytes": 0,
+            "staleServes": 0
+          }
+        },
+        "threadOpenAfterWrites": {
+          "ms": 3.92699999999968,
+          "bytes": 800061
+        },
+        "bytesAfter": 2879188992,
+        "writeBytesPerItem": 76628,
+        "pages": {
+          "page_count": 702927,
+          "page_size": 4096,
+          "freelist_count": 16
+        },
+        "rssMiB": 453
+      },
+      {
+        "bytesBefore": 2863599616,
+        "threadsMeasured": [4603, 2343, 2220, 1710, 1131, 171, 170, 162, 162, 161],
+        "openMs": 6.263,
+        "engineOpenMs": 0.181,
+        "liveBytesBefore": 2863575040,
+        "pragmas": [],
+        "searchBackfillMs": 0.2,
+        "sidebarPageFirst": 18.523,
+        "sidebarPage": {
+          "n": 15,
+          "p50": 0.006,
+          "p95": 0.024,
+          "max": 0.024,
+          "total": 0.113
+        },
+        "listThreads": {
+          "n": 15,
+          "p50": 13.004,
+          "p95": 23.393,
+          "max": 23.393,
+          "total": 215.119
+        },
+        "sidebarWindow": {
+          "n": 15,
+          "p50": 0.917,
+          "p95": 9.707,
+          "max": 9.707,
+          "total": 22.66
+        },
+        "threadOpenFirst": {
+          "n": 10,
+          "p50": 9.061,
+          "p95": 23.033,
+          "max": 23.033,
+          "total": 94.838,
+          "bytes": [716085, 585405, 546509, 666455, 980560, 455528, 501712, 737611, 498077, 510490]
+        },
+        "threadOpenRepeat": {
+          "n": 50,
+          "p50": 7.061,
+          "p95": 9.701,
+          "max": 10.427,
+          "total": 356.864
+        },
+        "scrollBackPages": {
+          "n": 243,
+          "p50": 2.31,
+          "p95": 3.557,
+          "max": 5.006,
+          "total": 595.192
+        },
+        "turnsPage": {
+          "n": 30,
+          "p50": 4.907,
+          "p95": 16.848,
+          "max": 20.735,
+          "total": 154.632
+        },
+        "itemsWindow": {
+          "n": 30,
+          "p50": 9.918,
+          "p95": 12.367,
+          "max": 14.418,
+          "total": 286.322
+        },
+        "catchUp": {
+          "n": 30,
+          "p50": 0.342,
+          "p95": 0.902,
+          "max": 1.805,
+          "total": 13.591
+        },
+        "threadSearch": {
+          "n": 20,
+          "p50": 4.341,
+          "p95": 8.539,
+          "max": 8.539,
+          "total": 96.172
+        },
+        "readCpuMs": 2312.2,
+        "globalSearchFirst": 143.155,
+        "globalSearch": {
+          "n": 4,
+          "p50": 2.884,
+          "p95": 4.176,
+          "max": 4.176,
+          "total": 11.738,
+          "failures": [
+            "error: search_failed",
+            "bun run test: search_failed",
+            "sidebar: search_failed"
+          ]
+        },
+        "writes": {
+          "items": 200,
+          "deltas": 8000,
+          "bufferedDelta": {
+            "n": 8000,
+            "p50": 0.002,
+            "p95": 0.605,
+            "max": 105.777,
+            "total": 777.457
+          },
+          "commit": {
+            "n": 420,
+            "p50": 2.728,
+            "p95": 9.392,
+            "max": 136.598,
+            "total": 1847.005
+          },
+          "totalMs": 3584.3,
+          "cpuMs": 2181.1,
+          "liveBytesPerItem": 78213,
+          "flushMs": 0.014,
+          "eventsPerSecond": 2349,
+          "flushes": 600,
+          "rows": 600,
+          "failures": 0,
+          "liveBytes": 3464000,
+          "peakBytes": 67728,
+          "replayResyncs": 0,
+          "bufferedBytes": 0,
+          "transactions": 1028,
+          "eventRows": 1021,
+          "walBytes": 3271312,
+          "reads": {
+            "hits": 0,
+            "misses": 303,
+            "hitBytes": 0,
+            "invalidations": 1029,
+            "evictions": 295,
+            "bytes": 0,
+            "staleServes": 0
+          }
+        },
+        "threadOpenAfterWrites": {
+          "ms": 3.8630000000002838,
+          "bytes": 800061
+        },
+        "bytesAfter": 2879246336,
+        "writeBytesPerItem": 76915,
+        "pages": {
+          "page_count": 702941,
+          "page_size": 4096,
+          "freelist_count": 7
+        },
+        "rssMiB": 461
+      }
+    ],
+    "after": [
+      {
+        "bytesBefore": 2863599616,
+        "threadsMeasured": [4603, 2343, 2220, 1710, 1131, 171, 170, 162, 162, 161],
+        "openMs": 5.285,
+        "engineOpenMs": 0.159,
+        "liveBytesBefore": 2863575040,
+        "pragmas": [],
+        "searchBackfillMs": 0.2,
+        "sidebarPageFirst": 18.026,
+        "sidebarPage": {
+          "n": 15,
+          "p50": 0.006,
+          "p95": 0.02,
+          "max": 0.02,
+          "total": 0.106
+        },
+        "listThreads": {
+          "n": 15,
+          "p50": 12.867,
+          "p95": 21.873,
+          "max": 21.873,
+          "total": 206.128
+        },
+        "sidebarWindow": {
+          "n": 15,
+          "p50": 0.907,
+          "p95": 9.056,
+          "max": 9.056,
+          "total": 22.077
+        },
+        "threadOpenFirst": {
+          "n": 10,
+          "p50": 7.648,
+          "p95": 21.98,
+          "max": 21.98,
+          "total": 88.238,
+          "bytes": [716085, 585405, 546509, 666455, 980560, 455528, 501712, 737611, 498077, 510490]
+        },
+        "threadOpenRepeat": {
+          "n": 50,
+          "p50": 6.485,
+          "p95": 9.935,
+          "max": 10.194,
+          "total": 333.177
+        },
+        "scrollBackPages": {
+          "n": 243,
+          "p50": 2.185,
+          "p95": 3.16,
+          "max": 3.817,
+          "total": 550.539
+        },
+        "turnsPage": {
+          "n": 30,
+          "p50": 4.799,
+          "p95": 15.585,
+          "max": 19.998,
+          "total": 142.742
+        },
+        "itemsWindow": {
+          "n": 30,
+          "p50": 8.812,
+          "p95": 11.062,
+          "max": 15.265,
+          "total": 255.625
+        },
+        "catchUp": {
+          "n": 30,
+          "p50": 0.345,
+          "p95": 1.211,
+          "max": 1.61,
+          "total": 13.625
+        },
+        "threadSearch": {
+          "n": 20,
+          "p50": 4.11,
+          "p95": 7.651,
+          "max": 7.651,
+          "total": 88.21
+        },
+        "readCpuMs": 2138.1,
+        "globalSearchFirst": 131.818,
+        "globalSearch": {
+          "n": 4,
+          "p50": 2.222,
+          "p95": 4.228,
+          "max": 4.228,
+          "total": 10.758,
+          "failures": []
+        },
+        "writes": {
+          "items": 200,
+          "deltas": 8000,
+          "bufferedDelta": {
+            "n": 8000,
+            "p50": 0.004,
+            "p95": 0.532,
+            "max": 8.748,
+            "total": 592.019
+          },
+          "commit": {
+            "n": 420,
+            "p50": 2.564,
+            "p95": 8.529,
+            "max": 134.827,
+            "total": 1706.923
+          },
+          "totalMs": 3235,
+          "cpuMs": 1851.9,
+          "liveBytesPerItem": 78029,
+          "flushMs": 0.03,
+          "eventsPerSecond": 2603,
+          "flushes": 600,
+          "rows": 600,
+          "failures": 0,
+          "liveBytes": 3464000,
+          "peakBytes": 67728,
+          "replayResyncs": 0,
+          "bufferedBytes": 0,
+          "transactions": 1028,
+          "eventRows": 1021,
+          "walBytes": 3419632,
+          "reads": {
+            "hits": 0,
+            "misses": 303,
+            "hitBytes": 0,
+            "invalidations": 1029,
+            "evictions": 295,
+            "bytes": 0,
+            "staleServes": 0
+          }
+        },
+        "threadOpenAfterWrites": {
+          "ms": 3.8334169999998267,
+          "bytes": 800061
+        },
+        "bytesAfter": 2879213568,
+        "writeBytesPerItem": 76751,
+        "pages": {
+          "page_count": 702933,
+          "page_size": 4096,
+          "freelist_count": 8
+        },
+        "rssMiB": 449
+      },
+      {
+        "bytesBefore": 2863599616,
+        "threadsMeasured": [4603, 2343, 2220, 1710, 1131, 171, 170, 162, 162, 161],
+        "openMs": 5.438,
+        "engineOpenMs": 0.162,
+        "liveBytesBefore": 2863575040,
+        "pragmas": [],
+        "searchBackfillMs": 0.2,
+        "sidebarPageFirst": 17.86,
+        "sidebarPage": {
+          "n": 15,
+          "p50": 0.006,
+          "p95": 0.019,
+          "max": 0.019,
+          "total": 0.102
+        },
+        "listThreads": {
+          "n": 15,
+          "p50": 12.806,
+          "p95": 21.062,
+          "max": 21.062,
+          "total": 204.316
+        },
+        "sidebarWindow": {
+          "n": 15,
+          "p50": 0.909,
+          "p95": 9.013,
+          "max": 9.013,
+          "total": 22.173
+        },
+        "threadOpenFirst": {
+          "n": 10,
+          "p50": 7.606,
+          "p95": 21.843,
+          "max": 21.843,
+          "total": 87.036,
+          "bytes": [716085, 585405, 546509, 666455, 980560, 455528, 501712, 737611, 498077, 510490]
+        },
+        "threadOpenRepeat": {
+          "n": 50,
+          "p50": 6.324,
+          "p95": 10.715,
+          "max": 11.451,
+          "total": 355.476
+        },
+        "scrollBackPages": {
+          "n": 243,
+          "p50": 2.295,
+          "p95": 3.37,
+          "max": 5.92,
+          "total": 589.218
+        },
+        "turnsPage": {
+          "n": 30,
+          "p50": 5.196,
+          "p95": 17.934,
+          "max": 21.079,
+          "total": 156.046
+        },
+        "itemsWindow": {
+          "n": 30,
+          "p50": 9.385,
+          "p95": 12.184,
+          "max": 12.981,
+          "total": 270.68
+        },
+        "catchUp": {
+          "n": 30,
+          "p50": 0.349,
+          "p95": 1.376,
+          "max": 1.638,
+          "total": 14.111
+        },
+        "threadSearch": {
+          "n": 20,
+          "p50": 4.256,
+          "p95": 7.863,
+          "max": 7.863,
+          "total": 92.259
+        },
+        "readCpuMs": 2252.6,
+        "globalSearchFirst": 144.808,
+        "globalSearch": {
+          "n": 4,
+          "p50": 2.442,
+          "p95": 4.214,
+          "max": 4.214,
+          "total": 11.264,
+          "failures": []
+        },
+        "writes": {
+          "items": 200,
+          "deltas": 8000,
+          "bufferedDelta": {
+            "n": 8000,
+            "p50": 0.004,
+            "p95": 0.669,
+            "max": 131.739,
+            "total": 818.757
+          },
+          "commit": {
+            "n": 420,
+            "p50": 3.06,
+            "p95": 9.362,
+            "max": 28.466,
+            "total": 1803.805
+          },
+          "totalMs": 3552.4,
+          "cpuMs": 2249.3,
+          "liveBytesPerItem": 77210,
+          "flushMs": 0.061,
+          "eventsPerSecond": 2370,
+          "flushes": 600,
+          "rows": 600,
+          "failures": 0,
+          "liveBytes": 3464000,
+          "peakBytes": 67728,
+          "replayResyncs": 0,
+          "bufferedBytes": 0,
+          "transactions": 1028,
+          "eventRows": 1021,
+          "walBytes": 3213632,
+          "reads": {
+            "hits": 0,
+            "misses": 303,
+            "hitBytes": 0,
+            "invalidations": 1029,
+            "evictions": 295,
+            "bytes": 0,
+            "staleServes": 0
+          }
+        },
+        "threadOpenAfterWrites": {
+          "ms": 4.209458000000268,
+          "bytes": 800061
+        },
+        "bytesAfter": 2879049728,
+        "writeBytesPerItem": 75870,
+        "pages": {
+          "page_count": 702893,
+          "page_size": 4096,
+          "freelist_count": 8
+        },
+        "rssMiB": 451
+      },
+      {
+        "bytesBefore": 2863599616,
+        "threadsMeasured": [4603, 2343, 2220, 1710, 1131, 171, 170, 162, 162, 161],
+        "openMs": 5.306,
+        "engineOpenMs": 0.164,
+        "liveBytesBefore": 2863575040,
+        "pragmas": [],
+        "searchBackfillMs": 0.2,
+        "sidebarPageFirst": 17.813,
+        "sidebarPage": {
+          "n": 15,
+          "p50": 0.005,
+          "p95": 0.018,
+          "max": 0.018,
+          "total": 0.1
+        },
+        "listThreads": {
+          "n": 15,
+          "p50": 13.321,
+          "p95": 21.419,
+          "max": 21.419,
+          "total": 210.106
+        },
+        "sidebarWindow": {
+          "n": 15,
+          "p50": 0.927,
+          "p95": 9.412,
+          "max": 9.412,
+          "total": 22.832
+        },
+        "threadOpenFirst": {
+          "n": 10,
+          "p50": 7.451,
+          "p95": 23.755,
+          "max": 23.755,
+          "total": 90.258,
+          "bytes": [716085, 585405, 546509, 666455, 980560, 455528, 501712, 737611, 498077, 510490]
+        },
+        "threadOpenRepeat": {
+          "n": 50,
+          "p50": 6.371,
+          "p95": 9.778,
+          "max": 11.024,
+          "total": 334.011
+        },
+        "scrollBackPages": {
+          "n": 243,
+          "p50": 2.126,
+          "p95": 3.106,
+          "max": 4.074,
+          "total": 543.511
+        },
+        "turnsPage": {
+          "n": 30,
+          "p50": 4.795,
+          "p95": 16.359,
+          "max": 20.163,
+          "total": 144.689
+        },
+        "itemsWindow": {
+          "n": 30,
+          "p50": 9.213,
+          "p95": 11.525,
+          "max": 12.244,
+          "total": 260.65
+        },
+        "catchUp": {
+          "n": 30,
+          "p50": 0.347,
+          "p95": 1.328,
+          "max": 1.694,
+          "total": 14.019
+        },
+        "threadSearch": {
+          "n": 20,
+          "p50": 4.172,
+          "p95": 7.769,
+          "max": 7.769,
+          "total": 90.858
+        },
+        "readCpuMs": 2157.3,
+        "globalSearchFirst": 144.274,
+        "globalSearch": {
+          "n": 4,
+          "p50": 4.89,
+          "p95": 6.684,
+          "max": 6.684,
+          "total": 17.771,
+          "failures": []
+        },
+        "writes": {
+          "items": 200,
+          "deltas": 8000,
+          "bufferedDelta": {
+            "n": 8000,
+            "p50": 0.004,
+            "p95": 0.711,
+            "max": 12.316,
+            "total": 731.04
+          },
+          "commit": {
+            "n": 420,
+            "p50": 3.078,
+            "p95": 10.103,
+            "max": 144.512,
+            "total": 1997.664
+          },
+          "totalMs": 3745.8,
+          "cpuMs": 2270.9,
+          "liveBytesPerItem": 77844,
+          "flushMs": 0.039,
+          "eventsPerSecond": 2248,
+          "flushes": 600,
+          "rows": 600,
+          "failures": 0,
+          "liveBytes": 3464000,
+          "peakBytes": 67728,
+          "replayResyncs": 0,
+          "bufferedBytes": 0,
+          "transactions": 1028,
+          "eventRows": 1021,
+          "walBytes": 3555592,
+          "reads": {
+            "hits": 0,
+            "misses": 303,
+            "hitBytes": 0,
+            "invalidations": 1029,
+            "evictions": 295,
+            "bytes": 0,
+            "staleServes": 0
+          }
+        },
+        "threadOpenAfterWrites": {
+          "ms": 4.0191249999998035,
+          "bytes": 800061
+        },
+        "bytesAfter": 2879176704,
+        "writeBytesPerItem": 76567,
+        "pages": {
+          "page_count": 702924,
+          "page_size": 4096,
+          "freelist_count": 8
+        },
+        "rssMiB": 447
+      },
+      {
+        "bytesBefore": 2863599616,
+        "threadsMeasured": [4603, 2343, 2220, 1710, 1131, 171, 170, 162, 162, 161],
+        "openMs": 6.11,
+        "engineOpenMs": 0.189,
+        "liveBytesBefore": 2863575040,
+        "pragmas": [],
+        "searchBackfillMs": 0.2,
+        "sidebarPageFirst": 20.159,
+        "sidebarPage": {
+          "n": 15,
+          "p50": 0.006,
+          "p95": 0.024,
+          "max": 0.024,
+          "total": 0.108
+        },
+        "listThreads": {
+          "n": 15,
+          "p50": 14.35,
+          "p95": 23.272,
+          "max": 23.272,
+          "total": 223.02
+        },
+        "sidebarWindow": {
+          "n": 15,
+          "p50": 0.964,
+          "p95": 10.228,
+          "max": 10.228,
+          "total": 24.428
+        },
+        "threadOpenFirst": {
+          "n": 10,
+          "p50": 8.591,
+          "p95": 25.146,
+          "max": 25.146,
+          "total": 101.436,
+          "bytes": [716085, 585405, 546509, 666455, 980560, 455528, 501712, 737611, 498077, 510490]
+        },
+        "threadOpenRepeat": {
+          "n": 50,
+          "p50": 7.167,
+          "p95": 10.87,
+          "max": 11.283,
+          "total": 370.876
+        },
+        "scrollBackPages": {
+          "n": 243,
+          "p50": 2.312,
+          "p95": 3.397,
+          "max": 4.231,
+          "total": 589.326
+        },
+        "turnsPage": {
+          "n": 30,
+          "p50": 5.424,
+          "p95": 17.476,
+          "max": 21.258,
+          "total": 154.834
+        },
+        "itemsWindow": {
+          "n": 30,
+          "p50": 9.677,
+          "p95": 12.41,
+          "max": 14.361,
+          "total": 283.572
+        },
+        "catchUp": {
+          "n": 30,
+          "p50": 0.365,
+          "p95": 1.303,
+          "max": 1.707,
+          "total": 14.351
+        },
+        "threadSearch": {
+          "n": 20,
+          "p50": 4.437,
+          "p95": 8.266,
+          "max": 8.266,
+          "total": 97.236
+        },
+        "readCpuMs": 2353,
+        "globalSearchFirst": 146.807,
+        "globalSearch": {
+          "n": 4,
+          "p50": 2.306,
+          "p95": 4.208,
+          "max": 4.208,
+          "total": 10.97,
+          "failures": []
+        },
+        "writes": {
+          "items": 200,
+          "deltas": 8000,
+          "bufferedDelta": {
+            "n": 8000,
+            "p50": 0.004,
+            "p95": 0.756,
+            "max": 14.861,
+            "total": 726.942
+          },
+          "commit": {
+            "n": 420,
+            "p50": 3.9,
+            "p95": 10.257,
+            "max": 153.692,
+            "total": 2099.373
+          },
+          "totalMs": 3806.3,
+          "cpuMs": 2372.8,
+          "liveBytesPerItem": 77804,
+          "flushMs": 0.034,
+          "eventsPerSecond": 2212,
+          "flushes": 600,
+          "rows": 600,
+          "failures": 0,
+          "liveBytes": 3464000,
+          "peakBytes": 67728,
+          "replayResyncs": 0,
+          "bufferedBytes": 0,
+          "transactions": 1028,
+          "eventRows": 1021,
+          "walBytes": 3473192,
+          "reads": {
+            "hits": 0,
+            "misses": 303,
+            "hitBytes": 0,
+            "invalidations": 1029,
+            "evictions": 295,
+            "bytes": 0,
+            "staleServes": 0
+          }
+        },
+        "threadOpenAfterWrites": {
+          "ms": 4.127875000000131,
+          "bytes": 800061
+        },
+        "bytesAfter": 2879168512,
+        "writeBytesPerItem": 76526,
+        "pages": {
+          "page_count": 702922,
+          "page_size": 4096,
+          "freelist_count": 8
+        },
+        "rssMiB": 451
+      }
+    ]
+  },
+  "browser": {
+    "before": [
+      {
+        "chromium": "Google Chrome 155.0.8059.85",
+        "results": [
+          {
+            "phase": "nobody watching",
+            "seconds": 20,
+            "chromeCpuPercent": 48.8,
+            "daemonCpuPercent": 1.7,
+            "framesPerSecond": 13.2,
+            "loadAverage": 13
+          },
+          {
+            "phase": "one viewer watching",
+            "seconds": 20,
+            "chromeCpuPercent": 103.9,
+            "daemonCpuPercent": 2.2,
+            "framesPerSecond": 23.1,
+            "loadAverage": 26.7
+          },
+          {
+            "phase": "after the viewer left",
+            "seconds": 20,
+            "chromeCpuPercent": 26.6,
+            "daemonCpuPercent": 1.3,
+            "framesPerSecond": 13.1,
+            "loadAverage": 62.8
+          }
+        ]
+      },
+      {
+        "chromium": "Google Chrome 155.0.8059.85",
+        "results": [
+          {
+            "phase": "nobody watching",
+            "seconds": 20,
+            "chromeCpuPercent": 53.6,
+            "daemonCpuPercent": 1.6,
+            "framesPerSecond": 13.2,
+            "loadAverage": 10.1
+          },
+          {
+            "phase": "one viewer watching",
+            "seconds": 20,
+            "chromeCpuPercent": 138.8,
+            "daemonCpuPercent": 1.8,
+            "framesPerSecond": 23.3,
+            "loadAverage": 19.3
+          },
+          {
+            "phase": "after the viewer left",
+            "seconds": 20,
+            "chromeCpuPercent": 27.9,
+            "daemonCpuPercent": 1.3,
+            "framesPerSecond": 13.3,
+            "loadAverage": 14.8
+          }
+        ]
+      },
+      {
+        "chromium": "Google Chrome 155.0.8059.85",
+        "results": [
+          {
+            "phase": "nobody watching",
+            "seconds": 20,
+            "chromeCpuPercent": 56.5,
+            "daemonCpuPercent": 1.6,
+            "framesPerSecond": 13.3,
+            "loadAverage": 8.3
+          },
+          {
+            "phase": "one viewer watching",
+            "seconds": 20,
+            "chromeCpuPercent": 125.4,
+            "daemonCpuPercent": 2,
+            "framesPerSecond": 22.8,
+            "loadAverage": 11.5
+          },
+          {
+            "phase": "after the viewer left",
+            "seconds": 20,
+            "chromeCpuPercent": 25.3,
+            "daemonCpuPercent": 1.3,
+            "framesPerSecond": 13.2,
+            "loadAverage": 10.8
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "chromium": "Google Chrome 155.0.8059.85",
+        "results": [
+          {
+            "phase": "nobody watching",
+            "seconds": 20,
+            "chromeCpuPercent": 30.5,
+            "daemonCpuPercent": 0,
+            "framesPerSecond": 0,
+            "loadAverage": 18.7
+          },
+          {
+            "phase": "one viewer watching",
+            "seconds": 20,
+            "chromeCpuPercent": 98.2,
+            "daemonCpuPercent": 1.7,
+            "framesPerSecond": 23.4,
+            "loadAverage": 14.8
+          },
+          {
+            "phase": "after the viewer left",
+            "seconds": 20,
+            "chromeCpuPercent": 4.4,
+            "daemonCpuPercent": 0,
+            "framesPerSecond": 0,
+            "loadAverage": 11.8
+          }
+        ]
+      },
+      {
+        "chromium": "Google Chrome 155.0.8059.85",
+        "results": [
+          {
+            "phase": "nobody watching",
+            "seconds": 20,
+            "chromeCpuPercent": 29.3,
+            "daemonCpuPercent": 0,
+            "framesPerSecond": 0,
+            "loadAverage": 11.5
+          },
+          {
+            "phase": "one viewer watching",
+            "seconds": 20,
+            "chromeCpuPercent": 127.2,
+            "daemonCpuPercent": 1.7,
+            "framesPerSecond": 23.1,
+            "loadAverage": 10.6
+          },
+          {
+            "phase": "after the viewer left",
+            "seconds": 20,
+            "chromeCpuPercent": 7.2,
+            "daemonCpuPercent": 0,
+            "framesPerSecond": 0,
+            "loadAverage": 8.9
+          }
+        ]
+      },
+      {
+        "chromium": "Google Chrome 155.0.8059.85",
+        "results": [
+          {
+            "phase": "nobody watching",
+            "seconds": 20,
+            "chromeCpuPercent": 34.9,
+            "daemonCpuPercent": 0,
+            "framesPerSecond": 0,
+            "loadAverage": 10.7
+          },
+          {
+            "phase": "one viewer watching",
+            "seconds": 20,
+            "chromeCpuPercent": 99.3,
+            "daemonCpuPercent": 1.7,
+            "framesPerSecond": 23.1,
+            "loadAverage": 10.5
+          },
+          {
+            "phase": "after the viewer left",
+            "seconds": 20,
+            "chromeCpuPercent": 5.9,
+            "daemonCpuPercent": 0,
+            "framesPerSecond": 0,
+            "loadAverage": 8.8
+          }
+        ]
+      }
+    ]
+  },
+  "load": [
+    ["store before 1", 17.39, 28.14],
+    ["store after 1", 19.0, 17.8],
+    ["store before 2", 16.78, 15.51],
+    ["store after 2", 15.51, 14.67],
+    ["store before 3", 14.67, 12.88],
+    ["store after 3", 12.88, 12.41],
+    ["store before 4", 12.41, 12.3],
+    ["store after 4", 12.75, 14.46],
+    ["battery before 1", 14.46, 55.87],
+    ["battery after 1", 18.71, 10.1],
+    ["battery before 2", 10.1, 11.51],
+    ["battery after 2", 11.51, 8.02],
+    ["battery before 3", 8.02, 10.63],
+    ["battery after 3", 10.63, 7.99]
+  ]
+}

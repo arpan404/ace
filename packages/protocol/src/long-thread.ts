@@ -63,6 +63,11 @@ export const TurnSummary = z.object({
   initiatingMessagePreview: preview,
   latestAgentMessagePreview: preview,
   digest: TurnDigest,
+  /**
+   * The main agent's own share of `digest`: the files it changed and commands it ran itself, so
+   * a reader can attribute each change to one agent. Absent from daemons that predate it.
+   */
+  main: z.object({ agentId: AgentId, digest: TurnDigest }).optional(),
   subagents: z.array(TurnSubagentSummary).max(32),
   subagentsTruncated: z.boolean(),
 });
@@ -102,6 +107,12 @@ export const ItemsWindowRequest = z
     turnOrdinal: ordinal.optional(),
     before: count.max(199).default(50),
     after: count.max(199).default(50),
+    /**
+     * Older items come in whole turns: the window's oldest item is where a turn starts, so a
+     * turn is never split at the window's older edge. A single turn larger than the window is
+     * cut by the item and byte budgets instead, and `itemsBefore` still says more is older.
+     */
+    wholeTurns: z.boolean().optional(),
   })
   .refine(
     (input) =>
@@ -113,17 +124,22 @@ export const ItemsWindowRequest = z
     "x-ace-constraint": "Exactly one target; before + after + target is at most 200 items.",
   });
 export type ItemsWindowRequest = z.infer<typeof ItemsWindowRequest>;
-export const ItemsWindowResponse = z.object({
-  type: z.literal("items.window"),
-  requestId,
-  threadId: ThreadId,
-  seq: count,
-  targetSeq: count.nullable(),
-  items: z.array(Item).max(200),
-  itemSeqs: z.record(z.string(), count.positive()),
-  itemsBefore: count.positive().nullable(),
-  itemsAfter: count.positive().nullable(),
-});
+export const ItemsWindowResponse = z
+  .object({
+    type: z.literal("items.window"),
+    requestId,
+    threadId: ThreadId,
+    seq: count,
+    targetSeq: count.nullable(),
+    items: z.array(Item).max(200),
+    itemSeqs: z.record(z.string(), count.positive()),
+    itemsBefore: count.positive().nullable(),
+    itemsAfter: count.positive().nullable(),
+  })
+  .refine((reply) => reply.items.every((item) => Object.hasOwn(reply.itemSeqs, item.id)), {
+    message: "Every window item needs its creation sequence",
+  })
+  .meta({ "x-ace-constraint": "itemSeqs holds the creation sequence of every item." });
 export type ItemsWindowResponse = z.infer<typeof ItemsWindowResponse>;
 
 export const ThreadSearchRequest = z.object({

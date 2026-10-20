@@ -34,8 +34,10 @@ import { recoverEngine } from "./restart.ts";
 import { IntentDelivery } from "./intent-delivery.ts";
 import { ThreadTransitions, type TransitionIO } from "./transitions.ts";
 import { Sessions } from "./sessions.ts";
-import { randomUUID } from "node:crypto";
+import { timeOrderedIds } from "../time-ordered-id.ts";
 import { deriveThreadStatus, readyForChildResults, type IdSource } from "@ace/core";
+import { SteerLane } from "./steer-lane.ts";
+import { rootRun } from "./steer-yield.ts";
 import type { CommandHandler } from "../commands.ts";
 import type { Store } from "../store.ts";
 import type { AgentId, Thread, Command, QueueSnapshot, QueueGet } from "@ace/protocol";
@@ -130,6 +132,7 @@ export class Engine {
   private sends: IntentWorkers;
   private controls: IntentWorkers;
   private steering: IntentWorkers;
+  private steerLane: SteerLane;
   private sessions: Sessions;
   private recovery: Recovery;
   private meters: ContextMeters;
@@ -153,7 +156,7 @@ export class Engine {
     const executeGit = promisify(execFile);
     const worktreeGit =
       options.worktreeGit ?? ((cwd, args) => runWorktreeGit(executeGit, process.env, cwd, args));
-    this.nextThreadId = options.threadId ?? randomUUID;
+    this.nextThreadId = options.threadId ?? timeOrderedIds();
     this.clock = options.clock ?? systemClock;
     this.repo = new EngineRepository(
       store,
@@ -269,6 +272,14 @@ export class Engine {
       },
       isSteer: (intent) => this.isSteer(intent),
     });
+    this.steerLane = new SteerLane({
+      repo: this.repo,
+      registry: this.registry,
+      actor: (id) => this.actors.get(id),
+      deliver: (actor, intent) => this.delivery.run(actor, intent),
+      wake: (id) => this.wake(id),
+      report: this.report,
+    });
     this.meters = new ContextMeters(store, options.recovery?.contextWindow);
     this.liveness = new ThreadLiveness({
       repo: this.repo,
@@ -282,12 +293,20 @@ export class Engine {
       updateChild: (parent, child) => this.updateChild(parent, child),
     });
     // Settling or archiving releases a done thread's warm provider without the idle wait.
-    this.stopReleaseWatch = store.subscribe((events) => {
+    const stopReleases = store.subscribe((events) => {
       for (const event of events) {
         const request = releaseRequest(event.payload);
         if (request) this.requestRelease(event.threadId, request);
       }
     });
+    // Live output the store had to drop stops only that thread's session, visibly.
+    const stopQuarantine = store.onLiveWriteQuarantine((id, error) =>
+      this.actors.get(id)?.quarantine(error),
+    );
+    this.stopReleaseWatch = () => {
+      stopReleases();
+      stopQuarantine();
+    };
     this.repo.observe = (state, facts, events, at) => {
       if (facts.some((fact) => fact.type === "process.started"))
         this.meters.invalidate(state.threadId, at);
@@ -314,7 +333,7 @@ export class Engine {
       () => this.clock.now(),
       silenceMs,
       (id) => this.wake(id),
-      options.threadId ?? randomUUID,
+      this.nextThreadId,
       this.recovery,
       this.limits,
       this.admissions,
@@ -341,6 +360,13 @@ export class Engine {
     this.handler = {
       handle: (command, context) => this.internalHandler.handle(personCommand(command), context),
     };
+    // A thread whose stored state cannot be read is left out of startup, never the daemon.
+    const unreadable = (id: ThreadId, error: unknown) =>
+      this.report(
+        new Error(`Thread ${id} was skipped at startup: its stored state could not be read`, {
+          cause: error,
+        }),
+      );
     const recover = () =>
       recoverEngine(
         this.repo,
@@ -348,13 +374,14 @@ export class Engine {
         this.clock,
         (intent, message) => this.delivery.fail(intent, message),
         (id) => this.wake(id),
+        unreadable,
       );
     const recovery = this.recovery;
     const repo = this.repo;
     if (options.recovery?.preferences || options.models) {
       this.readyPromise = (async () => {
         await recovery.prepare();
-        for (const state of repo.recoveryStates()) await recovery.prepare(state.threadId);
+        for (const state of repo.recoveryStates(unreadable)) await recovery.prepare(state.threadId);
         models.migrateCachedDefaults();
         if (!this.closing) recover();
         this.readyState = true;
@@ -418,6 +445,46 @@ export class Engine {
   }
   capabilities(provider: ProviderKind, backend?: import("@ace/engine-api").ProviderBackend) {
     return structuredClone(this.registry.get(provider, backend).capabilities);
+  }
+  /**
+   * Whether this thread's provider can steer mid-turn. Delegated child results
+   * use it to decide steer (inject now) versus queue (wait for the turn end).
+   * Providers differ: codex/claude/cursor/opencode/pi steer, acp never does,
+   * and old CLIs without support report steer false.
+   */
+  supportsSteering(id: ThreadId): boolean {
+    const thread = this.repo.store.getThread(id);
+    if (!thread) return false;
+    const provider = thread.provider;
+    if (!this.registry.has(provider)) return false;
+    const effective =
+      thread.effectiveCapabilities ??
+      thread.capabilities ??
+      this.registry.get(provider).capabilities;
+    if (!effective.steer) return false;
+    // Backend-specific capability (e.g. cursor-sdk vs acp) wins when present.
+    try {
+      return (
+        this.repo.store.getThread(id)?.effectiveCapabilities ??
+        this.registry.get(provider, this.repo.backend(id)).capabilities
+      ).steer;
+    } catch {
+      return effective.steer;
+    }
+  }
+  /**
+   * Daemon-owned child results run before the person's queued messages. A
+   * result completes work the parent already started; the person's follow-ups
+   * were typed without seeing it, so they run after the parent incorporates it.
+   * Position 0 keeps every subagent result ahead of person input (ordered by id
+   * among themselves) without bumping the queue revision clients edit against.
+   */
+  prioritizeSubagentResult(id: ThreadId, commandId: import("@ace/protocol").CommandId): void {
+    this.repo.store.atomic(() => {
+      this.repo.store
+        .statement("UPDATE intents SET position=0 WHERE thread_id=? AND command_id=?")
+        .run(id, commandId);
+    });
   }
   /** Trusted spawn boundary for delegation. Receipt identity is caller-owned. */
   spawn(
@@ -586,42 +653,6 @@ export class Engine {
       this.clock.now(),
     );
     this.wake(parentId);
-  }
-  /** External execution holds the parent open without pretending the child is a local thread. */
-  remoteDelegation(task: import("@ace/protocol").RemoteTask): void {
-    const state = this.repo.requireState(task.parentThreadId);
-    const agent = state.indexes.agentKeysById[task.parentAgentId];
-    if (!agent) throw new Error("Unknown remote delegation parent");
-    const terminal = ["completed", "failed", "cancelled"].includes(task.phase);
-    const key = `ace-remote:${task.id}`;
-    this.repo.apply(
-      task.parentThreadId,
-      terminal
-        ? [
-            {
-              type: "background.ended",
-              task: key,
-              status:
-                task.phase === "completed"
-                  ? "completed"
-                  : task.phase === "cancelled"
-                    ? "stopped"
-                    : "failed",
-            },
-          ]
-        : [
-            {
-              type: "background.started",
-              owner: "ace",
-              agent,
-              task: key,
-              kind: "subagent",
-              title: task.request.role,
-              stoppable: true,
-            },
-          ],
-      this.clock.now(),
-    );
   }
   /**
    * A child on another paired machine (ADR 0078): its launch row names the machine, and a
@@ -834,7 +865,8 @@ export class Engine {
     const previous = this.hostInteractionHandler;
     this.hostInteractionHandler = (command) => handler(command) ?? previous?.(command);
   }
-  bindRemoteTaskStop(stop: (id: string) => void, prefix = "ace-remote:"): void {
+  /** Routes a stop of a background hold whose key starts with `prefix` to its external owner. */
+  bindExternalTaskStop(prefix: string, stop: (id: string) => void): void {
     this.bindHostInteractions((command) => {
       if (command.payload.type !== "background_task.stop") return;
       const owner = this.repo.entityThread("backgroundTasks", command.payload.taskId);
@@ -897,7 +929,7 @@ export class Engine {
     },
   ): void {
     this.actor(threadId).apply([{ type: "interaction.closed", interaction: key, ...result }]);
-    // A host gate (private browser, an ace_ask question) may be the last hold on the
+    // A host gate (private browser, an ace ask question) may be the last hold on the
     // queue. Provider frames wake the thread on their own; a host-side close must too.
     this.wake(threadId);
   }
@@ -1288,7 +1320,8 @@ export class Engine {
     const intent =
       first && ["thread.switch", "thread.merge"].includes(first.kind)
         ? this.repo.pending.childResult(actor.id)
-        : first && this.isSteer(first)
+        : // A steer joins the running turn on its own lane; with no turn running it goes first.
+          first && this.isSteer(first) && rootRun(this.repo.requireState(actor.id))
           ? this.repo.pending.queuedMessage(actor.id)
           : first;
     if (
@@ -1322,41 +1355,14 @@ export class Engine {
     actor.schedule();
   }
   private isSteer(intent: IntentHeader): boolean {
-    if (
-      intent.kind !== "thread.send" ||
-      intent.delivery !== "steer" ||
-      this.repo.pending.hasSelection(intent.id)
-    )
-      return false;
-    if (this.repo.transitions.guarded(intent.threadId)) return false;
-    const state = this.repo.requireState(intent.threadId);
-    if (
-      this.repo.pending.transition(intent.threadId) &&
-      (this.repo.pending.running(intent.threadId) || this.repo.quiescent(state))
-    )
-      return false;
-    return (
-      Boolean(this.actors.get(intent.threadId)?.session) &&
-      !this.repo.queue.get(intent.threadId).paused &&
-      !this.repo.queue.get(intent.threadId).limited &&
-      !this.repo.pending.recovering(intent.threadId) &&
-      this.registry.has(state.config.provider) &&
-      (
-        this.actors.get(intent.threadId)?.effectiveCapabilities ??
-        this.registry.get(state.config.provider, this.repo.backend(intent.threadId)).capabilities
-      ).steer
-    );
+    return this.steerLane.isSteer(intent);
   }
   private async steer(actor: ThreadActor): Promise<void> {
     await actor.flush();
     if (actor.poisoned || this.closing || this.repo.cleaning(actor.id) || !actor.session) return;
     const queue = this.repo.queue.get(actor.id);
     if (queue.paused || queue.limited) return;
-    const intent = this.repo.pending.steerMessage(actor.id);
-    if (intent && this.isSteer(intent)) {
-      await this.delivery.run(actor, intent);
-      this.wake(actor.id);
-    }
+    await this.steerLane.run(actor);
   }
   /** Read the original JSON bytes of an oversized raw payload's data envelope. */
   readRawBlob(id: string): Uint8Array | undefined {

@@ -12,6 +12,9 @@ import { useMachines } from "@/lib/machines.ts";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
+import { useThreadBrowsing } from "@/lib/browsing.ts";
+import { useThreadComputerUse } from "@/lib/computer-using.ts";
+import { ClockIcon, CursorClickIcon, GlobeSimpleIcon } from "@phosphor-icons/react";
 
 /*
  * Shared row pieces render the card facts. RowTime reads the shared clock for elapsed time;
@@ -44,6 +47,48 @@ export function threadDetails(card: ThreadCard): string[] {
 
 export { ProjectMark } from "@/components/project-mark.tsx";
 
+/** A quiet globe in the working colour while an agent works in the thread's browser. */
+export function BrowsingMark(props: { threadId: string }) {
+  if (!useThreadBrowsing(props.threadId)) return null;
+  return (
+    <Tip label="An agent is browsing">
+      <span
+        role="img"
+        aria-label="An agent is browsing"
+        data-tone="working"
+        className="inline-flex shrink-0 text-status-working"
+      >
+        <GlobeSimpleIcon aria-hidden size={12} />
+      </span>
+    </Tip>
+  );
+}
+
+/** "Calculator", "Calculator and Notes", "Calculator, Notes and 2 more". */
+function appList(apps: readonly string[]): string {
+  if (apps.length <= 2) return apps.join(" and ");
+  return `${apps.slice(0, 2).join(", ")} and ${apps.length - 2} more`;
+}
+
+/** A quiet cursor in the working colour while an agent uses Mac apps for the thread. */
+export function ComputerUseMark(props: { threadId: string }) {
+  const apps = useThreadComputerUse(props.threadId);
+  if (!apps.length) return null;
+  const label = `An agent is using ${appList(apps)}`;
+  return (
+    <Tip label={label}>
+      <span
+        role="img"
+        aria-label={label}
+        data-tone="working"
+        className="inline-flex shrink-0 text-status-working"
+      >
+        <CursorClickIcon aria-hidden size={12} />
+      </span>
+    </Tip>
+  );
+}
+
 /** State is also spoken, so the PR's colour is never the only clue. */
 export function PullRequest(props: { card: ThreadCard }) {
   const { pr, prState } = props.card;
@@ -75,25 +120,28 @@ export function PullRequest(props: { card: ThreadCard }) {
  * The first line's status, as loud as the row's attention (`rowAttention`, with the open
  * thread's `currentAttention`):
  * - what asks the person to act or look: a glyph and a word in the status colour;
- * - live work, waiting or background, open or not: its glyph, word and elapsed time, muted
- *   unless open;
+ * - live work, waiting or background, open or not: its glyph (none for waiting), word and
+ *   elapsed time, muted unless open;
  * - a failure already seen: a quiet word; a thread at rest: only its age.
  */
 export function RowStatus(props: { card: ThreadCard; attention: RowAttention }) {
   const { card } = props;
   const { level, word, tone, muted } = props.attention;
-  if (word === undefined) return <RowTime card={card} />;
-  if (level === "failed-seen")
+  if (word === undefined) return card.wake ? <RowWake wake={card.wake} /> : <RowTime card={card} />;
+  // An unconfirmed copy says only that it is syncing: no glyph, no colour, no time.
+  if (level === "failed-seen" || level === "syncing")
     return <span className="shrink-0 text-meta text-muted-foreground">{word}</span>;
-  // The glyph beside the word: the colour is never the only clue.
-  const mark = (
-    <StatusGlyph state={threadGlyph({ tone, mark: card.status.mark })} tone={tone} size={12} />
-  );
+  // The glyph beside the word: the colour is never the only clue. Waiting is only words.
+  const mark =
+    tone === "waiting" ? null : (
+      <StatusGlyph state={threadGlyph({ tone, mark: card.status.mark })} tone={tone} size={12} />
+    );
   // Active rows always keep their time beside the word, open or not: the open row is not the
   // only one that says how long it has been at it. "Limited HH:MM" already names its time.
   const elapsed =
     level === "active" && !word.startsWith("Limited") ? <ActiveElapsed card={card} /> : null;
-  if (muted)
+  // Waiting never takes the status colour, even on the open row.
+  if (muted || tone === "waiting")
     return (
       <span
         data-tone={tone}
@@ -105,7 +153,7 @@ export function RowStatus(props: { card: ThreadCard; attention: RowAttention }) 
       </span>
     );
   return (
-    <StatusLabel tone={tone} label={word} mark={mark} className="gap-1 text-meta font-normal">
+    <StatusLabel tone={tone} label={word} mark={mark} className="gap-1 text-meta font-medium">
       {elapsed}
     </StatusLabel>
   );
@@ -127,6 +175,16 @@ function ActiveElapsed(props: { card: ThreadCard }) {
 }
 
 /** Only visible, fresh working rows subscribe to the shared second clock. */
+/** A snoozed row says when it wakes where others say their age. */
+function RowWake(props: { wake: string }) {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 text-meta whitespace-nowrap text-muted-foreground">
+      <ClockIcon aria-hidden size={12} />
+      {props.wake}
+    </span>
+  );
+}
+
 export function RowTime(props: { card: ThreadCard }) {
   const { card } = props;
   const fresh = useLiveConnection().fresh;
@@ -150,7 +208,7 @@ export function RowContext(props: { card: ThreadCard }) {
   const { card } = props;
   const devices = use(ManyDevices);
   return (
-    <div className="flex min-w-0 items-center gap-1.5 text-meta leading-4 text-muted-foreground">
+    <div className="flex min-w-0 items-center gap-1.5 text-meta leading-4 text-subtle-foreground">
       {card.branch && (
         <span className="min-w-0 flex-1 truncate font-mono" title={card.branch.name}>
           {card.branch.name}
@@ -179,7 +237,7 @@ export function RowContext(props: { card: ThreadCard }) {
             instance={card.account}
             size={14}
             decorative
-            className="text-muted-foreground"
+            className="text-subtle-foreground"
           />
         </span>
       </span>

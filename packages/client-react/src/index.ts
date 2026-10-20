@@ -12,12 +12,12 @@ export {
   useThreadMeta,
   useThreadError,
   useThreadSyncing,
+  useThreadUnconfirmed,
   useItemOrder,
   useItem,
   useAgent,
   useTask,
   useTaskIds,
-  useHistoryPager,
 } from "./thread.ts";
 export type { HistoryPager } from "./thread.ts";
 export { useAgentTree, agentTree, treeEqual } from "./tree.ts";
@@ -29,6 +29,7 @@ export {
   useSidebarIndex,
   useSidebarIds,
   useSidebarLoaded,
+  useSidebarUnconfirmed,
   useSidebarThread,
 } from "./sidebar.ts";
 export type { SidebarKey } from "./sidebar.ts";

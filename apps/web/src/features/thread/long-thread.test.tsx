@@ -64,7 +64,7 @@ test("the turn timeline lists every turn with its digest and jumps to one", asyn
   const gap = screen.getByRole("group", { name: "Gap to live" });
   expect(gap.textContent).toMatch(/\d+ newer turns until live/);
 
-  await user.click(within(gap).getByRole("button", { name: "Jump to live" }));
+  await user.click(within(gap).getByRole("button", { name: "Scroll to end" }));
   await waitFor(() => expect(screen.queryByRole("group", { name: "Gap to live" })).toBeNull());
   expect(await within(feed).findByText(answer(12))).toBeTruthy();
   expect(within(feed).queryByText(ask(2))).toBeNull();
@@ -87,11 +87,10 @@ test("a long thread shows every turn whole, with no folded turn rows", async () 
   expect(within(feed).queryByText(/^Turn \d+$/)).toBeNull();
 });
 
-test("hovering a turn on the rail previews its ask and the start of its reply", async () => {
-  const user = userEvent.setup();
+test("focusing a turn on the rail previews its ask and the start of its reply", async () => {
   await openLong(14, 200, undefined, 2);
   const rail = await screen.findByRole("navigation", { name: "Conversation turns" });
-  await user.hover(within(rail).getByRole("button", { name: "Turn 12" }));
+  act(() => within(rail).getByRole("button", { name: "Turn 12" }).focus());
   const card = await waitFor(() => {
     const open = document.querySelector<HTMLElement>("[data-slot='hover-card-content']");
     if (!open) throw new Error("Turn preview card missing");
@@ -104,7 +103,54 @@ test("hovering a turn on the rail previews its ask and the start of its reply", 
   expect(within(card).queryByText(/^Turn 12$/)).toBeNull();
 });
 
-test("Jump to live counts what reached the thread while the reader was in its history", async () => {
+test("leaving a held window by pill lands at the newest item and resumes following", async () => {
+  const user = userEvent.setup();
+  // The whole thread fits the live tail, so holding it keeps every row: discarding the
+  // window changes no rows, and only an explicit drive to the end moves the reader there.
+  const { app, feed } = await openLong(6, 200);
+  const view = feed.closest("[data-virtual-viewport]") as HTMLElement;
+  let contentHeight = 10_000;
+  const viewHeight = 600;
+  Object.defineProperty(view, "clientHeight", { configurable: true, get: () => viewHeight });
+  Object.defineProperty(view, "scrollHeight", { configurable: true, get: () => contentHeight });
+  const end = () => contentHeight - viewHeight;
+
+  // Turn 1 is already in the live tail: jumping to it holds the tail's rows as a window
+  // instead of leaving them, so the pill offers the way back.
+  const list = await openTurns(user);
+  list.focus();
+  await user.keyboard("{Home}{Enter}");
+  const pill = await screen.findByRole("button", { name: "Scroll to end" });
+  expect(view.scrollTop).toBeLessThan(end());
+
+  await user.click(pill);
+  // The reader ends at the newest item, and following resumes: the pill is gone.
+  expect(view.scrollTop).toBe(end());
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Scroll to end" })).toBeNull());
+
+  // Later items keep the reader pinned at the live end.
+  contentHeight = 12_000;
+  await act(async () => {
+    app.daemon.apply(threadId, [
+      {
+        type: "item.upsert",
+        agent: "root",
+        item: "late-1",
+        draft: {
+          type: "message",
+          role: "assistant",
+          complete: true,
+          parts: [{ type: "text", text: "Late finding one." }],
+        },
+      },
+    ]);
+  });
+  expect(await within(feed).findByText("Late finding one.")).toBeTruthy();
+  await waitFor(() => expect(view.scrollTop).toBe(end()));
+  expect(screen.queryByRole("button", { name: "Scroll to end" })).toBeNull();
+});
+
+test("Scroll to end counts what reached the thread while the reader was in its history", async () => {
   const user = userEvent.setup();
   const { app, feed } = await openLong(8, 12);
   const list = await openTurns(user);
@@ -112,7 +158,7 @@ test("Jump to live counts what reached the thread while the reader was in its hi
   await user.keyboard("{Home}{Enter}");
   expect(await within(feed).findByText(ask(1))).toBeTruthy();
   // The window's end offers the live end, and so does the pill over the transcript.
-  expect(screen.getAllByRole("button", { name: "Jump to live" })).toHaveLength(2);
+  expect(screen.getAllByRole("button", { name: "Scroll to end" })).toHaveLength(2);
 
   // The agent keeps working on the live end meanwhile.
   await act(async () => {
@@ -142,7 +188,7 @@ test("Jump to live counts what reached the thread while the reader was in its hi
       },
     ]);
   });
-  const pill = await screen.findByRole("button", { name: "Jump to live, 2 new" });
+  const pill = await screen.findByRole("button", { name: "Scroll to end, 2 new" });
   expect(within(feed).queryByText("Late finding two.")).toBeNull();
   await user.click(pill);
   expect(await within(feed).findByText("Late finding two.")).toBeTruthy();

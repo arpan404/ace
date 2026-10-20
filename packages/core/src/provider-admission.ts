@@ -27,6 +27,8 @@ export function providerCommandDisabled(
     case "thread.merge":
     case "thread.model.set":
     case "thread.mode.set":
+    case "thread.goal.set":
+    case "thread.goal.clear":
       break;
     default:
       return false;

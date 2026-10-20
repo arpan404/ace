@@ -18,7 +18,12 @@ export { SnoozeItems } from "./snooze-items.tsx";
 export { settleAction, ThreadActionItems, threadActions } from "./thread-action-items.tsx";
 export { organizerFor, useOrganizer, useOrganizerState } from "./use-organizer.ts";
 export { useOrganizeOverlay, useOverlaidEntry, useRefusedTitle } from "./overlay.ts";
-export { useThreadActions, type ThreadActions, type ThreadTarget } from "./use-thread-actions.ts";
+export {
+  undoWindowMs,
+  useThreadActions,
+  type ThreadActions,
+  type ThreadTarget,
+} from "./use-thread-actions.ts";
 export { useRenameTitle } from "./selection.ts";
 export { DeleteConfirmationHost } from "./delete-host.tsx";
 export { InlineRename } from "./inline-rename.tsx";

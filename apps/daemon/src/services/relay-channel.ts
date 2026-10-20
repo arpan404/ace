@@ -1,13 +1,7 @@
 import { fileExportSource } from "../file-export-source.ts";
-import { remoteOutputRead } from "../agent-control/remote-return.ts";
-import { remoteContextTransfer } from "../agent-control/remote-context-transfer.ts";
+import { projectFilesBinding } from "../project-files-binding.ts";
 import { providerAuthRelay } from "./provider-auth-relay.ts";
-import {
-  connectDevices,
-  sendDeviceFrame,
-  devicePacketDelivery,
-  type DevicesService,
-} from "@ace/devices";
+import { connectDevices, type DevicesService } from "@ace/devices";
 import { connectBrowser, type BrowserService } from "@ace/browser";
 import { screenConnection, Simulators, type ScreenManager } from "@ace/screen";
 import {
@@ -33,7 +27,6 @@ import { contextScope } from "./context-scope.ts";
  * as sign-in publish, so a copy taken then would miss them for the daemon's whole life.
  */
 export interface RelayServices {
-  remoteDelegation?: import("../server-options.ts").ServerOptions | undefined;
   providerLogin?: import("@ace/accounts").ProviderLoginSessions | undefined;
   accountManagement?: import("../account-management.ts").AccountManagement | undefined;
   files?: FilesService | undefined;
@@ -48,7 +41,7 @@ export interface RelayServices {
   /** Warn-level daemon log for refused requests. */
   warn?: ((message: string, fields: object) => void) | undefined;
 }
-/** A dedicated authenticated relay channel never mixes file packets and screen packets. */
+/** A dedicated authenticated relay channel never mixes file packets and media stream pieces. */
 export function attachRelayService(
   options: RelayServices,
   connection: {
@@ -92,22 +85,17 @@ export function attachRelayService(
       agentExists: (threadId, agentId) =>
         options.store?.getMcpAgent(ThreadId.parse(threadId), AgentId.parse(agentId)) !== undefined,
       send,
-      ...devicePacketDelivery({
+      media: {
         bufferedBytes: () => channel.bufferedBytes,
-        authorize: () => authorize("admin"),
-        write: (packet) =>
-          sendDeviceFrame(
-            packet,
-            (chunk) => channel.sendBinary(chunk),
-            () => authorize("admin"),
-          ).catch((error: unknown) => {
-            channel.close();
-            throw error;
-          }),
-      }),
+        write: async (piece) => {
+          if (!authorize("admin")) throw new Error("Device stream access revoked");
+          await channel.sendBinary(piece);
+        },
+      },
     });
     return {
       accept(message: ClientMessage) {
+        if (message.type === "devices.ack") return endpoint.ack(message);
         if (message.type !== "devices.request") throw new Error("Unexpected devices relay request");
         return endpoint.request(message);
       },
@@ -134,6 +122,12 @@ export function attachRelayService(
         void channel.send(message).catch(() => channel.close());
         return true;
       },
+      // Each piece fits one encrypted binary message; a frame waits out a backlog by dropping.
+      sendStream(pieces) {
+        if (channel.bufferedBytes > 256 * 1024) return false;
+        for (const piece of pieces) void channel.sendBinary(piece).catch(() => channel.close());
+        return true;
+      },
     });
     return {
       accept(message: ClientMessage) {
@@ -152,20 +146,20 @@ export function attachRelayService(
       send(message) {
         void send(message).catch(() => channel.close());
       },
-      frame: (packet) =>
-        sendDeviceFrame(
-          packet,
-          (chunk) => channel.sendBinary(chunk),
-          () => authorize("admin"),
-        ).catch((error: unknown) => {
-          channel.close();
-          throw error;
-        }),
+      media: {
+        bufferedBytes: () => channel.bufferedBytes,
+        write: async (piece) => {
+          if (!authorize("admin")) throw new Error("Screen stream access revoked");
+          await channel.sendBinary(piece);
+        },
+      },
+      failed: () => channel.close(),
     });
     return {
       accept(message: ClientMessage) {
-        if (!authorize("admin") || message.type !== "screen.request")
-          throw new Error("Screen access denied");
+        if (!authorize("admin")) throw new Error("Screen access denied");
+        if (message.type === "screen.ack") return endpoint.ack(message);
+        if (message.type !== "screen.request") throw new Error("Screen access denied");
         return endpoint.request(message);
       },
       binary() {
@@ -219,7 +213,13 @@ export function attachRelayService(
             }
             void channel.send(message).catch(() => channel.close());
           },
-          async resolve(threadId, scope, operation) {
+          async resolve(threadId, scope, operation, workspaceId) {
+            if (workspaceId !== undefined) {
+              if (!options.threadFiles) throw new Error("Project files unavailable");
+              return projectFilesBinding(options.threadFiles, workspaceId, operation, () =>
+                authorize("read"),
+              );
+            }
             if (scope === "support" && options.supportFiles)
               return {
                 service: options.supportFiles,
@@ -279,29 +279,6 @@ export function attachRelayService(
         });
         return;
       }
-      if (message.type === "delegation.remote.output") {
-        if (!options.remoteDelegation) throw new Error("Remote output unavailable");
-        await channel.send(
-          await remoteOutputRead(
-            options.remoteDelegation,
-            message,
-            (thread) => authorize("read") && (!thread || threadAccess(thread)),
-          ),
-        );
-        return;
-      }
-      if (message.type === "delegation.remote.context") {
-        if (!options.remoteDelegation) throw new Error("Remote task context unavailable");
-        const scope = message.operation.op === "read" ? "read" : "operate";
-        await channel.send(
-          await remoteContextTransfer(
-            options.remoteDelegation,
-            message,
-            (thread) => authorize(scope) && (!thread || threadAccess(thread)),
-          ),
-        );
-        return;
-      }
       if (message.type === "context.request") {
         if (channel.bufferedBytes > 256 * 1024) {
           channel.close();
@@ -341,7 +318,8 @@ export function attachRelayService(
         message.type === "files.abort" ||
         message.type === "files.pull" ||
         message.type === "files.chunk" ||
-        (message.type === "files.request" && (message.threadId || message.scope === "support")) ||
+        (message.type === "files.request" &&
+          (message.threadId || message.workspaceId || message.scope === "support")) ||
         (message.type === "files.cancel" && message.channel > 0x80000000)
       ) {
         if (!chunks) throw new Error("Scoped files unavailable");

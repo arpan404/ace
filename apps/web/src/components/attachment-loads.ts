@@ -5,7 +5,8 @@ import type { ImageSource } from "./attachment-format.ts";
 export type AttachmentSource = Extract<ImageSource, { kind: "attachment" }>;
 export type ImageVariant = "thumbnail" | "original";
 export const originalLimit = 32 * 1024 * 1024;
-const thumbnailLimit = 256 * 1024;
+// A thumbnail read admits one bounded preview (512 px long edge); originals admit exact bytes.
+const thumbnailLimit = 512 * 1024;
 const keyOf = (source: AttachmentSource, variant: ImageVariant) =>
   `${source.threadId}\u0000${source.sha256}\u0000${variant}`;
 

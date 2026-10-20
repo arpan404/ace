@@ -1,6 +1,7 @@
 import { useAgent, useAgentTree, type AgentTreeNode } from "@ace/client-react";
 import { agentName } from "@ace/ui-core";
 import { RobotIcon } from "@phosphor-icons/react";
+import type { ReactNode } from "react";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import {
   Menu,
@@ -16,11 +17,17 @@ function flatten(nodes: readonly AgentTreeNode[], depth = 0): { id: string; dept
   return nodes.flatMap((node) => [{ id: node.id, depth }, ...flatten(node.children, depth + 1)]);
 }
 
-function AgentItem(props: { threadId: string; agentId: string; depth: number; onPick(): void }) {
+function AgentItem(props: {
+  threadId: string;
+  agentId: string;
+  depth: number;
+  disabled?: boolean | undefined;
+  onPick(): void;
+}) {
   const agent = useAgent(props.threadId, props.agentId);
   if (!agent) return null;
   return (
-    <MenuItem onClick={props.onPick}>
+    <MenuItem disabled={props.disabled} onClick={props.onPick}>
       <span className={props.depth === 0 ? undefined : props.depth === 1 ? "ps-3" : "ps-6"}>
         {agentName(agent)}
       </span>
@@ -50,20 +57,36 @@ export function DelegateMenu(props: {
         {props.label ?? "Delegate"}
       </MenuTrigger>
       <MenuContent align="end">
-        <MenuGroup>
-          <MenuLabel>Hand to an agent in this thread</MenuLabel>
-          {agents.map((agent) => (
-            <AgentItem
-              key={agent.id}
-              threadId={props.threadId}
-              agentId={agent.id}
-              depth={agent.depth}
-              onPick={() => props.onDelegate(agent.id)}
-            />
-          ))}
-        </MenuGroup>
+        <DelegateItems threadId={props.threadId} onDelegate={props.onDelegate} />
       </MenuContent>
     </Menu>
+  );
+}
+
+/** The "Hand to an agent in this thread" group, for a menu that holds other actions too. */
+export function DelegateItems(props: {
+  threadId: string;
+  disabled?: boolean;
+  onDelegate(agentId: string): void;
+  /** Shown instead when the thread has no agents yet. */
+  empty?: ReactNode;
+}) {
+  const agents = flatten(useAgentTree(props.threadId) ?? []);
+  if (agents.length === 0) return props.empty ?? null;
+  return (
+    <MenuGroup>
+      <MenuLabel>Hand to an agent in this thread</MenuLabel>
+      {agents.map((agent) => (
+        <AgentItem
+          key={agent.id}
+          threadId={props.threadId}
+          agentId={agent.id}
+          depth={agent.depth}
+          disabled={props.disabled}
+          onPick={() => props.onDelegate(agent.id)}
+        />
+      ))}
+    </MenuGroup>
   );
 }
 

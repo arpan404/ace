@@ -39,18 +39,26 @@ async function fixture() {
 }
 
 /** Review turns are observable transcript inputs, including ones queued for the agent. */
-function reviewTurns(f: Awaited<ReturnType<typeof fixture>>) {
-  const view = ThreadView.parse(
-    f.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-cold-start") }),
-  );
-  return view.itemOrder.flatMap((id) => {
-    const item = view.items[id];
-    if (item?.type !== "message" || item.role !== "user") return [];
-    const text = item.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
-    return text.startsWith("Review comments to address:\n")
+/**
+ * Review messages sent to the agent, in order: those it already received, then those waiting in
+ * its queue behind the running turn (a queued message is not in the transcript yet, ADR 0065).
+ */
+async function reviewTurns(f: Awaited<ReturnType<typeof fixture>>) {
+  const threadId = ThreadId.parse("thread-cold-start");
+  const view = ThreadView.parse(f.daemon.snapshot({ kind: "thread", threadId }));
+  const queued = (await f.client.request({ type: "queue.get", threadId })).queue.messages;
+  const texts = [
+    ...view.itemOrder.flatMap((id) => {
+      const item = view.items[id];
+      return item?.type === "message" && item.role === "user" ? [item.parts] : [];
+    }),
+    ...queued.map((message) => message.input),
+  ].map((parts) => parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join(""));
+  return texts.flatMap((text) =>
+    text.startsWith("Review comments to address:\n")
       ? [text.split("\n").filter((line) => line.startsWith("- "))]
-      : [];
-  });
+      : [],
+  );
 }
 
 test("an empty device discovers daemon review comments and follows resolution from another device", async () => {
@@ -264,7 +272,7 @@ test("a failed delivery batch retries only pending comments without recording du
       { length: 20 },
       (_, index) => `- apps/server/src/replay.ts:${index + 1} (new side): Finding ${index + 1}`,
     );
-    expect(reviewTurns(f)).toEqual([firstBatch]);
+    expect(await reviewTurns(f)).toEqual([firstBatch]);
     const comments = f.daemon.review.comments();
     f.daemon.restoreRequests();
     await sendDrafts(f.client, store, thread, keys);
@@ -273,7 +281,7 @@ test("a failed delivery batch retries only pending comments without recording du
       comments.map((comment) => comment.id),
     );
     expect(f.daemon.review.comments().every((comment) => comment.sent)).toBe(true);
-    expect(reviewTurns(f)).toEqual([
+    expect(await reviewTurns(f)).toEqual([
       firstBatch,
       ["- apps/server/src/replay.ts:21 (new side): Finding 21"],
     ]);

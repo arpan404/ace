@@ -1,3 +1,4 @@
+import { replayGap } from "./replay-gap.ts";
 import { chmodSync } from "node:fs";
 import { DatabaseSync, type StatementSync } from "@ace/provider-kit/sqlite";
 import { z } from "zod";
@@ -7,11 +8,12 @@ import {
   NotificationPreferences,
   NotificationAddress,
 } from "@ace/protocol/notifications";
-import { ThreadId, type DeviceId } from "@ace/protocol/ids";
+import { DeviceId, ThreadId } from "@ace/protocol/ids";
 import { CompactThread, Pending, advance, content } from "./model.ts";
 import type { MetadataEvent } from "./metadata.ts";
 import { IncompatibleDataError } from "@ace/provider-kit/incompatible-data";
 import { InteractionTracking, trackingTables } from "./tracking.ts";
+import { NotificationInbox, inboxTables } from "./inbox.ts";
 
 const Job = z.object({
   id: z.number().int(),
@@ -58,11 +60,13 @@ export class NotificationDatabase {
   private statements = new Map<string, StatementSync>();
   private windowMs: number;
   private tracking: InteractionTracking;
+  readonly inbox: NotificationInbox;
   constructor(path: string, windowMs = 5000) {
     if (!Number.isSafeInteger(windowMs) || windowMs < 0)
       throw new Error("Invalid coalescing window");
     this.windowMs = windowMs;
     this.tracking = new InteractionTracking((sql) => this.statement(sql));
+    this.inbox = new NotificationInbox((sql) => this.statement(sql));
     this.db = new DatabaseSync(path);
     if (path !== ":memory:") chmodSync(path, 0o600);
     this.db.exec(
@@ -81,6 +85,7 @@ export class NotificationDatabase {
         `The notification database is format ${version}, and this build reads format ${FORMAT}`,
       );
     }
+    this.db.exec(inboxTables);
   }
   private statement(sql: string): StatementSync {
     let value = this.statements.get(sql);
@@ -116,10 +121,10 @@ export class NotificationDatabase {
   ): void {
     this.transaction(() => {
       let cursor = this.cursor();
-      if (coverage && coverage.afterSeq > cursor) throw new Error("Notification replay gap");
+      if (coverage && coverage.afterSeq > cursor) throw new Error(replayGap);
       for (const event of events) {
         if (event.seq <= cursor) continue;
-        if (!coverage && event.seq !== cursor + 1) throw new Error("Notification replay gap");
+        if (!coverage && event.seq !== cursor + 1) throw new Error(replayGap);
         cursor = event.seq;
         if (event.threadId.length > 200) throw new Error("Thread id too long");
         if (event.payload.type === "thread.client.updated") {
@@ -200,6 +205,7 @@ export class NotificationDatabase {
       if (!stale) throw new Error("Device capacity reached");
       this.statement("DELETE FROM jobs WHERE device=?").run(String(stale.id));
       this.statement("DELETE FROM devices WHERE id=?").run(String(stale.id));
+      this.inbox.remove(DeviceId.parse(stale.id));
     }
     const device = NotificationDevice.parse({
       id,
@@ -242,6 +248,17 @@ export class NotificationDatabase {
         JSON.stringify(tombstone),
         id,
       );
+      this.statement("DELETE FROM jobs WHERE device=?").run(id);
+      this.inbox.remove(id);
+    });
+  }
+  /**
+   * The device asked to stop alerts: like an expired address, it gets no jobs or catch-up
+   * entries until it registers again. Reconnects keep it muted; `connectDevice` only touches it.
+   */
+  unregister(id: DeviceId): void {
+    this.transaction(() => {
+      this.statement("UPDATE devices SET expired=1 WHERE id=? AND revoked=0").run(id);
       this.statement("DELETE FROM jobs WHERE device=?").run(id);
     });
   }
@@ -340,6 +357,21 @@ export class NotificationDatabase {
   }
   current(notification: Notification, generation: number): boolean {
     const state = this.thread(notification.threadId);
+    return this.matches(state, notification, generation);
+  }
+  /** Catch-up omits and retracts alerts that no longer match canonical state or are snoozed. */
+  feed(device: DeviceId, afterCursor: number, now: number) {
+    return this.inbox.feed(device, afterCursor, now, (notification, generation) => {
+      const row = this.statement("SELECT body FROM threads WHERE id=?").get(notification.threadId);
+      if (!row || this.snoozed(notification.threadId, now)) return false;
+      return this.matches(
+        CompactThread.parse(JSON.parse(String(row.body))),
+        notification,
+        generation,
+      );
+    });
+  }
+  private matches(state: CompactThread, notification: Notification, generation: number): boolean {
     if (state.archived || state.deleted) return false;
     if (notification.status === "background_done" || notification.status === "agent_says")
       return true;

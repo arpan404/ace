@@ -2,8 +2,8 @@ import { findOpenCodeExecutable } from "./opencode-executable.ts";
 export { findOpenCodeExecutable } from "./opencode-executable.ts";
 import { findExecutable } from "./executable.ts";
 export { findExecutable, isPackageRunner, scriptExecutablePaths } from "./executable.ts";
-export { piMinimumVersion, piVersionRefusal, piVersionSupported } from "./pi-version.ts";
 import { z } from "zod";
+import { checkCli } from "../cli-requirements.ts";
 import { probeOutput } from "../process.ts";
 import {
   parseClaudeAuth,
@@ -38,7 +38,7 @@ const specs = {
     command: "claude",
     authArgs: ["auth", "status"],
     parse: parseClaudeAuth,
-    loginHint: "claude, then /login",
+    loginHint: "claude auth login",
   },
   codex: {
     command: "codex",
@@ -132,6 +132,7 @@ export async function discoverProvider(
           : "Authentication probe exited unsuccessfully",
       );
   } else errors.push(probeError("Authentication probe", auth.reason));
+  result.versionCheck = checkCli(provider, result.version);
   if (errors.length) result.error = errors.join("; ");
   return result;
 }
@@ -174,6 +175,7 @@ export async function discoverAntigravity(
   } catch {
     /* Status stays unknown; raw exceptions and CLI output are private. */
   }
+  result.versionCheck = checkCli("antigravity", result.version);
   result.error =
     "Login status requires interactive verification; no safe status command is documented";
   return result;
@@ -181,6 +183,7 @@ export async function discoverAntigravity(
 
 export { discoverPi } from "./pi.ts";
 export { discoverPiStatus } from "./pi-status.ts";
+export { piSdkEntry, piCredentialProviders, PiProviderId } from "./pi-sdk.ts";
 export {
   discoverDescriptor,
   type DiscoveryDescriptor,

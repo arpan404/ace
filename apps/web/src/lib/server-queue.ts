@@ -1,6 +1,6 @@
-import type { ThreadReader } from "@ace/client";
+import { readServerQueue, type ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
-import { ThreadId, type QueueGet, type QueuePage } from "@ace/protocol";
+import { ThreadId, type QueuePage } from "@ace/protocol";
 import { useState } from "react";
 import { useDaemonQuery } from "./daemon-query.ts";
 
@@ -8,26 +8,7 @@ import { useDaemonQuery } from "./daemon-query.ts";
 export const queuePageSize = 16;
 const queueOf = (reader: ThreadReader) => reader.queue;
 
-type ReadQueue = (
-  request: Pick<QueueGet, "threadId" | "limit" | "after" | "expectedRevision">,
-) => Promise<QueuePage>;
-
-export async function readServerQueue(threadId: ThreadId, read: ReadQueue): Promise<QueuePage> {
-  const first = await read({ threadId, limit: 32 });
-  const messages = [...first.messages];
-  let next = first.next;
-  const cursors = new Set<string>();
-  while (next !== null) {
-    if (cursors.has(next) || messages.length >= first.total)
-      throw new Error("invalid_queue_cursor");
-    cursors.add(next);
-    const page = await read({ threadId, limit: 32, after: next, expectedRevision: first.revision });
-    if (page.revision !== first.revision) throw new Error("queue_conflict");
-    messages.push(...page.messages);
-    next = page.next;
-  }
-  return { ...first, messages, next: null };
-}
+export { readServerQueue };
 
 /**
  * One shared read per revision follows the daemon's byte-bounded cursors. Retained inputs

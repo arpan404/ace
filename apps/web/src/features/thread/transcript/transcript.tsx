@@ -32,7 +32,7 @@ function useNewSince(order: readonly string[], away: boolean): { count: number; 
  * The reading column: a virtualized feed over the thread's leased live tail (ADR 0006) or, after
  * a jump, over one window of older history (ADR 0062), never both with a hole between them.
  * Older turns fold into digest rows; the reader follows the live end until they scroll away,
- * and Jump to live says how much arrived meanwhile.
+ * and Scroll to end says how much arrived meanwhile.
  */
 export function Transcript(props: { threadId: string }) {
   const nav = useThreadNav();

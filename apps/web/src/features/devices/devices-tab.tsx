@@ -1,19 +1,23 @@
-import { ToolchainHints } from "@/features/diagnostics/index.ts";
 import type { DeviceRow } from "@ace/ui-core";
-import {
-  AndroidLogoIcon,
-  AppleLogoIcon,
-  CaretRightIcon,
-  DeviceMobileIcon,
-} from "@phosphor-icons/react";
-import { Icon } from "@/components/icon.tsx";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
+import { SearchField } from "@/components/search-field.tsx";
+import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
+import { toolbarEdge } from "@/components/ui/rules.ts";
+import { isEditable, useHotkey } from "@/lib/hotkeys.ts";
+import { cn } from "@/lib/cn.ts";
 import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { Problem } from "./device-tab.tsx";
-import { DevicesMenu } from "./devices-menu.tsx";
+import { CatalogMenu } from "./catalog-menu.tsx";
+import { controllerOf } from "./controller-label.tsx";
+import { deviceCatalog, type PlatformFilter } from "./device-catalog.ts";
+import { DeviceGroups, RecentRows } from "./device-list-rows.tsx";
+import { noteDeviceUse, requestBoot, useRecentUses } from "./device-prefs.ts";
+import { Problem } from "./device-problem.tsx";
+import { DisableDevicesDialog } from "./disable-devices-dialog.tsx";
+import { RunningTiles } from "./running-tiles.tsx";
+import { ToolReadiness, ToolSetupDialog } from "./tool-readiness.tsx";
 import { useDevices } from "./use-devices.ts";
 
 /** The workspace tab that shows one device (`device` kind, one tab per simulator or emulator). */
@@ -23,107 +27,219 @@ export const deviceTab = (row: Pick<DeviceRow, "id" | "name">) => ({
   title: row.name,
 });
 
-function DeviceList(props: {
-  rows: readonly DeviceRow[];
-  open: ReadonlySet<string>;
-  onOpen(row: DeviceRow): void;
-}) {
+/** The wall clock, read once a minute, for "used 2h ago". */
+function useMinute(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  return now;
+}
+
+const platforms: readonly { value: PlatformFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "ios", label: "iOS" },
+  { value: "android", label: "Android" },
+];
+
+function Section(props: { label: string; count?: number; children: ReactNode }) {
   return (
-    <ul aria-label="Devices" className="flex flex-col gap-0.5 px-1.5">
-      {props.rows.map((row) => (
-        <li key={row.id}>
-          <button
-            type="button"
-            onClick={() => props.onOpen(row)}
-            className="flex h-11 w-full items-center gap-2.5 rounded-md px-2.5 text-left outline-none transition-colors duration-(--motion-fast) hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)]"
-          >
-            <Icon
-              icon={row.platform === "ios" ? AppleLogoIcon : AndroidLogoIcon}
-              size={16}
-              className="text-muted-foreground"
-            />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-ui font-medium">{row.name}</span>
-              <span className="block truncate text-xs text-subtle-foreground">{row.detail}</span>
-            </span>
-            {row.live && <span className="text-xs text-muted-foreground">Live</span>}
-            {props.open.has(row.id) && <span className="text-xs text-subtle-foreground">Open</span>}
-            <CaretRightIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
-          </button>
-        </li>
-      ))}
-    </ul>
+    <section aria-label={props.label} className="flex flex-col gap-1.5">
+      <h3 className="flex items-baseline gap-1.5 px-2 text-ui font-medium text-muted-foreground">
+        {props.label}
+        {props.count !== undefined && (
+          <span className="text-xs font-normal text-subtle-foreground tabular-nums">
+            {props.count}
+          </span>
+        )}
+      </h3>
+      {props.children}
+    </section>
   );
 }
 
 /**
- * Devices: the catalog of the iOS Simulators and Android emulators on the daemon's machine.
- * Enable them here; each device opens as its own tab, where it is booted, watched live,
- * driven and handed to the thread's agents. Opening another device opens another tab beside it.
+ * Devices: the iOS Simulators and Android emulators on the daemon's machine. Running ones show
+ * live as tiles, recently used ones follow, then every device by kind, all narrowed by the search
+ * and the platform filter. Each device opens as its own tab.
  */
 export function DevicesTab(props: { threadId: string }) {
   const devices = useDevices(props.threadId);
   const actions = useWorkspaceActions(props.threadId);
   const workspace = useScopeWorkspace(props.threadId);
-  const open = new Set(workspace.tabs.filter((tab) => tab.kind === "device").map((tab) => tab.id));
+  const uses = useRecentUses();
+  const [query, setQuery] = useState("");
+  const [platform, setPlatform] = useState<PlatformFilter>("all");
+  const [setUp, setSetUp] = useState(false);
+  const [disabling, setDisabling] = useState(false);
+  const search = useRef<HTMLDivElement>(null);
+  const now = useMinute();
   const { view } = devices;
+  const ready = view.connected && view.enabled;
+  useHotkey("/", () => search.current?.querySelector("input")?.focus(), {
+    enabled: ready,
+    when: (event) => !isEditable(event.target),
+  });
+  const open = new Set(workspace.tabs.filter((tab) => tab.kind === "device").map((tab) => tab.id));
+  const openDevice = (row: DeviceRow) => {
+    noteDeviceUse(row.id, Date.now());
+    actions.open(deviceTab(row));
+  };
+
   if (!view.connected)
     return view.failure ? (
       <EmptyState
-        icon={DeviceMobileIcon}
         title="Devices disconnected"
         description={`${view.failure.message} ${view.failure.hint}`.trim()}
         action={<Button onClick={devices.reconnect}>Reconnect</Button>}
       />
     ) : (
-      <div className="grid h-full place-items-center">
-        <Spinner label="Connecting to devices" />
-      </div>
+      <ListSkeleton label="Connecting to devices" shape="row" rows={4} className="px-4 pt-3" />
     );
   if (!view.enabled)
     return (
       <EmptyState
-        icon={DeviceMobileIcon}
-        className="items-start justify-start text-left p-4"
         title="Simulators and emulators"
-        description="Enable devices to use a simulator or emulator with this thread."
+        description="Watch and drive this machine's iOS Simulators and Android emulators, and let this thread's agents use them."
         action={
-          <div className="flex flex-col items-start gap-3">
+          <div className="flex flex-col items-center gap-3">
             <Button variant="primary" disabled={view.pending} onClick={() => devices.enable(true)}>
               Enable devices
             </Button>
-            {view.problem && <Problem problem={view.problem} />}
-            <ToolchainHints devices />
+            {view.problem && (
+              <Problem
+                problem={view.problem}
+                className="max-w-[44ch] text-sm text-muted-foreground"
+              />
+            )}
           </div>
         }
       />
     );
+
+  const catalog = deviceCatalog(view.rows, { query, platform, uses });
+  const searching = query.trim() !== "" || platform !== "all";
   return (
-    <div className="mx-auto flex w-full max-w-[640px] flex-col pt-2 pb-6">
-      <div className="flex h-10 items-center justify-between pr-1.5 pl-4">
-        <h2 className="text-xs font-medium text-subtle-foreground">On this machine</h2>
-        {/* Turning devices off is machine-wide, so it sits with the catalog. */}
-        <DevicesMenu devices={devices} />
+    <div className="flex h-full min-h-0 flex-col">
+      <div className={cn("flex h-10 shrink-0 items-center gap-2 pr-1.5 pl-2", toolbarEdge)}>
+        <div ref={search} className="min-w-0 flex-1">
+          <SearchField
+            label="Search devices"
+            placeholder="Search devices"
+            value={query}
+            onValueChange={setQuery}
+            className="h-7"
+          />
+        </div>
+        <SegmentedControl<PlatformFilter>
+          size="sm"
+          label="Platform"
+          value={platform}
+          options={platforms}
+          onValueChange={setPlatform}
+        />
+        <CatalogMenu
+          pending={view.pending}
+          onRefresh={devices.refresh}
+          onSetUp={() => setSetUp(true)}
+          onDisable={() => setDisabling(true)}
+        />
       </div>
-      {view.rows.length === 0 ? (
-        view.pending ? (
-          <ListSkeleton label="devices" shape="row" rows={2} className="px-4" />
+      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-2 pt-3 pb-4">
+        {view.problem && (
+          <Problem problem={view.problem} className="px-2 text-sm text-muted-foreground" />
+        )}
+        {view.rows.length === 0 ? (
+          view.pending || view.loading ? (
+            <ListSkeleton label="devices" shape="row" rows={3} className="px-2" />
+          ) : (
+            <EmptyState
+              variant="inline"
+              className="px-2 pt-0"
+              title="No simulators or emulators on this machine"
+              description="Create one in Xcode or Android Studio, then refresh."
+              action={
+                <Button size="sm" onClick={devices.refresh}>
+                  Refresh
+                </Button>
+              }
+            />
+          )
+        ) : catalog.matches === 0 ? (
+          <EmptyState
+            variant="inline"
+            className="px-2 pt-0"
+            title="No devices match"
+            action={
+              <Button
+                size="sm"
+                onClick={() => {
+                  setQuery("");
+                  setPlatform("all");
+                }}
+              >
+                Clear search
+              </Button>
+            }
+          />
         ) : (
-          <p className="px-4 py-2 text-sm text-muted-foreground">
-            No simulators or emulators found on this machine. Create one in Xcode or Android Studio
-            and it shows here.
-          </p>
-        )
-      ) : (
-        <DeviceList rows={view.rows} open={open} onOpen={(row) => actions.open(deviceTab(row))} />
-      )}
-      <div className="flex flex-col gap-2 px-4 pt-3">
-        <ToolchainHints devices />
-        {view.problem && <Problem problem={view.problem} />}
+          <>
+            {catalog.running.length > 0 && (
+              <Section label="Running" count={catalog.running.length}>
+                <RunningTiles
+                  rows={catalog.running}
+                  session={view.session}
+                  controllerOf={(row) =>
+                    controllerOf(view.controllers.get(row.id) ?? { controller: "none" })
+                  }
+                  open={open}
+                  onOpen={openDevice}
+                />
+              </Section>
+            )}
+            {catalog.recent.length > 0 && (
+              <Section label="Recent">
+                <RecentRows
+                  recent={catalog.recent}
+                  now={now}
+                  open={open}
+                  pending={view.pending}
+                  onOpen={openDevice}
+                  onBoot={(row) => {
+                    requestBoot(row.id);
+                    openDevice(row);
+                  }}
+                />
+              </Section>
+            )}
+            <Section label="All devices" count={catalog.matches}>
+              <DeviceGroups
+                groups={catalog.groups}
+                searching={searching}
+                open={open}
+                onOpen={openDevice}
+              />
+            </Section>
+          </>
+        )}
         {view.notes.map((note) => (
-          <Problem key={note.message} problem={note} />
+          <Problem
+            key={note.message}
+            problem={note}
+            className="px-2 text-sm text-muted-foreground"
+          />
         ))}
+        <div className="mt-auto px-2">
+          <ToolReadiness onSetUp={() => setSetUp(true)} />
+        </div>
       </div>
+      <ToolSetupDialog open={setUp} onOpenChange={setSetUp} />
+      <DisableDevicesDialog
+        open={disabling}
+        onOpenChange={setDisabling}
+        onDisable={() => devices.enable(false)}
+      />
     </div>
   );
 }

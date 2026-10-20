@@ -57,7 +57,7 @@ else Auto review on a first run. Each daemon stores its own. `permissions.provid
 (`access.nativeModes`). That provider's threads then run it and the chip reads "Custom". A Custom
 policy is unranked: only the identical policy contains a child.
 
-**Delegation.** `delegate_task` (single and batch) takes `access` (`inherit` or a mode) and
+**Delegation.** Each `delegate` task takes `access` (`inherit` or a mode) and
 `effort`. The ceiling is the mode rank: a child can't exceed its parent (`access_escalation_denied`
 with the allowed list); an explicit mode the target lacks is refused (`access_unavailable` with
 the target's supported list); `inherit` steps down to the broadest supported mode at or below the

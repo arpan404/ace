@@ -1,10 +1,11 @@
 import type { DiscoveryOptions, DiscoveryResult } from "@ace/provider-kit/discovery";
 import type { ElisionLimits } from "@ace/provider-kit/elision";
-import { codexCapabilities } from "./capabilities.ts";
+import { requireReadableMinimum } from "@ace/provider-kit/cli-requirements";
 import { CodexHost, type ChannelHandlers, type CodexChannel } from "./host.ts";
 import type { CodexRuntime } from "./runtime.ts";
 import type { CodexSessionContext } from "./session-context.ts";
 import type { InitializeParams } from "./generated/InitializeParams.ts";
+import { unloadClosedThreads } from "./thread-lease.ts";
 
 /** A shared app-server with no sessions stays up this long for the next one. */
 export const defaultHostIdleMs = 10 * 60_000;
@@ -103,10 +104,7 @@ async function discover(options: ChannelOptions): Promise<string> {
         : await io.discoverProvider("codex", discovery)));
   if (!cli.installed || !cli.path)
     throw new Error("Codex is not installed. Install it or configure its path.");
-  if (!codexCapabilities(cli).steer)
-    throw new Error(
-      `Codex ${cli.version ?? "unknown version"} is unsupported; need 0.159.1 or newer.`,
-    );
+  requireReadableMinimum("codex", cli.version);
   return cli.path;
 }
 
@@ -130,7 +128,7 @@ function startHost(
         spawn: (flow, dropped) =>
           io.spawn({
             command,
-            args: [...(ctx.builtinSkills?.args ?? []), "app-server"],
+            args: [...(ctx.builtinSkills?.args ?? []), "app-server", ...unloadClosedThreads],
             // A shared process outlives any one workspace; threads carry their own cwd.
             cwd: dedicated ? ctx.cwd : io.homeDir(),
             outputFlow: flow,

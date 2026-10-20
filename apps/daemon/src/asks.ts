@@ -21,7 +21,7 @@ type Pending = z.infer<typeof Pending>;
 type Answer = { status: "answered" | "declined"; answer: string[] };
 
 /**
- * `ace_ask`: a question in the composer's strip, answered by the person. It waits a bounded
+ * `ask`: a question in the composer's strip, answered by the person. It waits a bounded
  * time; after that the tool returns pending and the person's answer arrives as their own next
  * message, so ace never starts a turn by itself. Agents can never answer it.
  */
@@ -84,7 +84,7 @@ export class Asks {
       : { status: "pending", askId: interactionId };
   }
 
-  /** Host-interaction hook: only a person's answer to a pending ace_ask is handled here. */
+  /** Host-interaction hook: only a person's answer to a pending ask is handled here. */
   resolve(command: Command): CommandResult | undefined {
     if (command.payload.type !== "interaction.resolve") return;
     const { interactionId, resolution } = command.payload;

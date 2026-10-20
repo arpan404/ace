@@ -31,7 +31,15 @@ export function transitionHarness(
     prepareInput?: EngineOptions["prepareInput"];
     onProviderDiagnostic?: EngineOptions["onProviderDiagnostic"];
     configure?: boolean;
+    /** The providers advertise steering; false makes every follow-up queue. */
+    steer?: boolean;
+    /** When the providers' native steer reaches the model; omitted means immediately. */
+    steerTiming?: "immediate" | "after_tool";
+    /** A root interrupt ends the running turn, as a real provider's would. */
+    interruptEndsTurn?: boolean;
     closeFails?: boolean;
+    /** Native sessions the provider no longer has: resuming one fails as a real CLI would. */
+    lostSessions?: Set<string>;
     configureFails?: boolean;
     maxActiveThreads?: number;
     beforeFork?(context: SessionContext): Promise<void>;
@@ -59,8 +67,10 @@ export function transitionHarness(
     text: string;
     model?: string | undefined;
     options: ExecutionSelection["options"];
+    delivery: "queue" | "steer";
   }[] = [];
   const held = new Set<ThreadId>();
+  const interrupts: { threadId: ThreadId; cascade: boolean }[] = [];
   const emit = (id: ThreadId, ...facts: Fact[]) => {
     const session = sessions.findLast((entry) => entry.context.threadId === id && !entry.closed);
     if (!session) throw new Error("No fake provider session");
@@ -93,7 +103,8 @@ export function transitionHarness(
             nativeAutoReview: false,
             toolGate: true,
           },
-          steer: true,
+          steer: options.steer ?? true,
+          ...(options.steerTiming ? { steerTiming: options.steerTiming } : {}),
           interruptCascades: false,
           resume: true,
           fork: options.native ?? false,
@@ -109,6 +120,11 @@ export function transitionHarness(
         }),
       createTranslator: () => ({ translate: frames.translate, tick: () => [] }),
       async openSession(context) {
+        if (context.resume && options.lostSessions?.has(context.resume.nativeSessionId))
+          throw Object.assign(new Error("No conversation found"), {
+            code: "session_not_found",
+            detail: "No conversation found with that session ID",
+          });
         if (context.fork) await options.beforeFork?.(context);
         const nativeId =
           context.resume?.nativeSessionId ??
@@ -154,7 +170,7 @@ export function transitionHarness(
                   entry.selection = selection;
                 },
               }),
-          async send(parts: ContentPart[]) {
+          async send(parts: ContentPart[], delivery: "queue" | "steer") {
             if (entry.closed) throw new Error("Session is closed");
             const text = parts
               .map((part) => (part.type === "text" ? part.text : "attachment"))
@@ -165,6 +181,7 @@ export function transitionHarness(
               text,
               model: entry.selection.model,
               options: entry.selection.options,
+              delivery,
             });
             const history = histories.get(nativeId);
             if (!history) throw new Error("Missing fake history");
@@ -203,7 +220,17 @@ export function transitionHarness(
                 });
             }
           },
-          interrupt: async () => {},
+          interrupt: async (target: { cascade: boolean }) => {
+            interrupts.push({ threadId: context.threadId, cascade: target.cascade });
+            const turn = histories.get(nativeId)?.at(-1)?.turn;
+            if (options.interruptEndsTurn && turn)
+              emit(context.threadId, {
+                type: "turn.ended",
+                agent: "root",
+                nativeTurnId: turn,
+                outcome: "interrupted",
+              });
+          },
           resolve: async () => {},
           stopTask: async () => {},
           close: async () => {
@@ -240,12 +267,19 @@ export function transitionHarness(
     const value = Command.parse({ id: commandId, deviceId: "device", payload });
     return store.recordCommand(value.id, value.deviceId, () => engine.handler.handle(value, store));
   }
-  async function create(permissionMode?: PermissionMode) {
+  /** A trusted daemon command, such as a delegated child's result. */
+  function internalCommand(payload: CommandPayload, commandId = `command-${++serial}`) {
+    const value = Command.parse({ id: commandId, deviceId: "ace-agent", payload });
+    return store.recordCommand(value.id, value.deviceId, () =>
+      engine.internalHandler.handle(value, store),
+    );
+  }
+  async function create(permissionMode?: PermissionMode, provider: ProviderKind = "codex") {
     const existing = new Set(store.listThreads().map((thread) => thread.id));
     const result = command({
       type: "thread.create",
       workspaceId: workspace,
-      provider: "codex",
+      provider,
       model: "model-a",
       ...(permissionMode ? { permissionMode } : {}),
       input: [{ type: "text", text: "source history" }],
@@ -300,10 +334,12 @@ export function transitionHarness(
     clock,
     sessions,
     inputs,
+    interrupts,
     histories,
     held,
     emit,
     command,
+    internalCommand,
     create,
     fork,
     finishedRun,
@@ -327,5 +363,26 @@ export function transitionHarness(
       await store.close();
       rmSync(home, { recursive: true, force: true });
     },
+  };
+}
+
+/** The context handoff block a provider received, read the way the agent reads it. */
+export function receivedHandoff(text: string) {
+  const close = "\n</ace_context_handoff>";
+  const start = text.indexOf("<ace_context_handoff ");
+  const end = text.indexOf(close);
+  if (start < 0 || end < 0) throw new Error("No context handoff was delivered");
+  const block = text.slice(start, end + close.length);
+  const head = /^<ace_context_handoff source_thread="([^"]+)" through_seq="(\d+)">/.exec(block);
+  const read = /handoff_read: (\{[^\n]*\})/.exec(block)?.[1];
+  return {
+    block,
+    bytes: Buffer.byteLength(block),
+    sourceThreadId: head?.[1],
+    throughSeq: Number(head?.[2]),
+    /** The handoff_read arguments the agent is told to use for omitted history. */
+    read: read
+      ? (JSON.parse(read) as { sourceThreadId: string; before: number; limit: number })
+      : undefined,
   };
 }

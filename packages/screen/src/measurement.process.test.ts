@@ -115,17 +115,16 @@ it("measurement MCP actions request view permission only when no input is suppli
     }),
     new AbortController().signal,
   );
-  expect(registry.action("screen_measure_interaction", {})).toMatchObject({
+  expect(registry.action("screen_measure", {})).toMatchObject({
     access: "read",
     riskClass: "read-only",
   });
   expect(
-    registry.action("screen_measure_interaction", { action: { kind: "text.type", text: "hello" } }),
+    registry.action("screen_measure", { action: { kind: "text.type", text: "hello" } }),
   ).toMatchObject({ access: "write", riskClass: "external-effect" });
-  expect(registry.action("screen_measure_interaction", { observeMs: 10001 })).toBeUndefined();
-  expect(registry.action("screen_measure_interaction", { repeat: 6 })).toBeUndefined();
+  expect(registry.action("screen_measure", { observeMs: 10001 })).toBeUndefined();
+  expect(registry.action("screen_measure", { repeat: 6 })).toBeUndefined();
   expect(
-    registry.list(lease.principal).find((tool) => tool.name === "screen_measure_interaction")
-      ?.inputSchema,
+    registry.list(lease.principal).find((tool) => tool.name === "screen_measure")?.inputSchema,
   ).toMatchObject({ properties: { observeMs: { maximum: 10000 }, repeat: { maximum: 5 } } });
 });

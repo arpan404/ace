@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/models.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "offset": {
+      "default": 0,
+      "description": "From nextOffset.",
+      "maximum": 40960,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json",
+      "description": "Only this provider's models."
+    }
+  },
+  "type": "object"
+}

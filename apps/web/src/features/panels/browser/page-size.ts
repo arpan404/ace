@@ -1,0 +1,15 @@
+/*
+ * The size each thread's page last had in the panel, in CSS pixels. Picture-in-picture lays the
+ * page out at this size and scales it down, so moving it out of the panel never reflows it.
+ */
+const sizes = new Map<string, { width: number; height: number }>();
+export const fallbackPageSize = { width: 1280, height: 800 } as const;
+
+export function rememberPageSize(threadId: string, width: number, height: number): void {
+  if (width >= 100 && height >= 100)
+    sizes.set(threadId, { width: Math.round(width), height: Math.round(height) });
+}
+
+export function pageSize(threadId: string): { width: number; height: number } {
+  return sizes.get(threadId) ?? fallbackPageSize;
+}

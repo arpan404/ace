@@ -1,0 +1,38 @@
+{
+  "$id": "https://ace.local/protocol/v1/threads_find.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "cursor": {
+      "description": "From the previous page's cursor.",
+      "maxLength": 2048,
+      "minLength": 1,
+      "type": "string"
+    },
+    "limit": {
+      "default": 10,
+      "description": "Results per page, 1 to 20.",
+      "maximum": 20,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "project": {
+      "description": "Another project's name, folder path or id, from projects_find. Default: this one.",
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "query": {
+      "default": "",
+      "description": "Words to match; empty lists recent threads.",
+      "maxLength": 256,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json",
+      "description": "Search inside this thread's transcript instead."
+    }
+  },
+  "type": "object",
+  "x-ace-constraint": "With threadId, query must not be empty."
+}

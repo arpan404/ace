@@ -48,7 +48,7 @@ test("switching workspaces waits for the new workspace's own tools", async () =>
     </WhenKindsReady>,
   );
   expect(screen.queryByText("Pull request tools")).toBeNull();
-  expect(screen.getByRole("status").textContent).toContain("Loading tools");
+  expect(screen.getByRole("status", { name: "Loading tools" })).toBeTruthy();
   pending.resolve({ default: [] });
   await screen.findByText("Pull request tools");
 });

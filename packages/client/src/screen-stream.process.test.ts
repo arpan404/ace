@@ -3,6 +3,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import {
   ClientMessage,
   ScreenState,
+  type ScreenAck,
   type ScreenClientMessage,
   type ServerMessage,
 } from "@ace/protocol";
@@ -11,8 +12,9 @@ import {
   ScreenStreamClient,
   screenTransport,
   type ScreenTransport,
-  type PortableFrame,
+  type SourcePicture,
 } from "./screen-stream.ts";
+import { encodePicture, streamKinds } from "@ace/browser/stream";
 
 const state = ScreenState.parse({
   sessionId: "app",
@@ -22,25 +24,27 @@ const state = ScreenState.parse({
   target: { kind: "app", bundleId: "com.apple.calculator" },
   permissions: { screenRecording: true, accessibility: true },
 });
-function packet(): Uint8Array {
-  const payload = new Uint8Array([255, 216, 255, 217]);
-  const header = new TextEncoder().encode(
-    JSON.stringify({
-      version: 1,
-      sessionId: "app",
+/** One live JPEG of session "app" as stream kind `screenFrame` (one piece). */
+function picture(): Uint8Array[] {
+  const [whole] = encodePicture(
+    streamKinds.screenFrame,
+    1,
+    "app",
+    {
       sequence: 1,
       timestamp: 1000,
       width: 1,
       height: 1,
+      scale: 1,
+      rotation: 0,
       codec: "jpeg",
-      bytes: payload.length,
-    }),
+      key: true,
+      streamId: "app",
+    },
+    new Uint8Array([255, 216, 255, 217]),
   );
-  const frame = new Uint8Array(4 + header.length + payload.length);
-  new DataView(frame.buffer).setUint32(0, header.length);
-  frame.set(header, 4);
-  frame.set(payload, header.length + 4);
-  return frame;
+  if (!whole) throw new Error("Missing piece");
+  return [whole];
 }
 const schedule = (callback: () => void, delay: number) => {
   const timer = setTimeout(callback, delay);
@@ -60,7 +64,7 @@ function ready(client: ScreenStreamClient): Promise<void> {
 
 function transport() {
   let events: Parameters<ScreenTransport["open"]>[0] | undefined;
-  const sent: ReturnType<typeof ScreenClientMessage.parse>[] = [];
+  const sent: (ReturnType<typeof ScreenClientMessage.parse> | ScreenAck)[] = [];
   const connection: ScreenTransport = {
     open: (next) => {
       events = next;
@@ -78,7 +82,7 @@ function transport() {
   };
 }
 
-it("authenticates a dedicated screen socket and correlates results while decoding fragmented live frames", async () => {
+it("authenticates a dedicated screen socket, correlates results and acks the live pictures it shows", async () => {
   const server = new WebSocketServer({ port: 0 });
   onTestFinished(
     () =>
@@ -90,10 +94,12 @@ it("authenticates a dedicated screen socket and correlates results while decodin
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Missing address");
   const hello = Promise.withResolvers<unknown>();
+  const acked = Promise.withResolvers<unknown>();
   server.on("connection", (socket) =>
     socket.on("message", (raw) => {
       const request = ClientMessage.parse(JSON.parse(raw.toString()));
-      if (request.type === "hello") {
+      if (request.type === "screen.ack") acked.resolve(request);
+      else if (request.type === "hello") {
         hello.resolve(request);
         socket.send(
           JSON.stringify({ type: "welcome", protocolVersion: 1, hostId: "host", headSeq: 0 }),
@@ -110,9 +116,7 @@ it("authenticates a dedicated screen socket and correlates results while decodin
           );
         } else if (request.operation.op === "subscribe") {
           socket.send(JSON.stringify({ type: "screen.state", state }));
-          const frame = packet();
-          socket.send(frame.subarray(0, 9));
-          socket.send(frame.subarray(9));
+          for (const piece of picture()) socket.send(piece);
           socket.send(
             JSON.stringify({ type: "screen.result", requestId: request.requestId, ok: true }),
           );
@@ -150,11 +154,20 @@ it("authenticates a dedicated screen socket and correlates results while decodin
   expect(client.getSnapshot().states).toEqual([]);
   expect(await client.request({ op: "sessions" })).toEqual([state]);
   expect(client.getSnapshot().states).toEqual([state]);
-  const received = Promise.withResolvers<PortableFrame>();
-  const stop = client.watchFrames("app", (frame) => received.resolve(frame));
+  const received = Promise.withResolvers<SourcePicture>();
+  const stop = client.watchPictures("app", (shown) => received.resolve(shown));
   onTestFinished(stop);
   await client.request({ op: "subscribe", sessionId: "app" });
-  expect((await received.promise).payload).toEqual(new Uint8Array([255, 216, 255, 217]));
+  const shown = await received.promise;
+  expect(shown.bytes).toEqual(new Uint8Array([255, 216, 255, 217]));
+  expect(shown.sourceId).toBe("app");
+  client.ack(shown);
+  expect(await acked.promise).toMatchObject({
+    type: "screen.ack",
+    sessionId: "app",
+    streamId: "app",
+    sequence: 1,
+  });
   expect(client.getSnapshot().states).toEqual([state]);
   await expect(
     client.request({

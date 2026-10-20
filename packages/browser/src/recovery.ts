@@ -1,28 +1,25 @@
-import { mkdtemp } from "node:fs/promises";
-import { join } from "node:path";
 import type { BrowserBackend, BackendOpen } from "./backend.ts";
 import type { BrowserSession } from "./session.ts";
 
-/** A fresh ephemeral page; only its URL and daemon-owned controller lease survive. */
+/**
+ * Fresh private pages in ace's browser. A request that restores tabs brings every tab back
+ * with its id and address; otherwise only the shown page's URL and privacy survive.
+ */
 export async function recoverHeadless(options: {
   request: BackendOpen;
   backend: BrowserBackend;
   session: BrowserSession;
-  root: string;
   url: string;
-  profileCreated(path: string): void;
   lost(reason: string): void;
 }): Promise<void> {
-  const { request, backend, session, root, url } = options;
-  const profileDir = await mkdtemp(join(root, "recovery-"));
-  options.profileCreated(profileDir);
+  const { request, backend, session } = options;
+  const url = request.restoreTabs?.length ? "about:blank" : options.url;
   request.signal.throwIfAborted();
   const lifetime = new AbortController();
   const signal = AbortSignal.any([request.signal, lifetime.signal]);
   const replacement = await backend.open({
     ...request,
     options: { ...request.options, profile: "ephemeral", headed: false },
-    profileDir,
     signal,
     lost: (reason) => {
       if (lifetime.signal.aborted) return;
@@ -32,7 +29,7 @@ export async function recoverHeadless(options: {
   });
   try {
     signal.throwIfAborted();
-    replacement.privateMode?.(session.state.takeoverMode === "private");
+    replacement.privateMode?.(session.viewedPrivate);
     if (url !== "about:blank") {
       if (!(await request.allowed(url))) throw new Error("Browser recovery origin refused");
       signal.throwIfAborted();

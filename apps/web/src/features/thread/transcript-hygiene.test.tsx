@@ -141,21 +141,21 @@ test("the live activity strip describes ace tools instead of showing native name
         complete: false,
         call: {
           kind: "mcp",
-          title: "ace › ace_device_task_wait",
+          title: "ace › agents_status",
           status: "running",
           detail: {
             kind: "mcp",
             server: "ace",
-            tool: "ace_device_task_wait",
-            arguments: { taskId: "opaque-id" },
+            tool: "agents_status",
+            arguments: { threadId: "opaque-id" },
           },
           raw: [],
         },
       },
     },
   ]);
-  await waitFor(() => expect(document.body.textContent).toContain("work on another device"));
-  expect(document.body.textContent).not.toMatch(/ace_device|ace ›|opaque-id/);
+  await waitFor(() => expect(document.body.textContent).toContain("Checking a subagent"));
+  expect(document.body.textContent).not.toMatch(/agents_status|ace ›|opaque-id/);
 });
 
 test("a short transcript has no turn rail", async () => {

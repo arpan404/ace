@@ -101,7 +101,7 @@ export class TargetThreads {
       throw new TargetRefusal(
         "invalid",
         name === undefined
-          ? "Name a project from ace_machines."
+          ? "Name a project from machines."
           : `No project "${clip(name, 64)}" on this machine.`,
       );
     return WorkspaceId.parse(found.id);

@@ -1,5 +1,5 @@
 import { mentionInComposer } from "@/lib/composer-insert.ts";
-import { PencilSimpleIcon } from "@phosphor-icons/react";
+import { GitDiffIcon, PencilSimpleIcon } from "@phosphor-icons/react";
 import { useClient, useConnectionState, useThreadMeta } from "@ace/client-react";
 import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -32,6 +32,7 @@ import { openFile } from "./open-file.ts";
 import { quickOpen } from "./quick-open-store.ts";
 import { useFindHits } from "./use-find-hits.ts";
 import { FindBar } from "./find-bar.tsx";
+import { useChangeMarks } from "./use-change-marks.ts";
 import { useEditedPaths, useFileContent } from "./use-checkout.ts";
 import { useFileActions, type UploadState } from "./use-file-actions.ts";
 
@@ -146,6 +147,11 @@ export function FileTab(props: TabViewProps) {
   }, [recentStore, threadId, path]);
 
   const text = content.data?.kind === "text" ? content.data.text : undefined;
+  const marks = useChangeMarks(
+    threadId,
+    path,
+    content.data?.kind === "text" ? content.data.version : undefined,
+  );
   const readable =
     !data.draft && text !== undefined && !(path?.match(/\.(md|markdown|mdx)$/i) && !data.source);
   const findQuery = find?.query;
@@ -164,7 +170,12 @@ export function FileTab(props: TabViewProps) {
     actions.update(props.tab.key, { data: { ...data, ...patch } });
 
   return (
-    <div ref={root} className="flex h-full min-h-0 flex-col" onKeyDown={onKeyDown}>
+    <div
+      ref={root}
+      role="presentation"
+      className="flex h-full min-h-0 flex-col"
+      onKeyDown={onKeyDown}
+    >
       {operation && (
         <Suspense fallback={null}>
           <FileOperations
@@ -184,23 +195,35 @@ export function FileTab(props: TabViewProps) {
           extra={
             content.data?.kind === "text" &&
             !data.draft && (
-              <IconButton
-                icon={PencilSimpleIcon}
-                label="Edit file"
-                className="size-7 rounded-sm"
-                disabled={!online || content.data.size > 1024 * 1024}
-                onClick={() => {
-                  if (content.data?.kind === "text")
-                    update({
-                      preview: false,
-                      draft: {
-                        text: content.data.text,
-                        original: content.data.text,
-                        version: content.data.version,
-                      },
-                    });
-                }}
-              />
+              <>
+                {marks && path && (
+                  <IconButton
+                    icon={GitDiffIcon}
+                    label="Show uncommitted changes"
+                    className="size-7 rounded-sm"
+                    onClick={() =>
+                      actions.open({ kind: "changes", data: { scope: "working-tree", path } })
+                    }
+                  />
+                )}
+                <IconButton
+                  icon={PencilSimpleIcon}
+                  label="Edit file"
+                  className="size-7 rounded-sm"
+                  disabled={!online || content.data.size > 1024 * 1024}
+                  onClick={() => {
+                    if (content.data?.kind === "text")
+                      update({
+                        preview: false,
+                        draft: {
+                          text: content.data.text,
+                          original: content.data.text,
+                          version: content.data.version,
+                        },
+                      });
+                  }}
+                />
+              </>
             )
           }
           project={meta ? projectName(meta.workspaceId) : "Checkout"}
@@ -263,6 +286,7 @@ export function FileTab(props: TabViewProps) {
                 source={data.source === true}
                 find={find?.query ? { query: find.query, hit: hits[hitIndex] } : undefined}
                 line={data.line}
+                marks={marks}
                 onMention={(mention) => mentionInComposer(threadId, mention)}
                 onRetry={() => void content.refetch()}
                 onDownload={() => void fileActions.save(path)}

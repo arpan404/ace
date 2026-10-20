@@ -2,29 +2,29 @@ import {
   askingLabel,
   livePlanStep,
   subagentBranchStates,
+  timedWords,
+  waitingOnSubagentsLabel,
   workingSubagentsText,
   type TurnActivity,
 } from "@ace/ui-core";
 import { useTreeWork } from "@/features/panels/index.ts";
 import { useShownPlans } from "@/lib/use-plans.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
-import { WorkingIndicator } from "@/components/working-indicator.tsx";
+import { ElapsedTime } from "@/components/working-indicator.tsx";
 import { StatusGlyph } from "@/components/status-glyph.tsx";
 import { PauseCircleIcon } from "@phosphor-icons/react";
-import { useWorkspaceActions } from "@/lib/workspace/index.ts";
-import type { ThreadKey, ThreadReader } from "@ace/client";
-import { useWatched, type Watched } from "@/lib/use-watched.ts";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { useDescendantRequest } from "../composer/descendant-request.ts";
-import { ThinkingRow } from "./step-groups-view.tsx";
 import { SystemRow } from "./system-row.tsx";
 
 /*
- * The live turn's header, right under the ask that started it: one muted `[grid] Working for 3m 6s`
- * row over a hairline, the turn's steps flowing below it. It reads the same `turnActivity` as
- * every other surface, counting the whole tree. The timer writes its text through a ref, so a
- * ticking second re-renders nothing, and it stands at the time reached while the turn waits on
- * the person (that time comes from the thread, so a redrawn header shows it too).
+ * The live turn's one status line, at the top of its flow under its ask (DESIGN.md §8): one
+ * muted `Working for 3m 6s` row, where the turn's "Worked for" stands once it settles.
+ * While the agent only waits on its subagents it reads `Waiting for 3 subagents · 3m 6s`.
+ * It reads the same `turnActivity` as every other surface, counting the whole tree. The timer
+ * writes its text through a ref, so a ticking second re-renders nothing, and it stands at the
+ * time reached while the turn waits on the person (that time comes from the thread, so a redrawn
+ * line shows it too).
  */
 
 export function LiveHead(props: { threadId: string }) {
@@ -35,33 +35,25 @@ export function LiveHead(props: { threadId: string }) {
     turn?.tone === "needs-you" && descendant?.kind && turn.asker === descendant.name
       ? { ...turn, label: askingLabel(descendant.kind) }
       : turn;
-  const workspace = useWorkspaceActions(props.threadId);
   const plans = useShownPlans(props.threadId);
   const live = useLiveConnection();
   const progress = plans[0] ? livePlanStep(plans[0].progress) : undefined;
   const subagents = useWorkingSubagents(props.threadId, activity?.subagents);
   // A pause is the turn's own row; a lost connection is the header's to say.
   if (!activity || activity.tone === "paused" || live.staleLabel) return null;
-  // The status line stays a live region of its own; the whole row also opens the Summary.
+  // The status line stays a live region of its own; its text can be selected.
   return (
-    <div
-      role="group"
-      aria-label="Turn in progress"
-      className="relative border-b border-border pb-2"
-    >
-      <ActivityLine activity={activity} progress={progress} subagents={subagents} />
-      <button
-        type="button"
-        aria-label="Open the summary"
-        onClick={() => workspace.open({ kind: "work" })}
-        className="absolute inset-0 rounded-sm focus-ring"
-      />
+    <div role="group" aria-label="Turn in progress" className="flex min-w-0 items-center gap-1">
+      <div className="min-w-0 flex-1">
+        <ActivityLine activity={activity} progress={progress} subagents={subagents} />
+      </div>
     </div>
   );
 }
 
 /**
- * The live line, muted: `[ring] Working for 1m 14s` moving; `(!) Waiting for your answer`
+ * The live line, muted text with no glyph: `Working for 1m 14s`; `Waiting for 2 subagents ·
+ * 1m 14s` while the agent only waits on its subagents; `(!) Waiting for your answer`
  * while the person is asked (the request itself is in the composer's strip); a held line as it
  * is; a usage-limit pause as a quiet row.
  */
@@ -71,7 +63,11 @@ export function ActivityLine(props: {
   /** Subagents still working, by the shared rule; the activity's own count otherwise. */
   subagents?: number | undefined;
 }) {
-  const { activity } = props;
+  const subagents = props.subagents ?? props.activity.subagents ?? 0;
+  // Counted as the subagents block counts them, so the label and the block agree.
+  const activity = props.activity.waitingOnSubagents
+    ? { ...props.activity, label: waitingOnSubagentsLabel(subagents) }
+    : props.activity;
   if (activity.tone === "paused")
     return (
       <SystemRow
@@ -92,16 +88,22 @@ export function ActivityLine(props: {
       className="@container/live flex min-h-8 min-w-0 items-center text-ui text-muted-foreground"
     >
       {activity.tone === "working" ? (
+        // Words and time only: the moving glyph is the sidebar's, not the transcript's.
         <span className="flex min-w-0 items-center gap-1.5">
-          <WorkingIndicator
-            label={activity.label}
-            from={activity.elapsedFrom}
-            className="shrink-0"
-          />
+          <span className="shrink-0">
+            {activity.elapsedFrom === undefined ? (
+              activity.label
+            ) : (
+              <>
+                {`${timedWords(activity.label)} `}
+                <ElapsedTime from={activity.elapsedFrom} />
+              </>
+            )}
+          </span>
           <Context
             activity={activity}
             progress={props.progress}
-            subagents={props.subagents ?? activity.subagents ?? 0}
+            subagents={activity.waitingOnSubagents ? 0 : subagents}
           />
         </span>
       ) : activity.tone === "needs-you" ? (
@@ -118,29 +120,6 @@ export function ActivityLine(props: {
   );
 }
 
-const orderKeys: readonly ThreadKey[] = ["order"];
-/** Whether the newest item is a thought still being written (it says "Thinking" itself). */
-function readThinking(reader: ThreadReader): Watched<boolean> {
-  const last = reader.order.at(-1);
-  const item = last === undefined ? undefined : reader.item(last);
-  return {
-    value: item?.type === "reasoning" && !item.complete,
-    watch: last === undefined ? [] : [`item:${last}`],
-  };
-}
-
-/** "Thinking", closing the working turn's flow, while no step is in flight. */
-export function TailThinking(props: { threadId: string }) {
-  const activity = useTurnActivity(props.threadId);
-  const thought = useWatched(props.threadId, orderKeys, readThinking, Object.is) ?? false;
-  if (activity?.tone !== "working" || activity.current || thought) return null;
-  return (
-    <ul aria-label="Working" className="flex flex-col">
-      <ThinkingRow />
-    </ul>
-  );
-}
-
 /**
  * The main agent's subagents still at work, counted as the subagents block and the Summary count
  * them (`subagentBranchStates`); before the agents load, the daemon's own count.
@@ -153,7 +132,8 @@ function useWorkingSubagents(threadId: string, fallback: number | undefined): nu
 
 /**
  * What else the whole tree is doing, quietly after the time: the plan's step, the subagents
- * still working ("2 subagents working", in the block's words), background commands.
+ * still working ("2 subagents working", in the block's words) unless the label already counts
+ * them, background commands.
  */
 function Context(props: {
   activity: TurnActivity;

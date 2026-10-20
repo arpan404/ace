@@ -14,20 +14,28 @@ async function openBrowser() {
   await app.open(`/t/${threadId}`);
   await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await within(panel).findByText("is browsing", { exact: false }, { timeout: 10000 });
+  await within(panel).findByRole(
+    "img",
+    { name: "Live view of localhost:5173/settings/devices" },
+    { timeout: 10000 },
+  );
   return { app, panel, browser: app.daemon.browser };
 }
 
-test("agent navigation reuses the single panel tab", async () => {
+test("an agent's new tab joins the strip and shows while the person hasn't picked a tab", async () => {
   const { panel, browser } = await openBrowser();
   const first = browser.view(threadId)?.activeTabId;
-  act(() => browser.tabOpen(threadId, "https://status.example/"));
-  expect(
-    await within(panel).findByRole("tab", { name: /^status\.example/, selected: true }),
-  ).toBeTruthy();
-  expect(browser.tabsList(threadId)).toHaveLength(1);
-  expect(browser.view(threadId)?.activeTabId).toBe(first);
-  expect(within(panel).queryByRole("tab", { name: /^localhost:5173/ })).toBeNull();
+  act(() => browser.tabOpen(threadId, "https://status.example/", { agentId: "worker" }));
+  const tabs = within(panel).getByRole("tablist", { name: "Thread panel tabs" });
+  const pages = () =>
+    within(tabs)
+      .getAllByRole("tab")
+      .filter((tab) => !/^(Summary|Changes|Files)$/.test(tab.textContent?.trim() ?? ""));
+  await waitFor(() => expect(pages()).toHaveLength(2));
+  expect(browser.tabsList(threadId)).toHaveLength(2);
+  expect(browser.view(threadId)?.activeTabId).not.toBe(first);
+  // The daemon shows the agent's tab (the person hasn't picked one), so its top tab is shown.
+  await waitFor(() => expect(within(tabs).getByRole("tab", { selected: true })).toBe(pages()[1]));
 });
 
 test("a page's question waits in the panel, and answering it clears it on the daemon", async () => {
@@ -70,116 +78,30 @@ test("downloads list what the page saved and flag executables; nothing offers to
   await userEvent.click(await within(panel).findByRole("button", { name: "Downloads · 1" }));
   const list = await screen.findByRole("list", { name: "Downloads" });
   expect(within(list).getByText("installer.pkg")).toBeTruthy();
-  expect(within(list).getByText("Executable: check it before running")).toBeTruthy();
+  expect(within(list).getByText(/Executable: check it before running/)).toBeTruthy();
   expect(within(list).queryByRole("button", { name: /^Open/ })).toBeNull();
-  expect(within(list).getByRole("button", { name: "Copy path" })).toBeTruthy();
+  await userEvent.click(within(list).getByRole("button", { name: "More for installer.pkg" }));
+  expect(await screen.findByRole("menuitem", { name: "Copy path" })).toBeTruthy();
 });
 
-test("a private takeover hides the page from agents, refuses recording, and hands back to the agent", async () => {
+test("a tab the person keeps agents out of is never recorded, and is marked in the strip", async () => {
   const { panel, browser } = await openBrowser();
-
-  await userEvent.click(within(panel).getByRole("button", { name: "Make private" }));
-
-  await waitFor(() => expect(browser.view(threadId)?.takeoverMode).toBe("private"));
-  expect(
-    await within(panel).findByText("agents can't see, read or record", { exact: false }),
-  ).toBeTruthy();
+  await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
+  await userEvent.click(
+    await screen.findByRole("menuitemcheckbox", { name: "Keep agents out of this tab" }),
+  );
+  await waitFor(() => expect(browser.tab(threadId)?.private).toBe(true));
+  expect(await within(panel).findByRole("img", { name: "Agents kept out" })).toBeTruthy();
+  // A checkbox item leaves the menu open; close it before opening it again.
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
   await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
   const record = await screen.findByRole("menuitem", { name: /Record the page/ });
   expect(record.getAttribute("aria-disabled")).toBe("true");
+  // Closing the panel leaves it private: agents stay out until the person lets them in.
   await userEvent.keyboard("{Escape}");
-
-  await userEvent.click(within(panel).getByRole("button", { name: "Hand back" }));
-  await waitFor(() => expect(browser.view(threadId)?.controller).toBe("agent"));
-  expect(browser.view(threadId)?.takeoverMode).not.toBe("private");
-});
-
-test("making a page you hold private keeps your control, and Hand back ends private mode", async () => {
-  const { panel, browser } = await openBrowser();
-  await userEvent.click(within(panel).getByRole("button", { name: "Take over" }));
-  await waitFor(() => expect(browser.view(threadId)?.controller).toBe("human"));
-  await within(panel).findByText("You're browsing", { exact: false });
-
-  await userEvent.click(within(panel).getByRole("button", { name: "Make private" }));
-  await waitFor(() => expect(browser.view(threadId)?.takeoverMode).toBe("private"));
-  expect(browser.view(threadId)?.controller).toBe("human");
-  // Private already: the toggle shows it, and Hand back is what ends it.
-  await waitFor(() =>
-    expect(
-      within(panel).getByRole("button", { name: "Make private" }).getAttribute("aria-pressed"),
-    ).toBe("true"),
-  );
-
-  await userEvent.click(within(panel).getByRole("button", { name: "Hand back" }));
-  await waitFor(() => expect(browser.view(threadId)?.controller).toBe("agent"));
-  expect(browser.view(threadId)?.takeoverMode).toBe("shared");
-  expect(await within(panel).findByRole("button", { name: "Take over" })).toBeTruthy();
-});
-
-test("a private page whose holder dropped stays paused for agents until it is taken back privately", async () => {
-  const { panel, browser } = await openBrowser();
-  await userEvent.click(within(panel).getByRole("button", { name: "Make private" }));
-  await waitFor(() => expect(browser.view(threadId)?.takeoverMode).toBe("private"));
-  const owner = browser.view(threadId)?.owner ?? "";
-  act(() => browser.disconnect(owner));
-
-  expect(await within(panel).findByText("Private and paused", { exact: false })).toBeTruthy();
-  expect(within(panel).queryByRole("button", { name: "Take over" })).toBeNull();
-  await userEvent.click(within(panel).getByRole("button", { name: "Take back privately" }));
-  await waitFor(() =>
-    expect(browser.view(threadId)).toMatchObject({ controller: "human", takeoverMode: "private" }),
-  );
-  await userEvent.click(await within(panel).findByRole("button", { name: "Hand back" }));
-  await waitFor(() => expect(browser.view(threadId)?.controller).toBe("agent"));
-});
-
-test("closing the browser tab keeps a private page private: agents stay locked out until Hand back", async () => {
-  const { panel, browser } = await openBrowser();
-  await userEvent.click(within(panel).getByRole("button", { name: "Make private" }));
-  await waitFor(() => expect(browser.view(threadId)?.takeoverMode).toBe("private"));
-  const before = browser.frame(threadId)?.src;
-
-  // Leave the page: the browser's workspace tab closes and its view unmounts.
-  await userEvent.click(within(panel).getByRole("button", { name: /^Close localhost/ }));
-  await waitFor(() =>
-    expect(within(panel).queryByRole("button", { name: "Make private" })).toBeNull(),
-  );
-
-  expect(browser.view(threadId)?.controller).toBe("human");
-  expect(browser.view(threadId)?.takeoverMode).toBe("private");
-  // An agent acting on the page changes nothing while it is held privately.
-  act(() => browser.type(threadId, "agent typing"));
-  expect(browser.frame(threadId)?.src).toBe(before);
-});
-
-test("the browser has no new-tab shortcut or menu item", async () => {
-  const { panel, browser } = await openBrowser();
-  const first = browser.view(threadId)?.activeTabId;
-  await userEvent.click(within(panel).getByRole("combobox", { name: "Address" }));
-  await userEvent.keyboard("{Meta>}t{/Meta}");
-  expect(within(panel).queryByRole("tab", { name: "New page" })).toBeNull();
-  await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
-  await screen.findByRole("menu");
-  expect(screen.queryByRole("menuitem", { name: "New browser tab" })).toBeNull();
-  expect(browser.view(threadId)?.activeTabId).toBe(first);
-  expect(browser.tabsList(threadId)).toHaveLength(1);
-});
-
-test("picking a page size from the options closes the menu so the page can receive input again", async () => {
-  const { panel } = await openBrowser();
-  await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Page size" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: /iPhone 16 Pro/ }));
-  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
-  expect(
-    within(panel).getByRole("button", { name: "Browser options" }).getAttribute("aria-expanded"),
-  ).toBe("false");
-  await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Page size" }));
-  const sizes = await screen.findAllByRole("menuitemradio");
-  expect(
-    sizes.filter((size) => size.getAttribute("aria-checked") === "true").map((s) => s.textContent),
-  ).toEqual([expect.stringMatching(/iPhone 16 Pro/)]);
+  await userEvent.click(within(panel).getByRole("button", { name: "Right panel" }));
+  expect(browser.tab(threadId)?.private).toBe(true);
 });
 
 test("the browser options read like the app's other menus: shortcuts announced, no narration", async () => {
@@ -189,33 +111,38 @@ test("the browser options read like the app's other menus: shortcuts announced, 
   const find = within(menu).getByRole("menuitem", { name: "Find in page" });
   expect(find.getAttribute("aria-keyshortcuts")).toMatch(/^(Meta|Control)\+F$/);
   expect(
-    within(menu).getByRole("menuitem", { name: "Page size" }).getAttribute("aria-haspopup"),
+    within(menu).getByRole("menuitem", { name: "Device toolbar" }).getAttribute("aria-haspopup"),
   ).toBe("menu");
-  // The page sizes live in their own submenu, not as a flat list in this one.
-  expect(within(menu).queryByRole("menuitemradio")).toBeNull();
-  expect(within(menu).getByRole("menuitem", { name: "Close the thread's page" })).toBeTruthy();
+  // Browser parity: the page tools a browser's own menu has, in one place.
+  for (const name of [
+    "Print…",
+    "Take a screenshot",
+    "Downloads",
+    "History",
+    "Clear browsing data…",
+    "View page source",
+    "Copy address",
+    "Open in your browser",
+    "Browser settings",
+  ])
+    expect(within(menu).getByRole("menuitem", { name })).toBeTruthy();
+  expect(within(menu).getByRole("menuitem", { name: /^Developer tools/ })).toBeTruthy();
+  expect(within(menu).getByRole("group", { name: "Zoom" })).toBeTruthy();
+  expect(
+    within(menu).getByRole("menuitemcheckbox", { name: "Keep agents out of this tab" }),
+  ).toBeTruthy();
+  expect(within(menu).getByRole("menuitem", { name: "Close tab" })).toBeTruthy();
   expect(within(menu).queryByText(/ace desktop app's browser|ace's own/)).toBeNull();
 });
 
-test("Find reads the page without taking the agent's control", async () => {
+test("Find reads the page the agent works in, leaving the agent at work", async () => {
   const { panel, browser } = await openBrowser();
   await userEvent.click(within(panel).getByRole("combobox", { name: "Address" }));
   await userEvent.keyboard("{Meta>}f{/Meta}");
   const find = await within(panel).findByRole("textbox", { name: "Find text" });
-  expect(browser.view(threadId)?.controller).toBe("agent");
   await userEvent.type(find, "needle");
   await within(panel).findByText("1 of 1");
-  expect(browser.view(threadId)?.controller).toBe("agent");
-});
-
-test("switching tools keeps a shared hold; closing the panel hands it back", async () => {
-  const { panel, browser } = await openBrowser();
-  await userEvent.click(within(panel).getByRole("button", { name: "Take over" }));
-  await within(panel).findByText("You're browsing", { exact: false });
-  await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
-  expect(browser.view(threadId)?.controller).toBe("human");
-  await userEvent.click(within(panel).getByRole("button", { name: "Right panel" }));
-  await waitFor(() => expect(browser.view(threadId)?.controller).toBe("agent"));
+  expect(browser.tab(threadId)?.inUse).toMatchObject({ kind: "agent" });
 });
 
 test("a page's unanswered question stays visible when its panel is closed", async () => {
@@ -241,12 +168,7 @@ test("a disconnected page offers Reopen and resumes at its last address", async 
   act(() => browser.lose(threadId));
   await userEvent.click(await within(panel).findByRole("button", { name: "Reopen" }));
   await waitFor(() =>
-    expect(browser.view(threadId)).toMatchObject({
-      status: "ready",
-      url: before,
-      controller: "agent",
-    }),
+    expect(browser.view(threadId)).toMatchObject({ status: "ready", url: before }),
   );
   await waitFor(() => expect(within(panel).queryByRole("button", { name: "Reopen" })).toBeNull());
-  expect(within(panel).getByRole("button", { name: "Take over" })).toBeTruthy();
 });

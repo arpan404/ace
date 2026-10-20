@@ -5,7 +5,6 @@
   data-scheme="dark"
   data-surface="translucent"
   data-density="comfortable"
-  data-corners="default"
 >
   <head>
     <meta charset="UTF-8" />
@@ -16,13 +15,17 @@
     />
     <meta name="color-scheme" content="dark light" />
     <title>ace</title>
+    <!-- The app icon (apps/desktop/scripts/icons.ts renders the PNGs from the SVG masters). -->
+    <link rel="icon" href="/favicon.png" type="image/png" sizes="64x64" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <style>
       /*
        * First visit only (no theme to replay): ace in the OS scheme until the theme stylesheet
        * loads, so a light OS never sees a dark first frame. The script below sets data-first-visit.
        */
       html {
-        background: #0d0d0d;
+        background: #0c0c0c;
         color-scheme: dark;
       }
       @media (prefers-color-scheme: light) {
@@ -32,7 +35,7 @@
         }
         html[data-first-visit] #boot {
           --background: #ffffff;
-          --foreground: #111111;
+          --foreground: #222222;
         }
       }
       /*
@@ -46,7 +49,7 @@
         inset: 0;
         z-index: 140;
         pointer-events: none;
-        background: var(--background, #0d0d0d);
+        background: var(--background, #0c0c0c);
         transition: opacity var(--motion-base, 200ms) var(--ease-out, ease);
       }
       #boot[data-leaving] {
@@ -60,7 +63,7 @@
         pointer-events: auto;
         -webkit-app-region: drag;
       }
-      /* 44px, rounded like the app icon: the glyph in the page colour on the text colour. */
+      /* 44px, rounded like the app icon: the mark in the page colour on the text colour. */
       #boot .mark {
         position: absolute;
         top: 50%;
@@ -69,8 +72,8 @@
         height: 44px;
         transform: translate(-50%, -50%);
         border-radius: 30%;
-        background: var(--foreground, #f0f0f0);
-        color: var(--background, #0d0d0d);
+        background: var(--foreground, #dedede);
+        color: var(--background, #0c0c0c);
         /* A slow breath while ace starts, under reduced motion too (opacity only; fx-breathe in
            styles/motion.css carries it on). */
         animation: boot-breathe 1.6s ease-in-out infinite alternate;
@@ -90,12 +93,12 @@
         font:
           13px/1.45 system-ui,
           sans-serif;
-        color: color-mix(in oklab, var(--foreground, #f0f0f0) 70%, transparent);
+        color: color-mix(in oklab, var(--foreground, #dedede) 70%, transparent);
       }
       #boot .stuck button {
         pointer-events: auto;
         font: inherit;
-        color: var(--foreground, #f0f0f0);
+        color: var(--foreground, #dedede);
         background: none;
         border: 0;
         padding: 0;
@@ -127,7 +130,6 @@
           document.head.append(sheet);
           root.setAttribute("data-theme", String(boot.theme));
           if (boot.density) root.setAttribute("data-density", String(boot.density));
-          if (boot.corners) root.setAttribute("data-corners", String(boot.corners));
           if (typeof boot.transcriptPx === "number")
             root.style.setProperty("--transcript-size", boot.transcriptPx + "px");
           root.style.background = "var(--background)";
@@ -186,13 +188,17 @@
   <body>
     <div id="boot" aria-hidden="true">
       <div class="drag"></div>
+      <!-- The ace mark (components/ace-mark.tsx) on its tile, as AceLogo draws it. -->
       <svg class="mark" viewBox="0 0 20 20">
-        <path
-          fill="currentColor"
-          fill-rule="evenodd"
-          d="M9.3 4.6a5.1 5.1 0 1 1 0 10.2a5.1 5.1 0 1 1 0 -10.2ZM9.3 6.4a3.3 3.3 0 1 0 0 6.6a3.3 3.3 0 1 0 0 -6.6Z"
-        />
-        <path fill="currentColor" d="M12.7 14.8V5.5a0.9 0.9 0 0 1 1.8 0V14.8Z" />
+        <g fill="currentColor" transform="translate(1 1.83) scale(0.75)">
+          <path
+            d="M11.6 2C10.8 2 10.4 2.6 9.8 3.3L2.9 11.3C1.2 13.3 1.8 15.6 3.8 16.8L7.8 19.3C8.5 19.8 9.3 19.8 9.9 19.1L11 17.7C11.7 16.8 11.5 16.1 10.8 15.4L7.3 12.3C10.3 9.8 11.6 7.6 11.6 5V2Z"
+          />
+          <path
+            transform="translate(24 0) scale(-1 1)"
+            d="M11.6 2C10.8 2 10.4 2.6 9.8 3.3L2.9 11.3C1.2 13.3 1.8 15.6 3.8 16.8L7.8 19.3C8.5 19.8 9.3 19.8 9.9 19.1L11 17.7C11.7 16.8 11.5 16.1 10.8 15.4L7.3 12.3C10.3 9.8 11.6 7.6 11.6 5V2Z"
+          />
+        </g>
       </svg>
     </div>
     <div id="root"></div>

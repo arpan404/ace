@@ -15,10 +15,7 @@ export function SnoozeItems(props: {
       <MenuGroup>
         <MenuLabel>Snooze until</MenuLabel>
         {snoozePresets(now).map((preset) => (
-          <MenuItem
-            key={preset.id}
-            onClick={() => props.actions.snooze(props.entry, preset.until, now)}
-          >
+          <MenuItem key={preset.id} onClick={() => props.actions.snooze(props.entry, preset.until)}>
             <span className="flex w-full items-center">
               {preset.label}
               <span className="ml-auto pl-[18px] text-xs text-subtle-foreground">

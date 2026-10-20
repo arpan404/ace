@@ -90,7 +90,7 @@ test("a worktree's steps advance under the first message, with checkout's percen
   // The model chip keeps its provider mark and effort, as every composer's does.
   const chip = screen.getByRole("button", { name: /^Model:/ });
   expect(chip.querySelector("svg, img")).toBeTruthy();
-  expect(chip.textContent).toMatch(/·\s*(Low|Medium|High|Extra high|Max|Minimal)/);
+  expect(chip.textContent).toMatch(/·\s*(Low|Medium|High|XHigh|Max|Minimal)/);
   expect(screen.getByRole("button", { name: /^Access:/ })).toBeTruthy();
   const input = screen.getByRole("combobox", { name: "Message" });
   await userEvent.type(input, "Also cover the reconnect case");

@@ -102,6 +102,23 @@ test("an untouched composer creates no row while a settings-only draft can be re
   expect(drafts()).toBeNull();
 });
 
+test("a discarded draft comes back, row and message, with Undo", async () => {
+  const made = app();
+  await made.open("/new?project=relay");
+  await userEvent.type(await message(), "Keep this half-written thought");
+  const row = { name: "Keep this half-written thought. Draft, Project relay" };
+  expect(await screen.findByRole("link", row)).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Discard draft in relay" }));
+  await waitFor(() => expect(drafts()).toBeNull());
+  expect((await message()).textContent).toBe("");
+
+  await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+  expect(await screen.findByRole("link", row)).toBeTruthy();
+  await waitFor(async () =>
+    expect((await message()).textContent).toBe("Keep this half-written thought"),
+  );
+});
+
 test("an uploaded draft attachment survives navigation and first send promotes one row into one thread", async () => {
   const made = app();
   await made.open("/new?project=relay");
@@ -289,4 +306,24 @@ test("a refused content write keeps the live preparation and shows that it is no
   );
   expect((await message()).textContent).toBe("Keep this editor open");
   expect(drafts()).toBeNull();
+});
+
+test("New thread again for the same project returns to its one draft instead of starting another", async () => {
+  const made = app();
+  await made.open("/new?project=ace");
+  await project("relay");
+  await userEvent.type(await message(), "Half-written plan");
+  await screen.findByRole("link", { name: "Half-written plan. Draft, Project relay" });
+  for (let press = 0; press < 2; press++) {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    // With several projects ⌘N asks which.
+    await userEvent.keyboard("{Meta>}n{/Meta}");
+    const step = await screen.findByRole("dialog", { name: "New thread in" });
+    await userEvent.click(within(step).getByRole("option", { name: "relay" }));
+    expect(await screen.findByRole("button", { name: "Project: relay" })).toBeTruthy();
+    await waitFor(async () => expect((await message()).textContent).toBe("Half-written plan"));
+  }
+  const list = drafts();
+  if (!list) throw new Error("no drafts list");
+  expect(within(list).getAllByRole("link", { name: /Draft, Project relay$/ })).toHaveLength(1);
 });

@@ -11,7 +11,7 @@ import {
 } from "react";
 import type { ClipboardEvent, KeyboardEvent } from "react";
 import { applePlatform } from "@/lib/keymap.ts";
-import { keyOwner } from "./keys.ts";
+import { keyOwner, lineEditBytes } from "./keys.ts";
 import type { Row, Style } from "./screen.ts";
 import type { TerminalSessions } from "./sessions.ts";
 import { terminalText, type TerminalSurface } from "./surface.ts";
@@ -251,6 +251,13 @@ function DomTerminalView(props: TerminalViewProps) {
     if (autoFocus()) focus();
   }, [focus]);
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    const line = lineEditBytes(event, applePlatform);
+    if (line !== undefined) {
+      event.stopPropagation();
+      event.preventDefault();
+      sessions.write(id, line);
+      return;
+    }
     const owner = keyOwner(event, applePlatform);
     if (owner === "find") {
       event.preventDefault();

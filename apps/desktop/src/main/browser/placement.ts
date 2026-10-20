@@ -15,16 +15,63 @@ export interface ResolvedPlacement {
   /** In window DIPs; undefined until a renderer has placed the view. */
   bounds: Rect | undefined;
   visible: boolean;
-  /** The connection the renderer showing the view holds the page through, if it does. */
-  owner: string | undefined;
+  /** Hidden only while the renderer's menu covers it (`BrowserPlacement.covered`). */
+  covered?: boolean;
 }
 
 interface Claim {
   device?: NativeDevice | undefined;
   bounds: Rect;
   visible: boolean;
-  owner: string | undefined;
+  covered?: boolean | undefined;
   order: number;
+}
+
+/**
+ * Chromium emulation that lays a device out at its size and draws it filling `bounds`. The
+ * device is in the app renderer's CSS pixels and `bounds` in window DIPs. Chromium's emulated
+ * size is in DIPs, and page zoom only changes how many CSS pixels fit in it, so zoom must not
+ * shrink the scale: the app's zoom grows the emulated size instead, as it grows the panel.
+ */
+export function deviceEmulation(device: NativeDevice, bounds: Rect, appZoom: number) {
+  const zoom = Number.isFinite(appZoom) && appZoom > 0 ? appZoom : 1;
+  const width = Math.max(1, Math.round(device.width * zoom));
+  const height = Math.max(1, Math.round(device.height * zoom));
+  return {
+    width,
+    height,
+    deviceScaleFactor: device.deviceScaleFactor ?? 0,
+    mobile: device.mobile ?? false,
+    scale: bounds.width / width,
+  };
+}
+
+/**
+ * Chromium emulation for a size an agent asked for in CSS pixels (`resize`, `emulate`), on a
+ * view the panel shows in `bounds` (window DIPs) zoomed by `zoom` (the app's zoom). Emulated
+ * sizes and scale factors are DIPs, which zoom multiplies, so the size grows by the zoom and
+ * the scale factor shrinks by it: the page then lays out at exactly the size asked and reports
+ * the scale factor asked (0 keeps the screen's). The whole device is drawn fitted into the box,
+ * never enlarged. Other emulation fields pass through.
+ */
+export function agentEmulation(
+  device: Record<string, unknown> & { width: number; height: number },
+  bounds: Rect,
+  zoom: number,
+): Record<string, unknown> & {
+  width: number;
+  height: number;
+  deviceScaleFactor: number;
+  scale: number;
+} {
+  const factor = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  // Chromium lays out the whole CSS pixels that fit: round up, so none is lost to rounding.
+  const width = Math.max(1, Math.ceil(device.width * factor));
+  const height = Math.max(1, Math.ceil(device.height * factor));
+  const asked = device["deviceScaleFactor"];
+  const deviceScaleFactor = typeof asked === "number" && asked > 0 ? asked / factor : 0;
+  const scale = Math.min(1, bounds.width / width, bounds.height / height);
+  return { mobile: false, ...device, width, height, deviceScaleFactor, scale };
 }
 
 /**
@@ -59,7 +106,7 @@ export class PlacementBook {
     claim: {
       bounds: Rect;
       visible: boolean;
-      owner?: string | undefined;
+      covered?: boolean | undefined;
       device?: NativeDevice | undefined;
     },
   ): ResolvedPlacement {
@@ -69,7 +116,7 @@ export class PlacementBook {
       bounds: claim.bounds,
       device: claim.device,
       visible: claim.visible,
-      owner: claim.owner,
+      covered: !claim.visible && claim.covered === true,
       order: ++this.order,
     });
     return this.resolve(threadId);
@@ -113,9 +160,13 @@ export class PlacementBook {
         host: shown[0],
         bounds: shown[1].bounds,
         visible: true,
-        owner: shown[1].owner,
         device: shown[1].device,
       };
-    return { host: latest?.[0], bounds: latest?.[1].bounds, visible: false, owner: undefined };
+    return {
+      host: latest?.[0],
+      bounds: latest?.[1].bounds,
+      visible: false,
+      ...(latest?.[1].covered ? { covered: true } : {}),
+    };
   }
 }

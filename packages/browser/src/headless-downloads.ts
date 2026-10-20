@@ -1,5 +1,6 @@
 import { mkdir, rm } from "node:fs/promises";
 import { createWriteStream } from "node:fs";
+import { saveInFolder } from "./download-folder.ts";
 import { basename, join } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -12,8 +13,7 @@ interface Download {
   createReadStream(): Promise<Readable | null>;
 }
 import type { BrowserDownload } from "@ace/protocol";
-import type { BackendOpen, BrowserCdp } from "./backend.ts";
-import { z } from "zod";
+import type { BackendOpen, DownloadSource } from "./backend.ts";
 import { PolicyGate } from "./policy-call.ts";
 
 export function downloadFlags(filename: string, mimeType: string): BrowserDownload["flags"] {
@@ -56,6 +56,16 @@ export class HeadlessDownloads {
   list(): BrowserDownload[] {
     return this.entries.map((entry) => ({ ...entry }));
   }
+  /** Quarantined copies of finished downloads, by download id. */
+  private sources = new Map<string, DownloadSource>();
+  /**
+   * A finished download's quarantined copy, which only this session wrote (never the copy in
+   * the person's downloads folder, which anyone may have changed since).
+   */
+  source(downloadId: string): DownloadSource | undefined {
+    const source = this.sources.get(downloadId);
+    return source ? { ...source } : undefined;
+  }
   async allowed(url: string): Promise<boolean> {
     if (this.privateMode) return false;
     if (this.entries.length > 128) return false;
@@ -70,21 +80,14 @@ export class HeadlessDownloads {
     if (this.mime.size >= 256) this.mime.delete(this.mime.keys().next().value ?? "");
     this.mime.set(url, mime.split(";")[0]?.slice(0, 256) || "application/octet-stream");
   }
-  async progress(cdp: BrowserCdp): Promise<void> {
-    const limit = this.request.maxDownloadBytes ?? 64 * 1024 * 1024;
-    cdp.on("Browser.downloadProgress", (raw) => {
-      const parsed = z.object({ guid: z.string(), receivedBytes: z.number() }).safeParse(raw);
-      if (parsed.success && parsed.data.receivedBytes > limit)
-        void cdp.send("Browser.cancelDownload", { guid: parsed.data.guid }).catch(() => {});
-    });
-    if (this.request.downloadDir)
-      await cdp.send("Browser.setDownloadBehavior", {
-        behavior: "allowAndName",
-        downloadPath: this.request.downloadDir,
-        eventsEnabled: true,
-      });
-  }
-  async accept(download: Download, tabId: string): Promise<void> {
+  /**
+   * `folder`: the downloads folder for this engine (the person's choice, else the machine's
+   * Downloads folder). The quarantined copy stays with the thread's browser session as the
+   * thread's artifact; the finished file is also saved in `folder` under its own name (numbered
+   * when taken), and the download lists that real path. Without a folder, or if it can't be
+   * written, the download lists the session copy.
+   */
+  async accept(download: Download, tabId: string, folder?: string): Promise<void> {
     const directory = this.request.downloadDir;
     if (this.privateMode || this.entries.length >= 128 || !directory) {
       await download.cancel().catch(() => {});
@@ -161,8 +164,18 @@ export class HeadlessDownloads {
               published = true;
             }
             signal.throwIfAborted();
+            const saved = folder
+              ? await saveInFolder(path, folder, filename).catch(() => undefined)
+              : undefined;
             entry.state = "complete";
-            entry.path = path;
+            entry.path = saved ?? path;
+            this.sources.set(entry.downloadId, {
+              path,
+              bytes: entry.bytes,
+              filename,
+              mimeType,
+              flags: entry.flags,
+            });
           } finally {
             // PolicyGate can return on cancellation before this work settles.
             // The publisher owns these bytes until it acknowledges or rejects.

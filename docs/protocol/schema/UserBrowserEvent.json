@@ -1,0 +1,114 @@
+{
+  "$id": "https://ace.local/protocol/v1/UserBrowserEvent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "event": {
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "tabs",
+              "type": "string"
+            },
+            "tabs": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/UserBrowserTab.json"
+              },
+              "maxItems": 512,
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "tabs"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "cdp",
+              "type": "string"
+            },
+            "method": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "params": {},
+            "sessionId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "tabId": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "tabId",
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "detached",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "https://ace.local/protocol/v1/UserBrowserDetachReason.json"
+            },
+            "tabId": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "tabId",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "download": {
+              "$ref": "https://ace.local/protocol/v1/UserBrowserDownload.json"
+            },
+            "kind": {
+              "const": "download",
+              "type": "string"
+            },
+            "tabId": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "tabId",
+            "download"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "type": {
+      "const": "user_browser.event",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "event"
+  ],
+  "type": "object"
+}

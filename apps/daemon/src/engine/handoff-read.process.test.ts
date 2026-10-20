@@ -43,7 +43,7 @@ test("a fork pages its cutoff history and reads full text after portable deliver
   };
   const call = (name: string, args: unknown) =>
     registry.call(name, args, principal, principal.signal);
-  const response = await call("ace_read_handoff", {
+  const response = await call("handoff_read", {
     sourceThreadId: source,
     before: h.store.headSeq() + 1,
     limit: 1,
@@ -58,11 +58,11 @@ test("a fork pages its cutoff history and reads full text after portable deliver
   let offset = 0;
   const chunks: Buffer[] = [];
   for (let index = 0; index < 32; index++) {
-    const result = await call("ace_read_handoff_chunk", {
+    const result = await call("handoff_read", {
       sourceThreadId: source,
       streamId: part.source.streamId,
       offset,
-      limit: 1024,
+      maxBytes: 1024,
     });
     const chunk = HandoffChunk.parse(result.structuredContent);
     expect(chunk.encoding).toBe("utf-16le");
@@ -73,18 +73,18 @@ test("a fork pages its cutoff history and reads full text after portable deliver
   expect(Buffer.concat(chunks).toString("utf16le")).toContain(full);
   expect(page.itemsBefore).not.toBeNull();
   expect(
-    await call("ace_read_handoff", { sourceThreadId: source, before: page.itemsBefore }),
+    await call("handoff_read", { sourceThreadId: source, before: page.itemsBefore }),
   ).toMatchObject({ structuredContent: { threadId: source } });
-  expect(
-    await call("ace_read_handoff", { sourceThreadId: ThreadId.parse("unrelated") }),
-  ).toMatchObject({ isError: true });
+  expect(await call("handoff_read", { sourceThreadId: ThreadId.parse("unrelated") })).toMatchObject(
+    { isError: true },
+  );
 
   const latest = h.store.readItemPage(source, h.store.headSeq() + 1, 1).items[0];
   const laterPart = latest?.type === "message" ? latest.parts[0] : undefined;
   if (laterPart?.type !== "text" || !laterPart.source)
     throw new Error("Expected later source stream");
   expect(
-    await call("ace_read_handoff_chunk", {
+    await call("handoff_read", {
       sourceThreadId: source,
       streamId: laterPart.source.streamId,
     }),

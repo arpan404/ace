@@ -1,30 +1,11 @@
-import type { ChangeTap, SidebarSource, ThreadSource } from "@ace/client";
-import { threadRow, itemRow, approvalRow } from "./presentation.ts";
+import type { ChangeTap, ThreadSource } from "@ace/client";
+import { threadRow, itemRow } from "./presentation.ts";
+import { interactionRow } from "./interaction-rows.ts";
+import { itemDetail } from "./thread-rows.ts";
 
 import { PatchPump } from "./patch-pump.ts";
 export { PatchPump } from "./patch-pump.ts";
 
-export function followInbox(store: SidebarSource, pump: PatchPump): () => void {
-  const row = (id: string) =>
-    pump.put(`inbox:${id}`, () => ({
-      type: "inbox.row",
-      id,
-      row: (() => {
-        const value = store.thread(id);
-        return value ? threadRow(value) : null;
-      })(),
-    }));
-  const change: ChangeTap = (keys) => {
-    if (keys === "all" || keys.has("ids")) {
-      pump.clear("inbox:");
-      pump.put("inbox:reset", () => ({ type: "inbox.reset" }));
-      for (const id of store.ids) row(id);
-    } else for (const key of keys) if (key.startsWith("thread:")) row(key.slice(7));
-  };
-  const stop = store.observe(change);
-  change("all");
-  return stop;
-}
 export function followThread(
   store: ThreadSource,
   threadId: string,
@@ -47,14 +28,16 @@ export function followThread(
       return {
         type: "thread.item",
         id,
-        row: item ? itemRow(item, positions.get(id), store.truncated(id)) : null,
+        row: item
+          ? { ...itemRow(item, positions.get(id), store.truncated(id)), ...itemDetail(item) }
+          : null,
       };
     });
   };
   const interaction = (id: string) =>
     put(`interaction:${id}`, () => {
       const value = store.interaction(id);
-      return { type: "thread.interaction", id, row: value ? approvalRow(value, store) : null };
+      return { type: "thread.interaction", id, row: value ? interactionRow(value, store) : null };
     });
   const change: ChangeTap = (keys) => {
     if (keys === "all") {

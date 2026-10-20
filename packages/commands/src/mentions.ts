@@ -1,11 +1,18 @@
 import {
   ContentPart,
   type CatalogEntry,
+  type CatalogInvocation,
   type CatalogMention,
   type CommandResolution,
   type ProviderKind,
   type PromptValue,
 } from "@ace/protocol";
+import {
+  skillContext,
+  skillContextBudget,
+  skillReference,
+  type SkillSource,
+} from "./skill-context.ts";
 
 /** Coalesce adjacent text without changing the person's spacing or mention order. */
 function append(parts: ContentPart[], part: ContentPart): void {
@@ -13,6 +20,34 @@ function append(parts: ContentPart[], part: ContentPart): void {
   if (part.type === "text" && last?.type === "text") last.text += part.text;
   else parts.push(part.type === "text" ? { ...part } : part);
 }
+
+/** Codex's documented app mention slug: ASCII alphanumerics lowercased, others as `-`. */
+function appSlug(name: string): string {
+  return (
+    name
+      .replace(/[^A-Za-z0-9]/g, "-")
+      .toLowerCase()
+      .replace(/^-+|-+$/g, "") || "app"
+  );
+}
+
+/**
+ * Entries whose typed or advertised invocation the provider loads itself. ace's own skill
+ * files are unknown to every harness; they and other skills without a native route are
+ * injected from their SKILL.md instead.
+ */
+function native(provider: ProviderKind, entry: CatalogEntry, invocation: CatalogInvocation) {
+  if (entry.source.provider === "ace" && invocation.type === "skill") return false;
+  if (provider === "codex") return invocation.type === "skill" || invocation.type === "mention";
+  if (provider === "opencode")
+    return (
+      invocation.type === "skill" || invocation.type === "agent" || invocation.type === "slash"
+    );
+  // Claude Code, Pi and ACP agents expand an advertised `/name` at the start of a prompt.
+  if (["acp", "antigravity", "pi", "claude"].includes(provider)) return invocation.type === "slash";
+  return false;
+}
+
 export function translateMentions(
   input: readonly ContentPart[],
   provider: ProviderKind,
@@ -22,9 +57,12 @@ export function translateMentions(
     positional: string[],
     values: Record<string, PromptValue>,
   ) => CommandResolution,
+  skill: (entry: CatalogEntry) => SkillSource | undefined = () => undefined,
 ): ContentPart[] {
   const byId = new Map(entries.map((entry) => [entry.id, entry]));
   const output: ContentPart[] = [];
+  const skills: string[] = [];
+  let skillBytes = 0;
   for (const part of input) {
     if (part.type !== "mention") {
       append(output, part);
@@ -43,21 +81,35 @@ export function translateMentions(
       invocation,
       ...(entry.icon ? { icon: entry.icon } : {}),
     };
-    if (
-      (["acp", "antigravity", "pi"].includes(provider) && invocation.type === "slash") ||
-      (provider === "opencode" &&
-        (invocation.type === "skill" ||
-          invocation.type === "agent" ||
-          invocation.type === "slash")) ||
-      (provider === "codex" && (invocation.type === "skill" || invocation.type === "mention"))
-    ) {
+    if (native(provider, entry, invocation)) {
+      // Codex documents the `$name` marker alongside the typed item for explicit invocation;
+      // an app is invoked when its `$<app-slug>` marker accompanies the app:// mention item.
+      if (provider === "codex" && invocation.type === "skill")
+        append(output, { type: "text", text: `$${invocation.name}` });
+      if (provider === "codex" && invocation.type === "mention")
+        append(output, { type: "text", text: `$${appSlug(invocation.name)}` });
       output.push(selected);
       if (provider === "codex" && part.arguments)
         append(output, {
           type: "text",
-          text: `[Arguments for ${JSON.stringify(invocation.name)}: ${part.arguments}]`,
+          text: `[Arguments for ${JSON.stringify(invocation.type === "skill" || invocation.type === "mention" ? invocation.name : entry.name)}: ${part.arguments}]`,
         });
       continue;
+    }
+    // Parameterized ace skills expand through the prompt owner, which inlines their body.
+    if (entry.kind === "skill" && invocation.type !== "prompt") {
+      const source = skill(entry);
+      if (source) {
+        const block = skillContext(source, part.arguments);
+        skillBytes += Buffer.byteLength(block);
+        if (skillBytes > skillContextBudget) throw new Error("catalog_skill_too_large");
+        skills.push(block);
+        append(output, { type: "text", text: skillReference(entry.name) });
+        continue;
+      }
+      // Without a readable SKILL.md only the harness can load the skill; never send bare text.
+      if (invocation.type !== "slash" || provider !== "cursor")
+        throw new Error("catalog_skill_unavailable");
     }
     let text: string;
     if (invocation.type === "prompt") {
@@ -75,13 +127,15 @@ export function translateMentions(
       text = `[Delegate to the ${JSON.stringify(invocation.name)} agent${part.arguments ? `: ${part.arguments}` : ""}]`;
     else if (invocation.type === "tool")
       text = `[Use the ${JSON.stringify(invocation.name)} tool from MCP server ${JSON.stringify(invocation.server)}${part.arguments ? `: ${part.arguments}` : ""}]`;
-    else if (provider === "claude" && invocation.type === "slash")
-      text = `[Use the Skill tool with skill=${JSON.stringify(invocation.name)}${part.arguments ? ` and args=${JSON.stringify(part.arguments)}` : ""}]`;
+    else if (provider === "cursor" && entry.kind === "skill" && invocation.type === "slash")
+      text = `[Use the ${JSON.stringify(invocation.name)} skill${part.arguments ? `: ${part.arguments}` : ""}]`;
     else if (invocation.type === "slash")
       text = `/${invocation.name}${part.arguments ? ` ${part.arguments}` : ""}`;
-    else
-      text = `[Use skill ${JSON.stringify(invocation.name)} at ${JSON.stringify(invocation.path)}${part.arguments ? `: ${part.arguments}` : ""}]`;
+    else throw new Error("catalog_skill_unavailable");
     append(output, { type: "text", text });
   }
-  return ContentPart.array().max(256).parse(output);
+  if (skills.length) output.unshift({ type: "text", text: `${skills.join("\n\n")}\n\n` });
+  const merged: ContentPart[] = [];
+  for (const part of output) append(merged, part);
+  return ContentPart.array().max(256).parse(merged);
 }

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -76,7 +76,7 @@ async function launch(home: string) {
 }
 
 it.skipIf(!executablePath).each(["SIGKILL", "SIGTERM"] as const)(
-  "connected private ownership survives %s and persistent browser reopening",
+  "a private tab stays private through a daemon %s and persistent browser reopening",
   async (signal) => {
     const home = await mkdtemp(join(tmpdir(), "ace-private crash-"));
     let first: Awaited<ReturnType<typeof launch>> | undefined,
@@ -108,15 +108,21 @@ it.skipIf(!executablePath).each(["SIGKILL", "SIGTERM"] as const)(
           background: true,
         },
       };
-      expect(await first.client.request(request)).toMatchObject({ ok: true });
-      expect(
-        await first.client.request({
-          type: "browser.takeover",
-          requestId: "private",
-          threadId: thread.id,
-          mode: "private",
-        }),
-      ).toMatchObject({ ok: true, result: { controller: "human", takeoverMode: "private" } });
+      const opened = await first.client.request(request);
+      if (opened.type !== "browser.result" || !opened.ok) throw new Error("open failed");
+      const tabId = BrowserState.parse(opened.result).activeTabId;
+      if (!tabId) throw new Error("No tab");
+      const viewed = (state: unknown) =>
+        BrowserState.parse(state).tabs?.find((tab) => tab.tabId === tabId);
+      const made = await first.client.request({
+        type: "browser.tabs.private",
+        requestId: "private",
+        threadId: thread.id,
+        tabId,
+        private: true,
+      });
+      if (made.type !== "browser.result" || !made.ok) throw new Error("private failed");
+      expect(viewed(made.result)).toMatchObject({ private: true });
       // A detached private-profile helper deterministically survives its browser's
       // pipe EOF, just like Chromium's network helper did under load. The profile
       // owner must terminate it on both graceful and abrupt daemon shutdown.
@@ -130,37 +136,16 @@ it.skipIf(!executablePath).each(["SIGKILL", "SIGTERM"] as const)(
       restarted = await launch(home);
       const reply = await restarted.client.request(request);
       if (reply.type !== "browser.result" || !reply.ok) throw new Error("reopen failed");
-      expect(BrowserState.parse(reply.result)).toMatchObject({
-        controller: "none",
-        takeoverMode: "private",
-        status: "paused",
+      expect(viewed(reply.result)).toMatchObject({ private: true });
+      const shared = await restarted.client.request({
+        type: "browser.tabs.private",
+        requestId: "release",
+        threadId: thread.id,
+        tabId,
+        private: false,
       });
-      expect(
-        await restarted.client.request({
-          type: "browser.takeover",
-          requestId: "downgrade",
-          threadId: thread.id,
-          mode: "shared",
-        }),
-      ).toMatchObject({ ok: false, error: expect.stringContaining("handback") });
-      expect(
-        await restarted.client.request({
-          type: "browser.takeover",
-          requestId: "return",
-          threadId: thread.id,
-          mode: "private",
-        }),
-      ).toMatchObject({ ok: true });
-      expect(
-        await restarted.client.request({
-          type: "browser.handback",
-          requestId: "release",
-          threadId: thread.id,
-        }),
-      ).toMatchObject({
-        ok: true,
-        result: { controller: "agent", takeoverMode: "shared", status: "ready" },
-      });
+      if (shared.type !== "browser.result" || !shared.ok) throw new Error("release failed");
+      expect(viewed(shared.result)?.private).toBeUndefined();
       // A surviving helper also exercises the restarted browser's final profile cleanup.
       helper = await launchProfileHelper(home);
       await restarted.close();
@@ -176,16 +161,14 @@ it.skipIf(!executablePath).each(["SIGKILL", "SIGTERM"] as const)(
 );
 
 async function launchProfileHelper(home: string) {
-  const profiles = join(home, "browser", "profiles");
-  const [profile] = await readdir(profiles);
-  if (!profile) throw new Error("Missing private browser profile");
+  const profile = join(home, "browser", "profile");
   const helper = spawn(
     process.execPath,
     [
       "-e",
       "require('node:net').createServer().listen(0, '127.0.0.1', () => process.send('ready'));",
       "--",
-      `--user-data-dir=${join(profiles, profile)}`,
+      `--user-data-dir=${profile}`,
     ],
     { detached: true, stdio: ["ignore", "ignore", "ignore", "ipc"] },
   );

@@ -42,6 +42,10 @@ function headerWidth(width: number) {
   });
 }
 
+/** The header's side panel toggle. */
+const panelToggle = () =>
+  within(screen.getByRole("banner")).getByRole("button", { name: "Right panel" });
+
 const sidebar = () => screen.queryByRole("complementary", { name: "Threads" });
 
 /** The header's one ⋯, once its code has loaded and it reports itself as a collapsed popup. */
@@ -107,27 +111,27 @@ test("on a narrow window ⌘\\ opens and closes the sheet and leaves the wide wi
   expect(layout()).toBe(before);
 });
 
-test("on a phone the Summary is reached through the header menu", async () => {
+test("on a phone the header shows the side panel's toggle, and its ⋯ lists Changes", async () => {
   windowWidth(390);
   await openThread();
   const header = screen.getByRole("banner");
-  expect(within(header).getByRole("button", { name: "Back to threads" })).toBeTruthy();
-  expect(within(header).getByRole("button", { name: /^Thread details/ })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Right panel" })).toBeNull();
+  for (const name of ["Back to threads", /^Thread details/, "Right panel"])
+    expect(within(header).getByRole("button", { name })).toBeTruthy();
   const more = await moreActions(header);
   await userEvent.click(more);
-  expect(await screen.findByRole("menuitem", { name: "Summary" })).toBeTruthy();
+  expect(await screen.findByRole("menuitem", { name: "Changes" })).toBeTruthy();
+  // The toggle is in the header already: the ⋯ doesn't repeat it.
+  expect(screen.queryByRole("menuitem", { name: /Summary|Right panel/ })).toBeNull();
   await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Summary" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Changes" })).toBeNull());
   await userEvent.keyboard("{Meta>}f{/Meta}");
   expect(await screen.findByRole("search", { name: "Search this thread" })).toBeTruthy();
 });
 
-test("on a phone the Summary opens in the panel sheet and Escape closes it", async () => {
+test("on a phone the header's panel toggle opens Summary in the panel sheet and Escape closes it", async () => {
   windowWidth(390);
   await openThread();
-  await userEvent.click(await moreActions(screen.getByRole("banner")));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Summary" }));
+  await userEvent.click(panelToggle());
   const work = await screen.findByRole("tabpanel", { name: "Summary" });
   expect(await within(work).findByRole("region", { name: "Background" })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
@@ -167,12 +171,10 @@ test("a header narrowed by a side panel still shows one menu and the details ico
   expect(await screen.findByRole("menuitem", { name: /Rename/ })).toBeTruthy();
 });
 
-test("on a phone a panel covers the thread as a sheet that Done or Escape closes, focus back on the header's ⋯", async () => {
+test("on a phone a panel covers the thread as a sheet that Done or Escape closes, focus back on the header's toggle", async () => {
   windowWidth(390);
   await openThread();
-  // On a phone the panel's toggle lives in the header's ⋯, which focus returns to.
-  await userEvent.click(await moreActions(screen.getByRole("banner")));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Summary" }));
+  await userEvent.click(panelToggle());
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(within(panel).queryByRole("separator", { name: /Resize/ })).toBeNull();
   // Focus moves into the sheet, onto its showing tab.
@@ -186,11 +188,7 @@ test("on a phone a panel covers the thread as a sheet that Done or Escape closes
   ).toBeNull();
   await userEvent.click(within(panel).getByRole("button", { name: "Done" }));
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
-  await waitFor(() =>
-    expect(document.activeElement).toBe(
-      within(screen.getByRole("banner")).getByRole("button", { name: "More actions" }),
-    ),
-  );
+  await waitFor(() => expect(document.activeElement).toBe(panelToggle()));
 
   // Its shortcut (Ctrl+Alt+B off Apple) opens it too; Escape closes it.
   await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
@@ -206,11 +204,7 @@ test("on a phone a panel covers the thread as a sheet that Done or Escape closes
   await waitFor(() => expect(sheet.contains(document.activeElement)).toBe(true));
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
-  await waitFor(() =>
-    expect(document.activeElement).toBe(
-      within(screen.getByRole("banner")).getByRole("button", { name: "More actions" }),
-    ),
-  );
+  await waitFor(() => expect(document.activeElement).toBe(panelToggle()));
 });
 
 test("below 1100px the sidebar steps aside for the right panel and comes back after", async () => {
@@ -252,7 +246,7 @@ test("at 1024px the right panel docks beside the thread instead of floating over
 test("on a tablet the sidebar waits in a sheet, so the thread keeps the window's width", async () => {
   windowWidth(768);
   await openThread();
-  // Docked, a 280px sidebar would leave the thread under 500px and fold the composer.
+  // Docked, a 336px sidebar would leave the thread under 500px and fold the composer.
   expect(sidebar()).toBeNull();
   await userEvent.click(
     within(screen.getByRole("banner")).getByRole("button", { name: /sidebar/ }),

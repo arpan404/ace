@@ -2,8 +2,70 @@
   "$id": "https://ace.local/protocol/v1/BrowserTab.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "audible": {
+      "type": "boolean"
+    },
+    "canGoBack": {
+      "type": "boolean"
+    },
+    "canGoForward": {
+      "type": "boolean"
+    },
+    "certificate_error": {
+      "$ref": "https://ace.local/protocol/v1/BrowserCertificateError.json"
+    },
+    "drivenBy": {
+      "$ref": "https://ace.local/protocol/v1/BrowserTabActor.json"
+    },
+    "emulation": {
+      "$ref": "https://ace.local/protocol/v1/BrowserTabEmulation.json"
+    },
+    "favicon": {
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "file_chooser": {
+      "$ref": "https://ace.local/protocol/v1/BrowserFileChooser.json"
+    },
+    "inUse": {
+      "$ref": "https://ace.local/protocol/v1/BrowserTabActor.json"
+    },
+    "kept": {
+      "type": "boolean"
+    },
+    "label": {
+      "maxLength": 64,
+      "type": "string"
+    },
+    "lifecycle": {
+      "$ref": "https://ace.local/protocol/v1/BrowserTabLifecycle.json"
+    },
+    "loading": {
+      "type": "boolean"
+    },
+    "muted": {
+      "type": "boolean"
+    },
+    "openedBy": {
+      "$ref": "https://ace.local/protocol/v1/BrowserTabActor.json"
+    },
+    "pageStateLost": {
+      "type": "boolean"
+    },
+    "pending_auth": {
+      "$ref": "https://ace.local/protocol/v1/BrowserAuthChallenge.json"
+    },
     "pending_dialog": {
       "$ref": "https://ace.local/protocol/v1/BrowserDialog.json"
+    },
+    "playing": {
+      "type": "boolean"
+    },
+    "pointer": {
+      "$ref": "https://ace.local/protocol/v1/BrowserAgentPointer.json"
+    },
+    "private": {
+      "type": "boolean"
     },
     "tabId": {
       "maxLength": 256,
@@ -17,6 +79,11 @@
     "url": {
       "maxLength": 8192,
       "type": "string"
+    },
+    "zoom": {
+      "maximum": 5,
+      "minimum": 0.25,
+      "type": "number"
     }
   },
   "required": [

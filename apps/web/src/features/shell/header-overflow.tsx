@@ -15,8 +15,8 @@ import { Menu, MenuContent, MenuTrigger, MenuSeparator, MenuItem } from "@/compo
 const row = "flex flex-wrap items-center gap-1.5";
 
 /**
- * The folded header's ⋯: the actions in a row, the header's tools (on a phone: the panel action
- * and the side panel's toggle) in another, then the title menu behind one more tap. Loaded when
+ * The folded header's ⋯: the actions in a row, the header's tools (on a phone: the side panel's
+ * tools, such as a thread's Changes) in another, then the title menu behind one more tap. Loaded when
  * a header first folds (`AppHeader`), so a wide window never fetches the popover. With tools it
  * stays mounted while closed, so their shortcuts keep working.
  */
@@ -37,7 +37,7 @@ export function Overflow(props: {
       <MenuContent align="end" className="min-w-56">
         {props.actions && <div className={row}>{props.actions}</div>}
         {props.tools && (
-          <div className="flex flex-col" onClick={() => setOpen(false)}>
+          <div role="presentation" className="flex flex-col" onClick={() => setOpen(false)}>
             {labelTools(props.tools)}
           </div>
         )}

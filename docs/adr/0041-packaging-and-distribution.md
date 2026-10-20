@@ -42,14 +42,19 @@ After ADR 0031 landed, the same standalone artifact also bundles its bounded log
 
 ## Legacy 0.x isolation
 
-The rewrite never executes a legacy binary to learn its version. Installation checks read only the bounded release metadata behind the validated `current` pointer. Missing, malformed, mismatched or 0.x metadata refuses binary and service use. Registered service commands must point at that installation's launcher with `supervise`. Health adoption accepts `development` or a release with a nonzero major version; a live 0.x daemon cannot satisfy readiness. A legacy home, explicit or default, is set aside by the fresh start (ADR 0081) before permissions, locks or SQLite stores are touched.
+The rewrite never executes a legacy binary to learn its version. Installation checks read only the bounded release metadata behind the validated `current` pointer. Missing, malformed or mismatched metadata refuses binary and service use. Registered service commands must point at that installation's launcher with `supervise`. Health adoption accepts `development` or any release version. A legacy home, explicit or default, is set aside by the fresh start (ADR 0081) before permissions, locks or SQLite stores are touched.
 
 Superseded 2026-10-15 by ADR 0081: the default home is `~/.ace` again, versioned by its
 `ace-format.json`. A home without a marker or in an older format is renamed aside
 (`~/.ace-v0`, …) and replaced by a fresh one; `~/.ace-next` and `legacy-home.json` are no longer
 read or written.
 
-Every rewrite home uses `dev.ace.next.daemon` on launchd and `ace-next.service` on systemd, leaving the shared 0.x identities alone. Registration validation is mandatory even for callers of `UserService` that supply no optional preflight. The complete generated program must match, allowing only supported environment values to change during reinstall. Loaded manager state is checked independently: launchd path/program/arguments, or systemd fragment, command, execution hooks and drop-ins. Missing registration cannot authorize a loaded service, including a stopped systemd unit. `@ace/service` owns the home resolver and compatibility checks so daemon and desktop service calls share the policy. The desktop app selects and prepares its daemon home with the same module (ADR 0054, ADR 0081). Legacy service calls fail closed and the shared health schema rejects 0.x adoption.
+Amended 2026-10-19: the version number no longer marks a release as legacy. The old app had no
+users to protect, so the rewrite may ship any version, 0.x included (for example `0.0.1`). The
+release tools, installer and health schema accept every valid release version; legacy homes are
+told apart by their layout and format marker only.
+
+Every rewrite home uses `dev.ace.next.daemon` on launchd and `ace-next.service` on systemd, leaving the shared 0.x identities alone. Registration validation is mandatory even for callers of `UserService` that supply no optional preflight. The complete generated program must match, allowing only supported environment values to change during reinstall. Loaded manager state is checked independently: launchd path/program/arguments, or systemd fragment, command, execution hooks and drop-ins. Missing registration cannot authorize a loaded service, including a stopped systemd unit. `@ace/service` owns the home resolver and compatibility checks so daemon and desktop service calls share the policy. The desktop app selects and prepares its daemon home with the same module (ADR 0054, ADR 0081). Legacy service calls fail closed.
 
 Release manifests, launchers and service registrations are regular-file reads with byte caps,
 through pinned directory descriptors that refuse symbolic links.

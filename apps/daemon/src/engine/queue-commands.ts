@@ -1,11 +1,11 @@
-import { hasNextTurnSelection } from "./input-delivery.ts";
+import { admitSteer, queueSteerSelection } from "./steer-selection.ts";
 import { Command, maxMessageBytes, type CommandResult, type ThreadId } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 import type { EngineClock } from "./actor.ts";
 interface Dependencies {
   repo: EngineRepository;
   clock: EngineClock;
-  ports: { resetAt?(thread: ThreadId): number | null | undefined; migrate?: unknown };
+  ports: { resetAt?(thread: ThreadId): number | null | undefined; moveTarget?: unknown };
   sync(id: ThreadId): void;
   schedule(): void;
   wake(id: ThreadId): void;
@@ -39,13 +39,18 @@ export function handleQueue(
         ...rest,
         input: p.input,
         ...(p.context ? { context: p.context } : {}),
-        ...(old.type === "thread.send"
-          ? { delivery: hasNextTurnSelection(old) ? "queue" : (p.delivery ?? old.delivery) }
-          : {}),
+        ...(old.type === "thread.send" ? { delivery: p.delivery ?? old.delivery } : {}),
       };
-      const edited = Command.parse({ ...entry.command, payload });
+      // A message changed to steer goes in like a fresh steer, its selection split off the same way.
+      const steer = admitSteer(
+        dependencies.repo,
+        Command.parse({ ...entry.command, payload }),
+        p.threadId,
+      );
+      const edited = steer.send;
       dependencies.repo.queue.edit(entry.id, edited);
-      dependencies.repo.admitInput(edited, p.threadId, dependencies.clock.now());
+      dependencies.repo.reviseInput(edited, p.threadId, dependencies.clock.now());
+      queueSteerSelection(dependencies.repo, p.threadId, steer, dependencies.clock.now());
     } else if (p.type === "queue.remove" && entry) {
       dependencies.repo.queue.remove(entry.id);
       dependencies.repo.removeInput(p.threadId, entry.command.id, dependencies.clock.now());
@@ -101,7 +106,7 @@ export function handleQueue(
       // recovery intent here would bypass a later manual or Stop hold.
       if (!heldContinuation) dependencies.repo.add(replacement, p.threadId);
       if (!continuation)
-        dependencies.repo.admitInput(replacement, p.threadId, dependencies.clock.now());
+        dependencies.repo.acceptInput(replacement, p.threadId, dependencies.clock.now());
       // Only the ambiguity hold may be released, never a later pause or recovery hold.
       if (
         queue.reason === "uncertain" &&
@@ -154,7 +159,13 @@ export function handleQueue(
         dependencies.repo.backend(p.threadId) === "cursor-sdk"
       )
         return fail("sdk_account_migration_unsupported");
-      if (p.type === "thread.limit" && p.action === "migrate_now" && !dependencies.ports.migrate)
+      if (
+        p.type === "thread.limit" &&
+        p.action === "migrate_now" &&
+        dependencies.repo.store.getThread(p.threadId)?.provider === "acp"
+      )
+        return fail("acp_account_fixed");
+      if (p.type === "thread.limit" && p.action === "migrate_now" && !dependencies.ports.moveTarget)
         return fail("migration_unavailable");
       if (
         p.type === "thread.limit" &&

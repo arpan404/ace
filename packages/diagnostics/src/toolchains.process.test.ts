@@ -39,4 +39,26 @@ it("a Mac without Simulator tools receives an Xcode setup hint", async () => {
     available: false,
     hint: expect.stringContaining("Install Xcode from the App Store"),
   });
+  expect(tools.find((tool) => tool.id === "xcode")).not.toHaveProperty("version");
+});
+
+it("a Mac with Xcode reports its version, and the Android SDK its platform-tools release", async () => {
+  const outputs: Record<string, string> = {
+    "xcrun simctl help": "usage: simctl [--set <path>] <subcommand> ...",
+    "xcode-select -p": "/Applications/Xcode.app/Contents/Developer",
+    "xcodebuild -version": "Xcode 26.0\nBuild version 17A324",
+    "adb version": "Android Debug Bridge version 1.0.41\nVersion 35.0.2-12147458\nInstalled as /x",
+  };
+  const tools = await detectToolchains({ PATH: "" }, "darwin", async (command, args) =>
+    Promise.resolve(outputs[[command, ...args].join(" ")]),
+  );
+  expect(tools.find((tool) => tool.id === "xcode")).toMatchObject({
+    available: true,
+    version: "26.0",
+    detail: "Xcode at /Applications/Xcode.app/Contents/Developer",
+  });
+  expect(tools.find((tool) => tool.id === "android")).toMatchObject({
+    available: true,
+    version: "35.0.2",
+  });
 });

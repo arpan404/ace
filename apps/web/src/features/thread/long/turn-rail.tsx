@@ -37,20 +37,27 @@ export function TurnRail({
   const head = useTurnHead(nav.threadId);
   const count = head?.count ?? 0;
   const current = useWatched(nav.currentTurn);
+  const bottom = useWatched(nav.bottomTurn);
   const following = useWatched(nav.following);
-  const reading = following ? count : (current ?? count);
+  // Every turn on screen: from the top one to the bottom one (the newest while following).
+  const reading = current ?? count;
+  const last = Math.max(reading, following ? count : (bottom ?? reading));
   const box = useRef<HTMLDivElement>(null);
   const height = useElementSize(box).height;
   // No more turns than fit the rail at its closest spacing: it never scrolls.
   const fit = Math.floor(height / minTickSpacing) + 1;
   const markers = useMemo(
     () =>
-      railOrdinals(count, reading, fit).map((ordinal) => ({
+      railOrdinals(count, reading, fit, last).map((ordinal) => ({
         id: String(ordinal),
         label: `Turn ${ordinal}`,
         ordinal,
       })),
-    [count, reading, fit],
+    [count, reading, fit, last],
+  );
+  const inView = useMemo(
+    () => markers.filter((m) => m.ordinal >= reading && m.ordinal <= last).map((m) => m.id),
+    [markers, reading, last],
   );
   if (count < railTurns) return null;
   return (
@@ -58,6 +65,9 @@ export function TurnRail({
       <ConversationRail
         markers={markers}
         height={height}
+        current={String(reading)}
+        inView={inView}
+        scroller={scroller}
         onWheel={(event) => forwardWheel(event, scroller?.current)}
         onJump={(id) => {
           void nav.jump.toTurn(Number(id));

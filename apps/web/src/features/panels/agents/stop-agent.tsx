@@ -10,7 +10,7 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { whenIdle } from "@/lib/idle.ts";
 import { stopLabel } from "./subagents.ts";
 
-/** The question asked before stopping subagents too: its popover loads off the first paint. */
+/** The question asked before stopping subagents too: its dialog loads off the first paint. */
 const Confirm = deferredComponent(() =>
   import("./stop-confirm.tsx").then((module) => module.StopConfirm),
 );
@@ -28,6 +28,8 @@ export function StopAgent(props: {
   subagents: number;
   /** Its own turn may have ended while descendants or background work remain live. */
   pending?: boolean;
+  /** Outlined on its own (the agent tree); ghost among a bar's other quiet actions. */
+  variant?: "secondary" | "ghost";
   className?: string;
   /** In the tree: reached with Delete or S rather than Tab. */
   inTree?: boolean;
@@ -35,7 +37,7 @@ export function StopAgent(props: {
 }) {
   const stop = useStopIntent();
   const [asking, setAsking] = useState(false);
-  // Set by the first press; from then on the real popover owns the button.
+  // Set by the first press; from then on the dialog stays mounted, closed or open.
   const [armed, setArmed] = useState(false);
   const asks = props.subagents > 0;
   useEffect(() => {
@@ -57,23 +59,23 @@ export function StopAgent(props: {
     setArmed(true);
     setAsking(true);
   };
-  const renderButton = (onClick: (() => void) | undefined) => (
+  const button = (
     <Button
       size="sm"
-      variant="secondary"
+      variant={props.variant ?? "secondary"}
       disabled={stopping}
       aria-label={stopping ? undefined : label}
       {...(props.inTree ? { "data-stop": "", tabIndex: -1 } : {})}
       className={props.className}
       onKeyDown={props.onKeyDown}
-      onClick={onClick}
+      onClick={asks ? ask : send}
     >
       <StopIcon aria-hidden size={14} weight="fill" />
       {/* A narrow container may keep only the icon (`data-slot`), the name staying spoken. */}
       <span data-slot="stop-label">{stopping ? "Stopping…" : "Stop"}</span>
     </Button>
   );
-  const cold = <Tip label={label}>{renderButton(asks ? ask : send)}</Tip>;
+  const stopButton = <Tip label={label}>{button}</Tip>;
   return (
     <>
       {stop.failed && (
@@ -88,19 +90,17 @@ export function StopAgent(props: {
           Couldn't stop this agent. Try again.
         </span>
       )}
-      {asks && armed ? (
-        <Suspense fallback={cold}>
+      {stopButton}
+      {asks && armed && (
+        <Suspense fallback={null}>
           <Confirm.Component
             open={asking}
             onOpenChange={setAsking}
-            trigger={renderButton(undefined)}
             label={label}
             stopping={stopping}
             onStop={send}
           />
         </Suspense>
-      ) : (
-        cold
       )}
     </>
   );

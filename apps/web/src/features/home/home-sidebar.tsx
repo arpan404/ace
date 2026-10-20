@@ -2,17 +2,19 @@ import { ChatsIcon, NotePencilIcon } from "@phosphor-icons/react";
 import { useSidebar, useSidebarLoaded } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";
 import { Suspense } from "react";
-import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { useNewThreadEntry } from "@/features/projects/index.ts";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { useHeld } from "@/lib/held.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { formatKeys } from "@/lib/keymap.ts";
 import { ThreadsActions } from "./project-filter.tsx";
 import { ThreadList } from "./thread-list.tsx";
-import { ThreadPagination } from "./thread-pagination.tsx";
+import { useThreadsWindowSync } from "./thread-pagination.tsx";
 import { useHomeList } from "./use-home-threads.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 
@@ -23,36 +25,54 @@ const StartedTitlePublisher = deferredComponent(() =>
 
 /**
  * Home's list in the sidebar: one list of tasks across projects, pinned first, then in the order
- * of what is owed, with Settled folded away at the end. The toolbar pairs the project filter
- * with New thread, or offers Add project while there are none.
+ * of what is owed, with Snoozed and Settled folded away at the foot. The toolbar holds the project filter
+ * (Add project lives in its menu) and New thread.
  */
 export function HomeSidebar() {
   const list = useHomeList();
-  const settledTotal = useSidebar(["homeWindow"], (reader) => reader.homeWindow?.total);
-  const { project, settledOpen } = useOrganizerState();
+  // The daemon's count of settled threads, while it still holds some back.
+  const settledTotal = useSidebar(["homeWindow"], (reader) =>
+    reader.homeWindow?.before ? reader.homeWindow.total : undefined,
+  );
+  const { project } = useOrganizerState();
+  useThreadsWindowSync();
   const organizer = useOrganizer();
   const loaded = useSidebarLoaded();
+  // A filter switch usually paints at once (remembered or derived rows): never flash a skeleton.
+  const skeleton = useHeld(!loaded);
   const empty = [list.pinned, list.active, list.recent, list.snoozed, list.settled].every(
     (ids) => !ids.length,
   );
   const directory = useProjectDirectory();
   const keys = useResolvedKeymap();
   const noProjects = directory.loaded && directory.projects.length === 0;
+  const entry = useNewThreadEntry();
+  const only = directory.projects.length === 1 ? directory.projects[0] : undefined;
   return (
     <>
-      <div className="flex h-9 shrink-0 items-center justify-between gap-2 px-2">
+      <div className="flex h-9 shrink-0 items-center gap-0.5 px-2">
         <ThreadsActions />
-        {!noProjects && (
-          <Tip label="New thread" shortcut="newThread">
-            <Link
-              to="/new"
-              aria-label="New thread"
-              className="relative grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground"
-            >
-              <Icon icon={NotePencilIcon} />
-            </Link>
-          </Tip>
-        )}
+        <span className="flex-1" />
+        <Tip label="New thread" shortcut="newThread">
+          <Link
+            to="/new"
+            {...(only ? { search: { project: only.id } } : {})}
+            aria-label="New thread"
+            className="relative grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground"
+            onClick={(event) => {
+              // Shift skips the question (the current project); several projects ask which.
+              if (event.shiftKey) {
+                event.preventDefault();
+                entry.here();
+              } else if (!only) {
+                event.preventDefault();
+                entry.start();
+              }
+            }}
+          >
+            <Icon icon={NotePencilIcon} />
+          </Link>
+        </Tip>
       </div>
       <nav aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
         {loaded && (
@@ -61,7 +81,7 @@ export function HomeSidebar() {
           </Suspense>
         )}
         {!loaded ? (
-          <ListSkeleton label="threads" shape="thread" />
+          skeleton && <ListSkeleton label="threads" shape="thread" />
         ) : empty ? (
           <>
             <EmptyState
@@ -92,7 +112,6 @@ export function HomeSidebar() {
         ) : (
           <ThreadList list={list} settledTotal={settledTotal} />
         )}
-        <ThreadPagination settledOpen={settledOpen} />
       </nav>
     </>
   );

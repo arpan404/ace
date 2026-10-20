@@ -1,11 +1,12 @@
 import { screenPublicFailure } from "./public-failure.ts";
 import { z } from "zod";
-import { ScreenId, type ApprovalTarget, type ScreenState } from "@ace/protocol";
-import { type Toolkit } from "@ace/mcp-server";
+import { ScreenId, type ScreenState } from "@ace/protocol";
+import { type Toolkit, type ToolContext } from "@ace/mcp-server";
 import type { ScreenManager } from "./manager.ts";
 import { TargetBusyError } from "./target-busy.ts";
 import { agentOwner } from "./agent-binding.ts";
-import { computerUseTools, computerUseSchemas, computerUseHandler } from "./tools.ts";
+import { computerUseHandler, settledResult } from "./tools.ts";
+import { computerUseSchemas, screenToolMetadata, type ScreenToolName } from "./tool-schemas.ts";
 
 function resultMetadata(state: ScreenState) {
   return {
@@ -24,86 +25,77 @@ function resultMetadata(state: ScreenState) {
     },
   };
 }
+/** What an agent needs to continue: ids, mode, target and permissions, not helper internals. */
+function sessionSummary(state: ScreenState) {
+  const { sessionId, mode, controller, target, permissions } = state;
+  return { sessionId, mode, controller, target, permissions };
+}
+const text = (value: unknown) => [{ type: "text" as const, text: JSON.stringify(value) }];
 
-const risks = {
-  screen_measure_interaction: "external-effect",
-  screen_ui_tree: "read-only",
-  screen_ui_find: "read-only",
-  screen_screenshot: "read-only",
-  screen_ui_act: "external-effect",
-  screen_click: "external-effect",
-  screen_type: "external-effect",
-  screen_key: "external-effect",
-  screen_scroll: "external-effect",
-  screen_paste: "external-effect",
-  screen_open_app: "external-effect",
-  screen_list_windows: "read-only",
-  screen_select_window: "external-effect",
-  screen_open_url: "external-effect",
-  screen_menu: "external-effect",
-  screen_request_foreground: "external-effect",
-} satisfies Record<keyof typeof computerUseSchemas, NonNullable<ApprovalTarget["riskClass"]>>;
+async function openApp(manager: ScreenManager, args: unknown, context: ToolContext) {
+  const { caller, signal } = context;
+  const { bundleId, windowId, url, mode } = computerUseSchemas.screen_open_app.parse(args);
+  const opened = await manager.openAgentApp(bundleId, caller, signal, windowId);
+  signal.throwIfAborted();
+  const sessionId = manager.agentSession(caller, opened.sessionId);
+  if (mode !== undefined && manager.state(sessionId).mode !== mode) manager.mode(sessionId, mode);
+  const windows = { windows: opened.windows, selectedWindowId: opened.selectedWindowId };
+  const afterUrl =
+    url === undefined
+      ? undefined
+      : await settledResult(
+          manager,
+          sessionId,
+          agentOwner(caller),
+          await manager.appOperation(sessionId, { op: "open.url", url }, agentOwner(caller), () =>
+            signal.throwIfAborted(),
+          ),
+        );
+  const state = manager.state(sessionId);
+  return {
+    content: text({
+      ...sessionSummary(state),
+      ...windows,
+      ...(afterUrl ? { opened: url, ...afterUrl } : {}),
+    }),
+    _meta: resultMetadata(state),
+  };
+}
 
 export function screenToolkit(manager: ScreenManager): Toolkit {
   return {
     register(registry) {
-      for (const [name, input] of Object.entries(computerUseSchemas)) {
-        const description = computerUseTools.find((tool) => tool.name === name)?.description;
-        const risk = z.enum(["read-only", "external-effect"]).parse(Reflect.get(risks, name));
-        if (!description) throw new Error("Screen tool description missing");
+      for (const [key, input] of Object.entries(computerUseSchemas)) {
+        const name = key as ScreenToolName;
+        const metadata = screenToolMetadata[name];
         registry.registerContent({
           name,
-          description,
-          riskClass: risk,
+          title: metadata.title,
+          description: metadata.description,
+          riskClass: metadata.riskClass,
+          // Screen tools act on this machine's windows, never on outside systems.
+          openWorld: false,
           input,
           capability: "screen",
-          timeoutMs:
-            name === "screen_measure_interaction"
-              ? 90_000
-              : name === "screen_screenshot"
-                ? 30_000
-                : 15_000,
-          async run(args, { caller, signal }) {
+          timeoutMs: metadata.timeoutMs,
+          async run(args, context) {
+            const { caller, signal } = context;
             let selectedSession: string | undefined;
             try {
               signal.throwIfAborted();
-              if (name === "screen_list_windows") {
-                const { bundleId } = computerUseSchemas.screen_list_windows.parse(args);
-                return {
-                  content: [
-                    {
-                      type: "text",
-                      text: JSON.stringify(await manager.listAppWindows(bundleId)),
-                    },
-                  ],
-                };
+              if (name === "screen_windows") {
+                const { bundleId } = computerUseSchemas.screen_windows.parse(args);
+                return { content: text(await manager.listAppWindows(bundleId)) };
               }
-              if (name === "screen_open_app") {
-                const { bundleId, windowId } = computerUseSchemas.screen_open_app.parse(args);
-                const state = await manager.openAgentApp(bundleId, caller, signal, windowId);
-                signal.throwIfAborted();
-                manager.agentSession(caller, state.sessionId);
-                return {
-                  content: [{ type: "text", text: JSON.stringify(state) }],
-                  _meta: resultMetadata(state),
-                };
-              }
+              if (name === "screen_open_app") return await openApp(manager, args, context);
               const selected = z.object({ sessionId: ScreenId.optional() }).parse(args);
               const observing =
-                name === "screen_measure_interaction" &&
-                computerUseSchemas.screen_measure_interaction.parse(args).action === undefined;
-              let sessionId = observing
+                name === "screen_measure" &&
+                computerUseSchemas.screen_measure.parse(args).action === undefined;
+              const sessionId = observing
                 ? manager.measurementSession(caller, selected.sessionId)
                 : manager.agentSession(caller, selected.sessionId);
               selectedSession = sessionId;
-              if (name === "screen_request_foreground") {
-                const state = manager.mode(sessionId, "foreground");
-                manager.agentSession(caller, sessionId);
-                return {
-                  content: [{ type: "text", text: JSON.stringify(state) }],
-                  _meta: resultMetadata(state),
-                };
-              }
               const payload = z.record(z.string(), z.unknown()).parse(args);
               const { sessionId: _sessionId, ...actionArgs } = payload;
               const result = await computerUseHandler(
@@ -113,12 +105,6 @@ export function screenToolkit(manager: ScreenManager): Toolkit {
                 signal,
               )(name, actionArgs);
               signal.throwIfAborted();
-              if (name === "screen_select_window") {
-                sessionId = z
-                  .object({ "ace/screen": z.object({ sessionId: ScreenId }) })
-                  .parse(result["_meta"])["ace/screen"].sessionId;
-                selectedSession = sessionId;
-              }
               if (observing) manager.measurementSession(caller, sessionId);
               else manager.agentSession(caller, sessionId);
               const state = manager.state(sessionId);
@@ -138,31 +124,28 @@ export function screenToolkit(manager: ScreenManager): Toolkit {
               if (error instanceof TargetBusyError)
                 return {
                   isError: true,
-                  content: [
-                    {
-                      type: "text",
-                      text: JSON.stringify({ code: error.code, holder: error.holder }),
-                    },
-                  ],
+                  content: text({ code: error.code, holder: error.holder }),
                 };
-              let permission: "screenRecording" | "accessibility" | undefined;
-              if (selectedSession) {
-                try {
-                  const permissions = manager.state(selectedSession).permissions;
-                  permission = !permissions.screenRecording
-                    ? "screenRecording"
-                    : !permissions.accessibility
-                      ? "accessibility"
-                      : undefined;
-                } catch {
-                  /* A stopped session no longer has permission state. */
-                }
-              }
-              throw screenPublicFailure(error, permission);
+              throw screenPublicFailure(error, permissionGap(manager, selectedSession));
             }
           },
         });
       }
     },
   };
+}
+
+function permissionGap(manager: ScreenManager, sessionId: string | undefined) {
+  if (!sessionId) return undefined;
+  try {
+    const permissions = manager.state(sessionId).permissions;
+    return !permissions.screenRecording
+      ? "screenRecording"
+      : !permissions.accessibility
+        ? "accessibility"
+        : undefined;
+  } catch {
+    /* A stopped session no longer has permission state. */
+    return undefined;
+  }
 }

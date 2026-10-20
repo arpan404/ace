@@ -6,7 +6,7 @@ export { planStorageItem, type StorageCandidate } from "./storage/planner.ts";
 import { shutdownDeadline } from "./shutdown.ts";
 import { shutdownControl } from "./shutdown-receipt.ts";
 import { connectedDoctorReport } from "./diagnostics-report.ts";
-import { detectToolchains } from "@ace/diagnostics";
+import { daemonToolchains } from "./toolchains.ts";
 export { runDaemonProcess } from "./process-daemon.ts";
 export { NewerDataError, HOME_FORMAT_VERSION } from "@ace/service";
 export type { StopReason } from "./stop-reason.ts";
@@ -28,7 +28,8 @@ import { randomUUID } from "node:crypto";
 import { writeFileSync, unlinkSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { logError, logFields, createHealthMonitor } from "@ace/diagnostics";
-import { installFatalLogFlush } from "./fatal-log.ts";
+import { installFatalLogFlush, installRejectionGuard } from "./fatal-log.ts";
+import { isStoreRetry } from "./store-busy.ts";
 import { buildFields, daemonLogDirectory, logStartupRefusal, openDaemonLog } from "./daemon-log.ts";
 import { logHomeBackup } from "./home-backup-log.ts";
 import { sqliteFailureDetails, systemDiskSpace } from "./sqlite-failure.ts";
@@ -79,7 +80,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
   const config = options.config ?? readConfig();
   const diagnostics = options.diagnostics ?? {
     doctor: () => connectedDoctorReport(config, process.env, now),
-    toolchains: () => detectToolchains(process.env),
+    toolchains: () => daemonToolchains(process.env, process.platform),
   };
   const sharedDiagnostics = shareDiagnostics(diagnostics);
   options = { ...options, diagnostics: sharedDiagnostics };
@@ -150,6 +151,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       sqliteFailureDetails(error, config.dataDir, diskSpace),
     ),
   );
+  resources.own(installRejectionGuard(process, log, isStoreRetry));
   let stopping: { reason: StopReason; at: number } | undefined;
   // Disposers run in reverse: this record is the last line before the log closes.
   resources.own(() => {

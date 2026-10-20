@@ -103,7 +103,7 @@
   --color-status-failed: var(--status-failed);
   --color-status-done: var(--status-done);
 
-  /* The scale and why lives in tokens.css ("Corners"); Appearance scales it. */
+  /* The scale and why lives in tokens.css ("Corners"). */
   --radius-xs: var(--radius-xs);
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius);
@@ -245,16 +245,6 @@
 }
 
 @layer components {
-  /* Make default replaces a reading without taking its place in the row's layout. */
-  .group:hover .account-reading,
-  .account-reading:has(+ button:focus) {
-    opacity: 0;
-  }
-  @media (pointer: coarse) {
-    .account-reading {
-      opacity: 0;
-    }
-  }
   /* Spinner ring in the current colour: the working blue unless a caller sets another. */
   .spin-ring {
     width: 11px;
@@ -344,12 +334,14 @@ body
   visibility: hidden;
 }
 
-/* Hide sidebar scroll tracks without changing native wheel, touch or keyboard scrolling. */
-.sidebar-scroll,
-.sidebar-scroll * {
-  scrollbar-width: none;
-}
-.sidebar-scroll::-webkit-scrollbar,
-.sidebar-scroll *::-webkit-scrollbar {
-  display: none;
+/*
+ * A thin, quiet scroll track that is always there to see and grab: no hiding it until hover.
+ * `scroll-quiet` on one scroller. Pair with `[scrollbar-gutter:stable]` where the track
+ * appearing must not shift the content. The sidebar never shows a scrollbar (see
+ * `no-scrollbar` in shadcn.css): its list stays scrollable by wheel, trackpad, touch and
+ * keyboard with no bar in any theme, on desktop or web.
+ */
+@utility scroll-quiet {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--foreground) 16%, transparent) transparent;
 }

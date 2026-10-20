@@ -2,8 +2,6 @@ import { createCliControlSession } from "./cli-control.ts";
 import { createStorageSession } from "./storage.ts";
 import { createRepositoriesSession } from "./repositories.ts";
 import { createSourceControlSession } from "./source-control.ts";
-import { createRemoteIncomingSession } from "../agent-control/remote-incoming.ts";
-import { createRemoteDelegationSession } from "./remote-delegation.ts";
 import { createPromptFilesSession } from "./prompt-files.ts";
 import { createProviderInstallsSession } from "./provider-install.ts";
 import { createProviderLoginSession } from "./provider-login.ts";
@@ -29,11 +27,19 @@ import { createCursorAuthSession } from "./cursor-auth.ts";
 import { createAccountsSession } from "./accounts.ts";
 import { createCommandsSession } from "./commands.ts";
 import { createFilesSession } from "./files.ts";
-import { ClientMessage, BrowserClientMessage, BrowserBackendClientMessage } from "@ace/protocol";
+import {
+  ClientMessage,
+  BrowserClientMessage,
+  BrowserBackendClientMessage,
+  UserBrowserExtensionMessage,
+} from "@ace/protocol";
 import { PluginClientMessage } from "@ace/protocol/plugins";
 import { createNotificationsSession } from "./notifications.ts";
 import { createPluginsSession } from "./plugins.ts";
 import { createBrowserSession } from "./browser.ts";
+import { createBrowsingSession } from "./browsing.ts";
+import { createComputerUsingSession } from "./computer-using.ts";
+import { createUserBrowserSession } from "./user-browser.ts";
 import { createContextSession } from "./context.ts";
 import { createSettingsSession } from "./settings.ts";
 import { createPermissionsSession } from "./permissions.ts";
@@ -52,8 +58,6 @@ export const socketServiceFactories = [
   createStorageSession,
   createSourceControlSession,
   createRepositoriesSession,
-  createRemoteDelegationSession,
-  createRemoteIncomingSession,
   createHostIdentitySession,
   createLongThreadSession,
   createPreviewClientSession,
@@ -77,6 +81,9 @@ export const socketServiceFactories = [
   createNotificationsSession,
   createPluginsSession,
   createBrowserSession,
+  createBrowsingSession,
+  createComputerUsingSession,
+  createUserBrowserSession,
   createContextSession,
   createSettingsSession,
   createPermissionsSession,
@@ -106,6 +113,7 @@ export function parseSocketMessage(input: unknown): SocketMessage {
     PluginClientMessage,
     BrowserClientMessage,
     BrowserBackendClientMessage,
+    UserBrowserExtensionMessage,
   ]) {
     const result = schema.safeParse(input);
     if (result.success) return result.data;

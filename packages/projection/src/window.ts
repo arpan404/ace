@@ -1,4 +1,4 @@
-import { chronologicalItemOrder } from "./item-order.ts";
+import { mergeBySeq } from "./item-order.ts";
 import type { Item, ItemsPage, ThreadView } from "@ace/protocol";
 
 /** A detail view seeds the item it tracks, so later updates/deltas keep applying. */
@@ -22,10 +22,16 @@ export function applyItemsPage(view: ThreadView, page: ItemsPage): void {
       ordered.add(item.id);
     }
   }
-  view.itemOrder = chronologicalItemOrder(
-    [...older, ...view.itemOrder],
-    (id) => view.items[id],
-    (id) => page.itemSeqs?.[id] ?? view.itemSeqs?.[id],
+  // History is older than the window's cursor; a window may still hold older retained items.
+  // A page without cursors is older than everything the view holds, by its exclusive cursor.
+  const fresh = new Set(older);
+  view.itemOrder = mergeBySeq(
+    older,
+    view.itemOrder,
+    (id) =>
+      page.itemSeqs?.[id] ??
+      view.itemSeqs?.[id] ??
+      (fresh.has(id) ? Number.MIN_SAFE_INTEGER : Number.MAX_SAFE_INTEGER),
   );
   // Exclusive creation cursors only move backward; reaching the start is final.
   if (view.itemsBefore !== null)

@@ -116,16 +116,39 @@ test.each(["not_sent", "uncertain"])(
   },
 );
 
-test("threads the daemon settled stay in Settled in every non-working status", () => {
+test("a settled thread stays in Settled when done or failed, but comes back while it asks", () => {
   const entries = [
     entry("settled", { state: "done" }, now - 2 * hour, { settledAt: now - hour }),
+    entry("failed", { state: "failed" }, now - 3 * hour, { settledAt: now - hour }),
     entry("fresh", { state: "done" }, now - hour),
-    entry("asks", { state: "needs_you", interactions: 1 }, now, { settledAt: now - hour }),
+    entry("asks", { state: "needs_you", interactions: 1 }, now, {
+      settledAt: now - hour,
+      settledReason: "manual",
+    }),
   ];
   const result = arrange(entries, state(), now);
-  expect(result.settled).toEqual(["asks", "settled"]);
-  expect(result.active).toEqual([]);
+  expect(result.settled).toEqual(["settled", "failed"]);
+  expect(result.active).toEqual(["asks"]);
   expect(result.recent).toEqual(["fresh"]);
+});
+
+test("a thread settled by hand stays settled while its queue waits on recovery", () => {
+  const queue = { revision: 1, paused: true, reason: "stopped" as const, resumeAt: null };
+  const entries = [
+    entry("by-hand", { state: "waiting", on: "queue" }, now, {
+      settledAt: now - hour,
+      settledReason: "manual",
+      queue,
+    }),
+    entry("auto", { state: "waiting", on: "queue" }, now - hour, {
+      settledAt: now - hour,
+      settledReason: "inactivity",
+      queue,
+    }),
+  ];
+  const result = arrange(entries, state(), now);
+  expect(result.settled).toEqual(["by-hand"]);
+  expect(result.recent).toEqual(["auto"]);
 });
 
 test("archived and deleted threads leave Home and its project counts", () => {
@@ -183,4 +206,56 @@ test("an untouched New thread draft stays out of the task list, while named new 
     "admitted",
   ]);
   expect(projectCounts([draft, renamedDraft])).toEqual([]);
+});
+
+test("sorted newest first, threads below Pinned keep their creation order whatever they do", () => {
+  const entries = [
+    entry("old-asks", { state: "needs_you", interactions: 1 }, now, { createdAt: 1 }),
+    entry("new-done", { state: "done" }, now - 5 * hour, { createdAt: 3 }),
+    entry("mid-working", { state: "working", agents: 1 }, now, { createdAt: 2 }),
+    entry("pin", { state: "done" }, now, { createdAt: 9, pinned: true, pinOrder: 1 }),
+  ];
+  const order = arrange(entries, { ...state(), sortBy: "created" }, now);
+  expect(order.pinned).toEqual(["pin"]);
+  expect([...order.active, ...order.recent]).toEqual(["new-done", "mid-working", "old-asks"]);
+});
+
+test("sorted by hand, threads follow the places the person gave them and a new one leads", () => {
+  const entries = [
+    entry("placed-high", { state: "done" }, now - 9 * hour, { createdAt: 1, listOrder: 50 }),
+    entry("asks", { state: "needs_you", interactions: 1 }, now, { createdAt: 2, listOrder: 10 }),
+    entry("placed-mid", { state: "working", agents: 1 }, now, { createdAt: 3, listOrder: 30 }),
+    // Never placed: its creation time stands in, so it leads every older place.
+    entry("brand-new", { state: "done" }, now, { createdAt: 100 }),
+  ];
+  const order = arrange(entries, { ...state(), sortBy: "manual" }, now);
+  expect([...order.active, ...order.recent]).toEqual([
+    "brand-new",
+    "placed-high",
+    "placed-mid",
+    "asks",
+  ]);
+});
+
+test("Snoozed lists what wakes soonest first", () => {
+  const entries = [
+    entry("tomorrow", { state: "done" }, now, { snoozedUntil: now + 24 * hour }),
+    entry("tonight", { state: "done" }, now - 5 * hour, { snoozedUntil: now + 3 * hour }),
+    entry("soon", { state: "done" }, now - 9 * hour, { snoozedUntil: now + hour }),
+  ];
+  expect(arrange(entries, state(), now).snoozed).toEqual(["soon", "tonight", "tomorrow"]);
+});
+
+test("Settled stays by recency whatever the sort", () => {
+  const entries = [
+    entry("settled-old", { state: "done" }, now - 9 * hour, {
+      createdAt: 9,
+      settledAt: now - hour,
+    }),
+    entry("settled-new", { state: "done" }, now - hour, { createdAt: 1, settledAt: now - hour }),
+  ];
+  expect(arrange(entries, { ...state(), sortBy: "created" }, now).settled).toEqual([
+    "settled-new",
+    "settled-old",
+  ]);
 });

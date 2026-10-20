@@ -13,6 +13,7 @@ import { validateCreation } from "./creation-validation.ts";
 import type { CreationAdmissions } from "./creation-admissions.ts";
 import { createEngineThread } from "./create-thread.ts";
 import { acceptTransition } from "./transition-handler.ts";
+import { admitSteer, queueSteerSelection } from "./steer-selection.ts";
 import { baseBranchLabel, requestedBase, requestedBaseKey } from "../worktree-base.ts";
 import {
   ExecutionOptions,
@@ -173,6 +174,8 @@ export function engineHandler(
           "thread.archive",
           "thread.model.set",
           "thread.mode.set",
+          "thread.goal.set",
+          "thread.goal.clear",
           "interaction.resolve",
           "background_task.stop",
         ].includes(p.type)
@@ -336,6 +339,7 @@ export function engineHandler(
                   ? { from: { provider: source.provider, model: source.execution?.model } }
                   : {}),
                 to: { provider: p.provider, model: p.model },
+                ...(handoff.handoff.sources ? { sources: handoff.handoff.sources } : {}),
               },
               at,
             );
@@ -359,6 +363,12 @@ export function engineHandler(
           if (!repo.state(threadId)) return fail("thread_not_found");
           if (p.type === "thread.send" && repo.transitions.guarded(threadId))
             return fail("thread_transition_in_progress");
+          if (
+            (p.type === "thread.goal.set" || p.type === "thread.goal.clear") &&
+            !registry.get(repo.requireState(threadId).config.provider, repo.backend(threadId))
+              .capabilities.goals
+          )
+            return fail("unsupported_goal");
           if (
             p.type === "thread.interrupt" &&
             p.agentId !== undefined &&
@@ -444,8 +454,10 @@ export function engineHandler(
           if (!repo.inputCapacity(threadId, limits.maxPendingInputs))
             return fail("provider_input_queue_full");
         }
-        const admitted = recovery.admit(deliveryCommand, threadId);
-        if (!admitted) return fail("queue_capacity_exceeded");
+        const resolved = recovery.admit(deliveryCommand, threadId);
+        if (!resolved) return fail("queue_capacity_exceeded");
+        const steer = admitSteer(repo, resolved, threadId);
+        const admitted = steer.send;
         // Any new message, the person's or a parent agent's, is how a stopped or interrupted turn
         // carries on: it releases that hold, drops ace's own "continue", and the queue sends in
         // order with it last. It is also the go-ahead past a limit that gave no reset, and past
@@ -473,7 +485,8 @@ export function engineHandler(
           );
         }
         repo.add(admitted, threadId, resolutionId);
-        repo.admitInput(admitted, threadId, now());
+        repo.acceptInput(admitted, threadId, now());
+        queueSteerSelection(repo, threadId, steer, now());
         if (p.type === "thread.create" || p.type === "thread.send") {
           repo.notifyNamingPrompt(admitted, threadId);
           repo.queue.set(threadId, {}, now());

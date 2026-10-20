@@ -3,8 +3,9 @@ import { Activity, Suspense, useEffect, useRef, useState, type ReactNode } from 
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { crowdedQuery, overlayPanelsQuery, usePhone } from "@/lib/breakpoints.ts";
+import { crowdedQuery, handheldQuery, overlayPanelsQuery, usePhone } from "@/lib/breakpoints.ts";
 import { useMediaQuery } from "@/lib/media.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import { withViewTransition } from "@/lib/motion.ts";
@@ -16,7 +17,7 @@ import {
   type WorkspaceDefinition,
 } from "@/lib/workspace/index.ts";
 import { HeaderNav } from "../app-header.tsx";
-import { panelFloats, panelBounds } from "./bounds.ts";
+import { bottomBounds, panelFloats, panelBounds } from "./bounds.ts";
 import { PanelControls } from "./panel-controls.tsx";
 import { useElementSize } from "@/lib/element-size.ts";
 import { WorkspaceHotkeys } from "./workspace-hotkeys.tsx";
@@ -26,6 +27,9 @@ import { WorkspaceHotkeys } from "./workspace-hotkeys.tsx";
 const loadPanel = () => import("./panel.tsx");
 const WorkspacePanel = deferredComponent(() => loadPanel().then((m) => m.WorkspacePanel));
 const CloseConfirm = deferredComponent(() => loadPanel().then((m) => m.CloseConfirm));
+const BottomPanel = deferredComponent(() =>
+  import("./bottom-panel.tsx").then((m) => m.BottomPanel),
+);
 
 /** Hold the panel back until the kinds (icons, titles, views) have loaded too. */
 export function WhenKindsReady(props: {
@@ -54,27 +58,40 @@ export function WhenKindsReady(props: {
   }, [ready, definition]);
   if (ready) return props.children;
   if (!props.visible) return null;
+  if (!error)
+    return (
+      // The panel's shape while its tools load: a row of tabs over a few lines.
+      <div
+        role="status"
+        aria-label="Loading tools"
+        className="absolute inset-y-0 right-0 z-20 flex w-72 flex-col gap-4 border-l bg-panel p-3"
+      >
+        <span className="flex gap-1.5">
+          <Skeleton className="h-6 w-20 rounded-sm" />
+          <Skeleton className="h-6 w-16 rounded-sm" />
+        </span>
+        <SkeletonText lines={3} className="px-1" />
+      </div>
+    );
   return (
     <div
-      role={error ? "alert" : "status"}
+      role="alert"
       className="absolute inset-y-0 right-0 z-20 flex w-72 flex-col items-center justify-center gap-3 border-l bg-panel p-4 text-sm"
     >
-      {error ? "Tools couldn't load." : "Loading tools…"}
-      {error && (
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={() => {
-            setFailed(undefined);
-            void definition.load().then(
-              () => invalidate((value) => value + 1),
-              () => setFailed(definition),
-            );
-          }}
-        >
-          Try again
-        </Button>
-      )}
+      Tools couldn't load.
+      <Button
+        size="sm"
+        variant="secondary"
+        onClick={() => {
+          setFailed(undefined);
+          void definition.load().then(
+            () => invalidate((value) => value + 1),
+            () => setFailed(definition),
+          );
+        }}
+      >
+        Try again
+      </Button>
     </div>
   );
 }
@@ -99,10 +116,11 @@ function Overlays(props: { scope: string; definition: WorkspaceDefinition }) {
 }
 
 /**
- * A screen with a side panel:
+ * A screen with a side panel, and a bottom panel (terminals) under the main column:
  *
  *   ┌ header (main column) ──────────┬ side panel strip ┐
  *   │ main column                    │ side panel       │
+ *   ├ bottom panel ──────────────────┤                  │
  *   └────────────────────────────────┴──────────────────┘
  *
  * In full view the panel fills the row and the main column steps aside (still mounted, so the
@@ -128,6 +146,10 @@ export function Workspace(props: {
   const viewportOverlay = useMediaQuery(overlayPanelsQuery, false);
   const crowded = useMediaQuery(crowdedQuery, false);
   const sheet = usePhone();
+  // The bottom panel needs the room the side panel needs beside the column, and a fine pointer:
+  // where the side panel floats, or on a touch screen, terminals open in the side panel.
+  const handheld = useMediaQuery(handheldQuery, false);
+  const bottomFits = !!definition.bottom && !viewportOverlay && !handheld;
   const outer = useRef<HTMLDivElement>(null);
   const size = useElementSize(outer);
   // At crowded desktop widths the sidebar yields to tools. Account for that before its
@@ -140,6 +162,10 @@ export function Workspace(props: {
     [definition],
   );
   useEffect(() => {
+    store.setBottomFits(bottomFits);
+    return () => store.setBottomFits(false);
+  }, [store, bottomFits]);
+  useEffect(() => {
     store.setFocused(scope);
     return () => {
       if (store.focused === scope) store.setFocused(undefined);
@@ -149,6 +175,8 @@ export function Workspace(props: {
   // Keep tab state after the first open; hidden Activity boundaries pause tool effects.
   const [shown, setShown] = useState(false);
   if (workspace.open && !shown) setShown(true);
+  const [bottomShown, setBottomShown] = useState(false);
+  if (workspace.bottom?.open && !bottomShown) setBottomShown(true);
   const expanded = workspace.expanded && workspace.open;
   // While the panel shows beside the column, its strip holds the panel's controls.
   const inline = workspace.open && !overlay && !sheet;
@@ -158,14 +186,6 @@ export function Workspace(props: {
       actions={actions}
       placement={placement}
       dockable={definition.dockable}
-      mobileAction={{
-        label: definition.mobileAction?.label ?? definition.label,
-        onClick: () => {
-          const kind = definition.mobileAction?.kind;
-          if (kind) actions.open({ kind });
-          else actions.setOpen(true);
-        },
-      }}
       mobileTools={definition.mobileTools?.map((tool) => ({
         label: tool.label,
         icon: definition.kind(tool.kind)?.icon ?? SquareSplitHorizontalIcon,
@@ -191,9 +211,14 @@ export function Workspace(props: {
   );
   return (
     <div ref={outer} data-workspace className="relative flex min-h-0 flex-1 flex-col">
-      <WorkspaceHotkeys workspace={workspace} definition={definition} actions={actions} />
+      <WorkspaceHotkeys
+        workspace={workspace}
+        definition={definition}
+        actions={actions}
+        root={() => outer.current}
+      />
       <KindOverlays scope={scope} definition={definition} />
-      {shown && (
+      {(shown || bottomShown) && (
         <LocalBoundary label="the close confirmation" fallback={null}>
           <Suspense fallback={null}>
             <CloseConfirm.Component />
@@ -221,6 +246,18 @@ export function Workspace(props: {
             </div>
           ) : (
             props.children
+          )}
+          {/* Under the conversation only: the side panel keeps the window's full height. */}
+          {bottomFits && bottomShown && (
+            <Suspense fallback={null}>
+              <WhenKindsReady definition={definition}>
+                <BottomPanel.Component
+                  scope={scope}
+                  definition={definition}
+                  bounds={bottomBounds(size.height)}
+                />
+              </WhenKindsReady>
+            </Suspense>
           )}
         </div>
         {shown && (

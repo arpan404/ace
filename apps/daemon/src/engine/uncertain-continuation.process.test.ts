@@ -38,6 +38,8 @@ test.each(["manual", "stopped", "stopped-after-resend"] as const)(
     const id = await h.create();
     const replacement = replaceProvider(h, frames, [
       { on: "send" },
+      // The provider accepts the Stop: a rejected one would close the session (#1005).
+      ...(reason === "stopped" ? [{ on: "interrupt" as const }] : []),
       { on: "send", frames: [frames.frame(start, end)] },
     ]);
     const adapter = h.registry.get("codex").adapter;

@@ -1,0 +1,35 @@
+{
+  "$id": "https://ace.local/protocol/v1/tools_find.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "family": {
+      "description": "Only this family's tools.",
+      "enum": [
+        "ace-agents",
+        "ace-browser",
+        "visualize",
+        "ace-threads",
+        "ace-computer-use"
+      ],
+      "type": "string"
+    },
+    "limit": {
+      "default": 5,
+      "description": "At most this many.",
+      "maximum": 10,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "query": {
+      "description": "What you want to do, in plain words, e.g. \"click a button in Safari\".",
+      "maxLength": 500,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "query"
+  ],
+  "type": "object"
+}

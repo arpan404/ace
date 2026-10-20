@@ -1,12 +1,9 @@
 import { Suspense, useState } from "react";
-import { CaretDownIcon, FolderSimpleIcon } from "@phosphor-icons/react";
-import { projectBadge } from "@ace/ui-core";
-import { ProjectMark } from "../row-parts.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
-import { composerStrip } from "@/features/thread/index.ts";
 
 import type { Choice } from "./project-choices.tsx";
 
@@ -15,14 +12,18 @@ const DeferredChoices = deferredComponent(() =>
 );
 const warm = () => void DeferredChoices.preload();
 
-/** The new-thread heading's searchable registered-project picker. */
+/**
+ * The project a new thread starts in: its name, inline in the page's question above the
+ * composer. Enter or Space opens a searchable list; arrows move, Enter picks, Escape hands focus
+ * back to the message.
+ */
 export function ProjectPicker(props: {
-  variant?: "inline";
-  labelPrefix?: string;
   projects: readonly string[];
   projectName(id: string): string;
   project: string | undefined;
   onProject(project: string): void;
+  /** Where focus goes when the list closes: the message. */
+  returnFocus(): HTMLElement | null;
 }) {
   const [open, setOpen] = useState(false);
   const directory = useProjectDirectory();
@@ -36,44 +37,29 @@ export function ProjectPicker(props: {
     };
   });
   const selected = choices.find((choice) => choice.id === props.project);
-  const value = selected?.name ?? "a project";
+  const value = selected?.name ?? "Choose a project";
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
-        onPointerEnter={warm}
-        onFocus={warm}
-        aria-label={`${props.labelPrefix ?? "Project"}: ${props.project === undefined ? "Choose a project" : value}`}
-        className={
-          props.variant === "inline"
-            ? "inline-flex min-h-7 min-w-0 max-w-full items-center gap-1 rounded-sm px-1 font-normal text-foreground underline decoration-border underline-offset-4 outline-none hover:decoration-foreground focus-visible:bg-accent"
-            : `${composerStrip} shrink-0 text-foreground`
-        }
-      >
-        {props.variant !== "inline" &&
-          (selected ? (
-            <ProjectMark id={selected.id} badge={projectBadge(selected)} />
-          ) : (
-            <FolderSimpleIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
-          ))}
-        <span className={props.variant === "inline" ? "max-w-64 truncate" : "max-w-32 truncate"}>
+      <Tip label="Change project" side="top">
+        <PopoverTrigger
+          onPointerEnter={warm}
+          onFocus={warm}
+          aria-label={`Project: ${value}`}
+          className="inline max-w-full rounded-sm text-foreground underline decoration-muted-foreground/60 decoration-dotted decoration-2 underline-offset-[0.2em] transition-colors duration-(--motion-fast) focus-ring hover:decoration-foreground data-popup-open:decoration-foreground"
+        >
           {value}
-        </span>
-        <CaretDownIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
-      </PopoverTrigger>
+        </PopoverTrigger>
+      </Tip>
       <PopoverContent
-        side={props.variant === "inline" ? "bottom" : "top"}
-        align="start"
+        side="bottom"
+        align="center"
+        sideOffset={8}
         aria-label="Choose project"
         className="flex w-[320px] min-w-0 flex-col p-0"
         initialFocus
+        finalFocus={props.returnFocus}
       >
-        <Suspense
-          fallback={
-            <div className="grid h-48 place-items-center">
-              <Spinner label="Loading projects" />
-            </div>
-          }
-        >
+        <Suspense fallback={<ListSkeleton label="projects" shape="row" className="p-1.5" />}>
           {open && (
             <DeferredChoices.Component
               choices={choices}

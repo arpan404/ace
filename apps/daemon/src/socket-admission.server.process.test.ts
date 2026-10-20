@@ -1,4 +1,7 @@
 import { once } from "node:events";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { DeviceId } from "@ace/protocol";
 import { Client, fixture, token } from "./socket-test-support.ts";
@@ -44,6 +47,31 @@ test("a page on another origin cannot open the loopback socket, while allowed an
   await hello(page);
   const native = await f.open();
   await hello(native);
+});
+
+test("the web app the daemon serves itself can open its socket, while other local pages still cannot", async () => {
+  const webRoot = mkdtempSync(join(tmpdir(), "ace-web-root-"));
+  writeFileSync(join(webRoot, "index.html"), "<!doctype html>");
+  const f = await fixture({ webRoot });
+  cleanups.push(() => f.close());
+  const port = new URL(f.server.url).port;
+  for (const host of ["127.0.0.1", "localhost", "[::1]"])
+    expect(await upgrade(f.server.url, `http://${host}:${port}`)).toBe(101);
+  const page = new Client(f.server.url, { origin: `http://127.0.0.1:${port}` });
+  cleanups.push(() => page.close());
+  await once(page.socket, "open");
+  await hello(page);
+  // Another local server, a rebound name and https on the same port are not the daemon's page.
+  expect(await upgrade(f.server.url, `http://127.0.0.1:${Number(port) + 1}`)).toBe(403);
+  expect(await upgrade(f.server.url, `http://rebound.example:${port}`)).toBe(403);
+  expect(await upgrade(f.server.url, `https://127.0.0.1:${port}`)).toBe(403);
+});
+
+test("without a web app of its own, the daemon refuses its own origin like any other page", async () => {
+  const f = await fixture();
+  cleanups.push(() => f.close());
+  const port = new URL(f.server.url).port;
+  expect(await upgrade(f.server.url, `http://127.0.0.1:${port}`)).toBe(403);
 });
 
 test("loopback rejects foreign origins while remote paired clients authenticate independently of Origin", async () => {

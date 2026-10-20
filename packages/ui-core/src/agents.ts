@@ -9,12 +9,40 @@ import type {
 import { isActionableInteraction } from "@ace/core/human";
 import { agentStatusLabel, type Tone } from "./status.ts";
 import { providerNames } from "./providers.ts";
+import { firstLine } from "./line-text.ts";
 
-/** How an agent is named in trees and status lines: the provider for the root, else its name. */
-export function agentName(agent: Pick<Agent, "origin" | "native" | "name" | "role">): string {
-  return agent.origin === "root"
-    ? providerNames[agent.native.provider]
-    : (agent.name ?? agent.role ?? "Subagent");
+/** What names an agent: the root by its provider, any other agent by its own words. */
+export interface AgentNaming {
+  origin?: Agent["origin"] | undefined;
+  native?: Pick<Agent["native"], "provider"> | undefined;
+  name?: string | undefined;
+  role?: string | undefined;
+}
+
+/**
+ * What the call that started a subagent says it is for: the task's description, else the kind of
+ * agent asked for, else the first words of its prompt; a delegation's title or role.
+ */
+function spawnName(spawn: Item | undefined): string | undefined {
+  if (spawn?.type === "delegation.started") return firstLine(spawn.title) ?? firstLine(spawn.role);
+  if (spawn?.type !== "tool_call" || spawn.call.detail.kind !== "agent.spawn") return undefined;
+  const detail = spawn.call.detail;
+  return (
+    firstLine(detail.description) ?? firstLine(detail.agentType) ?? firstLine(detail.prompt, 60)
+  );
+}
+
+/**
+ * The one name an agent goes by everywhere (trees, subagent rows and headers, messages, logs,
+ * "<name> is asking"): the root is its provider; a subagent is its own name, else its role,
+ * else what `spawn` (the call that started it, when loaded) says it is for, and "Subagent" only
+ * when nothing says. Blank names count as none.
+ */
+export function agentName(agent: AgentNaming | undefined, spawn?: Item | undefined): string {
+  if (agent?.origin === "root" && agent.native) return providerNames[agent.native.provider];
+  return (
+    firstLine(agent?.name, 256) ?? firstLine(agent?.role, 256) ?? spawnName(spawn) ?? "Subagent"
+  );
 }
 
 /** What an agent is doing, in the quiet lower-case phrasing of the tree ("waiting for subagents"). */

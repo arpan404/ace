@@ -1,0 +1,32 @@
+{
+  "$id": "https://ace.local/protocol/v1/context.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "topics": {
+      "default": [
+        "status",
+        "recent",
+        "changes",
+        "prs",
+        "notes"
+      ],
+      "description": "Only the topics you need.",
+      "items": {
+        "enum": [
+          "status",
+          "recent",
+          "changes",
+          "prs",
+          "notes",
+          "diagnostics"
+        ],
+        "type": "string"
+      },
+      "maxItems": 6,
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "type": "object"
+}

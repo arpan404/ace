@@ -1,6 +1,7 @@
 import { BrowserOriginError } from "@ace/browser/policy";
 import { BrowserState, type BrowserClientMessage, type ServerMessage } from "@ace/protocol";
 import type { FakeBrowser } from "./browser.ts";
+import { fakeScreenshotSet } from "./browser-captures.ts";
 import type { FakeServiceContext } from "./service-context.ts";
 
 /** The fixture emits data URLs for its synthetic SVG frames, with the same ACK lifetime. */
@@ -11,6 +12,7 @@ export function fakeBrowserSession(
   connectionId: string,
 ) {
   const recording = new Set<string>();
+  const stopAnnotations = browser.annotations.connect(connectionId, send);
   const subscriptions = new Map<
     string,
     {
@@ -27,6 +29,7 @@ export function fakeBrowserSession(
       for (const entry of subscriptions.values()) entry.stop();
       subscriptions.clear();
       browser.disconnect(connectionId);
+      stopAnnotations();
     },
     /** As the daemon's browser bridge: a refusal is a `browser.result` with `ok: false`. */
     async handle(message: BrowserClientMessage) {
@@ -70,28 +73,55 @@ export function fakeBrowserSession(
           break;
         case "browser.tabs.open":
         case "browser.tabs.switch":
+        case "browser.tabs.select":
         case "browser.tabs.close":
         case "browser.dialog.answer": {
-          if (browser.view(id)?.controller !== "human" || browser.view(id)?.owner !== connectionId)
-            throw new Error("Browser controller mismatch");
+          // As the daemon: the person changes tabs and answers dialogs whoever else works there.
           const pending_dialog = browser.view(id)?.pending_dialog;
           if (pending_dialog && message.type !== "browser.dialog.answer") {
             result = { pending_dialog };
             break;
           }
-          if (message.type === "browser.tabs.open") {
-            if (message.url) browser.navigate(id, message.url);
-          } else if (message.type === "browser.tabs.switch") browser.tabSwitch(id, message.tabId);
-          else if (message.type === "browser.tabs.close") browser.tabClose(id, message.tabId);
-          else {
-            browser.dialogAnswer(id, message.dialogId);
-          }
+          let opened: string | undefined;
+          if (message.type === "browser.tabs.open") opened = browser.personOpen(id, message.url);
+          else if (message.type === "browser.tabs.switch" || message.type === "browser.tabs.select")
+            browser.tabSelect(id, message.tabId);
+          else if (message.type === "browser.tabs.close") {
+            if (browser.tabClose(id, message.tabId)) {
+              result = { closed: true };
+              break;
+            }
+          } else browser.dialogAnswer(id, message.dialogId);
           result =
             message.type === "browser.dialog.answer"
               ? { ok: true }
-              : { activeTabId: browser.view(id)?.activeTabId, tabs: browser.tabsList(id) };
+              : {
+                  activeTabId: browser.view(id)?.activeTabId,
+                  tabs: browser.tabsList(id),
+                  ...(opened ? { tabId: opened } : {}),
+                };
           break;
         }
+        case "browser.auth.answer":
+          browser.signInAnswer(id, message.tabId, message.authId, message.credentials);
+          result = BrowserState.parse(browser.view(id));
+          break;
+        case "browser.certificate.proceed":
+          browser.certificateProceed(id, message.tabId, message.url);
+          result = BrowserState.parse(browser.view(id));
+          break;
+        case "browser.files.choose":
+          browser.chooseFiles(id, message.tabId, message.chooserId, message.files);
+          result = BrowserState.parse(browser.view(id));
+          break;
+        case "browser.tabs.mute":
+          browser.mute(id, message.tabId, message.muted);
+          result = BrowserState.parse(browser.view(id));
+          break;
+        case "browser.tabs.private":
+          browser.setPrivate(id, message.tabId, message.private);
+          result = BrowserState.parse(browser.view(id));
+          break;
         case "browser.open": {
           if (thread.thread.workspaceId !== message.options.workspaceId)
             throw new Error("workspace_mismatch");
@@ -121,80 +151,94 @@ export function fakeBrowserSession(
         case "browser.close":
           browser.close(id);
           break;
-        case "browser.takeover":
-          await browser.takeover(id, connectionId, message.mode);
-          result = BrowserState.parse(browser.view(id));
-          break;
-        case "browser.handback":
-          if (browser.view(id)?.owner !== connectionId)
-            throw new Error("Browser controller mismatch");
-          await browser.handback(id);
-          result = BrowserState.parse(browser.view(id));
-          break;
         case "browser.input":
-          if (browser.view(id)?.controller !== "human" || browser.view(id)?.owner !== connectionId)
-            throw new Error("human_control_required");
-          browser.wireInput(id, message.input);
+          browser.wireInput(id, message.input, message.tabId);
           break;
         case "browser.execute": {
           if (!browser.view(id) || browser.view(id)?.closed) throw new Error("Browser closed");
           const command = message.command;
-          // As the daemon's browser service: a client acts as a person, and a person's commands
-          // (navigate, resize, emulate) need the control lease; reads never do.
-          const reads = [
-            "snapshot",
-            "screenshot",
-            "logs",
-            "wait_for",
-            "find",
-            "network_body",
-            "navigation_history",
-            "find_text",
-            "selection",
-          ];
-          if (
-            !reads.includes(command.action) &&
-            (browser.view(id)?.controller !== "human" || browser.view(id)?.owner !== connectionId)
-          )
-            throw new Error("Browser controller mismatch");
           const pending_dialog = browser.view(id)?.pending_dialog;
+          // As the daemon: the person's Back, Forward and Stop never wait behind a dialog.
           if (
             pending_dialog &&
             command.action !== "dialog" &&
+            !(command.action === "history" && command.direction !== "reload") &&
             !(command.action === "tabs" && command.operation === "list")
           ) {
             result = { pending_dialog };
             break;
           }
-          if (command.tabId && command.action !== "tabs" && command.action !== "dialog")
-            browser.tabSwitch(id, command.tabId);
+          // A person's command acts in the tab it names, never the shown one by accident.
+          const tabId = command.tabId;
           if (command.action === "tabs") {
-            if (command.operation === "open") {
-              browser.tabOpen(id);
-              if (command.url) browser.navigate(id, command.url);
-            } else if (command.operation === "switch" && command.tabId)
-              browser.tabSwitch(id, command.tabId);
+            let opened: string | undefined;
+            if (command.operation === "open") opened = browser.personOpen(id, command.url);
+            else if (command.operation === "select" && command.tabId)
+              browser.tabSelect(id, command.tabId);
             else if (command.operation === "close" && command.tabId)
-              browser.tabClose(id, command.tabId);
-            result = { activeTabId: browser.view(id)?.activeTabId, tabs: browser.tabsList(id) };
+              if (browser.tabClose(id, command.tabId)) {
+                result = { closed: true };
+                break;
+              }
+            result = {
+              activeTabId: browser.view(id)?.activeTabId,
+              tabs: browser.tabsList(id),
+              ...(opened ? { tabId: opened } : {}),
+            };
           } else if (command.action === "dialog") {
             browser.dialogAnswer(id, command.dialogId);
             result = { ok: true };
           } else if (command.action === "navigate") {
-            browser.navigate(id, command.url);
+            browser.navigate(id, command.url, tabId);
             result = BrowserState.parse(browser.view(id));
           } else if (command.action === "navigation_history")
-            result = browser.navigationHistory(id);
+            result = browser.navigationHistory(id, tabId);
           else if (command.action === "history")
-            result = browser.navigateHistory(id, command.direction);
+            result = browser.navigateHistory(id, command.direction, tabId);
           else if (command.action === "selection") result = { text: "" };
           else if (command.action === "find_text") result = { matches: 1, active: 1 };
-          else if (command.action === "type") browser.type(id, command.text);
-          else if (command.action === "resize") browser.resize(id, command.width, command.height);
-          else if (command.action === "emulate") browser.resize(id, command.width, command.height);
+          else if (command.action === "type") browser.type(id, command.text, tabId);
+          else if (command.action === "resize") {
+            browser.resize(id, command.width, command.height);
+            browser.tabView(id, tabId, { emulation: undefined });
+          } else if (command.action === "emulate") {
+            browser.resize(id, command.width, command.height);
+            const { width, height, deviceScaleFactor, mobile, touch, userAgent } = command;
+            browser.tabView(id, tabId, {
+              emulation: {
+                width,
+                height,
+                deviceScaleFactor,
+                mobile,
+                touch,
+                ...(userAgent ? { userAgent } : {}),
+                by: "human",
+              },
+            });
+          } else if (command.action === "zoom") {
+            browser.tabView(id, tabId, { zoom: command.factor === 1 ? undefined : command.factor });
+            result = { zoom: command.factor };
+          } else if (command.action === "clear_data") result = { ok: true };
+          else if (command.action === "page_source")
+            result = {
+              url: browser.view(id)?.url ?? "about:blank",
+              source: "<!doctype html>\n<title>Synthetic fixture page</title>\n",
+              truncated: false,
+              live: false,
+            };
+          else if (command.action === "context_target") result = browser.contextTarget ?? {};
+          else if (command.action === "image_data")
+            result = { url: command.url, data: "iVBORw0KGgo=" };
+          else if (command.action === "pdf")
+            result = { path: "/fixture/page.pdf", mimeType: "application/pdf", bytes: 1024 };
           else if (command.action === "snapshot") result = { text: "Synthetic fixture page" };
-          else if (command.action === "screenshot") result = browser.frame(id);
-          else if (command.action === "logs") result = { entries: [], limit: command.limit };
+          else if (command.action === "screenshot" && command.sizes) {
+            browser.sizedCaptures.push({ threadId: id, tabId, sizes: command.sizes });
+            result = fakeScreenshotSet(id, command.sizes);
+          } else if (command.action === "screenshot") result = browser.frame(id);
+          else if (command.action === "logs") result = browser.logs.read(id, command);
+          else if (command.action === "annotate" || command.action === "annotate_capture")
+            result = await browser.annotations.execute(id, connectionId, command);
           else if (command.action === "evaluate")
             throw new Error("evaluation_unavailable_in_fixture");
           break;
@@ -276,7 +320,7 @@ export function fakeBrowserSession(
           break;
         }
         case "browser.recording.start":
-          if (browser.view(id)?.takeoverMode === "private") throw new Error("human_private");
+          if (browser.tab(id)?.private) throw new Error("human_private");
           recording.add(id);
           break;
         case "browser.recording.stop": {

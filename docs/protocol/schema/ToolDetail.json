@@ -114,6 +114,10 @@
         },
         "query": {
           "type": "string"
+        },
+        "scope": {
+          "const": "tools",
+          "type": "string"
         }
       },
       "required": [

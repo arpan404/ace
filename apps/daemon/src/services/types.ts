@@ -1,6 +1,6 @@
 import type { CursorHostSlots } from "@ace/adapter-cursor";
 import type { DevicesService } from "@ace/devices";
-import type { ScreenManager } from "@ace/screen";
+import type { ComputerClient, ScreenManager } from "@ace/screen";
 import type { CursorAuthService } from "@ace/accounts";
 import type { AccountService, AccountRegistry } from "@ace/accounts";
 import type { bindCursorSdk } from "@ace/accounts";
@@ -31,7 +31,6 @@ export interface Services {
   externalMcp?: import("../external-mcp/server.ts").ExternalMcp;
   storage?: import("../storage/service.ts").StorageService;
   sourceControl?: import("../source-control.ts").SourceControl;
-  antigravityAuth?: "logged_in" | "logged_out";
   rediscoverProviders?: () => Promise<void>;
   refreshModelInstances?: (provider: import("@ace/protocol").ProviderKind) => Promise<void>;
   providerInstalls?: import("../provider-install/sessions.ts").ProviderInstalls;
@@ -48,9 +47,6 @@ export interface Services {
   workspaceActions?: import("../workspace-runtime.ts").WorkspaceRuntime;
   canReadThread?: NonNullable<import("../server-options.ts").ServerOptions["canReadThread"]>;
   agentControl?: {
-    publications: import("../agent-control/remote-publication.ts").RemotePublications;
-    returns: import("../agent-control/remote-return.ts").RemoteReturns;
-    remote: import("../agent-control/remote.ts").RemoteDelegations;
     previews: import("../agent-control/owners.ts").AgentPreviews;
     delegations: import("../agent-control/delegations.ts").DelegationService;
     port: import("@ace/mcp-server").AgentControlPort;
@@ -65,8 +61,16 @@ export interface Services {
   transitions?: import("../engine/transitions.ts").TransitionIO;
   pi?: import("./pi.ts").PiService;
   screen?: ScreenManager;
-  /** `ace_ask` questions waiting on the person. */
+  /** The agent computer-use engine (macOS), beside the screen manager that streams to people. */
+  computer?: ComputerClient;
+  /** `ask` questions waiting on the person. */
   asks?: import("../asks.ts").Asks;
+  /** Threads whose browser an agent works in now (the task list's indicator). */
+  browsing?: import("../browsing.ts").BrowsingThreads;
+  /** Threads whose agent uses Mac apps now (the task list's indicator). */
+  computerUsing?: import("../computer-using.ts").ComputerUsingThreads;
+  /** `browser_request_help` requests waiting on the person. */
+  browserHelp?: import("../browser-help.ts").BrowserHelp;
   devices?: DevicesService;
   accounts?: AccountService;
   accountManagement?: import("../account-management.ts").AccountManagement;
@@ -92,10 +96,10 @@ export interface Services {
     options: SpawnOptions,
   ): ReturnType<typeof launchPluginProcess>;
   browser: BrowserService;
-  /** Refuses answers to a private-takeover hold; only handback releases it. */
-  browserPrivateAnswers?: (
-    command: import("@ace/protocol").Command,
-  ) => import("@ace/protocol").CommandResult | undefined;
+  /** "Use my Chrome" (ADR 0084): browsers connected through the ace extension. */
+  userBrowser?: import("../user-browser.ts").UserBrowserService;
+  /** Threads' browsers in the person's own Chrome, for agent calls with `browser: "user"`. */
+  userBrowserSessions?: BrowserService;
   context: ContextService;
   settings: SettingsService;
   models: ModelCatalog;

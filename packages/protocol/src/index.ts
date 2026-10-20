@@ -4,7 +4,13 @@ export * from "./agent.ts";
 export * from "./background.ts";
 export * from "./browser.ts";
 export * from "./browser-features.ts";
+export * from "./browser-annotation.ts";
+export * from "./browser-page.ts";
+export * from "./browser-browsing.ts";
+export * from "./browser-transfer.ts";
+export * from "./computer-using.ts";
 export * from "./browser-backend.ts";
+export * from "./user-browser.ts";
 export * from "./commands.ts";
 export * from "./events.ts";
 export * from "./ids.ts";
@@ -12,6 +18,7 @@ export * from "./interactions.ts";
 export * from "./items.ts";
 export * from "./provider.ts";
 export * from "./thread.ts";
+export * from "./goal.ts";
 export * from "./terminal.ts";
 export * from "./tools.ts";
 export * from "./wire.ts";
@@ -83,6 +90,7 @@ export * from "./context-meter.ts";
 export {
   AppDevice,
   AppDeviceId,
+  DeviceActivity,
   DeviceInput,
   DeviceSettings,
   DeviceFailure,
@@ -92,6 +100,8 @@ export {
   DeviceState,
   DeviceOperation,
   DeviceClientMessage,
+  DeviceAck,
+  DeviceScreenshot,
   DeviceServerMessage,
 } from "./devices.ts";
 export * from "./thread-transitions.ts";
@@ -112,6 +122,7 @@ export * from "./project-requests.ts";
 export * from "./long-thread.ts";
 export * from "./turn-steps.ts";
 
+export * from "./cli-version.ts";
 export * from "./provider-status.ts";
 
 export { ProviderConfiguration, ProviderConfigurations } from "./provider-configuration.ts";
@@ -134,9 +145,6 @@ export {
 } from "./prompt-files.ts";
 export * from "./worktree-creation.ts";
 
-export * from "./remote-delegation.ts";
-
-export * from "./remote-context.ts";
 export * from "./agent-orchestration.ts";
 
 export * from "./forge-browser.ts";
@@ -157,3 +165,4 @@ export * from "./cli-control.ts";
 export * from "./storage.ts";
 
 export * from "./html.ts";
+export * from "./image-share.ts";

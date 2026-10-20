@@ -150,7 +150,7 @@ test("Codex starts with a lifetime-scoped ace lease and redacts the native conne
       (frame) => frame.dir === "send" && obj(frame.data)["method"] === "thread/start",
     );
     expect(obj(obj(started?.data)["params"])["developerInstructions"]).toContain(
-      "plus the rest of its tools: ace_guide",
+      "Each family's how-to and other tools: guide",
     );
     expect(
       obj(obj(obj(obj(started?.data)["params"])["config"])["mcp_servers.ace"])["http_headers"],

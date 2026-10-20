@@ -3,25 +3,73 @@ import SwiftUI
 import UIKit
 
 @MainActor enum AceTheme {
-    private static func adaptive(_ light: UInt32, _ dark: UInt32) -> Color {
-        Color(uiColor: UIColor { traits in
+    /// UIKit also resolves dynamic colours on SwiftUI's render threads, so the provider is
+    /// nonisolated and touches nothing but its captured values.
+    nonisolated private static func adaptive(_ light: UInt32, _ dark: UInt32) -> Color {
+        Color(uiColor: UIColor { @Sendable traits in
             let value = traits.userInterfaceStyle == .dark ? dark : light
             return UIColor(red: CGFloat((value >> 16) & 255) / 255, green: CGFloat((value >> 8) & 255) / 255, blue: CGFloat(value & 255) / 255, alpha: 1)
         })
     }
+    /// Token defaults for the editable palette keys. CustomThemeView falls back to these.
+    /// Widget extensions never register a model and keep these shared defaults.
+    static let paletteDefaults: [String: NativePalette.Pair] = [
+        "background": .init(light: 0xFFFFFF, dark: 0x0A0A0B),
+        "secondaryBackground": .init(light: 0xF5F5F7, dark: 0x141416),
+        "card": .init(light: 0xFFFFFF, dark: 0x1A1A1D),
+        "foreground": .init(light: 0x222224, dark: 0xDEDEE0),
+        "mutedForeground": .init(light: 0x626268, dark: 0x9A9AA1),
+        "subtleForeground": .init(light: 0x69696F, dark: 0x8B8B93),
+        "separator": .init(light: 0xE9E9EC, dark: 0x26262A),
+        "fill": .init(light: 0xF2F2F4, dark: 0x1F1F23),
+        "accent": .init(light: 0x3065CC, dark: 0x7AA2F7),
+        "onAccent": .init(light: 0xFFFFFF, dark: 0x0A0A0B),
+    ]
+    /// Editable colours resolve through the injected model so saves and resets
+    /// invalidate every active view. Semantic colours below stay fixed.
     @MainActor enum Colours {
-        static let background = adaptive(0xFFFFFF, 0x0A0A0B)
-        static let secondaryBackground = adaptive(0xF5F5F7, 0x141416)
-        static let card = adaptive(0xFFFFFF, 0x1A1A1D)
-        static let foreground = adaptive(0x0B0B0C, 0xF5F5F7)
-        static let mutedForeground = adaptive(0x626268, 0x9A9AA1)
-        static let subtleForeground = adaptive(0x69696F, 0x8B8B93)
+        static var background: Color {
+            let pair = NativePaletteBridge.pair(for: "background", light: 0xFFFFFF, dark: 0x0A0A0B)
+            return adaptive(pair.light, pair.dark)
+        }
+        static var secondaryBackground: Color {
+            let pair = NativePaletteBridge.pair(for: "secondaryBackground", light: 0xF5F5F7, dark: 0x141416)
+            return adaptive(pair.light, pair.dark)
+        }
+        static var card: Color {
+            let pair = NativePaletteBridge.pair(for: "card", light: 0xFFFFFF, dark: 0x1A1A1D)
+            return adaptive(pair.light, pair.dark)
+        }
+        static var foreground: Color {
+            let pair = NativePaletteBridge.pair(for: "foreground", light: 0x222224, dark: 0xDEDEE0)
+            return adaptive(pair.light, pair.dark)
+        }
+        static var mutedForeground: Color {
+            let pair = NativePaletteBridge.pair(for: "mutedForeground", light: 0x626268, dark: 0x9A9AA1)
+            return adaptive(pair.light, pair.dark)
+        }
+        static var subtleForeground: Color {
+            let pair = NativePaletteBridge.pair(for: "subtleForeground", light: 0x69696F, dark: 0x8B8B93)
+            return adaptive(pair.light, pair.dark)
+        }
         static let decoration = adaptive(0x87878D, 0x76767E)
-        static let separator = adaptive(0xE9E9EC, 0x26262A)
-        static let fill = adaptive(0xF2F2F4, 0x1F1F23)
+        static var separator: Color {
+            let pair = NativePaletteBridge.pair(for: "separator", light: 0xE9E9EC, dark: 0x26262A)
+            return adaptive(pair.light, pair.dark)
+        }
+        static var fill: Color {
+            let pair = NativePaletteBridge.pair(for: "fill", light: 0xF2F2F4, dark: 0x1F1F23)
+            return adaptive(pair.light, pair.dark)
+        }
         static let glass = adaptive(0xFFFFFF, 0x1C1C1F)
-        static let accent = adaptive(0x3065CC, 0x7AA2F7)
-        static let onAccent = adaptive(0xFFFFFF, 0x0A0A0B)
+        static var accent: Color {
+            let pair = NativePaletteBridge.pair(for: "accent", light: 0x3065CC, dark: 0x7AA2F7)
+            return adaptive(pair.light, pair.dark)
+        }
+        static var onAccent: Color {
+            let pair = NativePaletteBridge.pair(for: "onAccent", light: 0xFFFFFF, dark: 0x0A0A0B)
+            return adaptive(pair.light, pair.dark)
+        }
         static let needsYouSurface = adaptive(0xFFF4E8, 0x2A1F12)
         static let diffAdd = adaptive(0xE8F7EE, 0x11281A)
         static let diffDelete = adaptive(0xFDECEC, 0x2D1515)
@@ -29,11 +77,11 @@ import UIKit
         static let shadow = adaptive(0x000000, 0x000000)
     }
     @MainActor enum Status {
-        static let needsYou = adaptive(0xB97811, 0xEDC070)
+        static let needsYou = adaptive(0xA86D0F, 0xEDC070)
         static let working = adaptive(0x2A55B0, 0x6A8FD8)
         static let waiting = adaptive(0x7A5BD6, 0xB49CF5)
         static let unresponsive = adaptive(0xC2508A, 0xE88BB3)
-        static let done = adaptive(0x2F906E, 0x57BD9B)
+        static let done = adaptive(0x2A8566, 0x57BD9B)
         static let failed = adaptive(0xA3233A, 0xCF5468)
     }
     @MainActor enum StatusText {

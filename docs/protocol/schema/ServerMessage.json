@@ -9,7 +9,7 @@
       "$ref": "https://ace.local/protocol/v1/StorageResult.json"
     },
     {
-      "$ref": "https://ace.local/protocol/v1/RemoteDelegationResult.json"
+      "$ref": "https://ace.local/protocol/v1/UserBrowserSettingsResult.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/WorktreeCreationEvent.json"
@@ -1038,6 +1038,18 @@
       "type": "object"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/BrowserAnnotationMessage.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/BrowserPageMessage.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/BrowserBrowsing.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ComputerUsing.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ModelsResult.json"
     },
     {
@@ -1050,7 +1062,13 @@
       "$ref": "https://ace.local/protocol/v1/NotificationMessage.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/NotificationFeedResult.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/NotificationRegisterResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/NotificationUnregisterResult.json"
     },
     {
       "properties": {
@@ -1287,7 +1305,7 @@
         "view"
       ],
       "type": "object",
-      "x-ace-constraint": "seq must equal view.seq."
+      "x-ace-constraint": "seq must equal view.seq; a thread view's itemSeqs holds the creation sequence of every item in itemOrder."
     },
     {
       "properties": {
@@ -1603,7 +1621,8 @@
         "type",
         "requestId"
       ],
-      "type": "object"
+      "type": "object",
+      "x-ace-constraint": "itemSeqs holds the creation sequence of every item."
     },
     {
       "properties": {

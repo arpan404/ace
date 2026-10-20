@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { aceGuidance } from "./status.ts";
-import { coreToolsHeader } from "./toolsets.ts";
+import { coreToolsHeader, staticToolsHeader } from "./toolsets.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
 import { destructiveAceTools } from "./agent-control.ts";
 import type { ProviderKind } from "@ace/protocol";
@@ -32,16 +32,17 @@ export interface SessionGuidance {
   /** Enabled ace groups. Omitted: guidance for every group. */
   groups?: readonly string[] | undefined;
 }
-/** Where the provider natively lists ace's shipped skills; the rest read them via ace_guide. */
+/** Where the provider natively lists ace's shipped skills; the rest read them via `guide`. */
 const skills = "The ace guides are also installed as skills of the same names.";
+/** How each provider spells ace's bare tool names (its MCP namespace for server `ace`). */
 const prefix: Record<ProviderKind, string> = {
-  codex: `ace tools come from the ace MCP server and may be deferred: search for ace when a task matches. ${skills}`,
-  claude: `ace tools are named mcp__ace__<tool>, for example mcp__ace__delegate_task, and may be deferred: search for ace when a task matches. ${skills}`,
-  opencode: `OpenCode prefixes every ace MCP tool with ace_: ace_guide is ace_ace_guide, and delegate_task is ace_delegate_task. ${skills} Load them with your skill tool.`,
+  codex: `ace tools come from the ace MCP server (mcp__ace__<tool>) and may be deferred: search for ace when a task matches. ${skills}`,
+  claude: `ace tools are named mcp__ace__<tool>, for example mcp__ace__delegate, and may be deferred: search for ace when a task matches. ${skills}`,
+  opencode: `OpenCode names ace tools ace_<tool>: guide is ace_guide and delegate is ace_delegate. ${skills} Load them with your skill tool.`,
   cursor: `ace tools come from the ace MCP server. ${skills}`,
   antigravity: "ace tools come from the ace MCP server.",
   acp: "ace tools come from the ace MCP server.",
-  pi: `ace tools are the ace_*, screen_* and device_* extension tools. ${skills}`,
+  pi: `ace tools are your ace_<tool> extension tools: guide is ace_guide and delegate is ace_delegate. ${skills}`,
 };
 
 /**
@@ -111,7 +112,8 @@ export function openCodeInjection(input: Injected) {
     oauth: false as const,
     protocol: "2026-07-28" as const,
     timeout: { execution: maxToolTimeoutMs },
-    // OpenCode lists every MCP tool upfront: ace offers its core tools and opens the rest on use.
+    // OpenCode lists every MCP tool upfront and reloads them on tools/list_changed (2.0.22,
+    // packages/core/src/tool/mcp.ts): ace offers its core tools and opens the rest on use.
     headers: {
       Authorization: `Bearer ${bearer}`,
       "X-Ace-Notifications": "stream",
@@ -131,10 +133,12 @@ export function acpInjection(input: Injected, provider: "cursor" | "antigravity"
         type: "http" as const,
         name: "ace",
         url,
+        // ACP leaves tools/list_changed to each agent and most never refresh, so the list stays
+        // the core tools plus tools_find, and every other tool is reached through tools_call.
         headers: [
           { name: "Authorization", value: `Bearer ${bearer}` },
           { name: "X-Ace-Notifications", value: "stream" },
-          coreToolsHeader,
+          staticToolsHeader,
         ],
       },
     ],
@@ -150,12 +154,14 @@ export function cursorSdkInjection(input: Injected) {
       ace: {
         type: "http" as const,
         url,
-        // Guidance travels once, in Cursor's always-applied rule.
+        // Guidance travels once, in Cursor's always-applied rule. Cursor's SDK caches the tool
+        // list per connection and never handles tools/list_changed, so it keeps the core tools
+        // plus tools_find and reaches the rest through tools_call.
         headers: {
           Authorization: `Bearer ${bearer}`,
           "X-Ace-Instructions": "native",
           "X-Ace-Notifications": "stream",
-          [coreToolsHeader.name]: coreToolsHeader.value,
+          [staticToolsHeader.name]: staticToolsHeader.value,
         },
       },
     },

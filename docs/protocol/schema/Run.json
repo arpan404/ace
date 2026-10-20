@@ -11,6 +11,12 @@
     "endedAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
+    "endedBy": {
+      "enum": [
+        "steer"
+      ],
+      "type": "string"
+    },
     "error": {
       "$ref": "https://ace.local/protocol/v1/AgentError.json"
     },
@@ -58,6 +64,11 @@
     },
     "trigger": {
       "$ref": "https://ace.local/protocol/v1/RunTrigger.json"
+    },
+    "turn": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
     }
   },
   "required": [

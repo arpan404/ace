@@ -68,3 +68,109 @@ with the normal backoff, whose attempt count resets only once a connection stays
 frame the client's schemas reject (another build's message, or a welcome for another protocol
 version) is reported as `ClientError("version_mismatch")` until a good welcome. Transports pass
 the close reason, and `ConnectionInfo.lastClose` keeps the last `{code, reason, at}`.
+
+## Amendment 2026-10-18: read snapshots and warm views
+
+A reload or a reopened view paints before the daemon answers. `ClientOptions.readSnapshots`
+(`ReadSnapshotStorage`, optional) keeps a read record per thread and per thread-list filter.
+The caller scopes and bounds it; the web app keeps them in IndexedDB (`boot/read-snapshots.ts`)
+under a SHA-256 of the connection (daemon address and identity, device, paired account, token),
+so another daemon, device or credential never reads them and no token is stored.
+
+- **Records.** Version 2 (`read-records.ts`). A thread record is the store's view with `itemSeqs`
+  covering `itemOrder` in ascending order, `itemsBefore` (the lane cursors derive from both, ADR 0062) and the truncated ids. A record of another version, without a sequence for every item,
+  out of creation order, or for another thread is discarded, never loaded: an item without a
+  sequence has no place to merge into. A sidebar record holds only the half its filter shows
+  (home or archive); each half is parsed and bounded on its own.
+- **Restore.** A record is read once when the view's store is created and applied only if the
+  store has not changed since (a live snapshot or a failure wins). The restored store is
+  `syncing` and subscribes without `afterSeq`, since the record may come from another daemon run.
+  The daemon's snapshot then resumes it exactly like a resubscription's (`resumeTranscript`): per
+  lane, held finished items older than the snapshot are kept when the snapshot's lane starts at
+  or before the record's cursor + 1, merged by sequence and deduplicated by id; otherwise the
+  snapshot replaces it. A record never makes a row appear twice or out of order.
+- **Lower snapshots.** A subscription's one snapshot is accepted even below the held cursor (a
+  crashed daemon lost the tail it sent, or the held view came from disk); the store then
+  replaces what it held. Wire ids and the one-snapshot window still fence stale frames. Windowed
+  thread lists always subscribe without a cursor.
+- **Writes.** At most one per store per second after a change, read at the scheduled boundary,
+  never on the delta path; a change during a write waits for it. Closing a client, evicting a
+  cached store or changing a list's filter checkpoints what is unwritten after the write in
+  flight, so the newest copy lands last; `close()` settles once they are written.
+- **Warm views.** `ClientApi.cachedThread(id)` and `cachedThreads()` return the store a lease
+  would get, without leasing, so `useThreadStore` and `useSidebarStore` paint it on their first
+  render. Released stores are marked `syncing`. Unleased SDK stores are bounded by count (32) and
+  by 16 MiB of estimated size, least recently used first; held stores are pinned. A tab keeps its
+  released mirrors under its own 16 MiB / 32-entry budget (`MirrorCache`), dropped when the worker
+  is lost. Sizes are measured at the release boundary only.
+- **Unconfirmed status.** A restored or released copy may say a thread is done while it is
+  working again (AGENTS.md priority 1). `ThreadReader.unconfirmed` and
+  `SidebarReader.unconfirmed` (keys `unconfirmed`, mirrored to tabs) are set on a store restored
+  from disk or released unfollowed, and cleared by the daemon's snapshot or the subscription's
+  `subscription.ready`. While set, a Home row keeps its title and project but says "Syncing"
+  (attention `syncing`: no status glyph, pill, unread result, running subagents or request; only
+  a send that failed on this device stands), the tab title counts only such local failures, the
+  thread's live line says "Syncing…" instead of being at rest or working, and Stop is not
+  offered.
+
+## Amendment 2026-10-19: cache scope, invalidation and warming
+
+A remote device on a slow link showed skeletons wherever a view had no copy yet. These rules
+widen what is kept and say when it goes.
+
+- **Filed under the host.** `ClientCore` files every record under the daemon's verified host id
+  (`read-snapshot-scope.ts`): pinned (`expectedHostId`), bound in an earlier session
+  (`hostBinding`), or the first welcome's. A record is read only once that id is known and only
+  under it, so a daemon started afresh at the same address (a new host id) never paints its
+  predecessor's threads. Nothing is written before the id is known. Records written by earlier
+  builds without a host prefix are no longer read and age out of the cache.
+- **Dropped with the credential.** `ReadSnapshotStorage.clear()` (optional) deletes every record
+  of the caller's scope. The client calls it when the connection goes fatal with `auth` (close
+  4001 or 4003, a refused ticket or token) and writes nothing afterwards, closing checkpoints
+  included. The web app also deletes records on Disconnect (every scope: all of the window's
+  credentials go), on Forget the old ace (that target's scope) and when a machine is removed from
+  the pool (its scope). A dropped connection keeps them.
+- **Kept lookups.** The page keeps a small set of daemon lookups (projects, host identity, model
+  catalog, accounts, provider status and readiness, onboarding, provider settings, base refs,
+  permission capabilities, skills, automations) as one record, `queries`, in the same scope
+  (`apps/web/src/lib/query-persistence.ts`). The record names the build and the host id; another
+  build's or daemon's record is ignored. A restored entry never replaces newer data and starts
+  invalidated, so the first view to read it shows it and asks the daemon again, whatever its
+  `staleTime`. Writes are at most one a second and only while the connection is ready. File
+  contents, diffs, search results, logs and keys holding client objects are never kept.
+- **Warming on intent.** The thread route's loader runs when a link to the thread is pointed at,
+  focused or touched (the router's intent preload). It leases the thread for 20 s, at most three
+  at once, oldest released first (`apps/web/src/lib/thread-warmer.ts`), so opening it paints from
+  the store the lease filled (marked unconfirmed once released) instead of waiting a round trip.
+- **Opening before the daemon answers.** The web app remembers, per target and device, the host
+  each daemon last verified itself as (`apps/web/src/boot/known-host.ts`; a host id, never the
+  token). A load with a known host opens the app at once on what this device kept (the worker's
+  client restores records under the host bound in its outbox before the socket opens) while the
+  daemon answers; the shell's notice says how the connection is going, and an unreachable daemon
+  keeps the app rather than returning to the form. Any refusal before the welcome still returns
+  to the connection screen; `auth` and `identity` refusals also forget the known host, so the
+  next load waits for an answer. A different host identifying itself reopens the app for it
+  (fresh caches), and becomes the known host.
+
+## Amendment 2026-10-19: sidebar filter switches
+
+Switching the sidebar's project filter, or opening Archived, showed a skeleton until the
+daemon's snapshot for the new filter arrived, a long wait on a slow link. The sidebar now paints
+what it already holds for that filter (`packages/client/src/sidebar-memory.ts`):
+
+- **Remembered.** Each list a filter leaves is kept in memory for the session, one per half
+  (Home or archive) and project: the last 8, and at most 2,000 rows between them, least
+  recently used dropped. Switching back paints it at once.
+- **Derived.** A project never seen this session paints the rows of the remembered
+  all-projects list (same half) whose `workspaceId` is that project. No rows derives nothing
+  unless that list was whole (its window had nothing before it). With no all-projects list
+  remembered (widening to all, say, in a session that started on one project) nothing is
+  derived: the filter's disk record or the skeleton waits as before.
+- **Provisional.** Either kind of list is `unconfirmed` (rows say "Syncing") and `syncing`
+  until the subscription's snapshot replaces it, and carries no `window`, so nothing pages
+  from it. The filter's disk record replaces a derived list but not a remembered or live one.
+  A derived list is never written to disk as the filter's record, nor remembered as the
+  project's own. Wire ids and the per-filter snapshot binding still fence late snapshots and
+  records for the previous filter.
+- **Held skeletons.** Home's list and the archive show their skeleton only once loading has
+  lasted `statusDelayMs` (`useHeld`), so a switch that resolves quickly never flashes one.

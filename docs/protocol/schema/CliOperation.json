@@ -154,6 +154,35 @@
     },
     {
       "properties": {
+        "args": {
+          "additionalProperties": {},
+          "propertyNames": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "op": {
+          "const": "sim",
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "verb": {
+          "$ref": "https://ace.local/protocol/v1/CliSimVerb.json"
+        }
+      },
+      "required": [
+        "op",
+        "threadId",
+        "verb",
+        "args"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "key": {
           "maxLength": 128,
           "minLength": 1,

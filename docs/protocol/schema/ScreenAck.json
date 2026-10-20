@@ -1,0 +1,32 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenAck.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "keyframe": {
+      "const": true,
+      "type": "boolean"
+    },
+    "sequence": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "sessionId": {
+      "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+    },
+    "streamId": {
+      "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+    },
+    "type": {
+      "const": "screen.ack",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "sessionId",
+    "streamId",
+    "sequence"
+  ],
+  "type": "object"
+}

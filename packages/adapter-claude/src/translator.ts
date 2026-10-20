@@ -1,4 +1,5 @@
 import { systemNotice } from "./system-notices.ts";
+import { claudeGoal } from "./goal.ts";
 import { factRaw, canonicalOnly } from "./raw-facts.ts";
 import { interactionFrame } from "./translate-interactions.ts";
 import type { Key } from "@ace/core";
@@ -6,6 +7,8 @@ import type { Translator, Frame } from "@ace/engine-api";
 import { rateLimitFacts, clearRateLimit } from "./rate-limits.ts";
 import { ResultUsage } from "./result-usage.ts";
 import { NativeQueue } from "./native-queue.ts";
+import { ConsumedInputs } from "./consumed-inputs.ts";
+import { SteerContinuation } from "./steer-continuation.ts";
 import { PendingTranscripts } from "./pending-transcripts.ts";
 import { MessageIndex } from "./blocks.ts";
 import { ClaudeState } from "./state.ts";
@@ -17,6 +20,8 @@ export function createTranslator(init: { rootKey: Key }): Translator {
   let state = new ClaudeState(init.rootKey);
   let accounting = new ResultUsage();
   let queue = new NativeQueue();
+  let consumed = new ConsumedInputs();
+  let steers = new SteerContinuation();
   const streams = new Map<string, StreamState>();
   const messages = new MessageIndex(init.rootKey);
   const pending = new PendingTranscripts();
@@ -124,6 +129,11 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       message(state, data, frame.seq, streams, messages);
       return true;
     }
+    if (type === "active_goal") {
+      const goal = claudeGoal(data);
+      if (goal !== undefined) state.emit({ type: "goal.updated", agent: state.root, goal });
+      return true;
+    }
     if (type === "conversation_reset") {
       accounting.reset(data);
       return true;
@@ -131,6 +141,13 @@ export function createTranslator(init: { rootKey: Key }): Translator {
     if (type === "result") {
       finishStream(state, streams, state.root);
       const aborted = string(data["terminal_reason"]).startsWith("aborted_");
+      if (steers.carriesOn(aborted)) {
+        // Claude cut its request short to take a steer: the turn goes on with it.
+        messages.endRoot();
+        state.releaseTurn();
+        for (const fact of accounting.facts(state, data)) state.emit(fact);
+        return true;
+      }
       const lastError = state.errors.get(state.root);
       const failed = !aborted && (data["is_error"] === true || lastError !== undefined);
       if (!failed && !aborted) clearRateLimit(state);
@@ -207,6 +224,8 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         state = new ClaudeState(init.rootKey);
         accounting = new ResultUsage();
         queue = new NativeQueue();
+        consumed = new ConsumedInputs();
+        steers = new SteerContinuation();
         streams.clear();
         messages.clear();
         pending.clear();
@@ -224,6 +243,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         return state.facts;
       }
       queue.observe(state, frame, data);
+      steers.observe(state, frame, data);
       if (pending.defer(state, frame)) return state.facts;
       if (interactionFrame(state, frame, data)) {
         // Interaction owner reports only lifecycle facts.
@@ -247,6 +267,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
           undefined,
         );
       }
+      consumed.observe(state, frame, data);
       const bindings = state.bindings;
       state.bindings = [];
       for (const spawn of bindings)

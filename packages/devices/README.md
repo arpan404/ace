@@ -23,36 +23,54 @@ There is no provider login or credential handling here.
 ## Authorization and transport
 
 An authenticated admin turns devices on. A device belongs to the thread whose agent or
-person took it last: `device_boot` and `device_start` take it for the agent's thread and
+person took it last: `sim_start` takes it for the agent's thread (booting it if needed) and
 give that agent the controller lease with no prompt, unless a person controls it or another
 agent holds an unexpired lease. A person can also hand it to one of a thread's agents.
 Moving a device to another thread starts fresh logs and recordings. Input uses target
 points, with `frame.scale` converting display pixels to those points. Control
 expires after 30 seconds without an action. Queued actions retain their ticket until
 completion. Agents can resume their expired lease on the next action; explicit
-release and takeover invalidate it, and the agent takes it again with `device_start`. Human takeover invalidates pending
+release and takeover invalidate it, and the agent takes it again with `sim_start`. Human takeover invalidates pending
 agent commands, including commands awaiting SDK lookup or permission checks.
 An already dispatched native command can finish; the next command must pass the
 new ownership checks. Disconnect and credential revocation release control.
 
 Local sockets use `devices.request`, `devices.result`, `devices.state` and
-`devices.logs`. Frame packets use the existing screen binary format. Relay
-clients open a dedicated channel with `hello.channel = "devices"`, then perform
-the existing paired-client authentication. Browser and screen have dedicated
+`devices.logs`. A subscribed view gets its pictures as stream kind `deviceFrame` on the
+browser's stream envelope (`@ace/browser/stream`), paced by `devices.ack` with the browser
+video's window and keyframe rules (`@ace/browser/picture-channel`, ADR 0064 "Shared media
+stream"). A screenshot is a still picture on the same stream, sent just before the
+`devices.result` that names it (`DeviceScreenshot`); `DeviceClient.screenshot` resolves with
+its bytes. There is no other binary format. Relay clients open a dedicated channel with `hello.channel = "devices"`, then
+perform the existing paired-client authentication. Browser and screen have dedicated
 relay channels too. File downloads retain their existing channel and protocol.
-Frames are fragmented into at most 64 KiB relay records and serialized as whole
-packets so multiple streams cannot interleave. Reconnect requires fresh viewing requests;
+Pictures are cut into stream pieces of at most 64 KiB and every picture is written
+whole, so multiple streams cannot interleave. Reconnect requires fresh viewing requests;
 it never replays input or grants control.
 
 The daemon composes browser, screen and devices toolkits before provider sessions
-start. Every adapter receives the same session-scoped MCP connection. Device
-tools are `device_list`, `device_boot`, `device_open_app`, `device_open_url`,
-`device_screenshot`, `device_ui_tree`, `device_find`, `device_act`, `device_tap`,
-`device_swipe`, `device_type`, `device_key`, `device_logs`, `device_record_start`,
-`device_record_stop` and `device_install`. A tap with `durationMs` is a long press.
-Logs start on the first authorized `device_logs` request and return a bounded
-tail. Tools take no thread or agent override. Agent screenshots require the
-device stream to be live.
+start. Every adapter receives the same session-scoped MCP connection. Simulator
+tools are named `sim_*` so they cannot be confused with paired machines: `sim_list`,
+`sim_start`, `sim_stop`, `sim_ui` (tree or find), `sim_act` (ui, tap, long_press,
+swipe, type, key, open_app, open_url, install, record_start, record_stop, clipboard_get,
+clipboard_set),
+`sim_screenshot` and `sim_logs`. Each takes a `simId`.
+Logs start on the first authorized `sim_logs` request and return a bounded
+tail. Tools take no thread or agent override.
+
+`sim_ui` puts short refs (`@e3`) on actionable elements only. `SimRefs` keeps one numbering per
+agent and device, shared by MCP and the CLI: an element keeps its ref across reads while it
+stays on screen, matched by the platform's own ref or else by role, name and frame. Every
+`sim_act` on a ref re-reads the tree first; an element that has gone fails with `stale_ref`
+before anything reaches the device. `tap`, `long_press` and `type` take a ref or a point.
+
+`sim_screenshot` reads the live view when one runs, and otherwise takes a one-off still
+(`simctl io screenshot`, or `screencap` pulled over adb), fitted inside the frame packet bounds.
+The device how-to (`sim-guidance.ts`) rides on an agent's first `sim_start` of a device only.
+
+`ace sim list|start|stop|ui|act|screenshot|logs --thread ID` is the same tools from a shell
+(`sim-tools.ts` serves both). Like `ace task spawn`, it uses the local daemon credential and
+acts as the named thread's root agent, so leases, takeover and refs are the MCP agent's own.
 
 ## SDKs and supported operations
 
@@ -63,15 +81,48 @@ and `emulator/emulator` by absolute path. adb need not be on PATH. iOS uses
 can still show one platform when the other SDK is missing; typed diagnostics
 contain a fix hint. Physical devices are excluded.
 
-Android capture pipes `adb exec-out screenrecord --output-format=h264` into
-ffmpeg. The pipe applies backpressure before decoding; independent JPEG frames
-can then skip intermediate images safely. ffmpeg must be on the daemon's PATH.
-Identical decoded images are suppressed and the finite screenrecord process
-restarts at its native boundary. Actual image compatibility, latency and CPU
-cost require live verification at merge. No emulator gRPC endpoint is assumed.
+Android capture speaks the scrcpy protocol (Apache-2.0) with ace's own client,
+written from scrcpy's `doc/develop.md` and the documented message layouts. The
+pinned upstream `scrcpy-server` v5.0.1 is downloaded on first use into
+`<ACE_HOME>/tools` and checked against its SHA-256; `ACE_SCRCPY_SERVER` may name a
+verified local copy. It is pushed with adb and started with `app_process` (video on,
+audio off, control on) behind an `adb forward` tunnel. The emulator's own H.264 is
+passed through to viewers with its parameter sets in front of every keyframe; a
+keyframe request resets the device encoder; size, frame rate and bitrate come from
+the shared stream profile. There is no time limit and no ffmpeg in the live view.
+JPEG viewers, screenshots and recordings decode that H.264 once through ffmpeg;
+without ffmpeg every viewer stays on H.264. Input goes over the control socket:
+multi-touch with pointer ids (`pointer.pointerId`), keys including back, home and
+recents, rotation, and text. Printable ASCII is injected as text; anything else
+(accents, emoji) is pasted through the device clipboard and the action completes
+when the device acknowledges it, so it replaces the emulator's clipboard. The
+`clipboard.get`/`clipboard.set` operations (sim_act `clipboard_get`/`clipboard_set`) use
+the same socket: a read waits up to 1.5 s for the device's reply (no reply means an empty
+clipboard), a write waits for its acknowledgement. Without the scrcpy view the Android
+clipboard is refused as unsupported; on iOS they run `xcrun simctl pbpaste|pbcopy`.
+Reads return at most 4,096 characters with `truncated` set when cut. When the
+server cannot start, capture falls back to `adb exec-out screenrecord` into ffmpeg
+(JPEG, restarted at screenrecord's time limit, input through `adb shell input`).
+`ACE_ANDROID_SCRCPY=off` forces that fallback.
 
-iOS capture and semantic actions use the Simulator window through the
-macOS helper. Set `ACE_SCREEN_HELPER` and grant Screen Recording and Accessibility
+Android UI trees come from ace's own long-running UiAutomation reader
+(`src/android-ui-helper/`, a 4 KB dex built from `Main.java` with the SDK's javac
+and d8: `bun run --filter @ace/devices build:android-ui-helper`). It is pushed and
+started with `app_process`, answers each read over adb's stdio in tens of
+milliseconds, and exits after 30 seconds idle so test runners can take UiAutomation.
+If it cannot start or read the screen, `uiautomator dump` is used.
+`ACE_ANDROID_UI_HELPER=off` disables it. Both run only when the daemon gives the
+platform a tools directory.
+
+iOS prefers a pinned `serve-sim` (0.1.47 or 0.1.48; install with
+`npm install -g serve-sim@0.1.48`, or point `ACE_SERVE_SIM` at it). ace spawns
+and supervises it per device: viewers that decode H.264 get its stream re-framed
+as Annex B with no decode or re-encode, other viewers, screenshots and recordings
+get its MJPEG through the bounded resize path, input uses its HID socket (edge
+gestures included), and `ui.tree`/`ui.find`/`ui.act` read its accessibility
+bridge. Other serve-sim versions are not driven (ADR 0064, "Native Simulator
+transport"). Without it, iOS capture and semantic actions use the Simulator window
+through the macOS helper. Set `ACE_SCREEN_HELPER` and grant Screen Recording and Accessibility
 to **Ace Screen Helper** (the helper disclaims its launcher, so the grants belong
 to its stable `dev.ace.screen-helper` identity). A missing permission fails with
 `permission_denied` and a `permission` field naming it; `permissions` reads the
@@ -93,10 +144,11 @@ Both platforms support boot/shutdown, app launch, URL/deep links, light/dark
 appearance and location. iOS installs Simulator-built `.app` bundles; `.ipa`
 receives an explicit unsupported error with an extraction/build hint. Android
 installs `.apk` files. Runtime locale changes receive an unsupported error and a
-Settings hint. Android CLI text input accepts printable ASCII and rejects
-Unicode and the special `%s` sequence rather than corrupting it. Android semantic
+Settings hint. The screenrecord fallback's `adb shell input` text accepts printable
+ASCII and rejects Unicode and the special `%s` sequence rather than corrupting it,
+and accepts one finger only. Android semantic
 actions validate a fresh accessibility ref and disclose coordinate fallback.
-iOS back/power keys are unsupported; home, rotate and enter use Simulator keys.
+iOS back and recents keys are unsupported; home, rotate and enter use Simulator keys.
 
 Recording requires `ACE_WORKSPACE_ROOT` so the daemon has a file artifact
 registry, and ffmpeg for MP4 export. Raw recordings are capped at 512 MiB;

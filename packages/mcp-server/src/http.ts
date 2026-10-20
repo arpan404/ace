@@ -1,22 +1,23 @@
 import { legacySessions } from "./legacy-sessions.ts";
-import {
-  createStatusRegistry,
-  mcpStatusGroups,
-  type StatusReader,
-  aceInstructions,
-} from "./status.ts";
+import { mcpStatusGroups, type StatusReader, aceInstructions } from "./status.ts";
 import { SessionAwareness, type AwarenessPort } from "./awareness.ts";
 import { withChanges } from "./changes.ts";
-import { knowledgeResources } from "./knowledge-tools.ts";
-import { OpenToolsets, coreToolsHeader } from "./toolsets.ts";
+import { contextResources, createContextRegistry } from "./context-tool.ts";
+import type { KnowledgePort } from "./knowledge-tools.ts";
+import { OpenToolsets, coreToolsHeader, toolListing } from "./toolsets.ts";
+import { aceToolDispatch, aceToolSearch, bareToolName, dispatchedAceCall } from "./tool-names.ts";
+import type { CallToolResult } from "@modelcontextprotocol/server";
+import { createMetaRegistry, foundFamilies } from "./meta-tools.ts";
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import { CredentialRegistry, type Principal } from "./credentials.ts";
-import type { ToolRegistry } from "./registry.ts";
+import type { CatalogTool, SessionTools, ToolRegistry } from "./registry.ts";
 
 export interface McpServerOptions {
   registry: ToolRegistry;
   status?: StatusReader;
+  /** What the project already knows, for `context`. Absent: `context` reports status only. */
+  knowledge?: Pick<KnowledgePort, "context">;
   /** Session brief and change digest facts (proposal P1). Absent: plain results. */
   awareness?: AwarenessPort;
   credentials?: CredentialRegistry;
@@ -31,11 +32,11 @@ export async function startMcpServer(options: McpServerOptions) {
     const state = options.status?.(caller);
     return (name, capability) => {
       if (capability && state?.disabled?.[capability] !== undefined) return false;
-      if (name === "ace_ask" && state?.askAvailable === false) return false;
+      if (bareToolName(name) === "ask" && state?.askAvailable === false) return false;
       return true;
     };
   });
-  const status = createStatusRegistry(options.registry, options.status);
+  const status = createContextRegistry(options.registry, options.status, options.knowledge);
   const awareness = options.awareness
     ? new SessionAwareness(options.awareness, (principal) => {
         const state = options.status?.(principal.scope);
@@ -163,6 +164,12 @@ async function createHandler(
     await import("@modelcontextprotocol/node");
   const calls = new WeakMap<Principal, Map<string | number, AbortController>>();
   const toolsets = new OpenToolsets();
+  const meta = createMetaRegistry();
+  const registryFor = (name: string) => {
+    const bare = bareToolName(name);
+    if (bare === "context") return status;
+    return bare === aceToolSearch || bare === aceToolDispatch ? meta : options.registry;
+  };
   // Set once the handlers exist: a call that opens a toolset re-announces the tool list.
   let announce: () => void = noop;
   const factory: import("@modelcontextprotocol/server").McpServerFactory = ({ requestInfo }) => {
@@ -171,12 +178,30 @@ async function createHandler(
     );
     if (!principal) throw new Error("Unauthorized");
     const caller = principal;
-    const core = requestInfo?.headers.get(coreToolsHeader.name) === coreToolsHeader.value;
+    const listing = toolListing(requestInfo?.headers.get(coreToolsHeader.name));
+    const catalog = (): CatalogTool[] =>
+      [...status.list(principal), ...options.registry.list(principal)].map((tool) => ({
+        tool,
+        family: options.registry.toolset(tool.name),
+      }));
+    /** One call exactly as the client made it: the path `tools_call` dispatches through too. */
+    const direct = (name: string, args: unknown, signal: AbortSignal) => {
+      const registry = registryFor(name);
+      return registry.call(name, args, principal, signal, {
+        listing,
+        ...(registry === meta ? { session } : {}),
+      });
+    };
+    const session: SessionTools = {
+      listing,
+      catalog,
+      ...(listing === "static" ? { dispatch: direct } : {}),
+    };
     // The HTTP SDK validates mirrored parameters only for McpServer products. Reuse
     // our prepared schema by name instead of registering/scanning every tool per call.
     class RegistryServer extends McpServer {
       override toolInputSchemaJson(name: string) {
-        return (name === "ace_status" ? status : options.registry).inputSchema(name, caller);
+        return registryFor(name).inputSchema(name, caller);
       }
     }
     const product = new RegistryServer(
@@ -202,20 +227,14 @@ async function createHandler(
               },
             ]
           : []),
-        ...(options.registry.capability("ace_context") === null
-          ? knowledgeResources.map((resource) => ({
-              uri: resource.uri,
-              name: resource.name,
-              mimeType: "application/json",
-            }))
-          : []),
-        {
-          uri: "ace://status",
-          name: "ace status",
-          description:
-            "Current connection, tool availability and access mode. Also call ace_status.",
-          mimeType: "application/json",
-        },
+        ...contextResources
+          .filter((resource) => resource.topic === "status" || options.knowledge)
+          .map((resource) => ({
+            uri: resource.uri,
+            name: resource.name,
+            description: `The context tool's ${resource.topic} topic.`,
+            mimeType: "application/json",
+          })),
       ],
     }));
     server.setRequestHandler("resources/read", async (request, context) => {
@@ -232,41 +251,42 @@ async function createHandler(
           ],
         };
       }
-      const knowledge = knowledgeResources.find((entry) => entry.uri === request.params.uri);
-      if (knowledge) {
-        const result = await options.registry.call(
-          "ace_context",
-          { topics: [knowledge.topic] },
-          principal,
-          context.mcpReq.signal,
-        );
-        if (result.isError || !result.structuredContent) throw new Error("Context unavailable");
-        return {
-          contents: [
-            {
-              uri: knowledge.uri,
-              mimeType: "application/json",
-              text: JSON.stringify(result.structuredContent),
-            },
-          ],
-        };
-      }
-      if (request.params.uri !== "ace://status") throw new Error("Unknown resource");
-      const result = await status.call("ace_status", {}, principal, context.mcpReq.signal);
-      if (result.isError || !result.structuredContent) throw new Error("Status unavailable");
+      const resource = contextResources.find((entry) => entry.uri === request.params.uri);
+      if (!resource || (resource.topic !== "status" && !options.knowledge))
+        throw new Error("Unknown resource");
+      const result = await status.call(
+        "context",
+        { topics: [resource.topic] },
+        principal,
+        context.mcpReq.signal,
+      );
+      if (result.isError || !result.structuredContent) throw new Error("Context unavailable");
       return {
         contents: [
           {
-            uri: "ace://status",
+            uri: resource.uri,
             mimeType: "application/json",
-            text: JSON.stringify(result.structuredContent),
+            text: JSON.stringify(
+              resource.topic === "status"
+                ? Reflect.get(result.structuredContent, "status")
+                : result.structuredContent,
+            ),
           },
         ],
       };
     });
+    /** Whether a successful call adds families to a core-mode session's list. */
+    const opens = (name: string, args: unknown, result: CallToolResult): boolean =>
+      bareToolName(name) === aceToolSearch
+        ? listing === "core" && toolsets.add(principal, foundFamilies(result.structuredContent))
+        : toolsets.opened(principal, name, args);
     server.setRequestHandler("tools/list", async () => ({
-      tools: [...status.list(principal), ...options.registry.list(principal)].filter(
-        (tool) => !core || toolsets.lists(principal, tool.name),
+      tools: [
+        ...status.list(principal),
+        ...meta.list(principal),
+        ...options.registry.list(principal),
+      ].filter((tool) =>
+        toolsets.lists(principal, listing, tool.name, options.registry.toolset(tool.name)),
       ),
     }));
     server.setRequestHandler("tools/call", async (request, context) => {
@@ -284,19 +304,17 @@ async function createHandler(
       const controller = new AbortController();
       pending.set(id, controller);
       try {
-        const registry = request.params.name === "ace_status" ? status : options.registry;
-        const result = await registry.call(
-          request.params.name,
-          request.params.arguments ?? {},
-          principal,
+        const { name } = request.params;
+        const args = request.params.arguments ?? {};
+        const result = await direct(
+          name,
+          args,
           AbortSignal.any([context.mcpReq.signal, controller.signal]),
         );
-        if (
-          !result.isError &&
-          toolsets.opened(principal, request.params.name, request.params.arguments)
-        )
-          announce();
-        return awareness ? withChanges(awareness, principal, request.params.name, result) : result;
+        if (!result.isError && opens(name, args, result)) announce();
+        // A dispatched call is remembered as the tool it ran.
+        const tool = dispatchedAceCall(name, args).name;
+        return awareness ? withChanges(awareness, principal, tool, result) : result;
       } finally {
         pending.delete(id);
         if (!pending.size) calls.delete(principal);

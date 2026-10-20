@@ -1,3 +1,4 @@
+import { GoalChange } from "./goal.ts";
 import { ForgePrWorktree } from "./forge-worktree.ts";
 import { ForgeIssueCommands, ForgeIssueRef } from "./forge-issues.ts";
 import { ProjectCommands } from "./projects.ts";
@@ -104,8 +105,9 @@ export const CommandPayload = z.discriminatedUnion("type", [
     input: z.array(ContentPart).min(1),
     context: MessageContext.optional(),
     /**
-     * `steer` injects into the running turn when the provider supports it;
-     * `queue` waits for the thread to settle. Unsupported steer falls back to queue.
+     * `steer` injects into the running turn when the provider supports it, and starts the
+     * next turn when none is running; `queue` waits for the root agent's turn to end, never
+     * for background commands or subagents. Unsupported steer falls back to queue.
      */
     delivery: FollowUpBehavior.optional(),
   }),
@@ -131,6 +133,9 @@ export const CommandPayload = z.discriminatedUnion("type", [
     threadId: ThreadId,
     mode: z.string().min(1).max(256),
   }),
+  /** Set, pause or resume the provider's native goal (Codex). */
+  z.object({ type: z.literal("thread.goal.set"), threadId: ThreadId, change: GoalChange }),
+  z.object({ type: z.literal("thread.goal.clear"), threadId: ThreadId }),
   z.object({
     type: z.literal("interaction.resolve"),
     interactionId: InteractionId,

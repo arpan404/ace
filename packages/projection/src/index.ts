@@ -1,11 +1,18 @@
-export { chronologicalItemOrder } from "./item-order.ts";
-import { insertChronologicalItem } from "./item-order.ts";
+export {
+  MissingSequenceError,
+  inRootLane,
+  laneBefore,
+  mergeBySeq,
+  retainedTail,
+} from "./item-order.ts";
+export type { RetainedTail, TailEntry } from "./item-order.ts";
 export {
   isRawHistoryItem,
   historyMessageIdentity,
   visibleHistoryOrder,
 } from "./history-visibility.ts";
 export { threadAttention } from "./thread-attention.ts";
+export { startsTurn, startedRunTurn, runTurn } from "./turn-boundary.ts";
 export { siteOrigin, toolSurface, toolSurfaces } from "./tool-surface.ts";
 export { withoutPortableHandoff } from "./portable-input.ts";
 import { usageSnapshotKey } from "./usage.ts";
@@ -171,12 +178,19 @@ export function updateThread(thread: Thread, event: Event): void {
     if (payload.effectiveCapabilities !== undefined)
       thread.effectiveCapabilities = structuredCopy(payload.effectiveCapabilities);
     if (payload.acpSupport !== undefined) thread.acpSupport = structuredCopy(payload.acpSupport);
+    if (payload.acp !== undefined) {
+      thread.acpAgentId = payload.acp.acpAgentId;
+      thread.installationId = payload.acp.installationId;
+      thread.instanceId = payload.acp.instanceId;
+    }
     if (payload.status !== undefined) {
       thread.status = structuredCopy(payload.status);
       thread.activitySeq = event.seq;
     }
     if (payload.archivedAt === null) delete thread.archivedAt;
     else if (payload.archivedAt !== undefined) thread.archivedAt = payload.archivedAt;
+    if (payload.goal === null) delete thread.goal;
+    else if (payload.goal !== undefined) thread.goal = structuredCopy(payload.goal);
   }
   if (payload.type === "agent.created" && payload.agent.origin === "root")
     thread.rootAgentId = payload.agent.id;
@@ -257,6 +271,7 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       const run = get(view.runs, p.runId);
       if (run) {
         run.state = p.state;
+        if (p.endedBy) run.endedBy = p.endedBy;
         run.endedAt = p.endedAt;
         if (p.error) run.error = structuredCopy(p.error);
         if (p.trigger !== undefined) run.trigger = p.trigger;
@@ -272,9 +287,10 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       )
         break;
       const previous = get(view.items, p.item.id);
-      if (!previous) insertChronologicalItem(view.itemOrder, view.items, p.item);
-      // Creation time is identity, as in the core reducer. A provider refresh can
-      // replace content but cannot change where an already admitted item belongs.
+      // Events arrive in creation-sequence order, so a new item belongs at the end.
+      if (!previous) view.itemOrder.push(p.item.id);
+      // Creation time is identity, as in the core reducer: a provider refresh replaces
+      // content but keeps the timestamp the item was admitted with.
       const item = structuredCopy(p.item);
       if (previous) item.createdAt = previous.createdAt;
       put(view.items, p.item.id, item);

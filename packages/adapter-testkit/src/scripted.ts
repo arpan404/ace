@@ -2,13 +2,21 @@ import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import { copyScriptedFrame } from "./scripted-frames.ts";
 import type { Key } from "@ace/core";
 import type { Frame, ProviderAdapter, ProviderSession, SessionContext } from "@ace/engine-api";
-import type { Capabilities, ContentPart, InteractionResolution, ProviderKind } from "@ace/protocol";
+import type {
+  Capabilities,
+  ContentPart,
+  GoalChange,
+  InteractionResolution,
+  ProviderKind,
+} from "@ace/protocol";
 
 export type ScriptedCommand =
   | { type: "send"; input: ContentPart[]; delivery: "steer" | "queue" }
   | { type: "interrupt"; target: { agent?: Key; cascade: boolean } }
   | { type: "resolve"; interaction: Key; resolution: InteractionResolution }
   | { type: "stopTask"; task: Key }
+  /** Only on adapters whose capabilities say `goals`. */
+  | { type: "goal"; change: GoalChange | "clear" }
   | { type: "close"; reason: "idle" | "user" | "shutdown" };
 
 export interface ScriptedStep {
@@ -16,6 +24,8 @@ export interface ScriptedStep {
   on: "open" | ScriptedCommand["type"];
   frames?: readonly Frame[];
   exit?: { deliberate: boolean; message?: string };
+  /** The command is rejected with this message once the step's frames are admitted. */
+  fail?: string;
 }
 export interface AdapterScript {
   provider: ProviderKind;
@@ -39,6 +49,7 @@ export function createScriptedAdapter(script: AdapterScript): ScriptedAdapter {
     on: step.on,
     ...(step.frames ? { frames: step.frames.map(copyScriptedFrame) } : {}),
     ...(step.exit ? { exit: structuredClone(step.exit) } : {}),
+    ...(step.fail === undefined ? {} : { fail: step.fail }),
   }));
   const capabilities = structuredClone(script.capabilities);
   if (!capabilities.permissions) {
@@ -87,6 +98,7 @@ export function createScriptedAdapter(script: AdapterScript): ScriptedAdapter {
           await ctx.onFrame(copyScriptedFrame(frame));
         }
         if (step.exit && !closed) exit(step.exit);
+        if (step.fail !== undefined) throw new Error(step.fail);
       }
       function record(command: ScriptedCommand): void {
         if (closed) throw new Error("scripted session is closed");
@@ -121,6 +133,16 @@ export function createScriptedAdapter(script: AdapterScript): ScriptedAdapter {
         async stopTask(task) {
           await receive({ type: "stopTask", task });
         },
+        ...(capabilities.goals
+          ? {
+              async setGoal(change: GoalChange) {
+                await receive({ type: "goal", change });
+              },
+              async clearGoal() {
+                await receive({ type: "goal", change: "clear" });
+              },
+            }
+          : {}),
         async close(reason) {
           if (closed) return;
           record({ type: "close", reason });

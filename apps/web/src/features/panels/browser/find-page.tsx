@@ -1,16 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import type { PreviewSource } from "../sources.ts";
+import { desktopBrowserViews } from "@/boot/desktop-browser.ts";
 import { Input } from "@/components/ui/input.tsx";
 import { Button } from "@/components/ui/button.tsx";
 
-export function FindPage(props: { source: PreviewSource; threadId: string; onClose(): void }) {
+export function FindPage(props: {
+  source: PreviewSource;
+  threadId: string;
+  tabId: string | undefined;
+  onClose(): void;
+}) {
   const [text, setText] = useState("");
   const [message, setMessage] = useState("");
   const generation = useRef(0);
   const find = async (forward: boolean) => {
     const current = ++generation.current;
     try {
-      const raw = await props.source.findText?.(props.threadId, text, forward);
+      const raw = await props.source.findText?.(props.threadId, text, forward, props.tabId);
       if (current !== generation.current) return;
       if (
         typeof raw === "object" &&
@@ -51,6 +57,8 @@ export function FindPage(props: { source: PreviewSource; threadId: string; onClo
       <Input
         aria-label="Find text"
         autoFocus
+        // In the desktop app ⌘F may come from the native page: take the keyboard from it.
+        onFocus={() => desktopBrowserViews()?.focusApp()}
         value={text}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {

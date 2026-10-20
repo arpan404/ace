@@ -1,5 +1,6 @@
 import { createTextRedactor } from "@ace/redaction";
 import { htmlPublication } from "../html-publication.ts";
+import { imagePublication } from "../image-publication.ts";
 import { logError } from "@ace/diagnostics";
 import { toolResultObserver } from "../tool-result-mcp.ts";
 import { providerMcpSources } from "../provider-mcp-sources.ts";
@@ -14,13 +15,15 @@ import {
 import { builtinGuides } from "@ace/plugins";
 import { devicesToolkit } from "@ace/devices";
 import { browserToolkit } from "../browser-toolkit.ts";
-import { screenToolkit } from "@ace/screen";
+import { computerToolkit, screenToolkit } from "@ace/screen";
 import { handoffToolkit } from "./handoff-tools.ts";
 import { startDaemonMcp } from "../mcp.ts";
 import { hostname } from "node:os";
 import { mcpAwareness } from "../mcp-awareness.ts";
 import { knowledgePort } from "../knowledge.ts";
 import { Asks } from "../asks.ts";
+import { BrowserHelp } from "../browser-help.ts";
+import { browserHelpTab, browserHelpToolkit } from "../browser-help-tool.ts";
 import { GitService } from "@ace/git";
 import type { ServiceContext } from "./types.ts";
 export async function startMcp(context: ServiceContext): Promise<void> {
@@ -37,6 +40,21 @@ export async function startMcp(context: ServiceContext): Promise<void> {
     },
   });
   services.asks = asks;
+  const browser = services.browser;
+  const help = browser
+    ? new BrowserHelp({
+        store,
+        engine: () => services.engine,
+        tab: browserHelpTab(browser),
+        id: context.id,
+        schedule: (run, ms) => {
+          const timer = setTimeout(run, ms);
+          timer.unref();
+          return () => clearTimeout(timer);
+        },
+      })
+    : undefined;
+  if (help) services.browserHelp = help;
   const contextGit = new GitService({ timeoutMs: 10_000 });
   resources.own(() => contextGit.close());
   const measurements = measurementObserver({
@@ -80,6 +98,18 @@ export async function startMcp(context: ServiceContext): Promise<void> {
   };
   resources.own(measurements.close);
   resources.own(results.close);
+  const knowledge = knowledgePort({
+    store,
+    projects: () => services.projects?.catalog,
+    delegations: () => services.agentControl?.delegations,
+    prStatus: async (thread, cwd) =>
+      (await services.workspaceActions?.forge.status(thread, cwd)) ?? null,
+    git: contextGit,
+    failures: (sessionId) => services.mcp?.failures(sessionId) ?? [],
+    asks,
+    now: context.now,
+    id: context.id,
+  });
   const mcp = await startDaemonMcp(
     store,
     [
@@ -90,23 +120,17 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         id: context.id,
         redactTitle: createTextRedactor({ env: process.env }),
       }),
+      imagePublication({
+        store,
+        context: () => services.context,
+        now: context.now,
+        id: context.id,
+        redactText: createTextRedactor({ env: process.env }),
+      }),
       handoffToolkit(store),
       // The shipped skills, on demand, for every provider (Claude and Codex also get them natively).
       guideToolkit(await builtinGuides()),
-      knowledgeToolkit(
-        knowledgePort({
-          store,
-          projects: () => services.projects?.catalog,
-          delegations: () => services.agentControl?.delegations,
-          prStatus: async (thread, cwd) =>
-            (await services.workspaceActions?.forge.status(thread, cwd)) ?? null,
-          git: contextGit,
-          failures: (sessionId) => services.mcp?.failures(sessionId) ?? [],
-          asks,
-          now: context.now,
-          id: context.id,
-        }),
-      ),
+      knowledgeToolkit(knowledge),
       agentControlToolkit({
         async execute(caller, operation, signal) {
           return services.agentControl
@@ -117,43 +141,67 @@ export async function startMcp(context: ServiceContext): Promise<void> {
       ...(options.toolkits ?? []),
       ...(services.browser
         ? [
-            browserToolkit(services.browser, store, async (call, { caller, signal }) => {
-              const machines = services.machines;
-              if (!machines) throw new PublicToolError("machine_unavailable");
-              return machines.caller.browser(caller, call.machine, call.tool, call.args, {
-                timeoutMs: call.timeoutMs,
-                signal,
-              });
-            }),
+            browserToolkit(
+              services.browser,
+              store,
+              async (call, { caller, signal }) => {
+                const machines = services.machines;
+                if (!machines) throw new PublicToolError("machine_unavailable");
+                return machines.caller.browser(caller, call.machine, call.tool, call.args, {
+                  timeoutMs: call.timeoutMs,
+                  signal,
+                });
+              },
+              userBrowserTools(services),
+            ),
           ]
         : []),
+      ...(help ? [browserHelpToolkit(help)] : []),
       ...(services.devices ? [devicesToolkit(services.devices)] : []),
-      ...(services.screen ? [screenToolkit(services.screen)] : []),
+      // Agents use the background engine on macOS; other platforms keep the session tools.
+      ...(services.computer
+        ? [
+            computerToolkit(services.computer, {
+              // Read on every call, so a change in Settings applies to the next one.
+              blockedApps: async () =>
+                (await services.settings?.get("computer.blockedApps"))?.value ?? [],
+              using: (threadId, app) =>
+                services.computerUsing?.begin(ThreadId.parse(threadId), app) ?? (() => {}),
+            }),
+          ]
+        : services.screen
+          ? [screenToolkit(services.screen)]
+          : []),
     ],
     observations,
-    (caller) => ({
-      // Report the thread's own native selector; a fixed placeholder misleads agents.
-      access: store.getThread(caller.threadId)?.permission?.effective ?? null,
-      // Providers with their own ask tool keep it; delegated children and Cursor get ace_ask.
-      askAvailable:
-        store.getThread(caller.threadId)?.provider === "cursor" ||
-        !!services.agentControl?.delegations.journal.get(caller.threadId),
-      disabled: {
-        ...(!services.browser
-          ? { browser: "ace's built-in browser failed to start in this daemon." }
-          : {}),
-        ...(!services.screen?.isEnabled()
-          ? {
-              screen: "Computer use is disabled.",
-            }
-          : {}),
-        ...(!services.devices?.isEnabled()
-          ? {
-              devices: "Devices are disabled.",
-            }
-          : {}),
-      },
-    }),
+    (caller) => {
+      const thread = store.getThread(caller.threadId);
+      const project = thread && store.getWorkspace(thread.workspaceId);
+      return {
+        // Report the thread's own native selector; a fixed placeholder misleads agents.
+        access: thread?.permission?.effective ?? null,
+        ...(thread && project ? { project: { id: thread.workspaceId, name: project.name } } : {}),
+        // Providers with their own ask tool keep it; delegated children and Cursor get ask.
+        askAvailable:
+          thread?.provider === "cursor" ||
+          !!services.agentControl?.delegations.journal.get(caller.threadId),
+        disabled: {
+          ...(!services.browser
+            ? { browser: "ace's built-in browser failed to start in this daemon." }
+            : {}),
+          ...(!services.screen?.isEnabled()
+            ? {
+                screen: "Computer use is disabled.",
+              }
+            : {}),
+          ...(!services.devices?.isEnabled()
+            ? {
+                devices: "Devices are disabled.",
+              }
+            : {}),
+        },
+      };
+    },
     mcpAwareness({
       store,
       delegations: () => services.agentControl?.delegations,
@@ -161,12 +209,21 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         (services.projects?.catalog.get(workspace).notes ?? []).map((note) => note.text),
       machine: hostname(),
     }),
+    knowledge,
   );
   resources.own(() => mcp.close());
   services.mcp = mcp;
   // Turning computer use or devices on or off changes which ace tools are offered.
   if (services.screen) resources.own(services.screen.watchEnabled(mcp.toolsChanged));
   if (services.devices) resources.own(services.devices.watchEnabled(mcp.toolsChanged));
+  // An agent that carries on (a new turn) no longer waits on a help request nobody answered.
+  if (help)
+    resources.own(
+      store.subscribe((events) => {
+        for (const { threadId, payload } of events)
+          if (payload.type === "run.started") help.withdrawIdle(threadId);
+      }),
+    );
   resources.own(
     store.subscribe((events) => {
       if (
@@ -182,7 +239,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
 }
 
 import type { SocketContext, SocketService } from "./socket.ts";
-import { McpProviderRequest, type McpSources } from "@ace/protocol";
+import { McpProviderRequest, ThreadId, type McpSources } from "@ace/protocol";
 const mcpTypes = new Set<string>(
   McpProviderRequest.options.map((option) => option.shape.type.value),
 );
@@ -313,4 +370,14 @@ export function createMcpSession(context: SocketContext): SocketService {
       lifetime.abort();
     },
   };
+}
+
+/** The person's own Chrome for agents, when the daemon runs "Use my Chrome" (ADR 0084). */
+function userBrowserTools(
+  services: Pick<Partial<import("./types.ts").Services>, "userBrowser" | "userBrowserSessions">,
+): import("../browser-toolkit.ts").UserBrowserTools | undefined {
+  const user = services.userBrowser;
+  const sessions = services.userBrowserSessions;
+  if (!user || !sessions) return undefined;
+  return { sessions, available: () => user.backend.available() };
 }

@@ -1,4 +1,3 @@
-import { chromium } from "playwright-core";
 import { describe, expect, it, vi } from "vitest";
 import type { BrowserFrame } from "@ace/protocol";
 import { executablePath, fixture } from "./test-support.ts";
@@ -22,19 +21,14 @@ describe.skipIf(!executablePath)("capture adaptation in real Chromium", () => {
     let clock = 0;
     const f = await fixture({
       now: () => clock,
-      launchContext: async (profile, options) => {
-        const context = await chromium.launchPersistentContext(profile, options);
-        const createSession = context.newCDPSession.bind(context);
-        context.newCDPSession = async (page) => {
-          const session = await createSession(page);
+      chrome: {
+        intercept: {
           // Advance only on incoming Chrome frames, before capture receives them.
           // Interval clock reads cannot fabricate gaps in delivered timestamps.
-          session.on("Page.screencastFrame", () => {
-            clock += 100;
-          });
-          return session;
-        };
-        return context;
+          event: (method) => {
+            if (method === "Page.screencastFrame") clock += 100;
+          },
+        },
       },
     });
     await f.navigate();
@@ -107,7 +101,7 @@ function pixelSize(data: string): { width: number; height: number } {
 }
 
 it.skipIf(!executablePath)(
-  "a local retina viewer gets DPR-sized pixels while remote demand stays capped",
+  "a retina viewer gets DPR-sized pixels and a DPR 1 viewer only what it shows",
   async () => {
     const f = await fixture();
     await f.navigate();
@@ -137,8 +131,9 @@ it.skipIf(!executablePath)(
     );
     // Human input coordinates must still refer to the CSS viewport, not the JPEG raster.
     expect(received.at(-1)).toMatchObject({ width: 1280, height: 720 });
+    // Over the relay too: the frame follows what the viewer's screen shows, not a fixed cap.
     f.service.configureCapture("thread", "retina", {
-      viewport: { width: 1280, height: 720, devicePixelRatio: 4 },
+      viewport: { width: 1280, height: 720, devicePixelRatio: 1 },
       local: false,
     });
     await vi.waitFor(

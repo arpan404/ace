@@ -19,9 +19,17 @@ const PinOrder = z
   .describe(
     "Place among pinned threads, higher first. Set on pin (the daemon's clock when the command names none, so a new pin leads) and cleared on unpin.",
   );
+/** A thread's place in the Home list when the person orders it by hand: higher sorts first. */
+const ListOrder = z
+  .number()
+  .finite()
+  .describe(
+    "Place in the Home list when it is ordered by hand (threads.sortBy manual), higher first. Absent: the thread's creation time stands in, so a new thread leads.",
+  );
 export const ThreadOrganization = z.object({
   pinned: z.boolean().optional(),
   pinOrder: PinOrder.optional(),
+  listOrder: ListOrder.optional(),
   unread: z.boolean().optional(),
   readAt: Timestamp.optional(),
   settledAt: Timestamp.optional(),
@@ -31,6 +39,16 @@ export const ThreadOrganization = z.object({
   /** Last execution activity; organization and metadata refresh do not reset it. */
   activityAt: Timestamp.optional(),
   autoSettleAt: Timestamp.optional(),
+  /**
+   * False when this thread never settles by itself (inactivity, merged or closed PR); absent
+   * means the settings decide. Unsettling a thread by hand turns it off.
+   */
+  autoSettle: z.literal(false).optional(),
+  /**
+   * An agent asked to settle this thread while it was still working. It settles once the
+   * thread is done; any other outcome (failed, a question for the person) drops the request.
+   */
+  settleWhenDone: z.literal(true).optional(),
 });
 export type ThreadOrganization = z.infer<typeof ThreadOrganization>;
 export const ThreadDetails = z.object({
@@ -186,6 +204,8 @@ export const ThreadClientUpdated = z.object({
     settledReason: ThreadOrganization.shape.settledReason.unwrap().nullable().optional(),
     snoozedUntil: Timestamp.nullable().optional(),
     autoSettleAt: Timestamp.nullable().optional(),
+    autoSettle: z.literal(false).nullable().optional(),
+    settleWhenDone: z.literal(true).nullable().optional(),
   }),
 });
 export type ThreadClientUpdated = z.infer<typeof ThreadClientUpdated>;
@@ -218,5 +238,9 @@ export const ThreadOrganizationCommands = [
   z.object({ type: z.literal("thread.read"), threadId: ThreadId, unread: z.boolean() }),
   z.object({ type: z.literal("thread.settle"), threadId: ThreadId }),
   z.object({ type: z.literal("thread.unsettle"), threadId: ThreadId }),
+  /** Let this thread settle by itself again (`enabled`), or keep it in the list until settled by hand. */
+  z.object({ type: z.literal("thread.autoSettle"), threadId: ThreadId, enabled: z.boolean() }),
   z.object({ type: z.literal("thread.snooze"), threadId: ThreadId, until: Timestamp.nullable() }),
+  /** Put a thread at a place in the hand-ordered Home list. */
+  z.object({ type: z.literal("thread.place"), threadId: ThreadId, order: ListOrder }),
 ] as const;

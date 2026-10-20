@@ -99,3 +99,24 @@ test.each(["complete", "failed", "cancel", "unsafe_url"])(
     }
   },
 );
+
+test("signing out of the Cursor SDK says the key its sign-in made stays valid until it expires", async () => {
+  const instance = createInstance({
+    id: "sdk-default",
+    label: "Cursor",
+    provider: "cursor",
+    homeDir: "/tmp/ace-cursor-sdk-instance",
+  });
+  const account = {
+    login: async () => ({ status: "logged-in" as const, source: "sdk-store" as const }),
+    logout: async () => ({ status: "logged-out" as const, source: "none" as const }),
+  };
+  const result = await cursorLoginDriver(instance, account, "logout").run(
+    new AbortController().signal,
+    () => {},
+  );
+  expect(result).toMatchObject({
+    success: true,
+    message: expect.stringContaining("stays valid until it expires"),
+  });
+});

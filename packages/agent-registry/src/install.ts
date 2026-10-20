@@ -42,7 +42,7 @@ async function download(
       const chunk = await reader.read();
       if (chunk.done) break;
       bytes += chunk.value.byteLength;
-      if (bytes > 128 * 1024 * 1024) throw new Error("Artifact download exceeds budget");
+      if (bytes > 512 * 1024 * 1024) throw new Error("Artifact download exceeds budget");
       progress?.("download", bytes);
       hash.update(chunk.value);
       await file.writeFile(chunk.value);

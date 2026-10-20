@@ -3,13 +3,27 @@ import { arrayEqual, useSidebar, type SidebarKey } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { useCallback } from "react";
 import { useNow } from "@/lib/time.ts";
-import { archivedOrder, arrange, projectCounts, type ProjectCount } from "@ace/ui-core";
+import {
+  archivedOrder,
+  arrange,
+  projectCounts,
+  type HomeSort,
+  type ProjectCount,
+} from "@ace/ui-core";
+import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useOrganizeOverlay, useOrganizerState } from "@/features/organize/index.ts";
 import { usePendingActions } from "@/lib/pending-actions.ts";
 
+/** How Home orders the threads below Pinned (Settings › General › Sort threads). */
+export function useHomeSort(): HomeSort {
+  const [sortBy] = useDaemonSetting("threads.sortBy");
+  return sortBy ?? "activity";
+}
+
 /**
  * Home's threads: pinned first in their own order, then the work in hand in Home order, then
- * Recent (threads at rest), Settled apart.
+ * Recent (threads at rest), Settled apart. Sorted by creation or by hand, every thread below
+ * Pinned is in Recent.
  */
 export interface HomeList {
   pinned: string[];
@@ -51,7 +65,7 @@ function useEntries(): (reader: SidebarReader) => ThreadListEntry[] {
 
 /** Keys for every entry, so a selection over the whole list sees each status change. */
 // `threads` changes with any entry, so one key covers the whole list at any size.
-const everyEntry: readonly SidebarKey[] = ["ids", "threads", "window", "homeWindow"];
+const everyEntry: readonly SidebarKey[] = ["ids", "threads", "window", "homeWindow", "unconfirmed"];
 function useEveryEntryKey(): readonly SidebarKey[] {
   return everyEntry;
 }
@@ -66,24 +80,32 @@ const listEqual = (a: HomeList, b: HomeList) =>
 
 /**
  * Pinned threads in the person's order, then Home order (requests, working, then the rest,
- * most recent first in each; settled apart), across every project the filter lets through. Only
- * ids are selected, so a status change re-renders its own row and moves rows only when the
+ * most recent first in each; settled apart), across every project the filter lets through.
+ * Only ids are selected, so a status change re-renders its own row and moves rows only when the
  * order changes.
  */
 export function useHomeList(): HomeList {
   const keys = useEveryEntryKey();
   const state = useOrganizerState();
+  const sortBy = useHomeSort();
   const now = useNow();
   const read = useEntries();
   const select = useCallback(
     (reader: SidebarReader): HomeList => {
       const entries = read(reader);
-      const { pinned, active, recent, snoozed, settled } = arrange(entries, state, now);
+      const { pinned, active, recent, snoozed, settled } = arrange(
+        entries,
+        { ...state, sortBy },
+        now,
+      );
       const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
-      const needsYou = active.filter((id) => byId.get(id)?.status.state === "needs_you");
+      // A saved list's requests may have been answered since: none counts until it is confirmed.
+      const needsYou = reader.unconfirmed
+        ? []
+        : [...active, ...recent].filter((id) => byId.get(id)?.status.state === "needs_you");
       return { pinned, active, recent, snoozed, settled, needsYou };
     },
-    [state, now, read],
+    [state, sortBy, now, read],
   );
   return useSidebar(keys, select, listEqual) ?? empty;
 }

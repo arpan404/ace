@@ -23,9 +23,11 @@ from the model request, even though ace is connected and its instructions and
 status resource are available. Waiting for a later registry generation makes
 those tools appear. No fixed sleep is needed in ace's fix.
 
-The native names include the server prefix. OpenCode advertises
+The native names include the server prefix. OpenCode advertised
 `ace_ace_status`, `ace_ace_thread_info` and `ace_ace_list_agents` for the
-read-only scope used in this probe. Its `execute` tool can list MCP resources
+read-only scope used in this probe. ace's tool names are now bare, so the same
+tools appear as `ace_context` and `ace_agents_status`. Names in the results below
+are as recorded. Its `execute` tool can list MCP resources
 through `tools.opencode.list_mcp_resources`. Tools registered with
 `codemode: false` are direct model functions and are absent from Code Mode
 search. Searching only Code Mode's catalog therefore cannot establish that
@@ -34,7 +36,7 @@ ace is unavailable.
 The fix adds a credential-free [Promise plugin][plugin] through the CLI's
 `OPENCODE_CONFIG_CONTENT` plugin list. It observes native tool transforms and
 exposes one readiness RPC. ace waits until the actual native catalog contains
-a described `ace_ace_status` before accepting the session. The wait is bounded
+a described `ace_context` before accepting the session. The wait is bounded
 and cancellable. Existing JSONC configuration and plugins are preserved; no
 user config files are changed. The plugin carries no MCP URL or lease token.
 MCP registration and lifecycle ownership remain in the existing adapter.
@@ -83,7 +85,7 @@ an unrelated provider process. These findings cover ace-owned sessions.
 - Recorded native tool-list shape: readiness returns the described status,
   thread and agent tools; a missing status tool fails readiness on cancellation.
 - Scripted Claude, Codex, OpenCode and Pi CLI processes, plus Cursor's SDK
-  boundary: discover instructions, call scoped `ace_status`, list
+  boundary: discover instructions, call scoped `context` (topic `status`), list
   `ace://status`, and read resource content equal to the tool result.
   These use normal full-access sessions; existing restricted-mode contracts
   still apply.

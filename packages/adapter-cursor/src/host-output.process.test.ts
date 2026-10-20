@@ -52,6 +52,9 @@ it("the SDK host admits large normal tool results through blobs and output chunk
     },
     async send(...args: Parameters<import("./index.ts").SdkAgentBoundary["send"]>) {
       sdkInput = args[0];
+      // Mirrors the pinned local SDK's sendImpl contract: URL images are cloud-only.
+      if (typeof args[0] !== "string" && args[0].images?.some((image) => "url" in image))
+        throw new Error("URL images are only supported for cloud SDK agents");
       const options = args[1];
       for (const update of [
         {
@@ -137,7 +140,7 @@ it("the SDK host admits large normal tool results through blobs and output chunk
     });
     expect(sdkInput).toEqual({
       text: "synthetic\nReferenced workspace file: /files/code.ts\nReferenced workspace file: /files/report.pdf\nReferenced workspace file: /files/archive.zip",
-      images: [{ url: `data:image/jpeg;base64,${imageData}` }],
+      images: [{ data: imageData, mimeType: "image/jpeg" }],
     });
     expect(Object.values(state.items).find((item) => item.type === "tool_call")).toMatchObject({
       complete: true,

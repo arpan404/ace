@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import type { BrowserBackendLost } from "@ace/protocol";
 import { backendFixture } from "./backend-test-support.ts";
 
@@ -20,7 +20,9 @@ it("a detached desktop view rejects its pending read and reopens on the survivin
       if (state.backend === "embedded" && state.status === "ready" && state.pageStateLost)
         ready.resolve();
     },
-    (event) => events.push(event),
+    (event) => {
+      if (event.type === "browser.backend.lost") events.push(event);
+    },
   );
   f.hold("Accessibility.getFullAXTree");
   const entered = once(f.requests, "Accessibility.getFullAXTree");
@@ -51,44 +53,39 @@ it("a detached desktop view rejects its pending read and reopens on the survivin
   expect(f.headless.pages).toHaveLength(0);
 });
 
-it("desktop disconnection still emits loss and recovers after a controller lease error paused the page", async () => {
-  const f = await backendFixture({ backendLoss: () => "headless" });
+it("a dropped desktop link reports the page lost only once the desktop has had its chance to come back", async () => {
+  const f = await backendFixture({ backendLoss: () => "pause", desktopReadoptionGraceMs: 300 });
   await f.open();
   await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/page" });
-  const paused = Promise.withResolvers<void>(),
-    ready = Promise.withResolvers<void>();
   const events: BrowserBackendLost[] = [];
   f.service.subscribe(
     "thread",
     "viewer",
     { send: () => true },
-    (state) => {
-      if (state.status === "paused" && state.reason === "Lease refused") paused.resolve();
-      if (state.status === "ready" && state.backend === "headless") ready.resolve();
+    () => {},
+    (event) => {
+      if (event.type === "browser.backend.lost") events.push(event);
     },
-    (event) => events.push(event),
   );
-  f.failController("Lease refused");
-  f.service.takeover("thread", "human");
-  await paused.promise;
-  expect(events).toEqual([]);
   await f.disconnect();
-  await ready.promise;
-  expect(events).toEqual([
-    expect.objectContaining({
-      threadId: "thread",
-      recovery: "headless",
-      url: "http://localhost:3000/page",
-      reason: "Desktop disconnected",
-    }),
-  ]);
+  // Paused, but nothing is said to be lost while the desktop may still hand the view back.
+  expect(f.service.state("thread")).toMatchObject({ status: "paused" });
+  expect(f.service.state("thread").pageStateLost).toBeUndefined();
+  expect(events).toEqual([]);
+  // An agent asking for the page meanwhile waits out the grace instead of moving the page.
+  const resumed = f.service.open({
+    threadId: "thread",
+    workspaceId: "workspace-thread",
+    background: true,
+  });
+  expect(f.headless.pages).toHaveLength(0);
+  await vi.waitFor(() => expect(events).toHaveLength(1), { timeout: 5_000 });
+  expect(events[0]).toMatchObject({ url: "http://localhost:3000/page", pageStateLost: true });
+  await resumed;
   expect(f.service.state("thread")).toMatchObject({
     backend: "headless",
     status: "ready",
-    controller: "human",
-    owner: "human",
+    url: "http://localhost:3000/page",
     pageStateLost: true,
   });
-  await f.service.input("thread", { kind: "key", event: "char", key: "x" }, "human");
-  expect(f.headless.pages[0]?.text).toBe("x");
 });

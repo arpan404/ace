@@ -38,7 +38,7 @@ export async function bundleDaemon(
           ctx.onLoad(
             {
               filter:
-                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|fork|pty|account-management|process-guardian|pi-login-driver|session|api-key|builtins)\.ts$/,
+                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|session|api-key|builtins|install)\.ts$/,
             },
             async (args) => {
               let contents = await readFile(args.path, "utf8");
@@ -70,6 +70,11 @@ export async function bundleDaemon(
                 );
               if (args.path.endsWith("/daemon/src/pi-login-driver.ts"))
                 contents = contents.replace('"./pi-login-worker.ts"', '"./pi-login-worker.mjs"');
+              if (args.path.endsWith("/provider-kit/src/discovery/pi-sdk.ts"))
+                contents = contents.replace(
+                  '"./pi-credentials-worker.ts"',
+                  '"./pi-credentials-worker.mjs"',
+                );
               if (args.path.endsWith("/daemon/src/account-management.ts"))
                 contents = contents.replace(
                   '"./cursor-account-terminal.ts"',
@@ -81,6 +86,8 @@ export async function bundleDaemon(
                 contents = contents.replaceAll('"./extension.ts"', '"./pi-extension.mjs"');
               if (args.path.endsWith("/adapter-cursor/src/api-key.ts"))
                 contents = contents.replace('"./api-key-entry.ts"', '"./cursor-api-key.mjs"');
+              if (args.path.endsWith("/browser-extension/src/install.ts"))
+                contents = contents.replace('"./host-main.ts"', '"./browser-extension-host.mjs"');
               if (args.path.endsWith("/adapter-cursor/src/host.ts"))
                 contents = contents.replace('"./host-entry.ts"', '"./cursor-sdk-host.mjs"');
               if (args.path.endsWith("/workspace/src/descriptor.ts"))
@@ -187,6 +194,7 @@ export async function bundleDaemon(
     ["packages/usage/src/worker-entry.ts", "usage-worker.mjs"],
     ["packages/review/src/worker.ts", "review-worker.mjs"],
     ["apps/daemon/src/pi-login-worker.ts", "pi-login-worker.mjs"],
+    ["packages/provider-kit/src/discovery/pi-credentials-worker.ts", "pi-credentials-worker.mjs"],
     ["packages/history-import/src/worker.ts", "history-import-worker.mjs"],
     ["packages/browser/src/encoder-process.ts", "browser-encoder-process.mjs"],
     ["packages/browser/src/process-guardian-entry.ts", "browser-process-guardian.mjs"],
@@ -195,6 +203,7 @@ export async function bundleDaemon(
     ["packages/diagnostics/src/log-worker.ts", "diagnostics-log-worker.mjs"],
     ["packages/diagnostics/src/thread-worker.ts", "diagnostics-thread-worker.mjs"],
     ["packages/diagnostics/src/sqlite-process.ts", "diagnostics-sqlite-process.mjs"],
+    ["packages/browser-extension/src/host-main.ts", "browser-extension-host.mjs"],
   ];
   if (workspaceIncluded)
     helpers.push(["packages/workspace/src/node-search-worker.ts", "workspace-search-worker.mjs"]);

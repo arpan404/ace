@@ -1,12 +1,19 @@
 import { createHash } from "node:crypto";
 import type { Fact } from "@ace/core";
 import type { Attachment, ContentPart } from "@ace/protocol";
+import { elidedDigest } from "@ace/provider-kit/binary-elision";
 import { attachmentPayload } from "./attachment-payload.ts";
 
 function pathHash(value: string): string | undefined {
   return /(?:^|[\\/])([a-f0-9]{64})(?:\.[a-z]+)?$/.exec(value)?.[1];
 }
 function imageHash(value: string): string | undefined {
+  // Adapters keep attachment bytes out of frames; the marker carries the bytes' digest.
+  // A translator may have rebuilt a data URL around it.
+  const elided = elidedDigest(
+    value.startsWith("data:") ? value.slice(value.indexOf(",") + 1) : value,
+  );
+  if (elided) return elided;
   const data = value.startsWith("data:")
     ? /^data:[^;,]+;base64,([A-Za-z0-9+/=]+)$/.exec(value)?.[1]
     : value;

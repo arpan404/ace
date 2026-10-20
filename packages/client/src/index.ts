@@ -19,6 +19,7 @@ export type {
   TextReadOptions,
 } from "./types.ts";
 export { webSocketTransport } from "./transport.ts";
+export type { BrowserFrameBytes, StreamMessage } from "@ace/browser/stream";
 export type { SocketLike } from "./transport.ts";
 export type { Selection, ChangeTap } from "./observable.ts";
 export { Notifications } from "./observable.ts";
@@ -35,6 +36,8 @@ export type {
   Mirrorable,
 } from "./api.ts";
 export { ThreadStore } from "./thread-store.ts";
+/** Transcript order: dedupe by id, order by the daemon's creation sequence (ADR 0062). */
+export { mergeBySeq } from "@ace/projection";
 export type { ThreadReader, ThreadKey } from "./thread-store.ts";
 export type { ThreadSubscription } from "./subscriptions.ts";
 export type { Intent } from "./intents.ts";
@@ -52,8 +55,11 @@ export type { AccessOptions } from "./access.ts";
 export { accessResponseError } from "./access-http.ts";
 export { PermissionClient, threadPermission, accessModes } from "./permissions.ts";
 export { oppositeFollowUpBehavior } from "./follow-up.ts";
+export { retrySend } from "./send-retry.ts";
+export { readServerQueue } from "./queue-read.ts";
 
 export { BrowserFeaturesClient } from "./browser-features.ts";
+export { deviceDownloadMax, fetchBrowserDownload } from "./browser-download.ts";
 export { DeviceClient, DeviceClientError } from "@ace/devices/client";
 export type {
   DeviceClientSnapshot,
@@ -90,3 +96,5 @@ export type { PendingSend, SendPayload } from "./pending-sends.ts";
 export { fitsUtf8 } from "./bounds.ts";
 
 export { attachmentReadScope } from "./attachment-scope.ts";
+
+export type { ReadSnapshotStorage } from "./read-snapshot-storage.ts";

@@ -1,7 +1,14 @@
 # 0069: Agents drive the desktop's native browser
 
-Date: 2026-10-07. Status: accepted. Amends [ADR 0055](0055-browser-backends.md) and
+Date: 2026-10-07. Status: accepted, amended by ADR 0083. Amends [ADR 0055](0055-browser-backends.md) and
 [ADR 0067](0067-browser-parity.md).
+
+Amended 2026-10-17 by [ADR 0083](0083-browser-v2-daemon-chrome.md): agents still drive the desktop's native view when a desktop is attached, now in several tabs per thread. With no desktop, they use the daemon's own Chrome, whose threads share one ace profile, with private contexts on request.
+
+Amended 2026-10-17 by [ADR 0085](0085-desktop-native-view-lifecycle.md): under the hybrid the
+native view stays the in-app renderer. Views outlive app windows and lost links, a thread holds
+several native tabs, and whether a windowless app quits is decided by `appLifetime`, not by the
+parking window.
 
 ## Context
 
@@ -25,12 +32,12 @@ interaction measurement) already goes through `BrowserBackendSession`, so the em
 session serves all of them through the existing relay. No remote debugging port is opened.
 
 **The person sees the agent's page natively.** When the thread's Browser panel shows the page,
-the view is drawn in the panel and the agent's input lands in it live. Takeover and handback
-change the existing controller lease (ADR 0009 fencing, generation checks before dispatch);
-the page is not reloaded or moved, so taking over is a lease round trip.
+the view is drawn in the panel and the agent's input lands in it live. The person can use it at
+any moment, beside the agent (amended 2026-10-17: there is no takeover; ADR 0067,
+Collaboration).
 
 **Unseen views keep rendering while an agent drives them.** Chromium produces no frames for a
-hidden view: screenshots and `requestAnimationFrame` stall. While the agent holds the lease and
+hidden view: screenshots and `requestAnimationFrame` stall. While an agent uses the view and
 has driven the view within 30 seconds, a view no panel shows is _parked_: moved, visible, into
 one hidden, never-focused desktop window. Idle views stop rendering and are throttled as before.
 A view the person drives is never parked; it renders only where they see it. The parking

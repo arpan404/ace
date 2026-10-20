@@ -1,5 +1,14 @@
-import { localScreenManager, screenConnection, type Simulators } from "@ace/screen";
+import {
+  ComputerClient,
+  installScreenHelper,
+  localScreenManager,
+  screenConnection,
+  type Simulators,
+} from "@ace/screen";
+import { nodeScheduler } from "@ace/mcp-server";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { ComputerUsingThreads } from "../computer-using.ts";
 import { ScreenSettings } from "../screen-settings.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -22,6 +31,17 @@ export async function startScreen({ config, options, resources, services, store 
   });
   resources.own(() => manager.close());
   services.screen = manager;
+  const helper = config.screenHelper;
+  if (helper && process.platform === "darwin" && !options.screen) {
+    // Same signed helper, so the person's Accessibility and Screen Recording grants apply.
+    const computer = new ComputerClient({
+      helper: () => installScreenHelper(helper, config.dataDir, config.screenHelperManifest),
+      nextId: randomUUID,
+    });
+    resources.own(() => computer.close());
+    services.computer = computer;
+    services.computerUsing = new ComputerUsingThreads({ after: nodeScheduler.after });
+  }
 }
 export function createScreenSession(context: SocketContext, simulators: Simulators): SocketService {
   let channel: ReturnType<typeof screenConnection> | undefined;
@@ -32,27 +52,32 @@ export function createScreenSession(context: SocketContext, simulators: Simulato
       if (!context.options.screen || !context.authorize("admin")) return;
       channel = screenConnection(context.options.screen, simulators, context.sessionId, {
         send: context.send,
-        frame: (packet) =>
-          new Promise<void>((resolve, reject) => {
-            if (!context.connected() || !context.authorize("admin")) {
-              reject(new Error("Socket closed or revoked"));
-              return;
-            }
-            if (context.socket.bufferedAmount > 8 * 1024 * 1024) {
-              context.socket.close(4009, "Screen backpressure");
-              reject(new Error("Socket backpressure"));
-              return;
-            }
-            context.socket.send(packet, { binary: true }, (error) =>
-              error ? reject(error) : resolve(),
-            );
-          }),
+        media: {
+          bufferedBytes: () => context.socket.bufferedAmount,
+          write: (piece) =>
+            new Promise<void>((resolve, reject) => {
+              if (!context.connected() || !context.authorize("admin"))
+                return reject(new Error("Screen socket revoked"));
+              context.socket.send(piece, { binary: true, compress: false }, (error) =>
+                error ? reject(error) : resolve(),
+              );
+            }),
+        },
       });
     },
     close() {
       channel?.close();
     },
     handle(message) {
+      if (message.type === "screen.ack") {
+        // Fire and forget: a stale or refused ack only leaves that viewer's window as it was.
+        try {
+          if (context.authorize("admin")) channel?.ack(message);
+        } catch (error) {
+          context.options.log?.(error);
+        }
+        return true;
+      }
       if (message.type !== "screen.request") return false;
       if (!context.authorize("admin"))
         context.send({

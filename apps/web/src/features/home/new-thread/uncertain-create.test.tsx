@@ -215,7 +215,8 @@ test.each([
       await screen.findByRole("heading", { level: 1, name: "Recover this uncertain start" });
       expect(created()).toHaveLength(1);
       expect(created()[0]?.id).toBe(`thread-${lostCommand}`);
-      await userEvent.keyboard("{Meta>}n{/Meta}");
+      // ⇧⌘N starts in the open thread's project (⌘N would ask which of several).
+      await userEvent.keyboard("{Meta>}{Shift>}n{/Shift}{/Meta}");
       const prompt = await screen.findByRole("combobox", { name: "Message" });
       expect(prompt.textContent).toBe(newer ? "Keep this newer unsent draft" : "");
       if (newer) await userEvent.clear(prompt);

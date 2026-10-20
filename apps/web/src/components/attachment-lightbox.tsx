@@ -6,16 +6,19 @@ import {
   DownloadSimpleIcon,
   XIcon,
 } from "@phosphor-icons/react";
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { buttonVariants, Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
+import { copyImageToClipboard } from "@/lib/clipboard-image.ts";
 import { ImageUrl, type ImageState } from "./attachment-bytes.tsx";
 import { formatBytes, type ShownImage } from "./attachment-format.ts";
 
-/** The page, nearly hidden: the image is what matters here, in either theme. */
+/** The page, nearly hidden: the image is what matters here, in either theme. Blur comes
+ * from the shared `.ace-backdrop` (glass.css): under Translucent it blurs the page by the
+ * `--backdrop-blur` token, under Solid and reduced transparency it darkens only. */
 const backdrop = { background: "color-mix(in oklab, var(--background) 94%, transparent)" };
 
 /*
@@ -40,7 +43,7 @@ export function Lightbox(props: {
   return (
     <DialogPrimitive.Root open onOpenChange={(open) => !open && props.onClose()}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Backdrop className="fixed inset-0 z-[100]" style={backdrop} />
+        <DialogPrimitive.Backdrop className="ace-backdrop fixed inset-0 z-[100]" style={backdrop} />
         <DialogPrimitive.Popup
           ref={popup}
           tabIndex={-1}
@@ -53,6 +56,7 @@ export function Lightbox(props: {
           }}
           className="fixed inset-0 z-[101] flex flex-col text-foreground outline-none"
         >
+          <PopupFocus />
           <header className="flex items-center gap-3 px-4 py-3">
             <div className="min-w-0 flex-1">
               <DialogPrimitive.Title className="truncate text-ui font-medium">
@@ -95,6 +99,30 @@ export function Lightbox(props: {
   );
 }
 
+/*
+ * Focuses the popup in a layout effect, so focus is inside the dialog before Base UI hides
+ * the page behind it. Base UI's FloatingFocusManager applies aria-hidden to everything
+ * outside in a passive effect but moves `initialFocus` on a later frame; without this the
+ * thumbnail still holds focus while its ancestor takes aria-hidden and Chromium blocks it
+ * ("Blocked aria-hidden on an element because its descendant retained focus"). This sits
+ * inside the popup because Base UI mounts its portal a commit after the lightbox does, so a
+ * layout effect on the lightbox itself runs while the popup ref is still null. Once focus is
+ * inside the popup this never touches it again, so stepping and the header buttons keep it.
+ */
+function PopupFocus() {
+  const marker = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    // The popup is the closest dialog ancestor of this marker; the forwarded popup ref
+    // can't be used here because Base UI attaches it after this effect runs.
+    const node = marker.current?.closest<HTMLElement>('[role="dialog"]');
+    if (!node || node.hidden || !node.isConnected) return;
+    const active = node.ownerDocument.activeElement;
+    if (active && node.contains(active)) return;
+    node.focus({ preventScroll: true });
+  });
+  return <span ref={marker} hidden />;
+}
+
 /** Download and Copy image, once the full image is here. */
 function Actions(props: { image: ShownImage; full: ImageState }) {
   const full = props.full;
@@ -108,7 +136,7 @@ function Actions(props: { image: ShownImage; full: ImageState }) {
         disabled={!url}
         onClick={() => {
           if (!url) return;
-          copyImage(url).then(
+          copyImageToClipboard(fetch(url).then((response) => response.blob())).then(
             () => toast.add({ title: "Image copied" }),
             () => toast.error({ title: "Couldn't copy the image" }),
           );
@@ -134,25 +162,6 @@ function Actions(props: { image: ShownImage; full: ImageState }) {
       )}
     </>
   );
-}
-
-/** Clipboards take PNG; anything else is redrawn as one. */
-async function copyImage(url: string): Promise<void> {
-  const png = fetch(url)
-    .then((response) => response.blob())
-    .then(async (blob) => {
-      if (blob.type === "image/png") return blob;
-      const bitmap = await createImageBitmap(blob);
-      const canvas = document.createElement("canvas");
-      canvas.width = bitmap.width;
-      canvas.height = bitmap.height;
-      canvas.getContext("2d")?.drawImage(bitmap, 0, 0);
-      return new Promise<Blob>((resolve, reject) =>
-        canvas.toBlob((out) => (out ? resolve(out) : reject(new Error("encode"))), "image/png"),
-      );
-    });
-  // A pending blob keeps Safari's user activation while the bytes are read.
-  await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
 }
 
 /** The image fitted to the stage; zoom grows it toward its natural size, then it scrolls. */

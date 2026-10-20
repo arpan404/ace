@@ -77,6 +77,6 @@ it("native provider keeps the engine's MCP lease through live configuration and 
   ).toContainEqual({ model: "switched-model", effort: "high", serviceTier: "fast" });
   await session.close("shutdown");
   expect(
-    (await invoke(connection, "ace_browser_open", { url: "http://localhost:3000/late" })).status,
+    (await invoke(connection, "browser_open", { url: "http://localhost:3000/late" })).status,
   ).toBe(401);
 });

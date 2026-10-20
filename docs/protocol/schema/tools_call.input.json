@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/tools_call.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "arguments": {
+      "additionalProperties": {},
+      "default": {},
+      "description": "The tool's own arguments, matching its input schema.",
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "name": {
+      "description": "The tool's name, as tools_find returns it.",
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string",
+      "x-ace-constraint": "Not tools_find or tools_call."
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "type": "object"
+}

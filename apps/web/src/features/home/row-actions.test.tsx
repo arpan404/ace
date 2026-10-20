@@ -1,4 +1,4 @@
-import { workbench } from "@ace/fake-daemon";
+import { longHistory, workbench } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -105,4 +105,22 @@ test("the row overflow tooltip dismisses while its menu is open and Escape resto
   await waitFor(() => expect(screen.queryByRole("tooltip", { name: label })).toBeNull());
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(document.activeElement).toBe(trigger));
+});
+
+test("the row's ⋯ menu forks from the last turn, as its right-click menu does", async () => {
+  const app = harness();
+  app.play(longHistory(2)).runUntilBlocked();
+  await app.open("/t/thread-router");
+  await screen.findByRole("feed", { name: "Transcript" });
+  const view = app.daemon.snapshot({ kind: "threads" });
+  const routerTitle = view?.kind === "threads" ? view.threads["thread-router"]?.title : undefined;
+  if (!routerTitle) throw new Error("no router thread");
+  await userEvent.click(await screen.findByRole("button", { name: `Actions for ${routerTitle}` }));
+  const fork = await screen.findByRole("menuitem", { name: /Fork from the last turn/ });
+  expect(fork.getAttribute("aria-disabled")).not.toBe("true");
+  await userEvent.click(fork);
+  expect(
+    await screen.findByRole("heading", { level: 1, name: `${routerTitle} (fork)` }),
+  ).toBeTruthy();
+  expect(await screen.findByRole("combobox", { name: "Message" })).toBeTruthy();
 });

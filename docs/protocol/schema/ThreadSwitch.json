@@ -13,8 +13,12 @@
       "type": "boolean"
     },
     "recommendation": {
-      "const": "delegate_task",
-      "type": "string"
+      "enum": [
+        "delegate",
+        "delegate_task"
+      ],
+      "type": "string",
+      "x-ace-constraint": "The stored legacy value \"delegate_task\" decodes as \"delegate\"."
     },
     "selection": {
       "$ref": "https://ace.local/protocol/v1/ExecutionSelection.json"

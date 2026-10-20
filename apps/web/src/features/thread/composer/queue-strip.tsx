@@ -1,13 +1,12 @@
 import type { ThreadReader } from "@ace/client";
-import type { QueuedMessage } from "@ace/protocol";
-import { useThread, useThreadMeta } from "@ace/client-react";
+import { useThread } from "@ace/client-react";
 import type { ReactNode } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useThreadSources } from "../sources/index.ts";
 import { QueueNotice, type HeldQueue } from "./queue-notice.tsx";
 import { QueuedTray } from "./queued.tsx";
 import type { PendingQueued } from "./queued-pending.ts";
-import { useActiveRootRun, useStopping } from "./stop-state.ts";
+import { useStopping } from "./stop-state.ts";
 import type { QueueControls } from "./use-queue.ts";
 
 const queueOf = (reader: ThreadReader) => reader.queue;
@@ -22,8 +21,8 @@ export function QueueStrip(props: {
   pending: readonly PendingQueued[];
   held: HeldQueue | undefined;
   indicators: ReactNode;
-  editing: QueuedMessage | undefined;
-  onEdit(message: QueuedMessage | undefined): void;
+  /** Put the caret in the composer, where a queued message is edited. */
+  onEditInComposer(): void;
   onChooseModel(): void;
 }) {
   const { queue, pending } = props;
@@ -44,22 +43,17 @@ export function QueueStrip(props: {
       sources.context.list({ id: props.threadId, workspaceId: "", title: "" }, signal),
   });
   const hold = useThread(props.threadId, ["queue"], queueOf);
-  const selectionWaiting = useThreadMeta(props.threadId)?.switch?.state === "queued";
-  const active = !!useActiveRootRun(props.threadId);
   const stopping = useStopping(props.threadId);
+  // A pending model or account switch never holds a steer: it applies at the next turn.
   const steerReason = !queue.canSteer
     ? "This provider doesn't support steering."
-    : selectionWaiting
-      ? "Wait for the model or account switch to finish."
-      : stopping
-        ? "The turn is stopping."
-        : (hold?.paused ?? queue.page?.paused)
-          ? "Resume the queue before steering."
-          : !active
-            ? "There is no running turn to steer."
-            : queue.failed || !queue.page || (hold && hold.revision !== queue.page.revision)
-              ? "Wait for the queue to refresh."
-              : undefined;
+    : stopping
+      ? "The turn is stopping."
+      : (hold?.paused ?? queue.page?.paused)
+        ? "Resume the queue before steering."
+        : queue.failed || !queue.page || (hold && hold.revision !== queue.page.revision)
+          ? "Wait for the queue to refresh."
+          : undefined;
   return (
     <QueuedTray
       threadId={props.threadId}
@@ -68,8 +62,7 @@ export function QueueStrip(props: {
       attachments={attachments.data ?? []}
       steerReason={steerReason}
       indicators={props.indicators}
-      editing={props.editing}
-      onEdit={props.onEdit}
+      onEditInComposer={props.onEditInComposer}
       notice={
         props.held && (
           <QueueNotice

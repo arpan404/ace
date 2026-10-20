@@ -1,3 +1,4 @@
+import { cardEdge } from "@/components/ui/rules.ts";
 import { useSidebarThread } from "@ace/client-react";
 import type { TaskPrompt } from "@ace/ui-core";
 import { ArrowLeftIcon } from "@phosphor-icons/react";
@@ -24,10 +25,7 @@ export function TaskCard(props: { prompt: TaskPrompt }) {
           : "Handoff"
         : prompt.label;
   return (
-    <section
-      aria-label={heading}
-      className="rounded-lg px-4 py-3 shadow-[inset_0_0_0_1px_var(--border)]"
-    >
+    <section aria-label={heading} className={`rounded-lg px-4 py-3 ${cardEdge}`}>
       <p className="flex items-center gap-2 text-xs text-subtle-foreground">
         <span>{heading}</span>
       </p>

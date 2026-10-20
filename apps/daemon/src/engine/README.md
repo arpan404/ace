@@ -51,14 +51,26 @@ remain part of readiness; engine reconciliation updates only its own queue sourc
 queue counts retire with the session and produce an uncertainty notice on crash recovery.
 Thread status also comes from core: human requests precede active work anywhere in the tree,
 then waiting reasons, unresponsiveness and settled outcomes. A running background child
-keeps the thread working. Queued input waits for subagents, live tools and human requests, but
-not for background commands (a dev server, a watcher): once the provider's turn has ended the
-next queued message starts a new turn while those commands keep running and keep the thread
-from reading done. Closing a host gate (private browser, screen or browser approval) wakes the
-queue. A delegated child counts as a subagent here: while it, or anything below it, waits on the
-person, the parent's queued messages wait too. The parent's live hints name that child
-(`live.askingThreads`), so clients show its request first in the parent's strip, answer it there,
-and say the queued message sends once the child is done rather than leaving it unexplained.
+keeps the thread working. A person's queued message waits only for the root agent's own turn
+(`acceptsPersonInput` in `@ace/core`): a running turn, a retry or limit, a lost connection, a
+wake the provider announced, a request the root waits on, or the provider's own queue. Background
+commands, monitors, subagents and delegated children never hold it: once the root's turn has
+ended the next message starts a new turn while that work keeps running and keeps the thread from
+reading done (ADR 0053, 2026-10-17 amendment). A queued message that changes the model or
+options still waits for the whole tree, because switching may reopen the session. A steer never
+waits for a turn: it joins the running one or starts the next. A person's steer never waits for a
+running command either: where the provider's steer only lands after the tool (`steerTiming:
+"after_tool"`), the steering lane interrupts the root turn and delivers the steer as the next
+input once it ends (`steer-lane.ts`, ADR 0053, 2026-10-18 amendment "Steer interrupts a running
+command"). Delegated results never interrupt; they wait for the command. That holds when it changes the
+model or options too, and for a queued message changed to steer: while the tree works its text
+steers now and the change becomes the thread's pending `thread.switch`, ordered right behind it
+and applied at the next whole-tree boundary (`admitSteer`, ADR 0053, 2026-10-18 amendment). With
+nothing running the message keeps its selection for the turn it starts. A provider that can't
+steer queues it with its selection. Closing a host gate (private browser, screen
+or browser approval) wakes the queue. When a delegated child waits on the person, the parent's
+live hints name that child (`live.askingThreads`), so clients show its request first in the
+parent's strip and answer it there.
 
 Delivered sends retain a durable acknowledgement target until core accepts a fresh
 root run caused by user input, queue delivery or an unknown partial stream. Replayed native

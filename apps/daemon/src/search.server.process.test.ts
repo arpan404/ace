@@ -134,7 +134,7 @@ test("an item deletion removes search hits and the subscribed transcript togethe
   expect(f.store.search.query({ text: "deleteme" }).hits).toEqual([]);
 });
 
-test("daemon timer coalesces independent stream appends and flushes without waiting for completion", async () => {
+test("daemon timer coalesces independent stream appends and refreshes them before completion", async () => {
   const { Store } = await import("./store.ts");
   let tick: (() => void) | undefined;
   const store = new Store(":memory:", () => {}, {
@@ -183,7 +183,9 @@ test("daemon timer coalesces independent stream appends and flushes without wait
     const writes = store.search.status(store.headSeq()).indexWrites;
     expect(store.search.query({ text: "timerword" }).hits).toEqual([]);
     if (!tick) throw new Error("Missing scheduled flush");
-    tick();
+    // Streaming items refresh once per refresh period (20 passes), not on every pass.
+    for (let pass = 0; pass < 20 && !store.search.query({ text: "timerword" }).hits.length; pass++)
+      tick?.();
     expect(store.search.query({ text: "timerword" }).hits[0]?.itemId).toBe(item.id);
     expect(store.search.status(store.headSeq()).indexWrites).toBe(writes + 1);
   } finally {

@@ -112,7 +112,7 @@ export function androidInput(input: DeviceInput): string[] {
           "Rotate requires emulator configuration",
           "Use the rotate operation on the device service.",
         );
-      const codes = { home: "3", back: "4", enter: "66", power: "26" };
+      const codes = { home: "3", back: "4", enter: "66", power: "26", recents: "187" };
       return adbShell(["input", "keyevent", codes[input.key]]);
     }
   }

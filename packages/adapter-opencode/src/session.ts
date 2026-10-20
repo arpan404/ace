@@ -45,7 +45,6 @@ export class OpenCodeSession implements ProviderSession {
   private openingBytes = 0;
   private moves = new Set<string>();
   private evidence = new RecoveryEvidence();
-  private lostLocations = new Set<string>();
   private pending = new Map<
     string,
     { session: string; data: Record<string, unknown>; type: string }
@@ -249,14 +248,6 @@ export class OpenCodeSession implements ProviderSession {
     );
     const frame: Frame = { seq: this.sequence++, t, dir, channel, data: payload.data, payload };
     this.prompts.observe(dir, channel, data);
-    if (
-      channel.startsWith("snapshot.") &&
-      channel !== "snapshot.info" &&
-      this.lostLocations.has(
-        this.ownership.sessions.get(string(object(data).sessionID))?.directory ?? "",
-      )
-    )
-      return;
     if (channel === "snapshot.message" && this.recovering) this.evidence.message(payload.data);
     this.translator.translate(frame, t);
     this.ctx.onFrame(frame);
@@ -267,19 +258,6 @@ export class OpenCodeSession implements ProviderSession {
       const directory = string(object(object(data).location).directory);
       return directory === this.ctx.cwd;
     }
-    const envelope = object(data),
-      ownerID =
-        eventSession(data) || this.ownership.shells.get(string(object(envelope.data).id)) || "";
-    const directory = string(
-      object(envelope.location).directory,
-      this.ownership.sessions.get(ownerID)?.directory ?? "",
-    );
-    if (
-      envelope.type !== "session.moved" &&
-      envelope.type !== "location.shutdown" &&
-      this.lostLocations.has(directory)
-    )
-      return false;
     const accepted = this.ownership.accept(data);
     if (!accepted) this.ancestry.prove(data, watermark);
     if (accepted && object(data).type === "session.moved") {
@@ -292,9 +270,6 @@ export class OpenCodeSession implements ProviderSession {
         .then((value) => {
           const info = SessionInfo.parse(value);
           this.ownership.verify(info);
-          for (const lostDirectory of this.lostLocations)
-            if (!this.ownership.atLocation(lostDirectory).size)
-              this.lostLocations.delete(lostDirectory);
           this.emit("recv", "snapshot.info", { info });
         })
         .catch(() => {
@@ -317,7 +292,6 @@ export class OpenCodeSession implements ProviderSession {
       p = e.data;
     this.catalog.changed(e.type);
     if (e.type === "location.shutdown" && e.location) {
-      this.lostLocations.add(e.location.directory);
       const owners = this.ownership.atLocation(e.location.directory);
       for (const [key, pending] of this.pending)
         if (owners.has(pending.session)) this.pending.delete(key);
@@ -341,24 +315,28 @@ export class OpenCodeSession implements ProviderSession {
     if (e.type.startsWith("session.execution.") || e.type.startsWith("session.step."))
       this.executionObserved.add(eventSession(e));
     this.emit("recv", "sse", e);
+    // OpenCode emits location.shutdown for client recovery: it closed the location's services
+    // (shells included, without shell.exited) and rebuilds them on the next request. Nothing
+    // ace held there is trusted until a snapshot pass has verified it against the new services.
+    if (e.type === "location.shutdown") this.reconcileLocation();
     if (e.type === "shell.exited" || e.type === "shell.deleted")
       this.ownership.shells.delete(string(p.id));
     if (e.type === "shell.created" && object(p.info).status !== "running")
       this.ownership.shells.delete(string(object(p.info).id));
   }
-  private requireLocation(id: string): void {
-    if (this.lostLocations.has(this.ownership.sessions.get(id)?.directory ?? ""))
-      throw new Error("OpenCode location is unavailable");
+  private reconcileLocation(): void {
+    if (this.closed) return;
+    this.recovering = true;
+    this.emit("note", "lifecycle", { type: "disconnected", reason: "location rebuilt" });
+    void this.server.reconcileNow();
   }
   private async barrier(): Promise<void> {
     if (this.closed) throw new Error("OpenCode session is closed");
-    this.requireLocation(this.nativeSessionId);
     if (this.recovering) {
       if (this.waiters.size >= 64) throw new Error("OpenCode recovery send limit");
       await new Promise<void>((resolve, reject) => this.waiters.add({ resolve, reject }));
     }
     this.controller.signal.throwIfAborted();
-    this.requireLocation(this.nativeSessionId);
     await this.ensureMcp(
       this.ownership.sessions.get(this.nativeSessionId)?.directory ?? this.ctx.cwd,
     );
@@ -383,24 +361,28 @@ export class OpenCodeSession implements ProviderSession {
         : target.agent;
     if (!this.ownership.sessions.has(root)) throw new Error("Unknown OpenCode agent");
     const ids = target.cascade ? this.ownership.descendants(root).concat(root) : [root];
+    let stopped = false;
     for (const sessionID of ids) {
-      this.requireLocation(sessionID);
       const result = z
         .object({ interrupted: z.boolean() })
         .parse(
           await request("interrupt request", () => this.client.session.interrupt({ sessionID })),
         );
-      if (!result.interrupted) throw new Error("OpenCode had nothing running to stop");
+      stopped ||= result.interrupted;
     }
+    // A Stop also ends the tree's shells, including ones still running after every turn ended.
     if (target.cascade)
       for (const [id, owner] of this.ownership.shells)
-        if (ids.includes(owner)) await this.removeShell(id);
+        if (ids.includes(owner) && this.translator.liveShell(id)) {
+          await this.removeShell(id);
+          stopped = true;
+        }
+    if (!stopped) throw new Error("OpenCode had nothing running to stop");
   }
   async resolve(key: Key, choice: InteractionResolution): Promise<void> {
     await this.barrier();
     const pending = this.pending.get(key);
     if (!pending) throw new Error("OpenCode interaction is no longer pending");
-    this.requireLocation(pending.session);
     this.emit("note", "interaction.resolving", { key, resolution: choice });
     try {
       await resolveNativeInteraction(this.client, pending, choice);
@@ -412,7 +394,6 @@ export class OpenCodeSession implements ProviderSession {
   private async removeShell(id: string): Promise<void> {
     const owner = this.ownership.shells.get(id);
     if (!owner) throw new Error("Unknown OpenCode shell");
-    this.requireLocation(owner);
     const location = { directory: this.ownership.sessions.get(owner)?.directory ?? this.ctx.cwd };
     await request("shell removal", () => this.client.shell.remove({ id, location }));
   }

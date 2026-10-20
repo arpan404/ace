@@ -71,14 +71,17 @@ export function ProviderSetupRow({
     plan.status !== "ready" &&
     plan.status !== "sign_in" &&
     (missing || plan.action !== "install");
+  // Older than ace supports: Update is the one action, whatever the sign-in says.
+  const needsUpdate = !missing && props.view?.primary === "update";
   const needsSignIn =
-    (provider === "cursor" && missing) ||
-    (!missing &&
-      (provider === "acp" || provider === "antigravity") &&
-      (!props.view || props.view.state === "unconfirmed")) ||
-    plan?.status === "sign_in" ||
-    (!missing && props.view?.primary);
-  const updateAvailable = props.updateAvailable && !needsSignIn;
+    !needsUpdate &&
+    ((provider === "cursor" && missing) ||
+      (!missing &&
+        (provider === "acp" || provider === "antigravity") &&
+        (!props.view || props.view.state === "unconfirmed")) ||
+      plan?.status === "sign_in" ||
+      (!missing && !!props.view?.primary));
+  const updateAvailable = needsUpdate || (props.updateAvailable && !needsSignIn);
   const status = busy
     ? progress?.state === "running"
       ? progress.action === "update"

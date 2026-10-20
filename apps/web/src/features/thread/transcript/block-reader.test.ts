@@ -214,6 +214,29 @@ test.each(["agent", "spawn"] as const)(
   },
 );
 
+test("an item the thread itself posted reads in the thread's transcript, not a subagent's", () => {
+  const source = settledTree("spawn");
+  source.update({
+    type: "item.created",
+    item: Item.parse({
+      id: "recording",
+      createdAt: 5,
+      complete: true,
+      type: "artifact",
+      source: "device",
+      artifactId: "recording",
+      path: "recording.mp4",
+      filename: "Device recording.mp4",
+      mimeType: "video/mp4",
+      bytes: 8,
+    }),
+  });
+  expect(createBlockReader()(source.store).value).toContainEqual(
+    expect.objectContaining({ kind: "item", itemId: "recording" }),
+  );
+  expect(JSON.stringify(createBlockReader("child")(source.store).value)).not.toContain("recording");
+});
+
 // All providers feed the same transcript selector, including summary-only children.
 test.each(["claude", "codex", "acp", "opencode", "cursor"] as const)(
   "%s child tools stay in their own transcript while their launch remains in the parent",

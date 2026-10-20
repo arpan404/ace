@@ -1,19 +1,23 @@
 import { expect, test } from "vitest";
-import { homeRowKey, homeRows, type HomeGroups } from "./home-rows.ts";
+import {
+  homeFootStart,
+  homeRowKey,
+  homeRows,
+  settledFirstRows,
+  settledMoreRows,
+  type HomeGroups,
+} from "./home-rows.ts";
 
 /** The rows as short words, to read the list top to bottom. */
 const words = (rows: ReturnType<typeof homeRows>) =>
-  rows.map((row) =>
-    row.kind === "settled-header" || row.kind === "snoozed-header"
-      ? `${row.kind === "settled-header" ? "settled" : "snoozed"} ${row.count}`
-      : row.kind === "pinned-header"
-        ? `pinned ${row.count}`
-        : row.kind === "pinned-end"
-          ? "—"
-          : "id" in row
-            ? row.id
-            : "unsent",
-  );
+  rows.map((row) => {
+    if (row.kind === "settled-header" || row.kind === "snoozed-header")
+      return `${row.kind === "settled-header" ? "settled" : "snoozed"} ${row.count}`;
+    if (row.kind === "settled-more") return `more ${row.count}`;
+    if (row.kind === "pinned-header") return `pinned ${row.count}`;
+    if (row.kind === "pinned-end") return "—";
+    return "id" in row ? row.id : "unsent";
+  });
 const groups = (patch: Partial<HomeGroups>): HomeGroups => ({
   pinned: [],
   active: [],
@@ -79,7 +83,7 @@ test("an empty Settled group stays out of the list even when expanded", () => {
   expect(words(homeRows(groups({ active: ["a"] }), { settledOpen: true }))).toEqual(["a"]);
 });
 
-test("unsent work follows admitted tasks and precedes settled work", () => {
+test("unsent work leads the list, above the Pinned group", () => {
   expect(
     words(
       homeRows(
@@ -87,14 +91,14 @@ test("unsent work follows admitted tasks and precedes settled work", () => {
         { settledOpen: true, includeUnsent: true },
       ),
     ),
-  ).toEqual(["pinned 1", "pin", "—", "active", "recent", "unsent", "settled 1", "settled"]);
+  ).toEqual(["unsent", "pinned 1", "pin", "—", "active", "recent", "settled 1", "settled"]);
 });
 
-test("Snoozed follows Unsent and precedes Settled, exposing its tasks only when open", () => {
+test("Snoozed follows the tasks and precedes Settled, exposing its tasks only when open", () => {
   const list = groups({ active: ["asks"], snoozed: ["later"], settled: ["done"] });
   expect(words(homeRows(list, { settledOpen: false, includeUnsent: true }))).toEqual([
-    "asks",
     "unsent",
+    "asks",
     "snoozed 1",
     "settled 1",
   ]);
@@ -105,4 +109,79 @@ test("Snoozed follows Unsent and precedes Settled, exposing its tasks only when 
     "settled 1",
     "done",
   ]);
+});
+
+const ids = (prefix: string, count: number) =>
+  Array.from({ length: count }, (_, index) => `${prefix}${index + 1}`);
+
+test("an open Settled section shows its first rows, then offers the next batch", () => {
+  const settled = ids("s", 40);
+  const rows = homeRows(groups({ active: ["a"], settled }), {
+    settledOpen: true,
+    settledShown: settledFirstRows,
+    settledTotal: 85,
+  });
+  // The heading counts every settled thread, loaded or not; the button names what it reveals.
+  expect(words(rows)).toEqual([
+    "a",
+    "settled 85",
+    ...settled.slice(0, 10),
+    `more ${settledMoreRows}`,
+  ]);
+});
+
+test("the last batch names only what is left, and nothing is offered once all show", () => {
+  const settled = ids("s", 12);
+  expect(words(homeRows(groups({ settled }), { settledOpen: true, settledShown: 10 })).at(-1)).toBe(
+    "more 2",
+  );
+  expect(words(homeRows(groups({ settled }), { settledOpen: true, settledShown: 35 })).at(-1)).toBe(
+    "s12",
+  );
+});
+
+test("the batch counts threads the daemon has not sent yet", () => {
+  const rows = homeRows(groups({ settled: ids("s", 20) }), {
+    settledOpen: true,
+    settledShown: 20,
+    settledTotal: 30,
+  });
+  expect(words(rows).at(-1)).toBe("more 10");
+});
+
+test("a closed section keeps the open thread in sight under its heading", () => {
+  const list = groups({ active: ["a"], snoozed: ["z1", "z2"], settled: ["s1", "s2"] });
+  expect(words(homeRows(list, { settledOpen: false, current: "s2" }))).toEqual([
+    "a",
+    "snoozed 2",
+    "settled 2",
+    "s2",
+  ]);
+  expect(words(homeRows(list, { settledOpen: false, current: "z1" }))).toEqual([
+    "a",
+    "snoozed 2",
+    "z1",
+    "settled 2",
+  ]);
+});
+
+test("the open settled thread shows even past the rows the section shows", () => {
+  const settled = ids("s", 30);
+  const rows = words(
+    homeRows(groups({ settled }), { settledOpen: true, settledShown: 10, current: "s25" }),
+  );
+  expect(rows).toEqual(["settled 30", ...settled.slice(0, 10), "s25", "more 19"]);
+});
+
+const drawn = (rows: ReturnType<typeof homeRows>) => rows.map((item) => ({ item }));
+
+test("the foot starts at the first section heading below the tasks", () => {
+  const list = groups({ pinned: ["p"], active: ["a"], snoozed: ["z"], settled: ["s"] });
+  const rows = homeRows(list, { settledOpen: false });
+  expect(words(rows)[homeFootStart(drawn(rows))]).toBe("snoozed 1");
+  const noSnooze = homeRows(groups({ active: ["a"], settled: ["s"] }), { settledOpen: false });
+  expect(words(noSnooze)[homeFootStart(drawn(noSnooze))]).toBe("settled 1");
+  expect(homeFootStart(drawn(homeRows(groups({ active: ["a"] }), { settledOpen: false })))).toBe(
+    -1,
+  );
 });

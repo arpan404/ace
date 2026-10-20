@@ -40,6 +40,9 @@
   --picker-row-padding: 12px;
   --picker-row-height: 48px;
 
+  /* How much the page behind a modal is blurred under Translucent (`.ace-backdrop`). */
+  --backdrop-blur: 7px;
+
   /*
    * Corners, sized to the padding around them so nested corners stay concentric (inner = outer
    * minus inset): 4 tags and marks; 6 inputs, small controls and tooltips; 8 buttons, rows and
@@ -51,22 +54,6 @@
   --radius: 8px;
   --radius-lg: 12px;
   --radius-xl: 18px;
-}
-
-/* Corners (Appearance): the same steps, tighter or rounder, keeping the same ratios. */
-:root[data-corners="sharp"] {
-  --radius-xs: 2px;
-  --radius-sm: 3px;
-  --radius: 4px;
-  --radius-lg: 6px;
-  --radius-xl: 10px;
-}
-:root[data-corners="round"] {
-  --radius-xs: 6px;
-  --radius-sm: 9px;
-  --radius: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 24px;
 }
 
 :root[data-density="compact"] {

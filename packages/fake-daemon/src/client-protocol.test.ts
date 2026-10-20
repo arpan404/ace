@@ -251,27 +251,14 @@ test("fake browser control and preview forwards use real correlated messages and
       ).ok,
     ).toBe(true);
     await f.client.request({ type: "browser.subscribe", threadId });
-    await f.client.request({ type: "browser.takeover", threadId });
-    expect(received).toContainEqual(
-      expect.objectContaining({
-        type: "browser.state",
-        state: expect.objectContaining({ controller: "human" }),
-      }),
-    );
-    // A client acts as a person: it navigates while it holds control, and is refused after.
-    await f.client.request({
-      type: "browser.execute",
-      threadId,
-      command: { action: "navigate", url: "https://example.com" },
-    });
-    await f.client.request({ type: "browser.handback", threadId });
+    // A client acts as a person: it navigates whenever it likes, with no control to take.
     expect(
       await f.client.request({
         type: "browser.execute",
         threadId,
-        command: { action: "navigate", url: "https://example.com/later" },
+        command: { action: "navigate", url: "https://example.com" },
       }),
-    ).toMatchObject({ ok: false, error: "Browser controller mismatch" });
+    ).toMatchObject({ ok: true });
     expect(received).toContainEqual(
       expect.objectContaining({
         type: "browser.state",
@@ -780,13 +767,13 @@ test("fake Preview reopening by one client restores the other client's existing 
         }),
       );
     }
-    const takeover = first.length;
-    await b.client.request({ type: "browser.takeover", threadId });
+    const opened = first.length;
+    await b.client.request({ type: "browser.tabs.open", threadId, url: "https://example.com/" });
     await a.client.request({ type: "diagnostics.health" });
-    expect(first.slice(takeover)).toContainEqual(
+    expect(first.slice(opened)).toContainEqual(
       expect.objectContaining({
         type: "browser.state",
-        state: expect.objectContaining({ controller: "human" }),
+        state: expect.objectContaining({ url: "https://example.com/" }),
       }),
     );
   } finally {

@@ -14,6 +14,8 @@ function setting<T>(key: SettingsKey, schema: z.ZodType<T>, fallback: T): Settin
 
 export const AutoSettle = z.enum(["1d", "2d", "1w", "never"]);
 export type AutoSettle = z.infer<typeof AutoSettle>;
+export const SortBy = SettingsValues.shape["threads.sortBy"];
+export type SortBy = z.infer<typeof SortBy>;
 export const FollowUp = z.enum(["queue", "steer"]);
 export type FollowUp = z.infer<typeof FollowUp>;
 /** Keymap id → keys in keymap notation. Only rebound shortcuts are stored. */
@@ -42,6 +44,7 @@ export const settingKeys = {
     600_000,
   ),
   autoSettle: setting("threads.autoSettleAfter", AutoSettle, "2d"),
+  sortBy: setting("threads.sortBy", SortBy, "activity"),
   settleOnMerge: setting("threads.settleOnMerge", z.boolean(), true),
   settleOnClose: setting("threads.settleOnClose", z.boolean(), false),
   followUp: setting("threads.followUpBehavior", FollowUp, "queue"),
@@ -50,4 +53,13 @@ export const settingKeys = {
   autoDraftCommits: setting("generation.autoDraftCommits", z.boolean(), true),
   keybindings: setting<Keybindings>("clients.keybindings", Keybindings, {}),
   limitPolicy: setting<LimitPolicy>("threads.limitPolicy", LimitPolicy, "manual"),
+  browserEngine: setting("browser.backend", SettingsValues.shape["browser.backend"], "auto"),
+  browserProfile: setting("browser.profile", SettingsValues.shape["browser.profile"], "persistent"),
+  browserLoss: setting("browser.backendLoss", SettingsValues.shape["browser.backendLoss"], "pause"),
+  browserDownloads: setting("browser.downloadDir", SettingsValues.shape["browser.downloadDir"], ""),
+  browserDownloadDefault: setting(
+    "browser.downloadDefault",
+    SettingsValues.shape["browser.downloadDefault"],
+    "",
+  ),
 };

@@ -116,6 +116,14 @@ test("a pinned thread's place reaches other devices, survives a re-pin and goes 
   expect(f.store.getThread(f.thread.id)).toMatchObject({ pinned: true, pinOrder: 5000 });
 });
 
+test("placing a thread in the hand-sorted list stores its place and survives a reread", async () => {
+  const f = await setup();
+  await f.command({ type: "thread.place", threadId: f.thread.id, order: 256.5 });
+  expect(f.store.getThread(f.thread.id)).toMatchObject({ listOrder: 256.5 });
+  await f.command({ type: "thread.place", threadId: f.thread.id, order: 12 });
+  expect(f.store.getThread(f.thread.id)?.listOrder).toBe(12);
+});
+
 test("archive is immediate and unarchive survives receipt retries without losing the thread", async () => {
   const f = await setup();
   await f.command({ type: "thread.archive", threadId: f.thread.id }, "archive");
@@ -144,7 +152,7 @@ test("deletion hides a quiescent thread while preserving replay coverage", async
   });
 });
 
-test("inactivity settles only done trees at the daemon deadline and unsettle starts a new deadline", async () => {
+test("inactivity settles only done trees at the daemon deadline; unsettled stays until auto-settle is turned back on", async () => {
   let now = 1000;
   const f = await setup(() => now);
   const organizer = new ThreadOrganizer(
@@ -170,12 +178,14 @@ test("inactivity settles only done trees at the daemon deadline and unsettle sta
   });
   await f.command({ type: "thread.unsettle", threadId: f.thread.id });
   await organizer.sweep();
-  expect(f.store.getThread(f.thread.id)?.settledAt).toBeUndefined();
-  expect(f.store.getThread(f.thread.id)?.autoSettleAt).toBe(now + 86_400_000);
-  now += 86_400_000 - 1;
+  now += 3 * 86_400_000;
   await organizer.sweep();
   expect(f.store.getThread(f.thread.id)?.settledAt).toBeUndefined();
-  now++;
+  await f.command({ type: "thread.autoSettle", threadId: f.thread.id, enabled: false });
+  await organizer.sweep();
+  expect(f.store.getThread(f.thread.id)?.settledAt).toBeUndefined();
+  // Back on, the inactivity window counts from the unsettle, three days ago.
+  await f.command({ type: "thread.autoSettle", threadId: f.thread.id, enabled: true });
   await organizer.sweep();
   expect(f.store.getThread(f.thread.id)).toMatchObject({
     settledAt: now,
@@ -316,8 +326,29 @@ test("sidebar metadata says the root agent is running tests, from its step's sto
   expect(f.store.getThread(f.thread.id)?.live?.step).toBeUndefined();
 });
 
-test("completed old turns with retained queue holds cannot be settled from another device", async () => {
-  const f = await setup();
+test("a thread waiting on the person settles by hand and stays settled; a running thread refuses", async () => {
+  let now = 1000;
+  const f = await setup(() => now);
+  const organizer = new ThreadOrganizer(
+    f.store,
+    undefined,
+    () => now,
+    () => () => {},
+  );
+  close = async () => {
+    await organizer.close();
+    await f.close();
+  };
+  f.store.appendEvents(
+    f.thread.id,
+    [{ type: "thread.updated", status: { state: "working", agents: 1 } }],
+    now,
+  );
+  expect(await f.command({ type: "thread.settle", threadId: f.thread.id })).toMatchObject({
+    type: "commandResult",
+    ok: false,
+    error: "thread_not_done",
+  });
   f.store.appendEvents(
     f.thread.id,
     [
@@ -331,31 +362,20 @@ test("completed old turns with retained queue holds cannot be settled from anoth
         pendingCount: 1,
       },
     ],
-    1000,
+    now,
   );
-  expect(await f.command({ type: "thread.settle", threadId: f.thread.id })).toMatchObject({
-    type: "commandResult",
-    ok: false,
-    error: "thread_not_done",
-  });
+  // A request for the person never settles on its own.
+  now += 7 * 86_400_000;
+  await organizer.sweep();
   expect(f.store.getThread(f.thread.id)?.settledAt).toBeUndefined();
-  f.store.appendEvents(
-    f.thread.id,
-    [
-      {
-        type: "queue.updated",
-        paused: false,
-        reason: null,
-        resumeAt: null,
-        revision: 2,
-        pendingCount: 0,
-      },
-    ],
-    1001,
-  );
   expect(await f.command({ type: "thread.settle", threadId: f.thread.id })).toMatchObject({
     type: "commandResult",
     ok: true,
   });
-  expect(f.store.getThread(f.thread.id)?.settledAt).toBe(1000);
+  await organizer.sweep();
+  expect(f.store.getThread(f.thread.id)).toMatchObject({
+    settledAt: now,
+    settledReason: "manual",
+    queue: { paused: true, reason: "not_sent" },
+  });
 });

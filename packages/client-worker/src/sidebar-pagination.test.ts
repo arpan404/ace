@@ -165,3 +165,30 @@ test("Home in another tab cannot replace Archive rows or its continuation", asyn
   daemon.updateThread("active", { title: "Still live" });
   await vi.waitFor(() => expect(archive.store.thread("active")?.title).toBe("Still live"));
 });
+
+test("a project filter switch paints held rows in the tab at once, unconfirmed until the daemon's list lands", async () => {
+  const { daemon, tab, faults } = world();
+  daemon.createThread({ id: "relay-1", workspaceId: "relay", title: "Relay", provider: "codex" });
+  daemon.createThread({ id: "web-1", workspaceId: "web", title: "Web", provider: "codex" });
+  const remote = tab();
+  await remote.start();
+  await vi.waitFor(() => expect(remote.state).toBe("ready"));
+  const lease = remote.threads();
+  cleanups.push(lease.release);
+  await vi.waitFor(() => expect(lease.store.ids).toHaveLength(2));
+  const held: (() => void)[] = [];
+  faults.incoming = (message, text, deliver) => {
+    if (message.type === "snapshot" && message.view.kind === "threads")
+      held.push(() => deliver(text));
+    else deliver(text);
+  };
+  await remote.threadsWindow({ project: "relay" });
+  await vi.waitFor(() => expect(lease.store.ids).toEqual(["relay-1"]));
+  expect(lease.store.unconfirmed).toBe(true);
+  expect(lease.store.syncing).toBe(true);
+  await vi.waitFor(() => expect(held).toHaveLength(1));
+  for (const deliver of held) deliver();
+  await vi.waitFor(() => expect(lease.store.unconfirmed).toBe(false));
+  expect(lease.store.syncing).toBe(false);
+  expect(lease.store.ids).toEqual(["relay-1"]);
+});

@@ -187,10 +187,8 @@ function useAutomationControls(automation: Automation | undefined) {
   return {
     toggle(enabled: boolean) {
       if (!automation) return;
-      setEnabled(automation, enabled).then(
-        () => toast.add({ title: `${enabled ? "Resumed" : "Paused"} · ${automation.title}` }),
-        failed,
-      );
+      // The switch shows the change; only a failure needs saying.
+      setEnabled(automation, enabled).catch(failed);
     },
     runNow() {
       if (!automation) return;

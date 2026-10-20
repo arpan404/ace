@@ -29,7 +29,7 @@ function call(
 const browse = (id: string, url?: string, agent?: string) =>
   call(
     id,
-    { kind: "mcp", server: "ace", tool: "ace_browser_open", arguments: url ? { url } : {} },
+    { kind: "mcp", server: "ace", tool: "browser_open", arguments: url ? { url } : {} },
     { agent },
   );
 
@@ -57,7 +57,7 @@ it("carries an agent's site to its later browser steps that name no URL", () => 
 it("names the app a computer-use step acted on from the daemon's result target", () => {
   const item = call(
     "type",
-    { kind: "mcp", server: "ace", tool: "screen_type", arguments: { text: "hi" } },
+    { kind: "mcp", server: "ace", tool: "screen_input", arguments: { action: "type", text: "hi" } },
     {
       result: {
         isError: false,
@@ -95,4 +95,21 @@ it("names no site for a host a site origin can't hold", () => {
 it("an earlier page's site carries into a step that names none", () => {
   const surfaces = toolSurfaces([browse("click")], new Map([["root", "https://github.com"]]));
   expect(surfaces.get("click")?.icon).toEqual({ kind: "site", origin: "https://github.com" });
+});
+
+const act = (id: string, app: string) =>
+  call(id, {
+    kind: "mcp",
+    server: "ace",
+    tool: "screen_act",
+    arguments: { app, actions: [{ type: "click", id: 1 }] },
+  });
+it("a background computer-use step names its app's icon by bundle id, never by a plain app name", () => {
+  const byId = act("by-id", "com.apple.TextEdit");
+  const byName = act("by-name", "Calculator");
+  expect(byId.type === "tool_call" && toolSurface(byId.call)).toEqual({
+    kind: "computer",
+    icon: { kind: "app", identity: "com.apple.TextEdit" },
+  });
+  expect(byName.type === "tool_call" && toolSurface(byName.call)).toEqual({ kind: "computer" });
 });

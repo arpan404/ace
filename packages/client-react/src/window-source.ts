@@ -1,4 +1,10 @@
-import type { Selection, ThreadKey, ThreadReader, ThreadSource } from "@ace/client";
+import {
+  mergeBySeq,
+  type Selection,
+  type ThreadKey,
+  type ThreadReader,
+  type ThreadSource,
+} from "@ace/client";
 import type { Item } from "@ace/protocol";
 
 /*
@@ -11,12 +17,14 @@ import type { Item } from "@ace/protocol";
 /** A window's items, oldest first and contiguous, and the cursor before its first item. */
 export interface ThreadWindow {
   items: readonly Item[];
+  /** Each item's creation sequence; a joined window merges with the tail by it. */
+  seqs?: ReadonlyMap<string, number> | undefined;
   before: number | null;
   /** Deletions retained by the window owner across joining, detachment and source replacement. */
   deleted?: Set<string>;
   /**
-   * The window overlaps the live tail: the tail's newer items follow it (deduplicated by id,
-   * the tail's copy winning), and they stay live.
+   * The window meets the live tail: the tail's items from the window's first on join it, merged
+   * by creation sequence and deduplicated by id (the tail's copy winning), and they stay live.
    */
   joined?: boolean | undefined;
 }
@@ -39,14 +47,26 @@ export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSo
     }
     return deleted.has(id);
   };
+  const seqOf = (id: string) => window.seqs?.get(id) ?? live.itemSeq?.(id);
+  const firstSeq = own.length ? seqOf(own[0] ?? "") : undefined;
+  // Without every window item's sequence there is no order to merge by: show the window alone.
+  const mergeable = joined && own.every((id) => seqOf(id) !== undefined);
   let tailOrder: readonly string[] | undefined;
   let order: readonly string[] = own;
   const currentOrder = () => {
     if (live.order === tailOrder) return order;
     tailOrder = live.order;
-    const newer = joined ? tailOrder.filter((id) => !items.has(id)) : [];
     const kept = own.filter((id) => !isDeleted(id));
-    order = newer.length ? [...kept, ...newer] : kept;
+    // The tail's items from the window's first on; older ones (root items the tail kept long
+    // ago) would sit above the window with a hole between them.
+    const tail = mergeable
+      ? tailOrder.filter((id) => {
+          if (items.has(id)) return false;
+          const seq = live.itemSeq?.(id);
+          return seq !== undefined && (firstSeq === undefined || seq >= firstSeq);
+        })
+      : [];
+    order = tail.length ? mergeBySeq(kept, tail, seqOf) : kept;
     return order;
   };
   const item = (id: string) =>
@@ -54,6 +74,12 @@ export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSo
   const source: ThreadSource = {
     get error() {
       return live.error;
+    },
+    get syncing() {
+      return live.syncing ?? false;
+    },
+    get unconfirmed() {
+      return live.unconfirmed ?? false;
     },
     get thread() {
       return live.thread;
@@ -78,6 +104,7 @@ export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSo
     interactionIds: () => live.interactionIds(),
     taskIds: () => live.taskIds(),
     item,
+    itemSeq: seqOf,
     deleted: isDeleted,
     agent: (id) => live.agent(id),
     run: (id) => live.run(id),

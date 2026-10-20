@@ -12,7 +12,15 @@ import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
 import { ThreadHoverContent, useThreadHover } from "./thread-hover-card.tsx";
 import { RenameField } from "./rename-field.tsx";
 import { RowActions } from "./row-actions.tsx";
-import { ProjectMark, RowStatus, RowContext, threadDetails, titleTone } from "./row-parts.tsx";
+import {
+  BrowsingMark,
+  ComputerUseMark,
+  ProjectMark,
+  RowStatus,
+  RowContext,
+  threadDetails,
+  titleTone,
+} from "./row-parts.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
 import { useStartedTitle } from "./started-titles.ts";
 import { useRowActive } from "./use-row-active.ts";
@@ -91,7 +99,9 @@ export function ThreadRow(props: {
         <ProjectMark id={entry.workspaceId} badge={card.badge} />
         <span className="min-w-0 flex-1 truncate">{card.project}</span>
         {!actions && (
-          <span className="flex shrink-0 group-has-[[data-popup-open]]/row:hidden">
+          <span className="flex shrink-0 items-center gap-1.5 group-has-[[data-popup-open]]/row:hidden">
+            <BrowsingMark threadId={props.threadId} />
+            <ComputerUseMark threadId={props.threadId} />
             <RowStatus card={card} attention={attention} />
           </span>
         )}

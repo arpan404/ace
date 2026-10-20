@@ -2,7 +2,7 @@ export { DevicesService, type DevicesOptions, agentOwner, deviceFailure } from "
 export { DevicePlatform, type PlatformOptions } from "./platform.ts";
 export { DeviceError } from "./sdk.ts";
 export { ControllerLease, type Actor } from "./lease.ts";
-export { connectDevices, sendDeviceFrame, type DevicePeer } from "./bridge.ts";
+export { connectDevices, type DevicePeer } from "./bridge.ts";
 export { devicesToolkit } from "./mcp.ts";
 export { DeviceLogs, type LogBatch } from "./logs.ts";
 export type { DeviceRuntime } from "./runtime.ts";
@@ -17,7 +17,14 @@ export { H264AccessUnits } from "./h264.ts";
 
 export { watchDeviceLease } from "./lease-expiry.ts";
 
-export { devicePacketDelivery } from "./packet-delivery.ts";
-
 export { deviceControlDelivery } from "./control-delivery.ts";
 export { consumeDeviceRecording } from "./recording-artifact.ts";
+export {
+  callSimTool,
+  simFailure,
+  simPublicError,
+  type SimActor,
+  type SimResult,
+} from "./sim-tools.ts";
+export { type SimToolName } from "./sim-schemas.ts";
+export { pinnedServeSim, serveSimStatus, type ServeSimStatus } from "./serve-sim-version.ts";

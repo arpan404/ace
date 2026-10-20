@@ -8,7 +8,7 @@ export function WorkPlans(props: { threadId: string }) {
     <div>
       {plans.map(({ step, progress }) => (
         <div key={step.agentId} className="px-2 py-1">
-          <ol aria-label="Plan" className="space-y-2 text-ui">
+          <ol aria-label="Tasks" className="space-y-2 text-ui">
             {progress.todos.map((todo, index) => (
               <li
                 // oxlint-disable-next-line react/no-array-index-key -- positional provider todos may repeat text.

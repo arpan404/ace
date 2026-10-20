@@ -21,7 +21,12 @@ Follow-up behaviour defaults to queue and resolves before intent admission.
 An explicit send delivery overrides the setting. Clients can implement the
 opposite-default shortcut without duplicating the server queue. Steers bypass
 settled-turn gating only when the adapter advertises steer, the session is live,
-and no recovery/limit hold exists. Unsupported steering enters the ordered queue.
+and no recovery/limit hold exists. Unsupported steering enters the ordered queue. A person's
+steer during a foreground tool goes in now (see the 2026-10-18 amendment "Steer interrupts a
+running command"); a delegated result still waits for that tool to finish. Background work
+alone does not hold steering. Explicit queue mode still waits for the next turn.
+A queued message is not in the transcript; the claim that delivers it creates its user item
+and binds its run (ADR 0065, 2026-10-17 amendment).
 
 The commit before provider I/O is the claim boundary. Exactly-once external
 delivery cannot be promised across a crash. Unacknowledged claimed messages
@@ -146,3 +151,115 @@ or snooze deadline stays). A completed turn lifts the hold. With no reset, or on
 has cleared, the person's next message is the go-ahead: the hold and ace's "continue" are
 dropped and the queue sends in order. If the provider refuses again, its signal holds the
 thread again.
+
+## Amendment 2026-10-17: the person can always talk to the agent
+
+A thread whose agent had finished its turn but left work running (a subagent, a delegated
+child, a child's open request) held every queued message until that work ended, which could be
+never. The web composer also refused to steer a queued message unless a root turn was running,
+so there was no way to send it. The person could not talk to their own agent.
+
+What a person's message waits for is now one pure rule in core (`acceptsPersonInput`), scoped to
+the agent the person talks to, the root:
+
+- **A root turn is running.** A steer goes into that turn now. A queued message waits for the
+  turn to end ("queued messages wait for the run to end").
+- **The root is between turns.** Any message, queued or steered, starts the next turn now.
+  Background commands, monitors, subagents and delegated children keep running, and the thread
+  keeps reading working or waiting on them; it never reads done while they run.
+- **The provider can't take input yet.** The root is retrying or limited, has lost its
+  connection, has announced a turn of its own (a wake, bounded to seconds), waits on the
+  person's answer, or still holds earlier input in its own queue. A queued message waits and
+  Steer on its row sends it now. A steer never needs a running turn: with none,
+  it starts the next turn.
+
+Stop and the other holds (`paused`, `limited`, recovery) are unchanged: a held queue sends on
+the person's Resume or next message. A queued message that changes the model or options still
+waits for the whole tree, because the switch may reopen the session and end its background work
+(a steer that changes them goes in at once; see the 2026-10-18 amendment).
+Forks, switches and merges keep the stricter whole-tree readiness.
+
+Each provider takes a new turn with its background work alive:
+
+| Provider | A message between turns                                                                                                                         |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex    | `turn/start` on the thread; background terminals and child threads keep running. A steer with no turn starts one.                               |
+| Claude   | The user message goes to the CLI's stdin (`priority: "now"` for a steer) and starts the next turn; backgrounded agents and shells keep running. |
+| OpenCode | `session.prompt` with its delivery; the v2 inbox runs it now or as the next execution.                                                          |
+| Cursor   | With no SDK operation active, a send starts a new operation.                                                                                    |
+| Pi       | `prompt`; `streamingBehavior` only matters while a run streams, so an idle harness starts a run.                                                |
+| ACP      | No steer; the queued message is delivered as the next prompt once the previous one has returned.                                                |
+
+## Amendment 2026-10-18: a steer always steers
+
+A steer that also named a model or effort was rewritten to a queued message, so it waited for the
+whole tree and the composer greyed Steer out whenever a new selection was picked. A queued
+message changed to steer from the tray waited the same way. The person asked to steer and the
+agent never heard them until everything finished.
+
+A person's steer now always steers, wherever it comes from (the composer, the queue tray's
+Steer, an edit that changes a queued message to steer):
+
+- **Its text goes in at once**, under the same rules as any steer: into the running root turn,
+  or as the next turn when the root is between turns. A foreground tool no longer holds it (see
+  the next amendment), and the holds above (`paused`, `limited`, recovery) still apply.
+- **Its selection waits for the boundary a switch needs.** While the tree works, the model or
+  options change is split off as the thread's pending `thread.switch` (ADR 0051), ordered right
+  behind the steer: last selection wins, clients see it queued, and it applies at the next
+  whole-tree quiescence before the next queued send. Messages queued after the steer wait behind
+  it, as they waited behind the selecting message before. The change is never applied mid-run
+  and never lost.
+- **With nothing running**, the selection belongs to the turn the message starts, so the message
+  keeps it and is delivered with it at once, as before.
+- **A provider that can't steer** queues the message with its selection, which waits for the
+  whole tree as before: that is the provider's limit, not a choice.
+
+The split happens when the steer is admitted (`admitSteer` in the engine), and a pending switch
+never blocks a steer into a working tree.
+
+## Amendment 2026-10-18: Steer interrupts a running command
+
+The morning's rule held a steer until a running foreground command finished, and the composer
+showed Queue meanwhile. In a Codex thread tailing a log while `bun run check` ran, the person
+pressed Steer and the message sat in the queue until the command ended. Steer exists to
+interrupt the model, so it must not wait for a command.
+
+A person's steer now reaches the model at once, however long the running command:
+
+- **Providers differ in when a native steer lands.** Claude (priority `now`, CLI 2.1.286+)
+  backgrounds the running tool and joins the turn; the Cursor SDK cancels and restarts the
+  operation. Both reach the model at once. Codex `turn/steer` waits in the turn's pending input
+  for the next model request, after the running command returns; Pi's `steer` and OpenCode's
+  busy-session prompt also land at the next step. Adapters say which through the
+  `steerTiming` capability (`after_tool`; omitted means immediate).
+- **Immediate providers steer natively mid-tool.** The engine sends the steer as before.
+- **`after_tool` providers yield the turn.** The steering lane interrupts the root turn once
+  (provider-native, no cascade: background commands and children keep running). The steer stays
+  an unclaimed intent until that turn ends, then goes in as the next input. No other steer slips
+  into the ending turn. The cut-short run ends `interrupted` with `endedBy: "steer"`, and clients
+  show it as finished work, not as Stopped. The thread reads working while the turn winds down
+  and waiting on the queue for the instant before delivery, never done.
+- **Delegated results never interrupt.** A child's result (`subagent_result`) still waits for
+  the running command, then steers natively. The engine keeps the two apart: `isPersonSteer`
+  and the `yield` route only ever take the person's own steer.
+- **Stop wins.** A Stop in the same stretch pauses the queue: the run reads stopped and the
+  steer waits for the person.
+- **Restarts.** The steer is never claimed before the turn ends, so a restart in between keeps
+  it, once and not uncertain, in the held queue. It goes in when the person resumes, like any
+  message after a restart. Nothing starts by itself.
+- **If the interrupt fails**, the engine does not retry it; the provider's own steer delivers the
+  message when the command returns.
+
+## Amendment 2026-10-18: a Stop always settles
+
+A Stop of a whole thread (a cascading interrupt with no agent or run target) must leave the tree
+settled, never working or waiting on work nobody can reach.
+
+- **The provider can't stop it.** When the provider rejects the interrupt (a lost location, work
+  it won't interrupt), the engine closes the provider session as the person's Stop. The adapter
+  cleans up what it owns, and every agent, tool and background task still marked running ends
+  (`interrupted`, or `unknown` for tasks). The Stop is not reported as failed.
+- **A Stop is final across restarts.** A stopped thread never captures a restart continuation:
+  shutdown capture and a provider-exit hold both skip a queue held by `stopped`, so nothing waits
+  for Resume after a Stop. Startup drops a restart continuation that earlier builds saved behind a
+  Stop, so such threads (and the delegated children a parent cancelled) settle on the next start.

@@ -1,15 +1,12 @@
-import { ClientError, scopedSelection, type ModelScope } from "@ace/client";
+import { ClientError } from "@ace/client";
 import { useClient } from "@ace/client-react";
-import {
-  AgentLaunchOptions,
-  WorkspaceId,
-  type CommandPayload,
-  type MessageContext,
-  type AccessMode,
-  type WorktreeBase,
-} from "@ace/protocol";
 import { useNavigate, useRouter } from "@tanstack/react-router";
-import { baseName, provisionalTitle } from "@ace/ui-core";
+import {
+  createPayload,
+  provisionalTitle,
+  type CreatePayload,
+  type CreateRequest,
+} from "@ace/ui-core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   preloadPendingThread,
@@ -34,63 +31,18 @@ import {
   useCreateRecovery,
 } from "./use-create-recovery.ts";
 import { useLayout } from "@/lib/layout.tsx";
+import { useToast } from "@/components/ui/toast.tsx";
 import { dismissSend } from "@/lib/dismissed-sends.ts";
 import { rememberProvider } from "@/lib/provider-statuses.ts";
 
-export interface CreateRequest {
-  pullRequest?: import("@ace/protocol").ForgePrWorktree | undefined;
-  issue?: import("@ace/protocol").ForgeIssueRef | undefined;
-  project: string;
-  /** The composer's own draft key, retained until the original create settles. */
-  draftKey?: string | undefined;
-  /** The account the thread runs on: picked first, before its model. */
-  scope: ModelScope;
-  /** The catalog id listed on that account (OpenCode's `provider/model`), never a bare native id. */
-  model: string;
-  mode: "local" | "worktree";
-  /** Where a worktree starts, a local or a remote branch; ignored for the local checkout. */
-  base: WorktreeBase | undefined;
-  effort: string | undefined;
-  /** The faster tier to run on (`serviceTier`), when the person turned speed on. */
-  serviceTier?: string | undefined;
-  /** An explicit approval mode for this thread; the daemon's default when omitted. */
-  permission?: AccessMode | undefined;
-  text: string;
-  input?: import("@ace/protocol").ContentPart[] | undefined;
-  context?: MessageContext | undefined;
-}
-
-type CreatePayload = Extract<CommandPayload, { type: "thread.create" }>;
+/** The request and its `thread.create` payload are shared with the native apps (`@ace/ui-core`). */
+export { createPayload, type CreateRequest } from "@ace/ui-core";
 
 /**
- * The `thread.create` command for a request: the account's provider, account (or ACP identity)
- * and catalog id, as `ModelClient` would select them. Pure, so it can be saved offline; the
- * daemon resolves the id again at admission.
+ * After the start is saved: `open` moves to the new thread (Enter); `stay` keeps New thread
+ * open for the next one and says the thread started (the other send key, ⌘↵ by default).
  */
-export function createPayload(request: CreateRequest): CreatePayload {
-  const effort = AgentLaunchOptions.shape.effort.safeParse(request.effort);
-  const tier = AgentLaunchOptions.shape.serviceTier.safeParse(request.serviceTier);
-  const options = {
-    ...(effort.success && effort.data ? { effort: effort.data } : {}),
-    ...(tier.success && tier.data ? { serviceTier: tier.data } : {}),
-  };
-  return {
-    type: "thread.create",
-    ...(request.pullRequest ? { pullRequest: request.pullRequest } : {}),
-    ...(request.issue ? { issue: request.issue } : {}),
-    workspaceId: WorkspaceId.parse(request.project),
-    ...scopedSelection(request.scope, request.model),
-    mode: request.pullRequest ? "worktree" : request.mode,
-    // `baseBranch` names the same commit for a daemon that doesn't read `base` yet.
-    ...(!request.pullRequest && request.mode === "worktree" && request.base
-      ? { base: request.base, baseBranch: baseName(request.base) }
-      : {}),
-    ...(Object.keys(options).length ? { options } : {}),
-    ...(request.permission ? { access: request.permission } : {}),
-    input: request.input ?? [{ type: "text", text: request.text }],
-    ...(request.context ? { context: request.context } : {}),
-  };
-}
+export type AfterCreate = "open" | "stay";
 
 /** Where a new thread shows until the daemon has started it: its command's own route. */
 export const pendingThreadId = (commandId: string) => `pending:${commandId}`;
@@ -109,15 +61,18 @@ export function useCreateThread(
   canNavigate?: (() => boolean) | undefined,
   /** The composer's draft key: only its own recovered start opens its thread. */
   draftKey?: string | undefined,
+  /** False when the person navigated here: a recovered start then never takes them away. */
+  recoverStart = true,
 ): {
   /** Resolves false when the composer must keep its draft, including uncertain worker delivery. */
-  create(request: CreateRequest): Promise<boolean>;
+  create(request: CreateRequest, after?: AfterCreate): Promise<boolean>;
   error: string | undefined;
   /** A thread start not yet settled carries this draft scope, so no editor may resume it. */
   claims(draftId: string | undefined): boolean;
 } {
   const client = useClient();
   const navigate = useNavigate();
+  const toast = useToast();
   const { storage } = useLayout();
   const connection = useDaemonConnection();
   const host = useHostIdentity();
@@ -149,11 +104,11 @@ export function useCreateThread(
     draftKey,
     onError: setError,
     onRecovered,
-    canNavigate,
+    canNavigate: () => recoverStart && canNavigate?.() !== false,
   });
 
   const submit = useCallback(
-    async (request: CreateRequest) => {
+    async (request: CreateRequest, after: AfterCreate) => {
       setError(undefined);
       const requested = createPayload(request);
       let commandId: string | undefined;
@@ -193,10 +148,22 @@ export function useCreateThread(
         void settleCreateAttempt(client, storage, recoveryKey, attempt).catch(() => {
           /* Reconnect recovers the saved payload under its original ID. */
         });
+        const threadId = pendingThreadId(commandId);
+        if (after === "stay") {
+          toast.add({
+            title: "Thread started",
+            description: provisionalTitle(attempt.payload.input),
+            actionProps: {
+              children: "Open",
+              onClick: () => void navigate({ to: "/t/$threadId", params: { threadId } }),
+            },
+          });
+          return sameSubmittedDraft(requested, attempt.payload);
+        }
         // Its view drawn at once on arrival: no empty frame between New thread and the thread.
         await preloadPendingThread().catch(() => {});
         if (mounted.current && canNavigate?.() !== false)
-          void navigate({ to: "/t/$threadId", params: { threadId: pendingThreadId(commandId) } });
+          void navigate({ to: "/t/$threadId", params: { threadId } });
         return sameSubmittedDraft(requested, attempt.payload);
       } catch (failure) {
         if (commandId) settlingFor(client).delete(commandId);
@@ -226,17 +193,17 @@ export function useCreateThread(
         return false;
       }
     },
-    [client, navigate, storage, recoveryKey, host, canNavigate],
+    [client, navigate, toast, storage, recoveryKey, host, canNavigate],
   );
   const create = useCallback(
-    (request: CreateRequest) => {
+    (request: CreateRequest, after: AfterCreate = "open") => {
       // Share the promise before any awaited identity or persistence work. A second Enter
       // cannot allocate another command while the first submission is still being saved.
       const payload = createPayload(request);
       const current = flight.current;
       if (current)
         return current.promise.then((sent) => sent && sameSubmittedDraft(current.payload, payload));
-      const pending = submit(request).finally(() => {
+      const pending = submit(request, after).finally(() => {
         if (flight.current?.promise === pending) flight.current = undefined;
       });
       flight.current = { payload, promise: pending };

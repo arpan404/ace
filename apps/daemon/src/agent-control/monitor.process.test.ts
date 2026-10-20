@@ -184,9 +184,13 @@ test("a daemon shutdown mid-wait returns interrupted instead of hanging", async 
   });
 });
 
-test("a wait refuses threads in another project", async () => {
+test("a delegated child's wait refuses threads in another project", async () => {
   const f = await daemonFixture();
   try {
+    // A full-access top-level agent acts for the person and reads every project; its children never do.
+    const child = await spawn(f, "scoped");
+    const agentId = f.daemon.store.getThread(child)?.rootAgentId;
+    if (!agentId) throw new Error("Child missing");
     const elsewhere = await mkdtemp(join(tmpdir(), "ace-elsewhere-"));
     onTestFinished(() => rm(elsewhere, { recursive: true, force: true }));
     const created = f.controls.delegations.command("unrelated", {
@@ -196,7 +200,13 @@ test("a wait refuses threads in another project", async () => {
       input: [{ type: "text", text: "unrelated" }],
     });
     const unrelated = ThreadId.parse(created.threadId);
-    expect(await wait(f, [unrelated], "all")).toMatchObject({ ok: false, code: "forbidden" });
+    expect(
+      await f.controls.port.execute(
+        { sessionId: "child", threadId: child, agentId },
+        { op: "wait", threadIds: [unrelated], mode: "all", timeoutSeconds: 60 },
+        new AbortController().signal,
+      ),
+    ).toMatchObject({ ok: false, code: "forbidden" });
   } finally {
     await f.daemon.close();
   }
@@ -221,7 +231,7 @@ test("the parent reads waiting on its subagents during a wait, never done", asyn
           detail: {
             kind: "mcp",
             server: "ace",
-            tool: "mcp__ace__ace_wait",
+            tool: "mcp__ace__wait",
             arguments: { threadIds: [child], mode: "all", timeoutSeconds: 60 },
           },
         },

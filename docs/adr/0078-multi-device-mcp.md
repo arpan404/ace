@@ -27,7 +27,7 @@ either (ADR 0070). Machines reachable over LAN or Tailscale work.
 
 ### Discovery
 
-`ace_machines` lists the paired machines that let this device's agents in: the profile name
+`machines` lists the paired machines that let this device's agents in: the profile name
 agents pass as `machine`, the machine's display name, online or offline, the granted access
 (`read` or `operate`), its projects, its tool groups (`agents`, `browser`) and installed
 providers. A machine that has not opted in, or refuses this device, is not listed. An offline
@@ -37,13 +37,13 @@ machine is listed only after this daemon has seen it opted in, with a next step.
 
 Tools that make sense elsewhere take a `machine` parameter:
 
-- `delegate_task` takes `machine` and `project`. The child is an ordinary thread on the target,
+- `delegate` takes `machine` and `project`. The child is an ordinary thread on the target,
   in that project, started with the target's own access mode for the provider.
-- `ace_wait` and `ace_agents_status` include those children, marked with the machine.
-  `agent.status` and `agent.cancel` work on them too.
+- `wait` and `agents_status` include those children, marked with the machine.
+  `agent_cancel` works on them too.
 - Every `ace_browser_*` tool takes `machine`.
 
-A generic `ace_remote_call(machine, tool, args)` was rejected. It would hide the target's tool
+A generic `remote_call(machine, tool, args)` was rejected. It would hide the target's tool
 schemas, so agents would guess arguments. It would make every tool callable remotely by
 default, including ones that make no sense on another machine. It would also blur which
 consent applies. Explicit parameters keep each tool's schema, risk class and MCP annotations
@@ -85,7 +85,7 @@ as they are. A tool is reachable elsewhere only when it was deliberately given `
 - Delegated children live in a durable ledger on the caller, polled each second while any is
   unsettled. An unreachable machine keeps its children working with a note and never reads as
   done. The parent holds a background task for each one, so it never reads done early.
-- A settled result goes to an active `ace_wait`, or is delivered to the parent as a new turn
+- A settled result goes to an active `wait`, or is delivered to the parent as a new turn
   exactly once. Stopping the parent, or the background task, cancels the child there.
 
 ### UI
@@ -101,8 +101,9 @@ as they are. A tool is reachable elsewhere only when it was deliberately given `
   and live frames, so they are left for a follow-up.
 - Thread reads and starts in another machine's project beyond delegation (`thread.read`,
   `thread.start` with `machine`).
-- Routing machine calls over the self-hosted relay, and converging ADR 0071's client-brokered
-  `ace_device_*` tools and file transfer onto this path so there is one way to work elsewhere.
+- Routing machine calls over the self-hosted relay, and file transfer. ADR 0071's
+  client-brokered device task tools are removed; `machines`, `delegate` with `machine` and
+  `project`, `agents_status`, `wait` and `agent_cancel` replace them.
 - Persisting the offline directory across restarts, and pushing status from the target
   instead of polling.
 
@@ -112,7 +113,7 @@ Two real daemons in temp homes are paired over TLS, the way `ace remote add` sto
 with scripted providers and a fake headless browser. Tests cover:
 
 - the opt-in: listing only an opted-in machine, and turning it off stopping the next call;
-- delegation running on the target, with `ace_wait` on the caller returning its result and
+- delegation running on the target, with `wait` on the caller returning its result and
   the parent's row naming the machine;
 - a read-only pairing refusing to start work;
 - a browser request on the target answered from the calling thread;

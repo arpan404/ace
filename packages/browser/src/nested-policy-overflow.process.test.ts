@@ -115,15 +115,12 @@ it("nested residual policy overflow rejects branch work while the parent and sib
   if (!overflow) throw new Error("Target boundary missing");
   overflow();
   await snapshot;
-  expect(closedTargets).toEqual(["branch-target"]);
+  // Closing an out-of-process iframe target would close the whole page in Chromium.
+  expect(closedTargets).toEqual([]);
   expect(f.service.state("thread")).toMatchObject({ status: "ready", closed: false });
   const usable = z
     .object({ nodes: z.array(z.object({ frameId: z.string().optional(), name: z.string() })) })
     .parse(await f.service.execute("thread", { action: "snapshot" }));
-  expect(usable.nodes).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({ name: "Name", frameId: "main" }),
-      expect.objectContaining({ name: "Name", frameId: "sibling-target" }),
-    ]),
-  );
+  // Main-frame nodes carry no frame; a child frame's nodes name it.
+  expect(usable.nodes).toEqual([{ name: "Name" }, { name: "Name", frameId: "sibling-target" }]);
 });

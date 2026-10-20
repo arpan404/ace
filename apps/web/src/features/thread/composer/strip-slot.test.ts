@@ -4,9 +4,11 @@ import { pickStrip, stripSlot, type StripFacts } from "./strip-slot.ts";
 const facts = (patch: Partial<StripFacts>): StripFacts => ({
   confirmStop: false,
   requests: [],
+  sending: false,
   connection: false,
   stopped: false,
   queue: false,
+  goal: false,
   plan: false,
   ...patch,
 });
@@ -25,6 +27,15 @@ test("background commands left by a stopped turn rank below the connection, abov
   const now = facts({ stopped: true, queue: true, plan: true });
   expect(stripSlot(now, undefined)).toEqual({ shown: "stopped", others: ["queue", "plan"] });
   expect(stripSlot({ ...now, connection: true }, undefined).shown).toBe("connection");
+});
+
+test("a message on its way ranks below a request, above the connection and the queue", () => {
+  const now = facts({ sending: true, connection: true, queue: true });
+  expect(stripSlot(now, undefined)).toEqual({ shown: "sending", others: ["connection", "queue"] });
+  expect(stripSlot({ ...now, requests: ["approval-1"] }, undefined)).toEqual({
+    shown: "request",
+    others: ["sending", "connection", "queue"],
+  });
 });
 
 test("approval hides the queue strip but shows a queued indicator", () => {
@@ -88,4 +99,14 @@ test("a notification opening a request the person already saw takes the slot bac
 test("switching away after a notification opened the thread sticks", () => {
   const now = facts({ requests: ["approval-1"], target: "approval-1", queue: true });
   expect(stripSlot(now, pickStrip("queue", now)).shown).toBe("queue");
+});
+
+test("a goal shows above the task list, which waits as an indicator, and below the queue", () => {
+  const now = facts({ goal: true, plan: true });
+  expect(stripSlot(now, undefined)).toEqual({ shown: "goal", others: ["plan"] });
+  expect(stripSlot(now, pickStrip("plan", now)).shown).toBe("plan");
+  expect(stripSlot({ ...now, queue: true }, undefined)).toEqual({
+    shown: "queue",
+    others: ["goal", "plan"],
+  });
 });

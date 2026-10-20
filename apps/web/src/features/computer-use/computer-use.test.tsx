@@ -1,5 +1,5 @@
 import { flakyCheckout } from "@ace/fake-daemon";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { deviceBrowser } from "@/test/device-browser.ts";
@@ -22,68 +22,31 @@ async function openSettings() {
 
 const page = () => screen.findByRole("heading", { name: "Computer use", level: 2 });
 
-test("turning computer use on is what the daemon records, and Stop all turns it off and ends every session", async () => {
-  const { app, world } = await openSettings();
+test("turning computer use on and off is what the daemon records", async () => {
+  const { app } = await openSettings();
   await app.open("/settings/computer-use");
   await page();
+  const toggle = await screen.findByRole("switch", { name: "Let agents use apps" });
 
-  await userEvent.click(await screen.findByRole("switch", { name: "Let agents use apps" }));
+  await userEvent.click(toggle);
   await waitFor(() => expect(app.daemon.screen.enabled).toBe(true));
-
-  await world.agentApp("com.apple.TextEdit");
-  await world.agentApp("com.apple.calculator");
-  const sessions = await screen.findByRole("list", { name: "Live sessions" });
-  await waitFor(() => expect(within(sessions).getAllByRole("article")).toHaveLength(2));
-
-  await userEvent.click(screen.getAllByRole("button", { name: "Stop all computer use" })[0]!);
-
+  await userEvent.click(toggle);
   await waitFor(() => expect(app.daemon.screen.enabled).toBe(false));
-  expect(await world.sessions()).toEqual([]);
-  expect(screen.queryByRole("list", { name: "Live sessions" })).toBeNull();
-  expect(
-    (screen.getByRole("switch", { name: "Let agents use apps" }) as HTMLElement).getAttribute(
-      "aria-checked",
-    ),
-  ).toBe("false");
 });
 
-test("Stop all says it's stopping and takes no second press, then says what it stopped", async () => {
-  const { app, world } = await openSettings();
-  app.daemon.screen.enabled = true;
-  await world.agentApp("com.apple.TextEdit");
-  await world.agentApp("com.apple.calculator");
-  const held = Promise.withResolvers<void>();
-  app.daemon.screen.stopAllHold = { until: held.promise };
+test("apps the person lists are saved as the apps agents can't use, each once", async () => {
+  const { app } = await openSettings();
   await app.open("/settings/computer-use");
-  const sessions = await screen.findByRole("list", { name: "Live sessions" });
-  await waitFor(() => expect(within(sessions).getAllByRole("article")).toHaveLength(2));
-
-  await userEvent.click(screen.getByRole("button", { name: "Stop all computer use" }));
-  const busy = await screen.findByRole("button", { name: "Stopping all computer use…" });
-  expect(busy.getAttribute("aria-busy")).toBe("true");
-  expect((busy as HTMLButtonElement).disabled).toBe(true);
-  expect(app.daemon.screen.enabled).toBe(true);
-
-  await act(async () => held.resolve());
-  expect(await screen.findByText("Stopped 2 apps. Computer use is off.")).toBeTruthy();
-  expect(app.daemon.screen.enabled).toBe(false);
-});
-
-test("a Stop all the daemon can't finish says why", async () => {
-  const { app, world } = await openSettings();
-  app.daemon.screen.enabled = true;
-  await world.agentApp("com.apple.TextEdit");
-  app.daemon.screen.stopAllHold = {
-    until: Promise.resolve(),
-    failure: "1 of 1 app session didn't stop: helper timed out",
-  };
-  await app.open("/settings/computer-use");
-  await screen.findByRole("article", { name: "TextEdit" });
-
-  await userEvent.click(screen.getByRole("button", { name: "Stop all computer use" }));
-  expect((await screen.findByRole("alert")).textContent).toBe(
-    "Couldn't stop everything: 1 of 1 app session didn't stop: helper timed out",
+  const field = await screen.findByRole("textbox", { name: "Apps agents can't use" });
+  await waitFor(() => expect((field as HTMLInputElement).disabled).toBe(false));
+  await userEvent.type(field, "Messages, com.apple.mail,, messages{Enter}");
+  await waitFor(() =>
+    expect(app.daemon.services.settings.get("computer.blockedApps")).toEqual([
+      "Messages",
+      "com.apple.mail",
+    ]),
   );
+  expect((field as HTMLInputElement).value).toBe("Messages, com.apple.mail");
 });
 
 test("secure input says what it is from the session menu, and once allowed, on the card", async () => {
@@ -126,6 +89,10 @@ test("an agent's app shows live in the background; taking over and handing back 
   );
   const live = within(card).getByRole("img", { name: "TextEdit live view" });
   await waitFor(() => expect(browser.draws(live)).toBeGreaterThan(0));
+  // Each shown picture is acked on the shared stream, naming its session.
+  await waitFor(() =>
+    expect(app.daemon.screen.acks.at(-1)).toMatchObject({ sessionId, streamId: sessionId }),
+  );
 
   await userEvent.click(within(card).getByRole("button", { name: "Take over" }));
   await waitFor(async () =>
@@ -168,51 +135,6 @@ test("a missing macOS permission offers Request, which asks the daemon's Mac", a
   await userEvent.click(within(permissions).getByRole("button", { name: "Grant access" }));
 
   await waitFor(() => expect(app.daemon.screen.requested).toEqual(["accessibility"]));
-});
-
-test("the rail shows quietly while an agent uses an app, and stopping it there ends the session", async () => {
-  const { app, world } = await openSettings();
-  await app.open("/t/thread-checkout");
-  expect(screen.queryByRole("button", { name: /Agents are using/ })).toBeNull();
-
-  await world.agentApp("com.apple.calculator");
-
-  // It mounts once the app is idle after its first paint (two seconds in jsdom).
-  const indicator = await screen.findByRole(
-    "button",
-    { name: "Agents are using 1 app" },
-    { timeout: 4000 },
-  );
-  await userEvent.click(indicator);
-  await userEvent.click(await screen.findByRole("button", { name: "Stop Calculator" }));
-
-  await waitFor(async () => expect(await world.sessions()).toEqual([]));
-  await waitFor(() =>
-    expect(screen.queryByRole("button", { name: /Agents are using/ })).toBeNull(),
-  );
-});
-
-test("the profile counts the same live apps as Settings after human takeover", async () => {
-  const { app, world } = await openSettings();
-  await world.agentApp("com.apple.TextEdit");
-  const calculator = await world.agentApp("com.apple.calculator");
-  await world.call({ op: "controller", sessionId: calculator, controller: "human" });
-  await app.open("/settings/computer-use");
-  const sessions = await screen.findByRole("list", { name: "Live sessions" });
-  await waitFor(() => expect(within(sessions).getAllByRole("article")).toHaveLength(2));
-  expect(await within(sessions).findByText("You're in control")).toBeTruthy();
-  await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
-  const indicator = await screen.findByRole(
-    "button",
-    { name: "Computer use is active in 2 apps" },
-    { timeout: 4000 },
-  );
-  await userEvent.click(indicator);
-  const stops = screen.getAllByRole("button", { name: "Stop Calculator" });
-  const stop = stops.at(-1);
-  if (!stop) throw new Error("Missing profile Stop");
-  await userEvent.click(stop);
-  await screen.findByRole("button", { name: "Agents are using 1 app" });
 });
 
 test("permissions that can't be read say why and what to do, then show once Check again reads them", async () => {
@@ -285,26 +207,6 @@ test("sharing a window starts capture and delegates it to this thread's agent", 
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(await world.sessions()).toEqual([expect.objectContaining({ controller: "agent" })]);
   expect(await within(panel).findByRole("article", { name: "TextEdit" })).toBeTruthy();
-});
-
-test("Open live sessions dismisses the indicator before showing Settings", async () => {
-  const { app, world } = await openSettings();
-  await world.agentApp("com.apple.calculator");
-  await app.open("/t/thread-checkout");
-  const indicator = await screen.findByRole(
-    "button",
-    { name: "Agents are using 1 app" },
-    { timeout: 4000 },
-  );
-  await userEvent.click(indicator);
-  await userEvent.click(await screen.findByRole("link", { name: "Open live sessions" }));
-  await page();
-  expect(screen.queryByRole("link", { name: "Open live sessions" })).toBeNull();
-  expect(
-    await within(await screen.findByRole("list", { name: "Live sessions" })).findByText(
-      "Calculator",
-    ),
-  ).toBeTruthy();
 });
 
 test("enabling computer use replaces cached disabled permissions with the helper grants", async () => {

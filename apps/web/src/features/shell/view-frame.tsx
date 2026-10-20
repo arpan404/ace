@@ -120,7 +120,7 @@ export function ViewSidebar(props: {
         <SidebarHeader title={props.title} actions={props.actions} />
       )}
       {props.toolbar}
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">{props.children}</div>
+      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-4">{props.children}</div>
     </>
   );
 }

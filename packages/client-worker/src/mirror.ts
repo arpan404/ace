@@ -33,6 +33,7 @@ export class MirrorThread implements ThreadSource {
   private notifications: Notifications;
   private failure: ClientError | undefined;
   private catchingUp = false;
+  private copy = false;
   private meta: ThreadView["thread"] | undefined;
   private queued: ThreadView["queue"] | undefined;
   private ids: readonly string[] = none;
@@ -42,6 +43,7 @@ export class MirrorThread implements ThreadSource {
   private interactionList: readonly string[] = none;
   private taskList: readonly string[] = none;
   private items = new Map<string, Item>();
+  private seqs = new Map<string, number>();
   private agents = new Map<string, View["agents"][string]>();
   private runs = new Map<string, View["runs"][string]>();
   private interactions = new Map<string, View["interactions"][string]>();
@@ -57,11 +59,32 @@ export class MirrorThread implements ThreadSource {
   constructor(listeners: number) {
     this.notifications = new Notifications(listeners);
   }
+  /** Roughly what the mirror holds, in bytes. Linear in it: for the release boundary only. */
+  retainedBytes(): number {
+    const maps: readonly ReadonlyMap<string, unknown>[] = [
+      this.items,
+      this.seqs,
+      this.agents,
+      this.runs,
+      this.interactions,
+      this.tasks,
+      this.usages,
+      this.meters,
+      this.snapshots,
+    ];
+    const held: unknown[] = [this.meta, this.queued, this.ids, this.links, this.interactionList];
+    held.push(this.taskList);
+    for (const map of maps) held.push(Array.from(map));
+    return JSON.stringify(held).length * 2 + (this.cut.size + this.removed.size) * 64;
+  }
   get error() {
     return this.failure;
   }
   get syncing() {
     return this.catchingUp;
+  }
+  get unconfirmed() {
+    return this.copy;
   }
   get thread() {
     return this.meta;
@@ -99,6 +122,9 @@ export class MirrorThread implements ThreadSource {
   }
   item(id: string) {
     return this.items.get(id);
+  }
+  itemSeq(id: string) {
+    return this.seqs.get(id);
   }
   agent(id: string) {
     return this.agents.get(id);
@@ -138,6 +164,7 @@ export class MirrorThread implements ThreadSource {
     const view = copy.view;
     this.failure = errorOf(copy.error);
     this.catchingUp = copy.syncing ?? false;
+    this.copy = copy.unconfirmed ?? false;
     this.meta = view?.thread;
     this.queued = view?.queue;
     this.ids = view?.itemOrder ?? none;
@@ -148,6 +175,7 @@ export class MirrorThread implements ThreadSource {
     this.interactionList = Object.keys(view?.interactions ?? {});
     this.taskList = Object.keys(view?.backgroundTasks ?? {});
     this.items = entries(view?.items);
+    this.seqs = entries(view?.itemSeqs);
     this.agents = entries(view?.agents);
     this.runs = entries(view?.runs);
     this.interactions = entries(view?.interactions);
@@ -176,6 +204,9 @@ export class MirrorThread implements ThreadSource {
         return;
       case "sync":
         this.catchingUp = v === true;
+        return;
+      case "unconfirmed":
+        this.copy = v === true;
         return;
       case "thread":
         this.meta = trusted<ThreadView["thread"] | undefined>(v);
@@ -231,6 +262,8 @@ export class MirrorThread implements ThreadSource {
   private patchItem(id: string, patch: Patch): void {
     if (patch.cut) this.cut.add(id);
     else this.cut.delete(id);
+    if (patch.s !== undefined) this.seqs.set(id, patch.s);
+    else if (patch.append === undefined && patch.v === undefined) this.seqs.delete(id);
     if (patch.append === undefined) return set(this.items, id, patch.v);
     const item = this.items.get(id);
     if (item && hasText(item)) {
@@ -252,6 +285,18 @@ function set<T>(map: Map<string, T>, id: string, value: unknown): void {
 }
 
 export class MirrorSidebar implements SidebarSource {
+  private catchingUp = false;
+  get syncing() {
+    return this.catchingUp;
+  }
+  private copy = false;
+  get unconfirmed() {
+    return this.copy;
+  }
+  /** Roughly what the mirror holds, in bytes. Linear in it: for the release boundary only. */
+  retainedBytes(): number {
+    return JSON.stringify([this.list, [...this.threads], this.page, this.homePage]).length * 2;
+  }
   private homePage: import("@ace/protocol").ThreadListWindow | undefined;
   get homeWindow() {
     return this.homePage;
@@ -291,6 +336,8 @@ export class MirrorSidebar implements SidebarSource {
     return this.notifications.tap(tap);
   }
   reset(copy: SidebarExport): void {
+    this.catchingUp = copy.syncing ?? false;
+    this.copy = copy.unconfirmed ?? false;
     this.failure = errorOf(copy.error);
     this.list = copy.ids;
     this.snapshot = copy.loaded ?? copy.view !== undefined;
@@ -304,7 +351,9 @@ export class MirrorSidebar implements SidebarSource {
     for (const patch of patches) {
       keys.add(patch.k);
       const { kind, id } = splitKey(patch.k);
-      if (kind === "homeWindow")
+      if (kind === "sync") this.catchingUp = patch.v === true;
+      else if (kind === "unconfirmed") this.copy = patch.v === true;
+      else if (kind === "homeWindow")
         this.homePage = trusted<import("@ace/protocol").ThreadListWindow | undefined>(patch.v);
       else if (kind === "window")
         this.page = trusted<import("@ace/protocol").ThreadListWindow | undefined>(patch.v);

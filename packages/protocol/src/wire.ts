@@ -1,8 +1,8 @@
 import { CliRequest, CliResult } from "./cli-control.ts";
 import { StorageRequest, StorageResult } from "./storage.ts";
+import { UserBrowserSettings, UserBrowserSettingsResult } from "./user-browser.ts";
 import { HostedRepositoriesRequest, HostedRepositoriesResult } from "./hosted-repositories.ts";
 import { SourceControlRequest, SourceControlResult } from "./source-control.ts";
-import { RemoteDelegationClient, RemoteDelegationResult } from "./remote-delegation.ts";
 import { PromptFilesRequest, PromptFilesResponse } from "./prompt-files.ts";
 import { ProviderAccountsRequest, ProviderAccountsResult } from "./provider-accounts.ts";
 import {
@@ -74,6 +74,8 @@ import {
 import { WorkspaceActionRequest, WorkspaceActionResult } from "./workspace-actions.ts";
 import { PluginClientMessage, PluginServerMessage } from "./plugins.ts";
 import { BrowserClientMessage, BrowserServerMessage } from "./browser.ts";
+import { BrowserBrowsing, BrowserBrowsingWatch } from "./browser-browsing.ts";
+import { ComputerUsing, ComputerUsingWatch } from "./computer-using.ts";
 import {
   DiagnosticsHealthRequest,
   DiagnosticsHealthResult,
@@ -141,8 +143,8 @@ import {
 } from "./usage.ts";
 import { CursorAuthRequest, CursorAuthEvent } from "./cursor-auth.ts";
 import { AccountsRequest, AccountsResponse } from "./accounts.ts";
-import { DeviceClientMessage, DeviceServerMessage } from "./devices.ts";
-import { ScreenClientMessage, ScreenServerMessage } from "./screen.ts";
+import { DeviceAck, DeviceClientMessage, DeviceServerMessage } from "./devices.ts";
+import { ScreenAck, ScreenClientMessage, ScreenServerMessage } from "./screen.ts";
 import {
   ModelsListRequest,
   ModelsRefreshRequest,
@@ -154,11 +156,15 @@ import {
   PresenceUpdate,
   NotificationRegister,
   NotificationRegisterResult,
+  NotificationUnregister,
+  NotificationUnregisterResult,
   NotificationConfigRequest,
   NotificationConfigResult,
   NotificationSettings,
   NotificationSnooze,
   NotificationMessage,
+  NotificationFeedRequest,
+  NotificationFeedResult,
 } from "./notifications.ts";
 
 import {
@@ -182,7 +188,7 @@ import {
 export const ClientMessage = z.discriminatedUnion("type", [
   CliRequest,
   StorageRequest,
-  ...RemoteDelegationClient.options,
+  UserBrowserSettings,
   WorktreeCreationRequest,
   TurnsPageRequest,
   ItemsWindowRequest,
@@ -241,16 +247,22 @@ export const ClientMessage = z.discriminatedUnion("type", [
   SearchQueryRequest,
   SearchStatusRequest,
   ScreenClientMessage,
+  ScreenAck,
   DeviceClientMessage,
+  DeviceAck,
   ...BrowserClientMessage.options,
+  BrowserBrowsingWatch,
+  ComputerUsingWatch,
   ModelsListRequest,
   ModelsRefreshRequest,
   ModelsResolveRequest,
   PresenceUpdate,
   NotificationRegister,
+  NotificationUnregister,
   NotificationConfigRequest,
   NotificationSettings,
   NotificationSnooze,
+  NotificationFeedRequest,
 
   ...CoreClientMessage.options,
 ]);
@@ -258,7 +270,7 @@ export type ClientMessage = z.infer<typeof ClientMessage>;
 export const ServerMessage = z.discriminatedUnion("type", [
   CliResult,
   StorageResult,
-  RemoteDelegationResult,
+  UserBrowserSettingsResult,
   WorktreeCreationEvent,
   WorktreeCreationResult,
   TurnsPageResponse,
@@ -327,11 +339,15 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ...ScreenServerMessage.options,
   ...DeviceServerMessage.options,
   ...BrowserServerMessage.options,
+  BrowserBrowsing,
+  ComputerUsing,
   ModelsResult,
   ModelsChanged,
   NotificationConfigResult,
   NotificationMessage,
+  NotificationFeedResult,
   NotificationRegisterResult,
+  NotificationUnregisterResult,
   ...CoreServerMessage.options,
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;

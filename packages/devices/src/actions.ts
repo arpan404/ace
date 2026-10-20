@@ -3,6 +3,7 @@ import type { DevicePlatform } from "./platform.ts";
 import type { DeviceSession } from "./session.ts";
 import type { Actor } from "./lease.ts";
 import { DeviceError } from "./sdk.ts";
+import { boundedClipboard } from "./clipboard.ts";
 
 /** All mutations share the queue's dispatch guard, including SDK lookups. */
 export async function performDeviceAction(
@@ -11,8 +12,16 @@ export async function performDeviceAction(
   actor: Actor,
   operation: DeviceOperation,
   guard: () => void,
-): Promise<{ completed: true }> {
+): Promise<unknown> {
   switch (operation.op) {
+    case "clipboard.get":
+      return session.capture?.clipboard
+        ? boundedClipboard(await session.capture.clipboard.read(guard))
+        : platform.clipboardRead(session.device, guard);
+    case "clipboard.set":
+      if (session.capture?.clipboard) await session.capture.clipboard.write(operation.text, guard);
+      else await platform.clipboardWrite(session.device, operation.text, guard);
+      break;
     case "boot":
       await platform.boot(session.device, guard);
       break;
@@ -29,6 +38,26 @@ export async function performDeviceAction(
       await platform.configure(session.device, operation.settings, guard);
       break;
     case "input":
+      if (
+        session.device.platform === "ios" &&
+        operation.input.kind === "key" &&
+        operation.input.key === "recents"
+      )
+        throw new DeviceError(
+          "not_supported",
+          "iOS Simulator has no Recents key",
+          "A slow swipe up from the bottom edge opens the app switcher; or open_app the app you want.",
+        );
+      if (
+        operation.input.kind === "pointer" &&
+        operation.input.pointerId &&
+        !session.capture?.multiTouch
+      )
+        throw new DeviceError(
+          "not_supported",
+          "This device view supports one finger",
+          "Send pointer input without a pointerId, or use one finger.",
+        );
       if (session.capture?.input) {
         await session.capture.input(operation.input, guard);
         break;

@@ -14,7 +14,7 @@ test("a tree with a persisted working child is never complete while agent contro
       op: "delegate_task",
       requestId: "working-child",
       task: "Keep working",
-      role: "delegate",
+      role: "keep-working-child",
       provider: "claude",
       wait: false,
       estimatedLoad: 0,

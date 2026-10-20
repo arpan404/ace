@@ -27,11 +27,13 @@ import * as forgeStacks from "@ace/protocol/forge-stacks";
 import * as forge from "@ace/protocol/forge";
 import {
   htmlToolCatalog,
+  imageToolCatalog,
   knowledgeToolCatalog,
   builtinToolCatalog,
   agentControlToolCatalog,
   handoffToolCatalog,
-  statusToolCatalog,
+  contextToolCatalog,
+  metaToolCatalog,
 } from "@ace/mcp-server";
 import { z } from "zod";
 import type { SchemaEntry, ToolEntry } from "./model.ts";
@@ -83,11 +85,13 @@ export function protocolCatalog(): { entries: SchemaEntry[]; tools: ToolEntry[] 
   const entries: SchemaEntry[] = [...exported].map(([name, schema]) => ({ name, schema }));
   const tools = [
     ...htmlToolCatalog,
+    ...imageToolCatalog,
     ...builtinToolCatalog,
     ...agentControlToolCatalog,
     ...handoffToolCatalog,
-    ...statusToolCatalog,
+    ...contextToolCatalog,
     ...knowledgeToolCatalog,
+    ...metaToolCatalog,
   ].map((tool): ToolEntry => {
     const input = `${tool.name}.input`;
     const output = `${tool.name}.output`;

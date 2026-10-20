@@ -1,4 +1,11 @@
 import { requireContext } from "./errors.ts";
+import {
+  characterMask,
+  containsMask,
+  entryBytes,
+  scoreSubsequence,
+  type CharacterMask,
+} from "./path-match.ts";
 
 function parent(path: string): string {
   return path.slice(0, path.slice(0, -1).lastIndexOf("/") + 1);
@@ -9,14 +16,21 @@ function folders(path: string): string[] {
     result.push(path.slice(0, at + 1));
   return result;
 }
-/** Bounded fuzzy index with directory reference counts and O(subtree) folder enumeration. */
+interface Entry extends CharacterMask {
+  readonly lower: string;
+}
+/**
+ * Bounded fuzzy index with directory reference counts and O(subtree) folder
+ * enumeration. Each entry keeps character-class masks instead of per-character
+ * postings, so retained memory stays proportional to path bytes.
+ */
 export class PathIndex {
   private files = new Set<string>();
-  private entries = new Map<string, string>();
+  private entries = new Map<string, Entry>();
   private directories = new Map<string, number>();
   private children = new Map<string, Set<string>>();
-  private postings = new Map<string, Set<string>>();
   private cap: number;
+  private bytes = 0;
   constructor(cap = 100_000) {
     requireContext(
       Number.isInteger(cap) && cap > 0 && cap <= 1_000_000,
@@ -25,17 +39,16 @@ export class PathIndex {
     );
     this.cap = cap;
   }
+  /** Conservative retained-heap estimate, maintained per changed entry. */
+  get estimatedBytes(): number {
+    return this.bytes;
+  }
   private add(path: string): void {
     const lower = path.toLowerCase();
-    this.entries.set(path, lower);
-    for (const char of new Set(lower)) {
-      let bucket = this.postings.get(char);
-      if (!bucket) {
-        bucket = new Set();
-        this.postings.set(char, bucket);
-      }
-      bucket.add(path);
-    }
+    const mask = characterMask(lower);
+    // Flat records: one allocation per path.
+    this.entries.set(path, { lower, letters: mask.letters, others: mask.others });
+    this.bytes += entryBytes(path);
     const owner = parent(path);
     let children = this.children.get(owner);
     if (!children) {
@@ -45,14 +58,8 @@ export class PathIndex {
     children.add(path);
   }
   private remove(path: string): void {
-    const previous = this.entries.get(path);
-    if (previous === undefined) return;
-    for (const char of new Set(previous)) {
-      const bucket = this.postings.get(char);
-      bucket?.delete(path);
-      if (!bucket?.size) this.postings.delete(char);
-    }
-    this.entries.delete(path);
+    if (!this.entries.delete(path)) return;
+    this.bytes -= entryBytes(path);
     const owner = parent(path),
       children = this.children.get(owner);
     children?.delete(path);
@@ -135,31 +142,13 @@ export class PathIndex {
       "Invalid completion limits",
     );
     const needle = query.toLowerCase();
-    let candidates: Iterable<string> = this.entries.keys(),
-      smallest: Set<string> | undefined;
-    for (const char of new Set(needle)) {
-      const bucket = this.postings.get(char);
-      if (!bucket?.size) return [];
-      if (!smallest || bucket.size < smallest.size) smallest = bucket;
-    }
-    if (smallest) candidates = smallest;
+    const required = characterMask(needle);
     const best: { path: string; score: number }[] = [];
-    for (const path of candidates) {
-      const lower = this.entries.get(path);
-      if (lower === undefined) continue;
-      let at = 0,
-        score = lower.length,
-        matched = true;
-      for (const char of needle) {
-        const next = lower.indexOf(char, at);
-        if (next < 0) {
-          matched = false;
-          break;
-        }
-        score += (next - at) * 4;
-        at = next + 1;
-      }
-      if (!matched) continue;
+    for (const [path, entry] of this.entries) {
+      // The mask is a necessary condition; the subsequence scan decides.
+      if (!containsMask(entry, required)) continue;
+      const score = scoreSubsequence(entry.lower, needle);
+      if (score < 0) continue;
       let position = best.findIndex(
         (item) => score < item.score || (score === item.score && path < item.path),
       );

@@ -9,6 +9,8 @@ import type { EngineRepository } from "../engine/repository.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 import { commandContext } from "../commands.ts";
+import { browserTabContext, browserTabReader } from "../browser-tab-context.ts";
+import { toolAttachment } from "../tool-result-content.ts";
 /** Trusted integration ports reuse settings, quota and migration owners. */
 export function recoveryPorts(
   context: Pick<ServiceContext, "services" | "store" | "now">,
@@ -52,40 +54,18 @@ export function recoveryPorts(
       // The daemon's own blocking-window rule, shared with the clients that word it.
       return quota ? blockedUntil(quota, now()) : undefined;
     },
-    async migrate(id, target) {
-      const session = metadata(id);
-      if (session.backend === "cursor-sdk")
-        throw new Error(
-          "Cursor SDK checkpoints cannot migrate accounts; create a portable context handoff instead",
-        );
+    moveTarget(id, requested) {
       const provider = AccountProvider.parse(store.getThread(id)?.provider);
-      if (!services.accounts || !session.instanceId || !session.nativeSessionId)
-        throw new Error("Account-bound native session is required");
+      const current = metadata(id).instanceId;
       const to =
-        target ??
+        requested ??
         automaticTarget(
           services.accountRegistry?.summaries(now()) ?? [],
-          { id: session.instanceId, provider },
+          { id: current ?? "", provider },
           now(),
         )?.id;
-      if (!to || to === session.instanceId) throw new Error("No other available provider account");
-      const result = await services.accounts.handle({
-        type: "accounts.migrate",
-        requestId: `recovery:${id}`,
-        provider,
-        nativeSessionId: session.nativeSessionId,
-        from: session.instanceId,
-        to,
-      });
-      if (result.type !== "accounts.migrate" || result.result.status !== "migrated")
-        throw new Error(
-          result.type === "accounts.migrate"
-            ? result.result.status === "migrated"
-              ? "Unexpected migration result"
-              : result.result.reason
-            : "Unexpected migration result",
-        );
-      return { nativeSessionId: result.result.nativeSessionId, instanceId: to };
+      if (!to || to === current) throw new Error("No other available provider account");
+      return to;
     },
     contextWindow(provider, instance, model) {
       const resolved = services.models?.resolve({
@@ -182,37 +162,48 @@ export function prepareQueuedInput(context: Pick<ServiceContext, "services">): P
         })()
       : p.input;
     if (!p.context) return { input, release() {} };
-    if (!context.services.context || !("threadId" in p) || !p.threadId)
+    const contextService = context.services.context;
+    if (!contextService || !("threadId" in p) || !p.threadId)
       throw new Error("Context requires an existing thread");
+    const threadId = p.threadId;
+    // Browser tabs the message mentions are read now, so the agent sees them as they are.
+    const browser = context.services.browser;
+    const tabs = browser
+      ? await browserTabContext({
+          threadId,
+          context: p.context,
+          reader: browserTabReader(browser, (id) => context.services.engine?.rootAgent(id)),
+          store: async (bytes, name) =>
+            toolAttachment(contextService, { threadId }, Buffer.from(bytes), {
+              name,
+              mimeType: "image/jpeg",
+            }),
+        })
+      : undefined;
+    const messageContext = tabs?.context ?? p.context;
+    const message = tabs ? [...input, ...tabs.parts] : input;
     if (continued && p.context.attachments.length)
-      await context.services.context.inheritAttachments(
+      await contextService.inheritAttachments(
         command.deviceId,
         continued.inheritFrom,
-        p.threadId,
+        threadId,
         p.context.attachments.map((attachment) => attachment.sha256),
       );
-    const prepared = await context.services.context.compose(
-      command.deviceId,
-      p.threadId,
-      p.context,
-      {
-        provider:
-          capabilities.attachmentInput?.format ??
-          ProjectionCapabilities.shape.provider.catch("acp").parse(provider),
-        images: capabilities.imageInput
-          ? ["image/png", "image/jpeg", "image/gif", "image/webp"]
-          : [],
-        documents: capabilities.attachmentInput?.documents ?? [],
-        embeddedContext: capabilities.attachmentInput?.embeddedContext ?? false,
-        maxInlineBytes: capabilities.attachmentInput?.maxInlineBytes ?? 128 * 1024,
-        ...(["acp", "opencode"].includes(capabilities.attachmentInput?.format ?? provider)
-          ? { maxEncodedBytes: encodedContextBudget(input) }
-          : {}),
-      },
-    );
+    const prepared = await contextService.compose(command.deviceId, threadId, messageContext, {
+      provider:
+        capabilities.attachmentInput?.format ??
+        ProjectionCapabilities.shape.provider.catch("acp").parse(provider),
+      images: capabilities.imageInput ? ["image/png", "image/jpeg", "image/gif", "image/webp"] : [],
+      documents: capabilities.attachmentInput?.documents ?? [],
+      embeddedContext: capabilities.attachmentInput?.embeddedContext ?? false,
+      maxInlineBytes: capabilities.attachmentInput?.maxInlineBytes ?? 128 * 1024,
+      ...(["acp", "opencode"].includes(capabilities.attachmentInput?.format ?? provider)
+        ? { maxEncodedBytes: encodedContextBudget(message) }
+        : {}),
+    });
     try {
       return {
-        input: [...input, ...canonicalContext(prepared.projection)],
+        input: [...message, ...canonicalContext(prepared.projection)],
         attachments: prepared.attachments,
         attachmentPaths: prepared.attachmentPaths,
         diagnostics: prepared.diagnostics,

@@ -1,33 +1,34 @@
+import { quitNeedsConfirmation } from "./os/quit-guard.ts";
 import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { notificationOutbox } from "./link/notification-outbox.ts";
 import { join } from "node:path";
-import { webContents, type BrowserWindow } from "electron";
+import type { BaseWindow, BrowserWindow } from "electron";
 import type { BrowserPlacement, DeepLink, DesktopSettings } from "../shared/contract.ts";
-import type { ControllerState } from "./browser/backend.ts";
 import type { BackendConnection } from "./browser/connection.ts";
 import type { EmbeddedViews, PlacementHost } from "./browser/views.ts";
 import type { DaemonRuntime } from "./daemon/runtime.ts";
 import type { DesktopLink } from "./link/desktop-link.ts";
-import { emit } from "./ipc.ts";
 import { LinkKeeper, runtimeLinkSource, type Endpoint } from "./link/link-keeper.ts";
 import { NativeNotifier } from "./notifications/native.ts";
 import { NotificationRouter, type Alert } from "./notifications/router.ts";
 import { Attention } from "./os/attention.ts";
 import { StatusTray } from "./os/tray.ts";
+import { appLifetime } from "./os/lifetime.ts";
 
 export interface BackgroundOptions {
   userData: string;
   /** The tray's template image (`appPaths().trayIcon`). */
   trayIcon: string;
   browserPreload?: string | undefined;
+  /** The system's Downloads folder (`app.getPath("downloads")`): native pages' default. */
+  downloads: string;
   runtime: DaemonRuntime;
   settings(): DesktopSettings;
   window(): BrowserWindow | undefined;
   open(link?: DeepLink): void;
   quitAll(): void;
   log(message: string): void;
-  onController(state: ControllerState): void;
 }
 
 /** How long Quit waits for the daemon link to close before it moves on. */
@@ -42,12 +43,13 @@ const timers = {
 
 /**
  * The parts that keep working with every window closed: the daemon link (notifications,
- * badge, power save) and the tray. The embedded browser backend is here too, but it is only
- * offered while a window exists to draw its views in.
+ * badge, power save), the tray and the embedded browser backend, whose views wait in the
+ * parking window while no app window shows them. It also decides when a windowless app quits
+ * (`appLifetime`): never while an agent works or a thread has a native page.
  *
  * The link (`@ace/client` and most protocol schemas) and the browser backend are loaded on
  * first use, so neither delays the first window: the link when a daemon is first ready, the
- * browser once a daemon is running and a window exists.
+ * browser once a local daemon is running.
  */
 export class Background {
   readonly router: NotificationRouter;
@@ -57,6 +59,9 @@ export class Background {
   private browser: { connection: BackendConnection; views: EmbeddedViews } | undefined;
   private browserLoad: Promise<void> | undefined;
   private stopped = false;
+  /** Agents working, as the daemon link last reported. */
+  private working = 0;
+  private hadWindow = false;
   private notifier: NativeNotifier;
   private options: BackgroundOptions;
 
@@ -139,6 +144,9 @@ export class Background {
       onSummary: (summary) => {
         this.attention.update(summary);
         this.tray.update({ summary });
+        if (summary.working === this.working) return;
+        this.working = summary.working;
+        this.reviewLifetime();
       },
     });
   }
@@ -146,14 +154,14 @@ export class Background {
   /**
    * The embedded browser backend, on its own socket (never the notification link). It is
    * local only: the credential lives in the daemon's ACE_HOME, so a remote daemon gets none.
-   * Its code loads the first time a local daemon is running while a window exists.
+   * Its code loads the first time a local daemon is running.
    */
   private loadBrowser(): void {
     const { runtime } = this.options;
     const target = runtime.target;
     if (this.browserLoad || this.stopped) return;
     if (target.kind !== "managed" && target.kind !== "attach") return;
-    if (runtime.current().state !== "running" || !this.hasWindow()) return;
+    if (runtime.current().state !== "running") return;
     this.browserLoad = this.startBrowser(target.home).catch((error: unknown) =>
       this.options.log(`Embedded browser backend: ${String(error)}`),
     );
@@ -179,13 +187,11 @@ export class Background {
       partitionsDir: join(this.options.userData, "Partitions"),
       platform: process.platform,
       log,
-      onClaim: (threadId, owner) => backend.claimControl(threadId, owner),
+      onPages: () => this.reviewLifetime(),
+      // The person's chosen folder, else the system's Downloads folder.
+      downloadFolder: () => this.options.settings().browserDownloads ?? this.options.downloads,
     });
-    const backend = new BrowserBackend(views, {
-      onController: this.options.onController,
-      onTakeover: (threadId) => this.wantsControl(threadId),
-      log,
-    });
+    const backend = new BrowserBackend(views, { log });
     const connection = new BackendConnection(backend, {
       daemon: async () => {
         const daemon = await runtime.local();
@@ -202,7 +208,7 @@ export class Background {
     runtime.onStatus((status) => {
       if (status.state === "running") connection.wake();
     });
-    this.windowChanged();
+    connection.setAvailable(true);
   }
 
   private hasWindow(): boolean {
@@ -210,10 +216,32 @@ export class Background {
     return Boolean(window && !window.isDestroyed());
   }
 
-  /** Views need a window to draw in: offer the backend only while one exists. */
+  /** An app window opened or closed. */
   windowChanged(): void {
+    if (this.hasWindow()) this.hadWindow = true;
     this.loadBrowser();
-    this.browser?.connection.setAvailable(this.hasWindow());
+    this.reviewLifetime();
+  }
+
+  /** An app window is about to close: its browser views move to the parking window first. */
+  windowClosing(window: BaseWindow): void {
+    this.browser?.views.evacuate(window);
+  }
+
+  /** Show the tray, or quit, as `appLifetime` says for what runs now. */
+  private reviewLifetime(): void {
+    if (this.stopped) return;
+    const lifetime = appLifetime({
+      platform: process.platform,
+      background: this.options.settings().background,
+      window: this.hasWindow(),
+      browserPages: this.browser?.views.count() ?? 0,
+      working: this.working,
+    });
+    if (lifetime.tray) this.tray.show();
+    else this.tray.hide();
+    // An app started hidden (in the background) has never had a window to close.
+    if (lifetime.quit && this.hadWindow) this.options.quitAll();
   }
 
   /** Draw (or hide) a thread's embedded view where a renderer's Browser tab is. */
@@ -229,22 +257,22 @@ export class Background {
     this.browser?.views.forgetHost(id);
   }
 
-  /**
-   * The person clicked or typed on a view they don't control. The renderer showing it takes
-   * control through its own daemon connection, the one its address bar and buttons use; with
-   * no renderer showing it, this app's backend connection asks.
-   */
-  private wantsControl(threadId: string): void {
-    const host = this.browser?.views.shownIn(threadId);
-    const renderer = host === undefined ? undefined : webContents.fromId(host);
-    if (renderer) emit(renderer, "browser.wants-control", { threadId });
-    else this.browser?.connection.takeover(threadId);
+  /** The renderer (`webContents.id`) focused its own field: take OS focus from native views. */
+  focusApp(id: number): void {
+    this.browser?.views.focusApp(id);
   }
 
-  /** The person asked for control of a thread's view (`human`) or gave it back. */
-  browserControl(threadId: string, controller: "agent" | "human"): void {
-    if (controller === "human") this.browser?.connection.takeover(threadId);
-    else this.browser?.connection.handback(threadId);
+  /**
+   * A picture of a thread's shown view as it is now (a PNG `data:` URL), for the renderer to
+   * hold in its place while a menu or popover covers it; undefined when nothing shows.
+   */
+  snapshotBrowser(threadId: string, tabId?: string): Promise<string | undefined> {
+    return this.browser?.views.snapshot(threadId, tabId) ?? Promise.resolve(undefined);
+  }
+
+  /** Print or developer tools for a thread's shown native tab; false when it has none here. */
+  browserPage(request: import("../shared/contract.ts").BrowserPageAction): Promise<boolean> {
+    return this.browser?.views.pageAction(request) ?? Promise.resolve(false);
   }
 
   /** Route an alert and show it if the rules allow; true when shown. */
@@ -263,8 +291,17 @@ export class Background {
     this.router.configure(settings.notifications);
     this.attention.refresh();
     this.link?.updatePreferences();
-    if (settings.background) this.tray.show();
-    else this.tray.hide();
+    this.reviewLifetime();
+  }
+
+  /** Quitting now would close browser pages that working agents just used (#952). */
+  agentsBrowsing(now: number, systemShutdown: boolean): boolean {
+    return quitNeedsConfirmation({
+      working: this.working,
+      lastAgentBrowse: this.browser?.views.lastDriven() ?? -Infinity,
+      now,
+      systemShutdown,
+    });
   }
 
   wake(): void {
@@ -272,14 +309,17 @@ export class Background {
     this.browser?.connection.wake();
   }
 
-  /** Quit: dropping the backend socket tells the daemon to pause or move its sessions. */
+  /**
+   * Quit: dropping the backend socket tells the daemon to pause or move its sessions, and the
+   * views close (Electron would not finish quitting with one alive).
+   */
   async stop(): Promise<void> {
     this.stopped = true;
-    this.browser?.connection.close();
-    // A link stuck mid-handshake never holds up Quit: the daemon still drops its socket.
+    const views = this.browser?.connection.close() ?? Promise.resolve();
+    // A link stuck mid-handshake or a view slow to close never holds up Quit for long.
     await new Promise<void>((resolve) => {
       const cancel = timers.set(stopGraceMs, resolve);
-      void (this.links?.close() ?? Promise.resolve())
+      void Promise.all([views, this.links?.close()])
         .catch(() => {})
         .finally(() => {
           cancel();

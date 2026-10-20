@@ -17,6 +17,8 @@ export class SessionLogs {
     level?: string | undefined;
     url?: string | undefined;
     status?: number | undefined;
+    /** Only this tab's entries, plus entries no tab claimed. */
+    tabId?: string | undefined;
     limit: number;
   }) {
     return {
@@ -24,9 +26,12 @@ export class SessionLogs {
         .filter(
           (entry) =>
             (!filter.kind || entry.kind === filter.kind) &&
-            (!filter.level || entry.type === filter.level) &&
+            (!filter.level ||
+              entry.type === filter.level ||
+              (filter.level === "error" && entry.type === "pageerror")) &&
             (!filter.url || entry.url?.includes(filter.url)) &&
-            (filter.status === undefined || entry.status === filter.status),
+            (filter.status === undefined || entry.status === filter.status) &&
+            (!filter.tabId || !entry.tabId || entry.tabId === filter.tabId),
         )
         .slice(-filter.limit),
       limit: filter.limit,
@@ -52,6 +57,7 @@ export class SessionLogs {
   }
   private limit: number;
   append(kind: "console" | "network", entry: Omit<BackendLog, "kind"> & { at: number }): boolean {
+    if (kind === "network" && entry.type === "loaded") return this.complete(entry);
     entry = {
       ...entry,
       text: redactBrowserText(entry.text).slice(0, 8192),
@@ -72,6 +78,22 @@ export class SessionLogs {
     }
     stream.write(line);
     return true;
+  }
+  /** A request finished: its kept response entry gains its size and time. Nothing is added. */
+  private complete(entry: Omit<BackendLog, "kind">): boolean {
+    if (entry.requestId === undefined) return false;
+    for (let index = this.retained.length - 1; index >= 0; index--) {
+      const kept = this.retained[index];
+      if (kept?.kind !== "network" || kept.requestId !== entry.requestId) continue;
+      if (kept.type !== "response") return false;
+      this.retained[index] = {
+        ...kept,
+        ...(entry.bytes === undefined ? {} : { bytes: entry.bytes }),
+        ...(entry.durationMs === undefined ? {} : { durationMs: entry.durationMs }),
+      };
+      return true;
+    }
+    return false;
   }
   async flush(): Promise<void> {
     await Promise.all(

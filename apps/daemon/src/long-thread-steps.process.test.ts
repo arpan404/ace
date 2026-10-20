@@ -28,7 +28,7 @@ function browse(id: string, url: string | undefined, runId: string) {
       detail: {
         kind: "mcp",
         server: "ace",
-        tool: "ace_browser_open",
+        tool: "browser_open",
         arguments: url ? { url } : {},
       },
       raw: [

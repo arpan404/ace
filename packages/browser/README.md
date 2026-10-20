@@ -89,9 +89,9 @@ separately for each viewer. Reliable result/state messages must be delivered or
 the connection closed. The daemon does the latter under transport pressure.
 
 Clients send `browser.open`, `browser.subscribe`, `browser.ack`,
-`browser.takeover`, `browser.input`, `browser.handback`, `browser.execute`,
-`browser.recording.start`, `browser.recording.stop`, `browser.unsubscribe` and
-`browser.close`. Requests have a `requestId` and a `threadId`, except open which
+`browser.input`, `browser.execute`, `browser.tabs.*` (list, open, select, close,
+private), `browser.recording.start`, `browser.recording.stop`, `browser.unsubscribe`
+and `browser.close`. Requests have a `requestId` and a `threadId`, except open which
 has `options: BrowserOpen`. Input is one of mouse, key, scroll or touch. Keyboard input translates validated
 key/code pairs to CDP virtual key codes so editing and navigation work as well
 as character insertion, including numpad navigation and arithmetic. Unsupported codes and inconsistent named keys fail
@@ -110,13 +110,26 @@ pixels on the long edge with a 30 FPS / JPEG 90 target. Remote demand is capped 
 heartbeat. Frame width/height describe the CSS viewport for mapping pointer and
 touch coordinates. Capture demand follows page replacement and reconnects.
 
-Take-over is immediate. Agent input checks ownership when it reaches dispatch
-and after awaited preparation. An action already sent to Chromium may finish.
-Human commands and input require the same controlling connection; read commands
-remain available to viewers and agents. Shared disconnect returns control to the agent. Private takeover blocks agent reads and recordings; a private disconnect pauses until explicit human handback.
+People and agents share every tab (ADR 0067, Collaboration). The person's input
+never queues behind agent commands and is never refused for agent activity. An
+agent's page input waits while the person is busy in that tab (`human_active` after
+10 s); reads never wait. A tab the person keeps private blocks agent reads, input and
+recordings; agent work checks privacy and the page generation when it reaches
+dispatch and after awaited preparation. An action already sent to Chromium may
+finish.
 Queued commands are capped at 32 per session. There are at most 8 sessions, 8 tabs per session, 32 tabs across the service and
 64 viewers per session. Reconnects must subscribe again. A closed browser also
 requires a fresh subscription after reopening.
+
+## Annotation
+
+`annotate` and `annotate_capture` commands let the person pin
+numbered comments on page elements ([ADR 0082](../../docs/adr/0082-browser-annotation.md)).
+The overlay from `@ace/browser-annotate` runs in the `ace-annotate` isolated world of the top
+document; its events reach only the connection that started it, as `browser.annotation`
+messages. Navigation, another person's annotate mode, tab switches, backend loss and
+disconnects end it. Agents get
+no tool for it, and agent snapshots omit the overlay.
 
 ## Files and recordings
 
@@ -174,13 +187,21 @@ the owner's merge-only policy. Runtime results and throughput need run at merge.
 
 ## Agent tools
 
-`browserToolkit(service)` registers `ace_browser_navigate`, `click`, `type`,
-`press`, `scroll`, `snapshot`, `screenshot`, `evaluate`, `wait_for`, `logs`,
-`resize` and `emulate`, each with the `ace_browser_` prefix. The daemon composes
-this toolkit before opening provider sessions. Arguments cannot override the
-credential's thread identity. The daemon adds `ace_browser_open` and `ace_browser_close`, deriving workspace
-identity from the attributed thread and automatically selecting the backend.
-Command registration lives in this package; the daemon supplies lazy opening.
+`browserToolkit(port, route?, user?)` registers twelve tools: `browser_open`,
+`browser_tabs`, `browser_snapshot`, `browser_act`, `browser_wait_for`, `browser_find`,
+`browser_screenshot`, `browser_logs`, `browser_evaluate`, `browser_history`,
+`browser_settings` and `browser_measure` (`mcp.ts`, schemas in `mcp-schemas.ts`). Every
+page tool takes `tabId`; without it a call runs in the calling agent's current tab
+(ADR 0083). The daemon supplies the port: lazy opening (workspace identity from the
+attributed thread, automatic backend choice), the caller's own tab, execution and
+close. With `route` every tool takes `machine`; with `user` (Use my Chrome) `browser`. Arguments cannot override the credential's thread identity.
+
+Snapshots are compacted by `snapshot-compact.ts` (a pure function over the CDP
+accessibility tree: ignored nodes, wrappers and repeated text vanish) and rendered as
+indented text by `snapshot-text.ts`. `maxNodes` (default 120, about 1.5k tokens) and a 48 KiB cap bound a
+snapshot; `ref` scopes it to a subtree and `interactiveOnly` keeps actionable nodes.
+Refs are registered for every DOM-backed node, so a ref from `browser_find` or a
+truncated snapshot stays actionable.
 
 MCP screenshots return bounded JPEG image content directly from the owned page.
 The client browser screenshot command still writes a PNG artifact. Human takeover
@@ -199,12 +220,10 @@ background operation explicitly and remains headless. Existing sessions keep the
 backend until closed. Agent use converts an agent-owned embedded session to a fresh
 headless context. Human ownership blocks that conversion.
 
-`ace_browser_tabs` accepts operation list/open/switch/close and optional tabId/url.
-`ace_browser_open` also accepts newTab. Stable tab IDs select pages without any
-visible desktop view. `ace_browser_upload`, `dialog`, `hover`, `drag`, `select`,
-`check`, `uncheck`, `focus`, `find`, `network_body`, `record_start` and `record_stop`
-join the existing MCP commands. Actions select the active tab by default; an
-optional tabId selects it explicitly. Tab switching expires the old snapshot.
+Agents work in the thread's active tab. The person may open more tabs in the desktop
+browser; `browser_open` lists them and `browser_open({tabId})` switches the shared page
+to one (the `tabs` command's `switch` operation). Agents never open tabs; popups reuse
+the thread's page. Tab switching expires the old snapshot.
 
 Downloads have a 64 MiB file cap, a 256 MiB session aggregate cap, and executable/archive flags.
 Completed downloads use the existing artifact sink. Uploads resolve workspace,
@@ -216,15 +235,15 @@ harmless operations it cannot prove safe.
 Logs return entries inline, filtered by kind, level, URL substring and status,
 with at most 200 entries. Network bodies are retrieved individually, capped and
 redacted through @ace/redaction. No request bodies or response headers are kept.
-Private takeover excludes agent observations, logs, network inspection, downloads
-and recorded frames. Shared takeover retains agent observation access.
+A private tab ("Keep agents out") excludes agent observations, logs, network
+inspection, downloads and recorded frames. Other tabs keep agent observation access.
 
 `node packages/browser/bench/crisp.ts` measures a local CSS animation and click-to-decoded
 pixel latency in an isolated Chromium context. It prints encoded dimensions, mean JPEG
 bytes, delivered fps, median latency and starting host load. It excludes the daemon's
 command and viewer WebSocket routing. Run timing comparisons on an otherwise idle host.
 
-`ace_browser_measure_interaction` observes the current tab or dispatches an optional
+`browser_measure` observes the current tab or dispatches an optional
 `interaction` using the existing click/type/press/scroll/drag command shape. The
 recording window defaults to 2 seconds, is capped at 10 seconds, and `repeat` is
 1–5 with at most 20 seconds recorded in total. Observation uses read access;
@@ -239,3 +258,38 @@ The optional JPEG filmstrip retains sixteen candidates from the existing live
 capture and returns one grid of up to eight timestamped images. It does not drive
 frame timing. Tracing and live capture overhead inside Chromium are excluded from
 the reported host processing percentage. Headless refresh cadence can be virtual.
+
+## Engine conformance suite
+
+`@ace/browser/conformance` is one behaviour suite that every browser engine runs, so a feature
+cannot work in one engine only. `defineBrowserConformance(engine)` takes an engine factory (a
+`BrowserService` whose thread browsers open in that engine) and runs every scenario in
+`src/conformance/scenarios-*.ts` through `BrowserService.execute` against a local fixture site:
+navigation, redirects, self-navigating pages, input by ref, stable refs, screenshots, evaluate,
+tabs and tab ids, popups, dialogs, downloads, uploads, same-origin and cross-site frames,
+console and network logs, and the annotation overlay.
+
+| Engine                    | Test file                                                    | Needs                                                       |
+| ------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------- |
+| ace's Chrome (headless)   | `packages/browser/src/conformance/headless.process.test.ts`  | Chromium                                                    |
+| Desktop native view       | `apps/desktop/src/main/browser/conformance.process.test.ts`  | Chromium (stands in for Electron's views)                   |
+| Use my Chrome (extension) | `packages/browser-extension/src/conformance.process.test.ts` | Chromium that allows `Extensions.loadUnpacked`; not Windows |
+
+```sh
+# Every engine:
+bun run test -- packages/browser/src/conformance apps/desktop/src/main/browser/conformance.process.test.ts packages/browser-extension/src/conformance.process.test.ts
+# One engine: pass just its file. ACE_CHROMIUM_PATH picks the Chromium (default: detectChromium()).
+ACE_CHROMIUM_PATH=/path/to/chrome bun run test -- packages/browser/src/conformance
+```
+
+The desktop engine runs the desktop's real backend, connection and page groups over the real
+relay socket; only Electron's `WebContentsView` is replaced, by a Chrome page per native tab
+(`chrome-views-test-support.ts`). The extension engine loads ace for Chrome into Chrome for
+Testing with its real native host, as the extension's end-to-end test does.
+
+An engine with no browser on the machine is reported as skipped with the reason in its suite
+name. Engines declare, per scenario id, `knownFailures` (run as expected failures, each with a
+TODO naming the gap), `unsupported` (the scenario must fail promptly with that public error code)
+and `harnessSkips` (the test harness cannot exercise it). Fixing a gap turns its expected failure
+red: delete the entry then. Today no engine has a known failure; Use my Chrome declares downloads
+`not_supported` (ADR 0084: the person's browser saves them itself).

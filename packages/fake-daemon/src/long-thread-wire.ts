@@ -147,10 +147,11 @@ export class FakeLongThreadWire {
         const order = host.view.itemOrder;
         let targetIndex = order.findIndex((id) => (host.creation.get(id) ?? 0) >= target);
         if (targetIndex < 0) targetIndex = order.length - 1;
-        const ids = order.slice(
+        let ids = order.slice(
           Math.max(0, targetIndex - message.before),
           targetIndex + message.after + 1,
         );
+        if (message.wholeTurns) ids = wholeTurns(ids, order, host.creation, turns, target);
         const items = ids.flatMap((id) =>
           host.view.items[id] ? [structuredClone(host.view.items[id])] : [],
         );
@@ -350,4 +351,32 @@ function queryFingerprint(fields: readonly (string | null)[]): string {
     second = Math.imul(second ^ text.charCodeAt(index), 3266489917) >>> 0;
   }
   return `${first.toString(16).padStart(8, "0")}${second.toString(16).padStart(8, "0")}`;
+}
+
+/**
+ * Like the daemon: older items in whole turns. The window starts where the oldest turn that
+ * starts inside its older part starts, unless its first item already starts one; a single turn
+ * larger than the window is cut by the window's size.
+ */
+function wholeTurns(
+  ids: string[],
+  order: readonly string[],
+  creation: ReadonlyMap<string, number>,
+  turns: readonly { startSeq: number }[],
+  target: number,
+): string[] {
+  const first = ids[0];
+  const firstSeq = first === undefined ? undefined : creation.get(first);
+  const at = first === undefined ? -1 : order.indexOf(first);
+  if (firstSeq === undefined || at <= 0) return ids;
+  const previous = creation.get(order[at - 1] ?? "") ?? 0;
+  const starts = turns.map((turn) => turn.startSeq).toSorted((a, b) => a - b);
+  const own = starts.findLast((start) => start <= firstSeq);
+  if (own !== undefined && own > previous) return ids;
+  // Keep at least one older item: a turn starting after the newest is the target's own (begun
+  // by a run, before its first item), and cutting there would never move the cursor.
+  const newestOlder = ids.map((id) => creation.get(id) ?? 0).findLast((seq) => seq < target);
+  if (newestOlder === undefined) return ids;
+  const next = starts.find((start) => start > firstSeq && start <= newestOlder);
+  return next === undefined ? ids : ids.filter((id) => (creation.get(id) ?? 0) >= next);
 }

@@ -196,12 +196,15 @@ test("the Files tab keeps the checkout tree while a source tab remembers hiding 
   await userEvent.click(within(tree).getByRole("treeitem", { name: "outbox.ts" }));
   await within(side).findByRole("tab", { name: "outbox.ts", selected: true });
   expect(within(side).getByRole("tab", { name: "Files" })).toBeTruthy();
-  // The launcher's Files brings the same tab forward rather than adding another.
+  // Files opens more than once: the launcher's Files turns the new tab into another Files tab
+  // with its own tree, and the first one stays.
   await userEvent.click(within(side).getByRole("button", { name: "New tab" }));
   const tools = await within(side).findByRole("list", { name: "Tools" });
   await userEvent.click(within(tools).getByRole("button", { name: /^Files/ }));
   expect(await within(side).findByRole("tab", { name: "Files", selected: true })).toBeTruthy();
-  expect(within(side).getAllByRole("tab", { name: "Files" })).toHaveLength(1);
+  expect(within(side).getAllByRole("tab", { name: "Files" })).toHaveLength(2);
+  expect(within(side).queryByRole("list", { name: "Tools" })).toBeNull();
+  expect(await within(side).findByRole("tree", { name: "Checkout files" })).toBeTruthy();
 
   await userEvent.click(within(side).getByRole("tab", { name: "outbox.ts" }));
   await userEvent.click(within(side).getByRole("button", { name: "Hide the file tree" }));
@@ -276,5 +279,31 @@ test("a source file offers only installed editors and opens its checkout path", 
     );
   } finally {
     launched.mockRestore();
+  }
+});
+
+test("a checkout of hundreds of files mounts only the tree rows near the view, and search finds any", async () => {
+  // jsdom applies no stylesheet: give scrollers the overflow their classes set.
+  const style = document.createElement("style");
+  style.textContent = ".overflow-y-auto, .overflow-auto { overflow-y: auto; }";
+  document.head.append(style);
+  try {
+    const { app } = await openThread();
+    for (let n = 0; n < 400; n++)
+      app.daemon.checkouts.seed("thread-cold-start", `pkg/part-${n % 20}/case-${n}.ts`, "x\n");
+    await userEvent.keyboard("{Control>}{Shift>}d{/Shift}{/Control}");
+    const side = await panel();
+    await userEvent.click(within(side).getByRole("tab", { name: "Files" }));
+    const tree = await within(side).findByRole("tree", { name: "Checkout files" });
+    await waitFor(() => expect(within(tree).getAllByRole("treeitem").length).toBeGreaterThan(0));
+    expect(within(tree).getAllByRole("treeitem").length).toBeLessThan(60);
+    await userEvent.type(
+      within(side).getByRole("searchbox", { name: "Find files in the checkout" }),
+      "case-399",
+    );
+    const found = await within(side).findByRole("tree", { name: "Matching files" });
+    expect(await within(found).findByRole("treeitem", { name: "case-399.ts" })).toBeTruthy();
+  } finally {
+    style.remove();
   }
 });

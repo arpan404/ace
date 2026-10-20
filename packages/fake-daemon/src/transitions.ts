@@ -1,3 +1,4 @@
+import type { Fact } from "@ace/core";
 import type { CommandPayload, EventPayload, ForkPoint } from "@ace/protocol";
 import { busy } from "./thread-commands.ts";
 import type { ThreadHost } from "./thread-host.ts";
@@ -18,10 +19,14 @@ export function forkPointError(host: ThreadHost, point: ForkPoint): string | und
   return item && (!("complete" in item) || item.complete) ? undefined : "fork_point_unavailable";
 }
 
-/** Apply a queued switch once nothing runs: the thread continues on the new selection. */
+/** Publish a selection split off a steer, then apply a queued switch once nothing runs. */
 export function switchEvents(host: ThreadHost, at: number): EventPayload[] {
-  const pending = host.view.thread.switch;
-  if (pending?.state !== "queued" || busy(host)) return [];
+  const split = host.steerSwitch;
+  host.steerSwitch = undefined;
+  const queued = split && { selection: split, state: "queued" as const, lossy: false, at };
+  const published: EventPayload[] = queued ? [{ type: "thread.updated", switch: queued }] : [];
+  const pending = queued ?? host.view.thread.switch;
+  if (pending?.state !== "queued" || busy(host)) return published;
   const { selection } = pending;
   if (host.queue.reason === "model_unavailable") {
     host.queue.paused = false;
@@ -29,6 +34,7 @@ export function switchEvents(host: ThreadHost, at: number): EventPayload[] {
     host.queueDirty = true;
   }
   return [
+    ...published,
     {
       type: "thread.updated",
       provider: selection.provider,
@@ -52,7 +58,7 @@ export function switchEvents(host: ThreadHost, at: number): EventPayload[] {
   ];
 }
 
-/** The fake publishes the same synthetic context message as a completed real merge. */
+/** Why a fork can't merge back into its parent yet, or undefined when it can. */
 export function mergeForkError(
   fork: ThreadHost,
   parent: ThreadHost | undefined,
@@ -69,4 +75,31 @@ export function mergeForkError(
   )
     return "invalid_citation_thread";
   return undefined;
+}
+
+/** The fake publishes the same synthetic context message as a completed real merge. */
+export function mergeFacts(
+  payload: Extract<CommandPayload, { type: "thread.merge" }>,
+  commandId: string,
+): Fact[] {
+  return [
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: `merge:${commandId}`,
+      draft: {
+        type: "message",
+        role: "user",
+        synthetic: true,
+        complete: true,
+        mergedContext: {
+          sourceThreadId: payload.threadId,
+          summary: payload.summary,
+          citations: payload.citations,
+          patchApplied: payload.patch !== undefined,
+        },
+        parts: [{ type: "text", text: payload.summary }],
+      },
+    },
+  ];
 }

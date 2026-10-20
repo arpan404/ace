@@ -28,7 +28,41 @@ export class SessionObservations {
     this.releaseUnused = ports.releaseUnused;
     this.options = ports.options;
   }
+  /** The live view's frames, the newest one whenever `sink` is ready for another. */
   subscribe(id: string, sink: FrameSink): () => void {
+    return this.view(id, (session, release) =>
+      session.hub.subscribe(async (frame) => {
+        try {
+          await sink(frame);
+        } catch (error) {
+          release();
+          throw error;
+        }
+      }, session.latest),
+    );
+  }
+  /**
+   * Every frame of the live view, in order, as it is captured: for a viewer that paces itself
+   * (the shared media stream's ack window), which must not lose a delta to coalescing. A sink
+   * that throws is removed and lets its capture lease go.
+   */
+  subscribeEvery(id: string, sink: (frame: Frame) => void): () => void {
+    return this.view(id, (session, release) =>
+      session.hub.subscribeEvery((frame) => {
+        try {
+          sink(frame);
+        } catch (error) {
+          release();
+          throw error;
+        }
+      }, session.latest),
+    );
+  }
+  /** Holds the session's pixels while `attach`'s subscription lasts. */
+  private view(
+    id: string,
+    attach: (session: Session, release: () => void) => () => void,
+  ): () => void {
     const session = this.live(id);
     const lease = session.pixels.acquire();
     session.viewers++;
@@ -42,14 +76,7 @@ export class SessionObservations {
       this.releaseUnused(session);
     };
     try {
-      const stop = session.hub.subscribe(async (frame) => {
-        try {
-          await sink(frame);
-        } catch (error) {
-          release();
-          throw error;
-        }
-      }, session.latest);
+      const stop = attach(session, release);
       return () => {
         stop();
         release();

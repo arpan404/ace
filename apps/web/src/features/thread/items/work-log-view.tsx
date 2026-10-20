@@ -1,37 +1,32 @@
-import { CaretRightIcon } from "@phosphor-icons/react";
-import { cn } from "@/lib/cn.ts";
+import { sectionRule } from "@/components/ui/rules.ts";
+import { StaticRow, TranscriptRow } from "./transcript-row.tsx";
+
+/** A hairline under the "Worked for" line, parting the turn's work from its answer. */
+const underline = `mt-1.5 ${sectionRule}`;
 
 /*
  * A settled work log's header; `work-log.tsx` binds it to the thread. Its steps load when it
  * opens (`turn-work.tsx`): logs start folded.
  */
 
-/** "Worked for 1m 43s ›" over one hairline; the turn's time lives with its answer. */
+/** "Worked for 1m 43s" as a plain row; the turn's time lives with its answer. */
 export function WorkLogHeader(props: {
   label: string;
   open: boolean;
   panel: string;
   onToggle(): void;
+  /** The pointer reached the line or focus did: it may open next. */
+  onIntent?: (() => void) | undefined;
 }) {
   return (
-    <div className="flex min-h-8 items-center gap-3 border-b border-border pb-2">
-      <button
-        type="button"
-        aria-expanded={props.open}
-        aria-controls={props.panel}
-        onClick={props.onToggle}
-        className="group inline-flex min-w-0 items-center gap-1.5 text-ui text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground pointer-coarse:min-h-11"
-      >
-        <span className="truncate">{props.label}</span>
-        <CaretRightIcon
-          aria-hidden
-          size={14}
-          className={cn(
-            "shrink-0 text-subtle-foreground transition-transform duration-(--motion-base) ease-spring",
-            props.open && "rotate-90",
-          )}
-        />
-      </button>
+    <div onPointerEnter={props.onIntent} onFocus={props.onIntent}>
+      <TranscriptRow
+        expanded={props.open}
+        controls={props.panel}
+        onToggle={props.onToggle}
+        title={props.label}
+      />
+      <div aria-hidden className={underline} />
     </div>
   );
 }
@@ -39,8 +34,9 @@ export function WorkLogHeader(props: {
 /** "Worked for 1s" with nothing to open: the same line as the header, as plain text. */
 export function WorkLogLine(props: { label: string }) {
   return (
-    <div className="flex min-h-8 items-center gap-3 border-b border-border pb-2">
-      <p className="min-w-0 truncate text-ui text-muted-foreground">{props.label}</p>
+    <div>
+      <StaticRow title={props.label} />
+      <div aria-hidden className={underline} />
     </div>
   );
 }

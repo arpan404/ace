@@ -90,7 +90,8 @@ export class ThreadReads {
         release: () => {
           if (!this.source.inTransaction()) this.releaseThread(id);
         },
-        items: () => this.source.payloads.page(id, this.source.headSeq() + 1, 200, 1024 * 1024),
+        items: (status) =>
+          this.source.payloads.tail(id, status.thread.rootAgentId, 200, 1024 * 1024),
         retainAgents: (view) => this.source.status.retainItemAgents(view),
       }),
     );
@@ -144,6 +145,10 @@ export class ThreadReads {
     this.source.flush();
     return this.source.history.completion(threadId, itemId);
   }
+  historicalOpening(threadId: ThreadId, through: number) {
+    this.source.flush();
+    return this.source.history.opening(threadId, through);
+  }
   readHistoricalItemPage(
     threadId: ThreadId,
     through: number,
@@ -183,6 +188,10 @@ export class ThreadReads {
   readHistoryBlob(threadId: ThreadId, id: string, offset: number, limit: number) {
     if (!this.source.getThread(threadId)) throw new Error("Unknown thread");
     return readHistoryBlob(this.source.db, threadId, id, offset, limit);
+  }
+  /** Threads a reader holds open right now, such as a client's thread subscription. */
+  heldThreads(): ThreadId[] {
+    return [...this.caches.keys()];
   }
   releaseThread(id: ThreadId): void {
     const cached = this.caches.get(id);

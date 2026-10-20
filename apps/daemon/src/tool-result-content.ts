@@ -48,7 +48,7 @@ export async function toolImage(
 /** Bounded daemon-owned bytes use the same upload, quota and lifetime rules as client files. */
 export async function toolAttachment(
   context: ContextService,
-  caller: McpAttribution,
+  caller: Pick<McpAttribution, "threadId">,
   bytes: Buffer,
   fileMetadata: { name: string; mimeType: string },
 ) {

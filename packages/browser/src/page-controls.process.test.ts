@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { setup, executablePath } from "./parity-test-support.ts";
 import { ref } from "./test-support.ts";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 it.skipIf(!executablePath)(
   "a fixture load wait keeps document refs stable when iframe responses arrive after the URL wait",
@@ -35,7 +36,7 @@ it.skipIf(!executablePath)(
       text: "retained form",
     });
     await f.execute({ action: "navigate", url: f.url + "/other" });
-    expect(await f.execute({ action: "navigation_history" })).toEqual({
+    expect(await f.execute({ action: "navigation_history" })).toMatchObject({
       back: true,
       forward: false,
     });
@@ -43,8 +44,9 @@ it.skipIf(!executablePath)(
     await f.execute({ action: "wait_for", url: f.url + "/" });
     await f.execute({ action: "wait_for", text: "Fixture ready" });
     expect(await f.evaluate("document.querySelector('input').value")).toBe("retained form");
-    expect(await f.execute({ action: "navigation_history" })).toEqual({
-      back: true,
+    // The tab's first page: the blank page the tab opened on is nothing to go back to.
+    expect(await f.execute({ action: "navigation_history" })).toMatchObject({
+      back: false,
       forward: true,
     });
     await f.execute({ action: "history", direction: "forward" });
@@ -83,7 +85,6 @@ it.skipIf(!executablePath)(
   async () => {
     const f = await setup();
     await f.execute({ action: "focus", ref: ref(await f.execute({ action: "snapshot" }), "Name") });
-    f.service.takeover("thread", "viewer");
     for (const key of "abc") {
       await f.service.input(
         "thread",
@@ -133,7 +134,7 @@ it.skipIf(!executablePath)(
   async () => {
     const f = await setup();
     await f.service.startRecording("thread");
-    f.service.takeover("thread", "viewer", "private");
+    keepAgentsOut(f.service, "thread");
     await expect(f.service.stopRecording("thread")).rejects.toMatchObject({
       code: "human_private",
     });

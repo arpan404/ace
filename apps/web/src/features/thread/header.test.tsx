@@ -13,6 +13,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ThreadId } from "@ace/protocol";
 import { harness } from "@/test/harness.tsx";
+import { createIdleTask } from "@/test/tasks.ts";
 
 // Warm the details card's editor menu code before behavioural deadlines; editor discovery and
 // launch still run through the real fixture wire.
@@ -154,14 +155,14 @@ test("a menu opened from the card closes before the card does", async () => {
   expect(screen.getByRole("dialog", { name: "Thread details" })).toBe(card);
 });
 
-test("an action from the card runs the project's script in a terminal tab of the side panel", async () => {
+test("an action from the card runs the project's script in a terminal of the bottom panel", async () => {
   // Before the agent starts the relay in the background.
   const app = await openThread("replay", "delegated");
   const actions = await openMachineMenu();
   await userEvent.click(
     await within(actions).findByRole("menuitem", { name: "Run bun run dev:relay" }),
   );
-  const panel = await sidePanel();
+  const panel = await screen.findByRole("region", { name: "Terminal panel" });
   // The tab opening on the script's terminal is the only confirmation.
   expect(await within(panel).findByRole("tab", { name: "dev:relay", selected: true })).toBeTruthy();
   await waitFor(() =>
@@ -169,20 +170,22 @@ test("an action from the card runs the project's script in a terminal tab of the
       "relay listening on ws://127.0.0.1:8787",
     ),
   );
-  expect(screen.queryByRole("region", { name: "Bottom panel" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull();
   expect(app.daemon.terminals.list("thread-replay-cursor").map((t) => t.name)).toEqual([
     "dev:relay",
   ]);
 
   // Running it again goes back to its terminal rather than starting a second one.
-  await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
+  await userEvent.click(within(panel).getByRole("button", { name: "Hide terminal panel" }));
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Terminal panel" })).toBeNull());
   const again = await openMachineMenu();
   await userEvent.click(
     await within(again).findByRole("menuitem", {
       name: "Run bun run dev:relay",
     }),
   );
-  expect(await within(panel).findByRole("tab", { name: "dev:relay", selected: true })).toBeTruthy();
+  const shown = await screen.findByRole("region", { name: "Terminal panel" });
+  expect(await within(shown).findByRole("tab", { name: "dev:relay", selected: true })).toBeTruthy();
   expect(app.daemon.terminals.list("thread-replay-cursor")).toHaveLength(1);
 });
 
@@ -225,8 +228,7 @@ test("Open in launches the checkout in an editor, and the one picked becomes the
   };
   expect(await openEditors()).toBeTruthy();
   await userEvent.click(await screen.findByRole("menuitem", { name: "Open in Zed" }));
-  expect(await screen.findByText("Opened in Zed")).toBeTruthy();
-  expect(launched).toHaveBeenCalledWith("zed://file/Users/dev/relay", "_self");
+  await waitFor(() => expect(launched).toHaveBeenCalledWith("zed://file/Users/dev/relay", "_self"));
   await openEditorsMenu();
   const picked = await screen.findByRole("menuitem", { name: "Open in Zed, default" });
   expect(picked.textContent).toContain("Zed");
@@ -649,7 +651,7 @@ test("from the card, an idle thread switches branch and moves into a worktree of
 // The ⋯ menu's thread actions
 
 test("renaming from the ⋯ menu changes the title", async () => {
-  await openIdleThread();
+  const app = await openIdleThread();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Rename/ }));
   const field = await screen.findByRole("textbox", { name: "Thread title" });
@@ -662,9 +664,12 @@ test("renaming from the ⋯ menu changes the title", async () => {
   ).toBeTruthy();
   expect(screen.queryByRole("textbox", { name: "Thread title" })).toBeNull();
   expect(screen.queryByRole("dialog", { name: "Rename thread" })).toBeNull();
-  expect(
-    await screen.findByRole("heading", { name: "Renamed · Cold-start replay cap" }),
-  ).toBeTruthy();
+  await waitFor(() => {
+    const view = app.daemon.snapshot({ kind: "threads" });
+    expect(view?.kind === "threads" && view.threads["thread-replay-cursor"]?.title).toBe(
+      "Cold-start replay cap",
+    );
+  });
 });
 
 test("archiving from the ⋯ menu leaves the thread", async () => {
@@ -675,6 +680,39 @@ test("archiving from the ⋯ menu leaves the thread", async () => {
   await userEvent.click(await screen.findByRole("button", { name: "Archive, keep running" }));
   expect(await screen.findByText("Archived · Replay cursor resets on every resume")).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
+});
+
+test("archiving the open thread opens the other thread in the list, caret in its composer, and Undo comes back", async () => {
+  const app = harness();
+  for (const [id, title] of [
+    ["thread-notes", "Tidy the release notes"],
+    ["thread-replay-cursor", "Replay cursor resets on every resume"],
+  ] as const)
+    // Sent requests: a thread with nothing sent yet is a draft, not in the list.
+    createIdleTask(app.daemon, { id, workspaceId: "relay", provider: "claude", title });
+  await app.open("/t/thread-replay-cursor");
+  await screen.findByRole("heading", { level: 1, name: "Replay cursor resets on every resume" });
+  // Opening the menu loads the thread's shortcuts with it.
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await screen.findByRole("menuitem", { name: /^Archive/ });
+  await userEvent.keyboard("{Escape}");
+
+  // Off Apple platforms Archive is Ctrl+Alt+Shift+A.
+  await userEvent.keyboard("{Control>}{Alt>}{Shift>}a{/Shift}{/Alt}{/Control}");
+  expect(
+    await screen.findByRole("heading", { level: 1, name: "Tidy the release notes" }),
+  ).toBeTruthy();
+  await waitFor(() =>
+    expect(document.activeElement?.closest('[data-slot="composer"]')).toBeTruthy(),
+  );
+
+  await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+  expect(
+    await screen.findByRole("heading", {
+      level: 1,
+      name: "Replay cursor resets on every resume",
+    }),
+  ).toBeTruthy();
 });
 
 test("deleting a thread with work still running from the ⋯ menu keeps it and says why", async () => {
@@ -724,6 +762,7 @@ test("the ⋯ menu keeps the common thread actions in the row menu's order", asy
     "Pin",
     "Move to project…",
     "Snooze",
+    "Turn off auto-settle",
     "Archive",
     "Delete thread",
   ]);
@@ -783,14 +822,15 @@ test("Fork is omitted until the first turn has finished", async () => {
   expect(screen.queryByRole("menuitem", { name: /Fork from the last turn/ })).toBeNull();
 });
 
-test("snoozing from the ⋯ menu snoozes it on the daemon and confirms until when", async () => {
+test("snoozing from the ⋯ menu snoozes it on the daemon until tomorrow", async () => {
   const app = await openThread();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Snooze" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Tomorrow/ }));
-  expect(await screen.findByText(/^Snoozed — no notifications until tomorrow/)).toBeTruthy();
-  const view = app.daemon.snapshot({ kind: "threads" });
-  expect(
-    view?.kind === "threads" && view.threads["thread-replay-cursor"]?.snoozedUntil,
-  ).toBeGreaterThan(Date.now());
+  await waitFor(() => {
+    const view = app.daemon.snapshot({ kind: "threads" });
+    expect(
+      view?.kind === "threads" && view.threads["thread-replay-cursor"]?.snoozedUntil,
+    ).toBeGreaterThan(Date.now());
+  });
 });

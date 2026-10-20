@@ -48,9 +48,20 @@ export async function executeIntent(
     try {
       await sessions.open(actor);
     } catch (error) {
-      throw new DeliveryNotStarted(error instanceof Error ? error.message : String(error), {
-        cause: error,
-      });
+      // A provider returning to the thread resumes the session it left; if that is gone, it
+      // opens once more as a fresh session with the full handoff.
+      let failure = error;
+      if (transitions.abandonReturn(actor.id, error))
+        try {
+          await sessions.open(actor);
+          failure = undefined;
+        } catch (retry) {
+          failure = retry;
+        }
+      if (failure !== undefined)
+        throw new DeliveryNotStarted(failure instanceof Error ? failure.message : String(failure), {
+          cause: failure,
+        });
     }
     await repo.store.writable();
     if (repo.cancelled(intent.id)) throw new DeliveryDeferred("Cancelled before delivery");
@@ -179,9 +190,6 @@ export async function executeIntent(
         generation,
       );
       repo.pending.submit(intent, generation);
-      const activeInputRun = state.agents[state.rootKey ?? ""]?.activeRun;
-      if (activeInputRun)
-        repo.inputs.attachRun(actor.id, `input:${intent.command.id}`, activeInputRun);
       await session.send(
         input,
         p.type === "thread.send" && p.delivery === "steer" && capabilities.steer
@@ -214,6 +222,9 @@ export async function executeIntent(
     if (!actor.session || !interaction || interaction.state !== "pending")
       throw new InteractionUnavailable("interaction_unavailable");
   }
+  // A goal is the provider's own state: an idle thread's session reopens to change it.
+  if ((p.type === "thread.goal.set" || p.type === "thread.goal.clear") && !actor.session)
+    await sessions.open(actor);
   if (!actor.session) {
     if (
       p.type === "thread.interrupt" &&
@@ -241,6 +252,12 @@ export async function executeIntent(
   } else if (p.type === "thread.mode.set") {
     if (!actor.session.setMode) throw new Error("Provider mode selection unavailable");
     await actor.session.setMode(p.mode);
+  } else if (p.type === "thread.goal.set") {
+    if (!actor.session.setGoal) throw new Error("Provider goals unavailable");
+    await actor.session.setGoal(p.change);
+  } else if (p.type === "thread.goal.clear") {
+    if (!actor.session.clearGoal) throw new Error("Provider goals unavailable");
+    await actor.session.clearGoal();
   } else if (p.type === "thread.interrupt") {
     const targetKey =
       p.agentId === undefined ? state.rootKey : state.indexes.agentKeysById[p.agentId];
@@ -250,19 +267,28 @@ export async function executeIntent(
     const capabilities =
       actor.effectiveCapabilities ??
       registry.get(state.config.provider, repo.backend(actor.id)).capabilities;
-    if (p.cascade && !capabilities.interruptCascades) {
-      const target = p.agentId ?? state.agents[state.rootKey ?? ""]?.agent.id;
-      const descendants = (id: string): string[] =>
-        Object.keys(state.indexes.childrenByParent[id] ?? {})
-          .filter((key) => !state.agents[key]?.externalStatus)
-          .flatMap((key) => descendants(state.agents[key]?.agent.id ?? "").concat(key));
-      for (const key of target ? descendants(target) : [])
-        await actor.session.interrupt({ agent: key, cascade: false });
+    const session = actor.session;
+    try {
+      if (p.cascade && !capabilities.interruptCascades) {
+        const target = p.agentId ?? state.agents[state.rootKey ?? ""]?.agent.id;
+        const descendants = (id: string): string[] =>
+          Object.keys(state.indexes.childrenByParent[id] ?? {})
+            .filter((key) => !state.agents[key]?.externalStatus)
+            .flatMap((key) => descendants(state.agents[key]?.agent.id ?? "").concat(key));
+        for (const key of target ? descendants(target) : [])
+          await session.interrupt({ agent: key, cascade: false });
+      }
+      await session.interrupt({
+        ...(agent === undefined ? {} : { agent }),
+        cascade: p.cascade,
+      });
+    } catch (error) {
+      if (!stopsWholeThread(p)) throw error;
+      // A Stop always settles. When the provider can't stop the tree itself (its location was
+      // lost, or it holds work it won't interrupt), ace ends the provider session: owned work is
+      // cleaned up and everything still marked running ends with an unknown outcome.
+      await sessions.close(actor, "user");
     }
-    await actor.session.interrupt({
-      ...(agent === undefined ? {} : { agent }),
-      cascade: p.cascade,
-    });
   } else if (p.type === "interaction.resolve") {
     const entry = Object.entries(state.interactions).find(
       ([, item]) => item.id === p.interactionId,
@@ -312,4 +338,13 @@ export async function executeIntent(
     if (!entry || entry[1].status !== "running") throw new Error("Task is no longer running");
     await actor.session.stopTask(entry[0]);
   }
+}
+
+/** A Stop of the whole thread, as opposed to interrupting one agent or one run. */
+function stopsWholeThread(p: {
+  cascade: boolean;
+  agentId?: string | undefined;
+  runId?: string | undefined;
+}): boolean {
+  return p.cascade && p.agentId === undefined && p.runId === undefined;
 }

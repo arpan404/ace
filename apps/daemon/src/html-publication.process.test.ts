@@ -56,7 +56,7 @@ test("preview does not publish; rendered HTML replays after daemon restart with 
     // An unsupported page is refused in the same call, with what to fix, and nothing is published.
     const refused = Result.parse(
       await (
-        await invoke(connection, "ace_html_render", {
+        await invoke(connection, "html_render", {
           title: "External",
           html: `<!doctype html><script src="https://example.invalid/x.js"></script>`,
         })
@@ -68,7 +68,7 @@ test("preview does not publish; rendered HTML replays after daemon restart with 
     expect(store.readItemPage(thread.id, store.headSeq() + 1, 200).items).toHaveLength(0);
     const rendered = Result.parse(
       await (
-        await invoke(connection, "ace_html_render", {
+        await invoke(connection, "html_render", {
           title: "Replay reader@example.invalid",
           html,
           height: 400,
@@ -82,8 +82,7 @@ test("preview does not publish; rendered HTML replays after daemon restart with 
       { title: "Chart", html: scripted, mode: "static" },
     ])
       expect(
-        Result.parse(await (await invoke(connection, "ace_html_render", args)).json()).result
-          .isError,
+        Result.parse(await (await invoke(connection, "html_render", args)).json()).result.isError,
       ).not.toBe(true);
     const modes = () =>
       store

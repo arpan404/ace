@@ -1,5 +1,5 @@
 import { McpProviderSessions } from "./mcp-provider-sessions.ts";
-import { randomUUID } from "node:crypto";
+import { timeOrderedIds } from "./time-ordered-id.ts";
 import { ItemId, type McpScope } from "@ace/protocol";
 import {
   type StatusReader,
@@ -10,7 +10,10 @@ import {
   type Toolkit,
   type CallObserver,
   type AwarenessPort,
+  type KnowledgePort,
   aceToolAction,
+  aceToolDispatch,
+  aceToolSearch,
   maxRequestBodyBytes,
 } from "@ace/mcp-server";
 import type { Store } from "./store.ts";
@@ -21,56 +24,48 @@ export async function startDaemonMcp(
   observations?: { observeCall: CallObserver; lease(sessionId: string): () => void },
   status?: StatusReader,
   awareness?: AwarenessPort,
+  knowledge?: Pick<KnowledgePort, "context">,
 ) {
+  // Intents and notices are database keys: time-ordered, they stay together in each index.
+  const nextId = timeOrderedIds();
   const registry = new ToolRegistry({
     scheduler: nodeScheduler,
     ...(observations ? { observeCall: observations.observeCall } : {}),
   });
-  registerBuiltins(
-    registry,
-    {
-      async agents(caller, page, signal) {
-        signal.throwIfAborted();
-        const agents = store.listMcpAgents(caller.threadId, page.cursor ?? "", page.limit + 1);
-        const more = agents.length > page.limit;
-        if (more) agents.pop();
-        return { agents, nextCursor: more ? (agents.at(-1)?.id ?? null) : null };
-      },
-    },
-    {
-      async notify(intent, signal) {
-        const intentId = randomUUID();
-        const at = Date.now();
-        signal.throwIfAborted();
-        store.enqueueMcpIntent(
-          intentId,
-          intent,
-          [
-            {
-              type: "item.created",
-              item: {
-                type: "notice",
-                id: ItemId.parse(randomUUID()),
-                agentId: intent.agentId,
-                createdAt: at,
-                complete: true,
-                level: intent.notice.level,
-                text: intent.notice.text,
-                raw: [],
-              },
+  registerBuiltins(registry, {
+    async notify(intent, signal) {
+      const intentId = nextId();
+      const at = Date.now();
+      signal.throwIfAborted();
+      store.enqueueMcpIntent(
+        intentId,
+        intent,
+        [
+          {
+            type: "item.created",
+            item: {
+              type: "notice",
+              id: ItemId.parse(nextId()),
+              agentId: intent.agentId,
+              createdAt: at,
+              complete: true,
+              level: intent.notice.level,
+              text: intent.notice.text,
+              raw: [],
             },
-          ],
-          at,
-        );
-        return { intentId };
-      },
+          },
+        ],
+        at,
+      );
+      return { intentId };
     },
-  );
+  });
   for (const toolkit of toolkits) toolkit.register(registry);
   const server = await startMcpServer({
     maxBodyBytes: maxRequestBodyBytes,
     registry,
     ...(awareness ? { awareness } : {}),
+    ...(knowledge ? { knowledge } : {}),
     status:
       status ??
       ((caller) => ({
@@ -79,11 +74,11 @@ export async function startDaemonMcp(
   });
   return {
     url: server.url,
-    toolNames: () => ["ace_status", ...registry.names()],
+    toolNames: () => ["context", aceToolSearch, aceToolDispatch, ...registry.names()],
     toolsChanged: server.toolsChanged,
     /** This session's failed ace calls, for diagnostics. */
     failures: (sessionId: string) => server.awareness?.recentFailures(sessionId) ?? [],
-    // ace_status lives in its own registry; its static catalog entry still attributes it.
+    // context lives in its own registry; its static catalog entry still attributes it.
     action: (name: string, input: unknown) =>
       registry.action(name, input) ?? aceToolAction(name, input),
     providers: new McpProviderSessions(),

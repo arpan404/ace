@@ -4,26 +4,27 @@ Target both platforms using the existing clients: SwiftUI with JavaScriptCore on
 iOS, Expo with Compose and Hermes on Android. The shared `@ace/client` owns
 reconnect, snapshots, replay, durable commands and canonical agent state.
 [ADR 0073](../adr/0073-native-mobile-clients.md) and
-[ADR 0074](../adr/0074-native-ios-client.md) hold Phase 1 until the performance
-gates pass. This is the implementation roadmap, not evidence that remote phone
-pairing already works.
+[ADR 0074](../adr/0074-native-ios-client.md) record the stack. Both Phase 0 spikes merged
+on 2026-10-12, and iOS Phase 1 is built on `ace/ios-mvp`; real-device performance
+measurement is still owed. This is the implementation roadmap, not evidence that pairing
+a physical phone over Tailscale already works.
 
 ## Features and porting scope
 
-| Feature                                    | Current mobile coverage                                   | Next step                                                       |
-| ------------------------------------------ | --------------------------------------------------------- | --------------------------------------------------------------- |
-| Inbox, live transcript, history            | Both debug prototypes use the shared SDK                  | Keep bounded subscriptions and whole-tree status for real hosts |
-| Send, queued/offline sends, reconnect      | Both prototypes persist intents in SQLite                 | Validate paired TLS and daemon restart as well as app restart   |
-| Approvals and stop tree                    | Both prototypes expose canonical commands                 | Preserve exact action IDs, grants and waiting states            |
-| Archive and snooze                         | iOS exposes commands                                      | Complete inbox actions on both platforms                        |
-| Remote sign-in to ace                      | Daemon pairing, device scopes and tickets already exist   | Add native QR/paste onboarding and secure device credentials    |
-| Multiple computers                         | SDK has machine APIs; mobile UI is deferred               | Add machine directory, host-bound storage and safe switching    |
-| Agents and background tasks                | Android has a bounded Agents sheet; iOS sheet is deferred | Complete native tree views and actions after pairing            |
-| Agent questions and Changes                | Canonical services exist; mobile screens are deferred     | Add question answers and native changes sheets after pairing    |
-| Projects, files, models, account readiness | Shared client APIs exist                                  | Add focused phone views with capability/scope checks            |
-| Provider sign-in                           | Host supervises reviewed installed CLI flows              | Relay only supported verification URLs/codes and fixed progress |
-| Terminal, browser, screen/device control   | Separate service channels exist                           | Design phone controls and native transport adapters separately  |
-| Notifications and Live Activities          | Deferred Phase 2                                          | Delivery ADR and platform measurements before implementation    |
+| Feature                                    | Current mobile coverage                                                                                                                                                                 | Next step                                                                             |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Inbox, live transcript, history            | iOS: one inbox across every paired machine, the web's transcript blocks, history paging, full steps of finished turns. Android: Phase 0 prototype                                       | Measure on physical phones                                                            |
+| Send, queued/offline sends, reconnect      | iOS: durable outbox per machine, steer or queue, queue reorder, files-only messages. Android: Phase 0 prototype                                                                         | Validate replay on a physical phone over Tailscale                                    |
+| Approvals and stop tree                    | iOS: approval, question, plan, form and browser cards; Stop all and per-agent stop. Android: Phase 0 prototype                                                                          | Android parity                                                                        |
+| Archive and snooze                         | iOS: archive browser, snooze presets, a snooze that ends while its machine is offline                                                                                                   | Android parity                                                                        |
+| Remote sign-in to ace                      | iOS: QR/paste pairing, pinned HTTPS/WSS, Keychain tokens, Face ID. Android: deferred                                                                                                    | Pair a physical phone over Tailscale                                                  |
+| Multiple computers                         | iOS: every paired machine connects at once; Machines sheet with rename, remove and coding-tool readiness                                                                                | Android parity                                                                        |
+| Agents and background tasks                | iOS: Agents sheet with tree-aware status, usage and background tasks. Android: bounded Agents sheet                                                                                     | Android actions                                                                       |
+| Agent questions and Changes                | iOS: question cards; Changes sheet with diff, commit, push, PR, merge and AI-drafted messages                                                                                           | Android screens                                                                       |
+| Projects, files, models, account readiness | iOS: New thread (project, worktree, agent and model, effort, speed, access, first-message files), Add project, Files for a thread or a project                                          | Android screens                                                                       |
+| Provider sign-in                           | iOS relays host-supervised installed CLI choices, verification URLs/codes and Enter prompts                                                                                             | Verify real provider sign-in completion                                               |
+| Terminal, browser, screen/device control   | iOS has a native terminal and live JPEG/H.264 browser; screen/device control remains deferred                                                                                           | Verify browser controls against a real daemon; plan screen/device adapters separately |
+| Notifications and Live Activities          | iOS: local notifications with per-machine mute ([ADR 0087](../adr/0087-ios-local-notifications.md)). Local Live Activities use foreground canonical state; remote push remains deferred | Delivery ADR and platform measurements before implementation                          |
 
 Port shared data and commands through package public APIs. Build native screens;
 desktop DOM components cannot run in SwiftUI or Compose. iOS uses the narrow
@@ -82,8 +83,10 @@ host identity. Sources: [connect to devices](https://tailscale.com/docs/how-to/c
   during this follow-up.
 - Android: establish presentation/scroll pacing, a bounded memory plateau and
   daemon-restart durability. Emulator geometry checks do not certify OEM devices.
-- After the gates: implement native pinned HTTP and validate WSS against a real
-  paired daemon, secure storage, onboarding, biometric unlock and machine views.
+- iOS now has native pinned HTTP and WSS, QR/paste onboarding, Keychain tokens,
+  host-bound storage, the multi-machine inbox and Face ID unlock. They run against
+  a real daemon's TLS listener on loopback in the simulator (`apps/ios/README.md`).
+  Still to verify: a physical phone over Tailscale.
 - Verify wrong pins, expiry, revoked/read-only devices, unavailable Tailscale,
   reconnect on network changes, repeated machine switching, and lost-receipt
   replay through app and daemon restarts.

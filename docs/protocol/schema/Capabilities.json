@@ -105,6 +105,9 @@
     "forkSubagents": {
       "type": "boolean"
     },
+    "goals": {
+      "type": "boolean"
+    },
     "imageInput": {
       "type": "boolean"
     },
@@ -146,6 +149,13 @@
     },
     "steer": {
       "type": "boolean"
+    },
+    "steerTiming": {
+      "enum": [
+        "immediate",
+        "after_tool"
+      ],
+      "type": "string"
     },
     "steeringMode": {
       "enum": [

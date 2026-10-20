@@ -302,9 +302,9 @@ export class PayloadStore {
   }
   liveStreamThread(streamId: string): ThreadId | undefined {
     const current = this.readStatement(`
-      SELECT s.thread_id FROM output_streams s JOIN item_previews p ON p.id=s.item_id
-      WHERE s.id=? AND json_extract(p.item,'$.type')='tool_call'
-        AND json_extract(p.item,'$.call.detail.kind')='shell'
+      SELECT s.thread_id FROM output_streams s JOIN items i ON i.id=s.item_id
+      WHERE s.id=? AND json_extract(i.item,'$.type')='tool_call'
+        AND json_extract(i.item,'$.call.detail.kind')='shell'
       UNION ALL
       SELECT s.thread_id FROM item_text_streams s JOIN item_previews p ON p.id=s.item_id
       WHERE s.id=? AND (
@@ -364,6 +364,9 @@ export class PayloadStore {
   }
   window(threadId: ThreadId, aroundSeq: number, before: number, after: number, byteLimit: number) {
     return this.items.window(threadId, aroundSeq, before, after, byteLimit);
+  }
+  tail(threadId: ThreadId, rootAgentId: string | undefined, limit: number, byteLimit: number) {
+    return this.items.tail(threadId, rootAgentId, limit, byteLimit);
   }
   page(threadId: ThreadId, before: number, limit: number, byteLimit?: number) {
     return this.items.page(threadId, before, limit, byteLimit);

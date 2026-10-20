@@ -3,7 +3,6 @@ import { provisionalTitle } from "../engine/thread-title.ts";
 import {
   AgentControlOperation,
   DelegationRequest,
-  RemoteAgentOperation as RemoteOperation,
   type AgentControlResult,
   type McpAttribution,
   type ThreadId,
@@ -13,6 +12,11 @@ import type { Store } from "../store.ts";
 import type { DelegationService } from "./delegations.ts";
 import { controlCommandId } from "./delegations.ts";
 import { childTaskView } from "./task-view.ts";
+import { settleThread, unsettleThread } from "./thread-settle.ts";
+import { findProjects } from "./projects.ts";
+import { queueControl } from "./queue-control.ts";
+import { createForks } from "./forks.ts";
+import { resolveSelection, type OpenSelection } from "./selection-defaults.ts";
 import { conversationTool, type ConversationStartPort } from "./conversation-tools.ts";
 import { AgentControlError } from "./failure.ts";
 import {
@@ -25,16 +29,7 @@ import {
 export type ExtensionOperation = Extract<
   AgentControlOperation,
   {
-    op:
-      | "thread.fork"
-      | "thread.merge"
-      | "queue.edit"
-      | "queue.reorder"
-      | "automation.manage"
-      | "offshift"
-      | "thread.handoff"
-      | "preview.list"
-      | "preview.close";
+    op: "automation.manage" | "offshift" | "thread.handoff" | "preview.list" | "preview.close";
   }
 >;
 export type ThreadOwnerOperation = Extract<
@@ -110,13 +105,8 @@ export interface AgentControlExtensions {
     operation: ExtensionOperation,
     signal: AbortSignal,
   ): Promise<AgentControlResult>;
-  remote?(
-    caller: McpAttribution,
-    operation: import("@ace/protocol").RemoteAgentOperation,
-    signal: AbortSignal,
-  ): Promise<AgentControlResult>;
   snooze?(thread: ThreadId, until: number | null): Promise<void>;
-  /** Other paired machines (ADR 0078); their children join ace_wait and ace_agents_status. */
+  /** Other paired machines (ADR 0078); their children join wait and agents_status. */
   machines?: MachinePort;
 }
 export interface MachinePort {
@@ -136,6 +126,7 @@ export function createAgentControlPort(
   service: DelegationService,
   extensions: AgentControlExtensions = {},
 ): AgentControlPort {
+  const forks = createForks(store, service, service.conversations);
   return {
     async execute(caller, value, signal) {
       const operation = AgentControlOperation.parse(value);
@@ -143,12 +134,11 @@ export function createAgentControlPort(
       // Authenticate again at the mutation boundary, including direct host callers.
       if (!store.getMcpAgent(caller.threadId, caller.agentId))
         return { ok: false, code: "forbidden" };
-      if (operation.op.startsWith("device."))
-        return (
-          extensions.remote?.(caller, importRemote(operation), signal) ?? {
-            ok: false,
-            code: "unsupported",
-          }
+      const callerProvider = store.getThread(caller.threadId)?.provider;
+      /** An agent may leave the provider (and an ACP model's agent ids) for ace to resolve. */
+      const resolved = <T extends OpenSelection>(selection: T) =>
+        resolveSelection(selection, callerProvider ?? "codex", (options) =>
+          service.listModels(options),
         );
       const machines = extensions.machines;
       if (
@@ -163,6 +153,7 @@ export function createAgentControlPort(
           "thread.read",
           "thread.read_output",
           "thread.search",
+          "queue.list",
           "preview.list",
           "agent.status",
           "agent.result",
@@ -184,7 +175,7 @@ export function createAgentControlPort(
         store,
         service,
         caller,
-        operation,
+        operation.op === "thread.start" ? resolved(operation) : operation,
         signal,
         extensions.startConversation,
       );
@@ -244,7 +235,7 @@ export function createAgentControlPort(
             create(request, await check(request));
           const { op: _op, tasks, await: mode, timeoutSeconds, ...single } = operation;
           if (!tasks) {
-            const singleRequest = DelegationRequest.parse(single);
+            const singleRequest = DelegationRequest.parse(resolved(single));
             checkNames([singleRequest]);
             const child = await delegateOne(singleRequest);
             if (operation.machine && (operation.waitMs !== undefined || operation.wait)) {
@@ -275,7 +266,7 @@ export function createAgentControlPort(
           }
           // Checked first, then admitted in order. Children past the parent's free slots queue.
           // Stable per-task requestIds make a retried batch create nothing new.
-          const requests = tasks.map((task) => DelegationRequest.parse(task));
+          const requests = tasks.map((task) => DelegationRequest.parse(resolved(task)));
           checkNames(requests);
           const configured: (string | undefined)[] = [];
           for (const request of requests) configured.push(await check(request));
@@ -433,14 +424,16 @@ export function createAgentControlPort(
           return extensions.pr
             ? extensions.pr(caller, operation, signal)
             : { ok: false, code: "unsupported" };
-        case "thread.settle": {
-          if (store.getThread(operation.threadId)?.status.state === "working")
-            return { ok: false, code: "not_ready" };
-          const result = service.command(
-            controlCommandId(operation.threadId, "settle", operation.op),
-            { type: "thread.archive", threadId: operation.threadId },
-          );
-          return { ok: result.ok };
+        case "thread.settle":
+          return settleThread(store, operation.threadId, service.now());
+        case "thread.unsettle":
+          return unsettleThread(store, operation.threadId, service.now());
+        case "projects.list": {
+          const current = store.getThread(caller.threadId)?.workspaceId;
+          return {
+            ok: true,
+            data: { projects: findProjects(store, operation.query, operation.limit, current) },
+          };
         }
         case "thread.snooze": {
           if (!extensions.snooze) return { ok: false, code: "unsupported" };
@@ -450,26 +443,31 @@ export function createAgentControlPort(
         case "project.read":
         case "project.rename": {
           const thread = store.getThread(caller.threadId);
-          if (thread?.workspaceId !== operation.workspaceId)
+          const workspaceId = operation.workspaceId ?? thread?.workspaceId;
+          if (!thread || thread.workspaceId !== workspaceId)
             return { ok: false, code: "forbidden" };
           return store.atomic((db) => {
             if (operation.op === "project.rename")
               db.prepare("UPDATE workspaces SET name=? WHERE id=?").run(
                 operation.name,
-                operation.workspaceId,
+                workspaceId,
               );
-            const row = db
-              .prepare("SELECT id,name FROM workspaces WHERE id=?")
-              .get(operation.workspaceId);
+            const row = db.prepare("SELECT id,name FROM workspaces WHERE id=?").get(workspaceId);
             return { ok: !!row, data: row };
           });
         }
-        case "thread.fork":
-        case "thread.merge":
+        case "queue.list":
         case "queue.edit":
+        case "queue.cancel":
+        case "queue.steer":
         case "queue.reorder":
-        case "offshift":
+          return queueControl(service, caller, operation);
+        case "thread.fork":
+          return forks.fork(caller, operation);
+        case "thread.merge":
+          return forks.merge(caller, operation);
         case "automation.manage":
+        case "offshift":
         case "thread.handoff":
         case "preview.list":
         case "preview.close":
@@ -482,5 +480,3 @@ export function createAgentControlPort(
     },
   };
 }
-
-const importRemote = (operation: AgentControlOperation) => RemoteOperation.parse(operation);

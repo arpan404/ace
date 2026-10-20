@@ -33,8 +33,9 @@ Approval replaces the capture session, and the client restarts its live view.
 ## Reuse and transport
 
 iOS inventory and boot reuse `Simulators`; capture and semantic actions use the
-approved Simulator window through `ScreenManager`. There is no private
-CoreSimulator API. Timed gestures extend the helper's existing pointer drag
+approved Simulator window through `ScreenManager`. ace's own code calls no private
+CoreSimulator API; the pinned external `serve-sim` binary does (see "Native Simulator
+transport"), and the window path stays as the public-API fallback. Timed gestures extend the helper's existing pointer drag
 operation, preserving the same target-point coordinates as capture. Direct
 platform callers without a window binding can use detected idb. Unsupported operations return typed errors with a fix
 hint instead of pretending success.
@@ -44,6 +45,16 @@ SDK directory, resolving adb and emulator by absolute path. Bounded simctl and a
 processes implement lifecycle and app operations. Android accessibility dumps map
 to ADR 0011 v2 nodes and refs; actions refresh and validate their target before
 synthesizing input, and report that fallback explicitly.
+
+Update (2026-10-19, #1103): Android capture now speaks the scrcpy protocol with
+ace's own client and the pinned upstream scrcpy-server (Apache-2.0), downloaded on
+first use into ace's home and verified by SHA-256. It is an external, pinned binary
+like serve-sim; ace's code is written from scrcpy's documentation. The device's H.264
+is passed through, input uses scrcpy's control socket (multi-touch, Unicode by paste,
+clipboard, rotation), and UI trees come from ace's own long-running UiAutomation
+helper started with `app_process`. The screenrecord pipeline below remains the
+fallback when the server cannot start, and `uiautomator dump` remains the tree
+fallback.
 
 Android capture uses an owned `adb exec-out screenrecord` H.264 process connected
 with stream backpressure to an owned ffmpeg JPEG decoder. Independent JPEG frames
@@ -177,12 +188,64 @@ fails, and cleans up any session it started.
 
 ### Native Simulator transport
 
-When `serve-sim` is installed on the device's Mac, capture uses its public CLI
-(`--no-preview --quiet <UDID>`), MJPEG framebuffer stream, and persistent
-WebSocket HID channel. `ACE_SERVE_SIM` can select an explicit executable. Install
-with `bun add --global serve-sim@0.1.47`; the desktop daemon includes the user's
-CLI paths. The legacy screen-helper path remains available on Macs without it.
-An explicit missing `ACE_SERVE_SIM` is an error, never a silent fallback.
+When a pinned `serve-sim` is installed on the device's Mac, capture uses its CLI
+(`--no-preview --quiet <UDID>`), its H.264 or MJPEG framebuffer stream, its
+persistent WebSocket HID channel and its accessibility route. `ACE_SERVE_SIM` can
+select an explicit executable. Install with `npm install -g serve-sim@0.1.48`; the
+desktop daemon includes the user's CLI paths. The legacy screen-helper path remains
+available on Macs without it. An explicit missing `ACE_SERVE_SIM` is an error, never
+a silent fallback.
+
+Revised 2026-10-19 (#1102):
+
+- **Preferred and pinned.** serve-sim is the preferred iOS transport. It stays an
+  external binary that ace spawns and supervises; it is never bundled or copied, and
+  ace's own code keeps to public APIs. serve-sim drives private CoreSimulator,
+  SimulatorKit and AccessibilityPlatformTranslation interfaces that move between Xcode
+  releases, and its HTTP routes are not a published API, so ace runs only versions it
+  has checked (`serve-sim-version.ts`: 0.1.47 and 0.1.48; 0.1.48 is the install hint).
+  Capture asks `serve-sim --version` before each start. Any other version falls back to
+  the screen helper, or fails with `tool_missing` naming the pinned version when there
+  is no helper or `ACE_SERVE_SIM` names it explicitly. Moving the pin means re-running
+  `simulator-live.process.test.ts` and the measurements in
+  `docs/device-mirroring-performance.md` on the new version.
+- **H.264 passthrough.** Viewers that negotiate H.264 get `/stream.avcc` as-is: each
+  length-prefixed access unit is re-framed as Annex B, a keyframe led by the SPS/PPS
+  from serve-sim's avcC record, and published with `videoCodec` from that record
+  (`avc1.640033`, High 5.1, on current iPhones). Nothing is decoded or re-encoded, so the
+  frame is the native framebuffer size whatever the viewer's budget; the frame header's
+  height limit is 3840 to admit portrait phones. A keyframe request opens a second
+  subscription (serve-sim starts every subscription with its description and an IDR),
+  switches at that IDR and closes the old one, so the picture never stops. A new avcC
+  record (size change) is honoured at its next IDR. While H.264 is live the MJPEG stream
+  is closed; viewers that need JPEG (no decoder for the profile, screenshots,
+  recordings) get the MJPEG stream through the existing bounded resize path.
+  Clients configure WebCodecs from `videoCodec` and fall back to JPEG only when the
+  decoder reports the configuration unsupported.
+- **Input.** Touches keep the HID socket. A drag or swipe that begins within 2% of a
+  screen edge carries serve-sim's edge flag, so swipe-up-from-bottom goes home; taps
+  never do. Rotation toggles from the orientation serve-sim announces on the socket,
+  because its framebuffer stays portrait. Pictures and touch coordinates stay in that
+  portrait framebuffer when the device turns, so each frame carries `rotation` (degrees
+  clockwise to show it upright: `landscape_left` 90, `portrait_upside_down` 180,
+  `landscape_right` 270) and a turn republishes the latest picture. Pointer ids 0 and 1
+  map to serve-sim's two-finger touch: a second finger joins the held touch without
+  lifting it (a lift would be a tap), and the finger left after a two-finger touch only
+  touches again once it moves. Ids above 1 are refused as `not_supported`.
+- **Accessibility.** `ui.tree`, `ui.find` and `ui.act` on a serve-sim capture read its
+  in-process accessibility bridge (`GET /ax`, a nested tree in points) and map it to
+  ADR 0011 nodes in framebuffer pixels, with refs hashed from the element's path, type,
+  identifier, label and bounds. A ref that no longer resolves in a fresh read is
+  `stale_ref`. `ui.act` taps the centre (or swipes, for scroll) through the HID socket.
+  The SSE push stream serve-sim's preview uses lives in its preview middleware, not in
+  the `--no-preview` helper ace runs, so reads are on demand.
+- **Xcode gates.** Xcode 26 and older use the legacy SimulatorKit HID path. On Xcode 27
+  the Simulator window belongs to Device Hub: serve-sim's keyboard input needs Device
+  Hub frontmost with the target window visible and Accessibility permission for the
+  launching app, and Device Hub can disconnect legacy touch and keyboard services.
+  `serve-sim repair-input -d <udid>` restores them but restarts SpringBoard and closes
+  running apps, so ace never runs it automatically; it is a documented manual repair.
+  serve-sim is Apple Silicon only; Intel Macs use the screen helper.
 
 The adapter validates the announced UDID and loopback endpoints before opening
 any connection. Frame decoding is bounded, retains only the latest immutable
@@ -224,3 +287,60 @@ separate 50 MiB limit. Automatic stops and failed exports produce a visible noti
 consumed source files are deleted
 even after export failure. Logs filter iOS processes, batch updates and retain consumers
 independently. Congested sockets coalesce state pushes rather than closing the channel.
+
+## Shared media stream, 2026-10-19 (#1118)
+
+Device pictures leave the screen packet format and travel as stream kind 4 `deviceFrame` on
+the envelope the browser view already uses (`@ace/browser/stream`, ADR 0088). One header
+carries a JPEG or one H.264 access unit, with the sequence, capture time, size, `scale`
+(pixels per device point), `rotation`, a keyframe flag, the codec, the device id (the source
+id) and the capture's stream id. H.264 stays Annex B with parameter sets in front of every
+keyframe, as scrcpy and serve-sim hand it over, so the daemon still never decodes it.
+
+- **Why the browser's envelope and not a new package.** The envelope, assembler and the
+  video fanout are already portable and decoded natively by the iOS app. Moving them into a
+  `media-stream` package would rename every import of `@ace/browser/stream` for no change in
+  behaviour; the device kind is one more module beside the browser kinds, and
+  `VideoFanout` is exported as `@ace/browser/video-fanout` for the devices bridge.
+- **Pacing.** Each connection's view of a device is a `DeviceMediaViewer`: the browser
+  video's window (8 unacknowledged pictures, 2 MiB), its drop rule (a delta that doesn't fit
+  is dropped with every later delta until a keyframe, which is asked for at once) and
+  cumulative acks (`devices.ack`, fire and forget, naming the stream id). A JPEG is always a
+  keyframe, so a slow JPEG viewer gets the newest picture when its window opens. Forced
+  keyframes are at most 500 ms apart per viewer. The viewer takes every captured frame in
+  order (`subscribeEvery`), not the hub's newest-only delivery, so no delta is lost before
+  the window decides. A viewer also stops while its transport holds more than 128 KiB, the
+  limit screen packets had, so control replies on the same channel never queue behind pictures.
+- **Compatibility: none (#1129).** The one release of both formats ended with ADR 0011
+  "One media pipeline": `subscribe` always streams pictures (the `mediaStream` flag is
+  gone), the daemon sends no screen packets, and a screenshot is a still picture on the
+  stream followed by the result that names it (`DeviceScreenshot`). The paced viewer moved
+  to `@ace/browser/picture-channel`, shared with computer use.
+- **Renderer.** The web app decodes device H.264 with the browser view's `VideoStream`
+  (moved to `apps/web/src/lib/video/`), so both views share one WebCodecs path; since #1129
+  the renderer itself is `lib/video/picture-renderer.ts`, shared with computer use. A
+  `NotSupportedError` falls back to JPEG at once; other decode errors ask for a keyframe and
+  give up on video after three in a row. A hidden page holds its newest ack, so the daemon
+  stops sending, and acks it with a keyframe request when the page shows again.
+- **Rotation.** `rotation` is the turn that shows the picture upright. The canvas draws it
+  turned; input maps back through the inverse turn into the picture's own coordinates,
+  which is where serve-sim's touches land. scrcpy re-sizes its stream on rotation, so
+  Android sends 0.
+- **Touch.** Device state carries `touch`: `multi` (scrcpy, serve-sim), `pointer` (one
+  finger streamed live) or `gestures` (the adb fallback). The panel reads touches through the
+  browser's `TouchGestures` (moved to `apps/web/src/lib/touch-gestures.ts`) and sends each
+  finger as `pointer` input with its `pointerId`; Option-drag with a mouse adds a mirrored
+  second finger for pinch, as Simulator does.
+- **Relay.** Remote status (`/v1/status`, administrators) names the relay's address, the
+  host key a client pins and the daemon's identity while the relay runs. The web app's
+  devices channel tries the daemon's own address first and, when that closes before the
+  welcome, the remembered relay route with fresh keys and the paired token, then sizes
+  the stream with the relay profile.
+- **Bit rate.** scrcpy's size, frame rate and bit rate follow the most constrained viewer
+  (`commonDeviceStream`); one emulator has one encoder, so viewers don't get separate
+  encodes. serve-sim's H.264 passes through at serve-sim's own rate, whatever the profile
+  asks: on an iPhone 16 simulator through a local relay (`apps/daemon/bench/device-relay.ts`),
+  0.1–0.3 Mbit/s idle and 0.1–0.8 Mbit/s paging the home screen. None of its deltas were
+  disposable (`nal_ref_idc` 0 in none of 2,125), so frame-rate decimation without a
+  transcode isn't possible; a slow viewer relies on the window's drop rule, and a viewer
+  asking for JPEG gets the resized, budgeted JPEG path.

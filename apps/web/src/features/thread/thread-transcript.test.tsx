@@ -61,10 +61,18 @@ test("the changed-files summary opens the turn's files in the Changes tab", asyn
   act(() => app.daemon.apply("thread-replay-cursor", [facts.endTurn("root")]));
   const summary = await within(feed).findByRole("group", { name: /^Changed 2 files/ });
   expect(within(feed).queryByText("apps/server/src/replay.ts")).toBeNull();
-  // Any file's chip opens the turn's changes.
-  const [chip] = within(summary).getAllByRole("button");
+  // A file's chip opens the turn's changes with that file selected.
+  const chip = within(summary).getAllByRole("button")[1];
   if (!chip) throw new Error("No changed-file chip");
+  const path = chip.title;
   await userEvent.click(chip);
+  await waitFor(() =>
+    expect(
+      within(screen.getByRole("region", { name: "Thread panel" }))
+        .getByRole("treeitem", { name: path })
+        .getAttribute("aria-selected"),
+    ).toBe("true"),
+  );
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(
     within(panel)
@@ -119,14 +127,17 @@ test("subagents open inline as the agents started, and the agent tree is one cli
   expect(within(tree).getByRole("link", { name: "Open reconnect-audit, Running" })).toBeTruthy();
   expect(within(tree).getByRole("link", { name: "Open regression-test, Running" })).toBeTruthy();
 
-  await userEvent.click(screen.getByRole("button", { name: "Open the summary" }));
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: /Open agent tree/ }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(within(panel).getByRole("tab", { selected: true }).textContent).toBe("Summary");
 });
 
-test("the transcript live line counts the working subagents without a composer pill", async () => {
+test("the transcript live line waits for the working subagents without a composer pill", async () => {
   await openReplay("finding");
-  expect(screen.getByRole("status", { name: "Working" }).textContent).toContain("2 subagents");
+  // The main agent only waits on them: never "Working", and the count is said once.
+  const line = screen.getByRole("status", { name: "Waiting for 2 subagents" });
+  expect(line.textContent).not.toContain("subagents working");
   expect(screen.queryByText("3 agents working")).toBeNull();
 });
 

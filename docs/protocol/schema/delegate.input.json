@@ -1,0 +1,87 @@
+{
+  "$id": "https://ace.local/protocol/v1/delegate.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "tasks": {
+      "description": "One entry per child. Roles must be unique among your live children.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "access": {
+            "$ref": "https://ace.local/protocol/v1/AccessRequest.json",
+            "description": "The child's access mode. Default inherit (yours); never broader than yours."
+          },
+          "effort": {
+            "description": "Reasoning effort, such as low, medium, high or xhigh. Default inherit: yours on the same model, else the model's default.",
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "machine": {
+            "$ref": "https://ace.local/protocol/v1/MachineName.json",
+            "description": "Run on this paired machine (a name from `machines`). Requires project."
+          },
+          "model": {
+            "description": "A model id from `models`. Default: the provider's default model. ace picks the account and instance that serve it.",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "project": {
+            "description": "The project on that machine, as `machines` lists it.",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "https://ace.local/protocol/v1/ProviderKind.json",
+            "description": "Provider that runs the child. Default: yours, or the one whose catalog has `model`."
+          },
+          "requestId": {
+            "description": "Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice.",
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_.-]+$",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "https://ace.local/protocol/v1/DelegationRole.json"
+          },
+          "task": {
+            "description": "The whole assignment: goal, files, constraints, project notes that apply, and how to verify. The child sees none of your conversation.",
+            "maxLength": 262144,
+            "minLength": 1,
+            "type": "string"
+          },
+          "workspace": {
+            "$ref": "https://ace.local/protocol/v1/AgentWorkspace.json",
+            "description": "Where the child works. Default: this project's checkout. new_worktree starts a Git worktree from base; existing_worktree reuses one by path."
+          }
+        },
+        "required": [
+          "requestId",
+          "task",
+          "role"
+        ],
+        "type": "object"
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "type": "array"
+    },
+    "waitFor": {
+      "$ref": "https://ace.local/protocol/v1/WaitMode.json",
+      "default": "all",
+      "description": "With waitSeconds: return when all children settle (default) or when any does."
+    },
+    "waitSeconds": {
+      "$ref": "https://ace.local/protocol/v1/WaitTimeoutSeconds.json",
+      "description": "Wait up to this many seconds for the children before returning, as `wait` does. Omit to return at once."
+    }
+  },
+  "required": [
+    "tasks"
+  ],
+  "type": "object"
+}

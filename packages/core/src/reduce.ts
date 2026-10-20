@@ -173,6 +173,9 @@ function fold(
         ...(fact.commandId === undefined ? {} : { commandId: fact.commandId }),
       });
       break;
+    case "input.consumed":
+      // Run binding of transcript inputs belongs to the engine's input journal.
+      break;
     case "activity": {
       const record = ensureAgent(state, fact.agent, ctx, events);
       record.activity = fact.activity;
@@ -278,6 +281,8 @@ function fold(
       }
       break;
     }
+    // The engine lifts a root agent's goal onto the thread before facts reach the reducer.
+    case "goal.updated":
     case "signal":
     case "tick":
       break;

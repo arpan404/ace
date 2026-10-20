@@ -24,11 +24,25 @@ async function openBrowser(
   return { app, panel, browser: app.daemon.browser, script };
 }
 
+const thread = "thread-cold-start";
+/** The page the agent opened shows, as the screencast's live picture. */
+const agentPage = (panel: HTMLElement) =>
+  within(panel).findByRole("img", { name: "Live view of localhost:5173/settings/devices" });
+/** The panel's own tab strip: each of the thread's browser tabs is one of its tabs. */
+const strip = (panel: HTMLElement) =>
+  within(panel).getByRole("tablist", { name: "Thread panel tabs" });
+const shownTab = (panel: HTMLElement) => within(strip(panel)).getByRole("tab", { selected: true });
+const tools = new Set(["Summary", "Changes", "Files"]);
+/** The panel tabs that are browser tabs, in strip order. */
+const pageTabs = (panel: HTMLElement) =>
+  within(strip(panel))
+    .getAllByRole("tab")
+    .filter((tab) => !tools.has(tab.textContent?.trim() ?? ""));
+
 const address = (panel: HTMLElement) => within(panel).getByRole("combobox", { name: "Address" });
 
 const promptView = (dialogId: string): BrowserView => ({
   threadId: "dialog-thread",
-  controller: "human",
   url: "http://localhost:5173/",
   closed: false,
   pendingDialog: {
@@ -97,98 +111,240 @@ async function goTo(panel: HTMLElement, text: string) {
   await userEvent.type(field, `${text}{Enter}`);
 }
 
-test("the browser shows the page an agent is driving, names the agent, and follows its frames", async () => {
-  const { panel, browser, script } = await openBrowser(
-    coldStartReplay(),
-    "/t/thread-cold-start",
-    "turn-2",
-  );
-  expect((await within(panel).findAllByText(/resume-sweep/)).length).toBeGreaterThan(0);
-  expect(within(panel).getByText("is browsing", { exact: false })).toBeTruthy();
-  const frame = within(panel).getByRole("img", {
-    name: "Live view of localhost:5173/settings/devices",
-  });
+test("the browser shows the page an agent works in, marks its tab with the agent cursor, and follows its frames", async () => {
+  const { panel, browser } = await openBrowser(coldStartReplay(), "/t/thread-cold-start", "turn-2");
+  const frame = await agentPage(panel);
+  expect(within(strip(panel)).getByRole("img", { name: /is using this tab$/ })).toBeTruthy();
   const first = frame.getAttribute("src");
-  act(() => browser.type("thread-cold-start", "iPhone 16 Pro Max"));
+  act(() => browser.type(thread, "iPhone 16 Pro Max"));
   await waitFor(() => expect(frame.getAttribute("src")).not.toBe(first));
   expect(decodeURIComponent(frame.getAttribute("src") ?? "")).toContain("iPhone 16 Pro Max");
-  // Once resume-sweep's browser call ends, the thread's own agent holds the page.
-  await act(async () => script.runThrough("audit-done"));
-  expect((await within(panel).findAllByText(/Claude Code/)).length).toBeGreaterThan(0);
-  // The bar shows the page's address; there is no lock or pretend window around it.
+  // At rest the address pill reads just the site; the field holds the whole address.
   expect((address(panel) as HTMLInputElement).value).toBe("localhost:5173/settings/devices");
+  // Nobody takes over or hands back: there is no such control.
+  expect(within(panel).queryByRole("button", { name: /Take over|Hand back/ })).toBeNull();
 });
 
-test("taking control forwards clicks, wheel and keys, sizes the page to the panel, and hands back", async () => {
+test("the person can use a tab an agent is working in, with no control to take", async () => {
   const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is browsing", { exact: false });
-  // Before you take control, the page is a picture: nothing is forwarded.
-  expect(within(panel).queryByRole("application")).toBeNull();
-
-  await userEvent.click(within(panel).getByRole("button", { name: "Take over" }));
-  await within(panel).findByText("You're browsing", { exact: false });
-  expect(browser.view("thread-cold-start")?.controller).toBe("human");
-  // jsdom lays every element out 800px wide; the page starts at 760 and follows the panel.
-  await waitFor(() => expect(browser.frame("thread-cold-start")?.width).toBe(800));
-
+  await agentPage(panel);
+  act(() => browser.agentWorks(thread, { agentId: "worker", pointer: { x: 40, y: 60 } }));
   const page = within(panel).getByRole("application", {
     name: "Control localhost:5173/settings/devices",
   });
+  // jsdom lays every element out 800px wide; the page starts at 760 and follows the panel.
+  await waitFor(() => expect(browser.frame(thread)?.width).toBe(800));
   fireEvent.mouseDown(page, { clientX: 10, clientY: 20 });
   fireEvent.mouseUp(page, { clientX: 10, clientY: 20 });
   fireEvent.wheel(page, { clientX: 10, clientY: 20, deltaY: 120 });
   page.focus();
   await userEvent.keyboard("a");
+  const tabId = browser.view(thread)?.activeTabId;
   await waitFor(() =>
     expect(
       browser.wireInputs.map(({ input }) => `${input.kind}:${"event" in input ? input.event : ""}`),
     ).toEqual(["mouse:mousePressed", "mouse:mouseReleased", "scroll:", "key:keyDown", "key:keyUp"]),
   );
+  // Every input names the tab it was typed into.
+  expect(new Set(browser.wireInputs.map((entry) => entry.tabId))).toEqual(new Set([tabId]));
   expect(
     browser.wireInputs.filter(({ input }) => input.kind === "key").map(({ input }) => input),
   ).toEqual([
     { kind: "key", event: "keyDown", key: "a", code: "KeyA", modifiers: 0, text: "a" },
     { kind: "key", event: "keyUp", key: "a", code: "KeyA", modifiers: 0 },
   ]);
-  // The agent's typing is ignored while you hold control.
-  const held = within(panel)
-    .getByRole("img", { name: /^Live view/ })
-    .getAttribute("src");
-  act(() => browser.type("thread-cold-start", "something else"));
-  expect(
-    within(panel)
-      .getByRole("img", { name: /^Live view/ })
-      .getAttribute("src"),
-  ).toBe(held);
+  // The agent keeps working there too, its cursor over the page where it pointed.
+  expect(within(panel).getByRole("img", { name: /is pointing here$/ })).toBeTruthy();
+  expect(browser.tab(thread)?.inUse).toMatchObject({ kind: "agent", agentId: "worker" });
+});
 
-  await userEvent.click(
-    within(panel).getAllByRole("button", { name: "Hand back" })[0] as HTMLElement,
+test("a new browser tab's address opens a daemon tab, which becomes that panel tab", async () => {
+  const { panel, browser } = await openBrowser();
+  await agentPage(panel);
+  const agentTab = browser.view(thread)?.activeTabId;
+  await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
+  await userEvent.click(await within(panel).findByRole("button", { name: /^Browser/ }));
+  await waitFor(() => expect(shownTab(panel).textContent).toContain("New tab"));
+  // The new tab's address takes the typing at once.
+  await waitFor(() => expect(document.activeElement).toBe(address(panel)));
+  await userEvent.keyboard("arpan.sh{Enter}");
+  await waitFor(() => expect(browser.view(thread)?.url).toBe("https://arpan.sh/"));
+  const tabs = browser.tabsList(thread);
+  expect(tabs).toHaveLength(2);
+  expect(browser.view(thread)?.activeTabId).not.toBe(agentTab);
+  // The agent's page is untouched in its own tab, and the strip holds one tab per daemon tab.
+  expect(tabs.find((tab) => tab.tabId === agentTab)?.url).toBe("localhost:5173/settings/devices");
+  await waitFor(() => expect(pageTabs(panel)).toHaveLength(2));
+  expect(shownTab(panel).textContent).toContain("Fixture page");
+  await waitFor(() => expect((address(panel) as HTMLInputElement).value).toBe("arpan.sh"));
+});
+
+test("an address from the new-tab launcher opens in a new browser tab, never over the shown page", async () => {
+  const { panel, browser } = await openBrowser();
+  await agentPage(panel);
+  const agentTab = browser.view(thread)?.activeTabId;
+  await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
+  const field = await within(panel).findByRole("combobox", { name: "Address" });
+  await userEvent.type(field, "arpan.sh{Enter}");
+  await waitFor(() => expect(browser.view(thread)?.url).toBe("https://arpan.sh/"));
+  expect(browser.tabsList(thread)).toHaveLength(2);
+  expect(browser.view(thread)?.activeTabId).not.toBe(agentTab);
+  await waitFor(() => expect(shownTab(panel).textContent).toContain("Fixture page"));
+  expect(pageTabs(panel)).toHaveLength(2);
+  await waitFor(() => expect((address(panel) as HTMLInputElement).value).toBe("arpan.sh"));
+});
+
+test("closing a top tab closes its browser tab, and a new one never resurrects the closed page", async () => {
+  const { panel, browser } = await openBrowser();
+  await agentPage(panel);
+  await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
+  await userEvent.type(
+    await within(panel).findByRole("combobox", { name: "Address" }),
+    "docs.example.com/guide{Enter}",
   );
-  await within(panel).findByText("is browsing", { exact: false });
-  expect(browser.view("thread-cold-start")?.controller).toBe("agent");
-});
-
-test("⌃⇧C takes and hands back control from the keyboard", async () => {
-  const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is browsing", { exact: false });
-  await userEvent.keyboard("{Control>}{Shift>}c{/Shift}{/Control}");
-  await waitFor(() => expect(browser.view("thread-cold-start")?.controller).toBe("human"));
-  await userEvent.keyboard("{Control>}{Shift>}c{/Shift}{/Control}");
-  await waitFor(() => expect(browser.view("thread-cold-start")?.controller).toBe("agent"));
-});
-
-test("an address takes the page from the agent and opens; Back returns; a dead port says why", async () => {
-  const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is browsing", { exact: false });
-
-  await goTo(panel, "docs.example.com/guide");
+  await waitFor(() => expect(browser.view(thread)?.url).toBe("https://docs.example.com/guide"));
+  await waitFor(() => expect(pageTabs(panel)).toHaveLength(2));
+  act(() => browser.pageIdentity(thread, { title: "Guide" }));
+  await userEvent.click(await within(panel).findByRole("button", { name: "Close Guide" }));
+  // Only that daemon tab closes; the agent's stays, and so does its panel tab.
   await waitFor(() =>
-    expect(browser.view("thread-cold-start")?.url).toBe("https://docs.example.com/guide"),
+    expect(browser.tabsList(thread).map((tab) => tab.url)).toEqual([
+      "localhost:5173/settings/devices",
+    ]),
   );
-  expect(browser.view("thread-cold-start")?.controller).toBe("human");
-  expect(await within(panel).findByRole("tab", { name: "docs.example.com" })).toBeTruthy();
+  await waitFor(() => expect(pageTabs(panel)).toHaveLength(1));
+  await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
+  await userEvent.type(
+    await within(panel).findByRole("combobox", { name: "Address" }),
+    "example.org{Enter}",
+  );
+  await waitFor(() => expect(browser.view(thread)?.url).toBe("https://example.org/"));
+  expect(browser.tabsList(thread).some((tab) => tab.url.includes("docs.example.com"))).toBe(false);
+  await waitFor(() => expect(pageTabs(panel)).toHaveLength(2));
+});
 
-  const retainedFrame = browser.frame("thread-cold-start")?.sequence;
+test("an agent tab appears as a top tab with the agent cursor and doesn't steal focus", async () => {
+  const { panel, browser } = await openBrowser();
+  await agentPage(panel);
+  const mine = browser.view(thread)?.activeTabId ?? "";
+  // The person picked the tab they view (on this device or another).
+  act(() => browser.tabSelect(thread, mine));
+  act(() => {
+    browser.agentIdle(thread, mine);
+    browser.tabOpen(thread, "https://shop.example/cart", { agentId: "worker", label: "checkout" });
+  });
+  await waitFor(() => expect(pageTabs(panel)).toHaveLength(2));
+  const [first, second] = pageTabs(panel);
+  expect(
+    within(second as HTMLElement).getByRole("img", { name: /is using this tab$/ }),
+  ).toBeTruthy();
+  expect(
+    within(first as HTMLElement).queryByRole("img", { name: /is using this tab$/ }),
+  ).toBeNull();
+  // The person's page stays shown, here and on the daemon.
+  expect(browser.view(thread)?.activeTabId).toBe(mine);
+  expect(first?.getAttribute("aria-selected")).toBe("true");
+  // Picking the agent's tab shows it, on every device.
+  await userEvent.click(second as HTMLElement);
+  await waitFor(() => expect(browser.view(thread)?.url).toBe("https://shop.example/cart"));
+});
+
+test("each daemon tab is one top-level panel tab, beside the panel's tools", async () => {
+  const { panel, browser } = await openBrowser();
+  await agentPage(panel);
+  act(() => {
+    browser.tabOpen(thread, "https://one.example/", { agentId: "a" });
+    browser.tabOpen(thread, "https://two.example/", { agentId: "b" });
+  });
+  await waitFor(() => expect(pageTabs(panel)).toHaveLength(3));
+  // No second strip of tabs inside the page.
+  expect(within(panel).getAllByRole("tablist")).toHaveLength(1);
+  // A tab the daemon shows elsewhere (an agent's, while the person looked away) is shown here.
+  const two = browser.tabsList(thread)[2]?.tabId ?? "";
+  act(() => browser.tabSelect(thread, two));
+  await waitFor(() => expect(shownTab(panel)).toBe(pageTabs(panel)[2]));
+  // A daemon tab that closes leaves the strip.
+  act(() => void browser.tabClose(thread, browser.tabsList(thread)[1]?.tabId ?? ""));
+  await waitFor(() => expect(pageTabs(panel)).toHaveLength(2));
+});
+
+test("the tab title and favicon follow the page", async () => {
+  const { panel, browser } = await openBrowser();
+  await agentPage(panel);
+  act(() => browser.agentIdle(thread));
+  const favicon = "data:image/png;base64,iVBORw0KGgo=";
+  act(() => browser.pageIdentity(thread, { title: "Inbox (3)", favicon }));
+  await waitFor(() => expect(shownTab(panel).textContent).toContain("Inbox (3)"));
+  expect(shownTab(panel).querySelector("img[data-favicon]")?.getAttribute("src")).toBe(favicon);
+  act(() => browser.pageIdentity(thread, { title: "Inbox (4)", favicon }));
+  await waitFor(() => expect(shownTab(panel).textContent).toContain("Inbox (4)"));
+  // A page with no icon shows the globe, never the last page's icon.
+  await goTo(panel, "docs.example.com");
+  await waitFor(() => expect(shownTab(panel).textContent).toContain("Fixture page"));
+  expect(shownTab(panel).querySelector("img[data-favicon]")).toBeNull();
+});
+
+test("keeping agents out of a tab blocks agent commands there, and letting them back in allows them", async () => {
+  const { panel, browser } = await openBrowser();
+  await agentPage(panel);
+  await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
+  await userEvent.click(
+    await screen.findByRole("menuitemcheckbox", { name: "Keep agents out of this tab" }),
+  );
+  await waitFor(() => expect(browser.tab(thread)?.private).toBe(true));
+  expect(await within(shownTab(panel)).findByRole("img", { name: "Agents kept out" })).toBeTruthy();
+  await expect(browser.navigateAgent(thread, "https://elsewhere.example/")).rejects.toThrow(
+    "human_private",
+  );
+  // The person still uses the tab as before.
+  await goTo(panel, "docs.example.com");
+  await waitFor(() => expect(browser.view(thread)?.url).toBe("https://docs.example.com/"));
+  await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
+  await userEvent.click(
+    await screen.findByRole("menuitemcheckbox", { name: "Keep agents out of this tab" }),
+  );
+  await waitFor(() => expect(browser.tab(thread)?.private).toBeUndefined());
+  await browser.navigateAgent(thread, "https://elsewhere.example/");
+  expect(browser.view(thread)?.url).toBe("https://elsewhere.example/");
+});
+
+test("closing a tab from the strip closes it on the daemon, and middle-click closes too", async () => {
+  const { panel, browser } = await openBrowser();
+  await agentPage(panel);
+  act(() => {
+    browser.tabOpen(thread, "https://one.example/", { agentId: "a" });
+    browser.tabOpen(thread, "https://two.example/", { agentId: "b" });
+  });
+  await waitFor(() => expect(pageTabs(panel)).toHaveLength(3));
+  const [, second, third] = browser.tabsList(thread);
+  act(() => {
+    browser.agentIdle(thread, second?.tabId);
+    browser.agentIdle(thread, third?.tabId);
+  });
+  fireEvent(
+    pageTabs(panel)[1] as HTMLElement,
+    new MouseEvent("auxclick", { bubbles: true, button: 1 }),
+  );
+  await waitFor(() =>
+    expect(browser.tabsList(thread).map((tab) => tab.tabId)).not.toContain(second?.tabId),
+  );
+  await waitFor(() => expect(pageTabs(panel)).toHaveLength(2));
+  fireEvent(
+    pageTabs(panel)[1] as HTMLElement,
+    new MouseEvent("auxclick", { bubbles: true, button: 1 }),
+  );
+  await waitFor(() =>
+    expect(browser.tabsList(thread).map((tab) => tab.tabId)).not.toContain(third?.tabId),
+  );
+});
+
+test("an address opens; Back returns; a dead port says why", async () => {
+  const { panel, browser } = await openBrowser();
+  await agentPage(panel);
+  await goTo(panel, "docs.example.com/guide");
+  await waitFor(() => expect(browser.view(thread)?.url).toBe("https://docs.example.com/guide"));
+
+  const retainedFrame = browser.frame(thread)?.sequence;
   await goTo(panel, "localhost:4321");
   const failure = await within(panel).findByRole("alert");
   expect(within(failure).getByText("This site can't be reached")).toBeTruthy();
@@ -203,61 +359,33 @@ test("an address takes the page from the agent and opens; Back returns; a dead p
     expect((address(panel) as HTMLInputElement).value).toBe("docs.example.com/guide"),
   );
   expect(within(panel).queryByRole("alert")).toBeNull();
-  expect(browser.view("thread-cold-start")?.url).toBe("https://docs.example.com/guide");
-  expect(browser.frame("thread-cold-start")?.sequence).toBe(retainedFrame);
-});
-
-test("Back dismisses a failed first address even when the document has no earlier entry", async () => {
-  const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is browsing", { exact: false });
-  await userEvent.click(within(panel).getByRole("button", { name: "Take over" }));
-  await waitFor(() => expect(browser.frame("thread-cold-start")?.width).toBe(800));
-  const retainedFrame = browser.frame("thread-cold-start")?.sequence;
-  await goTo(panel, "localhost:4321");
-  await within(panel).findByRole("alert");
-  const back = within(panel).getByRole("button", { name: "Back" });
-  expect(back.getAttribute("aria-disabled")).not.toBe("true");
-  await userEvent.click(back);
-  await waitFor(() =>
-    expect(address(panel).getAttribute("value")).toBe("localhost:5173/settings/devices"),
-  );
-  expect(within(panel).queryByRole("alert")).toBeNull();
-  expect(browser.frame("thread-cold-start")?.sequence).toBe(retainedFrame);
+  expect(browser.view(thread)?.url).toBe("https://docs.example.com/guide");
+  expect(browser.frame(thread)?.sequence).toBe(retainedFrame);
 });
 
 test("document Back and Forward follow successful navigation and Reload refreshes the current page", async () => {
   const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is browsing", { exact: false });
+  await agentPage(panel);
   await goTo(panel, "docs.example.com/guide");
-  await waitFor(() =>
-    expect(browser.view("thread-cold-start")?.url).toBe("https://docs.example.com/guide"),
-  );
+  await waitFor(() => expect(browser.view(thread)?.url).toBe("https://docs.example.com/guide"));
   await goTo(panel, "example.org/next");
-  await waitFor(() =>
-    expect(browser.view("thread-cold-start")?.url).toBe("https://example.org/next"),
-  );
+  await waitFor(() => expect(browser.view(thread)?.url).toBe("https://example.org/next"));
   await userEvent.click(within(panel).getByRole("button", { name: "Back" }));
-  await waitFor(() =>
-    expect(browser.view("thread-cold-start")?.url).toBe("https://docs.example.com/guide"),
-  );
+  await waitFor(() => expect(browser.view(thread)?.url).toBe("https://docs.example.com/guide"));
   await waitFor(() => expect(address(panel).getAttribute("value")).toBe("docs.example.com/guide"));
   const forward = within(panel).getByRole("button", { name: "Forward" });
   await waitFor(() => expect(forward.getAttribute("aria-disabled")).not.toBe("true"));
   await userEvent.click(forward);
-  await waitFor(() =>
-    expect(browser.view("thread-cold-start")?.url).toBe("https://example.org/next"),
-  );
-  const sequence = browser.frame("thread-cold-start")?.sequence ?? 0;
+  await waitFor(() => expect(browser.view(thread)?.url).toBe("https://example.org/next"));
+  const sequence = browser.frame(thread)?.sequence ?? 0;
   await userEvent.click(within(panel).getByRole("button", { name: "Reload" }));
-  await waitFor(() =>
-    expect(browser.frame("thread-cold-start")?.sequence).toBeGreaterThan(sequence),
-  );
-  expect(browser.view("thread-cold-start")?.url).toBe("https://example.org/next");
+  await waitFor(() => expect(browser.frame(thread)?.sequence).toBeGreaterThan(sequence));
+  expect(browser.view(thread)?.url).toBe("https://example.org/next");
 });
 
 test("Back traverses a failed navigation that replaced the document and clears the error", async () => {
   const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is browsing", { exact: false });
+  await agentPage(panel);
   await goTo(panel, "docs.example.com/guide");
   await waitFor(() => expect(address(panel).getAttribute("value")).toBe("docs.example.com/guide"));
   // Chromium can commit an error document before returning a navigation failure.
@@ -268,29 +396,45 @@ test("Back traverses a failed navigation that replaced the document and clears t
   });
   await goTo(panel, "example.org/timeout");
   await within(panel).findByRole("alert");
-  expect(browser.view("thread-cold-start")?.url).toBe("https://example.org/timeout");
+  expect(browser.view(thread)?.url).toBe("https://example.org/timeout");
   await userEvent.click(within(panel).getByRole("button", { name: "Back" }));
-  await waitFor(() =>
-    expect(browser.view("thread-cold-start")?.url).toBe("https://docs.example.com/guide"),
-  );
+  await waitFor(() => expect(browser.view(thread)?.url).toBe("https://docs.example.com/guide"));
   await waitFor(() => expect(within(panel).queryByRole("alert")).toBeNull());
   expect(address(panel).getAttribute("value")).toBe("docs.example.com/guide");
 });
 
+test("a failure reported after the page committed doesn't hide the page", async () => {
+  const { panel, browser } = await openBrowser();
+  await agentPage(panel);
+  await goTo(panel, "docs.example.com/guide");
+  await waitFor(() => expect(address(panel).getAttribute("value")).toBe("docs.example.com/guide"));
+  // The page committed the address, but the daemon's wait for it ran out.
+  const navigate = browser.navigate.bind(browser);
+  vi.spyOn(browser, "navigate").mockImplementationOnce((...args) => {
+    navigate(...args);
+    throw new Error("Tool operation timed out");
+  });
+  await goTo(panel, "example.org/slow");
+  await waitFor(() => expect(within(panel).queryByRole("button", { name: "Stop" })).toBeNull());
+  expect(
+    await within(panel).findByRole("img", { name: "Live view of https://example.org/slow" }),
+  ).toBeTruthy();
+  expect(within(panel).queryByRole("alert")).toBeNull();
+  expect(address(panel).getAttribute("value")).toBe("example.org/slow");
+});
+
 test("text that isn't an address is refused instead of searched", async () => {
   const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is browsing", { exact: false });
+  await agentPage(panel);
   await goTo(panel, "how to center a div");
   expect(await within(panel).findByText(/That isn't an address/)).toBeTruthy();
-  expect(browser.view("thread-cold-start")?.url).toBe("localhost:5173/settings/devices");
-  expect(browser.view("thread-cold-start")?.controller).toBe("agent");
+  expect(browser.view(thread)?.url).toBe("localhost:5173/settings/devices");
 });
 
 test("a thread's first page downloads the browser with progress, then opens the address", async () => {
   const { panel, browser } = await openBrowser(failingSubagent(), "/t/thread-settings");
   expect(await within(panel).findByRole("combobox", { name: "Address" })).toBeTruthy();
   expect(within(panel).queryByRole("heading", { name: "Open a page" })).toBeNull();
-  expect(within(panel).queryByText(/Type an address above|watch them or take over/)).toBeNull();
   browser.requireDownload(150_000_000);
   await goTo(panel, "localhost:5173");
 
@@ -303,57 +447,34 @@ test("a thread's first page downloads the browser with progress, then opens the 
   // Nothing listens on 5173 for this thread, so Chromium says so.
   expect(await within(panel).findByText("This site can't be reached")).toBeTruthy();
   expect(browser.view("thread-settings")?.closed).toBe(false);
+  // The address went into the new browser's own first tab, not a second one beside it.
+  expect(browser.tabsList("thread-settings")).toHaveLength(1);
 });
 
-test("navigation and browser chords keep one page in one panel tab", async () => {
-  const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is browsing", { exact: false });
-  const first = browser.view("thread-cold-start")?.activeTabId;
-  await goTo(panel, "docs.example.com");
-  await within(panel).findByRole("tab", { name: "docs.example.com", selected: true });
-  await userEvent.click(address(panel));
-  await userEvent.keyboard("{Meta>}t{/Meta}");
-  await goTo(panel, "example.org");
-  await within(panel).findByRole("tab", { name: "example.org", selected: true });
-  expect(browser.tabsList("thread-cold-start")).toHaveLength(1);
-  expect(browser.view("thread-cold-start")?.activeTabId).toBe(first);
-  expect(within(panel).queryByRole("tab", { name: "docs.example.com" })).toBeNull();
-});
-
-test("a normal popup replaces the current page and its panel tab", async () => {
-  const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is browsing", { exact: false });
-  await userEvent.click(within(panel).getByRole("button", { name: "Take over" }));
-  await waitFor(() => expect(browser.view("thread-cold-start")?.controller).toBe("human"));
-  act(() => browser.tabOpen("thread-cold-start", "https://help.example.com/start"));
-  await within(panel).findByRole("tab", { name: "help.example.com", selected: true });
-  await waitFor(() =>
-    expect((address(panel) as HTMLInputElement).value).toBe("help.example.com/start"),
-  );
-  expect(browser.tabsList("thread-cold-start")).toHaveLength(1);
-  expect(within(panel).queryByRole("tab", { name: /^localhost:5173/ })).toBeNull();
-});
-
-test("switching tools preserves human control, and closing the panel hands it back", async () => {
-  const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is browsing", { exact: false });
-  await userEvent.click(within(panel).getByRole("button", { name: "Take over" }));
-  await waitFor(() => expect(browser.view("thread-cold-start")?.controller).toBe("human"));
-  await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
-  expect(browser.view("thread-cold-start")?.controller).toBe("human");
-  await userEvent.click(within(panel).getByRole("button", { name: "Right panel" }));
-  await waitFor(() => expect(browser.view("thread-cold-start")?.controller).toBe("agent"));
+test("opening the Browser on a fresh thread shows a focused address field", async () => {
+  const { panel, browser } = await openBrowser(failingSubagent(), "/t/thread-settings");
+  expect(browser.view("thread-settings")).toBeUndefined();
+  // A usable new tab at once: its address takes the typing without a click.
+  const field = await within(panel).findByRole("combobox", { name: "Address" });
+  await waitFor(() => expect(document.activeElement).toBe(field));
+  expect(shownTab(panel).textContent).toContain("New tab");
+  await userEvent.keyboard("example.org{Enter}");
+  // Enter opens a daemon tab, which becomes the shown top tab.
+  await waitFor(() => expect(browser.tabsList("thread-settings")).toHaveLength(1));
+  await waitFor(() => expect(shownTab(panel).textContent).not.toContain("New tab"));
+  expect(pageTabs(panel)).toHaveLength(1);
+  await waitFor(() => expect(browser.view("thread-settings")?.url).toBe("https://example.org/"));
 });
 
 test("when the window loses focus to the page, the chrome lets go of its focused button but keeps an address being typed", async () => {
   const { panel } = await openBrowser();
-  await within(panel).findByText("is browsing", { exact: false });
-  const takeOver = within(panel).getByRole("button", { name: "Take over" });
-  takeOver.focus();
-  expect(document.activeElement).toBe(takeOver);
+  await agentPage(panel);
+  const options = within(panel).getByRole("button", { name: "Browser options" });
+  options.focus();
+  expect(document.activeElement).toBe(options);
   // The desktop's native page taking focus blurs the app's window.
   act(() => window.dispatchEvent(new FocusEvent("blur")));
-  expect(document.activeElement).not.toBe(takeOver);
+  expect(document.activeElement).not.toBe(options);
 
   const field = address(panel) as HTMLInputElement;
   await userEvent.click(field);
@@ -371,17 +492,17 @@ function visibility(state: DocumentVisibilityState) {
 
 test("while the window is hidden the browser stops pulling frames, and shows the latest once shown", async () => {
   const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is browsing", { exact: false });
+  await agentPage(panel);
   const page = () =>
     within(panel).getByRole("img", { name: "Live view of localhost:5173/settings/devices" });
   try {
     act(() => visibility("hidden"));
-    act(() => browser.type("thread-cold-start", "Pixel 9"));
+    act(() => browser.type(thread, "Pixel 9"));
     await waitFor(() =>
       expect(decodeURIComponent(page().getAttribute("src") ?? "")).toContain("Pixel 9"),
     );
     // That frame is not acknowledged while hidden, so the browser sends no more.
-    act(() => browser.type("thread-cold-start", "Galaxy S25"));
+    act(() => browser.type(thread, "Galaxy S25"));
     await act(async () => {});
     expect(decodeURIComponent(page().getAttribute("src") ?? "")).not.toContain("Galaxy S25");
     act(() => visibility("visible"));
@@ -393,36 +514,9 @@ test("while the window is hidden the browser stops pulling frames, and shows the
   }
 });
 
-test("a tab whose page has closed (as after a restart) names that page and opens it again", async () => {
+test("screencast paste inserts clipboard text and pointer gestures retain their buttons and click counts (⇧ right click goes to the page)", async () => {
   const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is browsing", { exact: false });
-  await goTo(panel, "docs.example.com/guide");
-  await within(panel).findByRole("tab", { name: "docs.example.com", selected: true });
-
-  // The thread's page goes away while the tab keeps its address, as a restart leaves it.
-  await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Close the thread's page" }));
-  await waitFor(() => expect(browser.view("thread-cold-start")?.closed).toBe(true));
-
-  // Title, address and page all name the same page: no "Open a page" under its title.
-  expect(within(panel).getByRole("tab", { name: "docs.example.com" })).toBeTruthy();
-  expect(await within(panel).findByRole("heading", { name: "docs.example.com" })).toBeTruthy();
-  expect(within(panel).queryByRole("heading", { name: "Open a page" })).toBeNull();
-  expect((address(panel) as HTMLInputElement).value).toBe("docs.example.com/guide");
-
-  await userEvent.click(within(panel).getByRole("button", { name: "Open again" }));
-  await waitFor(() =>
-    expect(browser.view("thread-cold-start")).toMatchObject({
-      closed: false,
-      url: "https://docs.example.com/guide",
-    }),
-  );
-});
-
-test("screencast paste inserts clipboard text and pointer gestures retain their buttons and click counts", async () => {
-  const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is browsing", { exact: false });
-  await userEvent.click(within(panel).getByRole("button", { name: "Take over" }));
+  await agentPage(panel);
   const page = await within(panel).findByRole("application");
   page.focus();
   expect(fireEvent.keyDown(page, { key: "v", code: "KeyV", ctrlKey: true })).toBe(true);
@@ -432,8 +526,10 @@ test("screencast paste inserts clipboard text and pointer gestures retain their 
     [1, 1],
     [2, 1],
   ]) {
-    fireEvent.mouseDown(page, { clientX: 10, clientY: 20, button, detail });
-    fireEvent.mouseUp(page, { clientX: 10, clientY: 20, button, detail });
+    // A plain right click opens ace's page menu; with ⇧ it is the page's own.
+    const shiftKey = button === 2;
+    fireEvent.mouseDown(page, { clientX: 10, clientY: 20, button, detail, shiftKey });
+    fireEvent.mouseUp(page, { clientX: 10, clientY: 20, button, detail, shiftKey });
   }
   await waitFor(() =>
     expect(browser.wireInputs.filter(({ input }) => input.kind === "mouse")).toHaveLength(6),
@@ -449,10 +545,10 @@ test("screencast paste inserts clipboard text and pointer gestures retain their 
 });
 
 test("Cut with a collapsed caret preserves clipboard text and page contents", async () => {
-  const user = userEvent.setup();
+  // Installs a clipboard for the page to read and write.
+  userEvent.setup();
   const { panel, browser } = await openBrowser();
-  await within(panel).findByText("is browsing", { exact: false });
-  await user.click(within(panel).getByRole("button", { name: "Take over" }));
+  await agentPage(panel);
   const page = await within(panel).findByRole("application");
   await navigator.clipboard.writeText("Keep the clipboard");
   await act(async () => {

@@ -171,11 +171,13 @@ test("create receipts return the admitted thread and next-turn selection reaches
   }
 });
 
-test("next-turn selection waits for the active run even when follow-ups default to steer", async () => {
+test("a steer naming a new model goes into the active run; the model applies from the next turn", async () => {
   const frames = scriptFrames();
   const h = await harness(
     [
       { on: "send", frames: [frames.frame(start)] },
+      // A steer joins the running turn; it starts none of its own.
+      { on: "send", frames: [] },
       { on: "send", frames: [frames.frame(start, end)] },
     ],
     frames,
@@ -219,14 +221,17 @@ test("next-turn selection waits for the active run even when follow-ups default 
       }).ok,
     ).toBe(true);
     await h.engine.flush();
-    expect(delivered).toEqual([{ model: "model", mode: "queue", text: "first" }]);
-    h.contexts[0]?.onFrame(frames.frame(end));
-    await h.engine.flush();
     expect(delivered).toEqual([
       { model: "model", mode: "queue", text: "first" },
-      { model: "next", mode: "queue", text: "second" },
+      { model: "model", mode: "steer", text: "second" },
     ]);
+    expect(h.store.getThread(id)?.live?.model).toBe("model");
+    h.contexts[0]?.onFrame(frames.frame(end));
+    await h.engine.flush();
     expect(h.store.getThread(id)?.live?.model).toBe("next");
+    h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text: "third" }] });
+    await h.engine.flush();
+    expect(delivered.at(-1)).toEqual({ model: "next", mode: "steer", text: "third" });
   } finally {
     await h.close();
   }

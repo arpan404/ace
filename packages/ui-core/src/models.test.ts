@@ -17,6 +17,7 @@ import {
   effortLabel,
   recordedChoice,
 } from "./models.ts";
+import { threadSwitchRoute } from "./model-switch-route.ts";
 
 const account = (
   id: string,
@@ -220,6 +221,39 @@ test("an OpenCode model switches by its qualified catalog id, not its bare nativ
   });
 });
 
+const agentModel = (installationId: string, instanceId: string) =>
+  CatalogModel.parse({
+    ...model("acp", `acp-${installationId}`, "agent-model", true),
+    acpAgentId: "official:gemini",
+    installationId,
+    instanceId,
+  });
+test("an ACP agent's model switches by naming the agent, and its thread finds it by that agent", () => {
+  const choices = modelChoices(
+    [agentModel("install-a", "install-a:default"), agentModel("install-b", "install-b:default")],
+    [],
+    0,
+  );
+  const second = currentModelChoice(choices, {
+    provider: "acp",
+    model: "agent-model",
+    instanceId: "install-b:default",
+  });
+  expect(second && choiceSelection(second)).toEqual({
+    provider: "acp",
+    model: "agent-model",
+    acpAgentId: "official:gemini",
+    installationId: "install-b",
+    instanceId: "install-b:default",
+  });
+  // Named, an ACP agent is a switch in place, from another provider or another agent.
+  const codexThread = {
+    provider: "codex" as const,
+    execution: { provider: "codex" as const, options: {} },
+  };
+  expect(second && threadSwitchRoute(codexThread, second)).toBe("in_place");
+});
+
 test("a model choice preserves the account name between its provider and model", () => {
   const [choice] = modelChoices(
     [model("claude", "claude-work", "Sonnet 4.5", true)],
@@ -340,7 +374,7 @@ test("effort levels read as words people use, whatever the provider calls them",
     "Low",
     "Medium",
     "High",
-    "Extra high",
+    "XHigh",
     "Minimal",
   ]);
   expect(effortLabel("very_deep")).toBe("Very deep");

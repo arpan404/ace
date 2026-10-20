@@ -6,8 +6,11 @@ import { migrateEmptyCursorThreads } from "./cursor-empty-migration.ts";
 import { SessionMetadata } from "./session-metadata.ts";
 import {
   syntheticInput,
+  acceptInput,
   admitInput,
+  reviseInput,
   removeInput,
+  removeInputItem,
   notifyNamingPrompt,
 } from "./transcript-inputs.ts";
 import { cancelPending } from "./stop-intents.ts";
@@ -28,11 +31,12 @@ import { quiescent } from "./transition-history.ts";
 import { TransitionState } from "./transition-state.ts";
 import { type Fact, type ThreadState, type IdSource } from "@ace/core";
 import type { StatementSync } from "node:sqlite";
-import { randomUUID } from "node:crypto";
+import { timeOrderedIds } from "../time-ordered-id.ts";
 import { ExecutionOptions, Command, CommandId, ThreadId, type EventPayload } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import { decodeSnapshot } from "./snapshot.ts";
 import { readRawBlob } from "./raw.ts";
+import { skippableAtStartup } from "./startup-skip.ts";
 import { QueueStore } from "./queue-store.ts";
 import { Snapshot } from "./persistence.ts";
 import { migrateEngine } from "./migrations.ts";
@@ -81,9 +85,9 @@ export class EngineRepository {
   };
   constructor(
     store: Store,
-    ids: IdSource = { next: () => randomUUID() },
+    ids: IdSource = timeOrderedIdSource(),
     capacity = 64,
-    commandId: () => string = randomUUID,
+    commandId: () => string = timeOrderedIds(),
     aceAction?: typeof import("@ace/mcp-server").aceToolAction,
     now: () => number = Date.now,
   ) {
@@ -204,7 +208,8 @@ export class EngineRepository {
     if (!state) throw new Error("Missing engine state");
     return state;
   }
-  *recoveryStates(): Iterable<ThreadState> {
+  /** `unreadable` skips a thread whose stored state fails to decode; without it, that throws. */
+  *recoveryStates(unreadable?: (id: ThreadId, error: unknown) => void): Iterable<ThreadState> {
     let after = "";
     for (;;) {
       const ids = this.store.atomic(() =>
@@ -222,7 +227,15 @@ export class EngineRepository {
       for (const row of ids) {
         const id = ThreadId.parse(row.thread_id);
         after = id;
-        yield this.requireState(id);
+        let state: ThreadState;
+        try {
+          state = this.requireState(id);
+        } catch (error) {
+          if (!unreadable || !skippableAtStartup(error)) throw error;
+          unreadable(id, error);
+          continue;
+        }
+        yield state;
       }
     }
   }
@@ -381,15 +394,29 @@ export class EngineRepository {
   ): void {
     syntheticInput(this, id, key, text, origin, at);
   }
-  admitInput(command: Command, id: ThreadId, at: number): void {
-    admitInput(this, command, id, at);
+  acceptInput(command: Command, id: ThreadId, at: number): void {
+    acceptInput(this, command, id, at);
   }
-  /** A fresh admission (never a restart or queue edit) may hand its text to title generation. */
+  admitInput(
+    command: Command,
+    id: ThreadId,
+    run: import("@ace/protocol").RunId | undefined,
+    at: number,
+  ): void {
+    admitInput(this, command, id, run, at);
+  }
+  reviseInput(command: Command, id: ThreadId, at: number): void {
+    reviseInput(this, command, id, at);
+  }
+  /** A fresh acceptance (never a restart or queue edit) may hand its text to title generation. */
   notifyNamingPrompt(command: Command, id: ThreadId): void {
     notifyNamingPrompt(this, command, id);
   }
   removeInput(id: ThreadId, commandId: CommandId, at: number): void {
     removeInput(this, id, commandId, at);
+  }
+  removeInputItem(id: ThreadId, key: string, at: number): void {
+    removeInputItem(this, id, key, at);
   }
 
   cancelPending(id: ThreadId, now: number): ThreadId[] {
@@ -644,4 +671,10 @@ export class EngineRepository {
     });
     this.store.atomic(() => this.capture.run(id, generation, frame.seq, json));
   }
+}
+
+/** One time-ordered sequence for every kind of engine-made id. */
+function timeOrderedIdSource(): IdSource {
+  const next = timeOrderedIds();
+  return { next: () => next() };
 }

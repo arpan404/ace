@@ -235,30 +235,35 @@ test("native session MCP leases delegate across providers and deny a child's att
       .result.tools.map((tool) => tool.name);
     expect(tools).toEqual(
       expect.arrayContaining([
-        "ace_browser_open",
-        "delegate_task",
-        "ace_thread_read",
-        "ace_automation_manage",
-        "ace_project_read",
+        "browser_open",
+        "delegate",
+        "thread_read",
+        "automation_put",
+        "thread_control",
       ]),
     );
 
-    const accepted = await mcpCall(parentConnection, "delegate_task", {
-      requestId: "mcp-child",
-      provider: "claude",
-      model: "chosen",
-      task: "Implement",
-      role: "mcp-child-task",
-      wait: false,
+    const accepted = await mcpCall(parentConnection, "delegate", {
+      tasks: [
+        {
+          requestId: "mcp-child",
+          provider: "claude",
+          model: "chosen",
+          task: "Implement",
+          role: "mcp-child-task",
+        },
+      ],
     });
     expect(accepted.ok).toBe(true);
-    const child = z.object({ threadId: ThreadId }).parse(accepted.data);
+    const [childId] = z.object({ threadIds: z.tuple([ThreadId]) }).parse(accepted.data).threadIds;
+    const child = { threadId: childId };
     await f.daemon.engine?.flush();
     expect(f.daemon.store.getThread(child.threadId)?.provider).toBe("claude");
     const connection = f.h.contexts.get(child.threadId)?.aceMcp;
     if (!connection) throw new Error("Child MCP connection missing");
     expect(
-      await mcpCall(connection, "ace_thread_interrupt", {
+      await mcpCall(connection, "thread_control", {
+        action: "interrupt",
         threadId: f.caller.threadId,
         requestId: "forbidden",
       }),
@@ -266,11 +271,12 @@ test("native session MCP leases delegate across providers and deny a child's att
       ok: false,
       code: "forbidden",
       // Through MCP, a refusal tells the agent its next step.
-      hint: expect.stringContaining("ace_threads_list"),
+      hint: expect.stringContaining("threads_find"),
     });
     expect(
       (
-        await mcpCall(parentConnection, "ace_thread_interrupt", {
+        await mcpCall(parentConnection, "thread_control", {
+          action: "interrupt",
           threadId: child.threadId,
           requestId: "cancel",
         })
@@ -387,8 +393,6 @@ test("title regeneration uses the oldest person message beyond the recent item w
 test("a new person input after Stop restores MCP delegation on the root thread", async () => {
   const f = await daemonFixture();
   try {
-    const connection = f.h.contexts.get(f.caller.threadId)?.aceMcp;
-    if (!connection) throw new Error("Missing scoped MCP connection");
     expect(
       f.controls.delegations.command("stop-root", {
         type: "thread.interrupt",
@@ -406,14 +410,21 @@ test("a new person input after Stop restores MCP delegation on the root thread",
       }).ok,
     ).toBe(true);
     await f.daemon.engine?.flush();
+    // Stop may close the provider session (#1005); the new input runs in the session it opens.
+    const connection = f.h.contexts.get(f.caller.threadId)?.aceMcp;
+    if (!connection) throw new Error("Missing scoped MCP connection");
     expect(
-      await mcpCall(connection, "delegate_task", {
-        requestId: "after-stop",
-        role: "after-stop-greeting",
-        task: "Hello",
-        provider: "claude",
+      await mcpCall(connection, "delegate", {
+        tasks: [
+          {
+            requestId: "after-stop",
+            role: "after-stop-greeting",
+            task: "Hello",
+            provider: "claude",
+          },
+        ],
       }),
-    ).toMatchObject({ ok: true, data: { threadId: expect.any(String) } });
+    ).toMatchObject({ ok: true, data: { threadIds: [expect.any(String)] } });
   } finally {
     await f.daemon.close();
   }

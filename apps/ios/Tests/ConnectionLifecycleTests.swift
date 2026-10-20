@@ -96,7 +96,7 @@ import Testing
 
     private var directory: URL { URL(fileURLWithPath: "/unused-lifecycle-contract") }
     private func target(_ host: String) throws -> ConnectionTarget {
-        ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:9841")),
+        ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:\(SpikeFixture.port)")),
                          hostId: host, deviceId: "phone", pin: nil, credential: { "{}" })
     }
     private func drain() async { for _ in 0..<20 { await Task.yield() } }

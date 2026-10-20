@@ -24,11 +24,16 @@ export const DeviceInput = z.discriminatedUnion("kind", [
     kind: z.literal("pointer"),
     phase: z.enum(["down", "move", "up", "cancel"]),
     ...point,
+    /** Which finger, for multi-touch. Only captures that support multi-touch accept fingers above 0. */
+    pointerId: z.number().int().min(0).max(9).optional(),
   }),
   z.object({ kind: z.literal("longPress"), ...point, durationMs }),
   z.object({ kind: z.literal("swipe"), ...point, toX: point.x, toY: point.y, durationMs }),
   z.object({ kind: z.literal("type"), text: z.string().max(4096) }),
-  z.object({ kind: z.literal("key"), key: z.enum(["home", "back", "rotate", "enter", "power"]) }),
+  z.object({
+    kind: z.literal("key"),
+    key: z.enum(["home", "back", "rotate", "enter", "power", "recents"]),
+  }),
 ]);
 export type DeviceInput = z.infer<typeof DeviceInput>;
 export const DeviceSettings = z.object({
@@ -78,6 +83,24 @@ export const DevicePermissions = z.object({
   accessibility: z.boolean(),
 });
 export type DevicePermissions = z.infer<typeof DevicePermissions>;
+/** The last thing an agent did on a device, so a viewer can show it as it happens. */
+export const DeviceActivity = z.object({
+  /** Grows with each agent action on this device; a viewer shows each sequence once. */
+  sequence: z.number().int().nonnegative(),
+  /** "tap", "longPress", "swipe", "type", "key", or a UI action such as "press" or "setValue". */
+  action: z.string().min(1).max(32),
+  /** Where it landed, in device points. */
+  point: z.object({ x: z.number().finite(), y: z.number().finite() }).optional(),
+  /** A swipe's end, in device points. */
+  to: z.object({ x: z.number().finite(), y: z.number().finite() }).optional(),
+  /** The element ref it acted on, without the "@" ("e7"). */
+  ref: z.string().max(64).optional(),
+  /** That element's accessible name. Never typed text. */
+  label: z.string().max(128).optional(),
+  /** The key, for a key press. */
+  key: z.string().max(16).optional(),
+});
+export type DeviceActivity = z.infer<typeof DeviceActivity>;
 export const DeviceState = z.object({
   device: AppDevice,
   enabled: z.boolean(),
@@ -89,12 +112,20 @@ export const DeviceState = z.object({
   recordingNotice: z.string().max(256).optional(),
   recording: z.boolean().optional(),
   streamId: ScreenId.optional(),
+  /**
+   * What the live view's input reaches: several fingers streamed live (`pointer` with
+   * `pointerId`), one finger streamed live, or only whole gestures (tap, swipe, long press).
+   * Absent from older daemons.
+   */
+  touch: z.enum(["multi", "pointer", "gestures"]).optional(),
   controller: z.enum(["none", "human", "agent"]),
   /** Whether this authenticated connection holds the human controller lease. */
   ownedHere: z.boolean().optional(),
   holder: z.object({ threadId: ThreadId, agentId: AgentId }).optional(),
   leaseExpiresAt: z.number().nonnegative().optional(),
   error: DeviceFailure.optional(),
+  /** The last thing an agent did on this device. */
+  activity: DeviceActivity.optional(),
 });
 export type DeviceState = z.infer<typeof DeviceState>;
 const target = { deviceId: AppDeviceId };
@@ -124,6 +155,7 @@ export const DeviceOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("stop"), ...target }),
   z.object({ op: z.literal("stream.configure"), ...target, settings: ScreenStreamSettings }),
   z.object({ op: z.literal("stream.keyframe"), ...target }),
+  /** The device's pictures as stream kind `deviceFrame` (`@ace/browser/stream`), paced by `devices.ack`. */
   z.object({ op: z.literal("subscribe"), ...target }),
   z.object({ op: z.literal("unsubscribe"), ...target }),
   z.object({
@@ -135,6 +167,10 @@ export const DeviceOperation = z.discriminatedUnion("op", [
   }),
   z.object({ op: z.literal("input"), ...target, input: DeviceInput }),
   z.object({ op: z.literal("screenshot"), ...target }),
+  /** The device clipboard's text, at most 4,096 characters. Needs control, like input. */
+  z.object({ op: z.literal("clipboard.get"), ...target }),
+  /** Put text on the device clipboard without pasting it. Needs control, like input. */
+  z.object({ op: z.literal("clipboard.set"), ...target, text: z.string().max(4096) }),
   ScreenUITreeOptions.extend({ op: z.literal("ui.tree"), ...target }),
   ScreenUIFindOptions.extend({ op: z.literal("ui.find"), ...target }),
   ScreenUIActOptions.extend({ op: z.literal("ui.act"), ...target }),
@@ -155,6 +191,35 @@ export const DeviceClientMessage = z.object({
   operation: DeviceOperation,
 });
 export type DeviceClientMessage = z.infer<typeof DeviceClientMessage>;
+/**
+ * A viewer showed a device's pictures up to `sequence` of capture `streamId` (cumulative, as
+ * `browser.ack` for video). No reply. Screenshots (still pictures) are never acked.
+ */
+export const DeviceAck = z.object({
+  type: z.literal("devices.ack"),
+  deviceId: AppDeviceId,
+  streamId: ScreenId,
+  sequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  /** The viewer's decoder lost its place (a decode error): send it a keyframe. */
+  keyframe: z.literal(true).optional(),
+});
+export type DeviceAck = z.infer<typeof DeviceAck>;
+/**
+ * A `screenshot` result: the still picture the daemon sent just before it on the devices
+ * channel (stream kind `deviceFrame`, flagged still), named by its capture and sequence.
+ */
+export const DeviceScreenshot = z.object({
+  streamId: ScreenId,
+  sequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  width: z.number().int().min(1).max(8192),
+  height: z.number().int().min(1).max(8192),
+  bytes: z
+    .number()
+    .int()
+    .min(1)
+    .max(8 * 1024 * 1024),
+});
+export type DeviceScreenshot = z.infer<typeof DeviceScreenshot>;
 export const DeviceServerMessage = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("devices.result"),

@@ -27,7 +27,7 @@ export interface SignIn {
   prompt?: string;
 }
 const signIns: Partial<Record<ProviderKind, SignIn>> = {
-  claude: { run: "claude", prompt: "/login" },
+  claude: { run: "claude auth login" },
   codex: { run: "codex login" },
   opencode: { run: "opencode auth login --standalone" },
   // Pi signs in from its interactive prompt (docs/research/providers/pi.md, ADR 0050).
@@ -48,7 +48,9 @@ export type ProviderState =
   | "not_installed"
   | "unknown"
   | "limited"
-  | "attention";
+  | "attention"
+  /** Older than the oldest CLI version ace supports. */
+  | "needs_update";
 
 /** One provider as the daemon's discovery and accounts describe it. */
 export interface ProviderStatus {
@@ -72,6 +74,7 @@ export function providerAccountState(model: ProviderAccountModel): ProviderState
   if (view?.ready) return "ready";
   if (view?.label === "Limit reached") return "limited";
   if (view?.state === "not_installed") return "not_installed";
+  if (view?.state === "needs_update") return "needs_update";
   if (view?.state === "signed_out") return "signed_out";
   if (view?.state === "attention" || view?.state === "off") return "attention";
   return "unknown";
@@ -150,6 +153,7 @@ export function providerStatuses(
 export function providerChoiceLabel(status: Pick<ProviderStatus, "name" | "state">): string {
   if (status.state === "limited") return `${status.name} (limit reached)`;
   if (status.state === "attention") return `${status.name} (needs attention)`;
+  if (status.state === "needs_update") return `${status.name} (update needed)`;
   if (status.state === "signed_out") return `${status.name} (signed out)`;
   if (status.state === "not_installed") return `${status.name} (not installed)`;
   if (status.state === "unknown") return `${status.name} (sign-in not reported)`;

@@ -111,6 +111,8 @@ test("kill-all closes selected provider sessions and a receipt retry cannot kill
       f.caller.threadId,
       "--provider",
       "claude",
+      "--role",
+      "Working child",
       "--json",
     ]);
     expect(spawned.code, spawned.stderr).toBe(0);

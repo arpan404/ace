@@ -1,15 +1,26 @@
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import type { ToolIcon } from "@ace/protocol";
 import { IconCache } from "./icon-cache.ts";
 import { IconService } from "./icon-service.ts";
 import { faviconPng } from "./favicon-image.ts";
 
 const homes: string[] = [];
-afterEach(() => {
-  for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });
+const caches: IconCache[] = [];
+function tracked(cache: IconCache): IconCache {
+  caches.push(cache);
+  return cache;
+}
+afterEach(async () => {
+  // The cache writes its index after store() returns; awaiting owned work
+  // keeps teardown from racing a temp file the worker is still renaming.
+  try {
+    await Promise.all(caches.splice(0).map((cache) => cache.flushed()));
+  } finally {
+    for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });
+  }
 });
 
 const github: ToolIcon = { kind: "site", origin: "https://github.com" };
@@ -31,7 +42,7 @@ function service(answers: { site?: Buffer | null | undefined; app?: Buffer | nul
   let running = 0;
   let most = 0;
   const icons = new IconService({
-    cache: new IconCache(root),
+    cache: tracked(new IconCache(root)),
     site: async (icon) => {
       asked.push(icon.kind === "site" ? icon.origin : "");
       running++;
@@ -59,6 +70,9 @@ function service(answers: { site?: Buffer | null | undefined; app?: Buffer | nul
       for (const open of gates.splice(0)) open();
     },
     advance: (ms: number) => (now += ms),
+    setSite: (bytes: Buffer | null | undefined) => {
+      answers.site = bytes;
+    },
   };
 }
 
@@ -103,7 +117,15 @@ test("an icon past its lifetime still answers at once while it is fetched again"
   s.gate.held = true;
   expect(await s.icons.resolve(github)).toBe(old);
   expect(s.asked).toHaveLength(2);
+  // The refresh resolve() answers stale at once, so awaiting it never joins
+  // the background lookup. Publish new bytes for the gated fetch, release it,
+  // then wait for the public cache to show the new ref before teardown flushes.
+  s.setSite(Buffer.from("new"));
   s.release();
+  await vi.waitFor(() => expect(s.icons.cached(github)).not.toBe(old));
+  const updated = await s.icons.resolve(github);
+  expect(updated).not.toBe(old);
+  expect(updated).toBe(s.icons.cached(github));
 });
 
 // Mutation: letting a waiter start between one lookup finishing and the next taking its slot.
@@ -133,7 +155,7 @@ test("app icons resolve through the app source, never the site fetcher", async (
 // Mutations: an unbounded cache, or evicting the icon just used.
 test("the disk cache keeps at most its limit, dropping the least recently used icon", async () => {
   const root = home();
-  const cache = new IconCache(root, { maxIcons: 2, maxBytes: 1024 });
+  const cache = tracked(new IconCache(root, { maxIcons: 2, maxBytes: 1024 }));
   const a = await cache.store(site("a"), Buffer.from("a"), 1);
   const b = await cache.store(site("b"), Buffer.from("b"), 1);
   await cache.read(a ?? "");
@@ -144,17 +166,17 @@ test("the disk cache keeps at most its limit, dropping the least recently used i
   expect(cache.lookup(site("a"), 2)?.ref).toBe(a);
   // A restart reads what was kept, without asking anyone.
   await cache.flushed();
-  const again = new IconCache(root, { maxIcons: 2, maxBytes: 1024 });
+  const again = tracked(new IconCache(root, { maxIcons: 2, maxBytes: 1024 }));
   expect(again.lookup(site("a"), 2)?.ref).toBe(a);
   expect(again.lookup(site("b"), 2)).toBeUndefined();
-  const big = new IconCache(home(), { maxIcons: 10, maxBytes: 4 });
+  const big = tracked(new IconCache(home(), { maxIcons: 10, maxBytes: 4 }));
   await big.store(site("big"), Buffer.alloc(8, 1), 1);
   expect(big.size.bytes).toBeLessThanOrEqual(4);
 });
 
 // Mutation: writing (and counting) one icon twice when two sites share it at once.
 test("the same icon stored for two sites at once is written and counted once", async () => {
-  const cache = new IconCache(home(), { maxIcons: 10, maxBytes: 1024 });
+  const cache = tracked(new IconCache(home(), { maxIcons: 10, maxBytes: 1024 }));
   const png = Buffer.from("shared");
   const [a, b] = await Promise.all([
     cache.store(site("a"), png, 1),
@@ -172,7 +194,7 @@ test("a favicon the decoder refuses is remembered as no icon", async () => {
   ]);
   let asked = 0;
   const icons = new IconService({
-    cache: new IconCache(home()),
+    cache: tracked(new IconCache(home())),
     site: async () => {
       asked++;
       return corrupt;
@@ -190,7 +212,7 @@ test("a favicon the decoder refuses is remembered as no icon", async () => {
 test("temporary files a crash left are cleared when the cache opens", async () => {
   const root = home();
   writeFileSync(join(root, `${"a".repeat(64)}.png.123.1.tmp`), "half");
-  const cache = new IconCache(root);
+  const cache = tracked(new IconCache(root));
   expect(readdirSync(root).filter((name) => name.endsWith(".tmp"))).toEqual([]);
   expect(cache.size).toEqual({ icons: 0, bytes: 0 });
 });

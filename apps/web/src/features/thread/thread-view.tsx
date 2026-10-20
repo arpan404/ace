@@ -1,7 +1,6 @@
 import { useInteractions, useThreadError, useThreadMeta } from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
-import { lazy, Suspense, use, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { TurnActivity } from "@ace/ui-core";
+import { lazy, Suspense, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   loadThreadBrowser,
   threadWorkspace,
@@ -16,11 +15,10 @@ import { useFileDrop } from "./composer/file-drop.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import type { ThreadRef } from "./sources/index.ts";
-import { ForkOpener } from "./transitions/fork-opener.ts";
+import { ForkOpener, useOpenFork } from "./transitions/fork-opener.ts";
 import { ThreadLoadError } from "./thread-load-error.tsx";
 import { SyncingNote, ThreadLoading } from "./thread-loading.tsx";
 import { useLatestForkPoint } from "./transitions/use-fork-point.ts";
-import { useTurnActivity } from "./transcript/use-turn-activity.ts";
 
 const ThreadBrowser = lazy(loadThreadBrowser);
 
@@ -42,9 +40,6 @@ const MergeDialog = lazy(() =>
 const ThreadGitAction = lazy(() =>
   import("./header/git-action.tsx").then((m) => ({ default: m.ThreadGitAction })),
 );
-const ForkDialog = lazy(() =>
-  import("./transitions/fork-dialog.tsx").then((m) => ({ default: m.ForkDialog })),
-);
 import { InlineRenameField } from "@/features/organize/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { findInThread } from "./long/nav-keys.tsx";
@@ -61,8 +56,7 @@ import { readingColumn } from "./lib/column.ts";
 import { isPendingThread } from "./composer/send-store.ts";
 import { useShownTitle } from "./lib/shown-title.ts";
 import { DeferredComposerStrip } from "./composer/deferred-cards.ts";
-import { DeferredLocalSends } from "./composer/deferred-parts.tsx";
-import { UserMessage } from "./items/user-message.tsx";
+import { StartingMessage } from "./items/user-message.tsx";
 import { ActivityLine } from "./items/live-head.tsx";
 import { LongThreadHotkeys } from "./long/nav-keys.tsx";
 import { ThreadNavProvider, useThreadNav } from "./long/nav.tsx";
@@ -84,14 +78,7 @@ function PendingThread(props: { threadId: string }) {
         threadId={props.threadId}
         parts={{
           column: readingColumn,
-          bubble: (
-            <>
-              <UserMessage threadId={props.threadId} itemId={`input:${commandId}`} />
-              <Suspense fallback={null}>
-                <DeferredLocalSends.Component threadId={props.threadId} />
-              </Suspense>
-            </>
-          ),
+          bubble: <StartingMessage threadId={props.threadId} commandId={commandId} />,
           Line: ActivityLine,
         }}
       />
@@ -131,23 +118,6 @@ export function ThreadView(props: { threadId: string; target?: ThreadTarget | un
   );
 }
 
-/** The turn's live line, for a panel that draws it its own way (the Summary's head line). */
-function TurnActivityOf(props: {
-  threadId: string;
-  children(activity: TurnActivity | undefined): ReactNode;
-}) {
-  return props.children(useTurnActivity(props.threadId));
-}
-
-/** Takes the person to the request in the composer's strip: its first control takes focus. */
-function focusRequest() {
-  // Focus brings it into view.
-  document
-    .querySelector("[data-composer-strip]")
-    ?.querySelector<HTMLElement>("button:not(:disabled), input, textarea, [tabindex='0']")
-    ?.focus();
-}
-
 function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefined }) {
   const nav = useThreadNav();
   const meta = useThreadMeta(props.threadId);
@@ -158,32 +128,31 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [merging, setMerging] = useState(false);
   const [renaming, setRenaming] = useState(false);
-  const [forking, setForking] = useState<ForkPoint>();
   const id = props.threadId;
+  const openForkOf = useOpenFork();
+  const openFork = useCallback((point: ForkPoint) => openForkOf(id, point), [openForkOf, id]);
   const outer = useThreadParts();
   const forkPoint = useLatestForkPoint(id);
   const parts = useMemo(
     () => ({
       ...outer,
-      fork: forkPoint && (() => setForking(forkPoint)),
+      fork: forkPoint && (() => openFork(forkPoint)),
       gitAction: ThreadGitAction,
-      turnActivity: TurnActivityOf,
-      showRequest: focusRequest,
     }),
-    [outer, forkPoint],
+    [outer, forkPoint, openFork],
   );
   const { setScreenActions } = useLayout();
   const screenActions = useMemo(
     () => ({
       scope: id,
       rename: () => setRenaming(true),
-      fork: forkPoint ? () => setForking(forkPoint) : undefined,
+      fork: forkPoint ? () => openFork(forkPoint) : undefined,
       merge: meta?.lineage ? () => setMerging(true) : undefined,
       attachments: () => setAttachmentsOpen(true),
       find: () => findInThread(nav),
       turns: () => nav.setTurnsOpen(!nav.turnsOpen),
     }),
-    [id, forkPoint, nav, meta?.lineage],
+    [id, forkPoint, openFork, nav, meta?.lineage],
   );
   useEffect(() => {
     setScreenActions(screenActions);
@@ -234,7 +203,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
                   onAttachments={() => setAttachmentsOpen(true)}
                   thread={thread}
                   onRename={() => setRenaming(true)}
-                  onFork={setForking}
+                  onFork={openFork}
                   onMerge={() => setMerging(true)}
                 />
               </Suspense>
@@ -248,7 +217,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
           ) : !meta ? (
             <ThreadLoading />
           ) : (
-            <ForkOpener value={setForking}>
+            <ForkOpener value={openFork}>
               <div
                 data-thread-column
                 className="relative grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]"
@@ -279,7 +248,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
                   </div>
                 </div>
                 {thread && (
-                  <DelegateBottom thread={meta}>
+                  <DelegateBottom thread={meta} onFork={forkPoint && (() => openFork(forkPoint))}>
                     <ThreadComposer
                       thread={thread}
                       status={meta?.status}
@@ -302,9 +271,6 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
               <AttachmentsSheet thread={thread} onClose={() => setAttachmentsOpen(false)} />
             )}
             {merging && thread && <MergeDialog thread={thread} onClose={() => setMerging(false)} />}
-            {forking && thread && (
-              <ForkDialog thread={thread} point={forking} onClose={() => setForking(undefined)} />
-            )}
           </Suspense>
         </Screen>
       </WorkCardContext>

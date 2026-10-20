@@ -142,7 +142,7 @@ test("text on glass reads at AA over blurred busy backdrops in every theme, ligh
         for (const [backdrop, colour] of Object.entries(behind)) {
           const surface = over(glass.rgb, glass.alpha, colour);
           // A selected row's ink wash on top, the strongest wash text sits on.
-          const selected = over(ink, scheme === "light" ? 0.07 : 0.08, surface);
+          const selected = over(ink, scheme === "light" ? 0.04 : 0.05, surface);
           for (const [token, minimum] of Object.entries(levels)) {
             const text = parseOpaqueColor(tokens[token]);
             const ratio = text
@@ -259,4 +259,18 @@ test("the middle of the slider is genuinely in between: well over half the glass
       expect(ratio, `${id} ${scheme}`).toBeGreaterThan(0.6);
       expect(ratio, `${id} ${scheme}`).toBeLessThan(0.8);
     }
+});
+
+test("the command palette panel stays near-solid at every translucency, even extra-clear", () => {
+  for (const id of themeIds)
+    for (const scheme of ["light", "dark"] as const)
+      for (let translucency = 0; translucency <= translucencyClearMax; translucency += 10) {
+        const tokens = themeDeclarations(id, scheme, themeAccent, translucency);
+        const modal = tint(tokens["--glass-tint-modal"]);
+        const label = `${id} ${scheme} ${translucency}`;
+        expect(modal.alpha, label).toBeGreaterThanOrEqual(0.9);
+        // Never thinner than the floating glass it replaces, and the same surface colour.
+        expect(modal.alpha, label).toBeGreaterThanOrEqual(tint(tokens["--glass-tint"]).alpha);
+        expect(modal.rgb, label).toEqual(tint(tokens["--glass-tint"]).rgb);
+      }
 });

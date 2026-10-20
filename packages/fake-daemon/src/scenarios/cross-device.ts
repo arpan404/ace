@@ -38,15 +38,19 @@ export function crossDevice(): Scenario {
             "user",
             "Run the 0.9 review on the Studio, it has the GPU build, and check the staging docs page in its browser.",
           ),
-          mcp("machines", "ace_machines", {}),
+          mcp("machines", "machines", {}),
           toolDone("root", "machines"),
-          mcp("delegate", "delegate_task", {
-            requestId: "studio-review",
-            task: "Review the 0.9 GPU build and report failing benchmarks",
-            role: "GPU build review",
-            provider: "codex",
-            machine: "studio",
-            project: "relay",
+          mcp("delegate", "delegate", {
+            tasks: [
+              {
+                requestId: "studio-review",
+                task: "Review the 0.9 GPU build and report failing benchmarks",
+                role: "GPU build review",
+                provider: "codex",
+                machine: "studio",
+                project: "relay",
+              },
+            ],
           }),
           toolDone("root", "delegate"),
           {
@@ -79,7 +83,7 @@ export function crossDevice(): Scenario {
             title: "GPU build review · Studio",
             stoppable: true,
           },
-          mcp("browse", "ace_browser_open", {
+          mcp("browse", "browser_open", {
             url: "https://staging.relay.dev/docs/0.9",
             machine: "studio",
           }),

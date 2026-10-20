@@ -1,7 +1,8 @@
 import { StartedRows } from "./started-rows.tsx";
 import { DraftRows } from "./new-thread/draft-rows.tsx";
+import { ForkDraftRows } from "./fork-draft-rows.tsx";
 
-/** Saved drafts and queued starts share one section after the admitted tasks. */
+/** Saved drafts, unsent forks and queued starts share one section at the top of the list. */
 export function UnsentRows() {
   return (
     <div className="hidden has-[ul]:block">
@@ -9,6 +10,7 @@ export function UnsentRows() {
         Unsent
       </div>
       <DraftRows />
+      <ForkDraftRows />
       <StartedRows />
     </div>
   );

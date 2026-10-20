@@ -4,6 +4,7 @@ import { AgentId, ItemId, RunId, ThreadId, Timestamp } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
 import { MessageContext } from "./context.ts";
 import { MessageText } from "./message-limits.ts";
+import { AcpIdentity } from "./agent-registry.ts";
 
 export const ForkPoint = z.discriminatedUnion("type", [
   z.object({ type: z.literal("turn"), runId: RunId }),
@@ -38,17 +39,31 @@ export const ExecutionSource = z.object({
   selection: ExecutionSelection,
 });
 export type ExecutionSource = z.infer<typeof ExecutionSource>;
+/** Switches stored before the rename still carry "delegate_task"; they read as "delegate". */
+const SwitchRecommendation = z
+  .enum(["delegate", "delegate_task"])
+  .transform((): "delegate" => "delegate")
+  .meta({
+    "x-ace-json-input": z.enum(["delegate", "delegate_task"]),
+    "x-ace-constraint": 'The stored legacy value "delegate_task" decodes as "delegate".',
+  });
 export const ThreadSwitch = z.object({
   selection: ExecutionSelection,
   state: z.enum(["queued", "applied", "failed"]),
   lossy: z.boolean(),
-  recommendation: z.literal("delegate_task").optional(),
+  recommendation: SwitchRecommendation.optional(),
   error: z.string().max(2048).optional(),
   at: Timestamp,
 });
 export type ThreadSwitch = z.infer<typeof ThreadSwitch>;
 export const HandoffCitation = z.object({ threadId: ThreadId, itemId: ItemId });
 export type HandoffCitation = z.infer<typeof HandoffCitation>;
+/** A provider and model whose work a context handoff carries, or the one it hands to. */
+export const HandoffModel = z.object({
+  provider: ProviderKind,
+  model: z.string().min(1).max(256).optional(),
+});
+export type HandoffModel = z.infer<typeof HandoffModel>;
 export const MergedForkContext = z.object({
   sourceThreadId: ThreadId,
   summary: MessageText,
@@ -64,13 +79,23 @@ export const PortableHandoff = z.object({
     .optional(),
   throughSeq: z.number().int().nonnegative(),
   lossy: z.literal(true),
-  policy: z.literal("recent-complete-items"),
+  /**
+   * `conversation-first` keeps the latest ask and answer and the thread's opening ask before
+   * older items, and leaves out reasoning and earlier handoffs. Older manifests read as stored.
+   */
+  policy: z.enum(["recent-complete-items", "conversation-first"]),
+  /** The distinct models whose work the carried history holds, oldest first. */
+  sources: z.array(HandoffModel).max(8).optional(),
+  /**
+   * A return to a provider that resumes its own earlier session: the excerpts cover only what
+   * happened after this event cutoff, which that session already holds everything before.
+   */
+  since: z.number().int().nonnegative().optional(),
   excerpts: z.array(z.object({ citation: HandoffCitation, text: z.string().max(8192) })).max(200),
   omittedItems: z.number().int().nonnegative(),
   history: z.object({
     type: z.literal("items.page"),
-    tool: z.literal("ace_read_handoff").default("ace_read_handoff"),
-    chunkTool: z.literal("ace_read_handoff_chunk").default("ace_read_handoff_chunk"),
+    tool: z.literal("handoff_read").default("handoff_read"),
     threadId: ThreadId,
     before: z.number().int().positive(),
     limit: z.literal(50),
@@ -113,6 +138,12 @@ export const TransitionCommands = [
     threadId: ThreadId,
     selection: ExecutionSelection.omit({ options: true }).extend({
       options: ExecutionOptions.optional(),
+      /**
+       * The ACP agent a switch moves to, with `instanceId` its account. Required to enter an
+       * ACP agent or change to another one; a model change within the agent may omit it.
+       */
+      acpAgentId: AcpIdentity.shape.acpAgentId.optional(),
+      installationId: AcpIdentity.shape.installationId.optional(),
     }),
   }),
 ] as const;

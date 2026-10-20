@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { BrowserService, installChromium, type ChromiumArtifact } from "./index.ts";
 import { archive } from "./archive-test-support.ts";
+import { sessionDirectories } from "./session-dirs-test-support.ts";
 import type { BrowserDownloadProgress } from "@ace/protocol";
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -204,8 +205,10 @@ it("concurrent headless opens share one verified download instead of running com
   const service = new BrowserService({
     dataDir: f.home,
     acquisition: { artifact: f.artifact },
-    launchContext: async () => {
-      throw new Error("Launch boundary reached after installation");
+    chrome: {
+      spawn: () => {
+        throw new Error("Launch boundary reached after installation");
+      },
     },
   });
   cleanups.push(() => service.close());
@@ -216,9 +219,10 @@ it("concurrent headless opens share one verified download instead of running com
   for (const result of results)
     expect(result).toMatchObject({
       status: "rejected",
-      reason: { message: "Launch boundary reached after installation" },
+      reason: { message: expect.stringContaining("Launch boundary reached after installation") },
     });
   expect(f.downloads).toBe(1);
-  expect(await readdir(join(f.home, "browser"))).toEqual([]);
+  // Failed opens leave no session directories behind.
+  expect(await sessionDirectories(f.home)).toEqual([]);
   expect(await readdir(join(f.home, "chromium"))).toHaveLength(1);
 });

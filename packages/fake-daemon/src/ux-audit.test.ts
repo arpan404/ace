@@ -113,13 +113,16 @@ test("admission preserves the original input under its command id and retries ne
     Object.values(thread(daemon, "thread-create-input").items).filter(
       (item) => item.id === "input:queued-input",
     );
-  // Admitted at once, like the daemon; the run that later delivers it takes it as its own.
-  expect(queued()).toMatchObject([{ origin: { kind: "person", commandId: "queued-input" } }]);
-  const firstRun = queued()[0]?.runId;
+  // Like the daemon, it waits in the queue, outside the transcript, until it is delivered; the
+  // run that takes it owns it.
+  expect(queued()).toEqual([]);
+  const firstRun = Object.values(thread(daemon, "thread-create-input").items).find(
+    (item) => item.id === "input:create-input",
+  )?.runId;
   daemon.apply("thread-create-input", [
     { type: "turn.ended", agent: "root", outcome: "completed" },
   ]);
-  expect(queued()).toHaveLength(1);
+  expect(queued()).toMatchObject([{ origin: { kind: "person", commandId: "queued-input" } }]);
   expect(queued()[0]?.runId).toEqual(expect.any(String));
   expect(queued()[0]?.runId).not.toBe(firstRun);
 });

@@ -27,6 +27,10 @@ export function acpEngineOptions(input: {
   input.registry.register(
     createAcpAdapter(genericQuirks, {
       acceptsIdentity: (identity) => input.agents.has(identity),
+      signInMethod: (ctx) =>
+        ctx.acpIdentity
+          ? input.accountRegistry?.acpSignInMethod(ctx.acpIdentity.instanceId)
+          : undefined,
       async resolveLaunch(ctx) {
         const plan = ctx.acpLaunch;
         if (!plan) throw new Error("ACP immutable launch plan unavailable");

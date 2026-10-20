@@ -44,16 +44,16 @@ it("cancelled MCP screen input never reaches the helper after an earlier action 
     screen.delegateAgent(state.sessionId, lease.principal.scope);
     await screen.mode(state.sessionId, "foreground");
     const first = registry.call(
-      "screen_type",
-      { text: "gate" },
+      "screen_input",
+      { action: "type", text: "gate" },
       lease.principal,
       new AbortController().signal,
     );
     await entered.promise;
     const cancelled = new AbortController();
     const second = registry.call(
-      "screen_type",
-      { text: "forbidden" },
+      "screen_input",
+      { action: "type", text: "forbidden" },
       lease.principal,
       cancelled.signal,
     );
@@ -63,8 +63,8 @@ it("cancelled MCP screen input never reaches the helper after an earlier action 
     expect(await first).not.toHaveProperty("isError", true);
     // A subsequent queued input is a public barrier after the cancelled dispatch.
     await registry.call(
-      "screen_type",
-      { text: "!" },
+      "screen_input",
+      { action: "type", text: "!" },
       lease.principal,
       new AbortController().signal,
     );

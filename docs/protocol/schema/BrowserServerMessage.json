@@ -73,6 +73,12 @@
         "frame"
       ],
       "type": "object"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/BrowserAnnotationMessage.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/BrowserPageMessage.json"
     }
   ]
 }

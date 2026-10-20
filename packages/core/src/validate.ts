@@ -16,6 +16,7 @@ import {
   RawPayload,
   RunTrigger,
   PermissionMode,
+  ProviderGoal,
   Timestamp,
   ThreadId,
   ThreadStatus,
@@ -47,8 +48,9 @@ const allowed: Record<Fact["type"], string[]> = {
   ],
   "agent.linked": ["agent", "parent", "spawnedBy", "background", "name", "model"],
   "input.admitted": ["agent", "nativeInputId", "commandId"],
+  "input.consumed": ["agent", "nativeInputIds"],
   "turn.started": ["agent", "nativeTurnId", "trigger", "permissionMode"],
-  "turn.ended": ["agent", "nativeTurnId", "outcome", "trigger", "error", "historical"],
+  "turn.ended": ["agent", "nativeTurnId", "outcome", "endedBy", "trigger", "error", "historical"],
   activity: ["agent", "activity", "detail"],
   "item.upsert": ["agent", "item", "draft"],
   "item.reconciled": ["agent", "item", "draft"],
@@ -76,6 +78,7 @@ const allowed: Record<Fact["type"], string[]> = {
   "retry.cleared": ["agent"],
   "limit.cleared": ["agent"],
   "wake.expected": ["agent", "until"],
+  "goal.updated": ["agent", "goal"],
   "context.sample": ["agent", "usedTokens", "windowTokens", "sessionId", "model"],
   usage: [
     "agent",
@@ -129,6 +132,18 @@ function relationError(state: ThreadState, agent: string, parent: string): strin
     key = get(state.agents, key)?.parentKey;
   }
   return undefined;
+}
+
+function descendsFrom(state: ThreadState, agent: string, ancestorId: string): boolean {
+  const visited = new Set<string>();
+  let key = get(state.agents, agent)?.parentKey;
+  while (key !== undefined && !visited.has(key)) {
+    const record = get(state.agents, key);
+    if (record?.agent.id === ancestorId) return true;
+    visited.add(key);
+    key = record?.parentKey;
+  }
+  return false;
 }
 
 function detailCandidate(draft: ToolDetailDraft) {
@@ -257,6 +272,8 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
     case "turn.ended":
       return (
         oneOf(fact.outcome, ["completed", "failed", "interrupted"]) &&
+        (fact.endedBy === undefined ||
+          (fact.endedBy === "steer" && fact.outcome === "interrupted")) &&
         (fact.historical === undefined || typeof fact.historical === "boolean") &&
         (fact.trigger === undefined || RunTrigger.safeParse(fact.trigger).success) &&
         (fact.error === undefined || validData(AgentStatus, { state: "failed", error: fact.error }))
@@ -270,6 +287,14 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
           (typeof fact.commandId === "string" &&
             fact.commandId.length > 0 &&
             fact.commandId.length <= 512))
+      );
+    case "input.consumed":
+      return (
+        Array.isArray(fact.nativeInputIds) &&
+        fact.nativeInputIds.length <= 64 &&
+        fact.nativeInputIds.every(
+          (id) => typeof id === "string" && id.length > 0 && id.length <= 512,
+        )
       );
     case "activity":
       return AgentActivity.safeParse(fact.activity).success && optionalString(fact.detail);
@@ -316,6 +341,8 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
       );
     case "wake.expected":
       return Timestamp.safeParse(fact.until).success;
+    case "goal.updated":
+      return fact.goal === null || ProviderGoal.safeParse(fact.goal).success;
     case "context.sample":
       return EventPayload.safeParse({ ...fact, type: "context.sampled", agentId }).success;
     case "usage":
@@ -429,7 +456,16 @@ function checkedFact(
         : get(state.tasks, input.task as string);
     const live =
       current && ("state" in current ? current.state === "pending" : current.status === "running");
-    if (live && current.agentId !== get(state.agents, input.agent as string)?.agent.id)
+    // An adapter may announce live work before it learns which agent spawned it, then name the
+    // agent once it knows. Narrowing a running task to a descendant refines it; anything else is
+    // a different owner claiming the key.
+    if (
+      live &&
+      current.agentId !== get(state.agents, input.agent as string)?.agent.id &&
+      !(
+        type === "background.started" && descendsFrom(state, input.agent as string, current.agentId)
+      )
+    )
       return { error: "live key has a different owner" };
   }
   if (type === "interaction.closed" && object(input.resolution)) {

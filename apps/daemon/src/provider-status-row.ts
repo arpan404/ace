@@ -33,6 +33,9 @@ export function providerStatusRow(
   const version = shape.version.safeParse(observation?.version);
   if (version.success && version.data !== undefined) result.version = version.data;
   else if (!version.success) invalid = true;
+  const check = shape.versionCheck.safeParse(observation?.versionCheck);
+  if (check.success && check.data !== undefined) result.versionCheck = check.data;
+  else if (!check.success) invalid = true;
   const label = shape.accountLabel.safeParse(observation?.accountLabel);
   if (label.success && label.data !== undefined) result.accountLabel = label.data;
   else if (!label.success) invalid = true;

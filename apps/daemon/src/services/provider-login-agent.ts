@@ -1,7 +1,8 @@
 import { acpModelInstanceId } from "../acp-model-instance.ts";
 import { acpLoginDriver } from "../provider-login-acp.ts";
-import { antigravityDiscovery } from "./antigravity.ts";
-import { createAcpInstance, type ProviderLoginDriver } from "@ace/accounts";
+import { acpAgentCli } from "../acp-agent-cli.ts";
+import { antigravityDiscovery, registerAntigravityAccount } from "./antigravity.ts";
+import { antigravityIdentity, createAcpInstance, type ProviderLoginDriver } from "@ace/accounts";
 import type { ServiceContext } from "./types.ts";
 
 export async function prepareAgentLogin(
@@ -62,6 +63,10 @@ export async function prepareAgentLogin(
       ? await services.accounts.reserveAuthChange(target.instance)
       : () => {};
   const management = services.accountManagement;
+  const ownLogout =
+    target.provider === "acp" && target.instance
+      ? acpAgentCli(registry.get(target.instance)?.instance.acpAgentId)?.logout
+      : undefined;
   const driver = acpLoginDriver({
     provider: target.provider,
     action,
@@ -69,6 +74,7 @@ export async function prepareAgentLogin(
     args: launch?.args ?? (cli && "launch" in cli ? cli.launch.args : []),
     env: launch?.env ?? (cli && "launch" in cli ? cli.launch.env : env),
     cwd: config.dataDir,
+    ...(ownLogout ? { ownLogout } : {}),
     ...(management
       ? { openTerminal: (terminalLaunch) => management.openLoginTerminal(owner, terminalLaunch) }
       : {}),
@@ -77,16 +83,25 @@ export async function prepareAgentLogin(
     ...driver,
     release,
     async changed() {
+      const auth = action === "login" ? "logged_in" : "logged_out";
       if (target.provider === "antigravity") {
-        services.antigravityAuth = action === "login" ? "logged_in" : "logged_out";
+        // Kept on the account row, so a restart still knows the ACP server is signed in.
+        await registerAntigravityAccount(context);
+        if (registry.get(antigravityIdentity.instanceId))
+          registry.recordAcpAuth(
+            antigravityIdentity.instanceId,
+            auth,
+            now(),
+            driver.signedInWith(),
+          );
         if (services.models?.hasInstance("antigravity-cli-default"))
-          await services.models.loginChanged("antigravity-cli-default", id());
+          await services.models.loginChanged(
+            "antigravity-cli-default",
+            id(),
+            registry.acpSignInMethod(antigravityIdentity.instanceId) ?? null,
+          );
       } else if (target.instance) {
-        registry.recordAcpAuth(
-          target.instance,
-          action === "login" ? "logged_in" : "logged_out",
-          now(),
-        );
+        registry.recordAcpAuth(target.instance, auth, now(), driver.signedInWith());
         const instance = registry.get(target.instance)?.instance;
         if (instance?.acpAgentId && instance.installationId) {
           const modelId = acpModelInstanceId({

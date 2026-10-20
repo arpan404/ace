@@ -25,7 +25,7 @@ export function MentionSelection(props: {
     if (root.current) setLines(selectedLines(root.current));
   };
   return (
-    <div ref={root} onMouseUp={read} onKeyUp={read}>
+    <div ref={root} role="presentation" onMouseUp={read} onKeyUp={read}>
       {lines && (
         <div className="sticky top-0 z-10 flex h-8 items-center justify-end bg-background px-3">
           <Button

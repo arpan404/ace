@@ -20,6 +20,8 @@ export interface Patch {
   /** Item keys only: the item holds a prefix of its full text (ThreadReader.truncated). */
   cut?: boolean | undefined;
   deleted?: boolean | undefined;
+  /** Item keys sent whole: the item's creation sequence, its place in every transcript. */
+  s?: number | undefined;
 }
 
 /** Ids and parent links of a thread's agents: what the "agents" key covers. */
@@ -58,6 +60,8 @@ export function threadValue(reader: ThreadReader, key: string): unknown {
       return errorOf(reader);
     case "sync":
       return reader.syncing ?? false;
+    case "unconfirmed":
+      return reader.unconfirmed ?? false;
     case "thread":
       return reader.thread;
     case "queue":
@@ -169,7 +173,7 @@ export function threadPatches(
       append !== undefined
         ? { k, append, cut }
         : item
-          ? { k, v: item, cut }
+          ? { k, v: item, cut, s: reader.itemSeq?.(id) }
           : { k, cut, deleted: reader.deleted?.(id) },
     );
   }
@@ -184,15 +188,19 @@ export function sidebarPatches(reader: SidebarReader, keys: Iterable<string>): P
     if (k === "threads") continue;
     const { kind, id } = splitKey(k);
     const v =
-      kind === "homeWindow"
-        ? reader.homeWindow
-        : kind === "window"
-          ? reader.window
-          : kind === "ids"
-            ? reader.ids
-            : kind === "thread"
-              ? reader.thread(id)
-              : errorOf(reader);
+      kind === "sync"
+        ? (reader.syncing ?? false)
+        : kind === "unconfirmed"
+          ? (reader.unconfirmed ?? false)
+          : kind === "homeWindow"
+            ? reader.homeWindow
+            : kind === "window"
+              ? reader.window
+              : kind === "ids"
+                ? reader.ids
+                : kind === "thread"
+                  ? reader.thread(id)
+                  : errorOf(reader);
     patches.push(v === undefined ? { k } : { k, v });
   }
   return patches;

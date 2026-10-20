@@ -5,6 +5,8 @@ No real provider session, native app, browser or device was started. The fixture
 
 These are comparable tokenizer estimates, not provider billing counts. Every row uses `tiktoken` 0.12.0 `o200k_base`, compact JSON, and only `name`, `description`, `inputSchema`. Native wrappers, output schemas, tool annotations and each provider's own tokenizer are excluded. Codex's baseline includes the observed server-instruction prefix on every descriptor; the other providers' baselines do not. Names use `mcp__ace__` for Codex/Claude, `ace_` for OpenCode and the advertised names for Cursor/Pi/ACP.
 
+These counts predate the tool consolidation in [ADR 0086](../adr/0086-agent-facing-mcp-tools.md). Tool names are now bare (`context`, not `ace_status`), so the namespace appears once. OpenCode and Pi now start in core mode (`X-Ace-Tools: core`) and list only core tools until a family opens; Cursor, ACP and Antigravity list every tool. The table has not been re-measured.
+
 | Provider | Before, groups off | After, groups off | Screen enabled, no app grant | Screen approved, devices off | Native guidance, once |
 | -------- | -----------------: | ----------------: | ---------------------------: | ---------------------------: | --------------------: |
 | Codex    |             26,912 |             9,295 |                        9,444 |                       12,074 |                   207 |

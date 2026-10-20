@@ -1,46 +1,48 @@
-import { ScreenFrameHeader } from "@ace/protocol";
-import type { PortableFrame } from "@ace/screen/frames-client";
+import { DeviceScreenshot } from "@ace/protocol/devices";
+import type { SourcePicture } from "@ace/browser/live-view";
 
-const key = (header: ScreenFrameHeader) => JSON.stringify([header.sessionId, sequence(header)]);
-const sequence = (value: ScreenFrameHeader) => (value.version === 1 ? value.sequence : value.seq);
+const key = (deviceId: string, streamId: string, sequence: number) =>
+  JSON.stringify([deviceId, streamId, sequence]);
 
-/** Keep at most four matching JPEG candidates until all screenshot metadata arrives. */
+/**
+ * Screenshots in flight: the daemon sends each one's still picture on the media stream just
+ * before the result that names it. At most four requests, and four candidate stills, wait.
+ */
 export class PendingScreenshots {
   private readonly requests = new Map<string, string>();
-  private readonly frames = new Map<string, PortableFrame>();
+  private readonly stills = new Map<string, SourcePicture>();
   begin(requestId: string, deviceId: string): void {
     if (this.requests.size >= 4) throw new Error("Pending screenshot limit");
     this.requests.set(requestId, deviceId);
   }
-  retain(frame: PortableFrame): void {
-    if (!this.requests.size || frame.header.codec !== "jpeg") return;
-    const identity = key(frame.header);
-    this.frames.delete(identity);
-    this.frames.set(identity, frame);
-    if (this.frames.size > 4) {
-      const oldest = this.frames.keys().next().value;
-      if (oldest !== undefined) this.frames.delete(oldest);
+  retain(picture: SourcePicture): void {
+    if (!this.requests.size || !picture.still) return;
+    const identity = key(picture.sourceId, picture.streamId, picture.sequence);
+    this.stills.delete(identity);
+    this.stills.set(identity, picture);
+    if (this.stills.size > 4) {
+      const oldest = this.stills.keys().next().value;
+      if (oldest !== undefined) this.stills.delete(oldest);
     }
   }
-  complete(
-    requestId: string,
-    raw: unknown,
-  ): { deviceId: string; frame: PortableFrame } | undefined {
+  /** The still a result names, or undefined when it never came or doesn't match. */
+  complete(requestId: string, raw: unknown): SourcePicture | undefined {
     const deviceId = this.requests.get(requestId);
-    const header = ScreenFrameHeader.parse(raw);
-    const frame = this.frames.get(key(header));
+    const result = DeviceScreenshot.parse(raw);
+    const picture =
+      deviceId === undefined
+        ? undefined
+        : this.stills.get(key(deviceId, result.streamId, result.sequence));
     this.cancel(requestId);
-    if (!deviceId || !frame) return undefined;
-    if (sequence(header) !== sequence(frame.header) || header.bytes !== frame.header.bytes)
-      return undefined;
-    return { deviceId, frame };
+    if (!picture || picture.bytes.length !== result.bytes) return undefined;
+    return picture;
   }
   cancel(requestId: string): void {
     this.requests.delete(requestId);
-    if (!this.requests.size) this.frames.clear();
+    if (!this.requests.size) this.stills.clear();
   }
   clear(): void {
     this.requests.clear();
-    this.frames.clear();
+    this.stills.clear();
   }
 }

@@ -1,12 +1,21 @@
 import { effortLabel } from "@ace/ui-core";
 
+/** `effort` is one the model supports and its name matches `names`. */
+const supportedAs = (effort: string | undefined, supported: readonly string[], names: RegExp) =>
+  effort !== undefined && supported.includes(effort) && names.test(effort);
+
 /**
- * Ultra and Max: the deepest reasoning a provider names, which gets the accent sheen and the
- * animated thumb. Explicit provider capabilities, never inferred from being the last choice
- * (Extra high stays an ordinary level).
+ * Ultra, ultrathink and Max: the deepest reasoning a provider names, which gets the accent
+ * sheen and the glowing thumb. Explicit provider capabilities, never inferred from being the
+ * last choice (XHigh stays an ordinary level).
  */
 export function isDeepReasoning(effort: string | undefined, supported: readonly string[]): boolean {
-  return effort !== undefined && supported.includes(effort) && /^(ultra|max)$/i.test(effort);
+  return supportedAs(effort, supported, /^(ultra|ultrathink|max)$/i);
+}
+
+/** Only Ultra and ultrathink carry the ace mark on the thumb; Max glows without it. */
+export function showsAceMark(effort: string | undefined, supported: readonly string[]): boolean {
+  return supportedAs(effort, supported, /^(ultra|ultrathink)$/i);
 }
 
 export function reasoningDescription(effort: string | undefined): string {
@@ -23,6 +32,7 @@ export function reasoningDescription(effort: string | undefined): string {
     case "high":
       return "Spend more reasoning on complex problems.";
     case "ultra":
+    case "ultrathink":
     case "xhigh":
     case "extra_high":
     case "max":
@@ -37,8 +47,8 @@ export function reasoningShortLabel(effort: string): string {
   const labels: Record<string, string> = {
     minimal: "Min",
     medium: "Med",
-    xhigh: "X-High",
-    extra_high: "X-High",
+    xhigh: "XHigh",
+    extra_high: "XHigh",
   };
   return labels[effort.toLowerCase()] ?? effortLabel(effort);
 }

@@ -29,11 +29,6 @@
           "maximum": 9007199254740991,
           "type": "integer"
         },
-        "chunkTool": {
-          "const": "ace_read_handoff_chunk",
-          "default": "ace_read_handoff_chunk",
-          "type": "string"
-        },
         "limit": {
           "const": 50,
           "type": "number"
@@ -42,8 +37,8 @@
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },
         "tool": {
-          "const": "ace_read_handoff",
-          "default": "ace_read_handoff",
+          "const": "handoff_read",
+          "default": "handoff_read",
           "type": "string"
         },
         "type": {
@@ -89,11 +84,26 @@
       "type": "object"
     },
     "policy": {
-      "const": "recent-complete-items",
+      "enum": [
+        "recent-complete-items",
+        "conversation-first"
+      ],
       "type": "string"
+    },
+    "since": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
     },
     "sourceThreadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "sources": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/HandoffModel.json"
+      },
+      "maxItems": 8,
+      "type": "array"
     },
     "throughSeq": {
       "maximum": 9007199254740991,

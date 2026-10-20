@@ -5,10 +5,13 @@ import { MessageDeltas } from "./message-deltas.ts";
 import { PageJournal } from "./page-journal.ts";
 import {
   applyDelivery,
+  inRootLane,
+  mergeBySeq,
   usageSnapshotKey,
   rebuildAgentChildren,
-  chronologicalItemOrder,
+  retainedTail,
 } from "@ace/projection";
+import { resumeTranscript } from "./snapshot-merge.ts";
 import type { ThreadView, EventBatch, Progress, Item, ItemsPage } from "@ace/protocol";
 import type { Mirrorable, ThreadExport, ThreadSource } from "./api.ts";
 import type { ThreadKey, ThreadReader } from "./readers.ts";
@@ -18,6 +21,17 @@ import { ClientError, type Limits } from "./types.ts";
 export type { ThreadKey, ThreadReader } from "./readers.ts";
 
 const emptyOrder: readonly string[] = [];
+const agentOf = (record: Record<string, Item>) => (id: string) =>
+  Object.hasOwn(record, id) ? record[id]?.agentId : undefined;
+/** Finished: no longer streaming, and no tool call still waiting or running. */
+const complete = (record: Record<string, Item>) => (id: string) => {
+  const item = Object.hasOwn(record, id) ? record[id] : undefined;
+  if (!item?.complete) return false;
+  return (
+    item.type !== "tool_call" ||
+    !["pending", "awaiting_approval", "running"].includes(item.call.status)
+  );
+};
 export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   #messageDeltas = new MessageDeltas();
   #journal: PageJournal;
@@ -45,6 +59,16 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     if (this.#syncing === syncing) return;
     this.#syncing = syncing;
     this.#notifications.emit(["sync"]);
+  }
+  #unconfirmed = false;
+  get unconfirmed(): boolean {
+    return this.#unconfirmed;
+  }
+  /** Whether the store holds a copy the daemon has not confirmed (`ThreadReader.unconfirmed`). */
+  setUnconfirmed(unconfirmed: boolean): void {
+    if (this.#unconfirmed === unconfirmed) return;
+    this.#unconfirmed = unconfirmed;
+    this.#notifications.emit(["unconfirmed"]);
   }
   #view: ThreadView | undefined;
   #notifications: Notifications;
@@ -101,6 +125,9 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   item(id: string) {
     return this.#own(this.#view?.items, id);
   }
+  itemSeq(id: string): number | undefined {
+    return this.#creation.get(id);
+  }
   agent(id: string) {
     return this.#own(this.#view?.agents, id);
   }
@@ -148,6 +175,7 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     const view = this.#view;
     return {
       ...(this.#syncing ? { syncing: true } : {}),
+      ...(this.#unconfirmed ? { unconfirmed: true } : {}),
       error: failure && { code: failure.code, message: failure.message },
       view: view && {
         seq: view.seq,
@@ -157,6 +185,12 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
         runs: view.runs,
         items: view.items,
         itemOrder: view.itemOrder,
+        itemSeqs: Object.fromEntries(
+          view.itemOrder.flatMap((id) => {
+            const seq = this.#creation.get(id);
+            return seq === undefined ? [] : [[id, seq]];
+          }),
+        ),
         itemsBefore: view.itemsBefore,
         ...(view.entitiesBefore ? { entitiesBefore: view.entitiesBefore } : {}),
         interactions: view.interactions,
@@ -169,6 +203,35 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       truncated: [...this.#clipped],
       deleted: [...this.#deleted],
     };
+  }
+  /**
+   * Show a view read back from disk until the subscription's snapshot arrives (ADR 0030). It is
+   * held like any transcript, so that snapshot resumes it by creation sequence or replaces it,
+   * exactly as a resubscription's does. False when the store already holds a view or the
+   * record is over this client's limits.
+   */
+  restore(view: ThreadView, truncated: readonly string[]): boolean {
+    if (this.#view) return false;
+    try {
+      this.snapshot(view);
+    } catch (error) {
+      if (!(error instanceof ClientError)) throw error;
+      return false;
+    }
+    const keys = new Set<ThreadKey>(["sync", "unconfirmed"]);
+    for (const id of truncated)
+      if (this.item(id)) {
+        this.#clipped.add(id);
+        keys.add(`item:${id}`);
+      }
+    this.#syncing = true;
+    this.#unconfirmed = true;
+    this.#notifications.emit(keys);
+    return true;
+  }
+  /** Roughly what the store holds, in bytes. Linear in it: for cache boundaries, never deltas. */
+  retainedBytes(): number {
+    return JSON.stringify(this.export()).length * 2 + this.#journal.retainedBytes();
   }
   snapshot(view: ThreadView): void {
     const runs = Object.keys(view.runs).length;
@@ -197,27 +260,71 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       usageSnapshots: view.usageSnapshots,
     }))
       counts.set(name, Object.keys(record).length);
-    view.itemOrder = chronologicalItemOrder(
-      view.itemOrder,
-      (id) => this.#own(view.items, id),
-      (id) => view.itemSeqs?.[id],
-    );
-    this.#view = view;
-    this.#failure = undefined;
-    this.#journal.reset(view.seq);
-    this.#hydrated.clear();
-    this.#creation.clear();
-    this.#clipped.clear();
-    this.#deleted.clear();
-    this.#counts = counts;
+    // The daemon sends its window in creation order; that order is kept as given. A snapshot
+    // answering a resubscription resumes what was held instead of replacing it (ADR 0062).
+    const resumed = this.#resume(view);
+    const creation = new Map<string, number>();
+    for (const id of resumed?.kept ?? []) {
+      const seq = this.#creation.get(id);
+      const item = this.item(id);
+      if (seq === undefined || !item) continue;
+      creation.set(id, seq);
+      if (!Object.hasOwn(view.items, id))
+        Object.defineProperty(view.items, id, {
+          value: item,
+          writable: true,
+          enumerable: true,
+          configurable: true,
+        });
+    }
+    const clipped = new Set((resumed?.kept ?? []).filter((id) => this.#clipped.has(id)));
     for (const id of view.itemOrder) {
       const seq = view.itemSeqs?.[id];
-      if (seq !== undefined) this.#creation.set(id, seq);
+      if (seq !== undefined) creation.set(id, seq);
     }
+    if (resumed) {
+      view.itemOrder = mergeBySeq(resumed.kept, view.itemOrder, (id) => creation.get(id));
+      view.itemsBefore = resumed.before;
+    }
+    this.#view = view;
+    this.#failure = undefined;
+    // The daemon's own snapshot: what the store shows is confirmed (restore marks it again).
+    this.#unconfirmed = false;
+    this.#journal.reset(view.seq);
+    this.#hydrated.clear();
+    this.#creation = creation;
+    this.#clipped = clipped;
+    this.#deleted.clear();
+    this.#counts = counts;
     delete view.itemSeqs;
     this.#trim();
     for (const id of view.itemOrder) this.#clip(id);
     this.#notifications.emitAll();
+  }
+  /** What a held transcript keeps of itself when `view` arrives for the same thread. */
+  #resume(view: ThreadView): ReturnType<typeof resumeTranscript> {
+    const held = this.#view;
+    if (!held || held.thread.id !== view.thread.id || view.seq < held.seq) return undefined;
+    const seqs = view.itemSeqs;
+    if (!seqs) return undefined;
+    return resumeTranscript(
+      {
+        order: held.itemOrder,
+        seq: (id) => this.#creation.get(id),
+        agentOf: agentOf(held.items),
+        complete: complete(held.items),
+        before: held.itemsBefore,
+      },
+      held.seq,
+      {
+        order: view.itemOrder,
+        seq: (id) => (Object.hasOwn(seqs, id) ? seqs[id] : undefined),
+        agentOf: agentOf(view.items),
+        complete: complete(view.items),
+        before: view.itemsBefore,
+      },
+      view.thread.rootAgentId,
+    );
   }
   #copy<T>(record: Record<string, T>, id: string): void {
     const value = this.#own(record, id);
@@ -264,7 +371,9 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
                   ? payload.itemId
                   : undefined;
             if (itemId && event.seq <= (this.#hydrated.get(itemId) ?? -1)) return false;
-            if (payload.type === "item.created") this.#creation.set(payload.item.id, event.seq);
+            // An item's place is its first upsert's sequence; a repeated create never moves it.
+            if (payload.type === "item.created" && !this.#creation.has(payload.item.id))
+              this.#creation.set(payload.item.id, event.seq);
             if (payload.type === "item.created") {
               admitted.add(payload.item.id);
               return true;
@@ -432,21 +541,25 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     this.#notifications.emit(keys);
     return "applied";
   }
-  page(page: ItemsPage): void {
+  /**
+   * Merge an older page read with cursor `before`. A page for a cursor the window has since
+   * left (trimmed past by live items, or paged further) is stale: admitting it would leave a hole.
+   */
+  page(page: ItemsPage, before: number): void {
     const view = this.#view;
     if (!view) throw new ClientError("offline");
     if (page.threadId !== view.thread.id) throw new ClientError("protocol");
     const items = this.#journal.reconcile(page, view.seq);
+    if (view.itemsBefore !== before) return;
     const window = pageWindow(
       view.itemOrder,
       this.#creation,
       { ...page, items },
       this.#limits.items,
     );
-    const retained = new Set(window.order);
     const keys = new Set<ThreadKey>();
     for (const item of items)
-      if (retained.has(item.id) && !this.item(item.id)) {
+      if (window.admitted.has(item.id)) {
         Object.defineProperty(view.items, item.id, {
           value: item,
           writable: true,
@@ -459,37 +572,40 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
         keys.add(`item:${item.id}`);
         this.#clip(item.id);
       }
-    for (const id of view.itemOrder)
-      if (!retained.has(id)) {
-        delete view.items[id];
-        this.#clipped.delete(id);
-        this.#hydrated.delete(id);
-        this.#creation.delete(id);
-        keys.add(`item:${id}`);
-      }
-    if (
-      view.itemOrder.length !== window.order.length ||
-      view.itemOrder.some((id, index) => id !== window.order[index])
-    ) {
-      view.itemOrder = window.order;
+    if (window.order !== view.itemOrder) {
+      view.itemOrder = [...window.order];
       keys.add("order");
     }
     // Null means the oldest item was reached. A duplicate response cannot undo that fact.
-    const before = view.itemsBefore === null ? null : window.before;
-    if (view.itemsBefore !== before) {
-      view.itemsBefore = before;
+    const next =
+      view.itemsBefore === null || window.before === undefined ? view.itemsBefore : window.before;
+    if (view.itemsBefore !== next) {
+      view.itemsBefore = next;
       keys.add("history");
     }
     this.#notifications.emit(keys);
   }
+  /** Bound the window, keeping the root agent's share of it (ADR 0062). */
   #trim(): string[] {
     const view = this.#view;
-    if (!view) return [];
-    const count = view.itemOrder.length - this.#limits.items;
-    if (count <= 0) return [];
-    const removed = view.itemOrder.slice(0, count);
-    view.itemOrder = view.itemOrder.slice(count);
-    view.itemsBefore = this.#creation.get(view.itemOrder[0] ?? "") ?? view.itemsBefore;
+    if (!view || view.itemOrder.length <= this.#limits.items) return [];
+    const root = view.thread.rootAgentId;
+    const tail = retainedTail(
+      view.itemOrder.map((id) => ({
+        id,
+        seq: this.#creation.get(id),
+        root: inRootLane(this.item(id)?.agentId, root),
+      })),
+      this.#limits.items,
+    );
+    view.itemOrder = tail.kept.map((entry) => entry.id);
+    // Everything from the evicted boundary on is held; the cursor never moves back over a hole.
+    if (tail.before !== undefined)
+      view.itemsBefore =
+        typeof view.itemsBefore === "number"
+          ? Math.max(view.itemsBefore, tail.before)
+          : tail.before;
+    const removed = tail.evicted.map((entry) => entry.id);
     for (const id of removed) {
       delete view.items[id];
       this.#clipped.delete(id);

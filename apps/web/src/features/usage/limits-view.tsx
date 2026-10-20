@@ -101,6 +101,7 @@ function Account(props: {
             }`}
           >
             <span
+              // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard
               tabIndex={0}
               className="mt-2.5 inline-block rounded-xs text-xs text-muted-foreground underline decoration-faint-foreground decoration-dotted underline-offset-3 focus-ring"
             >
@@ -148,6 +149,7 @@ function Pace(props: { pace: LimitPace | undefined }) {
   return (
     <Tip label={text.tip}>
       <span
+        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard
         tabIndex={0}
         className={cn(
           "block w-fit rounded-xs text-2xs underline decoration-dotted underline-offset-3 focus-ring",
@@ -215,6 +217,7 @@ function WindowLine(props: { window: AccountWindow; now: number }) {
             "Reset not reported"
           ) : (
             <Tip label={formatResets(window.resetsAt, now)}>
+              {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard */}
               <span tabIndex={0} className="rounded-xs tabular-nums focus-ring">
                 {out ? "Back in" : "Resets in"} {countdown}
               </span>

@@ -15,6 +15,11 @@ export interface NativeTask {
   /** Claude reported this task's start; a terminal edge can arrive before it. */
   started?: boolean;
 }
+/** What Claude says a subagent is: its task's description and its agent type. Blank is unknown. */
+export interface ChildIdentity {
+  name?: string;
+  role?: string;
+}
 export class ClaudeState {
   readonly root: Key;
   session = "initial";
@@ -106,6 +111,7 @@ export class ClaudeState {
     background = false,
     nativeId?: string,
     terminalStatus?: string,
+    identity: ChildIdentity = {},
   ): Key {
     const agent =
       (nativeId ? this.nativeAgents.get(nativeId) : undefined) ??
@@ -127,6 +133,8 @@ export class ClaudeState {
       },
       cwd: this.cwd,
       background,
+      ...(identity.name ? { name: identity.name } : {}),
+      ...(identity.role ? { role: identity.role } : {}),
     });
     this.seen.add(agent);
     if (nativeId) {

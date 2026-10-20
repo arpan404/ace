@@ -73,25 +73,49 @@ export function boundary(repo: EngineRepository, id: ThreadId, point: ForkPoint)
     };
   });
 }
+/**
+ * The portable context for `id` up to `throughSeq`. With `since`, the recipient resumes its own
+ * session, which holds everything up to that cutoff: only later items are offered.
+ */
 export function handoff(
   repo: EngineRepository,
   id: ThreadId,
   throughSeq: number,
   budget: number,
   provider: ProviderKind,
+  since?: number,
 ) {
-  const totalItems = repo.store.historicalItemCount(id, throughSeq);
+  // Cold and bounded: counts, the newest 200 items (1 MiB of previews) and, for a full handoff
+  // on a thread longer than that, a look at its first items for the opening ask.
+  const all = repo.store.historicalItemCount(id, throughSeq);
+  const totalItems = since === undefined ? all : all - repo.store.historicalItemCount(id, since);
   const page = repo.store.readHistoricalItemPage(id, throughSeq, throughSeq + 1, 200, 1024 * 1024);
+  const items =
+    since === undefined
+      ? page.items
+      : page.items.filter((item) => (page.itemSeqs?.[item.id] ?? 0) > since);
+  const opening =
+    since === undefined && page.items.length < all
+      ? repo.store.historicalOpening(id, throughSeq)
+      : undefined;
   const thread = repo.store.getThread(id);
   const backend = thread?.provider === provider ? repo.backend(id) : undefined;
   return portableContext(
-    { threadId: id, throughSeq, totalItems, provider, ...(backend ? { backend } : {}) },
-    page.items,
+    {
+      threadId: id,
+      throughSeq,
+      totalItems: Math.max(totalItems, items.length),
+      provider,
+      ...(backend ? { backend } : {}),
+      ...(since === undefined ? {} : { since }),
+    },
+    items,
     {
       maxBytes: budget,
       maxItems: 200,
-      historyTruncated: page.items.length < totalItems,
+      historyTruncated: items.length < totalItems,
     },
+    opening,
   ).handoff;
 }
 export function validateCitations(

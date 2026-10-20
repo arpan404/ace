@@ -1,6 +1,8 @@
 import type { DeviceTransport } from "@ace/client/devices";
 import {
   AppDevice,
+  type DeviceActivity,
+  DeviceAck,
   DeviceClientMessage,
   type DeviceFailure,
   type DeviceInput,
@@ -10,7 +12,8 @@ import {
   type DeviceServerMessage,
   DeviceState,
 } from "@ace/protocol/devices";
-import { fakeScreenFrame } from "./screen-frame.ts";
+import { fakeDeviceFrame, fakePictureBytes } from "./screen-frame.ts";
+import { fakeDeviceUITree } from "./device-ui-tree.ts";
 
 const leaseMs = 5 * 60_000;
 
@@ -32,6 +35,22 @@ interface Session {
   screen: "home" | "app";
   logs: string[];
   recording?: boolean;
+  /** The last thing an agent did here, numbered from `activitySequence`. */
+  activity?: DeviceActivity;
+  activitySequence: number;
+}
+
+function idleSession(device: AppDevice): Session {
+  return {
+    device,
+    lifecycle: "idle",
+    controller: "none",
+    screen: "home",
+    logs: [],
+    codec: "jpeg",
+    keyframe: true,
+    activitySequence: 0,
+  };
 }
 
 type DeviceTransportEvents = Parameters<DeviceTransport["open"]>[0];
@@ -73,10 +92,10 @@ function denied(permission: DevicePermission): Refusal {
 /**
  * In-app devices as the daemon's `@ace/devices` service presents them, in memory: an iOS
  * Simulator and an Android emulator, enable, approval for a thread, boot and shutdown, a live
- * stream of screen frames in the screen binary format (JPEG, or H.264 when negotiated and
+ * stream of pictures on the shared media stream (JPEG, or H.264 when negotiated and
  * `videoEncoding` is on), an expiring human control lease, input, and logs. Each `transport()`
  * is one dedicated, already authenticated devices channel.
- * Recording, screenshots and UI trees answer `not_supported`.
+ * UI trees are a fixed Settings screen; UI find and act answer `not_supported`.
  */
 export class FakeAppDevices {
   onRecording?: (threadId: string, artifactId: string) => void;
@@ -100,6 +119,9 @@ export class FakeAppDevices {
    * stand-in bytes for the encoder's NAL units, which only a test's decoder accepts.
    */
   videoEncoding = false;
+  /** Every `devices.ack` a viewer sent, in order. */
+  readonly acks: DeviceAck[] = [];
+  private messageIds = 0;
   /** Every live-view setting a viewer asked for, in order. */
   readonly streamRequests: { deviceId: string; settings: StreamSettings }[] = [];
   constructor(clock: () => number) {
@@ -120,15 +142,7 @@ export class FakeAppDevices {
         runtime: "Android 15",
       }),
     ])
-      this.sessions.set(device.id, {
-        device,
-        lifecycle: "idle",
-        controller: "none",
-        screen: "home",
-        logs: [],
-        codec: "jpeg",
-        keyframe: true,
-      });
+      this.sessions.set(device.id, idleSession(device));
   }
 
   /** Close every devices channel, as a daemon restart or a revoked token would. */
@@ -143,6 +157,44 @@ export class FakeAppDevices {
   /** The thread whose agent or person took a device last. */
   boundThread(deviceId: string): string | undefined {
     return this.sessions.get(deviceId)?.threadId;
+  }
+
+  /** Another device joins the inventory, idle and uncontrolled, and open channels hear of it. */
+  addDevice(device: AppDevice): void {
+    const parsed = AppDevice.parse(device);
+    if (this.sessions.has(parsed.id)) throw new Error(`Device ${parsed.id} already exists`);
+    this.sessions.set(parsed.id, idleSession(parsed));
+    const devices = [...this.sessions.values()].map((session) => session.device);
+    for (const channel of this.channels)
+      this.send(channel, { type: "devices.inventory", devices, issues: [] });
+  }
+
+  /** A thread's agent takes a device, as the daemon's claim for an agent does. */
+  agentTakes(deviceId: string, threadId: string, agentId: string): void {
+    const session = this.known(deviceId);
+    session.threadId = threadId;
+    session.controller = "agent";
+    delete session.humanOwner;
+    session.holder = DeviceState.shape.holder.unwrap().parse({ threadId, agentId });
+    delete session.leaseExpiresAt;
+    this.publish(session);
+  }
+
+  /** The agent holding a device acted on it: viewers see the action, numbered, and a new frame. */
+  agentActs(deviceId: string, activity: Omit<DeviceActivity, "sequence">): void {
+    const session = this.known(deviceId);
+    session.activitySequence++;
+    session.activity = { ...activity, sequence: session.activitySequence };
+    if (activity.action === "key" && activity.key === "home") session.screen = "home";
+    else if (activity.point) session.screen = "app";
+    this.publish(session);
+    this.paint(session);
+  }
+
+  private known(deviceId: string): Session {
+    const session = this.sessions.get(deviceId);
+    if (!session) throw new Error(`Unknown device ${deviceId}`);
+    return session;
   }
 
   /** One authenticated devices channel, as `deviceTransport()` opens against a real daemon. */
@@ -160,6 +212,18 @@ export class FakeAppDevices {
       send: (raw) => {
         const current = channel;
         if (!current) throw new Error("Device channel is not authenticated");
+        if (raw.type === "devices.ack") {
+          const ack = DeviceAck.parse(raw);
+          this.acks.push(ack);
+          // A decoder that lost its place gets a fresh picture, as the daemon's window sends.
+          const session = this.sessions.get(ack.deviceId);
+          if (ack.keyframe && session)
+            queueMicrotask(() => {
+              session.keyframe = true;
+              this.paint(session);
+            });
+          return;
+        }
         const message = DeviceClientMessage.parse(raw);
         queueMicrotask(() => this.receive(current, message));
       },
@@ -189,6 +253,11 @@ export class FakeAppDevices {
       lifecycle: session.lifecycle,
       recording: session.recording === true,
       ...(session.streamId ? { streamId: session.streamId } : {}),
+      // The emulator's live view takes several fingers, as scrcpy's does; the Simulator's says
+      // nothing, as an older daemon's doesn't.
+      ...(session.lifecycle === "live" && session.device.platform === "android"
+        ? { touch: "multi" as const }
+        : {}),
       controller: session.controller,
       ownedHere:
         session.controller === "human" &&
@@ -196,6 +265,7 @@ export class FakeAppDevices {
         (session.leaseExpiresAt ?? 0) > this.clock(),
       holder: session.holder,
       ...(session.leaseExpiresAt ? { leaseExpiresAt: session.leaseExpiresAt } : {}),
+      ...(session.activity ? { activity: session.activity } : {}),
     });
   }
 
@@ -208,25 +278,31 @@ export class FakeAppDevices {
       this.send(channel, { type: "devices.state", state: this.state(session, channel) });
   }
 
-  private frame(session: Session): Uint8Array {
-    const packet = fakeScreenFrame({
+  private nextMessageId(): number {
+    this.messageIds = (this.messageIds + 1) >>> 0;
+    return this.messageIds;
+  }
+
+  /** One picture to `viewers`, as stream kind `deviceFrame` pieces. */
+  private show(session: Session, viewers: readonly Channel[]): void {
+    const pieces = fakeDeviceFrame({
+      deviceId: session.device.id,
       sessionId: session.streamId ?? "idle",
       sequence: ++this.sequence,
       timestamp: this.clock(),
       screen: session.screen,
       codec: session.codec,
       keyframe: session.keyframe,
+      id: this.nextMessageId(),
     });
     session.keyframe = false;
-    return packet;
+    for (const channel of viewers) for (const piece of pieces) channel.events.message(piece);
   }
 
   private paint(session: Session): void {
     if (session.lifecycle !== "live") return;
     const viewers = [...this.channels].filter((channel) => channel.streams.has(session.device.id));
-    if (!viewers.length) return;
-    const packet = this.frame(session);
-    for (const channel of viewers) channel.events.message(packet);
+    if (viewers.length) this.show(session, viewers);
   }
 
   private log(session: Session, line: string, channel?: Channel): void {
@@ -375,7 +451,7 @@ export class FakeAppDevices {
         channel.streams.add(session.device.id);
         // A new viewer starts from a self-contained frame.
         session.keyframe = true;
-        if (session.lifecycle === "live") channel.events.message(this.frame(session));
+        if (session.lifecycle === "live") this.show(session, [channel]);
         return this.state(session, channel);
       case "stream.configure": {
         this.streamRequests.push({ deviceId: session.device.id, settings: operation.settings });
@@ -417,12 +493,26 @@ export class FakeAppDevices {
         this.actions.push(operation);
         return { completed: true };
       case "screenshot": {
-        const packet = this.frame(session);
-        channel.events.message(packet);
-        const length = new DataView(packet.buffer, packet.byteOffset, packet.byteLength).getUint32(
-          0,
-        );
-        return JSON.parse(new TextDecoder().decode(packet.subarray(4, 4 + length)));
+        // A still JPEG on the media stream first; the result names it.
+        const streamId = session.streamId ?? "idle";
+        const sequence = ++this.sequence;
+        for (const piece of fakeDeviceFrame({
+          deviceId: session.device.id,
+          sessionId: streamId,
+          sequence,
+          timestamp: this.clock(),
+          screen: session.screen,
+          still: true,
+          id: this.nextMessageId(),
+        }))
+          channel.events.message(piece);
+        return {
+          streamId,
+          sequence,
+          width: 390,
+          height: 844,
+          bytes: fakePictureBytes(session.screen).length,
+        };
       }
       case "record.start":
         if (!session.threadId)
@@ -454,6 +544,8 @@ export class FakeAppDevices {
         return { stopped: true };
       case "logs":
         return { lines: session.logs.slice(-operation.limit), dropped: 0 };
+      case "ui.tree":
+        return fakeDeviceUITree;
       default:
         throw new Refusal(
           "not_supported",

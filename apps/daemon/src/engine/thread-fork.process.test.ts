@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "vitest";
-import { ItemId, PortableHandoff } from "@ace/protocol";
-import { transitionHarness } from "./transition-test-support.ts";
+import { ItemId } from "@ace/protocol";
+import { receivedHandoff, transitionHarness } from "./transition-test-support.ts";
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0)) await close();
@@ -43,13 +43,10 @@ test("providers without native forks receive cited handoff with omitted-history 
   const source = await h.create();
   const fork = await h.fork(source);
   const input = h.inputs.at(-1)?.text ?? "";
-  const handoff = PortableHandoff.parse(
-    JSON.parse(input.slice(0, input.indexOf("\ncontinue fork"))),
-  );
+  const handoff = receivedHandoff(input);
   expect(handoff.sourceThreadId).toBe(source);
-  expect(handoff.excerpts[0]?.citation.threadId).toBe(source);
-  expect(handoff.excerpts[0]?.text).toContain("source history");
-  expect(handoff.history).toMatchObject({ type: "items.page", threadId: source });
+  expect(handoff.block).toContain("user: source history");
+  expect(handoff.read).toMatchObject({ sourceThreadId: source, limit: 50 });
   expect(h.store.getThread(fork)?.lineage).toMatchObject({ mode: "portable", lossy: true });
 });
 test("a failed run can fork its complete provider history", async () => {

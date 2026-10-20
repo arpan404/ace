@@ -14,7 +14,14 @@
     "./counts": "./src/counts.ts",
     "./computer-use": "./src/computer-use.ts",
     "./interaction-measurement": "./src/interaction-measurement.ts",
-    "./editor-url": "./src/editor-url.ts"
+    "./editor-url": "./src/editor-url.ts",
+    "./file-references": "./src/file-references.ts",
+    "./transcript-blocks": "./src/transcript-blocks.ts",
+    "./transcript-block-reader": "./src/transcript-block-reader.ts",
+    "./agent-facts": "./src/agent-facts.ts",
+    "./subagent-group": "./src/subagent-group.ts",
+    "./thread-execution": "./src/thread-execution.ts",
+    "./mobile": "./src/mobile.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"
@@ -24,6 +31,7 @@
     "@ace/client": "workspace:*",
     "@ace/core": "workspace:*",
     "@ace/forge": "workspace:*",
+    "@ace/handoff": "workspace:*",
     "@ace/models": "workspace:*",
     "@ace/native-session": "workspace:*",
     "@ace/projection": "workspace:*",

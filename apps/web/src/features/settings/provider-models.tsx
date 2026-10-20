@@ -18,6 +18,7 @@ import { SettingList, SettingListItem, SettingRow } from "@/components/setting-r
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Input } from "@/components/ui/input.tsx";
+import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import {
   GroupProblem,
@@ -104,7 +105,7 @@ export function ProviderModels(props: { provider: ProviderKind }) {
         title="Models in the picker"
         description={
           catalog === undefined
-            ? "Loading models…"
+            ? loadingModels("mt-1 h-3 w-44")
             : `${pluralCount(unique.filter((model) => !model.hidden).length, "model")} · legacy models in a submenu`
         }
         inline
@@ -140,7 +141,9 @@ export function ProviderModels(props: { provider: ProviderKind }) {
           </SettingRow>
           <div className="flex min-h-9 items-center gap-2 text-ui">
             <span className="min-w-0 flex-1 text-muted-foreground">
-              {catalog === undefined ? "Loading models…" : pluralCount(unique.length, "model")}
+              {catalog === undefined
+                ? loadingModels("h-3 w-20")
+                : pluralCount(unique.length, "model")}
             </span>
             <Button
               size="sm"
@@ -358,5 +361,14 @@ function DefaultModel(props: {
         </Button>
       )}
     </SettingRow>
+  );
+}
+
+/** A skeleton pill in a count's place while the catalog loads. */
+function loadingModels(className: string) {
+  return (
+    <span role="status" aria-label="Loading models" className="block">
+      <Skeleton className={className} />
+    </span>
   );
 }

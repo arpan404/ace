@@ -6,7 +6,8 @@ import { QueuePage, type CommandPayload, type ThreadId } from "@ace/protocol";
 import {
   admissionFacts,
   inputText,
-  steerFacts,
+  splitSteerSelection,
+  steerOrStart,
   type ThreadCommandOutcome,
 } from "./thread-commands.ts";
 import type { FakeQueued, ThreadHost } from "./thread-host.ts";
@@ -105,12 +106,15 @@ export function queueCommand(
         ...message,
         input: [...payload.input],
         context: payload.context,
-        delivery:
-          message.model !== undefined || message.options !== undefined
-            ? "queue"
-            : (payload.delivery ?? message.delivery),
+        delivery: payload.delivery ?? message.delivery,
         text: inputText(payload.input, payload.context),
       };
+      // Changed to steer, it goes in like a fresh steer, its selection split off the same way.
+      if (splitSteerSelection(host, edited)) {
+        delete edited.model;
+        delete edited.options;
+      } else if (edited.model !== undefined || edited.options !== undefined)
+        edited.delivery = "queue";
       // Steering a waiting message delivers it into the running turn now.
       if (edited.delivery === "steer" && !host.queue.paused) {
         host.queued.splice(index, 1);
@@ -119,7 +123,7 @@ export function queueCommand(
           ok: true,
           facts: [
             ...admissionFacts(host, edited.key, edited.input, edited.attachments),
-            ...steerFacts(host, edited.key, edited.text),
+            ...steerOrStart(host, edited.key, edited.text),
             { type: "queue.changed", count: host.queued.length },
           ],
         };

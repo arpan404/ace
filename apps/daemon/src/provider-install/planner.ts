@@ -44,6 +44,17 @@ export interface InstallTarget {
   agent?: InstallAgent | undefined;
   acpAgentId?: string | undefined;
 }
+/**
+ * Only the target's own fields. Callers hand over a whole request or job progress; a plan built
+ * from those would carry their `type`, `requestId` or `state`, and clients refuse such a plan.
+ */
+export function installTarget(target: InstallTarget): InstallTarget {
+  return {
+    provider: target.provider,
+    ...(target.agent ? { agent: target.agent } : {}),
+    ...(target.acpAgentId ? { acpAgentId: target.acpAgentId } : {}),
+  };
+}
 function within(path: string, root: string): boolean {
   const suffix = relative(root, path);
   return suffix === "" || (!suffix.startsWith("..") && !isAbsolute(suffix));
@@ -91,11 +102,12 @@ export class InstallPlanner {
     }
   }
   async plan(
-    target: InstallTarget,
+    requestedTarget: InstallTarget,
     action: InstallAction,
     requested?: InstallMethod,
     signal?: AbortSignal,
   ): Promise<ProviderInstallPlan> {
+    const target = installTarget(requestedTarget);
     if (target.acpAgentId && target.provider !== "acp") throw new Error("Invalid registry target");
     if (target.provider === "antigravity" || target.acpAgentId) {
       if (requested && requested !== "registry") throw new Error("Invalid registry installer");

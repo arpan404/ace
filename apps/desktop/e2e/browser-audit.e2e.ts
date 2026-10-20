@@ -31,7 +31,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
           { id: contents, expression },
         );
 
-      await p.getByRole("button", { name: "Take over", exact: true }).hover();
+      await p.getByRole("button", { name: "Annotate", exact: true }).hover();
       await p.getByRole("tooltip").waitFor();
       expect((await native.geometry()).native.visible).toBe(true);
       await p.mouse.move(0, 0);
@@ -49,11 +49,11 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await browser.execute(thread, { action: "click", ref: file });
       expect(await browser.execute(thread, { action: "logs" })).toMatchObject({
         entries: expect.arrayContaining([
-          expect.objectContaining({ text: expect.stringContaining("ace_browser_upload") }),
+          expect.objectContaining({ text: expect.stringContaining('action "upload"') }),
         ]),
       });
 
-      // Read-only scrolling and Find leave the agent's lease intact.
+      // The person scrolls and finds in the page the agent works in; nothing changes hands.
       await s.app.evaluate(
         ({ webContents }, id) =>
           webContents
@@ -62,9 +62,6 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
         contents,
       );
       await browser.execute(thread, { action: "find_text", text: "needle" });
-      expect(browser.state(thread).controller).toBe("agent");
-      await p.getByRole("button", { name: "Take over", exact: true }).click();
-      await expect.poll(() => browser.state(thread).controller).toBe("human");
       await p.mouse.move(0, 0);
       await expect.poll(native.placed).toBe(true);
       await read(
@@ -141,8 +138,6 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
 
       // A web connection gets changing frames while holding an unseen native page.
       await p.getByRole("button", { name: "Right panel" }).click();
-      await expect.poll(() => browser.state(thread).controller).toBe("agent");
-      browser.takeover(thread, "remote");
       let latest = "";
       let count = 0;
       const stop = browser.subscribe(

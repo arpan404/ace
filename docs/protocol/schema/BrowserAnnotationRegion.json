@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserAnnotationRegion.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "box": {
+      "$ref": "https://ace.local/protocol/v1/BrowserAnnotationBox.json"
+    },
+    "elements": {
+      "default": [],
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/BrowserAnnotationElement.json"
+      },
+      "maxItems": 8,
+      "type": "array"
+    }
+  },
+  "required": [
+    "box"
+  ],
+  "type": "object"
+}

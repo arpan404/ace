@@ -2,17 +2,14 @@ import { accessModeOffers } from "@ace/provider-kit/access-modes";
 import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import type { Capabilities } from "@ace/protocol";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
-/** Only 0.159.1 and later are verified against this generated experimental protocol. */
+import { admitsVersion } from "@ace/provider-kit/cli-requirements";
+/** Only ace's minimum and later are verified against this generated experimental protocol. */
 export function codexCapabilities(cli: DiscoveryResult): Capabilities {
-  const parts = cli.version
-    ?.match(/^(\d+)\.(\d+)\.(\d+)/)
-    ?.slice(1)
-    .map(Number);
-  const [major = -1, minor = -1, patch = -1] = parts ?? [];
-  const supported =
-    cli.installed && !!parts && (major > 0 || minor > 159 || (minor === 159 && patch >= 1));
+  const supported = cli.installed && admitsVersion("codex", cli.version);
   return {
     steer: supported,
+    // `turn/steer` lands at the next model request, after the running command returns.
+    steerTiming: "after_tool",
     permissionModes: nativePermissionModes("codex"),
     accessModes: accessModeOffers({ provider: "codex" }),
     permissions: {
@@ -30,6 +27,7 @@ export function codexCapabilities(cli: DiscoveryResult): Capabilities {
     forkPoints: supported ? ["turn", "end"] : [],
     subagentTranscripts: supported,
     backgroundTaskControl: supported,
+    goals: supported,
     backgroundVisibility: supported ? "full" : "none",
     planMode: supported,
     tokenUsage: supported,

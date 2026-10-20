@@ -88,18 +88,16 @@ test("removing a project keeps its files and stops listing it", async () => {
   await userEvent.click(await screen.findByRole("menuitem", { name: "Remove…" }));
   const dialog = await screen.findByRole("dialog", { name: "Remove docs?" });
   expect(within(dialog).getByText(/This won't delete any files/)).toBeTruthy();
-  await waitFor(() =>
-    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Cancel" })),
-  );
   const remove = within(dialog).getByRole("button", { name: "Remove project" });
-  expect(remove.dataset.variant).toBe("danger");
+  // Nothing is deleted, so it isn't a red, destructive confirmation.
+  expect(remove.dataset.variant).toBe("primary");
   await userEvent.click(remove);
 
-  // With the last project gone, the toolbar offers adding one.
+  // With the last project gone, Add project stands in for the project filter.
   await within(await screen.findByRole("complementary", { name: "Threads" })).findByRole("button", {
     name: "Add project",
   });
-  expect(screen.queryByRole("button", { name: /^Project filter:/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Project filter: All projects" })).toBeNull();
   expect(listed(made)).not.toContain("docs");
 });
 
@@ -189,7 +187,6 @@ test("an unselected project has Edit, Remove and Open in from its context menu",
     await userEvent.click(within(menu).getByRole("menuitem", { name: "Open in…" }));
     await userEvent.click(await screen.findByRole("menuitem", { name: "Visual Studio Code" }));
     await waitFor(() => expect(launches).toEqual(["vscode://file/fake/docs"]));
-    expect(await screen.findByText("Opened in Visual Studio Code")).toBeTruthy();
   } finally {
     window.open = original;
   }

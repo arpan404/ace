@@ -13,7 +13,13 @@ import { Tabs, TabsList, TabsTab } from "@/components/ui/tabs.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { usePrReview } from "./pr-review-context.tsx";
-import { PrConversationComposer } from "./pr-review-forms.tsx";
+import { PrConversationComposer, PrReviewSubmission } from "./pr-review-forms.tsx";
+
+/**
+ * Room every PR tab body leaves under its last row for the floating comment button (30px,
+ * 12px off the bottom) and a gap, so scrolled to the end nothing sits under it.
+ */
+export const composerClearance = "pb-16";
 
 export function PrComposer(props: {
   context: PrWorkspaceContext;
@@ -29,8 +35,14 @@ export function PrComposer(props: {
   const [open, setOpen] = useState(false);
   const toast = useToast();
   const hosted = usePrReview();
-  const native =
-    !props.extensions?.comment && !props.extensions?.review && hosted?.state?.canComment;
+  const hostedOnly = !props.extensions?.comment && !props.extensions?.review;
+  const native = hostedOnly && hosted?.state?.canComment;
+  // The host's own review: a verdict plus the line drafts saved from the Code tab.
+  const nativeReview =
+    hostedOnly &&
+    !!hosted?.state &&
+    (hosted.state.canReview || hosted.state.canComment || hosted.state.drafts.length > 0);
+  const [nativeMode, setNativeMode] = useState<"comment" | "review">("comment");
   const selected =
     mode === "review" && !props.extensions?.review
       ? "comment"
@@ -38,7 +50,7 @@ export function PrComposer(props: {
         ? "review"
         : mode;
   const action = selected === "review" ? props.extensions?.review : props.extensions?.comment;
-  if (!props.extensions?.comment && !props.extensions?.review && !native) return null;
+  if (hostedOnly && !native && !nativeReview) return null;
   const disabled = props.context.disabled || pending || !body.trim();
   const send = async (close: boolean) => {
     const run = close ? props.extensions?.closeWithComment : action;
@@ -84,8 +96,18 @@ export function PrComposer(props: {
         <PopoverContent side="top" align="end" className="w-96 max-w-full space-y-3 p-3">
           <PopoverTitle className="sr-only">Comment on pull request</PopoverTitle>
           <div className="flex items-center justify-between">
-            {native ? (
-              <span className="text-ui font-medium">Comment</span>
+            {hostedOnly ? (
+              <Tabs
+                value={native ? nativeMode : "review"}
+                onValueChange={(value) => {
+                  if (value === "comment" || value === "review") setNativeMode(value);
+                }}
+              >
+                <TabsList aria-label="Comment or review" className="rounded-md bg-muted p-0.5">
+                  {native && <TabsTab value="comment">Comment</TabsTab>}
+                  {nativeReview && <TabsTab value="review">Review</TabsTab>}
+                </TabsList>
+              </Tabs>
             ) : (
               <Tabs
                 value={selected}
@@ -104,8 +126,12 @@ export function PrComposer(props: {
             )}
             <PopoverClose render={<IconButton icon={XIcon} label="Close composer" />} />
           </div>
-          {native ? (
-            <PrConversationComposer prKey={JSON.stringify(props.context.detail.status.ref)} />
+          {hostedOnly ? (
+            native && nativeMode === "comment" ? (
+              <PrConversationComposer prKey={JSON.stringify(props.context.detail.status.ref)} />
+            ) : (
+              <PrReviewSubmission detail={props.context.detail} />
+            )
           ) : (
             <>
               <textarea

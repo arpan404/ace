@@ -35,7 +35,6 @@ export interface ServerOptions {
   cliControl?: ReturnType<typeof import("./services/cli-control.ts").cliControl>;
   storage?: import("./storage/service.ts").StorageService;
   sourceControl?: import("./source-control.ts").SourceControl;
-  remoteContextTransfers?: import("./agent-control/remote-context-transfer.ts").RemoteContextTransfers;
   agentControl?: import("./services/types.ts").Services["agentControl"];
   /** Agent calls from other paired machines (ADR 0078). */
   machineCalls?: import("./machines/target.ts").MachineTarget;
@@ -48,6 +47,10 @@ export interface ServerOptions {
   /** Detected dev servers per thread (`preview.request` list with suggestions). */
   previewSuggestions?: import("./preview-suggestions/tracker.ts").SuggestionTracker;
   automations?: Pick<import("@ace/automations").AutomationService, "handle">;
+  /** Threads whose browser an agent works in now (`browser.browsing.watch`). */
+  browsing?: import("./browsing.ts").BrowsingThreads;
+  /** Threads whose agent uses Mac apps now (`computer.using.watch`). */
+  computerUsing?: import("./computer-using.ts").ComputerUsingThreads;
   /** The Activity read cursor (`activity.reads`). */
   activityReads?: import("./activity-reads.ts").ActivityReads;
   /** Site and app icons for browser and computer-use steps. */
@@ -103,6 +106,7 @@ export interface ServerOptions {
   handler: CommandHandler;
   plugins?: { handle(input: unknown): Promise<PluginResponse> };
   browser?: BrowserService;
+  userBrowser?: import("./user-browser.ts").UserBrowserService;
   review?: ReviewPort;
   replayLimit?: number;
   idleTimeoutMs?: number;
@@ -140,6 +144,6 @@ export interface ServerOptions {
     NotificationWorker,
     "connectDevice" | "disconnect" | "updatePresence" | "register" | "preferences" | "snooze"
   > &
-    Partial<Pick<NotificationWorker, "revoke" | "getPreferences">>;
+    Partial<Pick<NotificationWorker, "revoke" | "getPreferences" | "feed" | "unregister">>;
   onDisconnect?: (deviceId: DeviceId | undefined) => void;
 }

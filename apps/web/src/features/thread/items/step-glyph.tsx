@@ -1,19 +1,16 @@
 import type { Item, ToolSurface } from "@ace/protocol";
-import { exploreAction, displayCommand } from "@ace/ui-core";
+import { exploreAction, displayCommand, isToolSearch, toolSearchRow } from "@ace/ui-core";
 import type { ToolMark } from "@ace/ui-core/ace-tools";
 import {
   BrainIcon,
   ChatCircleIcon,
-  ChatsCircleIcon,
   DeviceMobileIcon,
   FileTextIcon,
   FolderSimpleIcon,
-  GitPullRequestIcon,
   GlobeIcon,
   ImageIcon,
   ListChecksIcon,
   MagnifyingGlassIcon,
-  MonitorIcon,
   NoteIcon,
   NotePencilIcon,
   PlugIcon,
@@ -22,29 +19,34 @@ import {
   WrenchIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
+import { AceToolIcon, BrowserUseIcon, ComputerUseIcon } from "@/components/ace-icons.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useToolIcon } from "@/lib/tool-icons.ts";
 
 /*
  * A work-log row's icon: what the step did, as a Phosphor glyph, or for browser and computer-use
- * steps the real favicon of the site or icon of the app, as the daemon resolved them. A failed
+ * steps the real favicon of the site or icon of the app, as the daemon resolved them. ace's own
+ * tools that act on ace itself (agents, threads, pull requests, notes) show the ace mark. A failed
  * step's glyph takes the failure tone; an image icon can't, so it fades.
  */
 
 const markGlyphs: Record<Extract<ToolMark, { kind: "glyph" }>["glyph"], PhosphorIcon> = {
-  screen: MonitorIcon,
-  browser: GlobeIcon,
-  agent: RobotIcon,
-  thread: ChatsCircleIcon,
-  pr: GitPullRequestIcon,
-  ace: NoteIcon,
+  screen: ComputerUseIcon,
+  browser: BrowserUseIcon,
+  agent: AceToolIcon,
+  thread: AceToolIcon,
+  pr: AceToolIcon,
+  ace: AceToolIcon,
 };
 
 /** The glyph for what an item did. */
 export function stepGlyph(item: Item | undefined, mark?: ToolMark): PhosphorIcon {
   if (mark?.kind === "device") return DeviceMobileIcon;
   if (mark?.kind === "glyph") return markGlyphs[mark.glyph];
+  // A site or app whose own icon can't be had (localhost, an unknown app): the surface's glyph.
+  if (mark?.kind === "site") return BrowserUseIcon;
+  if (mark?.kind === "app") return ComputerUseIcon;
   if (item?.type === "reasoning") return BrainIcon;
   if (item?.type === "notice") return NoteIcon;
   if (item?.type !== "tool_call") return WrenchIcon;
@@ -53,7 +55,10 @@ export function stepGlyph(item: Item | undefined, mark?: ToolMark): PhosphorIcon
     case "file.read":
       return FileTextIcon;
     case "search":
-      return MagnifyingGlassIcon;
+      // Loading the agent's own tools by name is a tool step; a keyword search of them still looks.
+      return isToolSearch(item.call) && toolSearchRow(detail.query).loaded
+        ? PlugIcon
+        : MagnifyingGlassIcon;
     case "shell": {
       const explored = exploreAction(displayCommand(detail).command);
       return explored === "search"
@@ -72,8 +77,9 @@ export function stepGlyph(item: Item | undefined, mark?: ToolMark): PhosphorIcon
       return NotePencilIcon;
     case "web.search":
     case "web.fetch":
-    case "browser":
       return GlobeIcon;
+    case "browser":
+      return BrowserUseIcon;
     case "todo":
     case "plan":
       return ListChecksIcon;
@@ -91,21 +97,21 @@ export function stepGlyph(item: Item | undefined, mark?: ToolMark): PhosphorIcon
   }
 }
 
-/** The surface's own icon (favicon or app icon), or its glyph until or unless there is one. */
+/**
+ * The surface's own icon (favicon or app icon), or until or unless there is one, the browser-use
+ * or computer-use glyph: never a generic tool's.
+ */
 function SurfaceIcon(props: {
   threadId: string;
   itemId: string;
   surface: ToolSurface;
-  fallback: PhosphorIcon;
   failed: boolean;
 }) {
   const image = useToolIcon(props.threadId, props.itemId, props.surface.iconRef);
   if (!image)
     return (
       <Icon
-        icon={
-          props.surface.kind === "computer" && !props.surface.icon ? MonitorIcon : props.fallback
-        }
+        icon={props.surface.kind === "computer" ? ComputerUseIcon : BrowserUseIcon}
         size={16}
         className={props.failed ? "text-status-failed" : "text-subtle-foreground"}
       />
@@ -153,7 +159,6 @@ export function StepGlyph(props: {
         threadId={props.threadId}
         itemId={props.item.id}
         surface={surface}
-        fallback={glyph}
         failed={props.failed}
       />
     );

@@ -2,13 +2,15 @@ import { toolSurface } from "@ace/projection";
 import type { Item } from "@ace/protocol";
 import { displayCommand } from "./step-display.ts";
 import { exploreAction } from "./explore-command.ts";
+import { isToolSearch } from "./tool-search.ts";
 
 /*
- * A work log's steps as rows: consecutive tool calls by one agent group into one summary row
- * ("Edited 2 files · ran 1 command"), exploration alone into "Explored 3 files · 2 searches".
- * What the agent says between steps and an image it showed stand alone
- * and end the group before them. Appending a step regroups only the last group, so a live log
- * costs what changed, not its history. Pure.
+ * A work log's steps as rows: consecutive steps of one family by one agent group into one summary
+ * row ("Edited 2 files", "Ran 3 commands and thought once"), exploration into "Explored 3 files
+ * and 2 searches". What the agent says between steps, an image it showed and an error stand alone
+ * and end the group before them; so does a thought that starts a group. A group of one is a
+ * plain row. Appending a step regroups only the last group, so a live log costs what changed,
+ * not its history. Pure.
  */
 
 export type StepKind =
@@ -107,7 +109,8 @@ export function stepFact(item: Item, retried?: ReadonlySet<string>): StepFact | 
     case "file.read":
       return { ...fact, kind: "read", target: detail.path };
     case "search":
-      return { ...fact, kind: "search" };
+      // Loading the agent's own tools is bookkeeping, not a search of the code.
+      return { ...fact, kind: isToolSearch(call) ? "tool" : "search" };
     case "file.edit":
     case "file.write":
     case "file.delete":
@@ -167,7 +170,7 @@ function distinct(facts: readonly StepFact[], kind: StepKind): number {
   return targets.size;
 }
 
-/** Each kind's phrase, mutating kinds first. */
+/** Each kind's phrase, mutating kinds first, thoughts last. */
 function phrases(facts: readonly StepFact[]): { kind: StepKind; text: string; steps: number }[] {
   const count = (kind: StepKind) => facts.filter((fact) => fact.kind === kind).length;
   const out: { kind: StepKind; text: string; steps: number }[] = [];
@@ -184,7 +187,6 @@ function phrases(facts: readonly StepFact[]): { kind: StepKind; text: string; st
       : 0;
   add("edit", () => `edited ${plural(distinct(facts, "edit"), "file")}`);
   add("command", (steps) => `ran ${plural(steps, "command")}`);
-  add("think", (steps) => `thought ${steps === 1 ? "once" : `${steps} times`}`);
   add("computer", (steps) => `used ${plural(known("computer") || steps, "app")}`);
   add("browser", (steps) =>
     known("browser")
@@ -196,10 +198,12 @@ function phrases(facts: readonly StepFact[]): { kind: StepKind; text: string; st
   add("read", () => `read ${plural(distinct(facts, "read"), "file")}`);
   add("search", (steps) => `searched ${steps === 1 ? "once" : `${steps} times`}`);
   add("list", (steps) => `listed ${plural(steps, "folder")}`);
-  add("plan", () => "updated the plan");
+  add("plan", () => "updated the task list");
   add("spawn", (steps) => `started ${plural(steps, "subagent")}`);
   add("agent", (steps) => `messaged ${plural(steps, "subagent")}`);
   add("tool", (steps) => `used ${plural(steps, "tool")}`);
+  // A thought rides along with the steps around it: named after them.
+  add("think", (steps) => `thought ${steps === 1 ? "once" : `${steps} times`}`);
   return out;
 }
 
@@ -283,10 +287,58 @@ function makeGroup(facts: readonly StepFact[]): StepGroup {
   };
 }
 
-/** Whether `fact` joins the group holding `facts`. */
+/**
+ * A step's family for grouping: exploration (reads, listings, searches), edits, commands, the web
+ * (browsing, fetches, web searches), computer use, the plan, subagents, other tools. Thoughts have
+ * none: they ride along with the family around them.
+ */
+export type StepFamily =
+  | "explore"
+  | "edit"
+  | "command"
+  | "web"
+  | "computer"
+  | "plan"
+  | "agents"
+  | "tool";
+
+const families: Record<Exclude<StepKind, "think">, StepFamily> = {
+  read: "explore",
+  list: "explore",
+  search: "explore",
+  edit: "edit",
+  command: "command",
+  browser: "web",
+  fetch: "web",
+  websearch: "web",
+  computer: "computer",
+  plan: "plan",
+  spawn: "agents",
+  agent: "agents",
+  tool: "tool",
+};
+
+export function stepFamily(kind: StepKind): StepFamily | undefined {
+  return kind === "think" ? undefined : families[kind];
+}
+
+/**
+ * Whether `fact` joins the group holding `facts`: consecutive steps of one family by one agent
+ * merge ("Explored 3 files", "Edited 2 files", "Ran 4 commands"); a step of another family
+ * starts a new group. What the agent says, an image it showed or an error stands alone and ends
+ * the group. A thought joins whatever group it falls in, but a thought standing as a row of its
+ * own shows its words, so a step after it starts a new group rather than folding them away:
+ * appending to a log never hides what was already in view.
+ */
 function joins(facts: readonly StepFact[], fact: StepFact): boolean {
   const last = facts.at(-1);
-  return !!last && !last.alone && !fact.alone && last.agentId === fact.agentId;
+  if (!last || last.alone || fact.alone || last.agentId !== fact.agentId) return false;
+  if (facts.length === 1 && last.kind === "think") return false;
+  const joining = stepFamily(fact.kind);
+  if (!joining) return true;
+  // The group's family is its first step's that has one; usually its first step.
+  const lead = facts.find((step) => step.kind !== "think");
+  return !lead || stepFamily(lead.kind) === joining;
 }
 
 export interface GroupedSteps {

@@ -58,34 +58,36 @@ Example:
 
 ```json
 {
-  "contextWindow": 2,
-  "custom": false,
   "defaultEffort": "example",
-  "defaultSource": "user",
-  "deprecated": true,
+  "defaultTier": "example",
+  "deprecated": false,
   "displayName": "example",
   "efforts": [],
-  "family": "example",
-  "favourite": false,
   "hidden": true,
   "id": "example",
   "inputModalities": [],
   "instance": "example",
-  "isDefault": false,
+  "isDefault": true,
+  "modelConfigId": "example",
   "nativeModelId": "example",
-  "nativeProviderId": "example",
-  "provider": "claude",
+  "provider": "opencode",
   "raw": {
     "json": "example",
     "truncated": false
   },
+  "resolvedModelId": "example",
+  "selectorMethod": "session/set_model",
   "serviceTiers": [],
+  "sortKey": "example",
   "source": {
     "id": "example",
-    "kind": "api_key",
+    "kind": "other",
     "label": "example",
-    "service": "opencode_zen"
-  }
+    "requiresAuth": true,
+    "service": "opencode_go"
+  },
+  "version": "example",
+  "visibilityReason": "provider_disabled"
 }
 ```
 
@@ -106,10 +108,9 @@ Example:
 ```json
 {
   "actionId": "provider.sign_in",
-  "code": "rate_limited",
+  "code": "cli_unsupported",
   "hint": "example",
-  "message": "example",
-  "severity": "warning"
+  "message": "example"
 }
 ```
 
@@ -129,7 +130,7 @@ Example:
 {
   "id": "example",
   "label": "example",
-  "level": null
+  "level": "max"
 }
 ```
 
@@ -148,9 +149,7 @@ Example:
 Example:
 
 ```json
-{
-  "provider": "cursor"
-}
+{}
 ```
 
 ## ModelInstanceStatus
@@ -180,12 +179,15 @@ Example:
 
 ```json
 {
+  "error": "persistence_failed",
   "installationId": "example",
   "instance": "example",
+  "lastRefreshedAt": 6,
   "permissionModes": [],
-  "provider": "claude",
-  "refreshing": false,
-  "stale": true
+  "provider": "antigravity",
+  "refreshing": true,
+  "stale": false,
+  "status": "refreshing"
 }
 ```
 
@@ -208,7 +210,10 @@ Example:
 ```json
 {
   "acpAgentId": "example",
-  "provider": "acp"
+  "installationId": "example",
+  "instance": "example",
+  "limit": 4,
+  "offset": 3
 }
 ```
 
@@ -227,8 +232,7 @@ Example:
 ```json
 {
   "instances": [],
-  "models": [],
-  "nextOffset": 3
+  "models": []
 }
 ```
 
@@ -253,32 +257,27 @@ Example:
 {
   "effort": "example",
   "model": {
-    "aliases": [],
-    "contextWindow": 8,
+    "defaultEffort": "example",
     "defaultSource": "user",
-    "deprecated": true,
-    "detail": "example",
+    "deprecated": false,
     "displayName": "example",
     "efforts": [],
     "family": "example",
-    "free": false,
-    "hidden": false,
+    "group": "legacy",
+    "hidden": true,
     "id": "example",
     "inputModalities": [],
+    "installationId": "example",
     "instance": "example",
-    "isDefault": false,
+    "instanceId": "example",
+    "isDefault": true,
     "nativeModelId": "example",
-    "nativeProviderId": "example",
-    "provider": "claude",
-    "providerEnabled": true,
+    "provider": "acp",
     "raw": {
       "json": "example",
-      "truncated": false
+      "truncated": true
     },
-    "resolvedModelId": "example",
-    "serviceTiers": [],
-    "thinkingToggle": true,
-    "version": "example"
+    "serviceTiers": []
   },
   "ok": true,
   "reason": "example",
@@ -325,7 +324,10 @@ Example:
 
 ```json
 {
-  "role": "example"
+  "acpAgentId": "example",
+  "effort": "example",
+  "role": "example",
+  "tier": "example"
 }
 ```
 
@@ -343,9 +345,7 @@ Example:
 ```json
 {
   "filter": {
-    "acpAgentId": "example",
-    "installationId": "example",
-    "provider": "acp"
+    "instance": "example"
   },
   "type": "models.changed"
 }
@@ -408,17 +408,19 @@ Example:
 ```json
 {
   "error": {
-    "code": "parse_failure",
+    "actionId": "provider.sign_in",
+    "code": "cli_too_old",
     "hint": "example",
-    "message": "example"
+    "message": "example",
+    "severity": "info"
   },
   "source": {
     "id": "example",
-    "kind": "account",
+    "kind": "subscription",
     "label": "example",
-    "service": "opencode_go"
+    "requiresAuth": false
   },
-  "status": "refreshing"
+  "status": "fresh"
 }
 ```
 
@@ -457,11 +459,9 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "effort": "example",
     "instanceId": "example",
-    "model": "example",
-    "preferenceOrder": [],
-    "role": "example"
+    "role": "example",
+    "tier": "example"
   },
   "type": "models.resolve"
 }
@@ -507,6 +507,6 @@ Example:
 {
   "id": "example",
   "name": "example",
-  "parameters": {}
+  "speed": "example"
 }
 ```

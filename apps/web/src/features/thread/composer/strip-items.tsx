@@ -7,9 +7,12 @@ import {
   CheckCircleIcon,
   CircleIcon,
   ListChecksIcon,
+  PaperPlaneTiltIcon,
   ShieldWarningIcon,
+  TargetIcon,
   TerminalIcon,
   TrayIcon,
+  WarningIcon,
   WifiSlashIcon,
   XCircleIcon,
 } from "@phosphor-icons/react";
@@ -25,6 +28,8 @@ import type { StripKind } from "./strip-slot.ts";
 /** What an indicator says about an item the slot isn't showing. */
 export interface StripCounts {
   requests: number;
+  /** Messages on their way, and how many of them didn't go. */
+  sending: { count: number; failed: number };
   /** The connection is down rather than coming back. */
   offline: boolean;
   /** Background commands a stopped turn left running. */
@@ -34,8 +39,8 @@ export interface StripCounts {
 }
 
 /**
- * The strip's other items as small buttons, in priority order: "2 requests", "Offline",
- * "2 queued", "3/5". Choosing one shows it in the slot.
+ * The strip's other items as small buttons, in priority order: "2 requests", "1 not sent",
+ * "Offline", "2 queued", "3/5". Choosing one shows it in the slot.
  */
 export function StripIndicators(props: {
   kinds: readonly StripKind[];
@@ -63,32 +68,56 @@ function Indicator(props: { kind: StripKind; counts: StripCounts; onPick(kind: S
           plural(counts.requests, "request"),
           `Show ${plural(counts.requests, "request")} waiting for you`,
         ]
-      : props.kind === "connection"
-        ? counts.offline
-          ? [<Icon key="i" size={12} icon={WifiSlashIcon} />, "Offline", "Show connection: Offline"]
-          : [<Spinner key="i" />, "Reconnecting", "Show connection: Reconnecting"]
-        : props.kind === "stopped"
+      : props.kind === "sending"
+        ? counts.sending.failed
           ? [
-              <Icon key="i" size={12} icon={TerminalIcon} />,
-              `${counts.running} running`,
-              `Show ${plural(counts.running, "background command")} still running`,
+              <Icon key="i" size={12} icon={WarningIcon} />,
+              `${counts.sending.failed} not sent`,
+              `Show ${plural(counts.sending.failed, "message")} not sent`,
             ]
-          : props.kind === "queue"
+          : [
+              <Icon key="i" size={12} icon={PaperPlaneTiltIcon} />,
+              `${counts.sending.count} sending`,
+              `Show ${plural(counts.sending.count, "message")} sending`,
+            ]
+        : props.kind === "connection"
+          ? counts.offline
             ? [
-                <Icon key="i" size={12} icon={TrayIcon} />,
-                `${counts.queued} queued`,
-                `Show ${plural(counts.queued, "queued message")}`,
+                <Icon key="i" size={12} icon={WifiSlashIcon} />,
+                "Offline",
+                "Show connection: Offline",
               ]
-            : [
-                <Icon key="i" size={12} icon={ListChecksIcon} />,
-                counts.plan ? `${counts.plan.done}/${counts.plan.total}` : "Plan",
-                counts.plan ? `Show plan, ${planCount(counts.plan)} done` : "Show plan",
-              ];
+            : [<Spinner key="i" />, "Reconnecting", "Show connection: Reconnecting"]
+          : props.kind === "stopped"
+            ? [
+                <Icon key="i" size={12} icon={TerminalIcon} />,
+                `${counts.running} running`,
+                `Show ${plural(counts.running, "background command")} still running`,
+              ]
+            : props.kind === "queue"
+              ? [
+                  <Icon key="i" size={12} icon={TrayIcon} />,
+                  `${counts.queued} queued`,
+                  `Show ${plural(counts.queued, "queued message")}`,
+                ]
+              : props.kind === "goal"
+                ? [<Icon key="i" size={12} icon={TargetIcon} />, "Goal", "Show goal"]
+                : [
+                    <Icon key="i" size={12} icon={ListChecksIcon} />,
+                    counts.plan ? `${counts.plan.done}/${counts.plan.total}` : "Tasks",
+                    counts.plan ? `Show tasks, ${planCount(counts.plan)} done` : "Show tasks",
+                  ];
   return (
     <button
       type="button"
       aria-label={label}
-      data-tone={props.kind === "request" ? "needs-you" : undefined}
+      data-tone={
+        props.kind === "request"
+          ? "needs-you"
+          : props.kind === "sending" && counts.sending.failed
+            ? "failed"
+            : undefined
+      }
       onClick={() => props.onPick(props.kind)}
       className="composer-strip-indicator focus-ring-inset tabular-nums"
     >
@@ -144,33 +173,33 @@ export function ConnectionStrip(props: {
 }
 
 /**
- * The main agent's plan in the strip: "Plan · 3 of 5" and the step in progress, opening to the
- * whole list.
+ * The main agent's to-do list in the strip: "Tasks · 3 of 5" and the task in progress, the
+ * chevron at the row's far right, opening to the whole list.
  */
 export function PlanStrip(props: { progress: PlanProgress; indicators: ReactNode }) {
   const [open, setOpen] = useState(false);
   const listId = useId();
   const { progress } = props;
   return (
-    <section aria-label="Plan" className="text-xs">
+    <section aria-label="Tasks" className="text-xs">
       <div className="flex h-7 min-w-0 items-center gap-1">
         <button
           type="button"
           aria-expanded={open}
           aria-controls={listId}
           onClick={() => setOpen(!open)}
-          className="flex h-6 min-w-0 items-center gap-1.5 rounded-sm px-1 text-muted-foreground focus-ring-inset hover:text-foreground"
+          className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-sm px-1 text-muted-foreground focus-ring-inset hover:text-foreground"
         >
           <Icon icon={ListChecksIcon} size={12} className="shrink-0" />
-          <span className="shrink-0 text-foreground">Plan · {planCount(progress)}</span>
+          <span className="shrink-0 text-foreground">Tasks · {planCount(progress)}</span>
           {!open && progress.current && (
             <span className="min-w-0 truncate">{progress.current.content}</span>
           )}
-          <Icon icon={open ? CaretUpIcon : CaretDownIcon} size={12} className="shrink-0" />
+          <Icon icon={open ? CaretUpIcon : CaretDownIcon} size={12} className="ml-auto shrink-0" />
         </button>
         {props.indicators}
       </div>
-      <ol id={listId} hidden={!open} aria-label="Plan steps" className="space-y-1 px-1 pb-1">
+      <ol id={listId} hidden={!open} aria-label="Task list" className="space-y-1 px-1 pb-1">
         {progress.todos.map((todo, index) => (
           <li
             // oxlint-disable-next-line react/no-array-index-key -- positional provider todos may repeat text.

@@ -1,15 +1,18 @@
 import type { ThreadReader } from "@ace/client";
 import { useAgent, useItem, useThread } from "@ace/client-react";
-import { formatClock } from "@ace/ui-core";
+import { agentName, formatClock } from "@ace/ui-core";
 import { GitForkIcon } from "@phosphor-icons/react";
 import { lazy, Suspense, useCallback } from "react";
 import { Button } from "@/components/ui/button.tsx";
+import { cn } from "@/lib/cn.ts";
 import { useAnswerText } from "./answer-text.ts";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { DeferredCopyAnswer } from "./deferred-review.ts";
-import { forkPointOf } from "../transitions/fork-point.ts";
+import { messageActions } from "./message-actions.ts";
+import { forkPointOf, sameForkPoint } from "../transitions/fork-point.ts";
 import { useForkOpener } from "../transitions/fork-opener.ts";
+import { RetryAnswerButton, useRetryPoint } from "../transitions/message-edits.tsx";
 import { useStreaming } from "../transcript/use-streaming.ts";
 
 const RewindControl = lazy(() =>
@@ -21,25 +24,26 @@ const CopyAnswer = DeferredCopyAnswer.Component;
 /**
  * Agent prose. A subagent's message carries its name, as the design's "reconnect-audit found…".
  * What the agent says between its steps reads as plain prose in the work log (`between`): no
- * time or actions under it.
+ * time or actions under it. A finished answer's time and actions sit under it on hover or focus
+ * (always on touch), laid over the room under the row, so they cost the answer no height and
+ * nothing moves when it finishes.
  */
-export function AssistantMessage(props: {
-  threadId: string;
-  itemId: string;
-  between?: boolean;
-  /** The answer under its turn's "Worked for": its time hides with its hover actions. */
-  headed?: boolean | undefined;
-}) {
+export function AssistantMessage(props: { threadId: string; itemId: string; between?: boolean }) {
   const item = useItem(props.threadId, props.itemId);
   const agent = useAgent(props.threadId, item?.agentId ?? "");
+  const subagent = agent && agent.origin !== "root" ? agent : undefined;
+  // The call that started a subagent names it when the agent has no name of its own.
+  const spawn = useItem(props.threadId, subagent?.spawnedBy ?? "");
   // Text left incomplete by a turn that stopped or failed no longer streams.
   const streaming = useStreaming(props.threadId, item);
   const answer = useAnswerText(item);
+  const retry = useRetryPoint(props.threadId, props.itemId);
   if (item?.type !== "message") return null;
   const text = answer.text;
-  const name = agent && agent.origin !== "root" ? (agent.name ?? "Subagent") : undefined;
+  const name = subagent ? agentName(subagent, spawn) : undefined;
+  const pi = (item.executionSource?.selection.provider ?? agent?.native.provider) === "pi";
   return (
-    <div className="group/answer min-w-0 font-prose text-prose leading-[1.6] tracking-[-0.005em] wrap-break-word">
+    <div className="group/answer relative min-w-0 font-prose text-prose leading-[1.6] tracking-[-0.005em] wrap-break-word">
       <Prose
         text={text}
         thread={{
@@ -72,41 +76,29 @@ export function AssistantMessage(props: {
         </div>
       )}
       {!props.between && (item.complete || (answer.truncated && !streaming)) && (
-        <div className="mt-1 flex min-h-6 items-center gap-2">
-          {props.headed ? null : (
-            <time
-              dateTime={new Date(item.createdAt).toISOString()}
-              className="text-xs text-subtle-foreground"
-            >
-              {formatClock(item.createdAt)}
-            </time>
+        <div className={cn(messageActions("answer"), "absolute top-full left-0")}>
+          <time
+            dateTime={new Date(item.createdAt).toISOString()}
+            className="text-xs text-subtle-foreground"
+          >
+            {formatClock(item.createdAt)}
+          </time>
+          <Suspense fallback={null}>
+            <CopyAnswer
+              key={answer.partial ? "preview" : "answer"}
+              text={text}
+              label={answer.partial ? "Copy preview" : "Copy answer"}
+            />
+          </Suspense>
+          {item.complete && !name && pi && retry && (
+            <RetryAnswerButton threadId={props.threadId} point={retry} />
           )}
-          <div className="flex items-center gap-2 opacity-0 transition-opacity duration-(--motion-fast) group-focus-within/answer:opacity-100 group-hover/answer:opacity-100">
-            {props.headed ? (
-              <time
-                dateTime={new Date(item.createdAt).toISOString()}
-                className="text-xs text-subtle-foreground"
-              >
-                {formatClock(item.createdAt)}
-              </time>
-            ) : null}
+          {item.complete && !name && item.nativeId && pi && (
             <Suspense fallback={null}>
-              <CopyAnswer
-                key={answer.partial ? "preview" : "answer"}
-                text={text}
-                label={answer.partial ? "Copy preview" : "Copy answer"}
-              />
+              <RewindControl threadId={props.threadId} entryId={item.nativeId} />
             </Suspense>
-            {item.complete &&
-              !name &&
-              item.nativeId &&
-              (item.executionSource?.selection.provider ?? agent?.native.provider) === "pi" && (
-                <Suspense fallback={null}>
-                  <RewindControl threadId={props.threadId} entryId={item.nativeId} />
-                </Suspense>
-              )}
-            {item.complete && !name && <ForkHere threadId={props.threadId} itemId={props.itemId} />}
-          </div>
+          )}
+          {item.complete && !name && <ForkHere threadId={props.threadId} itemId={props.itemId} />}
         </div>
       )}
     </div>
@@ -128,12 +120,9 @@ function ForkHere(props: { threadId: string; itemId: string }) {
     `item:${props.itemId}`,
     ...(item?.runId ? [`run:${item.runId}` as const] : []),
   ] as const;
-  const point = useThread(props.threadId, keys, read, samePoint);
+  const point = useThread(props.threadId, keys, read, sameForkPoint);
   if (!open || !point) return null;
   return (
     <IconButton icon={GitForkIcon} label="Fork from here" size="sm" onClick={() => open(point)} />
   );
 }
-
-const samePoint = (a: ReturnType<typeof forkPointOf>, b: ReturnType<typeof forkPointOf>) =>
-  JSON.stringify(a) === JSON.stringify(b);

@@ -1,11 +1,8 @@
 import { z } from "zod";
 import { AccountResetOutcome } from "@ace/protocol/accounts";
-import { JsonRpcPeer } from "@ace/provider-kit/jsonrpc";
-import {
-  spawnSupervised,
-  type SpawnOptions,
-  type SupervisedProcess,
-} from "@ace/provider-kit/process";
+import type { JsonRpcPeer } from "@ace/provider-kit/jsonrpc";
+import type { SpawnOptions, SupervisedProcess } from "@ace/provider-kit/process";
+import { openAppServer } from "./app-server.ts";
 
 /**
  * One account's Codex limits without a session: a short-lived `codex app-server` answers
@@ -48,32 +45,10 @@ async function withUsageServer<T>(
   options: UsageOptions,
   run: (rpc: JsonRpcPeer) => Promise<T>,
 ): Promise<T> {
-  options.signal.throwIfAborted();
-  const proc = (options.spawn ?? spawnSupervised)({
-    command: options.executable,
-    args: ["app-server"],
-    cwd: options.cwd,
-    env: options.env,
-    name: "codex-usage-read",
-    maxOutputBytes: 1024 * 1024,
-  });
-  const abort = () => void proc.stop({ graceMs: 0 });
-  options.signal.addEventListener("abort", abort, { once: true });
-  const rpc = new JsonRpcPeer(proc, { timeoutMs: 20_000 });
+  const server = await openAppServer(options, "codex-usage-read");
   try {
-    await rpc.request(
-      "initialize",
-      {
-        clientInfo: { name: "ace_usage", title: "ace usage", version: "0.0.0" },
-        capabilities: { experimentalApi: true },
-      },
-      { signal: options.signal },
-    );
-    rpc.notify("initialized");
-    return await run(rpc);
+    return await run(server.rpc);
   } finally {
-    rpc.close();
-    options.signal.removeEventListener("abort", abort);
-    await proc.stop({ graceMs: 0 });
+    await server.close();
   }
 }

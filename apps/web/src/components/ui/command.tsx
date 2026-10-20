@@ -10,8 +10,8 @@ import { layers, menuLabel, overlaySurface } from "./menu-styles.ts";
 
 /**
  * ⌘K shell on Base UI (Dialog + inline Autocomplete), replacing the registry's cmdk-based
- * `command`, which depends on Radix. A 640px sheet centred 13vh from the top (near the top on a
- * phone, where the keyboard takes the bottom half), as tall as its content.
+ * `command`, which depends on Radix. A 560px sheet centred 13vh from the top (near the top on a
+ * phone, where the keyboard takes the bottom half), as tall as its content up to 440px.
  */
 function CommandDialog({
   open,
@@ -40,7 +40,7 @@ function CommandDialog({
             layers.modal,
             overlaySurface,
             // Centred by insets and auto margins; its height follows what it shows.
-            "ace-modal fixed inset-x-0 top-[13vh] mx-auto flex max-h-[min(560px,74dvh)] w-[min(640px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-lg text-popover-foreground outline-none [-webkit-app-region:no-drag] max-sm:top-3",
+            "ace-modal fixed inset-x-0 top-[13vh] mx-auto flex max-h-[min(440px,64dvh)] w-[min(560px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-lg text-popover-foreground outline-none [-webkit-app-region:no-drag] max-sm:top-3",
             "transition-[opacity,transform] duration-(--motion-base) ease-spring data-ending-style:opacity-0 data-ending-style:scale-[0.98] data-ending-style:duration-(--motion-exit) data-ending-style:ease-exit data-starting-style:-translate-y-[calc(var(--rise)*1.5)] data-starting-style:scale-[0.98] data-starting-style:opacity-0",
             className,
           )}
@@ -96,10 +96,17 @@ function Command<Item>(props: {
  */
 const commandField =
   "h-full min-w-0 flex-1 bg-transparent text-[16px] text-foreground outline-none placeholder:text-subtle-foreground";
-function CommandSearchRow(props: { closeLabel: string; children: React.ReactNode }) {
+function CommandSearchRow(props: {
+  closeLabel: string;
+  children: React.ReactNode;
+  /** In place of the magnifier: a palette step's Back button. */
+  leading?: React.ReactNode;
+}) {
   return (
     <div className="flex h-[52px] shrink-0 items-center gap-2.5 border-b px-4">
-      <MagnifyingGlassIcon aria-hidden size={18} className="shrink-0 text-muted-foreground" />
+      {props.leading ?? (
+        <MagnifyingGlassIcon aria-hidden size={18} className="shrink-0 text-muted-foreground" />
+      )}
       {props.children}
       <Dialog.Close
         aria-label={props.closeLabel}
@@ -185,11 +192,6 @@ function CommandShortcut({ className, ...props }: React.ComponentProps<"span">) 
   );
 }
 
-/** Key hints along the bottom edge. Hidden on touch, where there are no keys to press. */
-function CommandFooter() {
-  return null;
-}
-
 export {
   CommandDialog,
   Command,
@@ -203,5 +205,4 @@ export {
   CommandCollection,
   CommandItem,
   CommandShortcut,
-  CommandFooter,
 };

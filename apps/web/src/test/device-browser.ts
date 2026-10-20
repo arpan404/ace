@@ -30,6 +30,11 @@ export function deviceBrowser(webCodecs: "none" | "decodes" | "fails") {
 
   class FakeVideoFrame implements Owned {
     closed = false;
+    /** The chunk's timestamp, as a decoded VideoFrame carries it. */
+    readonly timestamp: number;
+    constructor(timestamp = 0) {
+      this.timestamp = timestamp;
+    }
     close() {
       this.closed = true;
     }
@@ -49,7 +54,7 @@ export function deviceBrowser(webCodecs: "none" | "decodes" | "fails") {
     configure() {
       this.state = "configured";
     }
-    decode() {
+    decode(chunk: { init?: { timestamp?: number } }) {
       if (this.state !== "configured")
         throw new DOMException("Not configured", "InvalidStateError");
       // A decoder's output arrives after decode() returns.
@@ -62,7 +67,7 @@ export function deviceBrowser(webCodecs: "none" | "decodes" | "fails") {
           this.init.error(new DOMException("Unsupported stream", "NotSupportedError"));
           return;
         }
-        const frame = new FakeVideoFrame();
+        const frame = new FakeVideoFrame(chunk.init?.timestamp);
         videoFrames.push(frame);
         this.init.output(frame);
       });
@@ -96,6 +101,11 @@ export function deviceBrowser(webCodecs: "none" | "decodes" | "fails") {
     );
   }
   const context = (canvas: HTMLCanvasElement) => ({
+    // A landscape picture is turned upright around the canvas's middle.
+    save() {},
+    restore() {},
+    translate() {},
+    rotate() {},
     drawImage(image: Owned) {
       // Drawing a closed image would show nothing: only open images count as drawn.
       if (image.closed) return;
@@ -161,9 +171,20 @@ export async function openDevices() {
   return { app, panel };
 }
 
-/** Open a device from the catalog as its own tab; its region once loaded. */
+/**
+ * Open a device from the catalog as its own tab, as a person finds it: search for its name, then
+ * pick its row under All devices. Its region once loaded.
+ */
 export async function openDevice(panel: HTMLElement, name: string) {
-  const list = await within(panel).findByRole("list", { name: "Devices" });
-  await userEvent.click(within(list).getByRole("button", { name: new RegExp(`^${name}`) }));
+  const search = await within(panel).findByRole("searchbox", { name: "Search devices" });
+  await userEvent.clear(search);
+  await userEvent.type(search, name);
+  const all = within(panel).getByRole("region", { name: "All devices" });
+  await userEvent.click(within(all).getByRole("button", { name: new RegExp(`^${name}`) }));
   return within(panel).findByRole("region", { name });
+}
+
+/** Whether a control can't be used now: disabled outright, or disabled with a reason to read. */
+export function unusable(element: HTMLElement): boolean {
+  return element.hasAttribute("disabled") || element.getAttribute("aria-disabled") === "true";
 }

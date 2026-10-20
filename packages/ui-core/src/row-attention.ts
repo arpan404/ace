@@ -6,9 +6,11 @@ import type { Tone } from "./status.ts";
  * - `failed`: failed and not yet seen since it failed.
  * - `done-unread`: a finished result the person hasn't opened.
  * - `active`: working, background commands, waiting on something outside ace. Calm: the live
- *   indicator moves, the words stay muted, nothing is asked of the person.
+ *   indicator moves, the words stay muted, nothing is asked of the person. Waiting draws no mark.
  * - `failed-seen`: failed, already seen. A real state, worded calmly.
  * - `quiet`: done and read, new, settled: nothing to do. No status word.
+ * - `syncing`: the row is a copy the daemon hasn't confirmed (read back from disk): its status
+ *   may be stale, so it claims nothing (not done, not working, no request) and says "Syncing".
  *
  * Colour and full contrast are kept for what asks the person to act or look. The row the
  * person has open is full contrast whatever its level (`current`).
@@ -19,7 +21,8 @@ export type AttentionLevel =
   | "done-unread"
   | "active"
   | "failed-seen"
-  | "quiet";
+  | "quiet"
+  | "syncing";
 
 export interface RowAttention {
   level: AttentionLevel;
@@ -44,6 +47,17 @@ export interface RowAttentionInput {
   current?: boolean | undefined;
 }
 
+/** The word a row shows while its status is unconfirmed. */
+export const syncingWord = "Syncing";
+
+/** The attention of a row whose status is unconfirmed (`threadCard`): it claims nothing. */
+export const syncingAttention: RowAttention = {
+  level: "syncing",
+  word: syncingWord,
+  tone: "idle",
+  muted: true,
+};
+
 /**
  * One rule for every surface that shows a thread's status: the Home row, its hover card and the
  * settled row read it, so they never disagree. Pure.
@@ -66,8 +80,9 @@ function levelOf(input: RowAttentionInput): RowAttention {
     return unread
       ? { level: "failed", word, tone: "failed", muted: false }
       : { level: "failed-seen", word, tone: "idle", muted: true };
-  // A recovery waits on the person's Resume or retry: settling never hides or mutes it.
-  if (input.recovery) return { level: "active", word, tone, muted: false };
+  // A recovery waits on the person's Resume or retry: settling never hides it. One that only
+  // waits (Review a message, Queue paused) stays muted like any other wait.
+  if (input.recovery) return { level: "active", word, tone, muted: tone === "waiting" };
   if (input.settled) return { level: "quiet", word: undefined, tone: "idle", muted: true };
   if (tone === "working" || tone === "background" || tone === "waiting")
     return { level: "active", word, tone, muted: true };

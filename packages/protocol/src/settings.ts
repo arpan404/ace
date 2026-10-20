@@ -45,6 +45,28 @@ export const SettingsValues = z.object({
   /** A thread's browser keeps its own cookies and storage, or opens privately in memory. */
   "browser.profile": z.enum(["persistent", "ephemeral"]),
   /**
+   * Where ace's own Chrome on this daemon's machine saves downloads: an existing, writable
+   * folder there, global only. Empty uses `browser.downloadDefault`. The desktop app's own
+   * browser has its own setting; the person's Chrome decides for itself.
+   */
+  "browser.downloadDir": z.string().max(4096),
+  /**
+   * Read-only, reported by the daemon: its machine's Downloads folder (macOS and Windows
+   * `~/Downloads`, Linux `XDG_DOWNLOAD_DIR`) when it exists and can be written. Empty when it
+   * can't: then downloads without a chosen folder stay with each thread's browser data.
+   */
+  "browser.downloadDefault": z.string().max(4096),
+  /**
+   * Use my Chrome: agents' `evaluate` may read the page's cookies and web storage. Off by
+   * default: evaluate runs where those APIs are removed (ADR 0084, amended).
+   */
+  "browser.userChrome.storageReads": z.boolean(),
+  /**
+   * Apps agents may not use with computer use, beyond ace's own list (password managers,
+   * terminals, ace itself): bundle ids or app names, matched without regard to case. Global.
+   */
+  "computer.blockedApps": z.array(z.string().min(1).max(200)).max(200),
+  /**
    * This daemon's access for new threads: the mode the person last chose or set in Settings.
    * A thread's own choice and its project's default come first.
    */
@@ -61,6 +83,11 @@ export const SettingsValues = z.object({
   "threads.unresponsiveAfter": z.enum(["2m", "5m", "15m"]),
   "threads.settleOnMerge": z.boolean(),
   "threads.settleOnClose": z.boolean(),
+  /**
+   * How the Home list orders threads below Pinned: by live activity (requests and working
+   * threads first, then most recent), newest created first, or by hand (`thread.place`).
+   */
+  "threads.sortBy": z.enum(["activity", "created", "manual"]),
   "remote.enabled": z.boolean(),
   "remote.transport": z.enum(["local", "lan", "tailscale", "relay"]),
   /** Whether agents on other paired machines may use this one, and how far (ADR 0078). */

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { existsSync, renameSync, rmSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { IncompatibleDataError } from "@ace/provider-kit/incompatible-data";
 
@@ -122,8 +123,19 @@ const migrations = [
     WHERE json_extract(status,'$.state') NOT IN ('new','done','failed');`,
   // Marker rows for the daemon's one-time data passes (drafts, history imports).
   `CREATE TABLE IF NOT EXISTS upgrade_cleanup (id TEXT PRIMARY KEY);`,
+  // Snapshots keep the root agent's share of the transcript tail (ADR 0062), read by agent.
+  `ALTER TABLE item_heads ADD COLUMN agent_id TEXT NOT NULL DEFAULT '';
+  UPDATE item_heads SET agent_id = COALESCE(
+    (SELECT json_extract(item, '$.agentId') FROM items WHERE items.id = item_heads.id), '');
+  CREATE INDEX item_heads_thread_agent ON item_heads(thread_id, agent_id, created_seq);`,
 ];
+/**
+ * Oldest schema an existing database is upgraded from. Each step after it must carry the
+ * backfill existing rows need to read correctly. Older databases are refused.
+ */
+const UPGRADE_FLOOR = 14;
 export function migrate(db: DatabaseSync): void {
+  backupBeforeUpgrade(db);
   db.exec("BEGIN IMMEDIATE");
   try {
     db.exec(
@@ -137,11 +149,12 @@ export function migrate(db: DatabaseSync): void {
         `The daemon database is schema ${version}, newer than this build's ${migrations.length}`,
         "Open the newest ace, or update this one.",
       );
-    // The numbered steps build a fresh database; an existing one must already be current.
+    // A fresh database runs every step; an existing one runs the steps after its version,
+    // from UPGRADE_FLOOR on. Older layouts are refused.
     const fresh =
       version === 0 &&
       !db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='events'").get();
-    if (!fresh && version !== migrations.length)
+    if (!fresh && version < UPGRADE_FLOOR)
       throw new IncompatibleDataError(
         location(db),
         `The daemon database is schema ${version}, and this build reads schema ${migrations.length}`,
@@ -175,6 +188,37 @@ export function migrate(db: DatabaseSync): void {
     db.exec("ROLLBACK");
     throw error;
   }
+}
+
+/** Version recorded by an existing database, or 0 when it has none yet. */
+function storedVersion(db: DatabaseSync): number {
+  const table = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_version'")
+    .get();
+  if (!table) return 0;
+  const row = db.prepare("SELECT version FROM schema_version WHERE id = 1").get();
+  return z.coerce
+    .number()
+    .int()
+    .nonnegative()
+    .catch(0)
+    .parse(row?.version ?? 0);
+}
+/**
+ * A consistent copy of the database as it was, kept beside it before any upgrade step runs.
+ * The steps themselves are one transaction; the copy covers a step whose backfill is wrong.
+ */
+function backupBeforeUpgrade(db: DatabaseSync): void {
+  const version = storedVersion(db);
+  const path = db.location();
+  if (!path || version < UPGRADE_FLOOR || version >= migrations.length) return;
+  const target = `${path}.schema-${version}.backup`;
+  if (existsSync(target)) return;
+  // Written under a temporary name, so an interrupted copy is never mistaken for a backup.
+  const partial = `${target}.partial`;
+  rmSync(partial, { force: true });
+  db.prepare("VACUUM INTO ?").run(partial);
+  renameSync(partial, target);
 }
 
 const threadMetadataColumns = ["acp", "transitions", "provider_metadata"];

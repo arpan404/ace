@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PlacementBook, toWindowBounds } from "./placement.ts";
+import { agentEmulation, deviceEmulation, PlacementBook, toWindowBounds } from "./placement.ts";
 
 const panel = { x: 920, y: 120, width: 520, height: 780 };
 const other = { x: 400, y: 80, width: 600, height: 500 };
@@ -20,7 +20,6 @@ describe("embedded view placement", () => {
       host: undefined,
       bounds: undefined,
       visible: false,
-      owner: undefined,
     });
   });
 
@@ -31,8 +30,26 @@ describe("embedded view placement", () => {
       host: 1,
       bounds: panel,
       visible: false,
-      owner: undefined,
     });
+  });
+
+  it("a view hidden under the app's menu stays watched, until it is hidden for real", () => {
+    const book = new PlacementBook();
+    book.set("t1", 1, { bounds: panel, visible: true });
+    expect(book.set("t1", 1, { bounds: panel, visible: false, covered: true })).toEqual({
+      host: 1,
+      bounds: panel,
+      visible: false,
+      covered: true,
+    });
+    expect(book.set("t1", 1, { bounds: panel, visible: false }).covered).toBeUndefined();
+    // Shown in another window meanwhile, it is simply shown there.
+    book.set("t1", 1, { bounds: panel, visible: false, covered: true });
+    expect(book.set("t1", 2, { bounds: other, visible: true })).toMatchObject({
+      host: 2,
+      visible: true,
+    });
+    expect(book.resolve("t1").covered).toBeUndefined();
   });
 
   it("never shows a view in an empty box (a collapsed panel)", () => {
@@ -76,19 +93,7 @@ describe("embedded view placement", () => {
       host: 2,
       bounds: panel,
       visible: false,
-      owner: undefined,
     });
-  });
-
-  it("names the connection holding control only where a renderer shows the view", () => {
-    const book = new PlacementBook();
-    const shown = { bounds: panel, visible: true, owner: "web-1" };
-    expect(book.set("t1", 1, shown).owner).toBe("web-1");
-    // Hidden, the view takes no input, whoever holds control.
-    expect(book.set("t1", 1, { ...shown, visible: false }).owner).toBeUndefined();
-    // Another window shows it without control: its person's input doesn't reach the page.
-    book.set("t1", 1, shown);
-    expect(book.set("t1", 2, { bounds: other, visible: true }).owner).toBeUndefined();
   });
 
   it("keeps nothing of a released claim, unlike a hidden one", () => {
@@ -100,7 +105,6 @@ describe("embedded view placement", () => {
       host: undefined,
       bounds: undefined,
       visible: false,
-      owner: undefined,
     });
   });
 
@@ -140,5 +144,78 @@ describe("window bounds", () => {
 
   it("treats a missing zoom as 100%", () => {
     expect(toWindowBounds(panel, 0)).toEqual(panel);
+  });
+});
+
+// Chromium draws an emulated page `width * scale` DIPs wide; page zoom only changes its CSS.
+const drawn = (emulation: { width: number; height: number; scale: number }) => ({
+  width: emulation.width * emulation.scale,
+  height: emulation.height * emulation.scale,
+});
+
+describe("device emulation", () => {
+  it("a page shrunk into picture-in-picture fills its box when the app is zoomed", () => {
+    const pip = toWindowBounds({ x: 0, y: 0, width: 395, height: 386 }, 1.25);
+    const emulation = deviceEmulation({ width: 1040, height: 1016 }, pip, 1.25);
+    expect(drawn(emulation).width).toBeCloseTo(pip.width, 5);
+    expect(drawn(emulation).height).toBeCloseTo(pip.height, 0);
+  });
+
+  it("keeps the panel's layout: the app's zoom maps the emulated size back to the panel's CSS size", () => {
+    const emulation = deviceEmulation(
+      { width: 1040, height: 1016 },
+      { x: 0, y: 0, width: 500, height: 488 },
+      1.5,
+    );
+    expect(emulation.width / 1.5).toBeCloseTo(1040, 0);
+    expect(emulation.height / 1.5).toBeCloseTo(1016, 0);
+  });
+
+  it("an unzoomed device is emulated at its own size", () => {
+    expect(
+      deviceEmulation(
+        { width: 390, height: 844, mobile: true, deviceScaleFactor: 3 },
+        { x: 0, y: 0, width: 195, height: 422 },
+        1,
+      ),
+    ).toEqual({ width: 390, height: 844, deviceScaleFactor: 3, mobile: true, scale: 0.5 });
+  });
+});
+
+// Chromium lays out `floor(emulated DIPs / zoom)` CSS pixels and reports `dpr * zoom`.
+const laidOut = (emulation: { width: number; height: number }, zoom: number) => ({
+  width: Math.floor(emulation.width / zoom),
+  height: Math.floor(emulation.height / zoom),
+});
+
+describe("an agent's size on a zoomed page", () => {
+  const shown = { x: 0, y: 0, width: 1095, height: 684 };
+
+  it("lays the page out at exactly the CSS size asked, whatever the zoom", () => {
+    for (const zoom of [1, 1.1, 1.25, 1.316, 1.5, 2])
+      expect(laidOut(agentEmulation({ width: 1440, height: 900 }, shown, zoom), zoom)).toEqual({
+        width: 1440,
+        height: 900,
+      });
+  });
+
+  it("draws the whole zoomed page inside the panel's box", () => {
+    const emulation = agentEmulation({ width: 1440, height: 900 }, shown, 1.316);
+    expect(emulation.width * emulation.scale).toBeLessThanOrEqual(shown.width);
+    expect(emulation.height * emulation.scale).toBeLessThanOrEqual(shown.height);
+  });
+
+  it("never enlarges a device smaller than the panel", () => {
+    expect(agentEmulation({ width: 390, height: 600 }, shown, 1).scale).toBe(1);
+  });
+
+  it("reports the scale factor the agent asked, and keeps the screen's when it asked none", () => {
+    const asked = agentEmulation({ width: 390, height: 844, deviceScaleFactor: 3 }, shown, 1.25);
+    expect(asked.deviceScaleFactor * 1.25).toBeCloseTo(3, 10);
+    expect(agentEmulation({ width: 800, height: 600 }, shown, 1.25).deviceScaleFactor).toBe(0);
+  });
+
+  it("keeps the agent's mobile choice", () => {
+    expect(agentEmulation({ width: 390, height: 844, mobile: true }, shown, 1).mobile).toBe(true);
   });
 });

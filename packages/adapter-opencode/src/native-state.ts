@@ -50,8 +50,6 @@ export class NativeState {
   completedBackgrounds = new RecentSet();
   childDispatches = new Map<string, Map<string, number>>();
   childCompletedAt = new RecentMap<number>(1024);
-  lostLocations = new Set<string>();
-  private locations = new Map<string, number>();
   private childDispatchCount = 0;
   constructor(rootKey: Key) {
     this.rootKey = rootKey;
@@ -91,20 +89,8 @@ export class NativeState {
     const directory = string(object(p.location).directory);
     const claim = this.childClaims.get(id);
     this.childClaims.delete(id);
-    const previousDirectory = this.agents.get(id)?.directory;
     const model = qualifiedModel(p.model) ?? this.agents.get(id)?.model;
     this.agents.set(id, { parent, directory, ...(model ? { model } : {}) });
-    if (previousDirectory !== directory) {
-      if (previousDirectory !== undefined) {
-        const count = (this.locations.get(previousDirectory) ?? 1) - 1;
-        if (count) this.locations.set(previousDirectory, count);
-        else {
-          this.locations.delete(previousDirectory);
-          this.lostLocations.delete(previousDirectory);
-        }
-      }
-      this.locations.set(directory, (this.locations.get(directory) ?? 0) + 1);
-    }
     this.idle.set(id, number(object(p.time).idle, -1));
     return [
       {
@@ -115,8 +101,9 @@ export class NativeState {
         fidelity: "full",
         cwd: directory,
         native: { provider: "opencode", nativeId: id },
-        name: string(p.title),
-        role: string(p.agent),
+        // A session update without a title or agent leaves the known name and role in place.
+        ...(string(p.title) ? { name: string(p.title) } : {}),
+        ...(string(p.agent) ? { role: string(p.agent) } : {}),
         ...(model ? { model } : {}),
       },
       ...(this.disconnected ? [{ type: "agent.disconnected" as const, agent: this.key(id) }] : []),
@@ -387,7 +374,6 @@ export class NativeState {
   settled(): boolean {
     return (
       !this.disconnected &&
-      !this.lostLocations.size &&
       !this.active.size &&
       !this.inputs.size &&
       !this.pending.size &&

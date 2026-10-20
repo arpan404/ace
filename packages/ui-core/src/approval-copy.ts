@@ -325,11 +325,3 @@ export function deliberateApproval(request: InteractionRequest): boolean {
       approvalCopy(request).risk?.level === "high")
   );
 }
-
-/**
- * The daemon's hold on an agent while a person keeps the thread's browser private. It closes
- * only when the person hands the browser back (or closes it), never by answering it.
- */
-export function privateBrowserGate(interaction: { raw: readonly { type: string }[] }): boolean {
-  return interaction.raw.some((raw) => raw.type === "ace.browser.private");
-}

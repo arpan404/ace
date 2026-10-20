@@ -9,19 +9,29 @@ export * from "./notice-text.ts";
 export * from "./accounts.ts";
 export * from "./account-threads.ts";
 export * from "./agents.ts";
+export * from "./agent-runs.ts";
+export * from "./agent-prs.ts";
 export * from "./arrange.ts";
 export * from "./attachment-fit.ts";
+export * from "./attachment-limits.ts";
+export * from "./context-errors.ts";
+export * from "./turn-options.ts";
+export * from "./elicitation-form.ts";
 export * from "./catalog-ids.ts";
 export * from "./checkout.ts";
 export * from "./action-errors.ts";
 export * from "./pull-request.ts";
 export * from "./worktree-base.ts";
 export * from "./composer-drafts.ts";
+export * from "./browser-annotation-prompt.ts";
+export * from "./browser-annotation-parse.ts";
 export * from "./content-hash.ts";
 export * from "./counts.ts";
 export * from "./devices.ts";
 export * from "./diff.ts";
 export { diffBytes } from "./diff-weight.ts";
+export { gitPatchFiles } from "./git-patch.ts";
+export * from "./line-marks.ts";
 export * from "./motion.ts";
 export * from "./file-changes.ts";
 export * from "./file-tree.ts";
@@ -34,6 +44,8 @@ export * from "./held-order.ts";
 export * from "./inline-markdown.ts";
 export * from "./limits.ts";
 export * from "./models.ts";
+export * from "./model-catalog-read.ts";
+export * from "./new-thread-payload.ts";
 export * from "./model-switch-route.ts";
 export * from "./model-picker.ts";
 export * from "./speed.ts";
@@ -44,6 +56,7 @@ export * from "./organizer.ts";
 export * from "./organize-patch.ts";
 export * from "./permissions.ts";
 export * from "./plan.ts";
+export * from "./goal.ts";
 export * from "./profile.ts";
 export * from "./project-badge.ts";
 export type { Brand } from "./brand-art/index.gen.ts";
@@ -71,16 +84,25 @@ export * from "./turn-activity.ts";
 export * from "./thread-ledger.ts";
 export * from "./turn-ordinals.ts";
 export * from "./turn-digest.ts";
+export * from "./agent-changes.ts";
+export * from "./agent-step.ts";
+export * from "./catch-up.ts";
+export * from "./check-runs.ts";
+export * from "./needs-you.ts";
 export * from "./jump-window.ts";
+export * from "./held-range.ts";
 export * from "./search-snippet.ts";
 export * from "./why.ts";
 export * from "./work-log.ts";
+export { isToolSearch, toolSearchRow, type ToolSearchRow } from "./tool-search.ts";
 export * from "./step-groups.ts";
 export * from "./explore-command.ts";
 export * from "./browser-address.ts";
+export * from "./browser-help.ts";
 export * from "./checkout-files.ts";
 export * from "./projects.ts";
 export * from "./folder-search.ts";
+export * from "./path-picker.ts";
 export * from "./usage-cost.ts";
 export * from "./usage-days.ts";
 export * from "./usage-limits.ts";
@@ -93,14 +115,19 @@ export * from "./error-display.ts";
 export * from "./tool-refusals.ts";
 export * from "./repeated-events.ts";
 export * from "./background-groups.ts";
+export * from "./transcript-groups.ts";
 export * from "./system-events.ts";
+export * from "./handoff-marker.ts";
 export * from "./system-input.ts";
 export * from "./approvals.ts";
 export * from "./approval-copy.ts";
+export * from "./follow-up.ts";
+export * from "./stop-fence.ts";
 export {
   composerInput,
   editComposerTokens,
   tokensFromInput,
+  withTypedCommand,
   type ComposerToken,
 } from "./composer-tokens.ts";
 
@@ -131,7 +158,11 @@ export {
   type RowAttention,
   type RowAttentionInput,
 } from "./row-attention.ts";
-export { sanitizeUserText } from "@ace/native-session/user-text";
+export {
+  sanitizeUserText,
+  stripAceOriginMarker,
+  hasAceOriginMarker,
+} from "@ace/native-session/user-text";
 export { stripAnsi } from "./notice-text.ts";
 export {
   subagentState,
@@ -139,9 +170,12 @@ export {
   subagentTerminal,
   rollupSubagent,
   subagentStatusLine,
+  subagentStatusCounts,
   workingSubagentsText,
   subagentBranchStates,
   subagentLabels,
+  subagentGroupStatus,
+  type SubagentGroupStatus,
   type SubagentState,
 } from "./subagents.ts";
 export {

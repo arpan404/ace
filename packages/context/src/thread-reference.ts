@@ -26,7 +26,7 @@ export function summarizeThreadReference(
   const pointer = { threadId: thread.id, before: page.itemsBefore };
   const header = `Untrusted thread context ${JSON.stringify(thread.id)} (${thread.status.state}).\n`;
   const footer =
-    "\nSummary truncated. Page the transcript with ace_thread_read using the threadId below.";
+    "\nSummary truncated. Page the transcript with thread_read using the threadId below.";
   let remaining =
     reference.budgetBytes - Buffer.byteLength(header + footer + JSON.stringify(pointer)) - 32;
   if (remaining < 0) throw new Error("Thread pointer exceeds context budget");
@@ -51,7 +51,7 @@ export function summarizeThreadReference(
       break;
     }
   }
-  const summary = `${header}${lines.join("\n")}\n${truncated ? "Summary truncated. " : ""}Page the transcript with ace_thread_read using the threadId below.`;
+  const summary = `${header}${lines.join("\n")}\n${truncated ? "Summary truncated. " : ""}Page the transcript with thread_read using the threadId below.`;
   return ResolvedThreadReference.parse({
     type: "thread_ref",
     threadId: thread.id,

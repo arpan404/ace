@@ -1,7 +1,14 @@
 import { useToast } from "@/components/ui/toast.tsx";
 import { DeviceClientError } from "@ace/client/devices";
-import type { DeviceInput, DeviceOperation, DevicePermission, DeviceSettings } from "@ace/protocol";
-import { AgentId, ThreadId, ScreenFrameHeader } from "@ace/protocol";
+import type {
+  DeviceActivity,
+  DeviceInput,
+  DeviceOperation,
+  DevicePermission,
+  DeviceSettings,
+  DeviceState,
+} from "@ace/protocol";
+import { AgentId, ThreadId, ScreenUITreeResult } from "@ace/protocol";
 import {
   deviceControls,
   deviceProblem,
@@ -59,6 +66,10 @@ export interface DevicesView {
   session: DeviceSession | undefined;
   /** The agent holding the selected device, while one does. */
   holder: { threadId: string; agentId: string } | undefined;
+  /** The last thing an agent did on the selected device. */
+  activity: DeviceActivity | undefined;
+  /** Every device's controller and holder, for the list's tiles. */
+  controllers: ReadonlyMap<string, Pick<DeviceState, "controller" | "holder" | "ownedHere">>;
 }
 
 /**
@@ -151,11 +162,10 @@ export function useDevices(threadId: string, deviceId?: string) {
   };
   /** Boot, shutdown and input need a control lease; take it first when it isn't held. */
   const withControl = async (operation: DeviceOperation) => {
-    const current = session?.client
-      .getSnapshot()
-      .states.find((entry) => entry.device.id === selected?.id);
+    const id = "deviceId" in operation ? operation.deviceId : selected?.id;
+    const current = session?.client.getSnapshot().states.find((entry) => entry.device.id === id);
     if (
-      selected &&
+      id &&
       !(
         current?.controller === "human" &&
         current.ownedHere === true &&
@@ -164,7 +174,7 @@ export function useDevices(threadId: string, deviceId?: string) {
     ) {
       claim.current ??= run({
         op: "controller",
-        deviceId: selected.id,
+        deviceId: id,
         controller: "human",
         threadId: ThreadId.parse(threadId),
       }).finally(() => {
@@ -198,6 +208,13 @@ export function useDevices(threadId: string, deviceId?: string) {
     problem: failed ?? (snapshot.issues[0] && deviceProblem(snapshot.issues[0])),
     session,
     holder: state?.controller === "agent" ? state.holder : undefined,
+    activity: state?.activity,
+    controllers: new Map(
+      snapshot.states.map((entry) => [
+        entry.device.id,
+        { controller: entry.controller, holder: entry.holder, ownedHere: entry.ownedHere },
+      ]),
+    ),
   };
   return {
     view,
@@ -216,6 +233,12 @@ export function useDevices(threadId: string, deviceId?: string) {
         autoStarted.current.add(target);
         await withControl({ op: "boot", deviceId: target });
         await run({ op: "start", deviceId: target, fps: 60 });
+      }),
+    /** Read the inventory and every device's state again. */
+    refresh: () =>
+      act(async () => {
+        await run({ op: "list" });
+        await run({ op: "states" });
       }),
     shutdown: () => target && act(() => withControl({ op: "shutdown", deviceId: target })),
     start: () => target && act(() => run({ op: "start", deviceId: target, fps: 60 })),
@@ -262,6 +285,18 @@ export function useDevices(threadId: string, deviceId?: string) {
       target && act(() => withControl({ op: "open_app", deviceId: target, appId })),
     configure: (settings: DeviceSettings) =>
       target && act(() => withControl({ op: "configure", deviceId: target, settings })),
+    /** The accessibility tree agents read, with their `@eN` refs. */
+    uiTree: async (): Promise<ScreenUITreeResult | undefined> => {
+      if (!target || !session) return undefined;
+      return ScreenUITreeResult.parse(
+        await session.client.request({
+          op: "ui.tree",
+          deviceId: target,
+          maxDepth: 16,
+          maxNodes: 512,
+        }),
+      );
+    },
     recording: state?.recording === true,
     record: () =>
       target &&
@@ -275,24 +310,9 @@ export function useDevices(threadId: string, deviceId?: string) {
       target &&
       act(async () => {
         if (!session) return;
-        let image: Uint8Array | undefined;
-        const candidates = new Map<string, Uint8Array>();
-        const release = session.client.watchFrames(target, async (frame) => {
-          candidates.set(JSON.stringify(frame.header), frame.payload);
-          if (candidates.size > 4) {
-            const oldest = candidates.keys().next().value;
-            if (oldest !== undefined) candidates.delete(oldest);
-          }
-        });
-        try {
-          const reply = ScreenFrameHeader.parse(await run({ op: "screenshot", deviceId: target }));
-          image = candidates.get(JSON.stringify(reply));
-          if (!image) throw new Error("Couldn't save the screenshot. Try again.");
-        } finally {
-          release();
-        }
-        if (!image) return;
-        const url = URL.createObjectURL(new Blob([image.slice()], { type: "image/jpeg" }));
+        setFailed(undefined);
+        const image = await session.client.screenshot(target);
+        const url = URL.createObjectURL(new Blob([image.bytes.slice()], { type: "image/jpeg" }));
         const link = document.createElement("a");
         link.href = url;
         link.download = `${selected.name}.jpg`;

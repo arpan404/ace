@@ -52,7 +52,7 @@ test("a refused background key press reads as a sentence naming Safari, with its
   expect(within(safari).getByText(/Tried to press ⌘L in Safari\./)).toBeTruthy();
   expect(within(safari).queryByText(/not_supported/)).toBeNull();
   await userEvent.click(within(safari).getByRole("button", { name: "Details" }));
-  expect(within(safari).getByText(/ace · screen_key · not_supported/)).toBeTruthy();
+  expect(within(safari).getByText(/ace · screen_input · not_supported/)).toBeTruthy();
   // The provider's frames stay behind one more closed disclosure, not dumped in the transcript.
   expect(feed.textContent).not.toMatch(/"type":/);
   await userEvent.click(within(safari).getByRole("button", { name: "Raw" }));
@@ -112,7 +112,9 @@ test("browser and device steps name the element and device from what earlier ste
   ).toBeTruthy();
   expect(steps.textContent).not.toContain("octocat");
   expect(within(steps).getByRole("button", { name: "Clicked “Sign in”" })).toBeTruthy();
-  expect(within(steps).getByRole("button", { name: "You have the browser Failed" })).toBeTruthy();
+  expect(
+    within(steps).getByRole("button", { name: "You were using that tab Failed" }),
+  ).toBeTruthy();
 });
 
 test("device steps read on the named simulator", async () => {
@@ -188,7 +190,7 @@ test("the Safari demo reports the time spent across its actions", async () => {
   expect(within(feed).getByRole("button", { name: /^Worked for 4[0-9]s/ })).toBeTruthy();
 });
 
-test("linked PR tools read as short PR steps with the result's list count", async () => {
+test("linking and unlinking PRs read as short PR steps from the one link tool", async () => {
   const app = harness();
   app
     .play({
@@ -208,23 +210,14 @@ test("linked PR tools read as short PR steps with the result's list count", asyn
             aceCall(
               "root",
               "link-pr",
-              "ace_thread_link_pr",
+              "thread_link_pr",
               { url: "https://github.com/acme/api/pull/283" },
               [{ type: "text", text: JSON.stringify({ ok: true, data: { number: 283 } }) }],
             ),
-            aceCall("root", "list-pr", "ace_thread_list_prs", {}, [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  ok: true,
-                  data: { linkedPrs: [{ number: 283 }, { number: 284 }] },
-                }),
-              },
-            ]),
-            aceCall("root", "unlink-pr", "ace_thread_unlink_pr", { number: 283 }, [
+            aceCall("root", "unlink-pr", "thread_link_pr", { number: 283, unlink: true }, [
               { type: "text", text: JSON.stringify({ ok: true, data: { number: 283 } }) },
             ]),
-            aceCall("root", "unlink-all", "ace_thread_unlink_pr", { all: true }, [
+            aceCall("root", "unlink-all", "thread_link_pr", { unlink: true, all: true }, [
               {
                 type: "text",
                 text: JSON.stringify({ ok: true, data: { all: true, linkedPrs: [] } }),
@@ -238,12 +231,7 @@ test("linked PR tools read as short PR steps with the result's list count", asyn
     })
     .runUntilBlocked();
   const { steps } = await openSteps(app, "pr-steps");
-  for (const name of [
-    "Linked PR #283",
-    "Listed 2 linked PRs",
-    "Unlinked PR #283",
-    "Unlinked all PRs",
-  ])
+  for (const name of ["Linked PR #283", "Unlinked PR #283", "Unlinked all PRs"])
     expect(within(steps).getByRole("button", { name })).toBeTruthy();
-  expect(steps.textContent).not.toMatch(/ace_thread_|linkedPrs|\{"/);
+  expect(steps.textContent).not.toMatch(/thread_link_pr|linkedPrs|\{"/);
 });

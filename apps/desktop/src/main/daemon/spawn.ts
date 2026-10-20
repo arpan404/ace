@@ -49,9 +49,8 @@ export interface SpawnOptions {
 }
 
 /**
- * The version the daemon reports in its health. Clients refuse to adopt a daemon reporting a
- * 0.x version, which is the legacy app's (ADR 0041), so an app version that health rule
- * rejects (a local build's `0.1.0`) runs its daemon as `development` instead.
+ * The version the daemon reports in its health. An app version the health schema rejects (a
+ * build-metadata suffix such as `1.0.0+local`) runs its daemon as `development` instead.
  */
 function daemonVersion(appVersion: string): string {
   return DaemonHealth.shape.version.safeParse(appVersion).success ? appVersion : "development";

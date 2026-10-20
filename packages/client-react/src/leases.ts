@@ -7,9 +7,12 @@ interface Lease<T> {
   subscribe(changed: () => void): () => void;
   get(): T | undefined;
 }
-/** A reference-counted SDK lease held for exactly as long as React keeps a subscription. */
-function lease<T>(acquire: () => { store: T; release(): void }): Lease<T> {
-  let store: T | undefined;
+/**
+ * A reference-counted SDK lease held for exactly as long as React keeps a subscription. Before
+ * the first commit it reads `cached`, a store the client kept, so a warm view paints at once.
+ */
+function lease<T>(acquire: () => { store: T; release(): void }, cached?: T): Lease<T> {
+  let store: T | undefined = cached;
   return {
     subscribe(changed) {
       const held = acquire();
@@ -26,14 +29,16 @@ function lease<T>(acquire: () => { store: T; release(): void }): Lease<T> {
 
 /**
  * Hold a thread subscription while the component is mounted. The client shares one wire
- * subscription between every holder of the same thread. Undefined until the first commit.
+ * subscription between every holder of the same thread. Before the first commit, the store the
+ * client kept for it (it may be syncing), or undefined.
  * Inside a `ThreadWindowProvider` for this thread, the window's source once the tail is held.
  */
 export function useThreadStore(threadId: string | undefined): ThreadSource | undefined {
   const client = useClient();
   const window = useThreadWindow(threadId);
   const held = useMemo(
-    () => (threadId ? lease(() => client.thread(threadId)) : undefined),
+    () =>
+      threadId ? lease(() => client.thread(threadId), client.cachedThread?.(threadId)) : undefined,
     [client, threadId],
   );
   const live = useSyncExternalStore(held?.subscribe ?? noSubscribe, held?.get ?? noStore, noStore);
@@ -41,7 +46,7 @@ export function useThreadStore(threadId: string | undefined): ThreadSource | und
 }
 export function useSidebarStore(): SidebarSource | undefined {
   const client = useClient();
-  const held = useMemo(() => lease(() => client.threads()), [client]);
+  const held = useMemo(() => lease(() => client.threads(), client.cachedThreads?.()), [client]);
   return useSyncExternalStore(held.subscribe, held.get, noStore);
 }
 const noSubscribe = () => () => {};

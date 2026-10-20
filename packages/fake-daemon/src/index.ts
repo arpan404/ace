@@ -18,6 +18,7 @@ export {
   delegatedQuestionIds,
 } from "./scenarios/delegated-question.ts";
 export { failingSubagent } from "./scenarios/failing-subagent.ts";
+export { restartedSubagents, summaryFleet } from "./scenarios/summary-fleet.ts";
 export { childActions, childActionsIds, sessionLimitText } from "./scenarios/child-actions.ts";
 export { refusedDelegation } from "./scenarios/refused-delegation.ts";
 export { interruptedTurn, seedInterruptedTurn } from "./scenarios/interrupted-turn.ts";
@@ -46,6 +47,7 @@ export {
   aceToolsDevices,
   screenAudit,
 } from "./scenarios/ace-tools.ts";
+export { aceToolsComputerBackground } from "./scenarios/ace-tools-computer.ts";
 export type { AgedScenario } from "./scenarios/home-list.ts";
 export { replayCursor } from "./scenarios/replay-cursor.ts";
 export { dedupeReconnect } from "./scenarios/dedupe-reconnect.ts";
@@ -69,10 +71,12 @@ export { FakeProjects } from "./projects.ts";
 export type { FolderSeed } from "./projects.ts";
 export { hostFolders } from "./scenarios/host-folders.ts";
 export { FakeBrowser } from "./browser.ts";
+export { FakeComputerUsing } from "./computer-using.ts";
 export type { BrowserView, ScreenFrame, PreviewServer, ForwardedInput } from "./browser.ts";
 export { seedIndex } from "./scenarios/seed-index.ts";
 export * as facts from "./scenarios/facts.ts";
 export { workbenchServices } from "./scenarios/services.ts";
+export { pullRequestDetails } from "./catalog/pull-request-details.ts";
 export type { ServicesSeed } from "./services-wire.ts";
 export type { FakePlugin, FakePluginComponent, PluginSeed } from "./plugins-wire.ts";
 export { accountList } from "./catalog/accounts.ts";

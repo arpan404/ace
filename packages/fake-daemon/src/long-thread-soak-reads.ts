@@ -196,7 +196,17 @@ export class LongThreadReads {
             ? (this.live().items.find((entry) => entry.item.id === message.itemId) ??
               this.history.itemById(message.itemId))
             : (this.from(turnStart ?? message.aroundSeq ?? 0, 1)[0] ?? this.before(Infinity, 1)[0]);
-        const older = target ? this.before(target.seq, message.before) : [];
+        let older = target ? this.before(target.seq, message.before) : [];
+        // Whole turns at the older edge, as the daemon reads them: a partly read turn waits
+        // for the next read, unless it is all the window holds.
+        const oldest = older[0];
+        if (message.wholeTurns && oldest) {
+          const turn = this.turnOf(oldest.seq);
+          if (this.items(turn)[0]?.seq !== oldest.seq) {
+            const whole = older.filter((entry) => this.turnOf(entry.seq) > turn);
+            if (whole.length) older = whole;
+          }
+        }
         const newer = target ? this.from(target.seq + 1, message.after) : [];
         const shown = [...older, ...(target ? [target] : []), ...newer];
         const first = shown[0];

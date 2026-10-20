@@ -20,7 +20,7 @@ const capabilities = {
   targets: true,
   permissions: true,
   downloads: true,
-  controllerLease: true,
+  humanInput: true,
 };
 async function next(socket: WebSocket): Promise<unknown> {
   const raw: unknown = (await once(socket, "message"))[0];

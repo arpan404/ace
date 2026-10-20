@@ -34,6 +34,7 @@
     "@ace/agent-registry": "workspace:*",
     "@ace/automations": "workspace:*",
     "@ace/browser": "workspace:*",
+    "@ace/browser-extension": "workspace:*",
     "@ace/client": "workspace:*",
     "@ace/commands": "workspace:*",
     "@ace/context": "workspace:*",

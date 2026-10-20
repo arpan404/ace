@@ -49,6 +49,27 @@ async function running(events = initial(), throughWorker = false) {
   };
 }
 
+test("a working turn leads with a read-only status line and its agent tree opens from the menu", async () => {
+  await running();
+  const feed = screen.getByRole("feed", { name: "Transcript" });
+  // One live status in the whole view: no copy pinned at the top, no second "Thinking" line.
+  expect(screen.getAllByRole("group", { name: "Turn in progress" })).toHaveLength(1);
+  const ask = within(feed).getByText("Check the replay cursor.");
+  const step = within(feed)
+    .getAllByText(/bun run build/)
+    .at(-1);
+  if (!step) throw new Error("Missing step");
+  // It heads the turn's flow: under the ask, above the step in flight.
+  expect(ask.compareDocumentPosition(live()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(step.compareDocumentPosition(live()) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  // The line stays selectable text with no glyph; the thread menu opens its agent tree.
+  expect(within(live()).queryByRole("button")).toBeNull();
+  expect(live().querySelector('[data-slot="status-glyph"]')).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: /Open agent tree/ }));
+  expect(await screen.findByRole("region", { name: "Thread panel" })).toBeTruthy();
+});
+
 test("reload and reconnect preserve the server start of a partial turn", async () => {
   const { app, view } = await running([
     ...initial(),
@@ -151,7 +172,8 @@ test("a parent answer stays working until its subagent finishes and its line ope
   );
   expect(live().textContent).toContain("1 subagent");
   expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
-  await userEvent.click(within(live()).getByRole("button", { name: "Open the summary" }));
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: /Open agent tree/ }));
   expect(await screen.findByRole("region", { name: "Thread panel" })).toBeTruthy();
   act(() => app.daemon.apply(id, [facts.toolDone("audit", "audit-check"), facts.endTurn("audit")]));
   expect(await screen.findByRole("button", { name: /^Worked for 1m 14s/ })).toBeTruthy();

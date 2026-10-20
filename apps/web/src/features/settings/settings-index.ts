@@ -68,10 +68,22 @@ const entries = [
     keywords: ["agent", "claude", "codex", "model"],
   },
   {
+    id: "terminals.openIn",
+    page: "/settings/general",
+    title: "Terminals open in",
+    keywords: ["terminal", "shell", "bottom panel", "side panel", "dock", "location"],
+  },
+  {
     id: "threads.useWorktree",
     page: "/settings/general",
     title: "New threads use a worktree",
     keywords: ["git", "branch", "checkout"],
+  },
+  {
+    id: "threads.sortBy",
+    page: "/settings/general",
+    title: "Sort threads",
+    keywords: ["order", "sidebar", "manual", "newest", "activity"],
   },
   {
     id: "threads.autoSettleAfter",
@@ -108,6 +120,18 @@ const entries = [
     page: "/settings/general",
     title: "Auto-draft commit messages",
     keywords: ["commit", "draft", "generate"],
+  },
+  {
+    id: "computer.blockedApps",
+    page: "/settings/computer-use",
+    title: "Apps agents can't use",
+    keywords: ["block", "deny", "computer use", "screen", "apps", "privacy"],
+  },
+  {
+    id: "browser.userChrome.storageReads",
+    page: "/settings/computer-use",
+    title: "Let agents read cookies and site storage",
+    keywords: ["use my chrome", "evaluate", "localStorage", "privacy", "browser"],
   },
   {
     id: "automations.enabled",
@@ -192,12 +216,6 @@ const entries = [
     keywords: ["compact", "comfortable", "spacing"],
   },
   {
-    id: "appearance.corners",
-    page: "/settings/appearance",
-    title: "Corners",
-    keywords: ["radius", "roundness", "rounded", "sharp", "square"],
-  },
-  {
     id: "appearance.transcriptSize",
     page: "/settings/appearance",
     title: "Transcript text size",
@@ -247,6 +265,49 @@ const entries = [
     page: "/settings/remote",
     title: "Agents on other devices can use this machine",
     keywords: ["machines", "delegate", "cross-device", "mcp", "agents", "browser"],
+  },
+  // Browser
+  {
+    id: "browser.engine",
+    page: "/settings/browser",
+    title: "Browser engine",
+    keywords: ["chrome", "headless", "desktop", "native", "backend"],
+  },
+  {
+    id: "browser.profile",
+    page: "/settings/browser",
+    title: "New browsers",
+    keywords: ["profile", "cookies", "private", "incognito", "sign-ins"],
+  },
+  {
+    id: "browser.loss",
+    page: "/settings/browser",
+    title: "When the desktop app goes away",
+    keywords: ["fallback", "pause", "continue"],
+  },
+  {
+    id: "browser.downloadDir",
+    page: "/settings/browser",
+    title: "Downloads folder",
+    keywords: ["download", "save", "folder", "location"],
+  },
+  {
+    id: "browser.deviceToolbar",
+    page: "/settings/browser",
+    title: "Device toolbar in new tabs",
+    keywords: ["responsive", "mobile", "emulation", "viewport"],
+  },
+  {
+    id: "browser.pip",
+    page: "/settings/browser",
+    title: "Picture in picture",
+    keywords: ["pip", "floating", "mini player", "video", "float"],
+  },
+  {
+    id: "browser.revealAgentPages",
+    page: "/settings/browser",
+    title: "Open the browser panel when an agent opens a page",
+    keywords: ["side panel", "auto open", "reveal", "browser_open", "sheet"],
   },
   {
     id: "host.displayName",

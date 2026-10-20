@@ -26,9 +26,11 @@ test("the new tab lists its tools as cards with their shortcuts, and no Side cha
   expect(within(tools).getByRole("button", { name: "More for Files" })).toBeTruthy();
   expect(within(tools).queryByRole("button", { name: /Side chat/ })).toBeNull();
   expect(within(panel).queryByRole("tab", { name: "Side chat" })).toBeNull();
-  // Terminals open one per tab, so its card offers another beside this one.
+  // Terminals and Changes open more than once, so their cards offer another beside this one;
+  // Summary is the thread's one summary.
   expect(within(tools).getByRole("button", { name: "More for Terminal" })).toBeTruthy();
-  expect(within(tools).queryByRole("button", { name: "More for Changes" })).toBeNull();
+  expect(within(tools).getByRole("button", { name: "More for Changes" })).toBeTruthy();
+  expect(within(tools).queryByRole("button", { name: "More for Summary" })).toBeNull();
 });
 
 test("the new tab suggests the dev servers the daemon detected for the thread", async () => {
@@ -44,8 +46,15 @@ test("an address typed in the new tab's toolbar opens the Browser in its place",
   const address = await within(panel).findByRole("combobox", { name: "Address" });
   expect(address.getAttribute("placeholder")).toBe("Search or enter a URL");
   await userEvent.type(address, "localhost:4321{Enter}");
-  expect(await within(panel).findByRole("tab", { name: /localhost/, selected: true })).toBeTruthy();
-  expect(within(panel).queryByRole("tab", { name: "New tab" })).toBeNull();
+  // The Browser takes the new tab's place, with the address in a browser tab of its own.
+  expect(await within(panel).findByText("This site can't be reached")).toBeTruthy();
+  expect(within(panel).queryByRole("list", { name: "Tools" })).toBeNull();
+  const shown = within(within(panel).getByRole("tablist", { name: "Thread panel tabs" })).getByRole(
+    "tab",
+    { selected: true },
+  );
+  // The new tab became the browser tab it opened.
+  await waitFor(() => expect(shown.textContent).not.toContain("New tab"));
 });
 
 test("opening a new tab puts the cursor in its address", async () => {

@@ -8,8 +8,29 @@ import type { SocketContext, SocketService } from "./socket.ts";
 export function startThreadTransitions(context: ServiceContext): void {
   const git = new GitService();
   context.resources.own(() => git.close());
-  const io: TransitionIO = {
+  context.services.transitions = {
     applyPatch: (request) => git.applyPatch(request),
+    ...accountTransitions(context),
+  };
+}
+/** Account changes reuse the accounts owner: its registry for usability, its service for copies. */
+export function accountTransitions(
+  context: Pick<ServiceContext, "now" | "id"> & {
+    services: Pick<ServiceContext["services"], "accounts" | "accountRegistry">;
+  },
+): Pick<TransitionIO, "migrate" | "accountProblem"> {
+  return {
+    accountProblem(provider, instanceId) {
+      const registry = context.services.accountRegistry;
+      if (!registry) return undefined;
+      if (registry.isPending(instanceId)) return "That account hasn't finished signing in";
+      const account = registry.summary(instanceId, context.now());
+      if (!account || account.provider !== provider)
+        return "That account isn't set up for this provider";
+      if (account.availability === "logged_out") return "That account is signed out";
+      if (account.availability === "exhausted") return "That account has no usage left";
+      return undefined;
+    },
     async migrate(request) {
       const provider = AccountProvider.safeParse(request.provider);
       if (!provider.success || !context.services.accounts)
@@ -24,7 +45,6 @@ export function startThreadTransitions(context: ServiceContext): void {
       return response.result;
     },
   };
-  context.services.transitions = io;
 }
 export function createThreadTransitionsSession(context: SocketContext): SocketService {
   return {

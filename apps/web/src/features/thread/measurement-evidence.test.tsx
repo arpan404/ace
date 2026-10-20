@@ -72,9 +72,7 @@ async function openTyped(mode: "claude" | "custom" | "standalone") {
           type: "assistant",
           data: {
             message: {
-              content: [
-                { type: "tool_use", name: "mcp__ace__screen_measure_interaction", input: {} },
-              ],
+              content: [{ type: "tool_use", name: "mcp__ace__screen_measure", input: {} }],
             },
           },
         },

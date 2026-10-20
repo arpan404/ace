@@ -10,8 +10,8 @@ afterEach(async () => {
 });
 const childId = (text: string) =>
   z
-    .object({ data: z.object({ threadId: z.string() }) })
-    .parse(JSON.parse(text.split("\n")[0] ?? "")).data.threadId as ThreadId;
+    .object({ data: z.object({ threadIds: z.tuple([z.string()]) }) })
+    .parse(JSON.parse(text.split("\n")[0] ?? "")).data.threadIds[0] as ThreadId;
 
 it("a new session already knows its project, branch and access", async () => {
   world = await evalWorld({ browser: false });
@@ -21,7 +21,7 @@ it("a new session already knows its project, branch and access", async () => {
   expect(agent.instructions).toContain(
     "Full access: your provider runs tools without asking; ace adds no approvals",
   );
-  expect(agent.instructions).toMatch(/Delegate with delegate_task to: .*claude/);
+  expect(agent.instructions).toMatch(/Delegate \(tool delegate\) to: .*claude/);
 });
 
 it("the next ace result says what changed: a child waiting on the person, then one finishing", async () => {
@@ -29,34 +29,32 @@ it("the next ace result says what changed: a child waiting on the person, then o
   const { agent } = await world.agent({});
   const asking = childId(
     (
-      await agent.call("delegate_task", {
-        requestId: "a",
-        task: "Ask first",
-        role: "ask-first-question",
-        provider: "claude",
+      await agent.call("delegate", {
+        tasks: [
+          { requestId: "a", task: "Ask first", role: "ask-first-question", provider: "claude" },
+        ],
       })
     ).text,
   );
   const working = childId(
     (
-      await agent.call("delegate_task", {
-        requestId: "b",
-        task: "Just do it",
-        role: "just-do-it-task",
-        provider: "claude",
+      await agent.call("delegate", {
+        tasks: [
+          { requestId: "b", task: "Just do it", role: "just-do-it-task", provider: "claude" },
+        ],
       })
     ).text,
   );
-  await agent.call("ace_status", {});
+  await agent.call("context", { topics: ["status"] });
   await world.askHuman(asking);
-  const waiting = await agent.call("ace_threads_list", {});
+  const waiting = await agent.call("threads_find", {});
   expect(waiting.text).toContain(`child ${asking.slice(0, 8)}`);
   expect(waiting.text).toContain("is waiting on the person");
   expect(waiting.text).not.toMatch(new RegExp(`${asking.slice(0, 8)}[^;]*finished`));
   await world.complete(working, "Done");
-  const settled = await agent.call("ace_status", {});
+  const settled = await agent.call("context", { topics: ["status"] });
   expect(settled.text).toContain(`child ${working.slice(0, 8)} "just-do-it-task" finished`);
   expect(settled.text).not.toContain(asking.slice(0, 8));
   // Reported once: the next call has nothing new.
-  expect((await agent.call("ace_status", {})).text).not.toContain("ace/changes");
+  expect((await agent.call("context", { topics: ["status"] })).text).not.toContain("ace/changes");
 });

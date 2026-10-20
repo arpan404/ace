@@ -7,18 +7,25 @@
     ".": "./src/index.ts",
     "./policy": "./src/policy.ts",
     "./policy-events": "./src/policy-events.ts",
-    "./testing": "./src/backend-test-support.ts"
+    "./zoom": "./src/zoom.ts",
+    "./stream": "./src/stream.ts",
+    "./video-fanout": "./src/video-fanout.ts",
+    "./picture-channel": "./src/picture-channel.ts",
+    "./live-view": "./src/live-view.ts",
+    "./history": "./src/page-history.ts",
+    "./testing": "./src/backend-test-support.ts",
+    "./conformance": "./src/conformance/index.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
-    "bench": "node bench/fanout.ts && node bench/pipeline.ts && node bench/input-policy.ts && node bench/evaluation.ts && node bench/relay.ts && node bench/acquisition.ts"
+    "bench": "node bench/fanout.ts && node bench/pipeline.ts && node bench/frame-wire.ts && node bench/input-policy.ts && node bench/evaluation.ts && node bench/relay.ts && node bench/acquisition.ts && node bench/video-wire.ts"
   },
   "dependencies": {
+    "@ace/browser-annotate": "workspace:*",
     "@ace/interaction": "workspace:*",
     "@ace/mcp-server": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/redaction": "workspace:*",
-    "playwright-core": "1.61.1",
     "sharp": "0.34.5",
     "yauzl": "3.2.0",
     "zod": "^4.6.5"
@@ -26,6 +33,7 @@
   "devDependencies": {
     "@types/ws": "8.18.1",
     "@types/yauzl": "2.10.3",
+    "esbuild": "0.25.12",
     "ws": "8.22.0"
   }
 }

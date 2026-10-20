@@ -105,6 +105,11 @@ export function keyChord(key: string | number, modifiers: readonly string[] = []
   return chord(modifiers, name);
 }
 
+/** "⇧⌘" for modifiers held during a click or drag; empty when there are none. */
+export function modifierPrefix(modifiers: readonly string[]): string {
+  return chord(modifiers, "");
+}
+
 /** Playwright's "Control+a", "Meta+Shift+T", "Enter" or "Shift++". */
 export function playwrightChord(combo: string): string {
   if (combo === "+") return "+";

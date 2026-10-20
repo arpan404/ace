@@ -294,7 +294,13 @@ const browserInputs: Record<string, unknown[]> = {
       transcriptSize: null,
     },
   ],
-  ShellLayout: [{}, { sidebarOpen: false }, { sidebarOpen: "yes" }],
+  ShellLayout: [
+    {},
+    { sidebarOpen: false },
+    { sidebarOpen: "yes" },
+    { sidebarWidth: 320 },
+    { sidebarOpen: true, sidebarWidth: "wide" },
+  ],
   ScopeWorkspaceSchema: [
     {
       tabs: [

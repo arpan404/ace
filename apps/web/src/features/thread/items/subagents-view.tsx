@@ -1,18 +1,32 @@
 import type { AgentFacts } from "@/lib/agent-facts.ts";
-import { subagentStatusLine, subagentTerminal } from "@ace/ui-core";
-import { CaretDownIcon } from "@phosphor-icons/react";
+import {
+  subagentGroupStatus,
+  subagentStatusCounts,
+  subagentTerminal,
+  type SubagentGroupStatus,
+} from "@ace/ui-core";
+import { cardEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { useAgentFacts } from "@/lib/use-agent-facts.ts";
 import { useCallback, useId, useState } from "react";
+import { StatusGlyph } from "@/components/status-glyph.tsx";
 import { useThreadLiveState } from "../lib/live-state.ts";
 import { readSubagentGroup, subagentEntriesEqual } from "../lib/subagent-group.ts";
 import { SubagentElapsed, SubagentRow, subagentTones } from "./subagent-row.tsx";
+import { TranscriptRow, cardRowClass } from "./transcript-row.tsx";
+
+const groupTones: Record<SubagentGroupStatus, string> = {
+  human: "needs-you",
+  failed: "failed",
+  working: "working",
+  done: "done",
+};
 
 /**
- * A launch's subagents in the transcript, in the transcript's plain row style (no card). One
- * subagent is just its row. Several get a one-line disclosure ("3 subagents · 2 done · 1
- * working") over their rows. A status shows once: the header's counts, then each row's dot, or
- * its words only when it needs attention.
+ * A launch's subagents in the transcript. One subagent is just its row. Several fold into one
+ * two-line row (a group status glyph, "3 subagents", then each status count in its tone),
+ * opening to a hairline card of their rows. The group reads as its worst child: needs you,
+ * failed, working, done, so it never reads done while any child works or waits.
  */
 export function Subagents(props: { threadId: string; itemIds: readonly string[] }) {
   const read = useCallback(
@@ -25,17 +39,13 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
   const live = useThreadLiveState(props.threadId);
   if (!entries.length) return null;
   const title = `${entries.length} ${entries.length === 1 ? "subagent" : "subagents"}`;
-  const rows = (
-    <ul aria-label="Subagents">
-      {entries.map((entry) => (
-        <SubagentRow key={entry.id} threadId={props.threadId} entry={entry} fresh={live.fresh} />
-      ))}
-    </ul>
-  );
-  if (entries.length === 1)
+  const [only] = entries;
+  if (entries.length === 1 && only)
     return (
-      <section aria-label={title} className="py-1">
-        {rows}
+      <section aria-label={title}>
+        <ul aria-label="Subagents">
+          <SubagentRow threadId={props.threadId} entry={only} fresh={live.fresh} />
+        </ul>
       </section>
     );
   const states = entries.map((entry) => entry.state);
@@ -43,49 +53,59 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
   const startedAt = Math.min(...entries.map((entry) => entry.startedAt));
   const ends = entries.flatMap((entry) => (entry.endedAt === undefined ? [] : [entry.endedAt]));
   const endedAt = !running && ends.length === entries.length ? Math.max(...ends) : undefined;
-  const line = subagentStatusLine(states);
-  const tone = states.includes("human")
-    ? subagentTones.human
-    : states.includes("failed") || states.includes("unresponsive")
-      ? subagentTones.failed
-      : "text-muted-foreground";
+  const status = subagentGroupStatus(states);
   return (
-    <section aria-label={title} className="py-1">
-      <button
-        type="button"
-        aria-label={title}
-        aria-expanded={open}
-        aria-controls={body}
-        aria-describedby={`${body}-status`}
-        onClick={() => setOpen(!open)}
-        className="flex min-h-(--row-height) pointer-coarse:min-h-11 w-full min-w-0 items-center gap-2 rounded-md px-(--surface-inset) text-left text-ui transition-colors duration-(--motion-fast) hover:bg-accent focus-ring-inset"
-      >
-        <span className="min-w-0 flex-1 truncate">
-          <span className="font-medium">{title}</span>
-          <span aria-hidden className="text-subtle-foreground">
-            {" · "}
+    <section aria-label={title} data-group-status={status}>
+      <TranscriptRow
+        expanded={open}
+        controls={body}
+        onToggle={() => setOpen(!open)}
+        label={title}
+        tone="strong"
+        lead={
+          <StatusGlyph
+            state={status === "working" ? "subagents" : status === "human" ? "needs-you" : status}
+            size={16}
+            still={!live.fresh}
+          />
+        }
+        title={title}
+        subtitle={
+          <span id={`${body}-status`} role="status" data-tone={groupTones[status]}>
+            {!live.fresh && running && "Last seen: "}
+            {subagentStatusCounts(states).map((part, index) => (
+              <span key={part.state}>
+                {index > 0 && <span className="text-subtle-foreground"> · </span>}
+                <span data-tone={subagentTones[part.state]} className="text-(--tone-text)">
+                  {part.count} {part.word}
+                </span>
+              </span>
+            ))}
           </span>
-          <span id={`${body}-status`} role="status" className={tone}>
-            {live.fresh || !running ? line : `Last seen: ${line}`}
-          </span>
-        </span>
-        <SubagentElapsed
-          startedAt={startedAt}
-          endedAt={endedAt}
-          running={running}
-          fresh={live.fresh}
-        />
-        <CaretDownIcon
-          aria-hidden
-          size={16}
-          className={cn(
-            "shrink-0 text-subtle-foreground transition-transform duration-(--motion-base)",
-            open && "rotate-180",
-          )}
-        />
-      </button>
+        }
+        meta={
+          <SubagentElapsed
+            startedAt={startedAt}
+            endedAt={endedAt}
+            running={running}
+            fresh={live.fresh}
+          />
+        }
+      />
       <div id={body} hidden={!open}>
-        {open && rows}
+        {open && (
+          <ul aria-label="Subagents" className={cn("mt-1 rounded-card p-1", cardEdge)}>
+            {entries.map((entry) => (
+              <SubagentRow
+                key={entry.id}
+                threadId={props.threadId}
+                entry={entry}
+                fresh={live.fresh}
+                className={cardRowClass}
+              />
+            ))}
+          </ul>
+        )}
       </div>
     </section>
   );

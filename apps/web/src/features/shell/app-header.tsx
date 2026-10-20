@@ -115,7 +115,8 @@ export function HeaderNav() {
  * subtitle; on the right the actions, the ⋯ menu, the screen's tools (a thread's details icon) and
  * the side panel's toggle, with no rule between them. 44px, a drag region in Electron, hairline only once the content scrolls. Every control
  * is a 30px box on one centre line. On a phone it keeps the sidebar toggle, the title (two lines
- * if need be), the status mark, screen tools and one ⋯; the panel toggle moves into that ⋯.
+ * if need be), the status mark, one ⋯, screen tools and the panel toggle; the panel's other
+ * tools (a thread's Changes) go in that ⋯.
  */
 export function AppHeader(
   props: HeaderProps & {
@@ -134,7 +135,7 @@ export function AppHeader(
   // Folded, the title menu joins the actions behind one ⋯: a header never shows two.
   const folded = !wide && !!props.actions;
   const titleMenu = props.menu && !phone && !folded;
-  // Screen tools stay reachable in the header; a phone folds only the panel toggle.
+  // A phone's ⋯ also lists the panel's tools (a thread's Changes); the toggle stays visible.
   const tools = phone && props.trailing;
   return (
     <header
@@ -182,7 +183,7 @@ export function AppHeader(
         )}
       </div>
       {props.notice}
-      <div className="ml-auto flex shrink-0 items-center gap-1">
+      <div className="ml-auto flex shrink-0 items-center gap-0.5">
         {props.actions && wide && props.actions}
         {titleMenu && (
           <HeaderMenu
@@ -202,7 +203,7 @@ export function AppHeader(
         )}
         {/* Always after the ⋯: [title] [⋯] [tools] [panel toggle]. */}
         {props.tools}
-        {props.trailing && !phone && props.trailing}
+        {props.trailing}
       </div>
     </header>
   );

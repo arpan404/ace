@@ -1,4 +1,5 @@
 import { projectIntent } from "./project-intents.ts";
+import { fakeGoalUpdate } from "./goal-commands.ts";
 import type { FakeHistory } from "./history-wire.ts";
 import { MachineIcon } from "@ace/protocol";
 import { markUncertainInput, restoreInput, repeatInput } from "./queue-fixtures.ts";
@@ -38,7 +39,6 @@ import {
   HostId,
   ThreadId,
   WorkspaceId,
-  Thread,
   type ClientMessage,
   type Command,
   type CommandResult,
@@ -47,7 +47,6 @@ import {
   type InteractionResolution,
   type ItemsPage,
   type ProviderKind,
-  type Capabilities,
   type ThreadView,
   type SubscriptionScope,
   type ThreadListView,
@@ -63,11 +62,13 @@ import { FakeReviewDesk } from "./review-desk.ts";
 import { ThreadHost } from "./thread-host.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
 import { FakeServices } from "./services/index.ts";
+import type { FakeDaemonOptions, ThreadInit } from "./daemon-options.ts";
 import { FakeServicesWire, type FakeWireSession, type ServicesSeed } from "./services-wire.ts";
 import type { FakeMcpWire } from "./mcp-wire.ts";
 import { FakeLongThreadWire } from "./long-thread-wire.ts";
 import { FakeOutputStore } from "./output-store.ts";
 import type { FakeBrowser } from "./browser.ts";
+import type { FakeComputerUsing } from "./computer-using.ts";
 import type { FakeTerminals } from "./terminals.ts";
 import type { FakeProjects } from "./projects.ts";
 import type { FakeWorkspaceWire } from "./workspace-wire.ts";
@@ -81,54 +82,10 @@ import {
   type ThreadCommandOutcome,
 } from "./thread-commands.ts";
 import { holdOnLimit, isQueueCommand, queueCommand, queuePage } from "./queue-commands.ts";
-import { forkPointError, mergeForkError, switchEvents } from "./transitions.ts";
-import { fakeWorktreeBase } from "./worktree-base.ts";
+import { forkPointError, mergeFacts, mergeForkError, switchEvents } from "./transitions.ts";
+import { fakeCheckoutPath, fakeWorktreeBase } from "./worktree-base.ts";
 
-export interface FakeDaemonOptions {
-  /** Injected clock for event timestamps and core facts. */
-  clock(): number;
-  /** Keep creation visible for screenshot capture. */
-  worktreeCreationSlow?: boolean;
-  worktreeCreationSchedule?: (callback: () => void, delay: number) => () => void;
-  screenId?(): string;
-  screenSchedule?(callback: () => void, delay: number): () => void;
-  hostId?: string;
-  displayName?: string;
-  version?: string;
-  catalog?: Partial<Pick<FakeServices, "accounts" | "models" | "commands" | "providerStatuses">>;
-  deviceScopes?: Readonly<Record<string, readonly import("@ace/protocol").DeviceScope[]>>;
-  /** Optional finite response for newly created demo threads; tests can step it directly. */
-  threadCompletionSchedule?: (callback: () => void) => void;
-  projectScheduler?: (callback: () => void) => void;
-  /** Credential the hello must present. */
-  token?: string;
-  /** Snapshot item window (ADR 0006 default is 200). */
-  snapshotItems?: number;
-}
-export interface ThreadInit {
-  imported?: Thread["imported"];
-  id: string;
-  workspaceId: string;
-  title: string;
-  provider: ProviderKind;
-  backend?: Thread["backend"];
-  continuation?: Thread["continuation"];
-  details?: Thread["details"];
-  live?: Thread["live"];
-  lineage?: Thread["lineage"];
-  execution?: Thread["execution"];
-  access?: AccessMode;
-  parentThreadId?: string;
-  /** A conversation an agent started is a task from its start, as the daemon records it. */
-  hasSentMessage?: boolean;
-  /** What the thread's provider can do, over the fake's defaults (a provider that reads no images). */
-  capabilities?: Partial<Capabilities>;
-  /**
-   * How long an agent with an open turn may stay silent before core reads it as not responding.
-   * Scripts send no liveness ticks, so by default silence never counts.
-   */
-  silenceMs?: number;
-}
+export type { FakeDaemonOptions, ThreadInit } from "./daemon-options.ts";
 type ResolvedListener = (threadId: string, key: Key, resolution?: InteractionResolution) => void;
 
 /**
@@ -345,6 +302,10 @@ export class FakeDaemon implements Host {
   get projects(): FakeProjects {
     return this.servicesWire.workspace.projects;
   }
+  /** Threads' checkouts and projects' own folders behind `files.request`, for seeding files. */
+  get checkouts(): Pick<import("./files-wire.ts").FakeFilesWire, "seed" | "seedProject"> {
+    return this.servicesWire.files;
+  }
   /** Providers' own MCP servers behind `mcp.provider.sources` and its controls. */
   get mcp(): Pick<FakeMcpWire, "servers" | "idle"> {
     return this.servicesWire.mcp;
@@ -357,6 +318,7 @@ export class FakeDaemon implements Host {
     | "setGitDiff"
     | "setEditors"
     | "setForgeRead"
+    | "seedPullRequests"
     | "setDraftGenerator"
     | "setIssueOutcome"
     | "git"
@@ -369,15 +331,24 @@ export class FakeDaemon implements Host {
   get browser(): FakeBrowser {
     return this.servicesWire.browser;
   }
+  /** Which threads' agents use Mac apps (`computer.using`). */
+  get computerUsing(): FakeComputerUsing {
+    return this.servicesWire.computerUsing;
+  }
   /**
    * Seed what a long-running daemon's services hold: decks, automations and their runs,
    * installed plugins and the forge's pull requests. Threads a seed links to must exist.
    */
-  /** Push an accepted notification over the same service channel as the production server. */
+  /** Push an accepted notification and keep it in the catch-up feed (`notification.feed`). */
   notify(notification: Notification): void {
     const message = NotificationMessage.parse({ type: "notification", notification });
+    this.servicesWire.notificationFeed.record(message.notification);
     for (const connection of this.connections)
       if (connection.authenticated) connection.push(message);
+  }
+  /** Stands in for the daemon's recheck: a retracted alert leaves catch-up. */
+  retractNotification(id: string): void {
+    this.servicesWire.notificationFeed.retract(id);
   }
   /** Fault injection: a restart lost proof that a queued message reached its provider. */
   uncertainQueuedMessage(threadId: string, messageId: string): void {
@@ -437,7 +408,9 @@ export class FakeDaemon implements Host {
         services.authenticated?.(device);
       },
       handle: async (message, device) => {
-        if (message.type === "screen.request") {
+        if (message.type === "screen.ack") {
+          if (admin) screen.ack(message);
+        } else if (message.type === "screen.request") {
           if (!admin)
             send({
               type: "screen.result",
@@ -493,6 +466,8 @@ export class FakeDaemon implements Host {
         permissions: fakeProviderPermissions(init.provider),
         permissionModes: fakeProviderPermissions(init.provider).permissionModes,
         accessModes: fakeAccessModes(init.provider),
+        // Codex's goals are native: ace sets, pauses and clears them (`thread.goal.*`).
+        goals: init.provider === "codex",
         ...init.capabilities,
       },
       ...(init.details ? { details: init.details } : {}),
@@ -688,6 +663,7 @@ export class FakeDaemon implements Host {
         threadId: ThreadId.parse(host.id),
         payload,
       };
+      host.turns.track(event.payload, host.view.thread.rootAgentId);
       if (
         event.payload.type === "run.started" &&
         event.payload.run.agentId === host.view.thread.rootAgentId
@@ -697,6 +673,7 @@ export class FakeDaemon implements Host {
           ...event.payload,
           run: {
             ...run,
+            turn: host.turns.start(run),
             ordinal: host.view.runs[run.id]?.ordinal ?? ++host.runOrdinal,
             checkpoints: { state: "unavailable", error: "scripted_provider" },
           },
@@ -1085,6 +1062,19 @@ export class FakeDaemon implements Host {
     this.apply(threadId, outcome.facts);
     return { commandId, ok: true };
   }
+  /**
+   * Like the daemon, an accepted send makes the thread a task even while it waits in the
+   * queue, before its transcript item exists.
+   */
+  private markSent(threadId: string): void {
+    const host = this.threads.get(threadId);
+    if (host && !host.view.thread.hasSentMessage)
+      this.append(
+        host,
+        [{ type: "thread.client.updated", changes: { hasSentMessage: true } }],
+        this.at(0),
+      );
+  }
   private migrationTarget(host: ThreadHost): string | undefined {
     const thread = host.view.thread;
     const current = thread.live?.account ?? thread.execution?.instanceId;
@@ -1262,26 +1252,7 @@ export class FakeDaemon implements Host {
         const error = mergeForkError(fork, parent, payload);
         if (error || !parent)
           return { commandId, ok: false, error: error ?? "source_thread_not_found" };
-        this.apply(parent.id, [
-          {
-            type: "item.upsert",
-            agent: "root",
-            item: `merge:${commandId}`,
-            draft: {
-              type: "message",
-              role: "user",
-              synthetic: true,
-              complete: true,
-              mergedContext: {
-                sourceThreadId: payload.threadId,
-                summary: payload.summary,
-                citations: payload.citations,
-                patchApplied: payload.patch !== undefined,
-              },
-              parts: [{ type: "text", text: payload.summary }],
-            },
-          },
-        ]);
+        this.apply(parent.id, mergeFacts(payload, commandId));
         return { commandId, ok: true };
       }
       case "thread.switch": {
@@ -1317,8 +1288,6 @@ export class FakeDaemon implements Host {
             return { commandId, ok: false, error: "already_resolved" };
           const pending = host.interaction(key);
           if (!pending) return { commandId, ok: false, error: "not_found" };
-          if (pending.raw.some((raw) => raw.type === "ace.browser.private"))
-            return { commandId, ok: false, error: "private_handback_required" };
           this.apply(host.id, [
             {
               type: "interaction.closed",
@@ -1369,10 +1338,7 @@ export class FakeDaemon implements Host {
           ...(payload.access && payload.access !== "inherit" ? { access: payload.access } : {}),
           details: {
             mode: payload.mode ?? "local",
-            worktree:
-              payload.mode === "worktree"
-                ? `/fake/worktrees/${payload.threadId}`
-                : `/fake/${payload.workspaceId}`,
+            worktree: fakeCheckoutPath(payload.mode, payload.threadId, payload.workspaceId),
             ...base.fields,
           },
         });
@@ -1402,10 +1368,7 @@ export class FakeDaemon implements Host {
               path: `/fake/${payload.workspaceId}`,
             },
             mode: payload.mode ?? "local",
-            worktree:
-              payload.mode === "worktree"
-                ? `/fake/worktrees/${id}`
-                : `/fake/${payload.workspaceId}`,
+            worktree: fakeCheckoutPath(payload.mode, id, payload.workspaceId),
             ...base.fields,
             machine: { host: this.hostId, name: this.displayName },
             diff: { files: 0, additions: 0, deletions: 0 },
@@ -1443,8 +1406,8 @@ export class FakeDaemon implements Host {
         });
         return { commandId, ok: true, threadId: ThreadId.parse(id) };
       }
-      case "thread.send":
-        return this.run(commandId, payload.threadId, (host) =>
+      case "thread.send": {
+        const sent = this.run(commandId, payload.threadId, (host) =>
           sendFacts(host, commandId, {
             ...payload,
             attachments: this.servicesWire.context.messageAttachments(
@@ -1461,6 +1424,9 @@ export class FakeDaemon implements Host {
                 : "queue"),
           }),
         );
+        if (sent.ok) this.markSent(payload.threadId);
+        return sent;
+      }
       case "thread.interrupt":
         return this.run(commandId, payload.threadId, (host) =>
           interruptFacts(host, payload.agentId, payload.cascade),
@@ -1471,6 +1437,20 @@ export class FakeDaemon implements Host {
           if (outcome) return this.run(commandId, host.id, () => outcome);
         }
         return { commandId, ok: false, error: "task_not_found" };
+      }
+      case "thread.goal.set":
+      case "thread.goal.clear": {
+        const host = this.threads.get(payload.threadId);
+        if (!host) return { commandId, ok: false, error: "thread_not_found" };
+        const now = this.options.clock();
+        const next = fakeGoalUpdate(
+          host.view.thread,
+          payload.type === "thread.goal.clear" ? "clear" : payload.change,
+          now,
+        );
+        if ("error" in next) return { commandId, ok: false, error: next.error };
+        this.append(host, [{ type: "thread.updated", goal: next.goal }], now);
+        return { commandId, ok: true };
       }
       case "thread.archive": {
         const host = this.threads.get(payload.threadId);

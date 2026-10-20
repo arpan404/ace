@@ -95,6 +95,11 @@ export const ToolDetail = z.discriminatedUnion("kind", [
     query: z.string(),
     path: z.string().optional(),
     matches: z.number().int().optional(),
+    /**
+     * `tools`: the agent searched or loaded its own deferred tools (Claude's `ToolSearch`,
+     * `select:A,B` or keywords), not files. Absent for a search of the code.
+     */
+    scope: z.literal("tools").optional(),
   }),
   z.object({ kind: z.literal("web.search"), query: z.string() }),
   z.object({ kind: z.literal("web.fetch"), url: z.string() }),

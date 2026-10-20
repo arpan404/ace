@@ -6,12 +6,15 @@ import { controlDivider, toolbarEdge } from "@/components/ui/rules.ts";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet.tsx";
 import { useLayout } from "@/lib/layout.tsx";
 import {
+  PanelPlaceContext,
   shownTab,
   type ScopeWorkspace,
   type WorkspaceActions,
   type WorkspaceDefinition,
 } from "@/lib/workspace/index.ts";
+import { findComposerInput } from "@/lib/focus-composer.ts";
 import { clampToBounds, type Bounds } from "./bounds.ts";
+import { useFocusBackOnHide } from "./panel-focus.ts";
 import { TabContent } from "./tab-content.tsx";
 
 // The close question ships with the panel: a tab can only be closed once the panel has loaded.
@@ -68,6 +71,8 @@ export function WorkspacePanel(props: {
   const section = useRef<HTMLElement>(null);
   const dismiss = () => actions.setOpen(false);
   const restoreFocus = () => toggleOutside(section.current) ?? props.restoreFocus?.() ?? false;
+  // Beside the column, hiding the panel with focus in it hands focus to the composer.
+  const focusBack = useFocusBackOnHide(section, workspace.open, restoreFocus);
   const size = clampToBounds(layout.size, layout.bounds);
   const shown = shownTab(workspace);
   // The panel's strip is the window's top row (a sheet starts below the top edge).
@@ -79,6 +84,9 @@ export function WorkspacePanel(props: {
       ref={section}
       aria-label={label}
       data-panel
+      data-focus-region="panel"
+      onFocus={dismissable ? undefined : focusBack.onFocus}
+      onBlur={dismissable ? undefined : focusBack.onBlur}
       data-edge={layout.sheet || bottom ? "bottom" : "right"}
       style={dismissable || expanded ? undefined : bottom ? { height: size } : { width: size }}
       className={cn(
@@ -174,6 +182,8 @@ export function WorkspacePanel(props: {
       </Activity>
     </section>
   );
+  // What its views open (a new terminal) opens here, beside them.
+  const placed = <PanelPlaceContext value="side">{content}</PanelPlaceContext>;
   if (dismissable) {
     return (
       <Sheet open={workspace.open} onOpenChange={(open) => actions.setOpen(open)}>
@@ -182,7 +192,9 @@ export function WorkspacePanel(props: {
           keepMounted
           hidden={!workspace.open}
           showCloseButton={false}
-          finalFocus={restoreFocus}
+          // Floating beside a desktop column, back to the composer; a phone's sheet goes back to
+          // its toggle, so closing it never raises the keyboard.
+          finalFocus={() => (!layout.sheet && findComposerInput()) || restoreFocus()}
           initialFocus={() =>
             section.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ??
             false
@@ -194,17 +206,17 @@ export function WorkspacePanel(props: {
           )}
         >
           <SheetTitle className="sr-only">{label}</SheetTitle>
-          <Activity mode={workspace.open ? "visible" : "hidden"}>{content}</Activity>
+          <Activity mode={workspace.open ? "visible" : "hidden"}>{placed}</Activity>
         </SheetContent>
       </Sheet>
     );
   }
-  return <Activity mode={workspace.open ? "visible" : "hidden"}>{content}</Activity>;
+  return <Activity mode={workspace.open ? "visible" : "hidden"}>{placed}</Activity>;
 }
 
 /**
- * The panel's toggle outside the panel itself (the header's), to return focus to. On a phone the
- * toggle lives in this screen's header ⋯, closed by now: focus goes back to that ⋯.
+ * The panel's toggle outside the panel itself (the header's), to return focus to. A panel opened
+ * from a tool in the phone's ⋯ still returns to the header's toggle; failing that, to the ⋯.
  */
 function toggleOutside(panel: HTMLElement | null): HTMLElement | undefined {
   // Not one inside a popup (the phone's ⋯): that closes, taking focus with it.

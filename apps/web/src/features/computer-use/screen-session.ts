@@ -24,8 +24,8 @@ const schedule = (callback: () => void, delayMs: number) => {
 };
 
 /**
- * The dedicated, authenticated screen channel: a socket of its own against a real daemon (frames
- * never share the client's socket), the fake daemon's in memory.
+ * The dedicated, authenticated screen channel: a socket of its own against a real daemon
+ * (pictures never share the client's socket), the fake daemon's in memory.
  */
 function transportFor(endpoint: DaemonEndpoint): ScreenTransport {
   if (endpoint.kind === "fake") return endpoint.screen();
@@ -65,7 +65,9 @@ export interface ScreenSession {
   request(operation: ScreenOperation, timeoutMs?: number): Promise<unknown>;
   /** The agent that held a session before you took it over, to hand it back to. */
   lastHolder(sessionId: string): ScreenAgentScope | undefined;
-  watchFrames: ScreenStreamClient["watchFrames"];
+  /** A session's live pictures, in order; ack each once shown. */
+  watchPictures: ScreenStreamClient["watchPictures"];
+  ack: ScreenStreamClient["ack"];
   /** Hold a session's live stream for one view; views of one session share it. */
   retainStream: ScreenStreamClient["retainStream"];
   close(): void;
@@ -189,7 +191,8 @@ function openSession(endpoint: DaemonEndpoint): ScreenSession {
       return result;
     },
     lastHolder: (sessionId) => holders.get(sessionId),
-    watchFrames: (sessionId, listener) => client.watchFrames(sessionId, listener),
+    watchPictures: (sessionId, draw) => client.watchPictures(sessionId, draw),
+    ack: (picture, keyframe) => client.ack(picture, keyframe),
     retainStream: (sessionId) => client.retainStream(sessionId),
     close() {
       stop();
@@ -242,8 +245,8 @@ function reopen(endpoint: DaemonEndpoint) {
 const none = () => () => {};
 
 /**
- * The screen channel while anything shows computer use: one per daemon endpoint, shared by the
- * rail's indicator, Settings and a thread's panel, closed when the last of them leaves. When the
+ * The screen channel while anything shows computer use: one per daemon endpoint, shared by
+ * Settings and a thread's panel, closed when the last of them leaves. When the
  * daemon connection comes back, a closed channel opens again for all of them. Nothing is
  * replayed: control, subscriptions and approvals are asked for again.
  */

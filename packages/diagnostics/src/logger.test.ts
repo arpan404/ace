@@ -2,7 +2,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { createRedactor } from "@ace/redaction";
-import { createLogger, createFileSink, logFields, type LogRecord } from "./index.ts";
+import { createLogger, createFileSink, logError, logFields, type LogRecord } from "./index.ts";
 import { temporary } from "./test-support.ts";
 const context = {
   home: "/Users/someone",
@@ -259,6 +259,37 @@ it("record-wide field and text budgets bound copying and omit oversized keys who
   expect(Buffer.byteLength(line)).toBeLessThan(12000);
   await logger.close();
 });
+it("a wrapped error keeps the redacted message and SQLite code of the failure that caused it", async () => {
+  const logger = createLogger({
+    sink: { async write() {}, async close() {} },
+    now: () => 0,
+    redact,
+    schedule: () => {},
+  });
+  const sqlite = Object.assign(new Error("UNIQUE constraint failed: item_text_chunks.item_id"), {
+    code: "ERR_SQLITE_ERROR",
+    errcode: 1555,
+    stack: "private-stack",
+  });
+  const wrapped = new Error("Store is busy", {
+    cause: new Error("Live writes failed", { cause: sqlite }),
+  });
+  logger.log("error", "failure", logFields([["error", logError(wrapped)]]));
+  logger.log("error", "secret cause", new Error("outer", { cause: new Error(context.env.CUSTOM) }));
+  const [first, second] = logger.recent().map((line) => JSON.parse(line).data);
+  expect(first).toEqual({
+    error: {
+      message: "Store is busy",
+      name: "Error",
+      cause: "UNIQUE constraint failed: item_text_chunks.item_id",
+      causeCode: "ERR_SQLITE_ERROR",
+      causeErrcode: 1555,
+    },
+  });
+  expect(JSON.stringify(second)).not.toContain(context.env.CUSTOM);
+  expect(logger.recent().join("\n")).not.toContain("private-stack");
+  await logger.close();
+});
 it("an Error name accessor cannot replace its safe own message or escape to the producer", async () => {
   const logger = createLogger({
     sink: { async write() {}, async close() {} },
@@ -280,7 +311,7 @@ it("an Error name accessor cannot replace its safe own message or escape to the 
   await logger.close();
 });
 
-it("raw Errors and diagnostic objects retain redacted message and code without stack, cause or stderr", async () => {
+it("raw Errors and diagnostic objects retain redacted message and code without stack, non-Error cause or stderr", async () => {
   const directory = await temporary();
   const logger = createLogger({
     sink: await createFileSink({ directory, fileBytes: 65536, totalBytes: 131072, context }),

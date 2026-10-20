@@ -7,13 +7,20 @@ import { detectChromium } from "@ace/browser";
 import { Agent, AgentId } from "@ace/protocol";
 import { providerFeatures } from "./testing/provider-features.ts";
 import { createDevThread } from "./commands.ts";
+
+/** The ref on the snapshot line naming `name`, e.g. `- button "Save" [ref=e1-4]`. */
+function ref(text: string, name: string) {
+  const line = text.split("\n").find((entry) => entry.includes(`"${name}"`));
+  const value = line?.match(/\[ref=([^\]]+)\]/)?.[1];
+  if (!value) throw new Error(`Missing ref: ${name}`);
+  return value;
+}
 import { invoke, Result } from "./browser-mcp-test-support.ts";
 
-const nodes = z.object({
-  nodes: z.array(z.object({ name: z.string(), ref: z.string().optional() })),
-});
 const image = z.object({
-  result: z.object({ content: z.array(z.object({ type: z.literal("image"), data: z.string() })) }),
+  result: z.object({
+    content: z.tuple([z.object({ type: z.literal("image"), data: z.string() })], z.unknown()),
+  }),
 });
 
 it("an agent completes a form navigation, reads results, rejects stale refs and resumes after human control", async (test) => {
@@ -78,32 +85,31 @@ it("an agent completes a form navigation, reads results, rejects stale refs and 
     expect(result.isError, JSON.stringify(result.content)).not.toBe(true);
     return JSON.parse(result.content[0]?.text ?? "null");
   }
-  function ref(snapshot: unknown, name: string) {
-    const value = nodes.parse(snapshot).nodes.find((node) => node.name === name)?.ref;
-    if (!value) throw new Error(`Missing ref: ${name}`);
-    return value;
+  /** browser_snapshot answers in text lines such as `- button "Save" [ref=e1-12]`. */
+  async function snapshot(): Promise<string> {
+    const result = Result.parse(
+      await (await invoke(connection, "browser_snapshot", {})).json(),
+    ).result;
+    expect(result.isError, JSON.stringify(result.content)).not.toBe(true);
+    return result.content.map((part) => part.text).join("\n");
   }
-  await call("ace_browser_open", { url: f.browserUrl });
-  const initial = await call("ace_browser_snapshot");
+  await call("browser_open", { url: f.browserUrl });
+  const initial = await snapshot();
   const input = ref(initial, "Name"),
     submit = ref(initial, "Submit");
-  await call("ace_browser_click", { ref: input });
-  await call("ace_browser_type", { ref: input, text: "journey" });
-  expect(ref(await call("ace_browser_snapshot"), "Name")).toBe(input);
-  await call("ace_browser_press", { ref: input, key: "Tab" });
-  await call("ace_browser_click", { ref: submit });
+  await call("browser_act", { action: "click", ref: input });
+  await call("browser_act", { action: "type", ref: input, text: "journey" });
+  expect(ref(await snapshot(), "Name")).toBe(input);
+  await call("browser_act", { action: "press", ref: input, key: "Tab" });
+  await call("browser_act", { action: "click", ref: submit });
   expect(await submitted.promise).toBe("journey");
-  const waiting = call("ace_browser_wait_for", { url: `${f.browserUrl}/result?name=journey` });
+  const waiting = call("browser_wait_for", { url: `${f.browserUrl}/result?name=journey` });
   release.resolve();
   await waiting;
-  await call("ace_browser_wait_for", { text: "Saved journey" });
-  expect(
-    nodes
-      .parse(await call("ace_browser_snapshot"))
-      .nodes.some((node) => node.name === "Saved journey"),
-  ).toBe(true);
+  await call("browser_wait_for", { text: "Saved journey" });
+  expect(await snapshot()).toMatch(/- heading "Saved journey"/);
   const stale = Result.parse(
-    await (await invoke(connection, "ace_browser_click", { ref: submit })).json(),
+    await (await invoke(connection, "browser_act", { action: "click", ref: submit })).json(),
   ).result;
   expect(stale).toMatchObject({
     isError: true,
@@ -111,7 +117,7 @@ it("an agent completes a form navigation, reads results, rejects stale refs and 
   });
   const invalidWait = Result.parse(
     await (
-      await invoke(connection, "ace_browser_wait_for", { url: f.browserUrl, text: "Saved" })
+      await invoke(connection, "browser_wait_for", { url: f.browserUrl, text: "Saved" })
     ).json(),
   ).result;
   expect(invalidWait).toMatchObject({
@@ -120,17 +126,21 @@ it("an agent completes a form navigation, reads results, rejects stale refs and 
   });
   const timeout = Result.parse(
     await (
-      await invoke(connection, "ace_browser_wait_for", { text: "Absent result", timeout: 50 })
+      await invoke(connection, "browser_wait_for", { text: "Absent result", timeout: 50 })
     ).json(),
   ).result;
   expect(timeout).toMatchObject({
     isError: true,
     content: [{ text: expect.stringContaining("timed out") }],
   });
-  await call("ace_browser_emulate", { width: 2000, height: 1000, deviceScaleFactor: 2 });
-  const screenshot = image.parse(
-    await (await invoke(connection, "ace_browser_screenshot", {})).json(),
-  ).result.content[0];
+  await call("browser_settings", {
+    action: "emulate",
+    width: 2000,
+    height: 1000,
+    deviceScaleFactor: 2,
+  });
+  const screenshot = image.parse(await (await invoke(connection, "browser_screenshot", {})).json())
+    .result.content[0];
   if (!screenshot) throw new Error("Missing image");
   const bytes = Buffer.from(screenshot.data, "base64");
   expect(bytes.readUInt16BE(0)).toBe(0xffd8);
@@ -149,28 +159,29 @@ it("an agent completes a form navigation, reads results, rejects stale refs and 
   }
   expect(dimensions).toHaveLength(2);
   expect(Math.max(...dimensions)).toBeLessThanOrEqual(1536);
-  expect(await call("ace_browser_evaluate", { expression: "window.innerWidth" })).toBe(2000);
-  expect(await call("ace_browser_logs")).toMatchObject({ entries: expect.any(Array) });
+  expect(await call("browser_evaluate", { expression: "window.innerWidth" })).toBe(2000);
+  expect(await call("browser_logs")).toMatchObject({ entries: expect.any(Array) });
   const browser = f.daemon.browser;
   if (!browser) throw new Error("Browser missing");
-  browser.takeover(thread.id, "person");
+  const tabId = browser.state(thread.id).activeTabId ?? "page";
+  browser.setPrivate(thread.id, tabId, true);
   expect(
-    Result.parse(await (await invoke(connection, "ace_browser_close", {})).json()).result,
+    Result.parse(await (await invoke(connection, "browser_settings", { action: "close" })).json())
+      .result,
   ).toMatchObject({
     isError: true,
-    content: [{ text: expect.stringContaining("controlled by human") }],
+    content: [{ text: expect.stringContaining("human_private") }],
   });
   expect(
-    Result.parse(
-      await (await invoke(connection, "ace_browser_navigate", { url: f.browserUrl })).json(),
-    ).result,
+    Result.parse(await (await invoke(connection, "browser_open", { url: f.browserUrl })).json())
+      .result,
   ).toMatchObject({
     isError: true,
-    content: [{ text: expect.stringContaining("controlled by human") }],
+    content: [{ text: expect.stringContaining("human_private") }],
   });
-  browser.handback(thread.id, "person");
-  await call("ace_browser_navigate", { url: f.browserUrl });
-  await call("ace_browser_close");
+  browser.setPrivate(thread.id, tabId, false);
+  await call("browser_open", { url: f.browserUrl });
+  await call("browser_settings", { action: "close" });
   lease.end();
-  expect((await invoke(connection, "ace_browser_open", {})).status).toBe(401);
+  expect((await invoke(connection, "browser_open", {})).status).toBe(401);
 });

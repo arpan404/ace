@@ -33,7 +33,7 @@ const envReads: OpenCodeRule[] = ["*.env", "*.env.*"].map((resource) => ({
  * `opencode serve`, which no desktop app attaches to, so they can never work there. OpenCode's
  * Build agent keeps them off by default; ace's catch-all would turn them back on, so ace's rules
  * end by keeping them off. That is tool availability, not an approval: every other tool keeps the
- * mode's effect. ace's own browser tools (`ace_browser_*`) are unaffected.
+ * mode's effect. ace's own browser tools (`browser_*`) are unaffected.
  */
 const desktopOnly: OpenCodeRule[] = [{ action: "browser", resource: "*", effect: "deny" }];
 

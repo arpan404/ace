@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Local boundary double. It never executes model prompts or provider tools.
 import { createServer } from "node:http";
-import { readFileSync, readdirSync } from "node:fs";
+import { appendFileSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { openApiDocument, requiredRoutes } from "../contract.ts";
 const args = process.argv.slice(2);
@@ -169,6 +169,78 @@ async function loadMcpTools() {
   }));
   for (const read of transforms) read({ list: () => toolCatalog });
 }
+const signInIntegrations = [
+  {
+    id: "opencode",
+    name: "OpenCode Console",
+    methods: [
+      { type: "key", label: "API key (service account)" },
+      {
+        type: "oauth",
+        id: "device",
+        label: "OpenCode Console account",
+        form: [
+          { key: "server", hidden: true, type: "string", default: "https://opencode.ai/console" },
+        ],
+      },
+    ],
+  },
+  { id: "opencode-go", name: "OpenCode Go", methods: [{ type: "key" }] },
+  {
+    id: "github-copilot",
+    name: "GitHub Copilot",
+    methods: [
+      {
+        type: "oauth",
+        id: "device",
+        label: "Login with GitHub Copilot",
+        form: [
+          {
+            key: "deploymentType",
+            title: "Select GitHub deployment type",
+            required: true,
+            type: "string",
+            options: [
+              { value: "github.com", label: "GitHub.com" },
+              { value: "enterprise", label: "GitHub Enterprise" },
+            ],
+          },
+          {
+            key: "enterpriseUrl",
+            title: "Enter your GitHub Enterprise URL or domain",
+            required: true,
+            type: "string",
+            when: [{ key: "deploymentType", op: "eq", value: "enterprise" }],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "openai",
+    name: "OpenAI",
+    methods: [
+      { type: "key" },
+      { type: "oauth", id: "chatgpt-browser", label: "Codex browser (legacy)" },
+      { type: "oauth", id: "chatgpt-token-sharing", label: "Sign in with ChatGPT" },
+    ],
+  },
+  { id: "anthropic", name: "Anthropic", methods: [{ type: "key" }] },
+  { id: "poe", name: "Poe", methods: [{ type: "oauth", id: "browser", label: "Login with Poe" }] },
+  { id: "mcp_fixture", name: "Fixture MCP", methods: [{ type: "oauth", id: "mcp_fixture" }] },
+];
+const signInPages = {
+  opencode: {
+    url: "https://opencode.ai/console/device?user_code=ABCD-EFGH&client_id=opencode-cli",
+    code: "ABCD-EFGH",
+  },
+  "github-copilot": { url: "https://github.com/login/device", code: "WXYZ-1234" },
+};
+const attempts = new Map();
+const signInLog = (entry) => {
+  if (process.env.ACE_TEST_SIGN_IN_LOG)
+    appendFileSync(process.env.ACE_TEST_SIGN_IN_LOG, `${JSON.stringify(entry)}\n`);
+};
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost"),
     path = url.pathname;
@@ -249,14 +321,14 @@ const server = createServer(async (req, res) => {
         Accept: "application/json, text/event-stream",
         "MCP-Protocol-Version": "2026-07-28",
         "Mcp-Method": "tools/call",
-        "Mcp-Name": "ace_scope",
+        "Mcp-Name": "scope",
       },
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: 1,
         method: "tools/call",
         params: {
-          name: "ace_scope",
+          name: "scope",
           arguments: {},
           _meta: {
             "io.modelcontextprotocol/protocolVersion": "2026-07-28",
@@ -671,6 +743,43 @@ const server = createServer(async (req, res) => {
         fault.holdHistory = false;
         held = reply;
       } else reply();
+      return;
+    }
+  }
+  // Sign-in, shaped like OpenCode 2.0.32's integration API. No credential is ever stored.
+  if (path === "/api/integration" && req.method === "GET") {
+    json({ data: signInIntegrations });
+    return;
+  }
+  const connect = /^\/api\/integration\/([^/]+)\/connect\/oauth(?:\/([^/]+))?$/.exec(path);
+  if (connect) {
+    const [, integration, attemptID] = connect;
+    if (!attemptID && req.method === "POST") {
+      signInLog({ begin: integration, body });
+      const page = signInPages[integration] ?? { url: "https://example.com/login", code: "" };
+      attempts.set(`${integration}-attempt`, 0);
+      json({
+        data: {
+          attemptID: `${integration}-attempt`,
+          url: page.url,
+          instructions: page.code ? `Enter code: ${page.code}` : "Finish in your browser",
+          mode: "auto",
+          time: { created: 1, expires: 2 },
+        },
+      });
+      return;
+    }
+    if (attemptID && req.method === "GET") {
+      const polls = (attempts.get(attemptID) ?? 0) + 1;
+      attempts.set(attemptID, polls);
+      json({
+        data: { status: polls >= 2 ? "complete" : "pending", time: { created: 1, expires: 2 } },
+      });
+      return;
+    }
+    if (attemptID && req.method === "DELETE") {
+      signInLog({ cancel: attemptID });
+      empty();
       return;
     }
   }

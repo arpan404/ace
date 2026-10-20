@@ -1,0 +1,37 @@
+{
+  "$id": "https://ace.local/protocol/v1/DeviceScreenshot.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bytes": {
+      "maximum": 8388608,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "height": {
+      "maximum": 8192,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "sequence": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "streamId": {
+      "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+    },
+    "width": {
+      "maximum": 8192,
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "streamId",
+    "sequence",
+    "width",
+    "height",
+    "bytes"
+  ],
+  "type": "object"
+}

@@ -15,6 +15,7 @@ export {
   LocalInventory,
   LocalInstallation,
   bindLocal,
+  acpAgentCli,
   type LaunchPlan,
   type LocalBinding,
 } from "./inventory.ts";

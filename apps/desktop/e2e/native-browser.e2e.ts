@@ -125,10 +125,8 @@ await import('./app/${mainEntry}');`,
         )
         .toBe("embedded");
       await daemon.browser.execute(thread.id, { action: "navigate", url: testUrl });
-      const leaseOwner = "e2e-renderer";
-      daemon.browser.takeover(thread.id, leaseOwner);
       await renderer.evaluate(
-        async ({ threadId, owner }) => {
+        async ({ threadId }) => {
           const ace: unknown = Reflect.get(globalThis, "ace");
           if (typeof ace !== "object" || ace === null || !("browser" in ace))
             throw new Error("No desktop bridge");
@@ -141,10 +139,10 @@ await import('./app/${mainEntry}');`,
           )
             throw new Error("No native placement bridge");
           await Reflect.apply(browser.place, browser, [
-            { threadId, bounds: { x: 200, y: 180, width: 600, height: 400 }, visible: true, owner },
+            { threadId, bounds: { x: 200, y: 180, width: 600, height: 400 }, visible: true },
           ]);
         },
-        { threadId: thread.id, owner: leaseOwner },
+        { threadId: thread.id },
       );
       const native = await app.evaluate(async ({ BrowserWindow, webContents }, pageUrl) => {
         const contents = webContents.getAllWebContents().find((page) => page.getURL() === pageUrl);
@@ -215,6 +213,37 @@ await import('./app/${mainEntry}');`,
           ),
         )
         .toBeGreaterThan(0);
+      // Inspect (the page's context menu and ⌥⌘I) opens the tab's developer tools at the
+      // element, in a window of their own.
+      const opened = await renderer.evaluate(
+        async ({ threadId }) => {
+          const ace: unknown = Reflect.get(globalThis, "ace");
+          const browser =
+            typeof ace === "object" && ace !== null ? Reflect.get(ace, "browser") : undefined;
+          const page =
+            typeof browser === "object" && browser !== null
+              ? Reflect.get(browser, "page")
+              : undefined;
+          if (typeof page !== "function") throw new Error("No native page bridge");
+          return Reflect.apply(page, browser, [
+            { threadId, action: "devtools", inspect: { x: 30, y: 30 } },
+          ]);
+        },
+        { threadId: thread.id },
+      );
+      expect(opened).toBe(true);
+      await expect
+        .poll(async () =>
+          app?.evaluate(
+            ({ webContents }, pageUrl) =>
+              webContents
+                .getAllWebContents()
+                .find((page) => page.getURL() === pageUrl)
+                ?.isDevToolsOpened() ?? false,
+            testUrl,
+          ),
+        )
+        .toBe(true);
     } finally {
       await daemon.close();
       await app?.close();

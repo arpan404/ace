@@ -1,16 +1,10 @@
-import {
-  targetBundle,
-  permissionsReading,
-  stopAllSummary,
-  visibleSessions,
-} from "@ace/ui-core/computer-use";
-import { MonitorIcon, StopCircleIcon } from "@phosphor-icons/react";
+import { targetBundle, permissionsReading, visibleSessions } from "@ace/ui-core/computer-use";
+import { MonitorIcon } from "@phosphor-icons/react";
 import { useId } from "react";
 import { SettingNote, SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { cn } from "@/lib/cn.ts";
 import { SessionCard } from "./session-card.tsx";
@@ -41,43 +35,6 @@ export function EnableRow(props: { use: ComputerUse }) {
         onCheckedChange={(checked) => void use.enable(checked)}
       />
     </SettingRow>
-  );
-}
-
-/**
- * The kill switch: stops every session, releases every agent and turns computer use off. While
- * the daemon works it says Stopping and takes no second press; then it says what happened.
- */
-export function StopAllButton(props: { use: ComputerUse; className?: string }) {
-  const { use } = props;
-  const stopping = use.stopping.state === "stopping";
-  const summary = stopAllSummary(use.stopping);
-  return (
-    <div className={cn("flex flex-col items-end gap-1", props.className)}>
-      <Button
-        size="sm"
-        variant="primary"
-        aria-busy={stopping}
-        disabled={
-          stopping || !use.snapshot.connected || use.pending || use.snapshot.enabled === false
-        }
-        onClick={() => void use.stopAll()}
-      >
-        {stopping ? <Spinner /> : <StopCircleIcon aria-hidden size={14} />}
-        {stopping ? "Stopping all computer use…" : "Stop all computer use"}
-      </Button>
-      {summary && (
-        <p
-          role={use.stopping.state === "failed" ? "alert" : "status"}
-          className={cn(
-            "max-w-72 text-right text-xs",
-            use.stopping.state === "failed" ? "text-status-failed" : "text-muted-foreground",
-          )}
-        >
-          {summary}
-        </p>
-      )}
-    </div>
   );
 }
 

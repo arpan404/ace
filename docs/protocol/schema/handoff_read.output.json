@@ -1,0 +1,59 @@
+{
+  "$id": "https://ace.local/protocol/v1/handoff_read.output.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "bytes": {
+      "type": "string"
+    },
+    "encoding": {
+      "enum": [
+        "utf-16le",
+        "utf-8"
+      ],
+      "type": "string"
+    },
+    "eof": {
+      "type": "boolean"
+    },
+    "items": {
+      "items": {
+        "additionalProperties": {},
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "itemsBefore": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nextOffset": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "threadId": {
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

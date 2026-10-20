@@ -64,7 +64,7 @@ One scale, from `tokens.css` ("Corners"); never a literal radius.
 | `rounded-xl`                                    | 18      | The composer, its attached strip, the file-drop target                             |
 | `rounded-full`                                  | —       | Send/Stop, avatars, accent discs, segmented control, pills                         |
 
-The Appearance **Corners** setting (Sharp 2/3/4/6/10, Default, Round 6/9/12/16/24) rescales every step, so any component built from the scale follows it.
+Corners are fixed at this scale; there is no setting to rescale them.
 
 **Radius agrees with padding.** The corner must never be larger than the padding beside it, or the content looks pinched into the curve:
 
@@ -91,11 +91,11 @@ Phosphor only, `regular` weight. 16px beside 13–14px text, 14px beside 12px, 1
 
 ### Glass
 
-Two levels. **`glass-thin`** (`.ace-floating`): menus, popovers, selects, context menus, hover cards, toasts, the palette panel. **`glass-regular`** (`.ace-glass-dock`): the composer and the cards attached above it, one material, one blur. **Solid** (`.ace-floating-solid`): dialogs, tooltips, the Work card, anything that holds content, anything opened from glass. Never glass on glass; never glass on a scrolling area; the sidebar, page and side panels are opaque. Text on glass uses the glass inks the material provides; status words keep their opaque colours.
+Two levels. **`glass-thin`** (`.ace-floating`): menus, popovers, selects, context menus, hover cards, toasts, and the palette panel at a near-solid tint (`--glass-tint-modal`), since it adds no blur of its own over the modal backdrop. **`glass-regular`** (`.ace-glass-dock`): the composer and the cards attached above it, one material, one blur. **Solid** (`.ace-floating-solid`): dialogs, tooltips, the Work card, anything that holds content, anything opened from glass. Never glass on glass; never glass on a scrolling area; the sidebar, page and side panels are opaque. Text on glass uses the glass inks the material provides; status words keep their opaque colours.
 
 ## 3. Layout
 
-- **Shell:** `[sidebar 280] [header 44 / content / composer]` with an optional right panel. Header order in a thread: `[sidebar toggle] [mark] project / Title … [⋯] [Work] [panel toggle]`. The header draws a `--border` under itself once the content has scrolled.
+- **Shell:** `[sidebar 336 by default, drag its edge 220–480; double-click resets; it scrolls without ever showing a scrollbar] [header 44 / content / composer]` with an optional right panel. Header order in a thread: `[sidebar toggle] [mark] project / Title … [⋯] [Work] [panel toggle]`. The header draws a `--border` under itself once the content has scrolled.
 - **Content widths:** the transcript and the composer share `--column` (Chat width setting). Settings pages use `--settings-column`. Wizards and empty states centre a 480px column.
 - **Settings page anatomy:** page title (`text-xl` 600), optional one-line description (`muted`), then `SettingSection`s 24px apart. A section is a header plus one card. The title row carries **at most one action** on the right; an Enabled toggle is the first row of the first card; other actions live in the header ⋯ menu.
 - **Section header:** 13px/500 `--muted-foreground`, 6px above the card. Explanations of a whole group go in the section `note` above the card, one or two lines.
@@ -105,9 +105,10 @@ Two levels. **`glass-thin`** (`.ace-floating`): menus, popovers, selects, contex
 - **Side panel:** toolbar (44px, `toolbarEdge`) with a `SegmentedControl` or `Tabs`, a close and an expand icon; body opaque; sections separated by `sectionRule`; `rowCard` for outlined list rows. Nothing else is drawn.
 - **Dialog:** `rounded-card`, 20px padding, solid, 480px (confirmations) or 640px, title `text-lg` 600, body `text-ui` muted, footer right-aligned: Cancel then the action. Danger confirmations: solid red action, focus starts on Cancel.
 - **Popover / menu:** `rounded-popup`, 4px padding, 30px rows `rounded-md` (concentric), 16px icon muted, label `text-ui`, shortcut `text-xs` subtle right-aligned; `--border` separators with 6px margins; destructive rows in `--destructive`.
-- **Toast:** bottom-right of the content column above the composer dock, 320px, `glass-thin`, icon + one line + optional action, gone in 4s. Never over the header, never under the composer.
+- **Toast:** top-right of the content column, just under the header, 320px, plain `glass-thin`. A small glyph in the kind's colour before the title (error red, warning amber, success green, info blue; a spinner for progress; none for a plain confirmation), the description muted below with Show more past two lines, the one action as a small primary button at the bottom right, and Dismiss as a small round button on the card's top-right corner. Never over the header, never over a side panel.
 - **Empty state:** `EmptyState` centred: faint icon, title (`text-base` 500), one muted line, one secondary action. Never a bare sentence at the top of a page. Before a query, search and the palette offer recents and commands, not prose.
 - **Error state:** the same anatomy with the failed glyph; the line says what happened and what to do, in that order.
+- **Context handoff divider:** the transcript's one centred row, where a thread moves to another provider. Two `--border` hairlines run to the column edges around one `text-meta` muted line: the Phosphor arrows-left-right glyph, "Context handoff" (500), each source model's provider mark (in its brand colours) and name, comma-separated, at most three then "+N", an arrow, then the new model's mark and name in `--foreground`. It is static: nothing opens from it. Every other system event stays a left-aligned `SystemRow`.
 - **Loading:** skeleton pills (`--skel`) in the value slots at the control's size; labels and headers render as normal. Spinners only for live work (the working glyph, Send → Stop), never as a page's loading state. The boot splash is the only full-page spinner.
 
 ## 4. Components
@@ -166,8 +167,8 @@ Two levels. **`glass-thin`** (`.ace-floating`): menus, popovers, selects, contex
 - **Clean, T3-like UI:** every element shows state the user acts on; nothing narrates the UI to itself.
 - **Sidebar:** one flat task list across projects, never grouped by project; three-line rows as specified in §3; no dividers, space between rows like T3; the open row is a soft rounded fill; settled threads are one muted line with their PR or diff.
 - **Attention levels:** as in §5.
-- **Composer:** nothing renders below it; exactly one strip slot above it (approval/question first), tucked under the composer's edge; Send and Stop are round; live state is the inline "Working for …" line at the end of the transcript; finished turns fold into "Worked for …" disclosures.
-- **Themes:** Mode (Light/Dark/System) is separate from Theme; themes are **colour only** (no fonts, material or spacing) and the set is ace (default), Paper, Midnight, Grove, Harbor, Dusk, with status colours the same in every theme; the accent picker stays; floating layers are glass and the composer is translucent glass; motion is 120/200/320 with the spring `linear()` curve. Mode keeps its three preview cards. Corners is a user setting (Sharp, Default, Round).
+- **Composer:** nothing renders below it; exactly one strip slot above it (approval/question first), tucked under the composer's edge; Send and Stop are round; live state is the inline "Working for …" line at the top of the live turn, under its ask ("Waiting for 2 subagents · …" while the agent only waits on its subagents); finished turns fold into "Worked for …" disclosures in that same place.
+- **Themes:** Mode (Light/Dark/System) is separate from Theme; themes are **colour only** (no fonts, material or spacing) and the set is ace (default), Paper, Midnight, Grove, Harbor, Dusk, with status colours the same in every theme; the accent picker stays; floating layers are glass and the composer is translucent glass; motion is 120/200/320 with the spring `linear()` curve. Mode keeps its three preview cards.
 - **Depth:** the composer and its strip carry only their lift shadows (`--depth-dock`, `--depth-strip`); buttons are flat with no depth.
 - **Danger confirmations:** solid red button, focus starting on Cancel.
 - **Header order:** `[title] [⋯] [Work icon] [panel toggle]`; Work info is a compact floating card.
@@ -182,7 +183,7 @@ Answer every one with yes before approving a UI PR.
 2. Are all colours tokens, with status hues used only for status?
 3. Do text tiers follow §2 (title 500, secondary muted, tertiary subtle, icons faint)?
 4. Are rows, controls and insets on the grid at the token heights, with no 14px literals?
-5. Are radii from the scale, no larger than the padding beside them, sized to the element, and concentric when nested (§2 Radius)? Does the page still look right under Corners → Sharp and Round?
+5. Are radii from the scale, no larger than the padding beside them, sized to the element, and concentric when nested (§2 Radius)?
 6. Do separators come from `rules.ts`, with nothing in the sidebar ruled?
 7. Is depth only from `--depth-*`, on the composer/strip and the remaining depth controls (never buttons), never on content? Is every floating layer `.ace-floating`, `.ace-glass-dock` or `.ace-floating-solid`, with no glass on glass or on a scroller?
 8. Do primary/secondary/ghost/danger follow §4, with one primary per surface and danger only on the confirming action?

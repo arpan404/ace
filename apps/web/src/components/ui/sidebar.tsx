@@ -67,8 +67,11 @@ function SidebarProvider(
   );
 }
 
-/** shadcn's desktop offcanvas gap and panel; mobile remains the app's lazy Sheet. */
-function Sidebar(props: { children: ReactNode; className?: string | undefined }) {
+/**
+ * shadcn's desktop offcanvas gap and panel; mobile remains the app's lazy Sheet. While shown,
+ * `edge` (a resize handle) takes the rail's place on the right edge; hidden, the rail brings it back.
+ */
+function Sidebar(props: { children: ReactNode; edge?: ReactNode; className?: string | undefined }) {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   return (
@@ -100,11 +103,11 @@ function Sidebar(props: { children: ReactNode; className?: string | undefined })
           data-sidebar="sidebar"
           aria-hidden={collapsed || undefined}
           inert={collapsed}
-          className="sidebar-scroll flex size-full min-h-0 flex-col bg-sidebar"
+          className="no-scrollbar flex size-full min-h-0 flex-col bg-sidebar"
         >
           {props.children}
         </div>
-        <SidebarRail />
+        {collapsed || !props.edge ? <SidebarRail /> : props.edge}
       </div>
     </div>
   );

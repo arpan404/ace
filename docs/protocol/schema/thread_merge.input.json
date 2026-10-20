@@ -1,0 +1,42 @@
+{
+  "$id": "https://ace.local/protocol/v1/thread_merge.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "itemIds": {
+      "description": "Fork transcript items the summary rests on, from thread_read. Default: its latest answer.",
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 100,
+      "minItems": 1,
+      "type": "array"
+    },
+    "requestId": {
+      "description": "Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice.",
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "summary": {
+      "description": "What the fork found or did, standing on its own for the other thread's agent.",
+      "maxLength": 262144,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "description": "The fork, from thread_fork.",
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "threadId",
+    "requestId",
+    "summary"
+  ],
+  "type": "object"
+}

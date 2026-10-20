@@ -15,6 +15,8 @@ export function SuggestionList(props: {
   suggestions: Suggestions;
   adding?: boolean;
   active: number;
+  /** The pointer moved onto an option: it becomes the highlighted one, as the arrows do. */
+  onHover?: ((index: number) => void) | undefined;
   onPick(item: Suggestion): void;
 }) {
   const { suggestions } = props;
@@ -52,7 +54,10 @@ export function SuggestionList(props: {
         {suggestions.state === "ready" ? (
           <ul id={props.id} role="listbox" aria-label={title}>
             {suggestions.items.map((item, index) => (
-              <li key={item.entry?.id ?? item.threadId ?? item.insert} role="presentation">
+              <li
+                key={item.entry?.id ?? item.threadId ?? item.tab?.tabId ?? item.insert}
+                role="presentation"
+              >
                 {(index === 0 || suggestions.items[index - 1]?.group !== item.group) && (
                   <p className="px-2.5 py-1 text-xs text-subtle-foreground">{item.group}</p>
                 )}
@@ -71,6 +76,11 @@ export function SuggestionList(props: {
                   ref={(el) => {
                     if (el && index === props.active) revealSuggestion(el);
                   }}
+                  // Move, not enter: a list the arrows scroll under a resting pointer keeps
+                  // the keyboard's highlight.
+                  onMouseMove={() => {
+                    if (index !== props.active) props.onHover?.(index);
+                  }}
                   onMouseDown={(event) => {
                     event.preventDefault();
                     props.onPick(item);
@@ -80,14 +90,26 @@ export function SuggestionList(props: {
                     index === props.active && "bg-accent",
                   )}
                 >
-                  <MentionIcon
-                    kind={item.entry?.kind ?? (item.threadId ? "thread" : "file")}
-                    action={
-                      item.entry?.invocation.type === "action"
-                        ? item.entry.invocation.action
-                        : undefined
-                    }
-                  />
+                  {item.tab?.favicon ? (
+                    <img
+                      src={item.tab.favicon}
+                      alt=""
+                      aria-hidden
+                      draggable={false}
+                      className="size-4 shrink-0 self-center rounded-xs"
+                    />
+                  ) : (
+                    <MentionIcon
+                      kind={
+                        item.entry?.kind ?? (item.threadId ? "thread" : item.tab ? "tab" : "file")
+                      }
+                      action={
+                        item.entry?.invocation.type === "action"
+                          ? item.entry.invocation.action
+                          : undefined
+                      }
+                    />
+                  )}
                   <span className="min-w-0 shrink truncate">{item.label}</span>
                   {item.detail && (
                     <span className="min-w-0 flex-1 truncate text-xs text-subtle-foreground">

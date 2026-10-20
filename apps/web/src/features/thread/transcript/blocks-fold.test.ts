@@ -120,12 +120,15 @@ test("a failed turn keeps everything it did in view", () => {
   expect(head?.kind === "work" && head.folded).toBeUndefined();
 });
 
-// Mutations: putting the live header at the end, or keeping it after the turn settles.
-test("a working turn's live header sits right under its ask, above everything it did", () => {
+// Mutations: putting the live line after the turn's work, adding a second one, or keeping it
+// after the turn settles.
+test("a working turn has one live line, right under its ask where its Worked for will stand", () => {
   const working = buildBlocks(source(turn.slice(0, 4), { state: "active", trigger: "user" }));
-  expect(working.map((block) => block.kind).slice(0, 3)).toEqual(["user", "live", "work"]);
+  expect(working.filter((block) => block.kind === "live")).toHaveLength(1);
+  expect(working[0]?.kind).toBe("user");
   const live = working[1];
   expect(live?.kind === "live" && live.askId).toBe("ask");
+  expect(working.length).toBeGreaterThan(2);
   const done = buildBlocks(
     source(turn, { state: "completed", trigger: "user", startedAt: 1, endedAt: 7 }),
   );
@@ -153,4 +156,27 @@ test("an answer said in several messages after the last step stays whole", () =>
   ]);
   const head = blocks[1];
   expect(head?.kind === "work" && head.answerIds).toEqual(["found", "fixed"]);
+});
+
+// Mutation: opening a second "Worked for" log for a run the daemon numbers into the same turn.
+test("a run ace continued after a restart folds into the ask's one log when it shares its turn", () => {
+  const items = [
+    message("ask", "user", 1),
+    shell("install", 2, "first"),
+    shell("build", 4, "continued"),
+    message("answer", "assistant", 5, "continued"),
+  ];
+  const runs = new Map<string, RunFacts>([
+    ["first", { state: "interrupted", trigger: "user", turn: 1, startedAt: 1, endedAt: 3 }],
+    ["continued", { state: "completed", trigger: "restart", turn: 1, startedAt: 4, endedAt: 6 }],
+  ]);
+  const byId = new Map<string, Item>(items.map((item) => [item.id, item]));
+  const blocks = buildBlocks({
+    order: items.map((item) => item.id),
+    item: (id) => byId.get(id),
+    background: new Map(),
+    turnOf: (id) => byId.get(id)?.runId,
+    run: (id) => runs.get(id),
+  });
+  expect(blocks.filter((block) => block.kind === "work")).toHaveLength(1);
 });

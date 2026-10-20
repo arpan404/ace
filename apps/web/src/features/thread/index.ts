@@ -8,6 +8,7 @@ export { PermissionPicker } from "./composer/permission-picker.tsx";
 export { useAccessModes } from "./composer/permission-hooks.ts";
 export {
   chipControl as composerChip,
+  composerSurface,
   stripControl as composerStrip,
   noticeSurface as composerNoticeSurface,
   environmentSurface as composerEnvironmentSurface,
@@ -24,7 +25,16 @@ export { SubagentView } from "./subagent/subagent-view.tsx";
 /** Warm the parts of the thread screen that load after first paint (tests start with them). */
 export { preloadDeferred } from "./deferred.ts";
 /** Fork from a thread's last finished turn, for menus outside the thread screen. */
-export { ForkDialog } from "./transitions/fork-dialog-lazy.tsx";
+export { useOpenFork } from "./transitions/fork-opener.ts";
+export { ForkDraftView } from "./transitions/fork-draft.tsx";
+/** Forks opened and not yet sent, listed with New thread's drafts. */
+export {
+  forkDraftKey,
+  removeForkDraft,
+  saveForkDraft,
+  useForkDrafts,
+  type ForkDraft,
+} from "./transitions/fork-drafts.ts";
 export { useLatestForkPoint } from "./transitions/use-fork-point.ts";
 
 export { PrLinksDialog } from "./pr-links-dialog-lazy.tsx";

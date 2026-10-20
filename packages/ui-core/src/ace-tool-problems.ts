@@ -123,13 +123,13 @@ const screen: Record<string, Wording> = {
 };
 
 const browser: Record<string, Wording> = {
-  human_controlled: () => ({
-    title: "You have the browser",
-    hint: "The agent waits until you hand it back.",
+  human_active: () => ({
+    title: "You were using that tab",
+    hint: "The agent tries again once you pause.",
   }),
   human_private: () => ({
-    title: "The browser is private while you have it",
-    hint: "The agent waits until you hand it back.",
+    title: "You keep agents out of that tab",
+    hint: "Let agents in from the tab's menu, or the agent uses another tab.",
   }),
   browser_closed: () => ({ title: "The browser was closed", hint: "The agent can open it again." }),
   browser_paused: () => ({
@@ -140,7 +140,6 @@ const browser: Record<string, Wording> = {
     title: "The browser changed during the action",
     hint: readAgain("page"),
   }),
-  controller_changed: () => ({ title: "Browser control changed", hint: readAgain("page") }),
   queue_full: () => ({ title: "The browser is busy", hint: "Wait for its actions to finish." }),
   stale_ref: () => ({ title: "The page changed before the action", hint: readAgain("page") }),
   element_unavailable: () => ({
@@ -155,8 +154,20 @@ const browser: Record<string, Wording> = {
     title: "That address isn't one the agent can open",
     hint: "Only http and https addresses, without a password in them.",
   }),
-  page_text_limit: () => ({ title: "The page is too large to search" }),
   timeout: (site) => ({ title: `${site} didn't respond in time` }),
+  page_unreachable: (site) => ({
+    title: `Couldn't reach ${site}`,
+    hint: "If it's a local dev server, check that it's running.",
+  }),
+  browser_restarted: () => ({
+    title: "The browser restarted and reopened the page",
+    hint: readAgain("page"),
+  }),
+  browser_unavailable: () => ({ title: "ace's browser couldn't start" }),
+  evaluate_failed: () => ({ title: "The page script failed" }),
+  recording_active: () => ({ title: "The browser is already recording" }),
+  recording_inactive: () => ({ title: "The browser wasn't recording" }),
+  recording_failed: () => ({ title: "The recording couldn't be saved" }),
 };
 
 const device: Record<string, Wording> = {

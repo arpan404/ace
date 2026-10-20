@@ -44,28 +44,35 @@ async function fixture(mode: AccessMode = "auto-review") {
   return { daemon, client, threadId, view };
 }
 it.each(["ask", "auto-review"] as const)(
-  "a fake %s agent opens a never-seen site without asking, and not while a person holds the browser",
+  "a fake %s agent opens a never-seen site without asking, and never in a private tab",
   async (mode) => {
     const f = await fixture(mode);
     try {
       await f.daemon.browser.navigateAgent("thread", "https://never-seen.example/page");
       expect(f.daemon.browser.view(f.threadId)?.url).toBe("https://never-seen.example/page");
       expect(Object.values(f.view().interactions)).toEqual([]);
-      await f.client.request({ type: "browser.takeover", threadId: f.threadId, mode: "private" });
+      const tabId = f.daemon.browser.view(f.threadId)?.activeTabId ?? "";
+      await f.client.request({
+        type: "browser.tabs.private",
+        threadId: f.threadId,
+        tabId,
+        private: true,
+      });
       await expect(
         f.daemon.browser.navigateAgent("thread", "https://other.example"),
-      ).rejects.toThrow("Browser controlled by human");
+      ).rejects.toThrow("human_private");
       expect(f.daemon.browser.view(f.threadId)?.url).toBe("https://never-seen.example/page");
+      // Privacy is the person's choice, never a question the thread waits on.
+      expect(Object.values(f.view().interactions)).toEqual([]);
     } finally {
       await f.client.close();
     }
   },
 );
 
-it("fake wire reuses the browser page, refuses its final close and exposes dialogs and downloads", async () => {
+it("fake wire opens, shows and closes real tabs, and closing the last one closes the browser", async () => {
   const f = await fixture();
   try {
-    await f.client.request({ type: "browser.takeover", threadId: f.threadId });
     const firstTabId = f.daemon.browser.view(f.threadId)?.activeTabId;
     if (!firstTabId) throw new Error("tab");
     const opened = await f.client.request({
@@ -74,15 +81,17 @@ it("fake wire reuses the browser page, refuses its final close and exposes dialo
       url: "https://site.example/page",
     });
     expect(opened).toMatchObject({ ok: true });
-    const view = f.daemon.browser.view(f.threadId),
-      tabId = view?.activeTabId;
+    const tabId = f.daemon.browser.view(f.threadId)?.activeTabId;
     if (!tabId) throw new Error("tab");
-    expect(tabId).toBe(firstTabId);
+    expect(tabId).not.toBe(firstTabId);
     expect(
       await f.client.request({ type: "browser.tabs.list", threadId: f.threadId }),
     ).toMatchObject({
       ok: true,
-      result: [{ tabId, url: "https://site.example/page" }],
+      result: [
+        { tabId: firstTabId, url: "about:blank" },
+        { tabId, url: "https://site.example/page", openedBy: { kind: "human" } },
+      ],
     });
     f.daemon.browser.dialogOpen(f.threadId, {
       tabId,
@@ -90,7 +99,6 @@ it("fake wire reuses the browser page, refuses its final close and exposes dialo
       type: "prompt",
       message: "Name",
     });
-    expect(f.daemon.browser.view(f.threadId)?.pending_dialog?.message).toBe("Name");
     expect(
       await f.client.request({
         type: "browser.dialog.answer",
@@ -116,100 +124,96 @@ it("fake wire reuses the browser page, refuses its final close and exposes dialo
     ).toMatchObject({ ok: true, result: [{ filename: "sample.zip", flags: ["archive"] }] });
     expect(
       await f.client.request({ type: "browser.tabs.close", threadId: f.threadId, tabId }),
-    ).toMatchObject({ ok: false });
+    ).toMatchObject({ ok: true, result: { activeTabId: firstTabId } });
     expect(
-      await f.client.request({ type: "browser.tabs.list", threadId: f.threadId }),
-    ).toMatchObject({
-      ok: true,
-      result: [{ tabId, url: "https://site.example/page" }],
-    });
+      await f.client.request({
+        type: "browser.tabs.close",
+        threadId: f.threadId,
+        tabId: firstTabId,
+      }),
+    ).toMatchObject({ ok: true, result: { closed: true } });
+    expect(f.daemon.browser.view(f.threadId)?.closed).toBe(true);
   } finally {
     await f.client.close();
   }
 });
-it("fake private disconnect waits for a new takeover and explicit handback", async () => {
-  const f = await fixture();
+
+it("typed browser client APIs open, select, close and keep agents out of tabs", async () => {
+  const f = await fixture(),
+    browser = new BrowserFeaturesClient(f.client);
   try {
-    await f.client.request({ type: "browser.takeover", threadId: f.threadId, mode: "private" });
-    expect(f.view().thread.status.state).toBe("needs_you");
-    expect(
-      await f.client.request({ type: "browser.takeover", threadId: f.threadId, mode: "shared" }),
-    ).toMatchObject({ ok: false });
-    const owner = f.daemon.browser.view(f.threadId)?.owner;
-    if (!owner) throw new Error("owner");
-    f.daemon.browser.disconnect(owner);
-    expect(f.view().thread.status.state).toBe("needs_you");
-    const privateGate = Object.values(f.view().interactions).find(
-      (entry) =>
-        entry.state === "pending" && entry.raw.some((raw) => raw.type === "ace.browser.private"),
-    );
-    if (!privateGate) throw new Error("private gate");
-    expect(
-      await f.client.command({
-        type: "interaction.resolve",
-        interactionId: privateGate.id,
-        resolution: { kind: "plan_review", decision: "approve" },
-      }),
-    ).toMatchObject({ ok: false, error: "private_handback_required" });
-    expect(f.view().thread.status.state).toBe("needs_you");
-    expect(f.daemon.browser.view(f.threadId)).toMatchObject({
-      controller: "none",
-      status: "paused",
-      takeoverMode: "private",
+    const first = (await browser.tabs(f.threadId))[0];
+    if (!first) throw new Error("tab");
+    const opened = await browser.openTab(f.threadId, "https://site.example/page");
+    if (!("activeTabId" in opened)) throw new Error("unexpected dialog");
+    expect(opened.tabId).toBe(opened.activeTabId);
+    expect(opened.activeTabId).not.toBe(first.tabId);
+    expect(await browser.selectTab(f.threadId, first.tabId)).toMatchObject({
+      activeTabId: first.tabId,
     });
-    await f.client.request({ type: "browser.takeover", threadId: f.threadId, mode: "private" });
-    expect(
-      await f.client.request({ type: "browser.handback", threadId: f.threadId }),
-    ).toMatchObject({ ok: true });
-    expect(f.daemon.browser.view(f.threadId)).toMatchObject({
-      controller: "agent",
-      status: "ready",
-      takeoverMode: "shared",
+    expect(await browser.keepPrivate(f.threadId, first.tabId, true)).toMatchObject({
+      tabs: [{ tabId: first.tabId, private: true }, {}],
+    });
+    await expect(browser.keepPrivate(f.threadId, "missing", true)).rejects.toMatchObject({
+      code: "daemon",
+    });
+    expect(await browser.closeTab(f.threadId, opened.activeTabId)).toMatchObject({
+      activeTabId: first.tabId,
     });
   } finally {
     await f.client.close();
   }
 });
 
-it("typed browser client APIs follow tabs, downloads, dialogs and private handback", async () => {
-  const f = await fixture(),
-    browser = new BrowserFeaturesClient(f.client);
+it("an agent's new tab joins the strip without taking the view from a person who picked one", async () => {
+  const f = await fixture();
   try {
-    await browser.takeover(f.threadId, "shared");
-    const first = (await browser.tabs(f.threadId))[0];
+    const first = f.daemon.browser.view(f.threadId)?.activeTabId;
     if (!first) throw new Error("tab");
-    const opened = await browser.openTab(f.threadId, "https://site.example/page");
-    if (!("activeTabId" in opened)) throw new Error("unexpected dialog");
-    expect(opened.activeTabId).toBe(first.tabId);
-    expect(opened.tabs).toEqual([{ ...first, url: "https://site.example/page" }]);
-    expect(await browser.openTab(f.threadId)).toEqual(opened);
-    expect(await browser.switchTab(f.threadId, first.tabId)).toMatchObject({
-      activeTabId: first.tabId,
+    await f.client.request({ type: "browser.tabs.select", threadId: f.threadId, tabId: first });
+    const second = f.daemon.browser.tabOpen(f.threadId, "https://shop.example/cart", {
+      agentId: "worker",
+      label: "checkout",
     });
-    f.daemon.browser.dialogOpen(f.threadId, {
-      dialogId: "client-dialog",
-      tabId: first.tabId,
-      type: "prompt",
-      message: "Client answer",
-    });
-    const dialog = f.daemon.browser.view(f.threadId)?.pending_dialog;
-    if (!dialog) throw new Error("dialog");
+    expect(f.daemon.browser.view(f.threadId)?.activeTabId).toBe(first);
     expect(
-      await browser.answerDialog(f.threadId, dialog.tabId, dialog.dialogId, true, "answered"),
-    ).toEqual({ ok: true });
-    expect(f.daemon.browser.view(f.threadId)?.pending_dialog).toBeUndefined();
-    expect(await browser.downloads(f.threadId)).toEqual([]);
-    await expect(browser.closeTab(f.threadId, opened.activeTabId)).rejects.toMatchObject({
-      code: "daemon",
+      await f.client.request({ type: "browser.tabs.list", threadId: f.threadId }),
+    ).toMatchObject({
+      ok: true,
+      result: [
+        { tabId: first },
+        {
+          tabId: second,
+          label: "checkout",
+          openedBy: { kind: "agent", agentId: "worker" },
+          inUse: { kind: "agent", agentId: "worker" },
+        },
+      ],
     });
-    expect(await browser.tabs(f.threadId)).toEqual(opened.tabs);
-    expect(await browser.takeover(f.threadId, "private")).toMatchObject({
-      takeoverMode: "private",
-      controller: "human",
-    });
-    expect(await browser.handback(f.threadId)).toMatchObject({
-      takeoverMode: "shared",
-      controller: "agent",
+  } finally {
+    await f.client.close();
+  }
+});
+
+it("the person's input reaches a tab an agent is using, with no control to take", async () => {
+  const f = await fixture();
+  try {
+    f.daemon.browser.agentWorks(f.threadId, { agentId: "worker", pointer: { x: 10, y: 20 } });
+    const tabId = f.daemon.browser.view(f.threadId)?.activeTabId;
+    expect(
+      await f.client.request({
+        type: "browser.input",
+        threadId: f.threadId,
+        ...(tabId ? { tabId } : {}),
+        input: { kind: "key", event: "keyDown", key: "a", text: "a", modifiers: 0 },
+      }),
+    ).toMatchObject({ ok: true });
+    expect(f.daemon.browser.inputs).toMatchObject([
+      { threadId: "thread", tabId, input: { kind: "key", key: "a" } },
+    ]);
+    expect(f.daemon.browser.tab(f.threadId)).toMatchObject({
+      inUse: { kind: "agent", agentId: "worker" },
+      pointer: { x: 10, y: 20 },
     });
   } finally {
     await f.client.close();

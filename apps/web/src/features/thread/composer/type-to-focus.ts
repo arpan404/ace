@@ -1,7 +1,11 @@
 import { editorText, placeEditorCaret } from "./editor-dom.ts";
-/** Where typing belongs to something else: a field, an editor, a menu or a dialog. */
+/**
+ * Where typing belongs to something else: a field, an editor, a menu, a dialog, a terminal, the
+ * Browser's page (keys typed at the page are the page's, even while it can't take them) or a list
+ * whose letters jump between its rows (`data-type-ahead`).
+ */
 const owned =
-  'input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="menu"], [role="menuitem"], [role="listbox"], [role="dialog"], [role="alertdialog"], [role="combobox"], .xterm';
+  'input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="menu"], [role="menuitem"], [role="listbox"], [role="dialog"], [role="alertdialog"], [role="combobox"], [data-type-ahead], .xterm, [data-page-view]';
 
 /** A key that types a character, not a shortcut or a navigation key. */
 export function printable(event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey">) {

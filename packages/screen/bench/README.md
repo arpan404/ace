@@ -38,3 +38,9 @@ V2 mutation cases are also **not executed (tests run at merge)**:
 - Apply the provider line cap only after readline accumulation (`process.test.ts`, bounded raw output and owned process termination).
 
 `native-runtime.ts` is instrumentation for merge-time measurement. It reports idle CPU, CPU at 10 fps, delivered/encoded frame counts, mean encoding latency, cold/cached Finder `ui.tree` median/p95, and peak RSS. It never builds a helper or launches a process per action. All v2 numbers **need run at merge**; historical v1 archives are not a Codex comparison.
+
+## Computer use (#1130)
+
+`computer-actions.ts` (agent action latency, Calculator) and `live-view.ts` (live view input →
+frame, bandwidth, refine cost, helper CPU) drive a real helper; results and how to run them are
+in [docs/computer-use-performance.md](../../../docs/computer-use-performance.md).

@@ -40,6 +40,11 @@ export const Capabilities = z.object({
   childFidelity: z.enum(["full", "summary", "placeholder"]).optional(),
   /** Inject input into a running turn. When false, ace queues it client-side. */
   steer: z.boolean(),
+  /**
+   * When a native steer reaches the model. `after_tool`: only once the running tool returns, so
+   * ace interrupts the turn to deliver the person's steer now. Omitted means immediately.
+   */
+  steerTiming: z.enum(["immediate", "after_tool"]).optional(),
   /** Implemented launch selectors, empty when absent. */
   launchOptions: z
     .array(z.enum(["effort", "serviceTier"]))
@@ -62,6 +67,8 @@ export const Capabilities = z.object({
   subagentTranscripts: z.boolean(),
   /** Background tasks can be listed and stopped individually. */
   backgroundTaskControl: z.boolean(),
+  /** A native goal the agent keeps pursuing across turns can be set, paused and cleared. */
+  goals: z.boolean().optional(),
   /**
    * How much the provider tells us about work that outlives a turn.
    * `full`: start and end events; `partial`: start only, or end only;

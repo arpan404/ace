@@ -4,6 +4,7 @@ import type { EngineClock } from "./actor.ts";
 import type { Recovery } from "./recovery.ts";
 import type { ThreadId } from "@ace/protocol";
 import { lostWork } from "./lost-work.ts";
+import { skippableAtStartup } from "./startup-skip.ts";
 /** Startup is a cold pass over stored thread headers and outstanding sends. */
 export function recoverEngine(
   repo: EngineRepository,
@@ -11,213 +12,249 @@ export function recoverEngine(
   clock: EngineClock,
   fail: (intent: IntentHeader, message: string) => void,
   wake: (id: ThreadId) => void,
+  skip: (id: ThreadId, error: unknown) => void = (_id, error) => {
+    throw error;
+  },
 ): void {
   repo.store.atomic(() => {
     repo.transitions.pruneGuards();
     repo.clearIncompleteBlobs();
   });
-  for (const state of repo.recoveryStates()) {
-    repo.store.atomic(() => {
-      if (repo.cleaning(state.threadId)) return;
-      const legacyLimits = Object.entries(state.agents).flatMap(([agent, record]) =>
-        record.retry?.on === "rate_limit" && !record.limited
-          ? [{ type: "retry" as const, agent, ...record.retry }]
-          : [],
-      );
-      if (legacyLimits.length) repo.apply(state.threadId, legacyLimits, clock.now());
-      const untracked = state.queueSources.engine > repo.queuedCount(state.threadId);
-      if (untracked || state.queueSources.provider > 0)
-        repo.apply(
-          state.threadId,
-          [
-            {
-              type: "item.upsert",
-              agent: state.rootKey ?? "root",
-              item: "recovery:untracked",
-              draft: {
-                type: "notice",
-                level: "warning",
-                text: untracked
-                  ? "Recovered untracked queue state; execution is uncertain"
-                  : "Provider queued work was interrupted; execution is uncertain",
-                complete: true,
+  for (const state of repo.recoveryStates(skip)) {
+    isolated(state.threadId, skip, () =>
+      repo.store.atomic(() => {
+        if (repo.cleaning(state.threadId)) return;
+        const legacyLimits = Object.entries(state.agents).flatMap(([agent, record]) =>
+          record.retry?.on === "rate_limit" && !record.limited
+            ? [{ type: "retry" as const, agent, ...record.retry }]
+            : [],
+        );
+        if (legacyLimits.length) repo.apply(state.threadId, legacyLimits, clock.now());
+        const untracked = state.queueSources.engine > repo.queuedCount(state.threadId);
+        if (untracked || state.queueSources.provider > 0)
+          repo.apply(
+            state.threadId,
+            [
+              {
+                type: "item.upsert",
+                agent: state.rootKey ?? "root",
+                item: "recovery:untracked",
+                draft: {
+                  type: "notice",
+                  level: "warning",
+                  text: untracked
+                    ? "Recovered untracked queue state; execution is uncertain"
+                    : "Provider queued work was interrupted; execution is uncertain",
+                  complete: true,
+                },
               },
-            },
-          ],
-          clock.now(),
-        );
-      const unsent = repo.pending.undelivered(state.threadId);
-      if (unsent) {
-        repo.pending.defer(unsent);
-        repo.queue.track(unsent.id, state.threadId, unsent.command);
-        repo.admitInput(unsent.command, state.threadId, clock.now());
-        repo.queue.set(state.threadId, { paused: true, reason: "not_sent" }, clock.now());
-      }
-      const queue = repo.queue.get(state.threadId);
-      if (
-        (queue.trigger === "restart" || queue.reason === "restart") &&
-        !Object.keys(state.runs).length
-      )
-        repo.queue.set(
-          state.threadId,
-          {
-            continuation: null,
-            trigger: null,
-            paused: repo.queue.count(state.threadId) > 0,
-            reason: repo.queue.count(state.threadId) ? "not_sent" : null,
-          },
-          clock.now(),
-        );
-      for (const intent of repo.pending.headers(state.threadId))
+            ],
+            clock.now(),
+          );
+        const unsent = repo.pending.undelivered(state.threadId);
+        if (unsent) {
+          repo.pending.defer(unsent);
+          // Back in the queue; the bubble its claim created keeps its place.
+          repo.queue.track(unsent.id, state.threadId, unsent.command);
+          repo.queue.set(state.threadId, { paused: true, reason: "not_sent" }, clock.now());
+          // A message recovered now is a request the person has never seen. A settle made before
+          // it surfaced doesn't cover it, so the thread comes back.
+          if (repo.store.getThread(state.threadId)?.settledAt !== undefined)
+            repo.store.appendEvents(
+              state.threadId,
+              [
+                {
+                  type: "thread.client.updated",
+                  changes: { settledAt: null, settledReason: null, autoSettleAt: null },
+                },
+              ],
+              clock.now(),
+            );
+        }
+        const queue = repo.queue.get(state.threadId);
         if (
-          ["thread.resume", "queue.resume", "thread.limit"].includes(intent.kind) &&
-          intent.submittedGeneration !== undefined &&
-          !intent.acknowledged &&
-          (intent.status === "running" || intent.awaiting)
+          (queue.trigger === "restart" || queue.reason === "restart") &&
+          !Object.keys(state.runs).length
         )
-          repo.queue.uncertain(intent.id);
-      recovery.capture(state.threadId);
-      // A stopped provider no longer owns an admitted continuation. Native history
-      // remains the source for a new restart continuation, never the old input.
-      if (!repo.pending.uncertainContinuation(state.threadId))
-        repo.pending.finishContinuation(state.threadId);
-      const backend = repo.backend(state.threadId);
-      const interrupted = lostWork(state, 0, backend, clock.now());
-      const live = !state.processExit && interrupted !== undefined;
-      if (live && backend === "cursor-sdk")
-        repo.apply(
-          state.threadId,
-          [
+          repo.queue.set(
+            state.threadId,
             {
-              type: "item.upsert",
-              agent: state.rootKey ?? "root",
-              item: "recovery:uncertain",
-              draft: {
-                type: "notice",
-                level: "warning",
-                code: "recovery_uncertain",
-                title: "Recovery needed",
-                text: "Previous work needs reconciliation",
-                detail: interrupted,
-                complete: true,
+              continuation: null,
+              trigger: null,
+              paused: repo.queue.count(state.threadId) > 0,
+              reason: repo.queue.count(state.threadId) ? "not_sent" : null,
+            },
+            clock.now(),
+          );
+        for (const intent of repo.pending.headers(state.threadId))
+          if (
+            ["thread.resume", "queue.resume", "thread.limit"].includes(intent.kind) &&
+            intent.submittedGeneration !== undefined &&
+            !intent.acknowledged &&
+            (intent.status === "running" || intent.awaiting)
+          )
+            repo.queue.uncertain(intent.id);
+        recovery.dropContinuationBehindStop(state.threadId);
+        recovery.capture(state.threadId);
+        // A stopped provider no longer owns an admitted continuation. Native history
+        // remains the source for a new restart continuation, never the old input.
+        if (!repo.pending.uncertainContinuation(state.threadId))
+          repo.pending.finishContinuation(state.threadId);
+        const backend = repo.backend(state.threadId);
+        const interrupted = lostWork(state, 0, backend, clock.now());
+        const live = !state.processExit && interrupted !== undefined;
+        if (live && backend === "cursor-sdk")
+          repo.apply(
+            state.threadId,
+            [
+              {
+                type: "item.upsert",
+                agent: state.rootKey ?? "root",
+                item: "recovery:uncertain",
+                draft: {
+                  type: "notice",
+                  level: "warning",
+                  code: "recovery_uncertain",
+                  title: "Recovery needed",
+                  text: "Previous work needs reconciliation",
+                  detail: interrupted,
+                  complete: true,
+                },
               },
-            },
-          ],
-          clock.now(),
-        );
-      if (live)
-        repo.apply(
-          state.threadId,
-          [
-            {
-              type: "process.exited",
-              deliberate: false,
-              message: "Daemon restarted; previous provider work stopped",
-            },
-            { type: "queue.changed", source: "provider", count: 0 },
-            interruptedNotice(state.rootKey, clock.now(), "restart"),
-          ],
-          clock.now(),
-        );
-    });
+            ],
+            clock.now(),
+          );
+        if (live)
+          repo.apply(
+            state.threadId,
+            [
+              {
+                type: "process.exited",
+                deliberate: false,
+                message: "Daemon restarted; previous provider work stopped",
+              },
+              { type: "queue.changed", source: "provider", count: 0 },
+              interruptedNotice(state.rootKey, clock.now(), "restart"),
+            ],
+            clock.now(),
+          );
+      }),
+    );
   }
   for (const intent of repo.pending.headers()) {
-    repo.store.atomic(() => {
-      if (repo.cleaning(intent.threadId)) {
-        fail(intent, "Retired for thread deletion");
-        return;
-      }
-      if (repo.store.getThread(intent.threadId)?.continuation) {
-        fail(
-          intent,
-          "This Cursor CLI thread is read-only. Continue in a new thread with its saved history.",
-        );
-        return;
-      }
-      if (intent.status === "running" || intent.awaiting) {
-        if (
-          [
+    isolated(intent.threadId, skip, () =>
+      repo.store.atomic(() => {
+        if (repo.cleaning(intent.threadId)) {
+          fail(intent, "Retired for thread deletion");
+          return;
+        }
+        if (repo.store.getThread(intent.threadId)?.continuation) {
+          fail(
+            intent,
+            "This Cursor CLI thread is read-only. Continue in a new thread with its saved history.",
+          );
+          return;
+        }
+        if (intent.status === "running" || intent.awaiting) {
+          if (
+            [
+              "thread.send",
+              "thread.create",
+              "thread.fork",
+              "thread.resume",
+              "queue.resume",
+              "thread.limit",
+            ].includes(intent.kind) &&
+            intent.submittedGeneration === undefined &&
+            !intent.acknowledged
+          ) {
+            repo.pending.defer(intent);
+            return;
+          }
+          if (
+            !intent.acknowledged &&
+            intent.submittedGeneration !== undefined &&
+            [
+              "thread.send",
+              "thread.create",
+              "thread.resume",
+              "queue.resume",
+              "thread.limit",
+            ].includes(intent.kind)
+          )
+            repo.queue.uncertain(intent.id);
+          fail(
+            intent,
+            "Delivery interrupted by daemon restart; execution is uncertain. Review before resending.",
+          );
+        } else if (
+          intent.status === "pending" &&
+          ![
             "thread.send",
             "thread.create",
             "thread.fork",
-            "thread.resume",
-            "queue.resume",
-            "thread.limit",
-          ].includes(intent.kind) &&
-          intent.submittedGeneration === undefined &&
-          !intent.acknowledged
-        ) {
-          repo.pending.defer(intent);
-          return;
-        }
-        if (
-          !intent.acknowledged &&
-          intent.submittedGeneration !== undefined &&
-          [
-            "thread.send",
-            "thread.create",
+            "thread.switch",
+            "thread.merge",
             "thread.resume",
             "queue.resume",
             "thread.limit",
           ].includes(intent.kind)
         )
-          repo.queue.uncertain(intent.id);
-        fail(
-          intent,
-          "Delivery interrupted by daemon restart; execution is uncertain. Review before resending.",
-        );
-      } else if (
-        intent.status === "pending" &&
-        ![
-          "thread.send",
-          "thread.create",
-          "thread.fork",
-          "thread.switch",
-          "thread.merge",
-          "thread.resume",
-          "queue.resume",
-          "thread.limit",
-        ].includes(intent.kind)
-      )
-        fail(intent, "Control interrupted by daemon restart; retry explicitly");
-    });
+          fail(intent, "Control interrupted by daemon restart; retry explicitly");
+      }),
+    );
   }
-  for (const state of repo.recoveryStates()) {
-    repo.store.atomic(() => {
-      if (repo.cleaning(state.threadId)) return;
-      const queue = repo.queue.get(state.threadId);
-      const pending = Boolean(
-        repo.pending.message(state.threadId) || repo.pending.recovery(state.threadId),
-      );
-      recovery.sync(state.threadId);
-      if (!pending && !queue.continuation && !repo.queue.count(state.threadId)) return;
-      const uncertain = repo.queue.hasUncertain(state.threadId);
-      repo.queue.set(
-        state.threadId,
-        {
-          paused: true,
-          reason: ["stopped", "model_unavailable", "not_sent"].includes(queue.reason ?? "")
-            ? queue.reason
-            : uncertain
-              ? "uncertain"
-              : queue.limited
-                ? "limit"
-                : queue.continuation
-                  ? "restart"
-                  : "not_sent",
-        },
-        clock.now(),
-      );
-      // Nothing starts by itself after a restart: the interrupted turn and the queue stay held
-      // until the person resumes or sends a message.
-      recovery.sync(state.threadId);
-      // Recovery controls already accepted before a crash are safe only when unclaimed.
-      if (
-        (repo.pending.recovery(state.threadId) || repo.pending.transition(state.threadId)) &&
-        repo.reserve(state.threadId)
-      )
-        wake(state.threadId);
-    });
+  for (const state of repo.recoveryStates(skip)) {
+    isolated(state.threadId, skip, () =>
+      repo.store.atomic(() => {
+        if (repo.cleaning(state.threadId)) return;
+        const queue = repo.queue.get(state.threadId);
+        const pending = Boolean(
+          repo.pending.message(state.threadId) || repo.pending.recovery(state.threadId),
+        );
+        recovery.sync(state.threadId);
+        if (!pending && !queue.continuation && !repo.queue.count(state.threadId)) return;
+        const uncertain = repo.queue.hasUncertain(state.threadId);
+        repo.queue.set(
+          state.threadId,
+          {
+            paused: true,
+            reason: ["stopped", "model_unavailable", "not_sent"].includes(queue.reason ?? "")
+              ? queue.reason
+              : uncertain
+                ? "uncertain"
+                : queue.limited
+                  ? "limit"
+                  : queue.continuation
+                    ? "restart"
+                    : "not_sent",
+          },
+          clock.now(),
+        );
+        // Nothing starts by itself after a restart: the interrupted turn and the queue stay held
+        // until the person resumes or sends a message.
+        recovery.sync(state.threadId);
+        // Recovery controls already accepted before a crash are safe only when unclaimed.
+        if (
+          (repo.pending.recovery(state.threadId) || repo.pending.transition(state.threadId)) &&
+          repo.reserve(state.threadId)
+        )
+          wake(state.threadId);
+      }),
+    );
   }
   recovery.schedule();
+}
+
+/**
+ * One thread's share of startup. Stored state that cannot be read quarantines only that thread,
+ * so every other thread still recovers. Contention fails startup whole, to be retried.
+ */
+function isolated(id: ThreadId, skip: (id: ThreadId, error: unknown) => void, run: () => void) {
+  try {
+    run();
+  } catch (error) {
+    if (!skippableAtStartup(error)) throw error;
+    skip(id, error);
+  }
 }

@@ -51,6 +51,7 @@ function menu(platform: NodeJS.Platform) {
     checkForUpdates: () => effects.push("updates"),
     openUrl: (url) => effects.push(`open:${url}`),
     showLogs: () => effects.push("logs"),
+    zoom: (change) => effects.push(`zoom:${change}`),
   });
   const choose = (entry: MenuItemConstructorOptions | undefined) => {
     if (!entry?.click) throw new Error(`Nothing to choose: ${entry?.label}`);
@@ -85,10 +86,13 @@ describe("native menu shortcuts", () => {
     }
   });
 
-  it("every menu item dispatches its own action", () => {
+  it("every keymap menu item dispatches its own action", () => {
     for (const platform of platforms) {
       const built = menu(platform);
-      const withKeys = built.all.filter((entry) => entry.accelerator && entry.click);
+      // Keymap items show their keys and leave them to the page; zoom's are the window's own.
+      const withKeys = built.all.filter(
+        (entry) => entry.accelerator && entry.click && entry.registerAccelerator === false,
+      );
       expect(withKeys.length).toBeGreaterThan(0);
       for (const entry of withKeys) {
         const shortcut = shortcuts.find((candidate) => candidate.label === entry.label);
@@ -107,6 +111,31 @@ describe("native menu shortcuts", () => {
       view.choose(view.top("View").find((entry) => entry.label === label)),
     );
     expect(choices).toEqual(["action:rightPanel", "action:fullView", "action:findInThread"]);
+  });
+});
+
+describe("View › Zoom", () => {
+  it("zooms the window, by ⌘+ or ⌘=, never just the focused page inside it", () => {
+    for (const platform of platforms) {
+      const view = menu(platform);
+      const zoom = view
+        .top("View")
+        .filter((entry) => /^(Zoom|Actual Size)/.test(entry.label ?? ""));
+      // No Electron role: a role zooms whichever page has focus (a visualization, the browser).
+      expect(zoom.every((entry) => entry.role === undefined)).toBe(true);
+      const by = (accelerator: string) =>
+        view.choose(zoom.find((entry) => entry.accelerator === accelerator));
+      expect(by("CmdOrCtrl+Plus")).toBe("zoom:in");
+      expect(by("CmdOrCtrl+=")).toBe("zoom:in");
+      expect(by("CmdOrCtrl+-")).toBe("zoom:out");
+      expect(by("CmdOrCtrl+0")).toBe("zoom:reset");
+      // The menu lists Zoom In once.
+      expect(zoom.filter((entry) => entry.visible !== false).map((entry) => entry.label)).toEqual([
+        "Actual Size",
+        "Zoom In",
+        "Zoom Out",
+      ]);
+    }
   });
 });
 
@@ -151,6 +180,7 @@ it("a rebound menu label shows the new shortcut and clicks still dispatch New Th
     checkForUpdates() {},
     openUrl() {},
     showLogs() {},
+    zoom() {},
   });
   const item = items(template).find((entry) => entry.label === "New Thread");
   expect(item?.accelerator).toBe("CmdOrCtrl+Shift+J");

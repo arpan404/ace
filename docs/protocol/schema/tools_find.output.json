@@ -1,0 +1,60 @@
+{
+  "$id": "https://ace.local/protocol/v1/tools_find.output.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "hint": {
+      "type": "string"
+    },
+    "how": {
+      "type": "string"
+    },
+    "matches": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "effect": {
+            "enum": [
+              "read-only",
+              "changes",
+              "destructive"
+            ],
+            "type": "string"
+          },
+          "family": {
+            "type": "string"
+          },
+          "inputSchema": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "purpose",
+          "effect",
+          "inputSchema"
+        ],
+        "type": "object"
+      },
+      "maxItems": 10,
+      "type": "array"
+    }
+  },
+  "required": [
+    "matches"
+  ],
+  "type": "object"
+}

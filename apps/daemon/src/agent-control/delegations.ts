@@ -32,9 +32,7 @@ import { DelegationAdmission } from "./admission.ts";
 import { type DelegationReservation, DelegationJournal } from "./journal.ts";
 import { threadOutcome } from "./results.ts";
 import { readAgentCatalog } from "./catalog.ts";
-import { incomingRemoteRoot } from "./incoming-root.ts";
 import { recoverLocalUsage } from "./local-usage-recovery.ts";
-import { recoverIncomingUsage } from "./incoming-usage-recovery.ts";
 import { AcpIdentity as importAcpIdentitySchema } from "@ace/protocol";
 import { delegationEffort, selectedDelegationModel } from "./models.ts";
 import { ConversationJournal } from "./conversation-journal.ts";
@@ -58,8 +56,6 @@ export interface DelegationDependencies {
   /** Host may lower the durable receipt cap, never raise its 10,000 hard limit. */
   journalCapacity?: number;
   policy?: Partial<DelegationPolicy>;
-  /** Work outside the journal (remote tasks) that holds the parent's run slots. */
-  externalCapacity?(parent: ThreadId): { concurrent: number };
   onError(error: unknown): void;
   /** The daemon maintenance gate remains the owner of autonomous turn admission. */
   admitsWork?(): boolean;
@@ -85,7 +81,6 @@ export class DelegationService {
     this.deps = deps;
     this.policy = DelegationPolicy.parse(deps.policy ?? {});
     this.journal = new DelegationJournal(deps.store, deps.journalCapacity);
-    recoverIncomingUsage(deps.store, this.journal, deps.clock.now());
     this.conversations = new ConversationJournal(deps.store);
     this.launches = new LaunchQueue(deps.store);
     // Upgrade old ownership metadata once without decoding prompts or transcripts.
@@ -143,16 +138,30 @@ export class DelegationService {
   authorize(caller: McpAttribution, target: ThreadId, write: boolean): boolean {
     const source = callerThread(this.deps.store, caller);
     const thread = this.deps.store.getThread(target);
+    if (!thread) return false;
+    // A conversation the caller started is its own, in whichever project it was opened.
+    if (this.ownsConversationTree(caller, target)) return true;
+    // Full access acts for the person: it reads every thread and changes any top-level one,
+    // never another agent's delegated child.
+    if (this.actsForPerson(caller) && (!write || !this.journal.get(target))) return true;
     return (
-      !!thread &&
       (thread.workspaceId === source.workspaceId ||
         (this.journal.get(target)?.rootId ?? target) ===
           (this.journal.get(caller.threadId)?.rootId ?? caller.threadId)) &&
-      (!write ||
-        target === caller.threadId ||
-        this.journal.isDescendant(target, caller.threadId) ||
-        this.ownsConversationTree(caller, target))
+      (!write || target === caller.threadId || this.journal.isDescendant(target, caller.threadId))
     );
+  }
+  /**
+   * A top-level thread with full access may act on the person's threads as the person would.
+   * A delegated child works on its task and never gains that reach, whatever its access.
+   */
+  actsForPerson(caller: McpAttribution): boolean {
+    const source = this.deps.store.getThread(caller.threadId);
+    return source?.permission?.effective === "full-access" && !this.journal.get(caller.threadId);
+  }
+  /** A thread's queued messages, oldest first, with the revision edits must name. */
+  queue(threadId: ThreadId) {
+    return this.deps.engine.queue(threadId);
   }
   private ownsConversationTree(caller: McpAttribution, target: ThreadId): boolean {
     let thread = target;
@@ -168,8 +177,16 @@ export class DelegationService {
     const thread = this.deps.store.getThread(threadId);
     this.journal.activity(
       threadId,
-      thread && thread.deletedAt === undefined && thread.status.state === "working" ? 1 : 0,
+      thread &&
+        thread.deletedAt === undefined &&
+        !["done", "failed", "new"].includes(thread.status.state)
+        ? 1
+        : 0,
     );
+  }
+  /** The model catalog's page reader, for filling in a selection an agent left open. */
+  listModels(options: import("@ace/protocol").ModelListOptions) {
+    return this.deps.models.list(options);
   }
   catalog(
     caller: McpAttribution,
@@ -183,6 +200,10 @@ export class DelegationService {
   }
   commandReceipt(id: string) {
     return this.deps.store.commandReceipt(CommandId.parse(id), DeviceId.parse("ace-agent"));
+  }
+  /** The service's clock, for owners that stamp what an agent changed. */
+  now(): number {
+    return this.deps.clock.now();
   }
   command(id: string, payload: CommandPayload) {
     const command = Command.parse({ id, deviceId: "ace-agent", payload });
@@ -400,30 +421,52 @@ export class DelegationService {
       throw new Error("Forbidden configuration");
     const thread = this.deps.store.getThread(operation.threadId);
     if (!thread) throw new Error("Thread missing");
+    const selection = await this.threadSelection(
+      caller,
+      thread,
+      operation.requestId,
+      operation.model,
+      operation.options,
+    );
+    signal.throwIfAborted();
+    const command = Command.parse({
+      id: controlCommandId(caller.threadId, operation.requestId, operation.op),
+      deviceId: "ace-agent",
+      payload: { type: "thread.switch", threadId: thread.id, selection },
+    });
+    await this.deps.engine.prepareCommand(command);
+    signal.throwIfAborted();
+    if (!this.authorize(caller, thread.id, true)) throw new Error("Forbidden configuration");
+    return this.command(command.id, command.payload);
+  }
+  /**
+   * The engine selection for a model (and effort, service tier) on a thread's own provider and
+   * account, as configuring or forking the thread runs it. Refuses a model the catalog lacks.
+   */
+  async threadSelection(
+    caller: McpAttribution,
+    thread: import("@ace/protocol").Thread,
+    requestId: string,
+    model: string,
+    launch: { effort?: string | undefined; serviceTier?: string | undefined } = {},
+  ) {
     const identity = thread.provider === "acp" ? importAcpIdentitySchema.parse(thread) : undefined;
     const request = DelegationRequest.parse({
-      requestId: operation.requestId,
+      requestId,
       provider: thread.provider,
       ...identity,
       instanceId: thread.execution?.instanceId ?? identity?.instanceId,
-      model: operation.model,
-      ...(operation.options?.effort ? { effort: operation.options.effort } : {}),
-      ...(operation.options?.serviceTier
-        ? { options: { serviceTier: operation.options.serviceTier } }
-        : {}),
+      model,
+      ...(launch.effort ? { effort: launch.effort } : {}),
+      ...(launch.serviceTier ? { options: { serviceTier: launch.serviceTier } } : {}),
       role: "configuration",
       task: "configure",
     });
     await this.prepareModels(caller, request);
-    signal.throwIfAborted();
     const filter = selectionModelFilter(thread.provider, thread.execution?.instanceId, identity);
     const selected =
-      filter &&
-      this.deps.models.resolve({ role: "configuration", ...filter, model: operation.model });
-    if (
-      !selected?.ok ||
-      (!isDefaultSelection(operation.model) && !matchesModel(selected.model, operation.model))
-    )
+      filter && this.deps.models.resolve({ role: "configuration", ...filter, model });
+    if (!selected?.ok || (!isDefaultSelection(model) && !matchesModel(selected.model, model)))
       throw new AgentControlError(
         "model_unavailable",
         "Requested configuration model is unavailable",
@@ -434,31 +477,21 @@ export class DelegationService {
       thread,
       thread.execution?.instanceId,
     );
-    const model = executionModelId(chosen);
-    const effort = operation.options?.effort
-      ? delegationEffort(chosen, request, thread)
-      : undefined;
+    const effort = launch.effort ? delegationEffort(chosen, request, thread) : undefined;
     const options = {
-      ...(operation.options?.serviceTier ? { serviceTier: operation.options.serviceTier } : {}),
+      ...(launch.serviceTier ? { serviceTier: launch.serviceTier } : {}),
       ...(effort ? { effort } : {}),
     };
-    const command = Command.parse({
-      id: controlCommandId(caller.threadId, operation.requestId, operation.op),
-      deviceId: "ace-agent",
-      payload: {
-        type: "thread.switch",
-        threadId: thread.id,
-        selection: {
-          provider: thread.provider,
-          model,
-          ...(thread.execution?.instanceId ? { instanceId: thread.execution.instanceId } : {}),
-          ...(Object.keys(options).length ? { options } : {}),
-        },
-      },
-    });
+    return {
+      provider: thread.provider,
+      model: executionModelId(chosen),
+      ...(thread.execution?.instanceId ? { instanceId: thread.execution.instanceId } : {}),
+      ...(Object.keys(options).length ? { options } : {}),
+    };
+  }
+  /** Runs a thread transition (fork, merge) the way the person's client does, once prepared. */
+  async transition(command: Command) {
     await this.deps.engine.prepareCommand(command);
-    signal.throwIfAborted();
-    if (!this.authorize(caller, thread.id, true)) throw new Error("Forbidden configuration");
     return this.command(command.id, command.payload);
   }
   /** Observation timeout releases the waiter so the existing durable wake can deliver. */
@@ -518,9 +551,9 @@ export class DelegationService {
       this.showQueued(current);
     });
   }
-  /** Children holding the parent's run slots, here and on other machines. */
+  /** Children holding the parent's run slots. */
   private running(parent: ThreadId): number {
-    return this.journal.running(parent) + (this.deps.externalCapacity?.(parent).concurrent ?? 0);
+    return this.journal.running(parent);
   }
   /** A queued child reads as waiting, so its parent never looks done while it waits. */
   private showQueued(edge: DelegationRecord): void {
@@ -724,20 +757,7 @@ export class DelegationService {
       }
       const edge = this.journal.get(event.threadId);
       const participant = this.journal.participant(event.threadId);
-      if (!edge && !participant) {
-        // Incoming roots have no local parent edge. Reuse the durable counter owner
-        // so terminal snapshots never depend on asynchronous analytics catch-up.
-        if (
-          (event.payload.type === "run.started" || event.payload.type === "usage.updated") &&
-          incomingRemoteRoot(this.deps.store, event.threadId)
-        )
-          this.deps.store.atomic(() => {
-            this.journal.tree(event.threadId, this.deps.clock.now());
-            this.journal.started(event);
-            this.journal.usage(event.threadId, event);
-          });
-        continue;
-      }
+      if (!edge && !participant) continue;
       const root = edge?.rootId ?? participant?.root_id;
       if (!root) continue;
       changed = true;
@@ -754,7 +774,7 @@ export class DelegationService {
         if (edge) this.reconcile(edge);
       }
     }
-    // Slots also free when remote work ends or admission reopens.
+    // Slots also free when admission reopens.
     if (statuses) this.pumpAll();
     if (changed) this.arm();
   }
@@ -762,7 +782,7 @@ export class DelegationService {
     const thread = this.deps.store.getThread(edge.childId);
     if (!thread) return;
     this.deps.store.atomic(() => {
-      if (edge.phase === "settled" && thread.status.state === "working") {
+      if (edge.phase === "settled" && !["done", "failed", "new"].includes(thread.status.state)) {
         // Revived work always continues, whatever the counts. Only a cancelled child stays stopped.
         this.journal.revive(edge);
         if (this.journal.stopped(edge.childId) || this.journal.ancestorStopped(edge.childId)) {
@@ -786,7 +806,7 @@ export class DelegationService {
         status: this.launches.has(edge.childId) ? queuedStatus : childStatus(edge, thread),
       };
       this.deps.engine.updateChild(edge.parentId, shown);
-      if (edge.phase === "settled" || thread.status.state === "working") {
+      if (edge.phase === "settled" || !["done", "failed"].includes(thread.status.state)) {
         this.deps.engine.delegationStarted(edge, shown);
         return;
       }
@@ -811,7 +831,7 @@ export class DelegationService {
     const outcome =
       record?.phase === "settled" && record.outcome && thread.status.state === "new"
         ? record.outcome
-        : thread.status.state !== "working"
+        : ["done", "failed"].includes(thread.status.state)
           ? (record?.outcome ?? threadOutcome(this.deps.store, thread))
           : await this.waiters.wait(threadId, signal);
     signal.throwIfAborted();
@@ -912,15 +932,26 @@ export class DelegationService {
           const agent = pending[0]?.parentAgentId;
           if (!agent) throw new Error("Missing delegation owner");
           this.deps.engine.delegationSettled(next.parent_id, agent, id, results, "ace-input", text);
+          // Busy parents whose provider steers get the result injected now;
+          // otherwise it queues hidden from the person's queue list and runs at
+          // the turn end. Never mark delivered until the send was accepted.
+          const delivery = this.deps.engine.supportsSteering(next.parent_id) ? "steer" : "queue";
           const result = this.command(id, {
             type: "thread.send",
             threadId: next.parent_id,
             input: [{ type: "text", text }],
-            delivery: "queue",
+            delivery,
             trigger: "subagent_result",
             origin: { kind: "subagent_result", threadIds: pending.map((edge) => edge.childId) },
           });
           if (!result.ok) throw controlAdmissionError(result.error ?? "Launch failed");
+          if (delivery === "queue") {
+            try {
+              this.deps.engine.prioritizeSubagentResult(next.parent_id, result.commandId);
+            } catch (error) {
+              this.report(error);
+            }
+          }
           this.journal.consumeDelivered(next.parent_id, delivered);
         });
       } catch (error) {

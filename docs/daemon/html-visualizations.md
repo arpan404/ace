@@ -1,14 +1,15 @@
 # HTML visualizations in chat
 
-Agents call `ace_html_render({ title, html, mode?, height? })` to publish a page inline in
+Agents call `html_render({ title, html, mode?, height? })` to publish a page inline in
 their reply. Render validates first: a page with unsupported features fails with
 `invalid_html`, lists each size, nesting or feature problem in `issues`, and publishes
 nothing, so one call both checks and publishes. HTML in a normal message remains text.
 
-The document cap is 256 KiB of UTF-8, with a 160-character title and an optional
-80–2000 px height cap. Only these structured tools receive a larger MCP input
-budget. The HTTP and stdio request envelopes allow up to 2 MiB for JSON escaping;
-other tools retain their 64 KiB argument budget.
+The document cap is 16 MiB of UTF-8 (`maxHtmlDocumentBytes`), so a page can carry its
+raster images inline as base64 `data:` URLs, with a 160-character title and an optional
+80–2000 px height cap. Only `html_render` (20 MiB, for JSON escaping) and `image_show`
+receive a larger MCP input budget; the HTTP and stdio request envelopes admit the
+largest of them, and every other tool keeps its own budget (64 KiB unless it declares more).
 
 A canonical `html` item contains title, height, mode and an attachment reference. The
 exact document bytes use the existing chunked, thread-scoped attachment store,
@@ -17,6 +18,35 @@ attachment for the life of the thread, including after daemon restart. The
 attachment endpoint serves the bytes as plain text. No executable HTML endpoint,
 preview-gateway link, provider credential or daemon token enters the document.
 Remote and relay clients fetch through their owning connection's attachment API.
+
+## Posted images
+
+`image_show({ path | data, mimeType?, alt, caption? })` posts real pixels (a screenshot,
+a rendered plot, a generated picture) into the reply. It sits in the `visualize`
+toolset beside `html_render` and is not an upfront core tool.
+
+- **Path.** A relative `path` resolves against the calling agent's `cwd`, else the
+  thread's ready workspace. The folders may be links (`/tmp` on macOS); the file
+  itself may not, and it is read with `O_NOFOLLOW` and re-checked for change, by
+  the same reader native image capture uses (`apps/daemon/src/image-files.ts`).
+- **Data.** Base64 `data` is the default way to post, up to 16 MiB of decoded image
+  (`maxSharedImageDataBytes`, about 21.3 MiB of text). The HTTP and stdio request
+  envelopes (`maxRequestBodyBytes`) admit that one call; every other tool still enforces
+  its own input budget after parsing, 64 KiB unless it declares more.
+- **Size by path.** A `path` may name an image of up to 128 MiB (`maxSharedImageBytes`).
+  The call allows 120 seconds for reading and storing it. A client reads originals up to
+  its 32 MiB attachment limit; a larger image shows the daemon's preview instead.
+- **Type.** The type comes from the bytes alone: PNG, JPEG, WebP or GIF. The file
+  name and the claimed `mimeType` are ignored. Anything else, or a container the
+  attachment store does not accept as an image, fails with `invalid_image`. An
+  unreadable or linked file fails with `image_unavailable`. Neither posts anything.
+
+A canonical `image` item holds the attachment reference, `alt` (≤ 300) and an
+optional `caption` (≤ 500), both redacted like visualization titles. The tool
+call's own arguments keep `path` and redact `data`, `alt` and `caption`. An indexed
+query over `image` items retains the attachment for the life of the thread,
+including after a daemon restart. Clients show it at up to 640×480, never larger
+than the image itself, with the caption below. Clicking it opens the lightbox.
 
 ## Browser execution
 
@@ -135,9 +165,14 @@ on the daemon's machine.
 - **Height.** Height messages contain exactly `{ type: "ace.html.height", height }`. Both
   bridges validate the sending window, opaque origin, finite number and bounds. The frame
   fits the content height up to the item's `height` (default 800 px) and scrolls inside beyond
-  it. Full screen fills the screen.
+  it. In the side panel the frame fills the panel and the page scrolls inside it.
+- **Style kit.** Before the authored styles, every page gets `baseStyles` (`@ace/html`) in the
+  `ace` cascade layer: native elements (type, buttons, inputs, sliders, tables, details) and a
+  few component classes (`card`, `stat`, `badge`, `callout`, `tabs`, `grid`, …) drawn from the
+  theme variables, so plain markup reads as ace UI. Unlayered authored CSS always wins. The kit
+  sets no SVG paint, so chart attributes stand. The visualize skill lists the classes.
 - **Theme.** A page receives the app theme as CSS variables (`themeProperties`): surfaces,
-  text, border, primary, accent (the accent picker), status colours (`--success`, `--warning`,
+  text tiers, hairlines and control edges, primary, accent (the accent picker) and accent text, status colours (`--success`, `--warning`,
   `--info`, `--destructive`), `--chart-1`…`--chart-6`, radius and fonts. When the theme or mode
   changes, the renderer posts `{ type: "ace.html.theme", tokens, scheme }`. The outer bridge
   forwards it only from its parent, and the page bridge applies the values and its
@@ -149,8 +184,11 @@ on the daemon's machine.
   unmounts rows further away.
 
 The item renders inline in the agent's reply at the message column's full width, on the
-thread's background, with no card or title bar. Open in window, full screen, copy source (the
-authored HTML) and download sit in one row that appears only on hover or focus. The fake
+thread's background, with no card or title bar. Full screen, copy source (the authored HTML) and
+download float over its top corner and appear only on hover or focus (always on touch). Full
+screen adds a `visualization` tab to the thread's side panel (one per page, keyed by its content
+hash) that draws the same page at the panel's full size; its strip adds open in window. The
+reply and the panel share one fetched copy of the page. The fake
 daemon seeds `thread-explainer`, an interactive binary search explainer, and `visualize-inline.spec.ts`
 covers inline width, running scripts, fitted height, live theme and hover-only actions.
 

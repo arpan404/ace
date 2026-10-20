@@ -14,6 +14,7 @@ export { nextDeadline, DeadlineIndex } from "./deadlines.ts";
 export { isActionableInteraction } from "./human.ts";
 
 export { readyForChildResults } from "./external.ts";
+export { acceptsPersonInput } from "./person-input.ts";
 
 export { ExpiryMap } from "./expiry-map.ts";
 export {
@@ -43,3 +44,9 @@ export {
   type SwitchRoute,
   type SwitchSide,
 } from "./switch-route.ts";
+
+export {
+  isRunningShellTool,
+  hasForegroundShellCommand,
+  hasRunningForegroundCommand,
+} from "./steering.ts";

@@ -1,6 +1,6 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { NotificationService, type DeliveryResult } from "./service.ts";
-import { ToWorker, WorkerConfig } from "./worker-wire.ts";
+import { ToWorker, WorkerConfig, type WorkerValue } from "./worker-wire.ts";
 
 const port = parentPort;
 if (!port) throw new Error("Notification worker requires a parent");
@@ -41,7 +41,7 @@ port.on("message", (input: unknown) => {
   const { call, id } = message;
   // Calls are synchronous except drain/close. Delivery replies must remain able to complete a drain.
   void (async () => {
-    let value: number | import("@ace/protocol").NotificationPreferences | undefined;
+    let value: WorkerValue;
     try {
       switch (call.method) {
         case "notify":
@@ -59,6 +59,9 @@ port.on("message", (input: unknown) => {
         case "register":
           service.register(call.device, call.address);
           break;
+        case "unregister":
+          service.unregister(call.device);
+          break;
         case "connectDevice":
           service.connectDevice(call.device);
           break;
@@ -74,6 +77,9 @@ port.on("message", (input: unknown) => {
         case "presence":
           service.updatePresence(call.session, call.device, call.update);
           break;
+        case "feed":
+          value = service.feed(call.device, call.afterCursor);
+          break;
         case "disconnect":
           service.disconnect(call.session);
           break;
@@ -86,8 +92,9 @@ port.on("message", (input: unknown) => {
       }
       port.postMessage({ type: "result", id, ok: true, ...(value === undefined ? {} : { value }) });
       if (call.method === "close") port.close();
-    } catch {
-      port.postMessage({ type: "result", id, ok: false });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Notification call failed";
+      port.postMessage({ type: "result", id, ok: false, error: reason.slice(0, 256) });
     }
   })();
 });

@@ -30,8 +30,7 @@ export function PanelControls(props: {
   /** In the panel's own strip (it is showing) or in the header (it is not). */
   placement: "header" | "panel";
   dockable?: boolean | undefined;
-  mobileAction: { label: string; onClick(): void };
-  /** Tools a phone's ⋯ opens directly, after the panel action. */
+  /** Tools a phone's ⋯ opens directly ("Changes"); the panel's toggle stays in the header. */
   mobileTools?: readonly PanelControlAction[] | undefined;
   renderAction?: ((action: PanelControlAction) => ReactNode) | undefined;
 }) {
@@ -41,12 +40,6 @@ export function PanelControls(props: {
   if (render)
     return (
       <>
-        {render({
-          icon: SquareSplitHorizontalIcon,
-          label: props.mobileAction.label,
-          shortcut: "rightPanel",
-          onClick: props.mobileAction.onClick,
-        })}
         {phone &&
           props.mobileTools?.map((tool) => <Fragment key={tool.label}>{render(tool)}</Fragment>)}
       </>
@@ -80,11 +73,11 @@ export function PanelControls(props: {
       {(!props.dockable || props.placement === "header" || phone) && (
         <IconButton
           icon={SquareSplitHorizontalIcon}
-          label={phone ? props.mobileAction.label : "Right panel"}
+          label="Right panel"
           shortcut="rightPanel"
           data-panel-toggle
           pressed={workspace.open}
-          onClick={() => (phone ? props.mobileAction.onClick() : actions.toggle())}
+          onClick={actions.toggle}
         />
       )}
     </div>

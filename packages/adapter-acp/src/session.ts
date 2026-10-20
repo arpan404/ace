@@ -4,9 +4,11 @@ import { resumeLoadFailure } from "./resume-error.ts";
 import { appendAcpMcp, developerInstructions } from "@ace/mcp-server";
 import { AcpConfiguration } from "./configuration.ts";
 import type { LaunchOptions, SessionRuntime } from "./runtime.ts";
+import { openWithSignIn } from "@ace/provider-kit/acp-sign-in";
 import { clientMeta } from "./bridge-negotiation.ts";
 import { redactLease } from "./frame-redaction.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
+import { elidedJson } from "@ace/provider-kit/binary-elision";
 import { ShellSettlement } from "./shell-settlement.ts";
 import { cancellationGraceMs, promptStop } from "./settlement.ts";
 import type { ProviderSession, SessionContext } from "@ace/engine-api";
@@ -209,9 +211,16 @@ class AcpSession implements ProviderSession {
     void this.close("shutdown");
   };
   frame(dir: "send" | "recv" | "stderr" | "note", channel: string, data: unknown): void {
-    const payload = new ProviderPayload(
-      JSON.stringify(redactLease(data, this.ctx.mcp?.secrets ?? [])),
-    );
+    const redacted = redactLease(data, this.ctx.mcp?.secrets ?? []);
+    let payload: ProviderPayload;
+    try {
+      payload = new ProviderPayload(JSON.stringify(redacted));
+    } catch (error) {
+      // Images the translator shows inline stay whole while they fit. Attachment bytes alone
+      // never push a frame past its bound and end the session: they are elided instead.
+      if (!(error instanceof RangeError)) throw error;
+      payload = new ProviderPayload(elidedJson(redacted));
+    }
     this.ctx.onFrame({
       seq: this.sequence++,
       t: Math.round(this.now() - this.started),
@@ -260,14 +269,20 @@ class AcpSession implements ProviderSession {
       );
     let opened: unknown;
     try {
-      opened = await this.rpc.request(
-        resume ? AGENT_METHODS.session_load : AGENT_METHODS.session_new,
-        {
-          cwd: this.ctx.cwd,
-          mcpServers,
-          ...(resume ? { sessionId: resume.nativeSessionId } : {}),
-        },
-        { signal: this.ctx.signal },
+      opened = await openWithSignIn(
+        this.rpc,
+        this.launch.signInMethod,
+        () =>
+          this.rpc.request(
+            resume ? AGENT_METHODS.session_load : AGENT_METHODS.session_new,
+            {
+              cwd: this.ctx.cwd,
+              mcpServers,
+              ...(resume ? { sessionId: resume.nativeSessionId } : {}),
+            },
+            { signal: this.ctx.signal },
+          ),
+        this.ctx.signal,
       );
     } catch (error) {
       const failure = resume ? resumeLoadFailure(error) : undefined;

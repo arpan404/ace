@@ -1,10 +1,10 @@
 import { once } from "node:events";
 import { mkdir, stat } from "node:fs/promises";
-import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import type { BrowserBackendRequest } from "@ace/protocol";
 import { backendFixture } from "./backend-test-support.ts";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 const agentOpen = (threadId = "thread") => ({
   threadId,
@@ -68,10 +68,10 @@ it("agent work resumes headlessly at the last URL after the desktop goes away", 
   expect(f.headless.pages.map((page) => page.url)).toEqual(["http://localhost:3000/work"]);
 });
 
-it("a page a person holds stays paused after desktop loss until they act", async () => {
+it("a page the person keeps private stays paused after desktop loss until they act", async () => {
   const f = await backendFixture({ onError: () => {} });
   await f.service.open(agentOpen());
-  f.service.takeover("thread", "person");
+  keepAgentsOut(f.service);
   await f.disconnect();
   expect(await f.service.open(agentOpen())).toMatchObject({ status: "paused" });
   expect(f.headless.pages).toHaveLength(0);
@@ -86,11 +86,10 @@ it("an unnamed profile follows the profile preference", async () => {
   expect(f.headless.opens[0]?.options.profile).toBe("persistent");
 });
 
-it("forgetting a deleted thread closes its browser and purges both persistent profiles", async () => {
+it("forgetting a deleted thread closes its browser and purges its desktop partition, keeping ace's shared profile", async () => {
   const f = await backendFixture({ profilePreference: () => "persistent" });
   await f.service.open(agentOpen());
-  const key = createHash("sha256").update("workspace-thread:thread").digest("hex");
-  const profile = join(f.home, "browser", "profiles", key);
+  const profile = join(f.home, "browser", "profile");
   await mkdir(join(profile, "Default"), { recursive: true });
   const purge = once(f.requests, "purge");
   expect(await f.service.forgetThread("thread", "workspace-thread")).toEqual({ desktop: true });
@@ -101,7 +100,8 @@ it("forgetting a deleted thread closes its browser and purges both persistent pr
     workspaceId: "workspace-thread",
   });
   expect(() => f.service.state("thread")).toThrow("not open");
-  await expect(stat(profile)).rejects.toThrow();
+  // Every thread shares this profile's sign-ins; one thread's deletion keeps them.
+  expect((await stat(join(profile, "Default"))).isDirectory()).toBe(true);
 });
 
 it("forgetting a thread without a desktop reports the desktop purge as still owed", async () => {

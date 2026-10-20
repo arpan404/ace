@@ -36,7 +36,14 @@
    * glass over the scrolling transcript otherwise. Its edge is a border, not a cast shadow.
    */
   .ace-glass-dock {
-    background: var(--surface-2);
+    /* The input and its strip share a quiet fill and retain the same glass material. */
+    background: var(--dock-surface, var(--surface-2));
+    --dock-surface: color-mix(in srgb, var(--surface-2) 97%, var(--foreground));
+    --dock-tint: color-mix(in srgb, var(--glass-tint) 97%, var(--foreground));
+  }
+  :root[data-scheme="dark"] .ace-glass-dock {
+    --dock-surface: color-mix(in srgb, var(--surface-2) 35%, var(--background));
+    --dock-tint: color-mix(in srgb, var(--glass-tint) 35%, var(--background));
   }
 
   /*
@@ -62,7 +69,7 @@
     --foreground: var(--glass-foreground);
     --muted-foreground: var(--glass-muted-foreground);
     --subtle-foreground: var(--glass-subtle-foreground);
-    background: var(--glass-tint);
+    background: var(--dock-tint, var(--glass-tint));
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate))
       contrast(var(--glass-contrast)) brightness(var(--glass-brightness));
     backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate))
@@ -110,10 +117,12 @@
 
   /*
    * The command palette (`.ace-modal`) sits over `.ace-backdrop`, which has already blurred the
-   * page once, so the panel adds no blur of its own: the same tint and rim over that blur, one
-   * frosted layer and not two.
+   * page once, so the panel adds no blur of its own: one frosted layer and not two. That blur is
+   * light, so the panel takes the near-solid modal tint (`--glass-tint-modal`), not the thin
+   * floating one, and text and fields read as on a solid surface.
    */
   :root[data-surface="translucent"] :is(.ace-floating, .glass).ace-modal {
+    background: var(--glass-tint-modal, var(--surface-2));
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
@@ -146,8 +155,8 @@
   }
   :root[data-surface="translucent"] .ace-backdrop {
     background: var(--scrim-glass);
-    -webkit-backdrop-filter: blur(16px) saturate(140%);
-    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(var(--backdrop-blur)) saturate(140%);
+    backdrop-filter: blur(var(--backdrop-blur)) saturate(140%);
   }
 }
 

@@ -1,7 +1,7 @@
 # Measuring interaction smoothness
 
-Agents can call `screen_measure_interaction` for an approved macOS window session
-or `ace_browser_measure_interaction` for a thread's browser tab. Both return a
+Agents can call `screen_measure` for an approved macOS window session
+or `browser_measure` for a thread's browser tab. Both return a
 compact JSON text part and, when requested, one JPEG filmstrip image part.
 The daemon retains the structured result on the calling transcript step and stores
 the JPEG filmstrip as a thread-owned attachment. No video or trace is written to disk.

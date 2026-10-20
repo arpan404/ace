@@ -16,8 +16,8 @@ type Replies<T extends ServerMessage["type"]> = Extract<ServerMessage, { type: T
 // queue storage, removal, context leases and recovery remain with that owner.
 export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "cli.request"
   ? Replies<"cli.result">
-  : Q["type"] extends `delegation.broker.${string}` | `delegation.remote.${string}`
-    ? Replies<"delegation.broker.result">
+  : Q["type"] extends "user_browser.settings"
+    ? Replies<"user_browser.settings.result">
     : Q["type"] extends `provider.accounts.${string}`
       ? Replies<"provider.accounts.result">
       : Q["type"] extends `provider.install.${string}`
@@ -40,33 +40,37 @@ type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "storag
         ? Replies<"notification.config.result">
         : Q["type"] extends "notification.register"
           ? Replies<"notification.register.result">
-          : Q["type"] extends "host.identity"
-            ? Replies<"host.identity.result">
-            : Q["type"] extends "activity.reads" | "activity.markRead"
-              ? Replies<"activity.reads.result">
-              : Q["type"] extends "entities.page"
-                ? Replies<"entities.page">
-                : Q["type"] extends "queue.get"
-                  ? Extract<Reply, { type: "queue.result" }>
-                  : Q["type"] extends "permissions.capabilities"
-                    ? Replies<"permissions.capabilities.result">
-                    : Q["type"] extends "providers.request"
-                      ? Replies<"providers.result">
-                      : Q["type"] extends "repositories.request"
-                        ? Replies<"repositories.result">
-                        : Q["type"] extends "source-control.request"
-                          ? Replies<"source-control.result">
-                          : Q["type"] extends "projects.request"
-                            ? Replies<"projects.result">
-                            : Q["type"] extends "accounts.login" | "accounts.logout"
-                              ? Replies<"accounts.auth">
-                              : Q["type"] extends
-                                    | "accounts.add"
-                                    | "accounts.rename"
-                                    | "accounts.remove"
-                                    | "accounts.setDefault"
-                                ? Replies<"accounts.changed">
-                                : ExistingServiceResponse<Q>;
+          : Q["type"] extends "notification.unregister"
+            ? Replies<"notification.unregister.result">
+            : Q["type"] extends "notification.feed"
+              ? Replies<"notification.feed.result">
+              : Q["type"] extends "host.identity"
+                ? Replies<"host.identity.result">
+                : Q["type"] extends "activity.reads" | "activity.markRead"
+                  ? Replies<"activity.reads.result">
+                  : Q["type"] extends "entities.page"
+                    ? Replies<"entities.page">
+                    : Q["type"] extends "queue.get"
+                      ? Extract<Reply, { type: "queue.result" }>
+                      : Q["type"] extends "permissions.capabilities"
+                        ? Replies<"permissions.capabilities.result">
+                        : Q["type"] extends "providers.request"
+                          ? Replies<"providers.result">
+                          : Q["type"] extends "repositories.request"
+                            ? Replies<"repositories.result">
+                            : Q["type"] extends "source-control.request"
+                              ? Replies<"source-control.result">
+                              : Q["type"] extends "projects.request"
+                                ? Replies<"projects.result">
+                                : Q["type"] extends "accounts.login" | "accounts.logout"
+                                  ? Replies<"accounts.auth">
+                                  : Q["type"] extends
+                                        | "accounts.add"
+                                        | "accounts.rename"
+                                        | "accounts.remove"
+                                        | "accounts.setDefault"
+                                    ? Replies<"accounts.changed">
+                                    : ExistingServiceResponse<Q>;
 
 type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
   | "turns.page"
@@ -153,18 +157,10 @@ type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
 
 const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage["type"][]>> = {
   "cli.request": ["cli.result"],
-  "delegation.remote.output": ["delegation.broker.result"],
-  "delegation.broker.return": ["delegation.broker.result"],
-  "delegation.remote.transport": ["delegation.broker.result"],
-  "delegation.remote.context": ["delegation.broker.result"],
-  "delegation.remote.start": ["delegation.broker.result"],
-  "delegation.remote.status": ["delegation.broker.result"],
-  "delegation.remote.cancel": ["delegation.broker.result"],
-  "delegation.broker.register": ["delegation.broker.result"],
-  "delegation.broker.poll": ["delegation.broker.result"],
-  "delegation.broker.report": ["delegation.broker.result"],
   "notification.config": ["notification.config.result"],
   "notification.register": ["notification.register.result"],
+  "notification.unregister": ["notification.unregister.result"],
+  "notification.feed": ["notification.feed.result"],
   "prompts.request": ["prompts.result"],
   "host.identity": ["host.identity.result"],
   "activity.reads": ["activity.reads.result"],
@@ -187,6 +183,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "devices.request": ["devices.result"],
   "preview.request": ["preview.result"],
   "storage.request": ["storage.result"],
+  "user_browser.settings": ["user_browser.settings.result"],
   "terminal.request": ["terminal.result"],
   "workspace.request": ["workspace.result"],
   "projects.request": ["projects.result"],

@@ -23,6 +23,11 @@ interface Response {
   done: boolean;
   mime: string;
 }
+/** Milliseconds between two CDP monotonic timestamps (seconds), when both are known. */
+function elapsedMs(start: number | undefined, end: number | undefined): number | undefined {
+  if (start === undefined || end === undefined || end < start) return undefined;
+  return Math.round((end - start) * 1000);
+}
 /** No bodies/headers retained. CDP lengths bound body retrieval before requesting bytes. */
 export class BrowserInspection {
   private enabled = true;
@@ -46,7 +51,17 @@ export class BrowserInspection {
         /* Inspection stays disabled if the buffer cannot be cleared. */
       });
   }
-  private requests = new Map<string, { cdp: BrowserCdp; url: string }>();
+  private requests = new Map<
+    string,
+    {
+      cdp: BrowserCdp;
+      url: string;
+      method?: string | undefined;
+      startedAt?: number | undefined;
+      /** A stream that stays open while the page lives (EventSource, an event stream). */
+      lasting?: boolean;
+    }
+  >();
   private responses = new Map<string, Response>();
   private stops = new Map<BrowserCdp, (() => void)[]>();
   private log: (entry: BackendLog) => void;
@@ -66,28 +81,46 @@ export class BrowserInspection {
     bind("Network.requestWillBeSent", (raw) => {
       if (!this.enabled) return;
       const parsed = z
-        .object({ requestId: z.string(), request: z.object({ url: z.string() }) })
+        .object({
+          requestId: z.string(),
+          request: z.object({ url: z.string(), method: z.string().max(32).optional() }),
+          timestamp: z.number().finite().optional(),
+          type: z.string().max(64).optional().catch(undefined),
+        })
         .safeParse(raw);
       if (!parsed.success) return;
       if (this.requests.size >= 200) this.requests.delete(this.requests.keys().next().value ?? "");
       this.requests.set(`${tabId}:${parsed.data.requestId}`, {
         cdp,
         url: redactBrowserUrl(parsed.data.request.url),
+        method: parsed.data.request.method,
+        startedAt: parsed.data.timestamp,
+        lasting: parsed.data.type === "EventSource" || parsed.data.type === "WebSocket",
       });
     });
     bind("Network.loadingFailed", (raw) => {
       if (!this.enabled) return;
-      const parsed = z.object({ requestId: z.string(), errorText: z.string() }).safeParse(raw);
+      const parsed = z
+        .object({
+          requestId: z.string(),
+          errorText: z.string(),
+          timestamp: z.number().finite().optional(),
+        })
+        .safeParse(raw);
       if (!parsed.success) return;
       const requestId = `${tabId}:${parsed.data.requestId}`,
         request = this.requests.get(requestId);
       this.requests.delete(requestId);
       this.responses.delete(requestId);
+      const durationMs = elapsedMs(request?.startedAt, parsed.data.timestamp);
       this.log({
+        tabId,
         kind: "network",
         type: "failed",
         requestId,
         ...(request ? { url: request.url } : {}),
+        ...(request?.method ? { method: request.method } : {}),
+        ...(durationMs === undefined ? {} : { durationMs }),
         text: `${request?.url ?? "Request"} ${parsed.data.errorText}`,
       });
     });
@@ -102,7 +135,9 @@ export class BrowserInspection {
       if (!parsed.success) return;
       const { requestId, response } = parsed.data,
         key = `${tabId}:${requestId}`;
-      if (!this.requests.has(key)) return;
+      const request = this.requests.get(key);
+      if (!request) return;
+      if (/^text\/event-stream\b/i.test(response.mimeType)) request.lasting = true;
       if (this.responses.size >= 200)
         this.responses.delete(this.responses.keys().next().value ?? "");
       this.responses.set(key, {
@@ -113,11 +148,13 @@ export class BrowserInspection {
         mime: response.mimeType,
       });
       this.log({
+        tabId,
         kind: "network",
         type: "response",
         requestId: key,
         url: redactBrowserUrl(response.url),
         status: response.status,
+        ...(request.method ? { method: request.method } : {}),
         text: `${response.status} ${redactBrowserUrl(response.url)}`,
       });
     });
@@ -132,10 +169,15 @@ export class BrowserInspection {
     bind("Network.loadingFinished", (raw) => {
       if (!this.enabled) return;
       const parsed = z
-        .object({ requestId: z.string(), encodedDataLength: z.number() })
+        .object({
+          requestId: z.string(),
+          encodedDataLength: z.number(),
+          timestamp: z.number().finite().optional(),
+        })
         .safeParse(raw);
       if (parsed.success) {
         const key = `${tabId}:${parsed.data.requestId}`;
+        const request = this.requests.get(key);
         this.requests.delete(key);
         const response = this.responses.get(key);
         if (response) {
@@ -143,6 +185,17 @@ export class BrowserInspection {
           response.cdp = cdp;
           response.done = true;
           response.bytes = Math.max(response.bytes, parsed.data.encodedDataLength);
+          const durationMs = elapsedMs(request?.startedAt, parsed.data.timestamp);
+          // Completes the response entry already logged: its size and how long it took.
+          this.log({
+            tabId,
+            kind: "network",
+            type: "loaded",
+            requestId: key,
+            bytes: Math.max(0, Math.round(parsed.data.encodedDataLength)),
+            ...(durationMs === undefined ? {} : { durationMs }),
+            text: "",
+          });
         }
       }
     });
@@ -152,6 +205,18 @@ export class BrowserInspection {
       this.detach(cdp);
       throw error;
     }
+  }
+  /**
+   * Ids of the requests of `tabId` sent and not yet finished or failed, as far as inspection saw
+   * them, without the streams a page keeps open while it lives (EventSource, event streams). It
+   * sees none while a private tab turned inspection off.
+   */
+  pending(tabId: string): string[] {
+    const prefix = `${tabId}:`;
+    const ids: string[] = [];
+    for (const [key, request] of this.requests)
+      if (key.startsWith(prefix) && !request.lasting) ids.push(key);
+    return ids;
   }
   private enable(cdp: BrowserCdp): Promise<unknown> {
     return cdp.send("Network.enable", {

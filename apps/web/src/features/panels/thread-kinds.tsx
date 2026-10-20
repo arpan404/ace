@@ -1,7 +1,6 @@
 import { fileTabData } from "./files/files-state.ts";
 import {
   BrowserIcon,
-  CursorClickIcon,
   DeviceMobileIcon,
   FilesIcon,
   GitDiffIcon,
@@ -10,28 +9,28 @@ import {
   PlusIcon,
   ClipboardTextIcon,
 } from "@phosphor-icons/react";
+import { ComputerUseIcon } from "@/components/ace-icons.tsx";
 import { ChangesSkeleton, FilesSkeleton } from "./tab-skeletons.tsx";
 import { defineTabKind, type TabKind } from "@/lib/workspace/index.ts";
 import { addressHost } from "@ace/ui-core";
-import { cn } from "@/lib/cn.ts";
 import { PullRequestGlyph } from "@/components/pull-request-state.tsx";
 import { LoadingBadge } from "./browser/loading-badge.tsx";
 import { setLoading } from "./browser/loading.ts";
+import { browserTabData, daemonTabId } from "./browser/browser-data.ts";
+import { closeBrowserTab } from "./browser/browser-closers.ts";
+import { BrowserTabBadge, BrowserTabMark } from "./browser/tab-mark.tsx";
 import { QuickOpenOverlay } from "./files/quick-open-overlay.tsx";
 import { quickOpen } from "./files/quick-open-store.ts";
 import { fileTabId } from "./files/tab-id.ts";
 import { logsKind } from "./logs/logs-kind.tsx";
 import { PullRequestTabData } from "./pull-request-tab.ts";
 import { shellKind, terminalKind } from "./terminal/terminal-kinds.tsx";
+import { visualizationKind } from "@/features/visualization/index.ts";
 
 export { logsKind, shellKind, terminalKind };
 
-/** A true flag of a tab's data, read defensively. */
-const flag = (data: unknown, name: "agent") =>
-  typeof data === "object" && data !== null && Reflect.get(data, name) === true;
-
 /** A string field of a tab's data, read defensively: tab data comes from storage. */
-function field(data: unknown, name: "path" | "url" | "page"): string | undefined {
+function field(data: unknown, name: "path"): string | undefined {
   if (typeof data !== "object" || data === null || !(name in data)) return undefined;
   const value: unknown = Reflect.get(data, name);
   return typeof value === "string" ? value : undefined;
@@ -51,7 +50,7 @@ export const changesKind = defineTabKind({
   kind: "changes",
   label: "Changes",
   icon: GitDiffIcon,
-  singleton: true,
+  multiple: true,
   pinned: true,
   launcher: 10,
   Skeleton: ChangesSkeleton,
@@ -65,6 +64,7 @@ export const changesKind = defineTabKind({
 export const filesKind = defineTabKind({
   kind: "files",
   label: "Files",
+  multiple: true,
   closeWarning: (_scope, tabs) =>
     tabs.some(({ tab }) => {
       const data = fileTabData(tab);
@@ -90,35 +90,34 @@ export const filesKind = defineTabKind({
 });
 
 /**
- * The thread's single browser page. Addresses, links and agent navigation reuse its panel
- * tab and document history.
+ * The thread's browser: one panel tab per daemon browser tab (id: the daemon's tab id), the
+ * person's and every agent's alike, the same on every device. The panel mirrors the daemon's
+ * list (`browser/tab-sync.ts`): an agent's new tab joins the strip, a closed one leaves it.
+ * A tab with no daemon tab yet (`browser`) is a new tab's start page; an address opened from
+ * the launcher or a link starts as one and becomes the daemon tab it opens.
  */
 export const browserKind = defineTabKind({
   kind: "browser",
-  singleton: true,
   label: "Browser",
   icon: GlobeSimpleIcon,
-  TabIcon: (props) => (
-    <span className={cn("relative inline-grid", props.className)}>
-      <GlobeSimpleIcon aria-hidden size={14} />
-      {flag(props.tab.data, "agent") && (
-        <span
-          aria-hidden
-          className="absolute -right-0.5 -bottom-0.5 size-1.5 rounded-full bg-status-working"
-        />
-      )}
-    </span>
-  ),
+  TabIcon: BrowserTabMark,
+  Badge: BrowserTabBadge,
   launcher: 45,
-  title: (tab) => addressHost(field(tab.data, "url") ?? "") ?? "Browser",
-  Badge: LoadingBadge,
+  title: (tab) => {
+    const data = browserTabData(tab);
+    if (data.title) return data.title;
+    const url = data.url ?? data.open;
+    if (!url || url === "about:blank") return "New tab";
+    return addressHost(url) ?? url;
+  },
   load: () => import("./browser/browser-tab.tsx"),
-  fromUrl: (url) => ({
-    kind: "browser",
-    data: { url, go: true },
-  }),
+  fromUrl: (url) => ({ kind: "browser", data: { open: url } }),
+  // A closed daemon tab is gone for good; only a new tab's start page comes back.
+  reopenable: (_scope, tab) => daemonTabId(tab) === undefined,
   onClose: (scope, tab) => {
     setLoading(scope, tab.key, false);
+    const tabId = daemonTabId(tab);
+    if (tabId) closeBrowserTab(scope, tabId);
   },
 });
 
@@ -146,7 +145,7 @@ export const devicesKind = defineTabKind({
 export const computerUseKind = defineTabKind({
   kind: "computer-use",
   label: "Computer use",
-  icon: CursorClickIcon,
+  icon: ComputerUseIcon,
   singleton: true,
   launcher: 65,
   // Its own chunk: the screen channel, frame decoding and session cards load only when it shows.
@@ -224,6 +223,7 @@ export const threadKinds: readonly TabKind[] = [
   logsKind,
   shellKind,
   pullRequestKind,
+  visualizationKind,
   launcherKind,
 ];
 

@@ -186,9 +186,9 @@ test("uncertain resend atomically retires its original while preserving other me
     ],
   });
   expect(h.store.snapshotThread(id).items["input:original-ambiguous"]).toBeUndefined();
-  expect(h.store.snapshotThread(id).items["input:resend-ambiguous"]).toMatchObject({
-    parts: [{ type: "text", text: "ambiguous" }],
-  });
+  // The replacement waits in the held queue; it joins the transcript when it is delivered.
+  expect(h.store.snapshotThread(id).items["input:resend-ambiguous"]).toBeUndefined();
+  expect(h.engine.queue(id).messages[1]?.input).toEqual([{ type: "text", text: "ambiguous" }]);
   expect(
     h.command({
       type: "queue.resend",

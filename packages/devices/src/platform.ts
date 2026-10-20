@@ -3,7 +3,7 @@ import { deviceInstallTimeoutMs } from "./action-budget.ts";
 import { extname, isAbsolute } from "node:path";
 import { z } from "zod";
 import { Simulators, type ScreenManager } from "@ace/screen";
-import { probeOutput, spawnSupervised } from "@ace/provider-kit/process";
+import { probeOutput, spawnRawSupervised, spawnSupervised } from "@ace/provider-kit/process";
 import { findExecutable } from "@ace/provider-kit/discovery";
 import {
   AppDevice as DeviceSchema,
@@ -28,10 +28,17 @@ import {
 } from "./commands.ts";
 import { AndroidOperations } from "./android-operations.ts";
 import { AndroidPlatform } from "./android-platform.ts";
+import { deviceScreenshot, emulatorScreenshot, type DeviceShot } from "./one-off-screenshot.ts";
+import { androidClipboardUnavailable, type ClipboardRead } from "./clipboard.ts";
+import { simulatorCopy, simulatorPaste } from "./simulator-clipboard.ts";
 
 export type PlatformOptions = SDKOptions & {
   spawn?: typeof spawnSupervised;
+  /** Byte-exact processes, for tools whose stdout is data rather than lines (the pasteboard). */
+  spawnRaw?: typeof spawnRawSupervised;
   screen?: ScreenManager;
+  /** Where ace keeps downloaded device tools (the pinned scrcpy server), inside ace's home. */
+  toolsDirectory?: string;
 };
 export type ScreenBinding = { sessionId: string; actor: "human" | "agent"; owner: string };
 const Text = z
@@ -117,6 +124,18 @@ export class DevicePlatform {
   }
   watchCaptureTransport(device: Device, serial: string, fail: (error: DeviceError) => void) {
     return this.android.watchCaptureTransport(device, serial, fail);
+  }
+  get toolsDirectory(): string | undefined {
+    return this.options.toolsDirectory;
+  }
+  transportCommand(
+    device: Device,
+    serial: string,
+    args: readonly string[],
+    maxBytes?: number,
+    timeoutMs?: number,
+  ) {
+    return this.android.transportCommand(device, serial, args, maxBytes, timeoutMs);
   }
   captureDimensions(device: Device): Promise<{ width: number; height: number }> {
     if (device.platform !== "android")
@@ -246,6 +265,43 @@ export class DevicePlatform {
   async boot(device: Device, authorize?: () => void): Promise<void> {
     if (device.platform === "ios") await this.iosSimulators(authorize).boot(nativeId(device));
     else await this.android.boot(device, authorize);
+  }
+  /** One still of the screen, for when no live view is running. */
+  screenshot(device: Device, authorize?: () => void): Promise<DeviceShot> {
+    return deviceScreenshot(device, {
+      simulator: async (path) => {
+        await this.simctl(device, ["io", "screenshot", "--type=png", path], authorize);
+      },
+      emulator: (path) =>
+        emulatorScreenshot(
+          (args, maxBytes) => this.android.adb(device, args, maxBytes, authorize),
+          path,
+        ),
+    });
+  }
+  /** Without a live view's control channel: the Simulator pasteboard through simctl. */
+  async clipboardRead(device: Device, authorize?: () => void): Promise<ClipboardRead> {
+    return simulatorPaste(await this.pasteboard(device, authorize));
+  }
+  async clipboardWrite(device: Device, text: string, authorize?: () => void): Promise<void> {
+    await simulatorCopy(await this.pasteboard(device, authorize), text);
+  }
+  private async pasteboard(device: Device, authorize?: () => void) {
+    if (device.platform === "android") throw androidClipboardUnavailable();
+    const { xcrun } = await this.xcode();
+    authorize?.();
+    return {
+      spawn: this.options.spawnRaw ?? spawnRawSupervised,
+      xcrun,
+      udid: nativeId(device),
+      env: this.options.env,
+      after:
+        this.options.after ??
+        ((ms: number, run: () => void) => {
+          const timer = setTimeout(run, ms);
+          return () => clearTimeout(timer);
+        }),
+    };
   }
   /** Make sure Simulator shows this booted device's window, without taking focus. */
   async showSimulator(device: Device): Promise<void> {

@@ -104,7 +104,6 @@ test.each(["abort", "deadline"])(
     await rejected;
     t.release();
     await vi.waitFor(() => expect(page?.closed).toBe(true));
-    expect(t.desktop.controller("thread")).toBeUndefined();
     const reopened = await t.open("thread");
     await reopened.press("Enter");
     await sibling.press("Escape");
@@ -138,5 +137,4 @@ test("purging a thread waits for pending native creation to close before clearin
   expect(await outcome).toBe("purged");
   await rejected;
   expect(page?.closed).toBe(true);
-  expect(t.desktop.controller("thread")).toBeUndefined();
 });

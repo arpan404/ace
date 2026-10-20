@@ -1,255 +1,79 @@
-import { PrTaskActions } from "./pr-task-actions.tsx";
-import { useState, type ReactNode } from "react";
-import {
-  CaretDownIcon,
-  PencilSimpleIcon,
-  TagIcon,
-  UsersIcon,
-  UserPlusIcon,
-  ArrowSquareOutIcon,
-} from "@phosphor-icons/react";
-import { IconButton } from "@/components/ui/icon-button.tsx";
-import { Button } from "@/components/ui/button.tsx";
-import { Prose } from "@/components/markdown/prose.tsx";
-import { openExternal } from "@/boot/open-external.ts";
-import { useToast } from "@/components/ui/toast.tsx";
-import { PrMarkdown } from "./pr-markdown.tsx";
-import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
-import { usePrReview } from "./pr-review-context.tsx";
-import { PrOwnComment, PrReviewSubmission, PrThreadControls } from "./pr-review-forms.tsx";
-import { PrStack } from "./pr-stack.tsx";
-import { PrMergeState } from "./pr-merge-state.tsx";
-import { Disclosure } from "@/components/ui/disclosure.tsx";
+import { PrAttention } from "./pr-attention.tsx";
+import { PrPeople } from "./pr-people.tsx";
+import { PrChangesGlance } from "./pr-changes-glance.tsx";
+import { PrDescription } from "./pr-description.tsx";
+import { PrStackSummary } from "./pr-stack-summary.tsx";
+import { PrChecks } from "./pr-checks.tsx";
+import { PrComments } from "./pr-comments.tsx";
+import { composerClearance } from "./pr-composer.tsx";
+import { cn } from "@/lib/cn.ts";
 
-export function PrSection(props: { title: string; children: ReactNode; action?: ReactNode }) {
-  const [open, setOpen] = useState(true);
-  return (
-    <section className="space-y-2">
-      <div className="flex items-center gap-2">
-        <h3>
-          <button
-            type="button"
-            aria-expanded={open}
-            onClick={() => setOpen(!open)}
-            className="inline-flex items-center gap-2 rounded-sm text-ui font-medium text-muted-foreground focus-ring"
-          >
-            {props.title}
-            <CaretDownIcon aria-hidden size={12} className={open ? "" : "-rotate-90"} />
-          </button>
-        </h3>
-        {props.action}
-      </div>
-      {open && props.children}
-    </section>
-  );
-}
+/**
+ * The Summary tab, top to bottom: what needs attention, reviewers and labels, the biggest
+ * changes, the description, the stack, the checks (folded) and the conversation. Every write
+ * lives in the header and its ⋯ menu.
+ */
 export function PrSummary(props: {
   context: PrWorkspaceContext;
   extensions?: PrWorkspaceExtensions | undefined;
-  lifecycle?: ReactNode;
-  onReviewers(): void;
+  hostThreadId?: string | undefined;
+  stack?: { number: number; size: number; position: number } | undefined;
+  refreshing: boolean;
+  /** Bumped by the Checks gate: the checks open and scroll into view. */
+  revealChecks?: number | undefined;
+  onRefresh(): void;
   onOpen(number: number): void;
+  onOpenCode(path?: string): void;
+  /** Opens the reviewer request, when this PR can take one. */
+  onRequestReview: (() => void) | undefined;
+  /** Opens the details editor, when GitHub lets this account edit them. */
+  onEdit: (() => void) | undefined;
 }) {
-  const { detail } = props.context;
-  const toast = useToast();
-  const review = usePrReview();
-  const prKey = JSON.stringify(detail.status.ref);
+  const { context } = props;
+  const { detail } = context;
   return (
-    <div className="space-y-3 px-4 pt-3 pb-16">
-      <dl className="space-y-2 text-ui">
-        <div className="flex items-center gap-2">
-          <dt className="flex w-24 shrink-0 items-center gap-2 text-muted-foreground">
-            <UsersIcon aria-hidden size={16} />
-            Reviewers
-          </dt>
-          <dd className="flex min-w-0 flex-wrap items-center gap-2">
-            {detail.reviewers.length ? (
-              detail.reviewers.map((name) => (
-                <span key={name} title={name}>
-                  <PrAvatar name={name} url={detail.reviewerAvatars?.[name]} />
-                </span>
-              ))
-            ) : (
-              <span className="text-muted-foreground">None</span>
-            )}
-            {props.extensions?.reviewers?.(props.context) ??
-              (detail.relatedThreads.length > 0 && (
-                <IconButton
-                  icon={UserPlusIcon}
-                  label="Add reviewer"
-                  size="sm"
-                  disabled={props.context.disabled || detail.status.state !== "open"}
-                  onClick={props.onReviewers}
-                />
-              ))}
-          </dd>
-        </div>
-        <div className="flex items-center gap-2">
-          <dt className="flex w-24 shrink-0 items-center gap-2 text-muted-foreground">
-            <TagIcon aria-hidden size={16} />
-            Labels
-          </dt>
-          <dd className="flex min-w-0 flex-wrap items-center gap-2">
-            {detail.labels.length ? (
-              detail.labels.map((label) => (
-                <span key={label} className="rounded-sm bg-accent px-2 py-0.5 text-xs">
-                  {label}
-                </span>
-              ))
-            ) : (
-              <span className="text-muted-foreground">None</span>
-            )}
-            {props.extensions?.labels?.(props.context)}
-          </dd>
-        </div>
-      </dl>
-      <PrSection
-        title="Description"
-        action={
-          props.extensions?.editDescription && (
-            <IconButton
-              icon={PencilSimpleIcon}
-              label="Edit description"
-              size="sm"
-              className="ml-auto"
-              disabled={props.context.disabled}
-              onClick={() => props.extensions?.editDescription?.(props.context)}
-            />
-          )
-        }
-      >
-        <PrMarkdown
-          context={props.context}
-          extensions={props.extensions}
-          onOpen={props.onOpen}
-          text={detail.body || "No description provided."}
-        />
-      </PrSection>
-      <PrSection title="Agent tasks">
-        <PrTaskActions
-          key={prKey}
-          workspaceId={props.context.workspaceId}
-          detail={detail}
-          onRefresh={() => void props.context.refresh()}
-        />
-      </PrSection>
-      {props.extensions?.summary?.(props.context)}
-      {props.lifecycle}
-      {/* Sibling keys must differ: the lifecycle section is keyed by the same PR identity. */}
-      <PrMergeState
-        key={`merge-state:${prKey}`}
-        workspaceId={props.context.workspaceId}
+    <div className={cn("space-y-3 px-4 pt-2", composerClearance)}>
+      <PrAttention
+        workspaceId={context.workspaceId}
         detail={detail}
-        writeDisabled={props.context.disabled}
-        onRefresh={() => void props.context.refresh()}
+        hostThreadId={props.hostThreadId}
+        disabled={context.disabled}
       />
-      <PrStack
-        key={`stack:${prKey}`}
-        workspaceId={props.context.workspaceId}
+      <PrPeople
+        context={context}
+        extensions={props.extensions}
+        onRequestReview={props.onRequestReview}
+        onEdit={props.onEdit}
+      />
+      <PrChangesGlance
+        workspaceId={context.workspaceId}
         detail={detail}
-        onRefresh={() => void props.context.refresh()}
+        onOpenCode={props.onOpenCode}
+      />
+      <PrDescription
+        context={context}
+        extensions={props.extensions}
         onOpen={props.onOpen}
+        onEdit={props.onEdit}
       />
-      {review?.state &&
-        (review.state.canReview || review.state.canComment || review.state.drafts.length > 0) && (
-          <PrSection title="Review">
-            <PrReviewSubmission detail={detail} />
-          </PrSection>
-        )}
-      <PrSection title="Checks">
-        {detail.status.checks.length ? (
-          <ul className="divide-y divide-border">
-            {detail.status.checks.map((check) => (
-              <li key={check.id} className="flex flex-wrap items-center gap-2 py-1.5 text-ui">
-                <span className="min-w-0 flex-1 break-words">{check.name}</span>
-                <span>{check.status}</span>
-                {check.url && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-label={`Open ${check.name}`}
-                    onClick={() =>
-                      check.url &&
-                      void openExternal(check.url).catch(() =>
-                        toast.error({ title: "Couldn't open the check" }),
-                      )
-                    }
-                  >
-                    <ArrowSquareOutIcon aria-hidden size={14} />
-                  </Button>
-                )}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-ui text-muted-foreground">No checks reported.</p>
-        )}
-      </PrSection>
-      <PrSection title={`Comments (${detail.status.comments.length})`}>
-        {detail.status.comments.length ? (
-          <ol className="space-y-2">
-            {detail.status.comments
-              .toSorted(
-                (a, b) =>
-                  (a.createdAt ?? a.updatedAt).localeCompare(b.createdAt ?? b.updatedAt) ||
-                  a.id - b.id,
-              )
-              .map((comment) => (
-                <li key={`${comment.kind}:${comment.id}`} className="space-y-2">
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <PrAvatar name={comment.author} url={comment.authorAvatarUrl} />
-                    <span className="font-medium">{comment.author}</span>
-                    <span className="text-muted-foreground">
-                      {comment.kind === "review"
-                        ? comment.reviewState
-                        : comment.kind === "inline"
-                          ? `${comment.file}:${comment.line ?? ""}`
-                          : "commented"}
-                    </span>
-                    <PrTime at={comment.createdAt ?? comment.updatedAt} />
-                  </div>
-                  <Prose text={comment.body} className="text-ui leading-normal" />
-                  <PrOwnComment comment={comment} />
-                </li>
-              ))}
-          </ol>
-        ) : (
-          <p className="text-ui text-muted-foreground">No comments yet.</p>
-        )}
-      </PrSection>
-      {detail.status.reviewThreads.length > 0 && (
-        <PrSection title="Review threads">
-          <div className="space-y-2">
-            {detail.status.reviewThreads.map((thread) => (
-              <Disclosure
-                key={thread.id}
-                summaryClassName="text-ui"
-                summary={
-                  <span>
-                    {thread.file}:{thread.line ?? ""} ·{" "}
-                    {thread.resolved ? "Resolved" : "Unresolved"}
-                    {thread.outdated ? " · Outdated" : ""}
-                  </span>
-                }
-              >
-                <PrThreadControls
-                  id={thread.id}
-                  resolved={thread.resolved}
-                  replyTo={thread.comments[0]?.id}
-                  prKey={prKey}
-                />
-                {thread.comments.map((comment) => (
-                  <div key={comment.id} className="mt-2 border-l border-border pl-4">
-                    <p className="text-xs">{comment.author}</p>
-                    <Prose text={comment.body} className="text-ui leading-normal" />
-                  </div>
-                ))}
-              </Disclosure>
-            ))}
-          </div>
-        </PrSection>
+      {props.stack && (
+        <PrStackSummary
+          workspaceId={context.workspaceId}
+          detail={detail}
+          stack={props.stack}
+          onRefresh={() => void context.refresh()}
+          onOpen={props.onOpen}
+        />
       )}
+      <PrChecks
+        context={context}
+        refreshing={props.refreshing}
+        reveal={props.revealChecks}
+        onRefresh={props.onRefresh}
+      />
+      <PrComments status={detail.status} />
+      {props.extensions?.summary?.(context)}
     </div>
   );
 }

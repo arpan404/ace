@@ -76,6 +76,10 @@
   .fx-queue-in {
     animation: fx-queue-in var(--motion-base) var(--ease-sheet) both;
   }
+  /* A value replaced in place (a merge gate, an agent's status): a short cross-fade. */
+  .fx-cross-in {
+    animation: fx-fade-in var(--motion-base) var(--ease-out) both;
+  }
   /* A scrim or overlay appearing: opacity only. */
   .fx-fade-in {
     animation: fx-fade-in var(--motion-slow) var(--ease-sheet) both;
@@ -120,6 +124,13 @@
   .fx-float-out {
     pointer-events: none;
     animation: fx-sink-out var(--motion-exit) var(--ease-exit) both;
+  }
+  /* A tap or click on a remote page, shown before its frame arrives: a ring grows and fades. */
+  .fx-tap-ripple {
+    animation: fx-tap-ripple var(--motion-slow) var(--ease-out) both;
+  }
+  :root[data-reduce-motion] .fx-tap-ripple {
+    animation-name: fx-tap-fade;
   }
   /* Counts and badges that change: a small pop, never a bounce. */
   .fx-pop {
@@ -203,6 +214,20 @@
     transform: scale(0.6);
   }
 }
+@keyframes fx-tap-ripple {
+  from {
+    transform: scale(0.4);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+@keyframes fx-tap-fade {
+  to {
+    opacity: 0;
+  }
+}
 
 @keyframes fx-queue-in {
   from {
@@ -259,6 +284,8 @@
  *   .spin-ring          the Spinner: one turn every 800ms
  *   .aperture-part      the status glyphs' moving parts (components/status-glyph.tsx), below
  *   .fx-breathe         the startup mark while ace starts
+ *   [data-agent-driving] a browser tab an agent is using: its title sweeps like a live step's
+ *                       words (.step-shimmer), for as long as the agent drives it
  *   .fx-indeterminate   a progress bar that doesn't know how far along it is
  *   .animate-pulse      Tailwind's pulse (streaming caret, connection dot, browser agent line)
  */
@@ -318,6 +345,32 @@
 }
 .fx-breathe {
   animation: fx-breathe 1.6s ease-in-out infinite alternate;
+}
+/* The same brightness passing left to right as "Thinking", on the tab the agent is driving. */
+[data-agent-driving] ~ [data-tab-title] {
+  color: transparent;
+  background-image: linear-gradient(
+    100deg,
+    var(--shimmer-ink, var(--muted-foreground)) 42%,
+    var(--foreground) 50%,
+    var(--shimmer-ink, var(--muted-foreground)) 58%
+  );
+  background-size: 300% 100%;
+  background-position: 100% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: fx-agent-sweep 2.4s linear infinite;
+}
+:root[data-reduce-motion] [data-agent-driving] ~ [data-tab-title] {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-agent-driving] ~ [data-tab-title] {
+    animation: none;
+  }
+}
+[data-live-held] [data-agent-driving] ~ [data-tab-title] {
+  animation-play-state: paused;
 }
 .fx-indeterminate {
   animation: fx-sweep 1.4s var(--ease-out) infinite;
@@ -391,6 +444,12 @@
 @keyframes fx-breathe {
   to {
     opacity: 0.55;
+  }
+}
+/* `fx-shimmer`'s pass, kept apart so only the agent-driven tab may repeat it for as long as it lasts. */
+@keyframes fx-agent-sweep {
+  to {
+    background-position: 0 0;
   }
 }
 @keyframes fx-sweep {

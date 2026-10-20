@@ -32,6 +32,8 @@ export interface OriginLike {
   role?: string | undefined;
   from?: { provider: ProviderKind; model?: string | undefined } | undefined;
   to?: { provider: ProviderKind; model?: string | undefined } | undefined;
+  /** A context handoff's source models, oldest first. */
+  sources?: readonly { provider: ProviderKind; model?: string | undefined }[] | undefined;
   lossy?: boolean | undefined;
 }
 
@@ -73,7 +75,8 @@ export function mayBeSystemInput(item: Item | undefined): boolean {
   const stripped = withoutPortableHandoff(item.parts);
   if (stripped.length !== item.parts.length || stripped[0] !== item.parts[0]) return true;
   const origin = messageOrigin(item);
-  if (origin) return origin.kind !== "person" && origin.kind !== "queue";
+  if (origin) return origin.kind !== "person" && origin.kind !== "queue" && origin.kind !== "steer";
   const text = messageText(item).trimStart();
+  if (text.startsWith("[ace-origin:")) return true;
   return candidates.some((start) => text.startsWith(start));
 }

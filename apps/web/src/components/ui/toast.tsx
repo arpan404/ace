@@ -46,11 +46,17 @@ const limit = 3;
 interface ToastLedger {
   kinds: Map<string, string>;
   events: Map<string, string>;
+  /** Toasts still showing an Undo, oldest first: ⌘Z runs the newest (`undoLatest`). */
+  undos: Map<string, () => void>;
 }
 const Ledger = createContext<ToastLedger | null>(null);
 
 function ToastProvider(props: { children: ReactNode }) {
-  const [ledger] = useState<ToastLedger>(() => ({ kinds: new Map(), events: new Map() }));
+  const [ledger] = useState<ToastLedger>(() => ({
+    kinds: new Map(),
+    events: new Map(),
+    undos: new Map(),
+  }));
   return (
     <Ledger.Provider value={ledger}>
       <Toast.Provider limit={limit} timeout={toastTimeouts.plain}>
@@ -94,12 +100,27 @@ type AddOptions = Parameters<Manager["add"]>[0] & {
   kind?: string | undefined;
   /** Retries of one event never announce twice, bounded to the latest 256 events. */
   eventId?: string | undefined;
+  /**
+   * Offers Undo: the action button, and ⌘Z while this is the newest toast still offering one.
+   * Either closes the toast and runs this once.
+   */
+  undo?: (() => void) | undefined;
 };
 
 export interface ToastApi extends Omit<Manager, "add"> {
   add(options: AddOptions): string;
-  /** A failure or refusal: a warning glyph, announced at once (`role=alertdialog`). */
+  /** A failure or refusal: a red glyph, announced at once (`role=alertdialog`). */
   error(options: Omit<AddOptions, "type" | "priority">): string;
+  /** Something to look at before it bites: an amber glyph, announced at once. */
+  warning(options: Omit<AddOptions, "type" | "priority">): string;
+  /** Done and worth confirming: a green check. */
+  success(options: Omit<AddOptions, "type">): string;
+  /** A neutral fact: a blue glyph. */
+  info(options: Omit<AddOptions, "type">): string;
+  /** Work under way: a spinner. Update it (same `id` or `kind`) when it finishes. */
+  loading(options: Omit<AddOptions, "type">): string;
+  /** Run the newest Undo still on screen. False when none is. */
+  undoLatest(): boolean;
 }
 
 /** The toast queue: Base UI's manager, with default timeouts and `error()`. */
@@ -108,7 +129,12 @@ function useToast(): ToastApi {
   const ledger = useContext(Ledger);
   return useMemo(() => {
     const add = (options: AddOptions) => {
-      const { kind: specified, eventId, ...input } = options;
+      const { kind: specified, eventId, undo, ...offered } = options;
+      // Filled once the toast has its id, before anyone can press Undo.
+      let undoing: (() => void) | undefined;
+      const input = undo
+        ? { ...offered, actionProps: { children: "Undo", onClick: () => undoing?.() } }
+        : offered;
       const kind =
         specified ?? input.id ?? (typeof input.title === "string" ? input.title : undefined);
       const seen = eventId && ledger?.events.get(eventId);
@@ -132,6 +158,7 @@ function useToast(): ToastApi {
         timeout,
         onClose: () => {
           if (kind && ledger && ledger.kinds.get(kind) === id) ledger.kinds.delete(kind);
+          if (id) ledger?.undos.delete(id);
           input.onClose?.();
         },
       };
@@ -143,6 +170,21 @@ function useToast(): ToastApi {
         added = manager.add({ ...next, ...(id ? { id } : {}) });
       }
       id = added;
+      if (undo) {
+        let done = false;
+        const run = () => {
+          if (done) return;
+          done = true;
+          ledger?.undos.delete(added);
+          // Undo first, so the toast's onClose already knows it was undone.
+          undo();
+          manager.close(added);
+        };
+        undoing = run;
+        // Newest last, even when it replaced an older toast of its kind.
+        ledger?.undos.delete(added);
+        ledger?.undos.set(added, run);
+      } else ledger?.undos.delete(added);
       if (kind) ledger?.kinds.set(kind, added);
       if (eventId && ledger) {
         ledger.events.set(eventId, added);
@@ -154,6 +196,15 @@ function useToast(): ToastApi {
       ...manager,
       add,
       error: (options) => add({ ...options, type: "error", priority: "high" }),
+      warning: (options) => add({ ...options, type: "warning", priority: "high" }),
+      success: (options) => add({ ...options, type: "success" }),
+      info: (options) => add({ ...options, type: "info" }),
+      loading: (options) => add({ ...options, type: "loading", timeout: options.timeout ?? 0 }),
+      undoLatest: () => {
+        const latest = ledger ? [...ledger.undos.values()].at(-1) : undefined;
+        latest?.();
+        return latest !== undefined;
+      },
     };
   }, [manager, ledger]);
 }

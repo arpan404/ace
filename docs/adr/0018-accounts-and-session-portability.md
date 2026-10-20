@@ -242,3 +242,71 @@ account whose CLI isn't installed is skipped. A model's own weekly limit (Claude
 Gemini/Antigravity and Copilot have no limit source ace can read without handling a credential
 itself, so they show no limits rather than a guessed one. The pre-blocker legacy quota format
 is no longer upgraded.
+
+## Amendment: account changes continue through one transition
+
+Date: 2026-10-19. Changing a thread's account within a provider, from the model picker or the
+usage-limit "Move to" action, is one thread transition with one decision:
+
+1. The destination must be usable: a registered account of the provider, signed in, finished
+   signing in and not exhausted. Otherwise the change fails and the thread keeps its account and
+   native session.
+2. A native copy keeps the whole session, so it is tried first. `accounts.migrate` returns
+   `refused` for safety (an active writer, a native lock, unverified exclusion); the change then
+   fails with the source binding untouched. A copied Codex session is forked from its end, as a
+   switch already did; the limit path previously resumed the copy in place.
+3. `unsupported` means the provider or either login can't share native history. Normal CLI
+   logins are now `unsupported`, not `refused`: ace never writes into a CLI-owned home. The thread
+   then continues the way a provider switch does (ADR 0051, 2026-10-19 amendment). The account
+   that leaves keeps its session for a return. A destination that left a session on this thread
+   resumes it with only what happened since; otherwise a fresh session gets the
+   conversation-first handoff. The handoff marker replaces one still waiting for delivery.
+
+By provider: Codex and Claude managed accounts copy native history (Codex forks the copy);
+their normal CLI logins, OpenCode and Pi continue through the handoff. Cursor account changes
+still continue in a new thread (ADR 0043). An ACP agent runs on its installation's one login,
+so another ACP account is another agent: a switch names the agent (`acpAgentId`,
+`installationId`, `instanceId`), admission checks it is registered, and the thread changes agent
+the way it changes provider, committing the new identity (`thread.updated.acp`) with the binding
+and the handoff. Returning to an agent resumes its own session with what happened since. Any
+thread can switch to a named ACP agent. A usage-limit move still never changes an ACP thread's
+agent (`acp_account_fixed`); the person picks another agent from the model picker.
+
+A usage-limit move commits the binding, the handoff and the cleared limit together. Replayed
+after a restart, it is not made again: a named account is already bound, and an automatic move
+finds nothing limited.
+
+## Amendment: Codex copies under the CLI's own writer lock
+
+Date: 2026-10-19. Tracking: issue #832. This replaces the fail-closed default above for Codex,
+and the Codex format limits in "Migration and safety".
+
+The default policy refused every copy, so a switch between managed Codex accounts always failed.
+Codex's own fork can't do the copy either: every current Codex thread is paginated, and a
+paginated fork resolves its source in the destination's thread store, so `thread/fork` with
+`path` from another home fails (verified against `codex-cli 0.163.0`).
+
+- **Lease.** `MigrationSafety.acquire` returns `held`, `busy` or `unsupported`. For Codex the
+  daemon resumes the thread on a short-lived source app-server (no turn, no quota). That takes
+  Codex's per-thread writer lock (`thread-writer-locks/<id>.lock`, an OS lock), which excludes
+  every Codex writer in ace or outside it until release. `busy` means another process has the
+  thread open: the switch fails and nothing changes. Providers without a lease, which today is
+  every provider except Codex, return `unsupported` and hand over (Claude managed accounts now
+  hand over instead of failing).
+- **Prompt release.** Codex keeps an unsubscribed thread loaded, holding its lock, for 30
+  minutes. ace's app-servers start with `-c thread_unload_delay_secs=0`, so a thread ace closed
+  can be taken within about a second; the lease retries briefly.
+- **Formats.** Paginated rollouts copy as files. A paginated fork's `history_base` names its
+  parent, which is copied with it. The destination CLI indexes copied rollouts on demand and forks
+  them with full turns (verified with a real 3-turn thread). Compressed rollouts stay
+  `unsupported`. Rollouts are found by file name, and only the lineage's own files are opened.
+  The spawning thread and tree root are copied when present and are not required. A missing fork
+  parent, or a different session under the same ID in the destination, returns `unsupported`.
+- **Lock files.** Codex lock files outlive their writers, so a copy no longer reads them; the
+  lease holds the real lock. Claude lock-file checks are unchanged.
+- **Scope of the fence.** Unrelated sessions on either account no longer block a copy. A sign-in
+  or sign-out on either account refuses it, and a sign-in waits for a running copy. A failed lease
+  release is reported in `cleanupWarnings` and no longer fences both accounts.
+- **Normal CLI logins.** A normal Codex login can be the source of a copy: ace only reads it, under
+  the CLI's lock (the lease's resume appends Codex's own settings record). ace still never writes
+  into a normal login, so moving there hands over.

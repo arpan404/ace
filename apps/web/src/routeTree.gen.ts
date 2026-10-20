@@ -24,6 +24,7 @@ import { Route as AutomationsNewRouteImport } from "./routes/automations.new"
 import { Route as SettingsIndexRouteImport } from "./routes/settings.index"
 import { Route as SettingsAdvancedRouteImport } from "./routes/settings.advanced"
 import { Route as SettingsAppearanceRouteImport } from "./routes/settings.appearance"
+import { Route as SettingsBrowserRouteImport } from "./routes/settings.browser"
 import { Route as SettingsComputerUseRouteImport } from "./routes/settings.computer-use"
 import { Route as SettingsGeneralRouteImport } from "./routes/settings.general"
 import { Route as SettingsKeyboardRouteImport } from "./routes/settings.keyboard"
@@ -39,6 +40,7 @@ import { Route as AutomationsAutomationIdIndexRouteImport } from "./routes/autom
 import { Route as AutomationsAutomationIdEditRouteImport } from "./routes/automations.$automationId.edit"
 import { Route as SettingsProvidersIndexRouteImport } from "./routes/settings.providers.index"
 import { Route as SettingsProvidersProviderRouteImport } from "./routes/settings.providers.$provider"
+import { Route as HomeTThreadIdForkRouteImport } from "./routes/_home.t.$threadId_.fork"
 import { Route as HomeTThreadIdAgentsAgentIdRouteImport } from "./routes/_home.t.$threadId_.agents.$agentId"
 
 const HomeRoute = HomeRouteImport.update({
@@ -113,6 +115,11 @@ const SettingsAdvancedRoute = SettingsAdvancedRouteImport.update({
 const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
   id: "/appearance",
   path: "/appearance",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsBrowserRoute = SettingsBrowserRouteImport.update({
+  id: "/browser",
+  path: "/browser",
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsComputerUseRoute = SettingsComputerUseRouteImport.update({
@@ -193,6 +200,11 @@ const SettingsProvidersProviderRoute =
     path: "/providers/$provider",
     getParentRoute: () => SettingsRoute,
   } as any)
+const HomeTThreadIdForkRoute = HomeTThreadIdForkRouteImport.update({
+  id: "/t/$threadId_/fork",
+  path: "/t/$threadId/fork",
+  getParentRoute: () => HomeRoute,
+} as any)
 const HomeTThreadIdAgentsAgentIdRoute =
   HomeTThreadIdAgentsAgentIdRouteImport.update({
     id: "/t/$threadId_/agents/$agentId",
@@ -213,6 +225,7 @@ export interface FileRoutesByFullPath {
   "/automations/new": typeof AutomationsNewRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
+  "/settings/browser": typeof SettingsBrowserRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
@@ -230,6 +243,7 @@ export interface FileRoutesByFullPath {
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
+  "/t/$threadId/fork": typeof HomeTThreadIdForkRoute
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
 export interface FileRoutesByTo {
@@ -241,6 +255,7 @@ export interface FileRoutesByTo {
   "/automations/new": typeof AutomationsNewRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
+  "/settings/browser": typeof SettingsBrowserRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
@@ -259,6 +274,7 @@ export interface FileRoutesByTo {
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/automations/$automationId": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers": typeof SettingsProvidersIndexRoute
+  "/t/$threadId/fork": typeof HomeTThreadIdForkRoute
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
 export interface FileRoutesById {
@@ -275,6 +291,7 @@ export interface FileRoutesById {
   "/automations/new": typeof AutomationsNewRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
+  "/settings/browser": typeof SettingsBrowserRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
@@ -293,6 +310,7 @@ export interface FileRoutesById {
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
+  "/_home/t/$threadId_/fork": typeof HomeTThreadIdForkRoute
   "/_home/t/$threadId_/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
 export interface FileRouteTypes {
@@ -310,6 +328,7 @@ export interface FileRouteTypes {
     | "/automations/new"
     | "/settings/advanced"
     | "/settings/appearance"
+    | "/settings/browser"
     | "/settings/computer-use"
     | "/settings/general"
     | "/settings/keyboard"
@@ -327,6 +346,7 @@ export interface FileRouteTypes {
     | "/settings/providers/$provider"
     | "/automations/$automationId/"
     | "/settings/providers/"
+    | "/t/$threadId/fork"
     | "/t/$threadId/agents/$agentId"
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -338,6 +358,7 @@ export interface FileRouteTypes {
     | "/automations/new"
     | "/settings/advanced"
     | "/settings/appearance"
+    | "/settings/browser"
     | "/settings/computer-use"
     | "/settings/general"
     | "/settings/keyboard"
@@ -356,6 +377,7 @@ export interface FileRouteTypes {
     | "/settings/providers/$provider"
     | "/automations/$automationId"
     | "/settings/providers"
+    | "/t/$threadId/fork"
     | "/t/$threadId/agents/$agentId"
   id:
     | "__root__"
@@ -371,6 +393,7 @@ export interface FileRouteTypes {
     | "/automations/new"
     | "/settings/advanced"
     | "/settings/appearance"
+    | "/settings/browser"
     | "/settings/computer-use"
     | "/settings/general"
     | "/settings/keyboard"
@@ -389,6 +412,7 @@ export interface FileRouteTypes {
     | "/settings/providers/$provider"
     | "/automations/$automationId/"
     | "/settings/providers/"
+    | "/_home/t/$threadId_/fork"
     | "/_home/t/$threadId_/agents/$agentId"
   fileRoutesById: FileRoutesById
 }
@@ -509,6 +533,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsAppearanceRouteImport
       parentRoute: typeof SettingsRoute
     }
+    "/settings/browser": {
+      id: "/settings/browser"
+      path: "/browser"
+      fullPath: "/settings/browser"
+      preLoaderRoute: typeof SettingsBrowserRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     "/settings/computer-use": {
       id: "/settings/computer-use"
       path: "/computer-use"
@@ -614,6 +645,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsProvidersProviderRouteImport
       parentRoute: typeof SettingsRoute
     }
+    "/_home/t/$threadId_/fork": {
+      id: "/_home/t/$threadId_/fork"
+      path: "/t/$threadId/fork"
+      fullPath: "/t/$threadId/fork"
+      preLoaderRoute: typeof HomeTThreadIdForkRouteImport
+      parentRoute: typeof HomeRoute
+    }
     "/_home/t/$threadId_/agents/$agentId": {
       id: "/_home/t/$threadId_/agents/$agentId"
       path: "/t/$threadId/agents/$agentId"
@@ -629,6 +667,7 @@ interface HomeRouteChildren {
   HomeNewRoute: typeof HomeNewRoute
   HomeIndexRoute: typeof HomeIndexRoute
   HomeTThreadIdRoute: typeof HomeTThreadIdRoute
+  HomeTThreadIdForkRoute: typeof HomeTThreadIdForkRoute
   HomeTThreadIdAgentsAgentIdRoute: typeof HomeTThreadIdAgentsAgentIdRoute
 }
 
@@ -637,6 +676,7 @@ const HomeRouteChildren: HomeRouteChildren = {
   HomeNewRoute: HomeNewRoute,
   HomeIndexRoute: HomeIndexRoute,
   HomeTThreadIdRoute: HomeTThreadIdRoute,
+  HomeTThreadIdForkRoute: HomeTThreadIdForkRoute,
   HomeTThreadIdAgentsAgentIdRoute: HomeTThreadIdAgentsAgentIdRoute,
 }
 
@@ -663,6 +703,7 @@ const AutomationsRouteWithChildren = AutomationsRoute._addFileChildren(
 interface SettingsRouteChildren {
   SettingsAdvancedRoute: typeof SettingsAdvancedRoute
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
+  SettingsBrowserRoute: typeof SettingsBrowserRoute
   SettingsComputerUseRoute: typeof SettingsComputerUseRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
   SettingsKeyboardRoute: typeof SettingsKeyboardRoute
@@ -679,6 +720,7 @@ interface SettingsRouteChildren {
 const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAdvancedRoute: SettingsAdvancedRoute,
   SettingsAppearanceRoute: SettingsAppearanceRoute,
+  SettingsBrowserRoute: SettingsBrowserRoute,
   SettingsComputerUseRoute: SettingsComputerUseRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,
   SettingsKeyboardRoute: SettingsKeyboardRoute,

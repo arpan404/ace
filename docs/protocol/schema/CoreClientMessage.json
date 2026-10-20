@@ -14,6 +14,14 @@
           ],
           "type": "string"
         },
+        "compression": {
+          "items": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "type": "array"
+        },
         "deviceId": {
           "$ref": "https://ace.local/protocol/v1/DeviceId.json"
         },

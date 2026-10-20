@@ -133,13 +133,13 @@ try {
                   complete: false,
                   call: {
                     kind: "mcp",
-                    title: "ace_device_task_wait",
+                    title: "agents_status",
                     status: "running",
                     detail: {
                       kind: "mcp",
                       server: "ace",
-                      tool: "ace_device_task_wait",
-                      arguments: { taskId: "native-private-id" },
+                      tool: "agents_status",
+                      arguments: { threadId: "native-private-id" },
                     },
                     raw: [],
                   },
@@ -155,9 +155,8 @@ try {
       await expect(
         feed.getByText("Check the command output and delegate the review."),
       ).toBeVisible();
-      if (width === 1440)
-        await expect(page.getByText(/work on another device/).first()).toBeVisible();
-      await expect(feed).not.toContainText(/SDK|system-reminder|ace_device|native-private-id/);
+      if (width === 1440) await expect(page.getByText(/Checking a subagent/).first()).toBeVisible();
+      await expect(feed).not.toContainText(/SDK|system-reminder|agents_status|native-private-id/);
       await expect(
         feed.getByText("The checks passed. I'll ask another device to review the changes."),
       ).toBeVisible();

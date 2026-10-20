@@ -27,16 +27,7 @@ export const MaintenanceStatus = z.object({
 export const DaemonHealth = z
   .object({
     running: z.literal(true),
-    version: z.union([
-      z.literal("development"),
-      ReleaseVersion.refine(
-        (version) => !version.startsWith("0."),
-        "Legacy ace 0.x cannot be adopted",
-      ).meta({
-        "x-ace-constraint":
-          "Daemon version must have a nonzero major version; legacy ace 0.x is incompatible.",
-      }),
-    ]),
+    version: z.union([z.literal("development"), ReleaseVersion]),
     // Older daemons omit readiness. New daemons expose startup without declaring
     // themselves ready for managed clients before listener controllers are attached.
     ready: z.literal(true).optional(),
