@@ -406,7 +406,7 @@ test("a turn that left a command running reads as running in background, never W
     code: "dev",
     tone: "held",
     elapsedFrom: undefined,
-    waitingOn: { kind: "background", count: 1, title: "dev" },
+    waitingOn: { kind: "background", count: 1, title: "dev", taskIds: ["task-dev"] },
   });
 
   thread.background("tunnel");
@@ -414,7 +414,12 @@ test("a turn that left a command running reads as running in background, never W
   expect(turnActivity(thread.reader, "root")).toMatchObject({
     label: "Running 2 commands in background",
     tone: "held",
-    waitingOn: { kind: "background", count: 2, title: undefined },
+    waitingOn: {
+      kind: "background",
+      count: 2,
+      title: undefined,
+      taskIds: ["task-dev", "task-tunnel"],
+    },
   });
 });
 

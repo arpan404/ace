@@ -1,9 +1,15 @@
 import { pluralCount, waitingOnSubagentsLabel, type TurnWait } from "@ace/ui-core";
-import type { ReactNode } from "react";
+import type { ThreadKey, ThreadReader } from "@ace/client";
+import { useThread } from "@ace/client-react";
+import type { BackgroundTask } from "@ace/protocol";
+import { useCallback, useMemo, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { ElapsedTime } from "@/components/working-indicator.tsx";
-import { useBackgroundShells } from "@/features/panels/index.ts";
 import { useStopCommands } from "./stop-strips.tsx";
+
+const noTasks: readonly BackgroundTask[] = [];
+const sameTasks = (a: readonly BackgroundTask[], b: readonly BackgroundTask[]) =>
+  a.length === b.length && a.every((task, i) => task === b[i]);
 
 /**
  * What the main agent waits on while it does nothing itself, its Stop at the far right: "Waiting
@@ -47,7 +53,7 @@ export function WaitingStrip(props: {
       {wait.kind === "subagents" ? (
         <TreeStop onStop={props.onStop} stopping={props.stopping} />
       ) : (
-        <CommandsStop threadId={props.threadId} />
+        <CommandsStop threadId={props.threadId} taskIds={wait.taskIds} />
       )}
     </div>
   );
@@ -69,11 +75,26 @@ function TreeStop(props: { onStop?: (() => void) | undefined; stopping: boolean 
   );
 }
 
-/** Stop for the background commands a finished turn left running, in one press. */
-function CommandsStop(props: { threadId: string }) {
-  const commands = useBackgroundShells(props.threadId).filter(
-    (task) => task.status === "running" && !task.ambient,
+/**
+ * Stop for the background commands a finished turn waits on, in one press: every one of them the
+ * provider can stop, whatever its kind. None of them can be stopped: no button, rather than a
+ * dead one.
+ */
+function CommandsStop(props: { threadId: string; taskIds: readonly string[] }) {
+  const { taskIds } = props;
+  const keys = useMemo<readonly ThreadKey[]>(
+    () => taskIds.map((id): ThreadKey => `task:${id}`),
+    [taskIds],
   );
+  const read = useCallback(
+    (reader: ThreadReader) =>
+      taskIds.flatMap((id) => {
+        const task = reader.task(id);
+        return task && task.status === "running" ? [task] : [];
+      }),
+    [taskIds],
+  );
+  const commands = useThread(props.threadId, keys, read, sameTasks) ?? noTasks;
   const { stoppable, sending, stopAll } = useStopCommands(commands);
   if (!stoppable.length) return null;
   return (
