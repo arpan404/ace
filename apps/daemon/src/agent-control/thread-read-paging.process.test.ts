@@ -8,7 +8,9 @@ const Page = z.object({
   items: z.array(z.looseObject({ id: z.string(), type: z.string() })),
   itemsBefore: z.number().nullable(),
   omitted: z
-    .array(z.object({ itemId: z.string(), dropped: z.enum(["raw", "item"]), title: z.string() }))
+    .array(
+      z.object({ itemId: z.string(), dropped: z.enum(["raw", "text", "item"]), title: z.string() }),
+    )
     .optional(),
 });
 
@@ -48,10 +50,14 @@ async function readAll(
   limit: number,
 ) {
   const seen: string[] = [];
+  const reduced: z.infer<typeof Page>["items"] = [];
   const omitted: NonNullable<z.infer<typeof Page>["omitted"]> = [];
   let before: number | undefined;
   for (let calls = 0; calls < 40; calls++) {
     const page = await read(before, limit);
+    // Every page stays within the agent page budget.
+    expect(Buffer.byteLength(JSON.stringify(page.items))).toBeLessThanOrEqual(48 * 1024);
+    reduced.push(...page.items.filter((item) => item.id === "huge-heredoc"));
     // Each page is oldest first; collect newest first across pages.
     const entries = [
       ...page.items.map((item) => item.id),
@@ -59,7 +65,7 @@ async function readAll(
     ];
     seen.push(...entries.toReversed());
     omitted.push(...(page.omitted ?? []));
-    if (page.itemsBefore === null) return { seen, omitted, calls: calls + 1 };
+    if (page.itemsBefore === null) return { seen, omitted, reduced };
     expect(page.itemsBefore).not.toBe(before);
     before = page.itemsBefore;
   }
@@ -98,13 +104,21 @@ test("paging a thread back with itemsBefore returns the earlier items and ends c
   );
 
   for (const limit of [5, 25, 40]) {
-    const { seen, omitted } = await readAll(read, limit);
+    const { seen, omitted, reduced } = await readAll(read, limit);
+    expect(reduced).toEqual([
+      expect.objectContaining({
+        call: expect.objectContaining({
+          title: expect.stringMatching(/more characters not shown\]$/),
+        }),
+      }),
+    ]);
     // Every item appears once, newest first, followed by what the thread held before.
     expect(seen).toEqual([...appended.map((item) => item.id).toReversed(), ...before.seen]);
+    // The oversized call arrives with its long strings cut, and says so.
     expect(omitted).toEqual([
       expect.objectContaining({
         itemId: "huge-heredoc",
-        dropped: "item",
+        dropped: "text",
         title: expect.stringMatching(/^Run cat > notes\.md/),
       }),
     ]);

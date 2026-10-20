@@ -1,5 +1,6 @@
 import type { Item, ItemsPage, OmittedItem } from "@ace/protocol";
 import { ItemPageCapacityExceeded } from "./item-page-capacity.ts";
+import { clipItem } from "./item-clip.ts";
 
 /** What a bounded page reads from: a store page and the single item it could not start with. */
 export interface ItemPageSource {
@@ -8,7 +9,7 @@ export interface ItemPageSource {
   newestBefore(before: number): { item: Item; seq: number } | undefined;
   hasItemBefore(before: number): boolean;
 }
-export type BoundedItemPage = Omit<ItemsPage, "seq"> & { omitted?: OmittedItem[] };
+export type BoundedItemPage = Omit<ItemsPage, "seq">;
 type Parts = {
   items: Item[];
   itemSeqs: Record<string, number>;
@@ -26,7 +27,12 @@ function withoutRaw(item: Item): Item {
   if (item.type === "tool_call") return { ...item, call: { ...item.call, raw: [] } };
   return "raw" in item ? { ...item, raw: [] } : item;
 }
-function summary(item: Item, seq: number, bytes: number, dropped: "raw" | "item"): OmittedItem {
+function summary(
+  item: Item,
+  seq: number,
+  bytes: number,
+  dropped: OmittedItem["dropped"],
+): OmittedItem {
   return {
     itemId: item.id,
     seq,
@@ -41,8 +47,9 @@ function summary(item: Item, seq: number, bytes: number, dropped: "raw" | "item"
 
 /**
  * A page that never fails on one oversized item. The store refuses to start a page with an item
- * larger than the page; here that item is shown without its raw payloads, or, if still too large,
- * summarized in `omitted`, and paging continues past it. `itemsBefore` stays the exclusive
+ * larger than the page; here that item is shown without its raw payloads, then with its long
+ * strings cut to fit, and only if neither fits is it left to its summary. Every such item is
+ * listed in `omitted`, and paging continues past it. `itemsBefore` stays the exclusive
  * creation cursor of the oldest entry, and is null only when nothing earlier exists.
  */
 export function boundedItemPage(
@@ -92,11 +99,16 @@ function fill(
     if (!newest) throw error;
     const { item, seq } = newest;
     const bytes = Buffer.byteLength(JSON.stringify(item));
+    const marker = Buffer.byteLength(JSON.stringify(summary(item, seq, bytes, "item"))) + 1;
+    const room = budget - envelope - marker;
     const slim = withoutRaw(item);
-    const slimBytes = entryBytes(slim, item.id);
-    const shown = envelope + slimBytes <= budget;
-    const omission = summary(item, seq, bytes, shown ? "raw" : "item");
-    const used = (shown ? slimBytes : 0) + Buffer.byteLength(JSON.stringify(omission)) + 1;
+    const clipped =
+      entryBytes(slim, item.id) <= room
+        ? undefined
+        : clipItem(slim, room - entryBytes("", item.id) + 2);
+    const shown = clipped ?? (entryBytes(slim, item.id) <= room ? slim : undefined);
+    const omission = summary(item, seq, bytes, clipped ? "text" : shown ? "raw" : "item");
+    const used = (shown ? entryBytes(shown, item.id) : 0) + marker;
     const rest: Parts =
       limit > 1
         ? fill(source, seq, limit - 1, budget - used, full)
@@ -107,7 +119,7 @@ function fill(
             itemsBefore: source.hasItemBefore(seq) ? seq : null,
           };
     return {
-      items: shown ? [...rest.items, slim] : rest.items,
+      items: shown ? [...rest.items, shown] : rest.items,
       itemSeqs: shown ? { ...rest.itemSeqs, [item.id]: seq } : rest.itemSeqs,
       omitted: [...rest.omitted, omission],
       itemsBefore: rest.itemsBefore,

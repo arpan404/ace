@@ -1,5 +1,6 @@
 import { ItemTextStore } from "./item-text-store.ts";
 import { ItemPageCapacityExceeded } from "./item-page-capacity.ts";
+import { boundedItemPage } from "./bounded-item-page.ts";
 import { z } from "zod";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import {
@@ -8,6 +9,7 @@ import {
   ItemId,
   type Event,
   type ItemsPage,
+  type OmittedItem,
   type ThreadId,
 } from "@ace/protocol";
 import { applyDelta, inRootLane, retainedTail } from "@ace/projection";
@@ -237,6 +239,29 @@ export class ItemStore {
       ).get(threadId, before) !== undefined
     );
   }
+  private fitsAlone(threadId: ThreadId, seq: number, byteLimit: number): boolean {
+    try {
+      this.wirePage(threadId, seq + 1, 1, byteLimit);
+      return true;
+    } catch (error) {
+      if (error instanceof ItemPageCapacityExceeded) return false;
+      throw error;
+    }
+  }
+  /** The item at `seq`, reduced to fit `byteLimit`, or an omission marker alone. */
+  private reducedPage(threadId: ThreadId, seq: number, byteLimit: number) {
+    return boundedItemPage(
+      {
+        page: (from, count, limit) => this.wirePage(threadId, from, count, limit),
+        newestBefore: (from) => this.newestBefore(threadId, from),
+        hasItemBefore: (from) => this.hasItemBefore(threadId, from),
+      },
+      threadId,
+      seq + 1,
+      1,
+      byteLimit,
+    );
+  }
   /** One item as a step list shows it: text cut to its bounded preview, tool bodies whole. */
   stepItem(threadId: ThreadId, itemId: string): Item | undefined {
     const head = this.statement("SELECT item_type FROM item_heads WHERE thread_id=? AND id=?").get(
@@ -288,6 +313,7 @@ export class ItemStore {
       "SELECT created_seq FROM item_heads WHERE thread_id=? AND created_seq>? ORDER BY created_seq LIMIT ?",
     ).all(threadId, targetSeq, after);
     const selected = new Map<number, Item>();
+    const omitted: OmittedItem[] = [];
     let bytes = 512;
     // Read the target first so a byte-limited window always includes the jump point.
     const add = (seq: number): boolean => {
@@ -298,14 +324,24 @@ export class ItemStore {
         // that fit a standalone page but cannot fit alongside the jump target.
         page = this.wirePage(threadId, seq + 1, 1, byteLimit - bytes + 512);
       } catch (error) {
-        if (seq !== targetSeq && error instanceof ItemPageCapacityExceeded) return false;
-        throw error;
+        if (!(error instanceof ItemPageCapacityExceeded)) throw error;
+        // A neighbor that fits a window of its own waits for the next one.
+        if (seq !== targetSeq && this.fitsAlone(threadId, seq, byteLimit)) return false;
+        // Larger than any window: it comes reduced to an eighth of one, leaving room for its
+        // neighbors, so a window that starts at it still reaches older items.
+        page = this.reducedPage(threadId, seq, Math.min(byteLimit - bytes, byteLimit / 8) + 512);
+        if (!page.items[0]) {
+          if (seq === targetSeq) throw error;
+          return false;
+        }
       }
       const item = page.items[0];
       if (!item) return false;
       const size =
         Buffer.byteLength(JSON.stringify(item)) + Buffer.byteLength(JSON.stringify(item.id)) + 64;
-      bytes += size;
+      const marks = page.omitted ?? [];
+      bytes += size + (marks.length ? Buffer.byteLength(JSON.stringify(marks)) : 0);
+      omitted.push(...marks);
       selected.set(seq, item);
       return true;
     };
@@ -343,6 +379,7 @@ export class ItemStore {
       ).get(threadId, last)
         ? last
         : null,
+      ...(omitted.length ? { omitted: omitted.toSorted((a, b) => a.seq - b.seq) } : {}),
     };
   }
   /**
