@@ -17,7 +17,8 @@ import { visualizationTab } from "./visualization-tab.ts";
  * A published HTML page, inline in the agent's reply at the message column's full width: no
  * card, no title bar, so it reads as part of the conversation. It shows its whole content height,
  * follows the app theme live, and runs its own scripts in a sandbox that cannot reach the app or
- * the network. Full screen, copy and download sit in a row above it on hover or focus; Full
+ * the network. Full screen, copy and download sit in a row above it, always shown but dimmed
+ * until hovered, focused or pressed; Full
  * screen opens it at the side panel's full size, whose strip adds open in window.
  */
 export function HtmlVisualizationView(props: {
@@ -47,27 +48,37 @@ export function HtmlVisualizationView(props: {
     typeof HTMLIFrameElement !== "undefined" && "sandbox" in HTMLIFrameElement.prototype;
   // The page is shown whole; the agent's height only holds its place until it measures itself.
   const initialHeight = visualization.height ?? 160;
+  const actionClassName =
+    "shadow-[inset_0_0_0_1px_var(--border)] opacity-60 transition-opacity hover:opacity-100 focus-visible:opacity-100 active:opacity-100 motion-reduce:transition-none";
   return (
     <section ref={attach} aria-label={title} className="group/visualization w-full min-w-0">
       {html && (
         <div
           role="toolbar"
           aria-label={`${title} actions`}
-          className="flex h-6 items-center justify-end gap-2 opacity-0 transition-opacity duration-150 group-hover/visualization:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100"
+          className="flex h-6 items-center justify-end gap-2"
         >
           <IconButton
             size="sm"
             icon={CornersOutIcon}
             label="Full screen"
+            className={actionClassName}
             onClick={() => panel.open(visualizationTab(visualization))}
           />
           <IconButton
             size="sm"
             icon={actions.copied ? CheckIcon : CopyIcon}
             label={actions.copied ? "Copied" : "Copy source"}
+            className={actionClassName}
             onClick={actions.copy}
           />
-          <IconButton size="sm" icon={DownloadSimpleIcon} label="Download" onClick={actions.save} />
+          <IconButton
+            size="sm"
+            icon={DownloadSimpleIcon}
+            label="Download"
+            className={actionClassName}
+            onClick={actions.save}
+          />
         </div>
       )}
       <div className="w-full min-w-0">
