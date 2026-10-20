@@ -441,6 +441,9 @@ export class ScreenManager {
   subscribe(id: string, sink: FrameSink): () => void {
     return this.observations.subscribe(id, sink);
   }
+  subscribeEvery(id: string, sink: (frame: Frame) => void): () => void {
+    return this.observations.subscribeEvery(id, sink);
+  }
   screenshot(id: string): Frame {
     return this.observations.screenshot(id);
   }

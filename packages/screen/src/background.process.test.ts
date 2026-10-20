@@ -206,7 +206,7 @@ it("wire errors include the busy holder while takeover is scoped to the selected
   const { screenConnection, Simulators } = await import("./index.ts");
   const connection = screenConnection(h.screen, new Simulators("linux"), "human", {
     send: (message) => messages.push(message),
-    frame: async () => {},
+    media: { write: async () => {}, bufferedBytes: () => 0 },
   });
   onTestFinished(() => connection.close());
   await connection.request({

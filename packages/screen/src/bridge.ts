@@ -1,27 +1,56 @@
 import { TargetBusyError } from "./target-busy.ts";
 import {
+  ScreenAck,
   ScreenError,
   ScreenClientMessage,
   ScreenState,
   type ScreenServerMessage,
 } from "@ace/protocol";
+import { streamKinds } from "@ace/browser/stream";
+import { PictureChannel, type PictureTransport } from "@ace/browser/picture-channel";
+import { framePicture } from "./frame-picture.ts";
 import type { ScreenManager } from "./manager.ts";
 import type { Simulators } from "./simulator.ts";
 
 export type ScreenPeer = {
   send: (message: ScreenServerMessage) => void;
-  frame: (packet: Buffer) => Promise<void>;
+  /** The shared media stream: one binary message (a stream piece) per write. */
+  media: PictureTransport;
+  /** A write failed or access was revoked: the transport should close. */
+  failed?(error: unknown): void;
+  /** Clock for keyframe pacing; defaults to the wall clock and timers. */
+  now?(): number;
+  after?(ms: number, run: () => void): () => void;
 };
-/** Attach only after the host transport authenticates a human device. */
+/**
+ * Attach only after the host transport authenticates a human device. A subscribed session's
+ * pictures go out as stream kind `screenFrame`, paced by the viewer's `screen.ack`.
+ */
 export function screenConnection(
   manager: ScreenManager,
   simulators: Simulators,
   owner: string,
   peer: ScreenPeer,
-): { request(input: unknown): Promise<void>; close(): void } {
+): { request(input: unknown): Promise<void>; ack(input: unknown): void; close(): void } {
   const subscriptions = new Map<string, () => void>();
   let closed = false;
   let pending = 0;
+  const pictures = new PictureChannel(streamKinds.screenFrame, {
+    transport: peer.media,
+    now: peer.now ?? (() => performance.now()),
+    after:
+      peer.after ??
+      ((ms, run) => {
+        const timer = setTimeout(run, ms);
+        return () => clearTimeout(timer);
+      }),
+    failed: (error) => {
+      // Pictures that can't get out end every view on this connection; the host closes it.
+      for (const stop of subscriptions.values()) stop();
+      subscriptions.clear();
+      peer.failed?.(error);
+    },
+  });
   const unwatch = manager.watch((state) => {
     if (!closed) peer.send({ type: "screen.state", state });
   });
@@ -130,10 +159,26 @@ export function screenConnection(
             subscriptions.get(operation.sessionId)?.();
             subscriptions.delete(operation.sessionId);
             if (subscriptions.size >= 8) throw new Error("Screen subscription limit");
-            const stop = manager.subscribe(operation.sessionId, async (frame) => {
-              if (!closed) await peer.frame(frame.packet);
+            const sessionId = operation.sessionId;
+            const view = pictures.open(sessionId, {
+              keyframe: () => void manager.requestKeyframe(sessionId).catch(() => {}),
+              guard: () => {
+                if (closed) throw new Error("Screen connection closed");
+              },
             });
-            subscriptions.set(operation.sessionId, stop);
+            try {
+              // Every frame, unhurried: the viewer's window paces the pictures, not the hub.
+              const stop = manager.subscribeEvery(sessionId, (frame) => {
+                if (!closed) view.push(framePicture(frame));
+              });
+              subscriptions.set(sessionId, () => {
+                stop();
+                view.close();
+              });
+            } catch (error) {
+              view.close();
+              throw error;
+            }
             peer.send({
               type: "screen.state",
               state: ScreenState.parse(manager.state(operation.sessionId)),
@@ -173,8 +218,14 @@ export function screenConnection(
         pending--;
       }
     },
+    ack(input) {
+      const message = ScreenAck.parse(input);
+      if (!closed)
+        pictures.ack(message.sessionId, message.streamId, message.sequence, message.keyframe);
+    },
     close() {
       closed = true;
+      pictures.close();
       for (const stop of subscriptions.values()) stop();
       subscriptions.clear();
       unwatch();

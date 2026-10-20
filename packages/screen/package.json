@@ -4,14 +4,14 @@
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./frames-client": "./src/frame-reader.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
     "bench": "node bench/stream.ts"
   },
   "dependencies": {
+    "@ace/browser": "workspace:*",
     "@ace/interaction": "workspace:*",
     "@ace/mcp-server": "workspace:*",
     "@ace/protocol": "workspace:*",
