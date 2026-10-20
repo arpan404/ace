@@ -54,7 +54,7 @@ test("a plan review says Needs you and explains the request on hover", async () 
 
 test.each([
   [askingQuestion, "Answer", "Waiting for your answer"],
-  [waitingOnSubagents, "Working", "Claude Code · 2 subagents running"],
+  [waitingOnSubagents, "Waiting", "Waiting for 2 subagents"],
   [watchingRelay, "Background · 1", "Running in background bun run dev:relay"],
   [runningTests, "Working", "Working · running tests"],
 ])(

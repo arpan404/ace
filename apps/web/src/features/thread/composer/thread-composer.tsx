@@ -13,6 +13,7 @@ import {
   providerNames,
   followUpDelivery,
   isBusy,
+  waitingDelivery,
   selectionInputs,
   choiceSelection,
   currentModelChoice,
@@ -42,6 +43,7 @@ import {
   DeferredPermissionControl,
 } from "./deferred-parts.tsx";
 import { DeferredComposerStrip } from "./deferred-cards.ts";
+import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { finishQueueEdit, queueEditSession, saveQueueEdit } from "./queue-edit.ts";
 import { lastSentText } from "./last-sent.ts";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
@@ -107,6 +109,12 @@ export function ThreadComposer({
   const canSteer = meta?.capabilities?.steer === true;
   const followUp = canSteer ? setting : "queue";
   const busy = isBusy(props.status);
+  // The root only waits on its subagents: the model itself isn't busy, so a message goes in now.
+  const wait = useTurnActivity(props.thread.id)?.waitingOn;
+  const subagentWait = wait?.kind === "subagents" ? wait : undefined;
+  const waitDelivery = (opposite: boolean) =>
+    subagentWait && waitingDelivery({ canSteer, turnOver: subagentWait.turnOver, opposite });
+  const sendsNow = waitDelivery(false) === "steer";
   const [pickerRequest, requestPicker] = useState(0);
   const [tuneRequest, requestTune] = useState(0);
   const activityState = useThreadLiveState(props.thread.id);
@@ -185,12 +193,14 @@ export function ThreadComposer({
     // While the agent works the delivery is said outright, so this window knows at once
     // whether the message is a bubble (steered in) or a pill (queued).
     // A steer always steers: a new model or effort on it takes effect from the next turn.
-    const delivery = followUpDelivery({
-      status: props.status,
-      canSteer,
-      setting,
-      opposite: draft.opposite,
-    });
+    const delivery =
+      waitDelivery(draft.opposite) ??
+      followUpDelivery({
+        status: props.status,
+        canSteer,
+        setting,
+        opposite: draft.opposite,
+      });
     // What a follow-up without options inherits: a switch waiting for the next turn, else what
     // runs now. Steering leaves the running turn intact.
     const options = followUpTurnOptions({
@@ -289,6 +299,9 @@ export function ThreadComposer({
     if (again) stop();
   };
   const subagents = meta ? (meta.live?.runningSubagentCount ?? runningSubagents(meta.status)) : 0;
+  // While the strip shows what the agent only waits on, Stop sits there instead of the send slot.
+  const [waitingShown, setWaitingShown] = useState(false);
+  const waiting = waitingShown && canStop;
   const toMessage = () =>
     box.current
       ?.querySelector<HTMLElement>('[role="combobox"][contenteditable]')
@@ -347,6 +360,8 @@ export function ThreadComposer({
         onStop={canStop ? stop : undefined}
         onStopKey={stopKey}
         stopping={stopping}
+        stopInStrip={waiting}
+        sendsNow={sendsNow}
         onReturnedOptions={(options) => {
           const identity = selectionIdentity(runsOn(meta));
           if (options) setPicked({ threadId: props.thread.id, identity, options });
@@ -362,6 +377,9 @@ export function ThreadComposer({
               threadId={props.thread.id}
               status={props.status}
               confirmStop={armed ? { subagents } : undefined}
+              onStop={canStop ? stop : undefined}
+              stopping={stopping}
+              onWaitingShown={setWaitingShown}
               requestTarget={props.requestTarget}
               onLeave={toMessage}
               onChooseModel={() => requestPicker((count) => count + 1)}

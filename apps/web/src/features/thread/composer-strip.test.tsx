@@ -1,4 +1,4 @@
-import { replayCursor } from "@ace/fake-daemon";
+import { facts, replayCursor } from "@ace/fake-daemon";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -10,6 +10,8 @@ const threadId = "thread-replay-cursor";
 async function open() {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
+  // The main agent is back at its own work, not only waiting on its subagents: follow-ups queue.
+  app.daemon.apply(threadId, [facts.toolDone("root", "spawn-test")]);
   await app.open(`/t/${threadId}`);
   await screen.findByRole("feed", { name: "Transcript" });
   return app;

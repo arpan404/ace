@@ -157,6 +157,14 @@ export function treeWorking(facts: TreeFacts): boolean {
 }
 
 /**
+ * The tree is Working but its root does nothing itself: it waits on its own subagents, or its
+ * turn is over while they carry on. Every surface says Waiting then, not Working.
+ */
+export function treeWaiting(facts: TreeFacts): boolean {
+  return treeWorking(facts) && facts.root !== "working" && facts.root !== "held";
+}
+
+/**
  * The turn is over and only background commands still run: not Working (no agent is doing a
  * turn) and never Done (something still runs). The person's next message goes straight in.
  */
@@ -177,10 +185,24 @@ export function listTreeFacts(thread: {
       : 0;
   return {
     needsYou: status.state === "needs_you",
-    root: rootStand(status),
+    root: listRootStand(status, live),
     subagents,
     backgroundCommands: watching,
   };
+}
+
+/**
+ * The root's stand as a listed thread shows it. A working thread whose root waits on its
+ * subagents says so (`waitingOn`); one whose working agents are all subagents has a root whose
+ * own turn is over.
+ */
+function listRootStand(status: ThreadStatus, live: ThreadRunMetadata | undefined): RootStand {
+  if (status.state === "working") {
+    if (live?.waitingOn) return "on-tree";
+    const running = live?.runningSubagentCount ?? 0;
+    if (running > 0 && status.agents <= running) return "idle";
+  }
+  return rootStand(status);
 }
 
 function rootStand(status: ThreadStatus): RootStand {
