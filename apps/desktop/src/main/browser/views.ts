@@ -26,6 +26,7 @@ import type { ViewHost, ViewPage } from "./backend.ts";
 import { PartitionPool } from "./partition-pool.ts";
 import { PlacementBook, toWindowBounds } from "./placement.ts";
 import { EmbeddedPage } from "./page.ts";
+import type { PageVideoHost } from "./page-video.ts";
 import { EmbeddedPageGroup } from "./page-group.ts";
 import { CertificateExceptions } from "./certificates.ts";
 import { clearPartition } from "./partition-cleanup.ts";
@@ -49,6 +50,8 @@ export interface ViewHostOptions {
   log(message: string): void;
   /** The folder the person chose for this app's browser downloads, if any. */
   downloadFolder?(): string | undefined;
+  /** The app's video encoder, for remote viewers watching a view as video (ADR 0088). */
+  video?: PageVideoHost<WebContents> | undefined;
   /** The number of threads with native pages changed (they keep the app running). */
   onPages?(count: number): void;
 }
@@ -166,6 +169,7 @@ export class EmbeddedViews implements ViewHost {
           downloadDir: request.downloadDir,
           downloadFolder: () => this.options.downloadFolder?.(),
           certificates,
+          video: this.options.video,
           session: partitionSession,
           released: undefined,
           window,
