@@ -49,7 +49,7 @@ interface Capture {
   reader: FrameReader | undefined;
   /** Pushed pictures: one decodes at a time, and only the newest waiting one is kept. */
   decoding: boolean;
-  waiting: Uint8Array | undefined;
+  waiting: Uint8Array<ArrayBuffer> | undefined;
   last: VideoFrame | undefined;
   lastAt: number;
   encoders: Map<string, Encoder>;
@@ -349,10 +349,10 @@ Object.assign(globalThis, {
       });
     },
     /** One pushed picture (a base64 JPEG) for capture `id`. */
-    picture(id: string, base64: string): void {
+    picture(id: string, jpeg: string): void {
       const capture = captures.get(id);
       if (!capture || capture.track) return;
-      capture.waiting = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+      capture.waiting = Uint8Array.from(atob(jpeg), (char) => char.charCodeAt(0));
       if (!capture.decoding) void decodePictures(capture);
     },
     /**
