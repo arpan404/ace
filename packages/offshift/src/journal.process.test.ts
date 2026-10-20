@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { ThreadId } from "@ace/protocol";
-import { OffshiftView, type OffshiftRequest } from "@ace/protocol/offshift";
+import { OffshiftView, type OffshiftCriterion, type OffshiftRequest } from "@ace/protocol/offshift";
 import { OffshiftJournal, type Context } from "./index.ts";
 
 const cleanups: (() => void)[] = [];
@@ -214,6 +214,74 @@ test("blockers survive restart and keep delivery closed until explicitly resolve
     note: "User supplied test account",
   });
   expect(f.advance("implement").state).toBe("active");
+});
+
+test("revising a criterion invalidates its earlier passes, keeps others, and survives reopening", () => {
+  const f = fixture();
+  f.call({
+    ...f.start,
+    criteria: [
+      ...f.start.criteria,
+      { id: "audit", description: "Restores are logged", requiredKinds: ["source"] },
+    ],
+  });
+  f.advance("implement");
+  f.advance("verify");
+  f.evidence("automated");
+  f.evidence("ui");
+  const revise = (requestId: string, criterion: OffshiftCriterion) => {
+    const version = f.get().run.version;
+    return f.call({
+      action: "revise",
+      runId: "feature",
+      requestId,
+      version,
+      criterion,
+      note: "Reviewer asked for undo too",
+    });
+  };
+  revise("revise-restore", {
+    id: "restore",
+    description: "Restore and undo persist after reload",
+    requiredKinds: ["automated"],
+  });
+  f.reopen();
+  const revised = f.get();
+  expect(revised.run.criteria.map((item) => item.id)).toEqual(["restore", "audit"]);
+  expect(revised.pending).toEqual([
+    { criterionId: "restore", kind: "automated" },
+    { criterionId: "audit", kind: "source" },
+  ]);
+  expect(() => f.advance("review")).not.toThrow();
+  expect(() => f.advance("delivery")).toThrow("current passing evidence");
+  revise("add-export", { id: "export", description: "Export works", requiredKinds: ["ui"] });
+  expect(f.get().pending).toContainEqual({ criterionId: "export", kind: "ui" });
+});
+
+test("revising is refused while blocked and once a run holds 64 criteria", () => {
+  const f = fixture();
+  const criteria = Array.from({ length: 64 }, (_, index) => ({
+    id: `c${index}`,
+    description: "Holds",
+    requiredKinds: ["source" as const],
+  }));
+  f.call({ ...f.start, criteria });
+  const criterion = { id: "extra", description: "One more", requiredKinds: ["ui" as const] };
+  const revise = (requestId: string, version: number) =>
+    f.call({ action: "revise", runId: "feature", requestId, version, criterion, note: "Add" });
+  expect(() => revise("too-many", 0)).toThrow("at most 64");
+  f.call({ action: "block", runId: "feature", requestId: "block", version: 0, note: "Waiting" });
+  expect(() =>
+    f.call({
+      action: "revise",
+      runId: "feature",
+      requestId: "while-blocked",
+      version: 1,
+      criterion: { id: "c0", description: "Changed", requiredKinds: ["source"] },
+      note: "Change",
+    }),
+  ).toThrow("Resolve the recorded blocker");
+  expect(f.get().run.criteria).toHaveLength(64);
 });
 
 test("calling threads cannot read or mutate each other's runs and deleting a thread removes its records", () => {

@@ -12,7 +12,7 @@ import {
   ToolRegistry,
 } from "@ace/mcp-server";
 
-test("providers receive the shipped Offshift workflow as a native skill and a guide that reveals its tool", async () => {
+test("providers receive the shipped Offshift workflow as a native skill, and the threads guide reveals its tool", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-offshift-skills-"));
   onTestFinished(() => rm(root, { recursive: true, force: true }));
   const guides = await builtinGuides();
@@ -30,21 +30,19 @@ test("providers receive the shipped Offshift workflow as a native skill and a gu
       sessionId: "skills",
       threadId: "thread",
       agentId: "root",
-      capabilities: [],
+      capabilities: ["thread_control"],
     }),
     new AbortController().signal,
   );
-  const result = await registry.call(
-    "ace_guide",
-    { topic: "offshift" },
-    lease.principal,
-    new AbortController().signal,
-  );
-  expect(result).toMatchObject({
+  const read = (topic: string) =>
+    registry.call("guide", { topic }, lease.principal, new AbortController().signal);
+  expect(await read("ace-threads")).toMatchObject({
+    structuredContent: { topic: "ace-threads", tools: expect.arrayContaining(["offshift"]) },
+  });
+  expect(await read("offshift")).toMatchObject({
     structuredContent: {
       topic: "offshift",
-      guide: expect.stringContaining("ace_offshift"),
-      tools: ["ace_offshift"],
+      guide: expect.stringContaining("call `guide` with topic `ace-threads`"),
     },
   });
   const guide = guides.find((entry) => entry.name === "offshift");
@@ -58,7 +56,6 @@ test("providers receive the shipped Offshift workflow as a native skill and a gu
         "utf8",
       );
       expect(skill).toContain(guide.body);
-      expect(skill).toContain('topic: "offshift"');
       if (provider === "claude")
         expect(session.directories).toEqual([join(sessionRoot, "generated/plugins/ace-builtins")]);
       else expect(session.args.join(" ")).toContain("ace-builtins@ace");

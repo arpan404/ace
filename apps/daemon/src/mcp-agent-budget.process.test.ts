@@ -98,8 +98,9 @@ it("each provider's per-request ace context stays within its budget", async () =
       names.join(" "),
     ].join("\n");
     // Every client starts small: deferred names, or the core list with tools_find (and, where the
-    // list never reloads, tools_call).
-    const budget = deferring.has(provider) ? 2_600 : reloading.has(provider) ? 3_200 : 3_300;
+    // list never reloads, tools_call). Deferring raised from 2,600 to 2,620 for offshift (#899):
+    // its deferred name and its guide topic.
+    const budget = deferring.has(provider) ? 2_620 : reloading.has(provider) ? 3_200 : 3_300;
     expect(tokens(always), provider).toBeLessThanOrEqual(budget);
   }
 });
