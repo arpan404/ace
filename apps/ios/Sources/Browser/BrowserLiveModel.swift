@@ -2,90 +2,61 @@ import CoreGraphics
 import Foundation
 import Observation
 
-/// Draws pictures; the live view's surface implements it.
-@MainActor protocol BrowserPictureSink: AnyObject {
-    func show(_ picture: BrowserPicture)
-}
-
 /// The thread's live browser view on this machine: the bridge's view and page state, and the
-/// pictures' path from the runtime's sockets to the screen. Acknowledgements go out once a
-/// picture is shown; while the app is in the background they are owed, so the daemon's window
-/// fills and it sends nothing more until the view is seen again (as the web does when hidden).
+/// pictures' path from the runtime's sockets to the screen. Chunks are decoded and acknowledged
+/// off the main thread (`BrowserRenderer`, `BrowserAcks`); the surface's display link takes the
+/// newest picture once per refresh (`nextPicture`), so nothing observed here changes per frame.
 @MainActor @Observable final class BrowserLiveModel {
     /// The thread whose browser the live view shows, while it is open.
     private(set) var threadId: String?
     private(set) var view: BrowserViewInfo?
     private(set) var page: BrowserPageInfo?
-    /// The latest picture's page size (CSS pixels); nil until the first picture.
+    /// The drawn picture's page size (CSS pixels); nil until the first picture is drawn.
     private(set) var pageSize: CGSize?
     /// Whether the open thread has a browser with a tab open (its Browser entry).
     private(set) var live: (threadId: String, epoch: Int, value: Bool)?
 
-    @ObservationIgnored weak var surface: BrowserPictureSink?
     @ObservationIgnored private var renderer: BrowserRenderer?
+    @ObservationIgnored private var latest: LatestBrowserPicture?
+    @ObservationIgnored private var acks: BrowserAcks?
     @ObservationIgnored private var generation: Int?
-    /// Open/close lifecycle for queued renderer callbacks: incremented on every open and close,
-    /// captured by each queued present/ack hop and rejected when stale. Separate from `generation`,
-    /// which tracks the daemon's viewer generation.
-    @ObservationIgnored private var openGeneration = 0
-    /// Schedules renderer callbacks onto the main actor. Tests replace it with a queued hop to
-    /// deterministically interleave close/open between the background callback and its main-actor run.
-    @ObservationIgnored var mainHop: @Sendable (@escaping @Sendable () -> Void) -> Void = { work in
-        DispatchQueue.main.async(execute: work)
-    }
     @ObservationIgnored private var visible = true
-    /// Acknowledgements held while the app isn't visible: the latest JPEG frame and video chunk.
-    @ObservationIgnored private var owed: (frame: BrowserAck?, video: BrowserAck?) = (nil, nil)
-    @ObservationIgnored private var sendAck: (BrowserAck) -> Void = { _ in }
 
     func hasBrowser(_ threadId: String, epoch: Int) -> Bool {
         guard let live else { return false }
         return live.threadId == threadId && live.epoch == epoch && live.value
     }
 
-    /// Start showing `threadId`'s browser: pictures from `streams` are decoded off the main thread.
-    func open(threadId: String, streams: BrowserStreamHub?, ack: @escaping (BrowserAck) -> Void) {
+    /// Start showing `threadId`'s browser: chunks from `streams` are decoded off the main thread,
+    /// and `ack` is called from the decoding queue.
+    func open(threadId: String, streams: BrowserStreamHub?, ack: @escaping @Sendable (BrowserAck) -> Void) {
         close(streams: streams)
-        openGeneration &+= 1
-        let fenced = openGeneration
-        let hop = mainHop
         self.threadId = threadId
-        sendAck = ack
-        let renderer = BrowserRenderer(threadId: threadId, present: { [weak self] picture in
-            hop {
-                MainActor.assumeIsolated {
-                    guard let self, self.openGeneration == fenced else { return }
-                    self.present(picture)
-                }
-            }
-        }, ack: { [weak self] value in
-            hop {
-                MainActor.assumeIsolated {
-                    guard let self, self.openGeneration == fenced else { return }
-                    self.acknowledge(value)
-                }
-            }
-        })
+        let latest = LatestBrowserPicture()
+        let acks = BrowserAcks(visible: visible, send: ack)
+        let renderer = BrowserRenderer(threadId: threadId, present: { latest.put($0) }, ack: { acks.acknowledge($0) })
+        self.latest = latest
+        self.acks = acks
         self.renderer = renderer
-        streams?.attach { message in renderer.receive(message) }
+        streams?.attach { chunk in renderer.receive(chunk) }
     }
     func close(streams: BrowserStreamHub?) {
-        openGeneration &+= 1
         streams?.attach(nil)
         renderer?.close()
-        renderer = nil
+        acks?.close()
+        renderer = nil; latest = nil; acks = nil
         threadId = nil; view = nil; page = nil; pageSize = nil; generation = nil
-        owed = (nil, nil)
-        sendAck = { _ in }
     }
     /// The app came to the foreground or left it.
     func setVisible(_ value: Bool) {
         visible = value
-        guard value else { return }
-        let held = owed
-        owed = (nil, nil)
-        if let frame = held.frame { sendAck(frame) }
-        if let video = held.video { sendAck(video) }
+        acks?.setVisible(value)
+    }
+    /// The newest picture decoded since the last call, for the display link; older ones are dropped.
+    func nextPicture() -> BrowserPicture? {
+        guard let picture = latest?.take() else { return nil }
+        if pageSize != picture.page { pageSize = picture.page }
+        return picture
     }
 
     func apply(_ patch: BrowserPatch) {
@@ -95,7 +66,7 @@ import Observation
         case .view(let threadId, let info):
             guard threadId == self.threadId else { return }
             if let generation, generation != info.generation {
-                // The daemon starts this viewer's pictures again: wait for its next keyframe.
+                // The daemon starts this viewer's video again: the last picture stays until its next keyframe.
                 renderer?.reset()
             }
             generation = info.generation
@@ -104,25 +75,5 @@ import Observation
             guard threadId == self.threadId else { return }
             if page != info { page = info }
         }
-    }
-
-    private func present(_ picture: BrowserPicture) {
-        guard threadId != nil else { return }
-        surface?.show(picture)
-        if pageSize != picture.page { pageSize = picture.page }
-        acknowledge(BrowserAck(sequence: picture.sequence, video: picture.video))
-    }
-    private func acknowledge(_ value: BrowserAck) {
-        guard threadId != nil else { return }
-        guard visible else {
-            if value.video {
-                // Cumulative: the newest sequence, still asking for a keyframe if any did.
-                let earlier = owed.video
-                owed.video = BrowserAck(sequence: max(value.sequence, earlier?.sequence ?? 0), video: true,
-                                        keyframe: value.keyframe || earlier?.keyframe == true)
-            } else { owed.frame = value }
-            return
-        }
-        sendAck(value)
     }
 }

@@ -28,6 +28,7 @@ import {
   CertificateWarning,
   Disconnected,
   LoadFailed,
+  NoVideo,
   Offline,
   Opening,
   StartPage,
@@ -142,9 +143,9 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
   );
   // The native view owns the page, even while it steps out from under a menu.
   const nativePage = native.shown || native.frozen !== undefined;
-  // Out from under a menu, the page is drawn from the live screencast (once a fresh frame
+  // Out from under a menu, the page is drawn from the live video (once a newer picture
   // replaces the still taken as the menu opened), so it keeps moving while the menu shows.
-  const still = useCoverStill(native.frozen, page.frame?.sequence);
+  const still = useCoverStill(native.frozen, page.frame);
   // Picture-in-picture lays the page out at the size it had here.
   useEffect(() => {
     const element = pageArea.current;
@@ -265,7 +266,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
         onReload={page.reload}
       />
     );
-  else if (live && shown && !blank && page.frame)
+  else if (live && shown && !blank && (page.frame || native.shown))
     content = (
       <PageView
         source={source}
@@ -277,7 +278,6 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
         nativeShown={native.shown}
         fit={!tools.toolbar}
         framed={tools.toolbar}
-        zoom={shown.zoom}
         cursor={pageCursor}
         onDropFiles={(files, at) => void browser.dropFiles(shown.tabId, files, at)}
         menu={chrome.menu}
@@ -285,8 +285,10 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
       />
     );
   else if (!online) content = <Offline />;
-  else if (page.loading || unopened || (live && shown && !blank && !page.frame))
-    content = <Opening download={page.download} />;
+  else if (page.loading || unopened) content = <Opening download={page.download} />;
+  else if (live && shown && !blank)
+    // No picture yet: the first keyframe is on its way, unless this client can't decode any.
+    content = page.decodesVideo === false ? <NoVideo /> : <Opening download={page.download} />;
   else content = <StartPage suggestions={page.suggestions} disabled={offline} onGo={page.go} />;
 
   return (

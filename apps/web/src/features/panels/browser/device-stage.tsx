@@ -35,7 +35,7 @@ const handles: { handle: ResizeHandle; label: string; className: string; grip: s
  * The page area in device mode: the device's viewport, framed and centred at the top of the
  * area, drawn at the toolbar's scale. In Responsive mode its right, bottom and corner handles
  * resize it live. `frame` is the viewport box itself: the desktop's native view is placed
- * exactly over it, and the screencast picture fills it.
+ * exactly over it, and the live picture fills it.
  */
 export function DeviceStage(props: {
   tools: PageTools;

@@ -11,17 +11,21 @@ import Testing
     static let delta = "4143455301020037000000090000003d0000000040240000000000004060800000000000000001860000034c049209e4000b617663312e343245303333000000087468726561642d31000000000002419a"
     static let download = "414345530108001e0000000a00000021000000000000000000000000400800000000000000087468726561642d3100026431010203"
 
-    @Test func aJPEGFrameFromTheDaemonReadsWithItsSizeTabAndBytes() throws {
+    @Test func jpegFramesAreSkippedUnreadSinceTheLiveViewIsVideoOnly() throws {
         var router = BinaryRouter()
-        guard case .stream(.frame(let frame)) = router.route(try bytes(Self.frame)) else { Issue.record("no frame"); return }
-        #expect(frame == BrowserJPEGFrame(threadId: "thread-1", sequence: 42, timestamp: 1234.5, width: 390, height: 844,
-                                          tabId: "tab-2", bytes: Data([0xff, 0xd8, 0xff, 0xd9])))
+        #expect(router.route(try bytes(Self.frame)) == BinaryRouter.Outcome.none)
+        // Its header isn't read, so one the video reader would refuse doesn't drop the connection.
+        var small = try bytes(Self.frame)
+        small[20 + 16 + 2] = 0; small[20 + 16 + 3] = 50
+        #expect(router.route(small) == BinaryRouter.Outcome.none)
+        guard case .stream(let key) = router.route(try bytes(Self.keyframe)) else { Issue.record("no video"); return }
+        #expect(key.sequence == 9)
     }
 
     @Test func aVideoKeyframeCarriesItsDecoderDescriptionAndADeltaDoesNot() throws {
         var router = BinaryRouter()
-        guard case .stream(.video(let key)) = router.route(try bytes(Self.keyframe)),
-              case .stream(.video(let delta)) = router.route(try bytes(Self.delta)) else { Issue.record("no video"); return }
+        guard case .stream(let key) = router.route(try bytes(Self.keyframe)),
+              case .stream(let delta) = router.route(try bytes(Self.delta)) else { Issue.record("no video"); return }
         #expect(key.key && !delta.key)
         #expect(key.sequence == 9 && delta.sequence == 10)
         #expect(key.codec == "avc1.42E033")
@@ -41,46 +45,46 @@ import Testing
         // Not a stream piece at all: the SDK's own binary channel reads it.
         #expect(router.route(Data("{\"type\":\"x\"}".utf8)) == .sdk)
         // The router still reads the next message whole.
-        guard case .stream(.frame) = router.route(try bytes(Self.frame)) else { Issue.record("no frame"); return }
+        guard case .stream = router.route(try bytes(Self.keyframe)) else { Issue.record("no video"); return }
     }
 
     @Test func aMessageCutIntoPiecesIsAssembledOnceItsLastPieceArrives() throws {
         let payload = Data((0..<150_000).map { UInt8($0 % 251) })
-        let pieces = Self.pieces(kind: 1, id: 3, meta: try frameMeta(), payload: payload)
+        let pieces = Self.pieces(kind: 2, id: 3, meta: try keyframeMeta(), payload: payload)
         #expect(pieces.count == 3)
         #expect(pieces.allSatisfy { $0.count <= StreamWire.pieceBytes })
         var router = BinaryRouter()
         #expect(router.route(pieces[0]) == BinaryRouter.Outcome.none)
         #expect(router.route(pieces[1]) == BinaryRouter.Outcome.none)
-        guard case .stream(.frame(let frame)) = router.route(pieces[2]) else { Issue.record("no frame"); return }
-        #expect(frame.bytes == payload)
-        #expect(frame.sequence == 42)
+        guard case .stream(let chunk) = router.route(pieces[2]) else { Issue.record("no video"); return }
+        #expect(chunk.bytes == payload)
+        #expect(chunk.sequence == 9)
     }
 
     @Test func aNewMessageReplacesOneItsSenderGaveUpOn() throws {
-        let first = Self.pieces(kind: 1, id: 1, meta: try frameMeta(), payload: Data(repeating: 1, count: 100_000))
+        let first = Self.pieces(kind: 2, id: 1, meta: try keyframeMeta(), payload: Data(repeating: 1, count: 100_000))
         var router = BinaryRouter()
         #expect(router.route(first[0]) == BinaryRouter.Outcome.none)
-        guard case .stream(.frame) = router.route(try bytes(Self.frame)) else { Issue.record("no frame"); return }
+        guard case .stream = router.route(try bytes(Self.keyframe)) else { Issue.record("no video"); return }
     }
 
     @Test func malformedPiecesBreakTheConnection() throws {
         var outOfOrder = BinaryRouter()
-        let pieces = Self.pieces(kind: 1, id: 1, meta: try frameMeta(), payload: Data(repeating: 1, count: 100_000))
+        let pieces = Self.pieces(kind: 2, id: 1, meta: try keyframeMeta(), payload: Data(repeating: 1, count: 100_000))
         #expect(outOfOrder.route(pieces[1]) == .broken)
 
-        var version = try bytes(Self.frame)
+        var version = try bytes(Self.keyframe)
         version[4] = 2
         var router = BinaryRouter()
         #expect(router.route(version) == .broken)
 
-        // A JPEG frame whose page size is outside the protocol's bounds.
-        var small = try bytes(Self.frame)
+        // A video chunk whose page size is outside the protocol's bounds.
+        var small = try bytes(Self.keyframe)
         small[20 + 16 + 2] = 0; small[20 + 16 + 3] = 50
         #expect(router.route(small) == .broken)
 
         // Pieces never exceed 64 KiB.
-        var oversized = Self.pieces(kind: 1, id: 1, meta: try frameMeta(), payload: Data(count: 10))[0]
+        var oversized = Self.pieces(kind: 2, id: 1, meta: try keyframeMeta(), payload: Data(count: 10))[0]
         oversized.append(Data(count: StreamWire.pieceBytes))
         #expect(router.route(oversized) == .broken)
     }
@@ -98,8 +102,8 @@ import Testing
 
     @Test func deltasBeforeTheFirstKeyframeAreSkippedThenTheKeyframeConfiguresTheDecoder() throws {
         var router = BinaryRouter()
-        guard case .stream(.video(let key)) = router.route(try bytes(Self.keyframe)),
-              case .stream(.video(let delta)) = router.route(try bytes(Self.delta)) else { Issue.record("no video"); return }
+        guard case .stream(let key) = router.route(try bytes(Self.keyframe)),
+              case .stream(let delta) = router.route(try bytes(Self.delta)) else { Issue.record("no video"); return }
         var gate = VideoChunkGate()
         #expect(gate.admit(delta) == .skip)
         let config = VideoDecoderConfig(codec: "avc1.42E033", codedWidth: 1170, codedHeight: 2532, description: key.description)
@@ -111,15 +115,15 @@ import Testing
 
     @Test func aDecodeErrorAsksForAKeyframeAtTheNewestChunkAndSkipsUntilOne() throws {
         var router = BinaryRouter()
-        guard case .stream(.video(let key)) = router.route(try bytes(Self.keyframe)),
-              case .stream(.video(let delta)) = router.route(try bytes(Self.delta)) else { Issue.record("no video"); return }
+        guard case .stream(let key) = router.route(try bytes(Self.keyframe)),
+              case .stream(let delta) = router.route(try bytes(Self.delta)) else { Issue.record("no video"); return }
         var gate = VideoChunkGate()
         _ = gate.admit(key)
         _ = gate.admit(delta)
         #expect(gate.failed() == 10)
         #expect(gate.admit(delta) == .skip)
         #expect(gate.admit(key) != .skip)
-        // A reset (a JPEG frame, a new tab) forgets everything: nothing to ask a keyframe for.
+        // A reset (a new subscription or tab) forgets everything: nothing to ask a keyframe for.
         gate.reset()
         #expect(gate.failed() == nil)
     }
@@ -136,10 +140,10 @@ import Testing
         }
         return data
     }
-    /// The golden frame's header.
-    private func frameMeta() throws -> Data {
-        let frame = try bytes(Self.frame)
-        return frame.subdata(in: 20..<(20 + 41))
+    /// The golden keyframe's header.
+    private func keyframeMeta() throws -> Data {
+        let keyframe = try bytes(Self.keyframe)
+        return keyframe.subdata(in: 20..<(20 + 77))
     }
     /// A message cut into socket-sized pieces as the envelope's spec describes.
     static func pieces(kind: UInt8, id: UInt32, meta: Data, payload: Data) -> [Data] {

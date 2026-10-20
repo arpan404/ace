@@ -137,7 +137,7 @@ export class FakeServicesWire {
   ): Omit<CommandResult, "commandId"> | undefined {
     return this.workspace.command(payload, commandId);
   }
-  session(send: (message: Message) => void): FakeWireSession {
+  session(send: (message: Message) => void, binary?: (bytes: Uint8Array) => void): FakeWireSession {
     const subscriptions = new Map<string, () => void>();
     const terminalStreams = new Map<string, FakeTerminalStream>();
     let closed = false;
@@ -162,6 +162,7 @@ export class FakeServicesWire {
       this.host,
       emit,
       `fake-browser-${++this.connectionSequence}`,
+      binary,
     );
     let stopBrowsing: (() => void) | undefined;
     let browsing = "";

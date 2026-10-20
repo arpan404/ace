@@ -393,8 +393,11 @@ export class FakeDaemon implements Host {
   seedServices(seed: ServicesSeed): void {
     this.servicesWire.seed(seed);
   }
-  session(send: (message: ServerMessage) => void): FakeWireSession {
-    const services = this.servicesWire.session(send);
+  session(
+    send: (message: ServerMessage) => void,
+    binary?: (bytes: Uint8Array) => void,
+  ): FakeWireSession {
+    const services = this.servicesWire.session(send, binary);
     let admin = false;
     const screen = this.screen.connection((message) => {
       if (admin && !(message instanceof Uint8Array)) send(message);

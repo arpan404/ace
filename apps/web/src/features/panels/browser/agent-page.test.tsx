@@ -3,6 +3,7 @@ import { createMemoryHistory } from "@tanstack/react-router";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
+import { browserVideo } from "@/test/browser-video.ts";
 import { harness } from "@/test/harness.tsx";
 
 const threadId = "thread-cold-start";
@@ -38,6 +39,7 @@ async function expectAgentTabShown() {
 /** The thread, opened from Settings › Browser after turning on the panel opening by itself. */
 async function openWithRevealOn() {
   const history = createMemoryHistory({ initialEntries: ["/settings/browser"] });
+  browserVideo();
   const app = harness({ history });
   const scenario = coldStartReplay();
   app.play(scenario).step();
@@ -54,6 +56,7 @@ async function openWithRevealOn() {
 }
 
 test("by default a page an agent opens leaves the side panel closed, and its transcript row opens it", async () => {
+  browserVideo();
   const app = harness();
   const scenario = coldStartReplay();
   app.play(scenario).step();

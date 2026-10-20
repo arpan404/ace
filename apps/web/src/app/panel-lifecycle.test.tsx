@@ -10,11 +10,17 @@ import { daemonPreview } from "@/features/panels/preview/daemon-preview.ts";
 import { panelServices, type PanelServices } from "@/features/panels/services.ts";
 import { daemonTerminals } from "@/features/panels/terminal/daemon-terminals.ts";
 import { TerminalSessions } from "@/features/panels/terminal/sessions.ts";
+import {
+  instantDecoder,
+  playsH264,
+  type TrackedPicture,
+} from "@/features/panels/preview/video-test-support.ts";
+
+/** Each preview's decoded pictures, so a test sees which are still held. */
+const decoded = new WeakMap<object, TrackedPicture[]>();
 
 function documentBoundary() {
   const listeners = new Set<() => void>();
-  const released: string[] = [];
-  let sequence = 0;
   const visibility: PageVisibility = {
     visible: () => true,
     watch(listener) {
@@ -26,23 +32,15 @@ function documentBoundary() {
   };
   return {
     listeners,
-    released,
     sources(client: ClientApi) {
-      return {
-        terminals: new TerminalSessions(daemonTerminals(client)),
-        preview: daemonPreview(client, {
-          visibility,
-          decode: async () => {
-            const src = `lifecycle-frame-${++sequence}`;
-            return {
-              src,
-              release: () => {
-                released.push(src);
-              },
-            };
-          },
-        }),
-      };
+      const decoder = instantDecoder();
+      const preview = daemonPreview(client, {
+        visibility,
+        videoDecoder: decoder.factory,
+        videoSupport: playsH264,
+      });
+      decoded.set(preview, decoder.pictures);
+      return { terminals: new TerminalSessions(daemonTerminals(client)), preview };
     },
   };
 }
@@ -55,15 +53,16 @@ function renderer(client: ClientApi, key: string) {
   );
 }
 
-async function warm(sources: Pick<PanelServices, "preview">) {
+/** Shows the thread's page once, then stops watching: the preview keeps its last picture. */
+async function warm(sources: Pick<PanelServices, "preview">): Promise<TrackedPicture> {
   const unwatch = sources.preview.watch("thread-settings");
   await sources.preview.open("thread-settings", failingSubagent().thread.workspaceId);
   await waitFor(() => expect(sources.preview.frame("thread-settings")).toBeDefined());
   unwatch();
   await Promise.resolve();
-  const src = sources.preview.frame("thread-settings")?.src;
-  if (!src) throw new Error("Missing warm frame");
-  return src;
+  const held = decoded.get(sources.preview)?.findLast((picture) => !picture.closed);
+  if (!held) throw new Error("Missing warm picture");
+  return held;
 }
 
 test("replacing the App client retires its warm preview while preserving the new client's cache", async () => {
@@ -86,12 +85,12 @@ test("replacing the App client retires its warm preview while preserving the new
   view.rerender(renderer(next, "next"));
   await waitFor(() => expect(boundary.listeners.size).toBe(1));
   expect(retired.preview.frame("thread-settings")).toBeUndefined();
-  expect(boundary.released.filter((src) => src === oldFrame)).toEqual([oldFrame]);
-  expect(current.preview.frame("thread-settings")?.src).toBe(currentFrame);
-  expect(boundary.released).not.toContain(currentFrame);
+  expect(oldFrame.closed).toBe(true);
+  expect(current.preview.frame("thread-settings")?.sequence).toBe(currentFrame.sequence);
+  expect(currentFrame.closed).toBe(false);
   view.unmount();
   expect(boundary.listeners.size).toBe(0);
-  expect(boundary.released.filter((src) => src === currentFrame)).toEqual([currentFrame]);
+  expect(currentFrame.closed).toBe(true);
 });
 
 test("a pending panel load completing after App retirement releases its frames and cannot revive its owner", async () => {
@@ -113,7 +112,7 @@ test("a pending panel load completing after App retirement releases its frames a
   });
   expect(boundary.listeners.size).toBe(0);
   expect(sources.preview.frame("thread-settings")).toBeUndefined();
-  expect(boundary.released.filter((src) => src === frame)).toEqual([frame]);
+  expect(frame.closed).toBe(true);
   const fresh = await panelServices(client, async () => boundary.sources(client));
   expect(await warm(fresh)).not.toBe(frame);
   // A new mounted owner releases only its own resources when it leaves.

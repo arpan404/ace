@@ -42,7 +42,7 @@ struct VideoChunkGate {
         latest = newest
         return newest >= 0 ? newest : nil
     }
-    /// Forget the decoder's place (a new subscription, a tab switch, a JPEG frame): wait for a keyframe.
+    /// Forget the decoder's place (a new subscription, a tab switch): wait for a keyframe.
     mutating func reset() {
         config = nil
         latest = -1

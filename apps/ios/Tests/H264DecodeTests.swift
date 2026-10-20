@@ -11,11 +11,12 @@ import VideoToolbox
     @Test func aKeyframeAndTheDeltaAfterItDecodeAtTheirCodedSize() throws {
         let (description, chunks) = try Self.encode(width: 320, height: 240, frames: 2)
         let decoder = try H264Decoder(config: VideoDecoderConfig(codec: "avc1.42E033", codedWidth: 320, codedHeight: 240, description: description))
+        var samples = DisplaySamples()
         for chunk in chunks {
             let picture = try decoder.decode(chunk)
             #expect(CVPixelBufferGetWidth(picture) == 320)
             #expect(CVPixelBufferGetHeight(picture) == 240)
-            #expect(H264Decoder.displayBuffer(picture) != nil)
+            #expect(samples.sample(picture) != nil)
         }
     }
 

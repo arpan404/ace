@@ -3,6 +3,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import type { NativeViewPlacement } from "@/boot/desktop-browser.ts";
+import { browserVideo } from "@/test/browser-video.ts";
 import { harness } from "@/test/harness.tsx";
 import { nativeViewPlacement } from "./native-view.ts";
 
@@ -113,7 +114,9 @@ afterEach(() => {
   HTMLElement.prototype.getBoundingClientRect = original;
 });
 
-async function openEmbeddedBrowser() {
+/** The agent's embedded page in the panel; `video: false` on a client without WebCodecs. */
+async function openEmbeddedBrowser(options: { video?: boolean } = {}) {
+  if (options.video !== false) browserVideo();
   const app = harness();
   const scenario = coldStartReplay();
   app.play(scenario).runThrough("turn-2");
@@ -142,6 +145,16 @@ test("in the desktop app the browser tab draws the embedded page over its page a
       bounds: { x: 500, y: 100, width: 400, height: 600 },
       visible: true,
     }),
+  );
+});
+
+test("the embedded page shows natively without waiting for a video picture", async () => {
+  // The desktop's embedded pages have no video to send, so no picture ever comes.
+  const { panel } = await openEmbeddedBrowser({ video: false });
+  await waitFor(() => expect(last()?.visible).toBe(true));
+  expect(within(panel).queryByRole("status")).toBeNull();
+  expect(within(panel).queryByRole("heading", { name: "This browser can't decode video" })).toBe(
+    null,
   );
 });
 
@@ -208,6 +221,7 @@ test("a menu over the page keeps it moving: live frames replace its picture unti
 });
 
 test("a page from the daemon's own headless browser is never placed natively", async () => {
+  browserVideo();
   const app = harness();
   const scenario = coldStartReplay();
   app.play(scenario).runThrough("turn-2");

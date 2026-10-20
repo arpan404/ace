@@ -13,9 +13,9 @@ import type { PatchSink, Preview } from "./agents.ts";
 
 /*
  * The thread's live browser view (ADR 0088, #1061). The bridge owns the subscription, the page's
- * state and the person's input; Swift owns the pictures. Binary stream messages (JPEG frames
- * and H.264 chunks) never enter JavaScriptCore: the native socket assembles and decodes them
- * itself, and acknowledges each one through `ack` once it is on screen.
+ * state and the person's input; Swift owns the pictures. The view is video only: H.264 chunks
+ * never enter JavaScriptCore, the native socket assembles and decodes them itself, and
+ * acknowledges each one through `ack` as soon as it is decoded.
  */
 
 export type BrowserOwner = Pick<
@@ -49,11 +49,10 @@ const BrowserAction = z.discriminatedUnion("kind", [
   /** The view's size changed (layout, rotation): the page takes it, as a touch screen. */
   z.object({ kind: z.literal("viewport"), viewport: Viewport }),
   z.object({ kind: z.literal("input"), input: z.unknown() }),
-  /** A picture is on screen: JPEG frames one at a time, video chunks cumulatively. */
+  /** Video chunks up to `sequence` are decoded (cumulative); `keyframe` after a decode error. */
   z.object({
     kind: z.literal("ack"),
     sequence: z.number().int().nonnegative(),
-    video: z.boolean().optional(),
     keyframe: z.boolean().optional(),
   }),
   z.object({
@@ -225,7 +224,7 @@ export class BrowserLive {
             requestId: this.#requestId(),
             threadId: watch.threadId,
             sequence: action.sequence,
-            ...(action.video ? { video: true } : {}),
+            video: true,
             ...(action.keyframe ? { keyframe: true } : {}),
           });
         } catch {

@@ -1,6 +1,6 @@
+import CoreVideo
 import Foundation
 import Testing
-import UIKit
 @testable import Ace
 
 /// The live view's native path, from the runtime's socket hub to the screen and back to the
@@ -67,77 +67,59 @@ import UIKit
         #expect(model.browser.threadId == nil)
     }
 
-    @Test func aJPEGFrameIsShownThenAcknowledged() async throws {
-        let (model, session) = try await connected()
-        let surface = RecordingSurface()
-        model.browser.surface = surface
-        model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
-        session.hub.deliver(.frame(BrowserJPEGFrame(threadId: "thread", sequence: 5, timestamp: 0, width: 390, height: 700,
-                                                    tabId: "t", bytes: try jpeg())))
-        try await until { session.acks.count == 1 }
-        #expect(surface.shown == [5])
-        #expect(model.browser.pageSize == CGSize(width: 390, height: 700))
-        #expect(session.acks.first?["sequence"] as? Int == 5)
-        #expect(session.acks.first?["video"] == nil)
-        // Another thread's pictures are not this view's.
-        session.hub.deliver(.frame(BrowserJPEGFrame(threadId: "other", sequence: 6, timestamp: 0, width: 390, height: 700,
-                                                    tabId: nil, bytes: try jpeg())))
-        session.hub.deliver(.frame(BrowserJPEGFrame(threadId: "thread", sequence: 7, timestamp: 0, width: 390, height: 700,
-                                                    tabId: nil, bytes: Data([1, 2, 3]))))
-        // A frame that can't be decoded is still acknowledged, so the next one comes.
-        try await until { session.acks.count == 2 }
-        #expect(session.acks.map { $0["sequence"] as? Int } == [5, 7])
-        #expect(surface.shown == [5])
-    }
-
     @Test func videoBeforeItsKeyframeIsAcknowledgedAndABrokenKeyframeAsksForAnother() async throws {
         let (model, session) = try await connected()
-        model.browser.surface = RecordingSurface()
         model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
-        session.hub.deliver(.video(chunk(sequence: 3, key: false)))
+        // Another thread's chunks are not this view's: never decoded, never acknowledged.
+        session.hub.deliver(chunk(sequence: 2, key: false, threadId: "other"))
+        session.hub.deliver(chunk(sequence: 3, key: false))
         try await until { session.acks.count == 1 }
-        #expect(session.acks[0]["video"] as? Bool == true)
+        #expect(session.acks[0]["sequence"] as? Int == 3)
         #expect(session.acks[0]["keyframe"] == nil)
         // A keyframe whose bytes don't decode: the newest chunk is acknowledged with a keyframe request.
-        session.hub.deliver(.video(chunk(sequence: 4, key: true)))
+        session.hub.deliver(chunk(sequence: 4, key: true))
         try await until { session.acks.count == 2 }
         #expect(session.acks[1]["sequence"] as? Int == 4)
         #expect(session.acks[1]["keyframe"] as? Bool == true)
+        // Nothing was decoded, so the view still waits for its first picture.
+        #expect(model.browser.nextPicture() == nil)
+        #expect(model.browser.pageSize == nil)
     }
 
-    @Test func realVideoIsDecodedShownAndAcknowledgedCumulatively() async throws {
+    @Test func everyDecodedChunkIsAcknowledgedAndTheScreenDrawsOnlyTheNewest() async throws {
         let (model, session) = try await connected()
-        let surface = RecordingSurface()
-        model.browser.surface = surface
         model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
-        let (description, encoded) = try H264DecodeTests.encode(width: 320, height: 240, frames: 2)
-        for (index, bytes) in encoded.enumerated() {
-            session.hub.deliver(.video(BrowserVideoChunk(
-                threadId: "thread", sequence: 20 + index, timestamp: 0, width: 400, height: 300, codedWidth: 320, codedHeight: 240,
-                codec: "avc1.42E033", key: index == 0, description: index == 0 ? description : nil, tabId: nil, bytes: bytes)))
-        }
-        try await until { session.acks.count == 2 }
-        #expect(surface.shown == [20, 21])
-        #expect(session.acks.map { $0["sequence"] as? Int } == [20, 21])
-        #expect(session.acks.allSatisfy { $0["video"] as? Bool == true && $0["keyframe"] == nil })
+        for chunk in try realVideo(threadId: "thread", from: 20, frames: 3) { session.hub.deliver(chunk) }
+        // Acknowledged as each is decoded, before any screen refresh draws one.
+        try await until { session.acks.count == 3 }
+        #expect(session.acks.map { $0["sequence"] as? Int } == [20, 21, 22])
+        #expect(session.acks.allSatisfy { $0["keyframe"] == nil })
+        #expect(model.browser.pageSize == nil)
+        // The next refresh draws the newest picture; the older ones are dropped.
+        let drawn = try #require(model.browser.nextPicture())
+        #expect(drawn.sequence == 22)
+        #expect(CVPixelBufferGetWidth(drawn.image) == 320)
+        #expect(model.browser.nextPicture() == nil)
         // Input maps to the page's CSS size, not the coded picture's.
         #expect(model.browser.pageSize == CGSize(width: 400, height: 300))
     }
 
-    @Test func inTheBackgroundAcknowledgementsWaitSoTheDaemonPauses() async throws {
+    @Test func inTheBackgroundOnlyTheNewestAcknowledgementWaitsSoTheDaemonPauses() async throws {
         let (model, session) = try await connected()
-        model.browser.surface = RecordingSurface()
         model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
         model.browser.setVisible(false)
-        session.hub.deliver(.video(chunk(sequence: 3, key: false)))
-        session.hub.deliver(.video(chunk(sequence: 4, key: false)))
-        session.hub.deliver(.frame(BrowserJPEGFrame(threadId: "thread", sequence: 8, timestamp: 0, width: 390, height: 700,
-                                                    tabId: nil, bytes: try jpeg())))
-        try await until { model.browser.pageSize != nil }
+        session.hub.deliver(chunk(sequence: 3, key: false))
+        for chunk in try realVideo(threadId: "thread", from: 20, frames: 2) { session.hub.deliver(chunk) }
+        // Still decoded while hidden.
+        var drawn: BrowserPicture?
+        try await until {
+            drawn = model.browser.nextPicture() ?? drawn
+            return drawn?.sequence == 21
+        }
         try await Task.sleep(for: .milliseconds(50))
         #expect(session.acks.isEmpty)
         model.browser.setVisible(true)
-        #expect(session.acks.map { $0["sequence"] as? Int } == [8, 4])
+        #expect(session.acks.map { $0["sequence"] as? Int } == [21])
     }
 
     @Test func pageStateFollowsTheOpenViewOnly() async throws {
@@ -167,58 +149,45 @@ import UIKit
 
     // MARK: - Reopen fence
 
-    @Test func reopeningDropsAQueuedPictureAndItsAcknowledgement() async throws {
-        let hop = QueuedHop()
+    @Test func aReopenedViewNeverDrawsOrAcknowledgesTheEarlierViewsVideo() async throws {
         let hub = BrowserStreamHub()
         let model = BrowserLiveModel()
-        model.mainHop = { hop.call($0) }
-        let surface = RecordingSurface()
-        model.surface = surface
-        let staleAcks = AckLog()
-        let freshAcks = AckLog()
-        model.open(threadId: "A", streams: hub, ack: { staleAcks.record($0) })
-        hub.deliver(.frame(BrowserJPEGFrame(threadId: "A", sequence: 11, timestamp: 0, width: 390, height: 700,
-                                                     tabId: nil, bytes: try jpeg())))
-        // Close A and open B before A's queued present runs.
-        model.open(threadId: "B", streams: hub, ack: { freshAcks.record($0) })
-        try await until { hop.count >= 1 }
-        for block in hop.take() { block() }
-        #expect(surface.shown.isEmpty)
-        #expect(staleAcks.count == 0)
-        #expect(freshAcks.count == 0)
+        let first = AckLog(), second = AckLog()
+        model.open(threadId: "A", streams: hub, ack: { first.record($0) })
+        for chunk in try realVideo(threadId: "A", from: 10, frames: 1) { hub.deliver(chunk) }
+        try await until { first.count == 1 }
+        model.open(threadId: "B", streams: hub, ack: { second.record($0) })
+        #expect(model.nextPicture() == nil)
         #expect(model.pageSize == nil)
-        // The current generation still presents and acknowledges.
-        hub.deliver(.frame(BrowserJPEGFrame(threadId: "B", sequence: 12, timestamp: 0, width: 390, height: 700,
-                                                     tabId: nil, bytes: try jpeg())))
-        try await until { hop.count >= 1 }
-        for block in hop.take() { block() }
-        #expect(surface.shown == [12])
-        #expect(freshAcks.sequences == [12])
+        // Chunks for the earlier thread aren't this view's; the current one's are drawn and acknowledged.
+        for chunk in try realVideo(threadId: "A", from: 11, frames: 1) + realVideo(threadId: "B", from: 12, frames: 1) {
+            hub.deliver(chunk)
+        }
+        try await until { second.count == 1 }
+        #expect(second.sequences == [12])
+        #expect(first.sequences == [10])
+        #expect(model.nextPicture()?.sequence == 12)
     }
 
-    @Test func reopeningDropsAQueuedAcknowledgement() async throws {
-        let hop = QueuedHop()
-        let hub = BrowserStreamHub()
-        let model = BrowserLiveModel()
-        model.mainHop = { hop.call($0) }
-        model.surface = RecordingSurface()
-        let staleAcks = AckLog()
-        let freshAcks = AckLog()
-        model.open(threadId: "A", streams: hub, ack: { staleAcks.record($0) })
-        // Bytes that can't be decoded are acknowledged at once, without a picture.
-        hub.deliver(.frame(BrowserJPEGFrame(threadId: "A", sequence: 13, timestamp: 0, width: 390, height: 700,
-                                                     tabId: nil, bytes: Data([1, 2, 3]))))
-        model.open(threadId: "B", streams: hub, ack: { freshAcks.record($0) })
-        try await until { hop.count >= 1 }
-        for block in hop.take() { block() }
-        #expect(staleAcks.count == 0)
-        #expect(freshAcks.count == 0)
-        // The current generation still acknowledges.
-        hub.deliver(.frame(BrowserJPEGFrame(threadId: "B", sequence: 14, timestamp: 0, width: 390, height: 700,
-                                                     tabId: nil, bytes: Data([1, 2, 3]))))
-        try await until { hop.count >= 1 }
-        for block in hop.take() { block() }
-        #expect(freshAcks.sequences == [14])
+    @Test func aClosedViewSendsNoAcknowledgementEvenOneOwedFromTheBackground() {
+        let log = AckLog()
+        let acks = BrowserAcks(visible: false, send: { log.record($0) })
+        acks.acknowledge(BrowserAck(sequence: 3))
+        acks.close()
+        acks.acknowledge(BrowserAck(sequence: 4))
+        acks.setVisible(true)
+        #expect(log.count == 0)
+    }
+
+    @Test func aKeyframeRequestOwedFromTheBackgroundIsStillMadeOnReturn() {
+        let log = AckLog()
+        let acks = BrowserAcks(visible: false, send: { log.record($0) })
+        acks.acknowledge(BrowserAck(sequence: 3, keyframe: true))
+        acks.acknowledge(BrowserAck(sequence: 5))
+        acks.setVisible(true)
+        #expect(log.values == [BrowserAck(sequence: 5, keyframe: true)])
+        acks.acknowledge(BrowserAck(sequence: 6))
+        #expect(log.values.last == BrowserAck(sequence: 6))
     }
 
     // MARK: - Helpers
@@ -231,18 +200,21 @@ import UIKit
         model.open("thread")
         return (model, session)
     }
-    private func chunk(sequence: Int, key: Bool) -> BrowserVideoChunk {
-        BrowserVideoChunk(threadId: "thread", sequence: sequence, timestamp: 0, width: 390, height: 700, codedWidth: 1170,
+    /// A chunk whose bytes aren't real H.264: a keyframe of it fails to decode.
+    private func chunk(sequence: Int, key: Bool, threadId: String = "thread") -> BrowserVideoChunk {
+        BrowserVideoChunk(threadId: threadId, sequence: sequence, timestamp: 0, width: 390, height: 700, codedWidth: 1170,
                           codedHeight: 2100, codec: "avc1.42E033", key: key,
                           description: key ? Data([1, 0x42, 0xe0, 0x33, 0xff, 0xe1, 0, 4, 0x67, 0x42, 0xe0, 0x33, 1, 0, 2, 0x68, 0xce]) : nil,
                           tabId: nil, bytes: Data([0, 0, 0, 2, 0x65, 0x88]))
     }
-    private func jpeg() throws -> Data {
-        let image = UIGraphicsImageRenderer(size: CGSize(width: 4, height: 4)).image { context in
-            UIColor.red.setFill()
-            context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+    /// Real H.264 from VideoToolbox, as the daemon's chunks: a keyframe then deltas, on a 400 × 300 CSS pixel page.
+    private func realVideo(threadId: String, from sequence: Int, frames: Int) throws -> [BrowserVideoChunk] {
+        let (description, encoded) = try H264DecodeTests.encode(width: 320, height: 240, frames: frames)
+        return encoded.enumerated().map { index, bytes in
+            BrowserVideoChunk(threadId: threadId, sequence: sequence + index, timestamp: 0, width: 400, height: 300, codedWidth: 320,
+                              codedHeight: 240, codec: "avc1.42E033", key: index == 0, description: index == 0 ? description : nil,
+                              tabId: nil, bytes: bytes)
         }
-        return try #require(image.jpegData(compressionQuality: 0.8))
     }
     private func frame(_ values: [[String: Any]]) throws -> Data { try JSONSerialization.data(withJSONObject: values) }
     private func working(_ epoch: Int) -> [String: Any] {
@@ -259,27 +231,13 @@ import UIKit
     }
 }
 
-@MainActor private final class RecordingSurface: BrowserPictureSink {
-    var shown: [Int] = []
-    func show(_ picture: BrowserPicture) { shown.append(picture.sequence) }
-}
-
-/// Queued main-actor hop for reopen-fence tests: renderer callbacks schedule here off the main
-/// thread, and the test flushes the blocks on the main actor to interleave close/open deterministically.
-private final class QueuedHop: @unchecked Sendable {
-    private let lock = NSLock()
-    private var blocks: [@Sendable () -> Void] = []
-    func call(_ block: @escaping @Sendable () -> Void) { lock.withLock { blocks.append(block) } }
-    var count: Int { lock.withLock { blocks.count } }
-    func take() -> [@Sendable () -> Void] { lock.withLock { let taken = blocks; blocks = []; return taken } }
-}
-
 private final class AckLog: @unchecked Sendable {
     private let lock = NSLock()
-    private var values: [BrowserAck] = []
-    func record(_ value: BrowserAck) { lock.withLock { values.append(value) } }
-    var count: Int { lock.withLock { values.count } }
-    var sequences: [Int] { lock.withLock { values.map(\.sequence) } }
+    private var recorded: [BrowserAck] = []
+    func record(_ value: BrowserAck) { lock.withLock { recorded.append(value) } }
+    var values: [BrowserAck] { lock.withLock { recorded } }
+    var count: Int { values.count }
+    var sequences: [Int] { values.map(\.sequence) }
 }
 
 private final class BrowserRecorder: ClientSession, @unchecked Sendable {

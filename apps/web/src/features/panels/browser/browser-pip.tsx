@@ -25,7 +25,7 @@ const windowSize = () => ({ width: innerWidth, height: innerHeight });
  * corner; it remembers where it was. Its title (and, in a browser, the page) brings the Browser
  * back in the panel; × puts it away. In the desktop app the page's own native view moves into
  * it, laid out at its panel size and scaled down, so it never reloads or reflows; elsewhere it
- * draws the live screencast.
+ * draws the live video.
  */
 export function BrowserPip(props: {
   source: PreviewSource;
@@ -51,12 +51,12 @@ export function BrowserPip(props: {
   const body = useRef<HTMLDivElement>(null);
   const native = !!desktopBrowserViews() && props.view.backend === "embedded";
   const placed = useNativeView(props.threadId, body, native, { device: size, padding: 0 });
-  // Drawn from the screencast in a browser, and in the desktop app while the native view is
-  // out of the way (a menu or toast over the window): first its still, then the live frames.
+  // Drawn from the live video in a browser, and in the desktop app while the native view is
+  // out of the way (a menu or toast over the window): first its still, then the live pictures.
   const frame = props.source.frame(props.threadId);
-  const still = useCoverStill(placed.frozen, frame?.sequence);
+  const still = useCoverStill(placed.frozen, frame);
   const { source, threadId } = props;
-  // The daemon's frames are drawn here whenever the native view isn't.
+  // The daemon's video is drawn here whenever the native view isn't.
   const drawnNatively = native && placed.shown;
   useEffect(() => source.nativeShown?.(threadId, drawnNatively), [source, threadId, drawnNatively]);
 

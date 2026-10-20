@@ -3,6 +3,7 @@ import { createMemoryHistory } from "@tanstack/react-router";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { browserVideo } from "@/test/browser-video.ts";
 import { harness } from "@/test/harness.tsx";
 import { openThreadBrowser } from "./views-test-support.tsx";
 
@@ -47,6 +48,7 @@ test("a dismissed picture-in-picture stays away until the Browser shows again; a
 test("with picture in picture turned off in Settings › Browser, leaving the Browser never floats the page", async () => {
   const scenario = coldStartReplay();
   const history = createMemoryHistory({ initialEntries: ["/settings/browser"] });
+  browserVideo();
   const app = harness({ history });
   app.play(scenario).step();
   seedPanels(app.daemon);
