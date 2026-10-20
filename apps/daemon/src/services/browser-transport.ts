@@ -4,8 +4,12 @@ import { mayCompress } from "../compression-policy.ts";
 
 type FrameSocket = Pick<WebSocket, "readyState" | "bufferedAmount" | "send" | "terminate">;
 
-/** Frames are dropped, never queued, while this much output waits on the socket. */
-const frameBacklogBytes = 256 * 1024;
+/**
+ * Live video waits (the fanout keeps it) while this much output waits on the socket: about a
+ * quarter second of 16 Mbit/s video, room for a phone link's round trip, and far below the
+ * 4 MiB at which reliable messages give up on the connection.
+ */
+const frameBacklogBytes = 512 * 1024;
 
 /** Browser frames yield to control traffic on the app's shared socket. */
 export function sendBrowserMessage(

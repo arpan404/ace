@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { PictureChannel, pictureBacklogBytes, type CapturedPicture } from "./picture-channel.ts";
+import {
+  PictureChannel,
+  liveBacklogBytes,
+  pictureBacklogBytes,
+  type CapturedPicture,
+} from "./picture-channel.ts";
 import { decodeStreamMessage, StreamAssembler, type StreamMessage } from "./stream.ts";
 import { streamKinds } from "./stream-envelope.ts";
 
@@ -90,7 +95,7 @@ describe("one connection's pictures", () => {
   });
 
   it("a live view waits out a backed-up transport and sends the newest picture after", async () => {
-    let buffered = pictureBacklogBytes + 1;
+    let buffered = liveBacklogBytes + 1;
     const view = setup({ buffered: () => buffered });
     const live = view.channel.open(session, { keyframe: () => {}, guard: () => {} });
     live.push(picture(1));

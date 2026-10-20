@@ -5,11 +5,16 @@ import type { VideoWindow } from "./video-fanout.ts";
 export { PictureViewer, pictureKeyframeGapMs, type CapturedPicture } from "./picture-viewer.ts";
 
 /**
- * A viewer stops taking pictures while the transport holds more than this: control messages on
- * the same channel must never find it backed up (the relay closes a channel whose control
- * replies can't get out). A screenshot is refused rather than queued behind it.
+ * A screenshot is refused rather than queued while the transport holds more than this: control
+ * messages on the same channel must never find it backed up (the relay closes a channel whose
+ * control replies can't get out).
  */
 export const pictureBacklogBytes = 128 * 1024;
+/**
+ * Live pictures wait while the transport holds more than this: about half a second of 8 Mbit/s
+ * device video, room for a phone link's round trip, far below where control replies suffer.
+ */
+export const liveBacklogBytes = 512 * 1024;
 /** Whole pictures queued or being written before a live one waits for the transport. */
 const livePending = 4;
 /** Whole pictures (live or still) the writer holds at most. */
@@ -119,7 +124,7 @@ export class PictureChannel {
     if (
       this.#closed ||
       this.#queued >= livePending ||
-      this.#ports.transport.bufferedBytes() > pictureBacklogBytes
+      this.#ports.transport.bufferedBytes() > liveBacklogBytes
     ) {
       // The socket drains on its own; look again shortly unless a write will report it.
       if (!this.#queued && !this.#retry && !this.#closed)
