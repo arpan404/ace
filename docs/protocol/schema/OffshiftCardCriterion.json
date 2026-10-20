@@ -1,0 +1,52 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftCardCriterion.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "description": {
+      "maxLength": 160,
+      "type": "string"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "kind": {
+            "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceKind.json"
+          },
+          "recordedAt": {
+            "anyOf": [
+              {
+                "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceState.json"
+          }
+        },
+        "required": [
+          "kind",
+          "state",
+          "recordedAt"
+        ],
+        "type": "object"
+      },
+      "maxItems": 5,
+      "type": "array"
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "description",
+    "evidence"
+  ],
+  "type": "object"
+}

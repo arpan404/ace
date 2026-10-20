@@ -1,0 +1,103 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftRunCard.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "blocker": {
+      "anyOf": [
+        {
+          "maxLength": 512,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "criteria": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/OffshiftCardCriterion.json"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "criteriaCount": {
+      "maximum": 64,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "endpoint": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "outcome": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "outcomeTruncated": {
+      "type": "boolean"
+    },
+    "pending": {
+      "items": {
+        "properties": {
+          "criterionId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_.-]+$",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceKind.json"
+          }
+        },
+        "required": [
+          "criterionId",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "pendingCount": {
+      "maximum": 320,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "phase": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftPhase.json"
+    },
+    "revision": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftRevision.json"
+    },
+    "updatedAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "version": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "id",
+    "outcome",
+    "outcomeTruncated",
+    "endpoint",
+    "phase",
+    "blocker",
+    "version",
+    "updatedAt",
+    "revision",
+    "criteria",
+    "criteriaCount",
+    "pending",
+    "pendingCount"
+  ],
+  "type": "object"
+}

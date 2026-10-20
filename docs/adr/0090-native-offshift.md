@@ -60,10 +60,34 @@ references stay inert data. Agent-reported evidence proves neither authenticity 
 authorization. The workflow adds no permission mode and grants no publication or deployment
 authority.
 
+## Clients
+
+The person sees the run, not only the agent. Every successful change (start, advance, block,
+resume, evidence, revise) appends an `offshift.updated` thread-log event in the same transaction
+as the run write; reads, receipt replays and refused requests append nothing. The event carries a
+bounded `OffshiftRunCard` of that one run as observed at the write: outcome (512 characters,
+with a truncated flag), endpoint, phase, blocker, version, revision, the first 16 criteria with
+each required kind's state (pass, fail, stale or missing) and the first 16 pending kinds, with
+full counts. Notes, actions and artifacts stay in the record. A card stays under 24 KB at the
+run limits and is usually well under 2 KB.
+
+Thread views and snapshots keep only the most recently updated run's card, so a snapshot stays
+bounded however many runs a thread starts; the daemon materializes it beside the queue and it
+survives restarts. The card says what the run recorded, but the agent writes it mid-turn, so the
+card alone can never mean done. The Summary tab words it against the whole tree with the fixed
+status words: Waiting while a blocker is recorded; otherwise the tree's own state (Working,
+Approve, Answer, Failed, Waiting) while anything in it works, waits on the person or is held;
+Waiting while a settled tree leaves the run unfinished; Done only for a delivered run with every
+kind current on a settled tree. A done run leaves the Summary. There is no route, palette entry,
+composer strip or sidebar change.
+
 ## Verification
 
 Behaviour coverage uses real SQLite through the public journal: reopening, concurrent versions,
 request replay, failed and stale evidence, criterion revision, blockers, and live or
 human-waiting trees. Daemon coverage calls `offshift` through a real MCP client, checks
 authenticated thread isolation and the real Git revision boundary, and covers the non-Git
-`unavailable` answer.
+`unavailable` answer. It also proves that a change publishes the card to subscribers and
+snapshots, that replays and refusals publish nothing, and that the snapshot keeps the card after
+the store reopens. The web Summary is tested against the fake daemon for a blocked run, missing
+evidence, and a delivered run that is not Done while a subagent still works.

@@ -35,6 +35,10 @@ not a stored flag: the phase is delivery, evidence still matches, there is no bl
 whole tree is done. Revival, background work and human waits prevent completion. During the
 agent's final tool call, `waiting_on_tree` is expected until the agent itself settles.
 
+Each successful change also publishes a bounded card of the run (`runCard`) as an
+`offshift.updated` thread event, so the person sees the latest run in the Summary tab, worded
+against the whole tree.
+
 `OffshiftJournal` takes the host's synchronous SQLite transaction port and stores runs and request
 receipts atomically in the daemon database. Records cascade with the owner thread and are purged
 with transcript payloads. It keeps at most 32 runs per thread, 512 changes per run, 64 criteria,
