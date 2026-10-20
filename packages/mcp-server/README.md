@@ -134,7 +134,9 @@ Settings, turn boundaries and permission changes publish list changes.
 Current clients receive them through `subscriptions/listen`. Native legacy HTTP
 connections opt in with `X-Ace-Notifications: stream`; their bounded sessions and
 GET notification streams end with the credential lease. Other legacy clients
-retain stateless serving. ACP's stdio bridge relays current-protocol subscriptions
+retain stateless serving. Streams are bounded per lease (two listen streams, four
+legacy sessions; the newest replaces the oldest) under a server-wide guard of 512;
+see ADR 0010's notification stream limits. ACP's stdio bridge relays current-protocol subscriptions
 to legacy notifications. Pi refreshes its registered and active tools on changes.
 Clients that do not consume notifications see current availability on their next
 list request; direct calls always recheck it.
