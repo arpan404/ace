@@ -1463,7 +1463,7 @@ Required capability: none beyond session authentication. Timeout: 10000 ms.
 | --- | --- | --- | --- |
 | query | yes | string | {"minLength":1,"maxLength":500,"description":"What you want to do, in plain words, e.g. \"click a button in Safari\"."} |
 | limit | no | integer | {"default":5,"description":"At most this many.","minimum":1,"maximum":10} |
-| family | no | ["ace-agents","ace-browser","visualize","ace-threads","ace-computer-use"] | {"description":"Only this family's tools."} |
+| family | no | ["ace-agents","ace-browser","visualize","ace-threads","ace-computer-use","offshift"] | {"description":"Only this family's tools."} |
 
 Example:
 
@@ -1480,7 +1480,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| matches | yes | array | {"maxItems":10,"items":{"type":"object","properties":{"name":{"type":"string"},"title":{"type":"string"},"purpose":{"type":"string"},"family":{"type":"string"},"effect":{"type":"string","enum":["read-only","changes","destructive"]},"inputSchema":{"type":"object","propertyNames":{"type":"string"},"additionalProperties":{}}},"required":["name","purpose","effect","inputSchema"],"additionalProperties":false}} |
+| matches | yes | array | {"maxItems":10,"items":{"type":"object","properties":{"name":{"type":"string"},"title":{"type":"string"},"purpose":{"type":"string"},"family":{"type":"string"},"effect":{"type":"string","enum":["read-only","changes","destructive"]},"inputSchema":{"type":"object","propertyNames":{"type":"string"},"additionalProperties":{}}},"required":["name","purpose","effect"],"additionalProperties":false}} |
 | how | no | string |  |
 | hint | no | string |  |
 
