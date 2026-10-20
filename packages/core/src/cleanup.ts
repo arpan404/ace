@@ -5,6 +5,7 @@ import { emit } from "./emit.ts";
 import { isSettled } from "./status.ts";
 import {
   liveToolKeys,
+  openTextKeys,
   pendingInteractionKeys,
   runningTaskKeys,
   refreshItemIndex,
@@ -18,6 +19,22 @@ function cancelTool(state: ThreadState, key: string, now: number, events: EventP
   item.call.status = "cancelled";
   item.call.error = "turn ended without completion";
   item.call.endedAt = now;
+  item.complete = true;
+  refreshItemIndex(state, key);
+  emit(events, { type: "item.updated", item });
+}
+
+/**
+ * A provider can stop mid-thought or mid-reply without ever closing the stream (an interrupted
+ * OpenCode execution sends no `reasoning.ended`). Once the turn is over nothing streams into it,
+ * so what arrived is final: the thought or reply must not read as still going.
+ */
+function closeText(state: ThreadState, key: string, events: EventPayload[]): void {
+  const item = state.items[key];
+  if (!item || item.complete) {
+    refreshItemIndex(state, key);
+    return;
+  }
   item.complete = true;
   refreshItemIndex(state, key);
   emit(events, { type: "item.updated", item });
@@ -43,6 +60,7 @@ export function cancelOpenWork(
     if (backgroundItems.has(item.id)) continue;
     cancelTool(state, key, now, events);
   }
+  for (const key of openTextKeys(state, agentId)) closeText(state, key, events);
   for (const key of pendingInteractionKeys(state, agentId)) {
     const interaction = state.interactions[key]!;
     if (interaction.agentId !== agentId || !interaction.blocking || interaction.state !== "pending")
@@ -104,6 +122,7 @@ export function exitProcess(
   }
   // All live tools belong to this process, even after their owner ended its turn.
   for (const key of liveToolKeys(state)) cancelTool(state, key, ctx.now, events);
+  for (const key of openTextKeys(state)) closeText(state, key, events);
   for (const record of Object.values(state.agents)) {
     if (record.externalStatus) continue;
     delete record.disconnectedAt;
