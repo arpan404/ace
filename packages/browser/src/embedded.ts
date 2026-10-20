@@ -256,10 +256,11 @@ export class EmbeddedBackend implements BrowserBackend {
   }
   handle(raw: unknown): void {
     const message = BrowserBackendClientMessage.parse(raw);
-    // Registration and wake notices are the connection's business, not a session's.
+    // Registration, wake and screen notices are the connection's business, not a session's.
     if (
       message.type === "browser.backend.register" ||
       message.type === "browser.backend.resumed" ||
+      message.type === "browser.backend.drawable" ||
       message.backendId !== this.id ||
       this.closed
     )

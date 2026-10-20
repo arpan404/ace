@@ -61,6 +61,51 @@ it("an explicit desktop preference never moves a slow first picture to another b
   expect(await opened).toMatchObject({ backend: "embedded", closed: false });
   expect(f.headless.opens).toHaveLength(0);
 });
+it("a desktop page moves to ace's Chromium when the desktop's screen locks and stays there after unlock", async () => {
+  const f = await backendFixture();
+  expect(await f.open()).toMatchObject({ backend: "embedded" });
+  await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/page" });
+  const moved = Promise.withResolvers<void>();
+  const states: BrowserState[] = [];
+  f.service.subscribe("thread", "viewer", {}, (state) => {
+    states.push(state);
+    if (state.backend === "headless" && state.status === "ready") moved.resolve();
+  });
+  const desktopClosed = once(f.requests, "close");
+  f.service.desktopDrawable(false);
+  await moved.promise;
+  await desktopClosed;
+  expect(f.pages.size).toBe(0);
+  expect(f.service.state("thread")).toMatchObject({
+    backend: "headless",
+    url: "http://localhost:3000/page",
+    closed: false,
+  });
+  expect(f.headless.pages.map((page) => page.url)).toEqual(["http://localhost:3000/page"]);
+  // The agent keeps working on the moved page.
+  await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/next" });
+  expect(f.headless.pages.map((page) => page.url)).toEqual(["http://localhost:3000/next"]);
+  // A new page while the screen is locked never asks the desktop.
+  let desktopOpens = 0;
+  f.requests.on("open", () => desktopOpens++);
+  expect(await f.open("other")).toMatchObject({ backend: "headless" });
+  expect(desktopOpens).toBe(0);
+  // Unlocking moves nothing back mid-work.
+  f.service.desktopDrawable(true);
+  await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/after" });
+  expect(f.service.state("thread")).toMatchObject({ backend: "headless", closed: false });
+  expect(states.some((state) => state.closed)).toBe(false);
+});
+it("an explicit desktop page stays on the desktop when its screen locks", async () => {
+  const f = await backendFixture({ backendPreference: () => "embedded" });
+  expect(await f.open()).toMatchObject({ backend: "embedded" });
+  f.service.desktopDrawable(false);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/page" });
+  expect(f.service.state("thread")).toMatchObject({ backend: "embedded", closed: false });
+  expect([...f.pages.values()].map((page) => page.url)).toEqual(["http://localhost:3000/page"]);
+  expect(f.headless.opens).toHaveLength(0);
+});
 const quick = {
   quietMs: 400,
   maxWaitMs: 1_200,

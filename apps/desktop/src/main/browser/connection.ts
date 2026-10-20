@@ -106,6 +106,22 @@ export class BackendConnection {
 
   /** Writes to the registered socket, if there is one. */
   private notify: ((serialized: string) => boolean) | undefined;
+  /** Whether the screen draws the views (false while it is locked). */
+  private drawable = true;
+
+  /**
+   * The screen locked (false) or unlocked. A locked screen draws no frames, so the daemon moves
+   * this app's pages to ace's own Chromium meanwhile. Told on registering and on every change.
+   */
+  setDrawable(drawable: boolean): void {
+    if (drawable === this.drawable) return;
+    this.drawable = drawable;
+    this.tellDrawable();
+  }
+  private tellDrawable(): void {
+    if (!this.registered || !this.notify) return;
+    this.notify(JSON.stringify({ type: "browser.backend.drawable", drawable: this.drawable }));
+  }
 
   /**
    * The daemon (re)started or the machine woke: try again now, or, while registered, tell the
@@ -226,6 +242,8 @@ export class BackendConnection {
           send: write,
         });
         this.setState("registered");
+        // A daemon assumes a drawing screen; a locked one says so at once.
+        if (!this.drawable) this.tellDrawable();
         ping();
       }
     });
