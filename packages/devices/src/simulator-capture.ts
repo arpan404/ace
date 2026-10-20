@@ -54,6 +54,8 @@ function sibling(stream: URL, name: string): URL {
  */
 export async function simulatorCapture(options: {
   command: string;
+  /** Arguments before serve-sim's own: ace's copy runs as `node <script>`. */
+  commandArgs?: readonly string[];
   device: AppDevice;
   streamId: string;
   fps: number;
@@ -72,7 +74,7 @@ export async function simulatorCapture(options: {
   controller.signal.throwIfAborted();
   const child = runtime.spawn({
     command: options.command,
-    args: ["--no-preview", "--quiet", nativeId(options.device)],
+    args: [...(options.commandArgs ?? []), "--no-preview", "--quiet", nativeId(options.device)],
     env: options.env,
     name: "simulator-framebuffer",
   });
@@ -246,6 +248,7 @@ export async function simulatorCapture(options: {
     input = new SimulatorInput({
       runtime,
       command: options.command,
+      commandArgs: options.commandArgs ?? [],
       device: value.device,
       env: options.env,
       dimensions: () => screen,
@@ -301,7 +304,7 @@ export async function simulatorCapture(options: {
         throw new DeviceError(
           "command_failed",
           "serve-sim's H.264 stream didn't start",
-          `Open the live view again. If it keeps failing, reinstall serve-sim: npm install -g serve-sim@${pinnedServeSim}`,
+          `Open the live view again. If it keeps failing, download device tools again in Devices (serve-sim ${pinnedServeSim}).`,
         );
       }
       const previous = jpeg;

@@ -30,6 +30,7 @@ export async function startDevices(context: ServiceContext): Promise<void> {
         home: homedir(),
         env: process.env,
         toolsDirectory: join(config.dataDir, "tools"),
+        node: process.execPath,
         // Read at each boot, so a change in Settings applies to the next emulator ace starts.
         emulatorWindow: async () =>
           (await services.settings?.get("devices.emulatorWindow"))?.value === true,

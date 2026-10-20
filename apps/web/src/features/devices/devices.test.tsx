@@ -535,3 +535,33 @@ test("Stream stats from the device's ⋯ menu show what arrived and what was dra
   const stats = await within(iphone).findByRole("list", { name: "Stream stats" });
   await waitFor(() => expect(stats.textContent).toMatch(/Received \d+\/s · drawn/));
 });
+
+test("enabling devices downloads the device tools, and missing tools offer the download again", async () => {
+  const { app, panel } = await openDevices();
+  app.daemon.appDevices.toolsReady = false;
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await within(panel).findByRole("list", { name: "Running devices" });
+  await waitFor(() => expect(app.daemon.appDevices.toolDownloads).toBe(1));
+  await waitFor(() =>
+    expect(within(panel).queryByRole("button", { name: "Download device tools" })).toBeNull(),
+  );
+
+  // The tools went missing later (deleted from ace's home): the list says so and downloads them.
+  act(() => {
+    app.daemon.appDevices.toolsReady = false;
+    app.daemon.appDevices.addDevice({
+      id: "android:Pixel_Tablet_API_35",
+      platform: "android",
+      name: "Pixel Tablet",
+      state: "shutdown",
+      runtime: "Android 15",
+    });
+  });
+  await userEvent.click(
+    await within(panel).findByRole("button", { name: "Download device tools" }),
+  );
+  await waitFor(() => expect(app.daemon.appDevices.toolDownloads).toBe(2));
+  await waitFor(() =>
+    expect(within(panel).queryByRole("button", { name: "Download device tools" })).toBeNull(),
+  );
+});

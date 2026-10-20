@@ -63,6 +63,8 @@ export class SimulatorInput {
   private readonly options: {
     runtime: DeviceRuntime;
     command: string;
+    /** Arguments before serve-sim's own (ace's copy runs as `node <script>`). */
+    commandArgs?: readonly string[];
     device: string;
     env: NodeJS.ProcessEnv;
     dimensions(): { width: number; height: number };
@@ -182,7 +184,7 @@ export class SimulatorInput {
     }
     const typing = this.options.runtime.spawn({
       command: this.options.command,
-      args: ["type", "--stdin", "-d", this.options.device],
+      args: [...(this.options.commandArgs ?? []), "type", "--stdin", "-d", this.options.device],
       env: this.options.env,
       name: "simulator-keyboard",
     });

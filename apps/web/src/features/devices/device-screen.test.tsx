@@ -58,7 +58,9 @@ test("a device that can't stream video shows the daemon's reason and how to fix 
   expect(alert.textContent).toContain(
     "This Mac's screen helper can't stream video for the Simulator live view",
   );
-  expect(alert.textContent).toContain("npm install -g serve-sim@0.1.48");
+  expect(alert.textContent).toContain(
+    "Download device tools in Devices for ace's serve-sim 0.1.48",
+  );
   expect(browser.draws(screenImage)).toBe(0);
 });
 
