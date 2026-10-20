@@ -117,7 +117,7 @@ test("removing a file mid-upload cancels it on the daemon", async () => {
   thread.handle({ type: "detach", localId: "doc-0001" });
   release?.();
   await until(() => uploads("upload.cancel").length === 1, "the cancel");
-  expect(tray()?.files).toEqual([]);
+  await until(() => tray()?.files.length === 0, "the tray emptied");
   expect(uploads("upload.commit")).toHaveLength(0);
 });
 

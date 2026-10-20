@@ -1,4 +1,4 @@
-import { CommandPayload, ThreadId } from "@ace/protocol";
+import { CommandPayload, InteractionId, ThreadId } from "@ace/protocol";
 import type { PendingSend } from "@ace/client";
 import { expect, test } from "vitest";
 import { entry } from "./test-entries.fixture.ts";
@@ -208,4 +208,14 @@ test("limited reads in the waiting colour, unresponsive keeps its own, new claim
   });
   expect(mobileStatus({ state: "new" })).toEqual({ label: "New", token: "neutral" });
   expect(mobileStatus({ state: "done" })).toEqual({ label: "Done", token: "done" });
+});
+
+test("mobile rows name a canonical question and preserve the working token while the root waits on a child", () => {
+  const question = entry("question", { state: "needs_you", interactions: 1 }, now, {
+    live: { asking: [{ id: InteractionId.parse("ask"), kind: "question" }] },
+  });
+  expect(inboxStatus(on("mac", question), now)).toEqual({ label: "Question", token: "needsYou" });
+  const waiting = entry("parent", { state: "working", agents: 1 }, now, { live: { waitingOn: 1 } });
+  expect(inboxStatus(on("mac", waiting), now)).toEqual({ label: "Waiting on 1", token: "working" });
+  expect(sections([on("mac", waiting)])).toEqual({ Working: ["mac/parent"] });
 });

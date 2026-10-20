@@ -7,6 +7,7 @@ struct TranscriptLinks {
     let openAgent: (BlockRow.Agents.Entry) -> Void
     /// Where a settled log reads its turn's full steps; nil shows the steps already loaded.
     var steps: StepsLinks? = nil
+    var openMedia: ((TranscriptRow) -> Void)? = nil
 }
 
 /// One transcript block. Items render through their own observed rows, so streaming text
@@ -34,7 +35,7 @@ struct BlockView: View {
         default:
             VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
                 ForEach(row.items, id: \.self) { id in
-                    if let item = thread.items[id] { ItemRowView(item: item) }
+                    if let item = thread.items[id] { ItemRowView(item: item, openMedia: links.openMedia) }
                 }
             }
         }
@@ -48,11 +49,18 @@ struct BlockView: View {
 /// A single item: a message bubble or answer, a step, a notice, or a visualization fallback.
 struct ItemRowView: View {
     @Bindable var item: ItemModel
+    var openMedia: ((TranscriptRow) -> Void)? = nil
     var body: some View {
         let row = item.row
         switch row.type {
         case "message": MessageRow(row: row)
-        case "html": VisualizationRow(row: row)
+        case "html", "image":
+            if let openMedia {
+                Button { openMedia(row) } label: {
+                    Label(row.text, systemImage: row.type == "html" ? "chart.bar.doc.horizontal" : "photo")
+                        .frame(minHeight: AceTheme.Dimensions.touchTarget).contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityIdentifier("media.\(row.id)")
+            } else { VisualizationRow(row: row) }
         default:
             if let step = row.step { StepRow(step: step) }
             else { Text(row.text).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground) }
@@ -75,6 +83,9 @@ struct MessageRow: View {
             if let attachments = row.attachments, !attachments.isEmpty {
                 AttachmentChips(attachments: attachments, more: row.moreAttachments ?? 0)
             }
+            Text(Date(timeIntervalSince1970: row.createdAt / 1000), format: .dateTime.hour().minute())
+                .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                .foregroundStyle(AceTheme.Colours.mutedForeground)
             if row.truncated { Text("Showing a bounded preview").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
         }.frame(maxWidth: .infinity, alignment: user ? .trailing : .leading)
     }

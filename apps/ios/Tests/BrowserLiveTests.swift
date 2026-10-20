@@ -130,6 +130,62 @@ import UIKit
         #expect(session.browserActions.count == count)
     }
 
+    // MARK: - Reopen fence
+
+    @Test func reopeningDropsAQueuedPictureAndItsAcknowledgement() async throws {
+        let hop = QueuedHop()
+        let hub = BrowserStreamHub()
+        let model = BrowserLiveModel()
+        model.mainHop = { hop.call($0) }
+        let surface = RecordingSurface()
+        model.surface = surface
+        let staleAcks = AckLog()
+        let freshAcks = AckLog()
+        model.open(threadId: "A", streams: hub, ack: { staleAcks.record($0) })
+        hub.deliver(.frame(BrowserJPEGFrame(threadId: "A", sequence: 11, timestamp: 0, width: 390, height: 700,
+                                                     tabId: nil, bytes: try jpeg())))
+        // Close A and open B before A's queued present runs.
+        model.open(threadId: "B", streams: hub, ack: { freshAcks.record($0) })
+        try await until { hop.count >= 1 }
+        for block in hop.take() { block() }
+        #expect(surface.shown.isEmpty)
+        #expect(staleAcks.count == 0)
+        #expect(freshAcks.count == 0)
+        #expect(model.pageSize == nil)
+        // The current generation still presents and acknowledges.
+        hub.deliver(.frame(BrowserJPEGFrame(threadId: "B", sequence: 12, timestamp: 0, width: 390, height: 700,
+                                                     tabId: nil, bytes: try jpeg())))
+        try await until { hop.count >= 1 }
+        for block in hop.take() { block() }
+        #expect(surface.shown == [12])
+        #expect(freshAcks.sequences == [12])
+    }
+
+    @Test func reopeningDropsAQueuedAcknowledgement() async throws {
+        let hop = QueuedHop()
+        let hub = BrowserStreamHub()
+        let model = BrowserLiveModel()
+        model.mainHop = { hop.call($0) }
+        model.surface = RecordingSurface()
+        let staleAcks = AckLog()
+        let freshAcks = AckLog()
+        model.open(threadId: "A", streams: hub, ack: { staleAcks.record($0) })
+        // Bytes that can't be decoded are acknowledged at once, without a picture.
+        hub.deliver(.frame(BrowserJPEGFrame(threadId: "A", sequence: 13, timestamp: 0, width: 390, height: 700,
+                                                     tabId: nil, bytes: Data([1, 2, 3]))))
+        model.open(threadId: "B", streams: hub, ack: { freshAcks.record($0) })
+        try await until { hop.count >= 1 }
+        for block in hop.take() { block() }
+        #expect(staleAcks.count == 0)
+        #expect(freshAcks.count == 0)
+        // The current generation still acknowledges.
+        hub.deliver(.frame(BrowserJPEGFrame(threadId: "B", sequence: 14, timestamp: 0, width: 390, height: 700,
+                                                     tabId: nil, bytes: Data([1, 2, 3]))))
+        try await until { hop.count >= 1 }
+        for block in hop.take() { block() }
+        #expect(freshAcks.sequences == [14])
+    }
+
     // MARK: - Helpers
 
     private func connected() async throws -> (ClientModel, BrowserRecorder) {
@@ -166,6 +222,24 @@ import UIKit
 @MainActor private final class RecordingSurface: BrowserPictureSink {
     var shown: [Int] = []
     func show(_ picture: BrowserPicture) { shown.append(picture.sequence) }
+}
+
+/// Queued main-actor hop for reopen-fence tests: renderer callbacks schedule here off the main
+/// thread, and the test flushes the blocks on the main actor to interleave close/open deterministically.
+private final class QueuedHop: @unchecked Sendable {
+    private let lock = NSLock()
+    private var blocks: [@Sendable () -> Void] = []
+    func call(_ block: @escaping @Sendable () -> Void) { lock.withLock { blocks.append(block) } }
+    var count: Int { lock.withLock { blocks.count } }
+    func take() -> [@Sendable () -> Void] { lock.withLock { let taken = blocks; blocks = []; return taken } }
+}
+
+private final class AckLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [BrowserAck] = []
+    func record(_ value: BrowserAck) { lock.withLock { values.append(value) } }
+    var count: Int { lock.withLock { values.count } }
+    var sequences: [Int] { lock.withLock { values.map(\.sequence) } }
 }
 
 private final class BrowserRecorder: ClientSession, @unchecked Sendable {

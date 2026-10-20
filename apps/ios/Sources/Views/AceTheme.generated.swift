@@ -11,19 +11,65 @@ import UIKit
             return UIColor(red: CGFloat((value >> 16) & 255) / 255, green: CGFloat((value >> 8) & 255) / 255, blue: CGFloat(value & 255) / 255, alpha: 1)
         })
     }
+    /// Token defaults for the editable palette keys. CustomThemeView falls back to these.
+    /// Widget extensions never register a model and keep these shared defaults.
+    static let paletteDefaults: [String: NativePalette.Pair] = [
+        "background": .init(light: 0xFFFFFF, dark: 0x0A0A0B),
+        "secondaryBackground": .init(light: 0xF5F5F7, dark: 0x141416),
+        "card": .init(light: 0xFFFFFF, dark: 0x1A1A1D),
+        "foreground": .init(light: 0x222224, dark: 0xDEDEE0),
+        "mutedForeground": .init(light: 0x626268, dark: 0x9A9AA1),
+        "subtleForeground": .init(light: 0x69696F, dark: 0x8B8B93),
+        "separator": .init(light: 0xE9E9EC, dark: 0x26262A),
+        "fill": .init(light: 0xF2F2F4, dark: 0x1F1F23),
+        "accent": .init(light: 0x3065CC, dark: 0x7AA2F7),
+        "onAccent": .init(light: 0xFFFFFF, dark: 0x0A0A0B),
+    ]
+    /// Editable colours resolve through the injected model so saves and resets
+    /// invalidate every active view. Semantic colours below stay fixed.
     @MainActor enum Colours {
-        static let background = adaptive(0xFFFFFF, 0x0A0A0B)
-        static let secondaryBackground = adaptive(0xF5F5F7, 0x141416)
-        static let card = adaptive(0xFFFFFF, 0x1A1A1D)
-        static let foreground = adaptive(0x222224, 0xDEDEE0)
-        static let mutedForeground = adaptive(0x626268, 0x9A9AA1)
-        static let subtleForeground = adaptive(0x69696F, 0x8B8B93)
+        static var background: Color {
+            let pair = NativePaletteBridge.pair(for: "background", light: 0xFFFFFF, dark: 0x0A0A0B)
+            return adaptive(pair.light, pair.dark)
+        }
+        static var secondaryBackground: Color {
+            let pair = NativePaletteBridge.pair(for: "secondaryBackground", light: 0xF5F5F7, dark: 0x141416)
+            return adaptive(pair.light, pair.dark)
+        }
+        static var card: Color {
+            let pair = NativePaletteBridge.pair(for: "card", light: 0xFFFFFF, dark: 0x1A1A1D)
+            return adaptive(pair.light, pair.dark)
+        }
+        static var foreground: Color {
+            let pair = NativePaletteBridge.pair(for: "foreground", light: 0x222224, dark: 0xDEDEE0)
+            return adaptive(pair.light, pair.dark)
+        }
+        static var mutedForeground: Color {
+            let pair = NativePaletteBridge.pair(for: "mutedForeground", light: 0x626268, dark: 0x9A9AA1)
+            return adaptive(pair.light, pair.dark)
+        }
+        static var subtleForeground: Color {
+            let pair = NativePaletteBridge.pair(for: "subtleForeground", light: 0x69696F, dark: 0x8B8B93)
+            return adaptive(pair.light, pair.dark)
+        }
         static let decoration = adaptive(0x87878D, 0x76767E)
-        static let separator = adaptive(0xE9E9EC, 0x26262A)
-        static let fill = adaptive(0xF2F2F4, 0x1F1F23)
+        static var separator: Color {
+            let pair = NativePaletteBridge.pair(for: "separator", light: 0xE9E9EC, dark: 0x26262A)
+            return adaptive(pair.light, pair.dark)
+        }
+        static var fill: Color {
+            let pair = NativePaletteBridge.pair(for: "fill", light: 0xF2F2F4, dark: 0x1F1F23)
+            return adaptive(pair.light, pair.dark)
+        }
         static let glass = adaptive(0xFFFFFF, 0x1C1C1F)
-        static let accent = adaptive(0x3065CC, 0x7AA2F7)
-        static let onAccent = adaptive(0xFFFFFF, 0x0A0A0B)
+        static var accent: Color {
+            let pair = NativePaletteBridge.pair(for: "accent", light: 0x3065CC, dark: 0x7AA2F7)
+            return adaptive(pair.light, pair.dark)
+        }
+        static var onAccent: Color {
+            let pair = NativePaletteBridge.pair(for: "onAccent", light: 0xFFFFFF, dark: 0x0A0A0B)
+            return adaptive(pair.light, pair.dark)
+        }
         static let needsYouSurface = adaptive(0xFFF4E8, 0x2A1F12)
         static let diffAdd = adaptive(0xE8F7EE, 0x11281A)
         static let diffDelete = adaptive(0xFDECEC, 0x2D1515)

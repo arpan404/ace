@@ -99,6 +99,13 @@ export function inboxStatus(thread: InboxThread, now: number): StatusDisplay {
   const status = mobileStatus(entry.status);
   if (entry.status.state === "done" && snoozeEnded(entry, now))
     return { label: snoozeEndedLabel, token: status.token };
+  if (entry.status.state === "needs_you") {
+    const kind = entry.live?.asking?.[0]?.kind;
+    if (kind === "question") return { label: "Question", token: status.token };
+    if (kind === "approval") return { label: "Approve", token: status.token };
+  }
+  if (entry.status.state === "working" && entry.live?.waitingOn)
+    return { label: `Waiting on ${entry.live.waitingOn}`, token: status.token };
   return status;
 }
 

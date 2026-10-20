@@ -53,8 +53,8 @@ With the fixture running, use the same destination and `-jobs 4`, adding
 behavior/bridge tests, or individual `AceUITests/SpikeUITests` methods for screenshots,
 scrolling, typing, actual offline termination/relaunch, and the two-minute memory run.
 Keep a fresh fixture for screenshot/scroll/memory runs; restart verification accepts
-its own added inputs. Never run the root test suite, root typecheck or combined check
-on this shared Mac for this issue.
+its own added inputs. Use the package typecheck for focused bridge changes. The root
+`bun run check` remains the repository completion gate required by `AGENTS.md`.
 
 The debug app writes `Library/Application Support/ace/spike-metrics.json` every five
 seconds. `xcrun simctl get_app_container YOUR_SIMULATOR_UDID app.ace.ios data` locates
@@ -357,8 +357,9 @@ posts the daemon's canonical `notification` messages and its `notification.feed`
 machine's alerts are off), reports foreground or
 background presence and runs approval actions through the SDK outbox. With the fixture running,
 `curl -X POST localhost:9841/review/notify -d '{"threadId":"ios-approval"}'` sends an alert and
-`/review/retract -d '{"id":"…"}'` withdraws one. Remote push (APNs, a push gateway) and Live
-Activities are deferred; see the [draft](../../docs/adr/drafts/ios-push-notifications.md).
+`/review/retract -d '{"id":"…"}'` withdraws one. Remote push through APNs or a push gateway remains deferred; see the
+[draft](../../docs/adr/drafts/ios-push-notifications.md). Local Live Activities use the
+foreground SDK state described below.
 
 ## Archive, settings and appearance
 
@@ -392,3 +393,41 @@ Activities are deferred; see the [draft](../../docs/adr/drafts/ios-push-notifica
   At accessibility sizes, half-height sheets open full height, and the Changes next step ends the
   file list instead of floating over it. Rows whose trailing values would squeeze their labels
   (file counts, provider status and usage, a task's Stop, a machine's Retry) stack them underneath.
+
+## Native tools and local Live Activities
+
+[ADR 0089](../../docs/adr/0089-ios-native-tools-and-local-activities.md) records the
+service boundary and feature limits. The [simulator progress record](../../docs/verification/ios-emulator-parity/README.md)
+tracks verification and the remaining device work.
+
+- Machine settings use that machine's SDK connection for preferences, usage,
+  automations, prompt files and provider CLI sign-in. Prompt writes retain revision
+  checks. Automation edits preserve configured triggers and schedule anchors.
+  Provider continuation handles choices, browser codes and the CLI's Enter prompt.
+  API keys remain outside this service bridge.
+- Appearance and keyboard settings persist system/light/dark mode, custom light and
+  dark palettes, and Return-to-send. Status and diff colours retain their shared
+  meanings. Profiles store reusable instructions on the phone and include them
+  explicitly in a new task's first message.
+- Thread tools include skills and commands, MCP controls, durable conversation
+  branches and a terminal. The live browser uses the entry described above. Terminal output acknowledges
+  native delivery and resumes by byte offset. Its text renderer supports basic VT
+  controls, with 1,000 rows of 80 cells. Lost output resets escape parsing and marks
+  the gap. Colour and alternate-screen emulation remain future work.
+- The live browser from `main` owns JPEG/H.264 frames, input and tab controls.
+  View-only phones can watch while navigation and input remain disabled. The old
+  screenshot-only browser has been removed. Screen/device control remains future work.
+- Published images decode into native image views. Published HTML uses `@ace/html`
+  inside a nonpersistent WKWebView, without native message handlers or network access.
+- A thread's menu can start a local Live Activity. Foreground updates use canonical
+  whole-tree status, renew unchanged content every 30 seconds, and mark content stale
+  after 60 seconds without renewal. The navigation stack owns renewal while a thread
+  is open. Cached Done stays Syncing until the current inbox subscription confirms
+  completion; newer state revokes queued endings. Offline content asks the person
+  to reopen ace. APNs activity updates are not implemented.
+
+For an unsigned device archive, run `bun scripts/archive.ts --unsigned` from this
+folder. For a signed archive, set `ACE_IOS_TEAM_ID` and omit `--unsigned`. Optional
+`ACE_IOS_BUILD_NUMBER` and `ACE_IOS_ARCHIVE` select the build number and output path.
+Distribution still requires the appropriate Apple team, signing and App Store
+Connect access. An unsigned archive cannot be uploaded to TestFlight.

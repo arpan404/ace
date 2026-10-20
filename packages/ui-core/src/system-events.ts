@@ -264,6 +264,28 @@ export function resultLead(result: string, max = 180): string {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
 
+/**
+ * One compact line for settled delegation results, shared by web and native clients:
+ * a finished count that never claims success it didn't earn. A failed or cancelled
+ * child always surfaces; per-child leads stay one tap away on each child's thread.
+ * Empty input has no summary.
+ */
+export function settledSummary(results: readonly DelegationResult[]): string | undefined {
+  if (!results.length) return undefined;
+  const failed = results.filter((result) => result.outcome === "failed").length;
+  const cancelled = results.filter((result) => result.outcome === "cancelled").length;
+  if (results.length === 1) {
+    if (failed) return "1 agent failed";
+    if (cancelled) return "1 agent cancelled";
+    return "1 agent finished";
+  }
+  if (!failed && !cancelled) return `${results.length} agents finished`;
+  const parts: string[] = [];
+  if (failed) parts.push(`${failed} failed`);
+  if (cancelled) parts.push(`${cancelled} cancelled`);
+  return `${parts.join(", ")} of ${results.length} agents`;
+}
+
 export interface TaskPrompt {
   /** "Task from", "Handoff from", "Automation". */
   label: string;

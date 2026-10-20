@@ -2,6 +2,13 @@ import type { Item, Thread, ThreadListEntry, Interaction } from "@ace/protocol";
 import { threadAttention } from "@ace/projection";
 import { mobileStatus, transcriptRowContent } from "@ace/ui-core/mobile";
 import type { ThreadReader } from "@ace/client";
+import {
+  parseDelegationResults,
+  projectBadge,
+  settledResults,
+  settledSummary,
+  systemInput,
+} from "@ace/ui-core";
 import { host } from "./host.ts";
 
 /** Native Unicode segmentation also replaces ill-formed display text before JSON encoding. */
@@ -9,9 +16,38 @@ export function preview(text: string, limit = 512): string {
   return host.previewHead(text, limit);
 }
 
+/**
+ * A settled delegation as one compact line: the shared finished count, never the raw
+ * event label and never the full repeated results inline. Per-child leads stay one
+ * tap away on each child's thread, through the existing subagent navigation.
+ */
+export function settledText(item: Item): string | undefined {
+  const results = settledResults(item);
+  return results?.length ? settledSummary(results) : undefined;
+}
+
+/** The same summary when the results arrive as the agent's input message. */
+export function settledMessageText(text: string): string | undefined {
+  return settledSummary(parseDelegationResults(text));
+}
+
+/** A message carrying settled results, rather than the person's words. */
+function settledInput(item: Item) {
+  if (item.type !== "message") return undefined;
+  const input = systemInput(item);
+  return input?.kind === "subagent_result" ? input : undefined;
+}
+
 export function threadRow(thread: Thread | ThreadListEntry) {
   return {
     id: thread.id,
+    workspaceId: thread.workspaceId,
+    badge: projectBadge({
+      id: thread.workspaceId,
+      name: thread.details?.workspace?.name ?? thread.workspaceId,
+    }).initials,
+    diff: thread.details?.diff ?? null,
+    testsRunning: thread.status.state === "working" && thread.live?.step === "tests",
     title: preview(thread.title),
     state: thread.status.state,
     status: mobileStatus(thread.status),
@@ -31,10 +67,19 @@ export function itemRow(item: Item, index?: number, sourceTruncated = false) {
   // Shared row content; iOS expands steps in place, so they carry their full text.
   const content = transcriptRowContent(item);
   let text = content.text;
-  const role = item.type === "message" ? item.role : "";
+  // A settled delegation is ace's input on either delivery path, never the person's bubble.
+  const input = settledInput(item);
+  const role = item.type === "message" && !input ? item.role : "";
   if (item.type === "tool_call") text = item.call.title;
   else if (item.type === "reasoning") text = item.text;
   else if (item.type === "delegation.started") text = item.title;
+  else if (item.type === "delegation.settled")
+    text = settledText(item) ?? "Delegated work finished";
+  else if (input)
+    text =
+      sourceTruncated || !item.complete
+        ? "Delegated results available"
+        : (settledMessageText(input.text) ?? "Delegated results available");
   else if (
     item.type !== "message" &&
     item.type !== "html" &&
@@ -48,7 +93,7 @@ export function itemRow(item: Item, index?: number, sourceTruncated = false) {
     quiet: content.quiet,
     id: item.id,
     index: index ?? null,
-    type: item.type,
+    type: input ? "delegation.settled" : item.type,
     role,
     text: host.previewTail(text, 8192),
     complete: item.complete,

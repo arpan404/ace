@@ -3,6 +3,13 @@ import Foundation
 /// Thread-screen actions. The bridge builds every payload from the SDK reader (delivery, Stop's
 /// fence, answer validation); native code sends the person's intent and waits for admission.
 extension ClientModel {
+    func forkThread(point: String, text: String) async -> Bool {
+        guard canOperate, let thread, let item = thread.items[point], item.row.complete, !text.isEmpty else { return false }
+        let id = admissions.nextId()
+        return await admissions.wait(id: id) {
+            command(["type": "thread.fork", "threadId": thread.id, "point": ["type": "item", "itemId": point], "input": text], requestId: id)
+        }
+    }
     /// Persist a follow-up: `alternate` asks for the other delivery the composer offered.
     func sendMessage(_ text: String, alternate: Bool) async -> Bool {
         guard canOperate, let thread else { return false }

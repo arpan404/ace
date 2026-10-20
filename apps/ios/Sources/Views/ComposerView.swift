@@ -1,8 +1,10 @@
 import SwiftUI
 
-/// The floating composer. While the agent works an empty composer's button stops the whole tree;
-/// a typed message goes the way the bridge says (steer or queue), and a long press offers the
-/// other delivery where the provider can steer. The model chip opens the model list.
+/// The floating composer. The model chip sits on its own line above the message field,
+/// so a long model name truncates instead of squeezing the text. While the agent works
+/// an empty composer's button stops the whole tree; a typed message goes the way the
+/// bridge says (steer or queue), and a long press offers the other delivery where the
+/// provider can steer. The model chip opens the model list.
 struct ComposerView: View {
     @Environment(\.colorScheme) private var colourScheme
     let controls: ControlsRow?
@@ -20,22 +22,16 @@ struct ComposerView: View {
     @State private var feedback = 0
     private var empty: Bool { files == 0 && draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var stops: Bool { empty && controls?.busy == true && controls?.canStop == true }
+    private var modelName: String? {
+        guard let model = controls?.model, !model.isEmpty else { return nil }
+        return model
+    }
     var body: some View {
-        HStack(alignment: .bottom, spacing: AceTheme.Spacing.md) {
-            NativeTextInput(text: $draft.text, inputBegan: inputBegan)
-                .overlay(alignment: .leading) {
-                    // Visual only: VoiceOver hears the field's own label.
-                    if draft.text.isEmpty {
-                        Text(placeholder).aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.subtleForeground)
-                            .lineLimit(1).minimumScaleFactor(0.8).fixedSize(horizontal: false, vertical: true)
-                            .allowsHitTesting(false).accessibilityHidden(true)
-                    }
-                }
-                .accessibilityLabel(placeholder)
-            if let model = controls?.model, !model.isEmpty {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+            if let model = modelName {
                 Button(action: openModels) {
                     HStack(spacing: AceTheme.Spacing.xxs) {
-                        Text(model).lineLimit(1)
+                        Text(model).lineLimit(1).truncationMode(.middle)
                         if controls?.switching == "queued" { Image(systemName: "clock") }
                     }
                     .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -46,23 +42,36 @@ struct ComposerView: View {
                 .accessibilityLabel("Model: \(model)\(controls?.switching == "queued" ? ", switching from the next turn" : "")")
                 .accessibilityIdentifier("composer.model")
             }
-            Button {
-                feedback += 1
-                if stops { stop() } else { submit(alternate: false) }
-            } label: {
-                Image(systemName: stops ? "stop.fill" : "arrow.up")
-                    .aceFont(AceTheme.Typography.title, relativeTo: .body).frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
-                    .foregroundStyle(AceTheme.Colours.background).background(AceTheme.Colours.foreground, in: Circle())
-                    .opacity(disabled ? AceTheme.Opacity.disabled(colourScheme) : 1)
-            }
-            .disabled(disabled)
-            .contextMenu {
-                if !empty, let alternate = controls?.alternate {
-                    Button(alternate == "steer" ? "Steer now" : "Queue for after this turn", systemImage: alternate == "steer" ? "arrow.turn.down.right" : "text.line.last.and.arrowtriangle.forward") { submit(alternate: true) }
+            HStack(alignment: .bottom, spacing: AceTheme.Spacing.md) {
+                NativeTextInput(text: $draft.text, inputBegan: inputBegan, submit: { if !disabled && !stops { submit(alternate: false) } })
+                    .overlay(alignment: .leading) {
+                        // Visual only: VoiceOver hears the field's own label.
+                        if draft.text.isEmpty {
+                            Text(placeholder).aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.subtleForeground)
+                                .lineLimit(1).minimumScaleFactor(0.8).fixedSize(horizontal: false, vertical: true)
+                                .allowsHitTesting(false).accessibilityHidden(true)
+                        }
+                    }
+                    .accessibilityLabel(placeholder)
+                    .layoutPriority(1)
+                Button {
+                    feedback += 1
+                    if stops { stop() } else { submit(alternate: false) }
+                } label: {
+                    Image(systemName: stops ? "stop.fill" : "arrow.up")
+                        .aceFont(AceTheme.Typography.title, relativeTo: .body).frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+                        .foregroundStyle(AceTheme.Colours.background).background(AceTheme.Colours.foreground, in: Circle())
+                        .opacity(disabled ? AceTheme.Opacity.disabled(colourScheme) : 1)
                 }
+                .disabled(disabled)
+                .contextMenu {
+                    if !empty, let alternate = controls?.alternate {
+                        Button(alternate == "steer" ? "Steer now" : "Queue for after this turn", systemImage: alternate == "steer" ? "arrow.turn.down.right" : "text.line.last.and.arrowtriangle.forward") { submit(alternate: true) }
+                    }
+                }
+                .accessibilityLabel(label)
+                .accessibilityIdentifier("composer.send")
             }
-            .accessibilityLabel(label)
-            .accessibilityIdentifier("composer.send")
         }
         .padding(.leading, AceTheme.Spacing.lg).padding(.trailing, AceTheme.Spacing.sm).padding(.vertical, AceTheme.Spacing.sm)
         .floatingGlass()
