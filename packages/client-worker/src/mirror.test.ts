@@ -267,3 +267,31 @@ test("removing provenance while appending text reaches an already attached tab",
   expect(mirror.item("answer")).toEqual(store.item("answer"));
   expect(mirror.item("answer")?.nativeId).toBeUndefined();
 });
+
+test("a tab sees an Offshift run change live and a later tab starts from it", () => {
+  const { store, mirror, deliver } = linked();
+  const run = mirror.select(["offshift"], (reader) => reader.offshift?.blocker);
+  deliver({
+    type: "offshift.updated",
+    card: {
+      id: "login",
+      outcome: "Login shows an error",
+      outcomeTruncated: false,
+      endpoint: "Local change",
+      phase: "implement",
+      blocker: "Need a test account",
+      version: 1,
+      updatedAt: 1,
+      revision: "r1",
+      criteria: [],
+      criteriaCount: 1,
+      pending: [],
+      pendingCount: 0,
+      steps: [],
+    },
+  });
+  expect(run.getSnapshot()).toBe("Need a test account");
+  const late = new MirrorThread(defaultLimits.listeners);
+  late.reset(store.export());
+  expect(late.offshift).toEqual(store.offshift);
+});

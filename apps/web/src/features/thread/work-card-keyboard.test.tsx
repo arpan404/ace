@@ -67,7 +67,7 @@ test("beside a wide thread area the side card takes focus, and Escape from outsi
   await userEvent.click(icon);
   const card = await screen.findByRole("dialog", { name: "Thread details" });
   await waitFor(() => expect(card.contains(document.activeElement)).toBe(true));
-  await within(card).findByRole("region", { name: "Environment" });
+  await within(card).findByRole("region", { name: "Workspace" });
 
   // Escape works from anywhere while the side card is open, not only from inside it.
   act(() => {

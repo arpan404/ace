@@ -7,6 +7,7 @@ import { AcpIdentity, AcpSessionSupport } from "./agent-registry.ts";
 import { WorkspaceFilesChanged } from "./files.ts";
 import { z } from "zod";
 import { QueueUpdated } from "./queue.ts";
+import { OffshiftUpdated } from "./offshift.ts";
 import { ContextMeterUpdated, ContextSampled } from "./context-meter.ts";
 import { UsageMetadata } from "./usage-core.ts";
 import { Agent, AgentFidelity, AgentOrigin, AgentStatus } from "./agent.ts";
@@ -145,6 +146,7 @@ export const EventPayload = z.discriminatedUnion("type", [
     endedAt: Timestamp.optional(),
   }),
   QueueUpdated,
+  OffshiftUpdated,
   ContextMeterUpdated,
   ContextSampled,
   UsageUpdated,

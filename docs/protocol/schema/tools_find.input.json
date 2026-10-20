@@ -10,7 +10,8 @@
         "ace-browser",
         "visualize",
         "ace-threads",
-        "ace-computer-use"
+        "ace-computer-use",
+        "offshift"
       ],
       "type": "string"
     },

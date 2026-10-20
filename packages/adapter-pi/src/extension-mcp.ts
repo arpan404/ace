@@ -4,6 +4,7 @@ import {
   developerInstructions,
   maxToolTimeoutMs,
   type AceMcpConnection,
+  type SessionGuidance,
 } from "@ace/mcp-server";
 import { bareToolName } from "@ace/provider-kit/ace-tool-names";
 import { obj, str } from "./native.ts";
@@ -29,6 +30,7 @@ const Tools = z.object({
         name: AceToolName,
         description: z.string().max(16384).optional(),
         inputSchema: z.record(z.string(), z.unknown()),
+        annotations: z.object({ readOnlyHint: z.boolean().optional() }).passthrough().optional(),
         _meta: z
           .object({ "ace/timeoutMs": z.number().int().min(1).max(maxToolTimeoutMs).optional() })
           .passthrough()
@@ -38,8 +40,15 @@ const Tools = z.object({
     .max(256),
   nextCursor: z.string().optional(),
 });
+type ListedTool = z.infer<typeof Tools>["tools"][number];
+/** Which listed ace tools this session offers Pi. */
+export type AceToolFilter = (tool: ListedTool) => boolean;
+export const anyAceTool: AceToolFilter = () => true;
+/** Read-only Pi: only the tools ace's server marks read-only (its risk class), never a write. */
+export const readOnlyAceTool: AceToolFilter = (tool) => tool.annotations?.readOnlyHint === true;
 const SessionResource = z.object({
   brief: z.string().max(4096).optional(),
+  roles: z.string().max(1024).nullable().optional(),
   facts: z.object({ groups: z.array(z.string().max(64)).max(32) }),
 });
 const Result = z.object({
@@ -128,14 +137,21 @@ type McpClient = InstanceType<(typeof import("@modelcontextprotocol/client"))["C
  * factory registers hooks alone and the connection and catalogue wait for `session_start`.
  * A failure there is an extension error Pi reports; Pi itself keeps working without ace tools.
  */
-export function registerAceMcpTools(pi: PiExtensionApi, connection: AceMcpConnection): void {
-  // Pi's turn-start hook is synchronous, so the session brief is read from ace://session in the
-  // background and the latest copy goes into each turn's system prompt.
-  let guidance: { brief?: string; groups?: string[] } = {};
+export function registerAceMcpTools(
+  pi: PiExtensionApi,
+  connection: AceMcpConnection,
+  offered: AceToolFilter = anyAceTool,
+): void {
+  // The brief and roles are read from ace://session once, while Pi awaits session_start, so the
+  // first turn already has them. The text is then fixed for the session: Pi resends the system
+  // prompt every turn, and any change would bill the whole conversation uncached. What changes
+  // later reaches the agent through each ace result's change note and the context tool.
+  let guidance: SessionGuidance = {};
+  let instructions: string | undefined;
   let client: McpClient | undefined;
   let started: Promise<void> | undefined;
   let closed = false;
-  const refreshGuidance = async () => {
+  const readGuidance = async () => {
     try {
       if (!client) return;
       const read = await client.readResource({ uri: "ace://session" });
@@ -144,6 +160,7 @@ export function registerAceMcpTools(pi: PiExtensionApi, connection: AceMcpConnec
       if (parsed.success)
         guidance = {
           ...(parsed.data.brief ? { brief: parsed.data.brief } : {}),
+          ...(parsed.data.roles ? { roles: parsed.data.roles } : {}),
           groups: parsed.data.facts.groups,
         };
     } catch {
@@ -151,9 +168,8 @@ export function registerAceMcpTools(pi: PiExtensionApi, connection: AceMcpConnec
     }
   };
   pi.on("before_agent_start", (event) => {
-    const systemPrompt = `${event.systemPrompt}\n\n${developerInstructions("pi", guidance)}`;
-    void refreshGuidance();
-    return { systemPrompt };
+    instructions ??= developerInstructions("pi", guidance);
+    return { systemPrompt: `${event.systemPrompt}\n\n${instructions}` };
   });
   pi.on("tool_result", (event) => {
     if (!event.toolName.startsWith("ace_")) return;
@@ -185,8 +201,8 @@ export function registerAceMcpTools(pi: PiExtensionApi, connection: AceMcpConnec
           fetch: boundedFetch,
         }),
       );
-      await refreshGuidance();
-      await listen(pi, mcp);
+      await readGuidance();
+      await listen(pi, mcp, offered);
     } catch (error) {
       await mcp.close();
       throw error;
@@ -198,21 +214,28 @@ export function registerAceMcpTools(pi: PiExtensionApi, connection: AceMcpConnec
 }
 
 /** Registers the catalogue's tools, keeps them active beside Pi's own, and follows changes. */
-async function listen(pi: PiExtensionApi, client: McpClient): Promise<void> {
+async function listen(
+  pi: PiExtensionApi,
+  client: McpClient,
+  offered: AceToolFilter,
+): Promise<void> {
   const slot = callSlots(64);
   const registered = new Set<string>();
   const refresh = (catalogValue: unknown) => {
     const catalog = Tools.parse(catalogValue);
     if (catalog.nextCursor) throw new Error("ace MCP catalog exceeds extension budget");
-    for (const tool of catalog.tools) {
+    const tools = catalog.tools.filter(offered);
+    for (const tool of tools) {
       const name = piToolName(tool.name);
       if (registered.has(name)) continue;
       registered.add(name);
       pi.registerTool({
         name,
         label: name,
+        // No promptSnippet: Pi would copy each description into its system prompt (the model
+        // already reads it in the tool's definition), and every family that opens would change
+        // that prompt and bill the conversation uncached.
         description: tool.description ?? tool.name,
-        promptSnippet: tool.description ?? tool.name,
         parameters: tool.inputSchema,
         async execute(_id, params, signal) {
           const args = z.record(z.string(), z.unknown()).parse(params);
@@ -252,7 +275,7 @@ async function listen(pi: PiExtensionApi, client: McpClient): Promise<void> {
     }
     if (pi.setActiveTools && pi.getActiveTools) {
       const native = pi.getActiveTools().filter((name) => !registered.has(name));
-      pi.setActiveTools([...native, ...catalog.tools.map((tool) => piToolName(tool.name))]);
+      pi.setActiveTools([...native, ...tools.map((tool) => piToolName(tool.name))]);
     }
   };
   refresh(await client.listTools());

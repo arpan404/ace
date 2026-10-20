@@ -27,6 +27,7 @@ import {
   capsule,
   CapsuleBadge,
   CapsuleGlyph,
+  narrowStop,
   stateWords,
   type CapsuleState,
 } from "./task-capsule.tsx";
@@ -131,7 +132,8 @@ export function AgentRow(props: {
       });
   };
   return (
-    <div className={cn("group/agent flex items-center gap-1", capsule)}>
+    // On touch, its actions stand apart from the row and each other so their tap areas don't overlap.
+    <div className={cn("group/agent flex items-center gap-1 pointer-coarse:gap-3", capsule)}>
       {/* The row is the tree item: Enter or a click opens the agent as the whole chat; a click on
           its chevron, or anywhere on the main agent (which opens nothing), folds its subagents. */}
       {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- Enter opens it through the tree's key handler (treeKeys) */}
@@ -154,7 +156,7 @@ export function AgentRow(props: {
           open();
         }}
         className={cn(
-          "focus-ring-inset relative flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md pr-0.5 pl-2 text-left text-ui",
+          "focus-ring-inset relative flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md pr-0.5 pl-2 text-left text-ui pointer-coarse:h-11",
           (!root || props.expanded !== undefined) && "cursor-pointer",
         )}
       >
@@ -169,35 +171,41 @@ export function AgentRow(props: {
         />
         <span
           className={cn(
-            "max-w-[60%] min-w-0 shrink-0 truncate font-medium",
+            // Gives way only after the meta and the model have.
+            "max-w-[60%] min-w-0 shrink truncate font-medium",
             props.earlierRun && "font-normal text-muted-foreground",
           )}
         >
           {props.earlierRun ? note : name}
         </span>
         {needsYou && <CapsuleBadge state={state}>Needs you</CapsuleBadge>}
-        <span className="flex min-w-0 flex-1 items-center gap-1 text-xs">
-          <span className="min-w-0 truncate text-muted-foreground" title={meta || undefined}>
-            {meta}
-          </span>
-          {elapsed && (
-            // How long it has run stays in view while what it is doing truncates.
-            <span className="shrink-0 text-subtle-foreground tabular-nums">
-              {meta ? "· " : ""}
-              {elapsed}
-            </span>
+        {/* What it is doing truncates first; its time stays whole right after it, and the rest of
+            the row sits at the end. */}
+        <span
+          className={cn(
+            "min-w-0 shrink-[4] truncate text-xs text-muted-foreground",
+            !elapsed && "mr-auto",
           )}
+          title={meta || undefined}
+        >
+          {meta}
         </span>
+        {elapsed && (
+          <span className="-ml-1 mr-auto shrink-0 text-xs text-subtle-foreground tabular-nums">
+            {meta ? "· " : ""}
+            {elapsed}
+          </span>
+        )}
         {note && !props.earlierRun && (
           <span
             title={noteTip}
-            className="hidden shrink-0 text-xs text-subtle-foreground @[22rem]/summary:inline"
+            className="hidden min-w-0 shrink-[8] truncate text-xs text-subtle-foreground @[22rem]/summary:inline"
           >
             {note}
           </span>
         )}
         {details.model && !props.earlierRun && (
-          <span className="hidden shrink-0 text-xs text-subtle-foreground @[26rem]/summary:inline">
+          <span className="hidden min-w-0 shrink-[8] truncate text-xs text-subtle-foreground @[30rem]/summary:inline">
             {details.model}
           </span>
         )}
@@ -205,7 +213,7 @@ export function AgentRow(props: {
         <CapsuleChevron expanded={props.expanded} opens={!root} />
       </div>
       {finished && !root && !props.earlierRun && (
-        <span className="mr-0.5 hidden items-center gap-0.5 group-focus-within/agent:inline-flex group-hover/agent:inline-flex pointer-coarse:inline-flex">
+        <span className="mr-0.5 hidden items-center gap-0.5 group-focus-within/agent:inline-flex group-hover/agent:inline-flex pointer-coarse:inline-flex pointer-coarse:gap-3">
           <Button
             size="sm"
             variant="ghost"
@@ -237,7 +245,10 @@ export function AgentRow(props: {
           subagents={props.subagents}
           pending={running}
           inTree
-          className="mr-0.5 hidden group-focus-within/agent:inline-flex group-hover/agent:inline-flex pointer-coarse:inline-flex"
+          className={cn(
+            "mr-0.5 hidden group-focus-within/agent:inline-flex group-hover/agent:inline-flex pointer-coarse:inline-flex",
+            narrowStop,
+          )}
           onKeyDown={(event) => {
             // Back to the row it belongs to.
             if (event.key === "Escape" || event.key === "ArrowLeft") {

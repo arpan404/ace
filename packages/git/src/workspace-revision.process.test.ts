@@ -1,0 +1,35 @@
+import { chmod, readFile, symlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { expect, test } from "vitest";
+import { GitService } from "./index.ts";
+import { git, put, repository, scalar } from "./test-repo.ts";
+
+test("evidence revisions track source bytes, modes, links and HEAD while preserving the real index", async () => {
+  const root = await repository();
+  const service = new GitService();
+  await put(root, "file.txt", "first");
+  await git(root, "add", "file.txt");
+  await git(root, "commit", "-m", "initial");
+  const indexPath = await scalar(root, "rev-parse", "--git-path", "index");
+  const index = await readFile(join(root, indexPath));
+  const initial = await service.workspaceRevision(root);
+  expect(await service.workspaceRevision(root)).toBe(initial);
+  await put(root, "file.txt", "second");
+  const modified = await service.workspaceRevision(root);
+  expect(modified).not.toBe(initial);
+  expect(await readFile(join(root, indexPath))).toEqual(index);
+  await put(root, "new.txt", "untracked");
+  const untracked = await service.workspaceRevision(root);
+  expect(untracked).not.toBe(modified);
+  await chmod(join(root, "new.txt"), 0o755);
+  expect(await service.workspaceRevision(root)).not.toBe(untracked);
+  await symlink("file.txt", join(root, "link"));
+  const linked = await service.workspaceRevision(root);
+  await writeFile(join(root, "file.txt"), "third");
+  expect(await service.workspaceRevision(root)).not.toBe(linked);
+  await git(root, "add", "--all");
+  await git(root, "commit", "-m", "changed");
+  const committed = await service.workspaceRevision(root);
+  await git(root, "commit", "--allow-empty", "-m", "new head");
+  expect(await service.workspaceRevision(root)).not.toBe(committed);
+});

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { readOnlyAceTools } from "@ace/mcp-server";
 import { opencodeNative } from "@ace/provider-kit/access-modes";
 import type { PermissionMode } from "@ace/protocol";
 
@@ -18,6 +19,16 @@ export interface OpenCodePolicy {
 
 const reads = ["read", "glob", "grep", "list", "lsp"].map((action): OpenCodeRule => ({
   action,
+  resource: "*",
+  effect: "allow",
+}));
+/**
+ * ace's read-only tools (context, guide, wait, tools_find, ...) read like OpenCode's own reads,
+ * so Ask lets them through; every ace tool that changes something still asks. OpenCode 2.0.22
+ * checks an MCP tool under the action `<server>_<tool>`, which for ace is `ace_<tool>`.
+ */
+const aceReads = readOnlyAceTools.map((tool): OpenCodeRule => ({
+  action: `ace_${tool}`,
   resource: "*",
   effect: "allow",
 }));
@@ -52,6 +63,7 @@ export function opencodePolicy(mode: PermissionMode): OpenCodePolicy {
         rules: [
           { action: "*", resource: "*", effect: "ask" },
           ...reads,
+          ...aceReads,
           ...envReads,
           ...desktopOnly,
         ],

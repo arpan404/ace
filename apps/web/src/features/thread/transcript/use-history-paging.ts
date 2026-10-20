@@ -2,14 +2,17 @@ import type { HistoryPager } from "@ace/client-react";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import type { JumpSnapshot } from "../long/jump-controller.ts";
 import type { ThreadNav } from "../long/nav.tsx";
+import { nextSpeed, prefetchDistance, speedToward, type ScrollSpeed } from "./prefetch.ts";
 
 /*
  * Paging history in as the reader scrolls toward either end of what is loaded. Only scrolls
- * backed by reader intent may page (a gesture, or the scrolls its momentum carries on with): older history loads one request per upward gesture, well
- * before the edge, so paging in never surfaces as a visible jump. A reply, a jump settling, or a
- * keep-place restore fires scroll events with no gesture behind them, and those must never walk
- * the history by themselves. Newer history (a jumped window back toward live) loads the same
- * way, mirrored.
+ * backed by reader intent may page (a gesture, or the scrolls its momentum carries on with):
+ * older history loads one request per upward gesture, far enough ahead of the edge
+ * (`prefetch.ts`: a few screens, more at speed) that the page lands before the reader gets
+ * there, so the transcript reads as one endless list. A reply, a jump settling, or a keep-place
+ * restore fires scroll events with no gesture behind them, and those must never walk the
+ * history by themselves. Newer history (a jumped window back toward live) loads the same way,
+ * mirrored.
  */
 
 /**
@@ -67,24 +70,33 @@ export interface HistoryPagingOptions {
   /** A window that isn't joined to the live tail. */
   detached: boolean;
   following: boolean;
+  now(): number;
 }
 
 const distanceToLive = (el: HTMLElement | null) =>
   el ? el.scrollHeight - el.scrollTop - el.clientHeight : Number.POSITIVE_INFINITY;
 
 export function useHistoryPaging(options: HistoryPagingOptions) {
-  const { viewport, pager, jump, nav, detached, following } = options;
+  const { viewport, pager, jump, nav, detached, following, now } = options;
   const { older: olderIntent, newer: newerIntent, setOlder: setOlderIntent } = options.intent;
   const { fresh } = options.intent;
   const setNewerIntent = options.intent.setNewer;
   const window = jump.window;
   const focus = jump.focus;
   const { hasOlder, loading, loadOlder } = pager;
+  // How fast the reader moves, from their scrolls: a fast reader needs pages read further ahead.
+  const speed = useRef<ScrollSpeed | undefined>(undefined);
+  /** How close to the end of what is loaded (toward `older`, else newer) a page is read. */
+  const ahead = useCallback(
+    (el: HTMLElement | null, older: boolean) =>
+      prefetchDistance(el?.clientHeight ?? 0, speedToward(older, speed.current, now())),
+    [now],
+  );
   const maybeLoadOlder = useCallback(
-    (scrollTop: number) => {
+    (el: HTMLElement) => {
       if (
         fresh(olderIntent) &&
-        scrollTop < 900 &&
+        el.scrollTop < ahead(el, true) &&
         hasOlder &&
         !loading &&
         !pager.error &&
@@ -98,6 +110,7 @@ export function useHistoryPaging(options: HistoryPagingOptions) {
     [
       fresh,
       olderIntent,
+      ahead,
       hasOlder,
       loading,
       pager.error,
@@ -116,8 +129,14 @@ export function useHistoryPaging(options: HistoryPagingOptions) {
       return;
     }
     if (fresh(olderIntent) && !following) {
-      const top = viewport.current?.scrollTop ?? 0;
-      if (top < 1200 && hasOlder && !loading && !pager.error && !jump.failed) {
+      const el = viewport.current;
+      if (
+        (el?.scrollTop ?? 0) < ahead(el, true) &&
+        hasOlder &&
+        !loading &&
+        !pager.error &&
+        !jump.failed
+      ) {
         setOlderIntent(false);
         void loadOlder();
       }
@@ -127,6 +146,7 @@ export function useHistoryPaging(options: HistoryPagingOptions) {
     focus?.nonce,
     fresh,
     olderIntent,
+    ahead,
     following,
     hasOlder,
     loading,
@@ -140,10 +160,10 @@ export function useHistoryPaging(options: HistoryPagingOptions) {
   // page on its own; scroll events with no gesture behind them never do, so a page settling
   // can't chain into the next one and stick the view flickering.
   const maybeLoadNewer = useCallback(
-    (distance: number) => {
+    (el: HTMLElement) => {
       if (
         fresh(newerIntent) &&
-        distance < 900 &&
+        distanceToLive(el) < ahead(el, false) &&
         detached &&
         window &&
         !jump.loading &&
@@ -158,6 +178,7 @@ export function useHistoryPaging(options: HistoryPagingOptions) {
     [
       fresh,
       newerIntent,
+      ahead,
       detached,
       window,
       jump.loading,
@@ -171,8 +192,14 @@ export function useHistoryPaging(options: HistoryPagingOptions) {
   useEffect(() => {
     if (prefetchFocus.current !== focus?.nonce) return;
     if (fresh(newerIntent) && !following && detached && window) {
-      const distance = distanceToLive(viewport.current);
-      if (distance < 1200 && !jump.loading && !loading && !pager.error && !jump.failed) {
+      const el = viewport.current;
+      if (
+        distanceToLive(el) < ahead(el, false) &&
+        !jump.loading &&
+        !loading &&
+        !pager.error &&
+        !jump.failed
+      ) {
         setNewerIntent(false);
         void nav.jump.newer();
       }
@@ -182,6 +209,7 @@ export function useHistoryPaging(options: HistoryPagingOptions) {
     focus?.nonce,
     fresh,
     newerIntent,
+    ahead,
     following,
     detached,
     window,
@@ -194,8 +222,9 @@ export function useHistoryPaging(options: HistoryPagingOptions) {
   ]);
   return {
     onScroll: (el: HTMLElement) => {
-      maybeLoadNewer(distanceToLive(el));
-      maybeLoadOlder(el.scrollTop);
+      speed.current = nextSpeed(speed.current, el.scrollTop, now(), el.clientHeight);
+      maybeLoadNewer(el);
+      maybeLoadOlder(el);
     },
     /** Back to live: no gesture is pending. */
     reset: () => {

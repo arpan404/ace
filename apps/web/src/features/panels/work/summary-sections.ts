@@ -2,6 +2,8 @@
 export interface SummaryFacts {
   /** Requests, failed or silent agents waiting on the person. */
   needsYou: number;
+  /** An Offshift run that is not done yet. A done run has nothing left to act on. */
+  offshift: boolean;
   /** The thread has a turn to sum up. */
   turn: boolean;
   /** Plans the thread shows. */
@@ -26,6 +28,7 @@ export interface SummaryFacts {
 
 export interface SummarySections {
   needsYou: boolean;
+  offshift: boolean;
   working: boolean;
   prs: boolean;
   done: boolean;
@@ -47,6 +50,7 @@ export interface SummarySections {
 export function summarySections(facts: SummaryFacts): SummarySections {
   const shown = {
     needsYou: facts.needsYou > 0,
+    offshift: facts.offshift,
     working: facts.working > 0 || facts.background,
     prs: facts.prs > 0,
     done: facts.done > 0,

@@ -33,6 +33,7 @@ import {
   type LiveFact,
 } from "./live-status.ts";
 
+import { offshiftPhaseNames, runNotice } from "@ace/projection/offshift-mark";
 import { recoveryAttention } from "./recovery-attention.ts";
 import { rowAttention, syncingAttention, syncingWord, type RowAttention } from "./row-attention.ts";
 
@@ -164,6 +165,11 @@ export interface ThreadCard {
   subagents: number;
   /** "Codex · 2 subagents running". */
   providerLabel: string;
+  /**
+   * The latest Offshift run, while the tree has settled with it open or blocked: its phase
+   * word ("Verify") and the full line ("Run stopped at Verify"). Never set while the tree works.
+   */
+  run: { phase: string; blocked: boolean; label: string } | undefined;
 }
 
 export interface ThreadCardInput {
@@ -293,6 +299,21 @@ function unconfirmedCard(card: ThreadCard, failedSend: boolean): ThreadCard {
       : { label: syncingWord, tone: "idle", mark: "none", compact: syncingWord },
     subagents: 0,
     providerLabel: providerLabel(providerDisplayName(card.provider, card.acpAgentId), 0),
+    run: undefined,
+  };
+}
+
+/**
+ * The run a settled row names: only a done tree (nothing working, waiting or asking) whose
+ * latest run is open or blocked. A delivered run adds nothing; Done stays the tree's word.
+ */
+function settledRun(entry: ThreadListEntry): ThreadCard["run"] {
+  const notice = entry.run && runNotice(entry.run, entry.status.state);
+  if (!notice || notice.outcome === "delivered") return undefined;
+  return {
+    phase: offshiftPhaseNames[notice.phase],
+    blocked: notice.outcome === "blocked",
+    label: notice.headline,
   };
 }
 
@@ -318,14 +339,19 @@ function currentCard(input: ThreadCardInput): ThreadCard {
     tree?.kind === "waiting"
       ? { label: waitingOnSubagentsLabel(tree.subagents), tone: "waiting" as const }
       : tree && { label: workingLabel(fact), tone: "working" as const };
+  // A settled tree with its run left open waits on whoever picks it up: never Done.
+  const run = recovery || working || live ? undefined : settledRun(entry);
   const { label, tone } =
     recovery ??
     (treeStatus
       ? treeStatus
       : live
         ? { label: liveStatusText(live), tone: live.tone }
-        : threadStatusLabel(entry.status));
-  const compact = recovery?.label ?? compactStatus(entry, fact, tree, now, input.locale);
+        : run
+          ? { label: `Waiting · ${run.label}`, tone: "waiting" as const }
+          : threadStatusLabel(entry.status));
+  const compact =
+    recovery?.label ?? (run ? "Waiting" : compactStatus(entry, fact, tree, now, input.locale));
   return {
     id: entry.id,
     title: entry.title,
@@ -350,10 +376,12 @@ function currentCard(input: ThreadCardInput): ThreadCard {
             ? { label: "Working", tone: "working", icon: "working", since }
             : live
               ? livePill(live)
-              : taskPill(entry.status, {
-                  unread,
-                  since: entry.live?.workingSince ?? activityOf(entry),
-                }),
+              : run
+                ? { label: "Waiting", tone: "waiting", icon: "waiting" }
+                : taskPill(entry.status, {
+                    unread,
+                    since: entry.live?.workingSince ?? activityOf(entry),
+                  }),
     diff:
       details?.diff && (details.diff.added > 0 || details.diff.removed > 0)
         ? details.diff
@@ -388,5 +416,6 @@ function currentCard(input: ThreadCardInput): ThreadCard {
     acpAgentId: entry.acpAgentId,
     account: entry.execution?.instanceId ?? entry.live?.account,
     providerLabel: providerLabel(providerDisplayName(entry.provider, entry.acpAgentId), subagents),
+    run,
   };
 }

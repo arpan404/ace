@@ -1055,7 +1055,7 @@ Example:
 
 ```json
 {
-  "key": "browser.backendLoss",
+  "key": "providers.verifier.reasoningEffort",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"
@@ -1118,7 +1118,7 @@ Example:
 ```json
 {
   "keys": [
-    "providers.default"
+    "providers.coder.provider"
   ],
   "requestId": "example",
   "scope": {

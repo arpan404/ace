@@ -192,7 +192,7 @@
             "type": "string"
           },
           "outcome": {
-            "maxLength": 400,
+            "maxLength": 160,
             "type": "string"
           },
           "prs": {
@@ -229,20 +229,16 @@
           "title": {
             "maxLength": 256,
             "type": "string"
-          },
-          "updatedAt": {
-            "type": "number"
           }
         },
         "required": [
           "threadId",
           "title",
-          "status",
-          "updatedAt"
+          "status"
         ],
         "type": "object"
       },
-      "maxItems": 10,
+      "maxItems": 5,
       "type": "array"
     },
     "status": {

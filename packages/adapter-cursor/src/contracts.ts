@@ -59,6 +59,8 @@ export const Open = z.strictObject({
   mcp: z
     .strictObject({ url: z.string().max(4096), bearer: z.string().regex(/^[a-f0-9]{64}$/) })
     .optional(),
+  /** This session's ace guidance for the rule; without it the rule carries the static guidance. */
+  instructions: z.string().min(1).max(16384).optional(),
 });
 export type OpenOptions = z.infer<typeof Open>;
 export const Configure = Open.pick({ model: true, modelParams: true }).required({ model: true });

@@ -28,6 +28,12 @@ export const cursorMode = (enabled: boolean, autoReview: boolean) =>
 
 /** Pi's own read-only tool allowlist (`pi --tools read,grep,find,ls`). */
 export const piReadOnlyTools = ["read", "grep", "find", "ls"] as const;
+/**
+ * Pi's `--tools` also filters extension tools (only `mcp__` names are exempt, Pi 1.3.0), so
+ * Read-only keeps ace's `ace_` extension tools by pattern. In that mode ace's extension
+ * registers only the tools ace's server marks read-only, so the pattern never admits a write.
+ */
+export const piAceToolPattern = "ace_*";
 export const piNative = { readOnly: "tools:read,grep,find,ls", unrestricted: "unrestricted" };
 /** OpenCode selectors: the agent, plus the session rules ace writes (never the repo's config). */
 export const opencodeNative = {

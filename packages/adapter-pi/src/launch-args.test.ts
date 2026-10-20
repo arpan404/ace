@@ -2,8 +2,11 @@ import { expect, test } from "vitest";
 import { piNative } from "@ace/provider-kit/access-modes";
 import { piLaunchArgs } from "./launch-args.ts";
 
-test("Pi's Read-only runs its own read-only tool allowlist; Full access leaves its tools alone", () => {
-  expect(piLaunchArgs(piNative.readOnly, undefined)).toEqual(["--tools", "read,grep,find,ls"]);
+test("Pi's Read-only runs its own read-only tool allowlist plus ace's tools; Full access leaves its tools alone", () => {
+  expect(piLaunchArgs(piNative.readOnly, undefined)).toEqual([
+    "--tools",
+    "read,grep,find,ls,ace_*",
+  ]);
   expect(piLaunchArgs(piNative.unrestricted, undefined)).toEqual([]);
   expect(piLaunchArgs(undefined, undefined)).toEqual([]);
 });

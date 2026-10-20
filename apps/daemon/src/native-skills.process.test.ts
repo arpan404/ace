@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { AgentId, ThreadId } from "@ace/protocol";
-import { builtinGuides } from "@ace/plugins";
+import { builtinGuides, builtinSkills } from "@ace/plugins";
 import { guideTopics } from "@ace/mcp-server";
 import type { ProviderAdapter, ProviderSession, SessionContext } from "@ace/engine-api";
 import { withDaemonMcp, withShippedSkills } from "./services/provider-mcp.ts";
@@ -48,6 +48,8 @@ it("OpenCode, Pi and Cursor sessions start with ace's skills in a directory they
     { provider: "cursor", opened: cursor.opened, adapter: withShippedSkills(cursor.adapter) },
   ];
   const shipped = await builtinGuides();
+  const [bundle] = await builtinSkills();
+  const native = new Set(bundle?.manifest.skills.map((skill) => skill.name));
   for (const { provider, adapter, opened } of sessions) {
     const lease = f.mcp.openSession(
       {
@@ -70,7 +72,9 @@ it("OpenCode, Pi and Cursor sessions start with ace's skills in a directory they
     const [directory] = opened[0]?.builtinSkills?.directories ?? [];
     if (!directory) throw new Error(`${provider} received no skills directory`);
     // Each skill sits at <directory>/<name>/SKILL.md, the layout all three providers scan.
-    for (const { name, description } of shipped) {
+    // Guide-only topics such as offshift load on request, never as a native skill.
+    await expect(readFile(join(directory, "offshift", "SKILL.md"))).rejects.toThrow();
+    for (const { name, description } of shipped.filter((guide) => native.has(guide.name))) {
       const text = await readFile(join(directory, name, "SKILL.md"), "utf8");
       expect(text, `${provider} ${name}`).toContain(`name: ${name}`);
       expect(text).toContain(description);

@@ -90,6 +90,13 @@ export const PublicToolCode = z.enum([
   "thread_busy",
   "request_conflict",
   "handoff_unavailable",
+  "approval_timeout",
+  "page_timeout",
+  "tool_timeout",
+  "cancelled",
+  "result_too_large",
+  "calls_limit",
+  "session_ended",
 ]);
 export type PublicToolCode = z.infer<typeof PublicToolCode>;
 const candidateIds = z
@@ -388,7 +395,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   tool_unavailable: {
     message: "This ace tool is not available to this thread",
-    hint: "The name is wrong or its ace group is off here. Call tools_find with what you want to do, or context with topics [status] for the groups that are on; if a group is off, tell the person. Your own tools are unaffected.",
+    hint: "The name is wrong or its ace group is off here. Call tools_find with what you want to do, or context with topics [status] for the groups that are off; if one is, tell the person. Your own tools are unaffected.",
   },
   tool_missing: {
     message: "Required device tool is unavailable",
@@ -445,6 +452,34 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   handoff_unavailable: {
     message: "That history is not part of this thread's handoff",
     hint: "handoff_read reads only the threads a handoff cites, up to the point it was handed over. Use the sourceThreadId the handoff names, or thread_read for other threads.",
+  },
+  approval_timeout: {
+    message: "The person did not allow this site in time",
+    hint: "ace asked the person to let agents on this site and got no answer. Do not retry it blindly: tell them which site you need and why; once they allow it, call again. Local addresses (localhost, 127.0.0.1) never need approval.",
+  },
+  page_timeout: {
+    message: "The page did not load within timeout",
+    hint: "It may still be loading. browser_snapshot shows where it got; for a dev server, check it responds. Then call browser_open again with a larger timeout (up to the wait limit).",
+  },
+  tool_timeout: {
+    message: "The call ran past this tool's time limit and was stopped",
+    hint: "Anything it changed may be partly done: check the target's current state before calling again, and ask for less at once (a smaller scope or a shorter wait).",
+  },
+  cancelled: {
+    message: "The call was cancelled before it finished",
+    hint: "The client, the person or a stop request cancelled it. Call again only if the work is still wanted; what it changed may be partly done.",
+  },
+  result_too_large: {
+    message: "The result was too large to return",
+    hint: "Nothing is lost; ask for less: a smaller limit, a narrower scope (ref, depth, filter) or a byte range, then call again.",
+  },
+  calls_limit: {
+    message: "Too many ace calls are running at once",
+    hint: "Let running calls (waits, long browser waits) finish, then call again; do not start more in parallel.",
+  },
+  session_ended: {
+    message: "This ace session has ended",
+    hint: "The connection's lease is over and no ace tool works in it. Finish without ace tools; a new turn gets a new session.",
   },
   machine_disconnected: {
     message: "The connection to that machine dropped during the call",

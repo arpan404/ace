@@ -64,10 +64,9 @@ it("reads never prompt and only input, navigation and scripts count as effects",
     expect(risk("browser_settings", { action: "close" })).toBe("external-effect");
     const listed = f.registry.list(f.lease.principal);
     const open = listed.find((tool) => tool.name === "browser_open");
-    expect(open).toMatchObject({
-      annotations: { openWorldHint: true, destructiveHint: false },
-      _meta: { "anthropic/alwaysLoad": true },
-    });
+    expect(open).toMatchObject({ annotations: { openWorldHint: true, destructiveHint: false } });
+    // Deferred behind Claude Code's tool search: only ace's entry points load upfront.
+    expect(open?.["_meta"]?.["anthropic/alwaysLoad"]).toBeUndefined();
     expect(listed.find((tool) => tool.name === "browser_snapshot")?.annotations).toMatchObject({
       readOnlyHint: true,
       openWorldHint: false,

@@ -30,7 +30,8 @@
     "./thread-status": "./src/thread-status.ts",
     "./background": "./src/background.ts",
     "./agent-status": "./src/agent-status.ts",
-    "./entities": "./src/entities.ts"
+    "./entities": "./src/entities.ts",
+    "./offshift": "./src/offshift.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

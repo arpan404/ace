@@ -119,6 +119,12 @@ that the switch has applied; inspect the thread's `switch` and `execution` state
 Reads may inspect other conversations in the same project. Writes require the
 calling thread, its children or its durably owned launched conversations.
 
+`offshift` keeps the calling thread's durable record of a multi-step outcome:
+criteria, phase, blocker and evidence bound to the workspace's Git revision
+([ADR 0090](../adr/0090-native-offshift.md)). It is scoped to the authenticated
+caller; no input selects another thread. It records work and runs nothing; its
+`complete` state needs the whole tree done, as reported by the monitor above.
+
 ## Permission ceilings
 
 Native sandbox and approval selections are ace's runtime modes. Children and

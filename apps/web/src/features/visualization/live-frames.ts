@@ -32,8 +32,27 @@ export class LiveFrames {
 
 export const LiveFramesContext = createContext<LiveFrames | undefined>(undefined);
 
-/** How far outside the viewport a frame stays loaded. */
-const margin = "100% 0px";
+/** A frame loads within the inner margin and unloads outside the outer margin. */
+const innerMargin = "200% 0px";
+const outerMargin = "400% 0px";
+
+/** The nearest scrolling ancestor, so the margins reach past the transcript's visible area. */
+function scrollRoot(element: HTMLElement): Element | null {
+  let node = element.parentElement;
+  while (node) {
+    const overflowY = getComputedStyle(node).overflowY;
+    if (overflowY === "auto" || overflowY === "scroll") return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
+/** Whether a frame stays near: in the inner margin it loads, outside the outer it unloads. */
+export function nextNear(previous: boolean, inInner: boolean, inOuter: boolean): boolean {
+  if (inInner) return true;
+  if (!inOuter) return false;
+  return previous;
+}
 
 /**
  * Whether the visualization in `element` should hold a live page. Without a provider (or an
@@ -48,16 +67,39 @@ export function useLiveFrame(id: string, element: HTMLElement | null): boolean {
       pool.near(id, true);
       return () => pool.near(id, false);
     }
-    const observer = new IntersectionObserver(
+    let inInner = false;
+    let inOuter = false;
+    let current = false;
+    const root = scrollRoot(element);
+    const report = () => {
+      const next = nextNear(current, inInner, inOuter);
+      if (next === current) return;
+      current = next;
+      pool.near(id, next);
+    };
+    const innerObserver = new IntersectionObserver(
       (entries) => {
         const entry = entries.at(-1);
-        if (entry) pool.near(id, entry.isIntersecting);
+        if (!entry) return;
+        inInner = entry.isIntersecting;
+        report();
       },
-      { rootMargin: margin },
+      { root, rootMargin: innerMargin },
     );
-    observer.observe(element);
+    const outerObserver = new IntersectionObserver(
+      (entries) => {
+        const entry = entries.at(-1);
+        if (!entry) return;
+        inOuter = entry.isIntersecting;
+        report();
+      },
+      { root, rootMargin: outerMargin },
+    );
+    innerObserver.observe(element);
+    outerObserver.observe(element);
     return () => {
-      observer.disconnect();
+      innerObserver.disconnect();
+      outerObserver.disconnect();
       pool.near(id, false);
     };
   }, [pool, id, element]);

@@ -209,6 +209,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
       notes: (workspace) =>
         (services.projects?.catalog.get(workspace).notes ?? []).map((note) => note.text),
       machine: hostname(),
+      roles: () => services.roles?.current() ?? {},
     }),
     knowledge,
     toolFailureReporter(context.log, context.id),

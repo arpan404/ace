@@ -277,19 +277,24 @@ test("a finished thread ace delegated shows the bar with its model, effort and d
   await screen.findByRole("heading", { level: 1, name: "Relay docs for 0.9" });
 });
 
-test("the details card's Lineage names a subagent's parent with its status and its siblings", async () => {
+test("the details card's Agents names a subagent's parent and its siblings, with a finished subagent on screen in view", async () => {
   const app = harness();
   app.play(coldStartReplay()).runThrough("audit-done");
   await app.open("/t/thread-cold-start");
   await openFromCard("2 subagents", /^Open resume-sweep,/);
   await screen.findByRole("heading", { level: 1, name: "resume-sweep" });
   const card = await openWorkCard();
-  const lineage = await within(card).findByRole("region", { name: "Lineage" });
+  const lineage = await within(card).findByRole("region", { name: "Agents" });
   expect(
     within(lineage).getByRole("button", { name: new RegExp(`^Open parent ${parentTitle}, `) }),
   ).toBeTruthy();
-  // The one on screen is marked, not offered as somewhere to go.
+  // The one on screen is marked, not offered as somewhere to go, and Completed opens around it.
   expect(within(lineage).getByRole("group", { name: /^resume-sweep, Done, shown$/ })).toBeTruthy();
+  expect(
+    within(lineage)
+      .getByRole("button", { name: /^Completed / })
+      .getAttribute("aria-expanded"),
+  ).toBe("true");
 
   await userEvent.click(within(lineage).getByRole("button", { name: /^Open ack-buffer-test, / }));
   await screen.findByRole("heading", { level: 1, name: "ack-buffer-test" });
@@ -360,7 +365,7 @@ test("a long delegated thread still names its parent when its launch message isn
   ).toBeTruthy();
   const card = await openWorkCard();
   expect(
-    within(await within(card).findByRole("region", { name: "Lineage" })).getByRole("button", {
+    within(await within(card).findByRole("region", { name: "Agents" })).getByRole("button", {
       name: /^Open parent Long parent/,
     }),
   ).toBeTruthy();

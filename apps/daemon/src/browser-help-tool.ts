@@ -38,7 +38,7 @@ export function browserHelpToolkit(help: BrowserHelp): Toolkit {
         title: "Ask the person to act in a tab",
         riskClass: "thread-write",
         description:
-          "Ask the person to act in one of this thread's browser tabs when only they can: sign in (login), solve a CAPTCHA (captcha), enter a two-factor code (two_factor) or answer a dialog you should not answer (dialog). ace shows the request, notifies them and opens the tab for them; it waits up to timeoutSeconds (at most 240). done: they finished, snapshot the tab and carry on. skipped: they won't, so work around it. pending: end your turn; their answer arrives as their next message. Never type credentials or codes yourself.",
+          "Ask the person to sign in, solve a CAPTCHA, enter a two-factor code or answer a dialog in a browser tab, when only they can (login, captcha, two_factor, dialog). ace shows the request, notifies them and opens the tab for them; it waits up to timeoutSeconds (at most 240). done: they finished, snapshot the tab and carry on. skipped: they won't, so work around it. pending: end your turn; their answer arrives as their next message. Never type credentials or codes yourself.",
         input: BrowserHelpInput,
         output: BrowserHelpResult,
         capability: "browser",

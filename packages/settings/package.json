@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./defaults": "./src/defaults.ts"
+    "./defaults": "./src/defaults.ts",
+    "./roles": "./src/roles.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

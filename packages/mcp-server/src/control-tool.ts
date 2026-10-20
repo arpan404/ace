@@ -34,16 +34,6 @@ export function controlResult<T extends z.ZodType>(data: T) {
   const { data: _open, ...base } = AgentControlResult.shape;
   return z.object({ ...base, data: data.optional() });
 }
-/**
- * What clients are shown of every control result: the envelope. Each tool still validates its
- * own data shape; repeating it in every listing would cost context on every request.
- */
-const advertisedOutput = z.looseObject({
-  ok: z.boolean(),
-  code: AgentControlResult.shape.code,
-  hint: z.string().optional().describe("On failure: the next step."),
-  data: z.unknown().optional(),
-});
 /** For tools whose success needs no data: ok or a code is the whole answer. */
 export const NoData = z.object((({ data: _open, ...base }) => base)(AgentControlResult.shape));
 
@@ -69,7 +59,11 @@ export function controlTool<I extends z.ZodObject>(
     register(registry, port) {
       registry.register({
         ...metadata,
-        advertisedOutput,
+        // The envelope (`ok`, `code`, `hint`, open `data`) told a model nothing the result
+        // does not; each tool still validates its own data shape.
+        advertisedOutput: null,
+        // A refusal is a result with a code and hint, and still a failed call to the client.
+        failed: (result) => result["ok"] === false,
         maxInputBytes: maxInputBytes ?? maxControlInputBytes,
         run: (input, context) =>
           run(input, {
@@ -94,7 +88,5 @@ export const fields = {
     .min(1)
     .max(128)
     .regex(/^[a-zA-Z0-9_.-]+$/)
-    .describe(
-      "Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice.",
-    ),
+    .describe("Any stable id; repeating a call with it runs once."),
 };

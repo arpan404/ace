@@ -7,12 +7,12 @@ import { ArrivalScope, useArrival } from "@/lib/arrival.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useNow } from "@/lib/time.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { capsule, CapsuleGlyph, CapsuleMeta } from "./task-capsule.tsx";
+import { capsule, CapsuleGlyph, CapsuleMeta, narrowStop } from "./task-capsule.tsx";
 import { useStopIntent } from "./use-stop-intent.ts";
 
-/** Hover and focus reveal a row's actions; touch, with no hover, always shows them. */
+/** Hover and focus reveal a row's actions; touch, with no hover, always shows them, spaced apart. */
 const onHover =
-  "hidden group-focus-within/task:flex group-hover/task:flex pointer-coarse:flex items-center gap-0.5";
+  "hidden group-focus-within/task:flex group-hover/task:flex pointer-coarse:flex items-center gap-0.5 pointer-coarse:gap-3";
 
 /**
  * Summary's background work: each command still running, with how long it has run, Open in
@@ -51,7 +51,7 @@ function TaskRow(props: { threadId: string; taskId: string }) {
     <li
       aria-label={`${task.title}: ${taskState(task)}`}
       className={cn(
-        "group/task flex min-h-8 flex-wrap items-start gap-2 py-1.5 pr-1 pl-2",
+        "group/task flex min-h-8 flex-wrap items-start gap-2 py-1.5 pr-1 pl-2 pointer-coarse:gap-3 pointer-coarse:py-2.5",
         capsule,
         arrival,
       )}
@@ -91,10 +91,11 @@ function TaskRow(props: { threadId: string; taskId: string }) {
             size="sm"
             variant="secondary"
             disabled={stop.busy}
+            className={narrowStop}
             onClick={() => void stop.send({ type: "background_task.stop", taskId: task.id })}
           >
             <StopIcon aria-hidden size={14} weight="fill" />
-            {stop.busy ? "Stopping…" : "Stop"}
+            <span data-slot="stop-label">{stop.busy ? "Stopping…" : "Stop"}</span>
           </Button>
         )}
       </span>

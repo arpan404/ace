@@ -184,8 +184,9 @@ test("OpenCode waits for ace status to reach its native tool catalog before acce
     expect(await h.control("/test/mcp-tools")).toMatchObject({
       readinessRequested: true,
       tools: [
-        { name: "ace_context", description: expect.stringContaining("What ace already knows") },
+        { name: "ace_context", description: expect.stringContaining("session status in one read") },
         { name: "ace_tools_find", description: expect.stringContaining("Find the ace tools") },
+        { name: "ace_tools_call", description: expect.stringContaining("Run any ace tool") },
       ],
       plugins: ["user-plugin", expect.any(String)],
     });

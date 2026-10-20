@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ThreadId, WorkspaceId } from "./ids.ts";
+import { ItemId, ThreadId, WorkspaceId } from "./ids.ts";
 
 const offset = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const path = z.string().max(4096);
@@ -12,6 +12,18 @@ export const FileOperation = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("download"),
     path,
+    offset: offset.default(0),
+    validator: FileVersion.optional(),
+  }),
+  /**
+   * Read-only download of a local file that an assistant message in the request's thread links
+   * to. The daemon resolves `reference` (the link target exactly as the message wrote it) only
+   * after finding that link in `itemId`; it never reads a path the client chose on its own.
+   */
+  z.object({
+    op: z.literal("link.download"),
+    itemId: ItemId,
+    reference: path,
     offset: offset.default(0),
     validator: FileVersion.optional(),
   }),

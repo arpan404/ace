@@ -46,14 +46,14 @@ const glyph = (Glyph: typeof CopyIcon) => <Glyph aria-hidden size={16} />;
 const finder = "com.apple.finder";
 
 /** Where the thread runs: its machine and checkout, how to open it, and the project's scripts. */
-export function EnvironmentGroup(props: {
+export function WorkspaceGroup(props: {
   thread: ThreadRef;
   move(move: Move): void;
   onClose(): void;
   onAddScript(): void;
 }) {
   return (
-    <Section label="Environment">
+    <Section label="Workspace" title="Workspace">
       <MachineRow {...props} />
       <CheckoutProblem thread={props.thread} move={props.move} />
       <WorktreeSetupRow thread={props.thread} />

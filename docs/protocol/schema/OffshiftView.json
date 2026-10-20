@@ -1,0 +1,54 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftView.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "next": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "type": "string"
+    },
+    "pending": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/OffshiftPending.json"
+      },
+      "maxItems": 320,
+      "type": "array"
+    },
+    "revision": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftRevision.json"
+    },
+    "run": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftRun.json"
+    },
+    "state": {
+      "enum": [
+        "active",
+        "blocked",
+        "needs_evidence",
+        "waiting_on_tree",
+        "complete"
+      ],
+      "type": "string"
+    },
+    "treeState": {
+      "enum": [
+        "working",
+        "waiting",
+        "needs_you",
+        "failed",
+        "done",
+        "unknown"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "run",
+    "revision",
+    "state",
+    "pending",
+    "treeState",
+    "next"
+  ],
+  "type": "object"
+}

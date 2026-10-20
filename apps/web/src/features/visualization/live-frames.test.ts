@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { LiveFrames } from "./live-frames.ts";
+import { LiveFrames, nextNear } from "./live-frames.ts";
 
 test("only the most recently revealed visualizations keep a live page, and a hidden one unloads", () => {
   const frames = new LiveFrames(2);
@@ -22,4 +22,11 @@ test("only the most recently revealed visualizations keep a live page, and a hid
   frames.near("d", false);
   expect(changes).toBe(4);
   expect(frames.live("d")).toBe(false);
+});
+
+test("a visualization loads before it scrolls into view and stays loaded until it is well out of view", () => {
+  expect(nextNear(false, true, true)).toBe(true);
+  expect(nextNear(true, false, true)).toBe(true);
+  expect(nextNear(true, false, false)).toBe(false);
+  expect(nextNear(false, false, true)).toBe(false);
 });

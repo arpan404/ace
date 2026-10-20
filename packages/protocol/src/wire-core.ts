@@ -16,6 +16,7 @@ import { Interaction } from "./interactions.ts";
 import { Item } from "./items.ts";
 import { OmittedItem } from "./omitted-items.ts";
 import { QueueState } from "./queue.ts";
+import { OffshiftRunCard } from "./offshift.ts";
 import { ReviewData } from "./review.ts";
 import { Run, Thread } from "./thread.ts";
 import { EditorLaunch } from "./workspace-actions.ts";
@@ -53,6 +54,11 @@ export const ThreadView = z.object({
   /** Exclusive entity creation cursors. Active entities remain in every snapshot. */
   entitiesBefore: z.partialRecord(EntityCollection, seq.positive().nullable()).optional(),
   queue: QueueState.optional(),
+  /**
+   * The most recently updated Offshift run's card. Only one is kept so snapshots stay bounded
+   * however many runs a thread starts; the others stay readable through the offshift tool.
+   */
+  offshift: OffshiftRunCard.optional(),
   contextMeters: records(ContextMeter).optional(),
   kind: z.literal("thread"),
   seq,

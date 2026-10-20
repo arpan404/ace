@@ -14,6 +14,7 @@ import { SettingsValues, ProviderConfigurations, ProjectCommand } from "@ace/pro
 import { stricterOffer } from "@ace/provider-kit/access-modes";
 import { ItemId } from "@ace/protocol";
 import type { AccessMode, AccessModeOffer } from "@ace/protocol";
+import type { OffshiftRunCard } from "@ace/protocol/offshift";
 import {
   fakePermissionCapabilities,
   fakeProviderPermissions,
@@ -303,7 +304,10 @@ export class FakeDaemon implements Host {
     return this.servicesWire.workspace.projects;
   }
   /** Threads' checkouts and projects' own folders behind `files.request`, for seeding files. */
-  get checkouts(): Pick<import("./files-wire.ts").FakeFilesWire, "seed" | "seedProject"> {
+  get checkouts(): Pick<
+    import("./files-wire.ts").FakeFilesWire,
+    "seed" | "seedProject" | "seedLinked"
+  > {
     return this.servicesWire.files;
   }
   /** Providers' own MCP servers behind `mcp.provider.sources` and its controls. */
@@ -934,6 +938,10 @@ export class FakeDaemon implements Host {
   ): void {
     const now = this.at(agoMs);
     this.append(this.thread(id), [{ type: "thread.updated", ...changes }], now);
+  }
+  /** A scripted Offshift run change, on the same stream as the daemon's run writes. */
+  updateOffshift(id: string, card: OffshiftRunCard, agoMs = 0): void {
+    this.append(this.thread(id), [{ type: "offshift.updated", card }], this.at(agoMs));
   }
   /** Drop every socket, as a daemon restart or network loss would. */
   disconnectAll(code = 1006): void {

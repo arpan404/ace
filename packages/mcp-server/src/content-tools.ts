@@ -5,6 +5,7 @@ import { withinJsonBudget, ResultBudgetExceeded } from "./json-budget.ts";
 import type { ToolContext, ToolMetadata } from "./registry.ts";
 import type { McpCapability } from "@ace/protocol";
 import { maxRichResultBytes } from "./result-budgets.ts";
+import { bareToolName } from "./tool-names.ts";
 export interface ContentToolDefinition<I extends z.ZodType> extends ToolMetadata {
   input: I;
   capability: McpCapability | null;
@@ -20,7 +21,7 @@ export async function executeContent<I extends z.ZodType>(
 ): Promise<CallToolResult> {
   const maxInput = definition.maxInputBytes ?? 64 * 1024;
   if (!withinJsonBudget(input, maxInput)) throw inputTooLarge(maxInput);
-  const args = parseToolArguments(definition.input, input);
+  const args = parseToolArguments(definition.input, input, bareToolName(definition.name));
   context.signal.throwIfAborted();
   const result = await definition.run(args, context);
   const limit = maxRichResultBytes;

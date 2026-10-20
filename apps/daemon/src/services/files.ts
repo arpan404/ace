@@ -179,6 +179,13 @@ export function createFilesSession(context: SocketContext): SocketService {
         }
         if (!threadId || !files || !context.canReadThread(threadId))
           throw new Error("File thread unavailable");
+        if (operation?.op === "link.download")
+          return files.linkedFiles.bind(
+            threadId,
+            operation,
+            () =>
+              context.connected() && context.authorize("read") && context.canReadThread(threadId),
+          );
         if (operation?.op === "artifact.download" && operation.artifactId.startsWith("browser-")) {
           const artifacts = files.browserArtifacts;
           if (!artifacts.owns(threadId, operation.artifactId))

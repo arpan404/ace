@@ -4,7 +4,7 @@ import { cn } from "@/lib/cn.ts";
 
 /*
  * The Work card's pieces at T3's toolbar scale: 32px rows, a 16px muted glyph, 13px words,
- * transparent until hovered. One hairline between sections, no heading rows.
+ * transparent until hovered. One hairline between sections.
  */
 
 /** A row's leading glyph colour: muted, so the words lead. */
@@ -57,9 +57,15 @@ export function RowSub({ className, ...props }: ComponentProps<"span">) {
 }
 
 /** The trailing caret: ⌄ opens a menu, › opens somewhere else. */
-export function RowCaret(props: { to?: "menu" | "elsewhere" }) {
+export function RowCaret(props: { to?: "menu" | "elsewhere"; className?: string | undefined }) {
   const Glyph = props.to === "elsewhere" ? CaretRightIcon : CaretDownIcon;
-  return <Glyph aria-hidden size={14} className={rowIcon} />;
+  return (
+    <Glyph
+      aria-hidden
+      size={14}
+      className={cn(rowIcon, "transition-transform duration-(--motion-fast)", props.className)}
+    />
+  );
 }
 
 /** A small text action at a row's end: Merge, Stop. */
@@ -77,9 +83,9 @@ export function RowAction({ className, ...props }: ComponentProps<"button">) {
 }
 
 /**
- * One of the card's sections (Environment, Git, Lineage). No heading row: a hairline
- * between sections is all that divides them, as T3's details card does. `label` names it for
- * assistive tech; `title` shows a quiet caption where the rows alone don't say what they are.
+ * One of the card's sections (Workspace, Branch, Agents). A hairline between sections divides
+ * them; a quiet caption names each section where the rows alone don't say what they are.
+ * `label` names it for assistive tech; `title` shows that caption.
  */
 export function Section(props: { label: string; title?: string; children: ReactNode }) {
   return (

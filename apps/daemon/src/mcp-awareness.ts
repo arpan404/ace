@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { AgentCatalogInput, type McpAttribution, type Thread, type ThreadId } from "@ace/protocol";
-import type { AwarenessPort, SessionFacts } from "@ace/mcp-server";
+import type { AwarenessPort, SessionFacts, SessionRoles } from "@ace/mcp-server";
 import type { Store } from "./store.ts";
 import type { DelegationService } from "./agent-control/delegations.ts";
 import { childTaskView } from "./agent-control/task-view.ts";
@@ -20,9 +20,12 @@ export function mcpAwareness(deps: {
   machine: string | null;
   /** Reads `.git/HEAD`; injected so tests and odd layouts can substitute it. */
   readHead?(cwd: string): string | null;
+  /** The person's roles from Settings, for each new session's instructions. */
+  roles?(): SessionRoles;
 }): AwarenessPort {
   const readHead = deps.readHead ?? gitHead;
   return {
+    ...(deps.roles ? { roles: deps.roles } : {}),
     facts(caller) {
       const thread = deps.store.getThread(caller.threadId);
       if (!thread) return undefined;

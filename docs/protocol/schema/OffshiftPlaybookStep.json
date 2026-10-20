@@ -1,0 +1,45 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftPlaybookStep.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "description": "A stable id for the step (letters, digits, _ . -).",
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "kinds": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceKind.json"
+      },
+      "maxItems": 5,
+      "minItems": 1,
+      "type": "array"
+    },
+    "phase": {
+      "description": "The phase the step belongs to.",
+      "enum": [
+        "plan",
+        "implement",
+        "verify",
+        "review",
+        "delivery"
+      ],
+      "type": "string"
+    },
+    "title": {
+      "description": "What to do, as a short imperative.",
+      "maxLength": 160,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "phase"
+  ],
+  "type": "object"
+}

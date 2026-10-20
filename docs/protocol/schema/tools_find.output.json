@@ -44,8 +44,7 @@
         "required": [
           "name",
           "purpose",
-          "effect",
-          "inputSchema"
+          "effect"
         ],
         "type": "object"
       },

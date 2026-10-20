@@ -30,6 +30,9 @@ async function hash(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 /** Fixture storage is capped at 16 MiB including in-progress uploads. Wire frames remain 64 KiB. */
+const linkedKey = (threadId: string, itemId: string, reference: string) =>
+  `linked:${threadId}:${itemId}:${reference}`;
+
 export class FakeFilesWire {
   registerArtifact(threadId: string, artifactId: string, bytes: Uint8Array) {
     if (bytes.length > 16 * 1024 * 1024) throw new Error("Artifact fixture too large");
@@ -60,6 +63,16 @@ export class FakeFilesWire {
         this.checkout.apply(threadId, { op: "mkdir", path: folder, expected: null });
     }
     this.checkout.apply(threadId, { op: "create", path, expected: null, text });
+  }
+  /**
+   * A file outside the checkout that one assistant message links to, served by `link.download`
+   * only for that message and that exact link target, as the daemon does.
+   */
+  seedLinked(threadId: string, itemId: string, reference: string, text: string): void {
+    this.files.set(linkedKey(threadId, itemId, reference), {
+      bytes: new TextEncoder().encode(text),
+      version: `linked-${++this.sequence}`,
+    });
   }
   /** Put a text file (and its folders) in a project's own folder, which New thread browses. */
   seedProject(workspaceId: string, path: string, text: string): void {
@@ -141,7 +154,10 @@ export class FakeFilesWire {
     };
     /** Stat or open a download of one file, by its key in the fixture's checkouts. */
     const read = (
-      op: Extract<FileOperation, { op: "download" | "stat" | "artifact.download" }>,
+      op: Extract<
+        FileOperation,
+        { op: "download" | "link.download" | "stat" | "artifact.download" }
+      >,
       threadId: string,
       key: string,
       requestId: string,
@@ -314,6 +330,11 @@ export class FakeFilesWire {
           }
           if (!message.threadId) throw new Error("INVALID_MESSAGE");
           const threadId = message.threadId;
+          if (op.op === "link.download") {
+            // Not a checkout path, so pulls skip the checkout re-check (as support reads do).
+            read(op, "", linkedKey(threadId, op.itemId, op.reference), message.requestId);
+            return;
+          }
           if (op.op === "download" || op.op === "stat" || op.op === "artifact.download") {
             const path = op.op === "artifact.download" ? `artifacts/${op.artifactId}` : op.path;
             read(op, threadId, this.key(threadId, path), message.requestId);

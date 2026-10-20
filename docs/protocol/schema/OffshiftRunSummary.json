@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftRunSummary.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "outcome": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "outcomeTruncated": {
+      "type": "boolean"
+    },
+    "phase": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftPhase.json"
+    }
+  },
+  "required": [
+    "id",
+    "phase",
+    "outcome",
+    "outcomeTruncated"
+  ],
+  "type": "object"
+}
