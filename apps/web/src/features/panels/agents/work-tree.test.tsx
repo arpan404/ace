@@ -141,9 +141,10 @@ test("a message queued in the composer shows in the Agents tab without extra exp
   expect(within(audit).getByRole("img", { name: "Claude Code" })).toBeTruthy();
   expect(within(panel).queryByRole("listitem", { name: /queued message/ })).toBeNull();
 
+  // The main agent only waits, so Enter would send now: ⌘↵ queues it instead.
   await userEvent.type(
     screen.getByRole("combobox", { name: "Message" }),
-    "Also check the iOS cold-start path{Enter}",
+    "Also check the iOS cold-start path{Meta>}{Enter}{/Meta}",
   );
 
   // The pill above the composer and the Agents tab read the same queue.

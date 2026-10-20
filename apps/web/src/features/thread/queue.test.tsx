@@ -18,6 +18,8 @@ const threadId = "thread-replay-cursor";
 async function openBusy(options: { followUp?: "steer" | "queue" } = {}) {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
+  // The main agent is back at its own work, not only waiting on its subagents: follow-ups queue.
+  app.daemon.apply(threadId, [scenarioFacts.toolDone("root", "spawn-test")]);
   if (options.followUp) {
     await app.client.start();
     await waitFor(() => expect(app.client.state).toBe("ready"));
@@ -554,6 +556,7 @@ test.each([17, 33, 257])(
     const lastInput = `Retained input ${queuedCount}`;
     const app = harness();
     app.play(replayCursor()).runThrough("finding");
+    app.daemon.apply(threadId, [scenarioFacts.toolDone("root", "spawn-test")]);
     app.daemon.holdQueue(threadId, "manual");
     const { fakeClient } = await import("@/test/harness.tsx");
     const peer = fakeClient(app.daemon);
@@ -648,8 +651,6 @@ test.each(["steer", "queue"] as const)(
     const { app, feed, message } = await openBusy({ followUp });
     act(() =>
       app.daemon.apply(threadId, [
-        // The main agent is done waiting on its subagents and runs a command itself.
-        scenarioFacts.toolDone("root", "spawn-test"),
         scenarioFacts.tool("root", "foreground-build", {
           kind: "shell",
           title: "Build",

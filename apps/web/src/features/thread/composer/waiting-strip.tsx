@@ -1,15 +1,13 @@
 import { pluralCount, waitingOnSubagentsLabel, type TurnWait } from "@ace/ui-core";
-import { HourglassMediumIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
-import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { ElapsedTime } from "@/components/working-indicator.tsx";
 import { useBackgroundShells } from "@/features/panels/index.ts";
 import { useStopCommands } from "./stop-strips.tsx";
 
 /**
- * What the main agent waits on while it does nothing itself, with a Stop: "Waiting for 3
- * subagents · 5m 58s", or, its turn over, "Waiting for bun run dev:relay". Stop ends what it
+ * What the main agent waits on while it does nothing itself, its Stop at the far right: "Waiting
+ * for 3 subagents · 5m 58s", or, its turn over, "Waiting for bun run dev:relay". Stop ends what it
  * waits on: the whole agent tree, or the background commands. "Stopping…" until the tree ends.
  */
 export function WaitingStrip(props: {
@@ -29,74 +27,67 @@ export function WaitingStrip(props: {
       aria-label={waitWords(wait)}
       className="flex h-7 min-w-0 items-center gap-1.5 px-1 text-xs"
     >
-      <Icon icon={HourglassMediumIcon} size={12} className="shrink-0 text-muted-foreground" />
-      {wait.kind === "subagents" ? (
-        <>
-          <span className="min-w-0 truncate">
-            <span className="text-foreground">{waitWords(wait)}</span>
-            {props.since !== undefined && (
-              <span className="text-muted-foreground tabular-nums">
-                {" · "}
-                <ElapsedTime from={props.since} />
-              </span>
-            )}
+      <span className="min-w-0 flex-1 truncate">
+        {wait.kind === "background" && wait.title ? (
+          <span className="text-foreground">
+            {"Waiting for "}
+            <code className="font-mono">{wait.title}</code>
           </span>
-          {props.stopping ? (
-            <Button size="xs" variant="ghost" disabled>
-              Stopping…
-            </Button>
-          ) : (
-            props.onStop && (
-              <Button size="xs" variant="ghost" aria-label="Stop the agent" onClick={props.onStop}>
-                Stop
-              </Button>
-            )
-          )}
-        </>
-      ) : (
-        <BackgroundWait threadId={props.threadId} wait={wait} />
-      )}
+        ) : (
+          <span className="text-foreground">{waitWords(wait)}</span>
+        )}
+        {wait.kind === "subagents" && props.since !== undefined && (
+          <span className="text-muted-foreground tabular-nums">
+            {" · "}
+            <ElapsedTime from={props.since} />
+          </span>
+        )}
+      </span>
       {props.indicators}
+      {wait.kind === "subagents" ? (
+        <TreeStop onStop={props.onStop} stopping={props.stopping} />
+      ) : (
+        <CommandsStop threadId={props.threadId} />
+      )}
     </div>
   );
 }
 
-/** "Waiting for bun run dev:relay · Stop": a finished turn's commands, stopped in one press. */
-function BackgroundWait(props: {
-  threadId: string;
-  wait: Extract<TurnWait, { kind: "background" }>;
-}) {
+/** Stop for the agent tree, "Stopping…" while it is on its way. */
+function TreeStop(props: { onStop?: (() => void) | undefined; stopping: boolean }) {
+  if (props.stopping)
+    return (
+      <Button size="xs" variant="ghost" disabled>
+        Stopping…
+      </Button>
+    );
+  if (!props.onStop) return null;
+  return (
+    <Button size="xs" variant="ghost" aria-label="Stop the agent" onClick={props.onStop}>
+      Stop
+    </Button>
+  );
+}
+
+/** Stop for the background commands a finished turn left running, in one press. */
+function CommandsStop(props: { threadId: string }) {
   const commands = useBackgroundShells(props.threadId).filter(
     (task) => task.status === "running" && !task.ambient,
   );
   const { stoppable, sending, stopAll } = useStopCommands(commands);
-  const { wait } = props;
+  if (!stoppable.length) return null;
   return (
-    <>
-      <span className="min-w-0 truncate text-foreground">
-        {wait.title ? (
-          <>
-            {"Waiting for "}
-            <code className="font-mono">{wait.title}</code>
-          </>
-        ) : (
-          waitWords(wait)
-        )}
-      </span>
-      {stoppable.length > 0 && (
-        <Button
-          size="xs"
-          variant="ghost"
-          disabled={sending}
-          aria-label={
-            stoppable.length === 1 ? "Stop the background command" : "Stop the background commands"
-          }
-          onClick={stopAll}
-        >
-          Stop
-        </Button>
-      )}
-    </>
+    <Button
+      size="xs"
+      variant="ghost"
+      disabled={sending}
+      aria-label={
+        stoppable.length === 1 ? "Stop the background command" : "Stop the background commands"
+      }
+      onClick={stopAll}
+    >
+      Stop
+    </Button>
   );
 }
 

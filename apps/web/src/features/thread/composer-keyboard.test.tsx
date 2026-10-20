@@ -1,5 +1,5 @@
 import { facts, longHistory, replayCursor } from "@ace/fake-daemon";
-import { act, configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -17,7 +17,11 @@ beforeEach(() => localStorage.clear());
 async function open(scenario: "idle" | "busy") {
   const app = harness();
   if (scenario === "idle") app.play(longHistory(2)).runUntilBlocked();
-  else app.play(replayCursor()).runThrough("finding");
+  else {
+    app.play(replayCursor()).runThrough("finding");
+    // The main agent is back at its own work, not only waiting on its subagents: follow-ups queue.
+    app.daemon.apply("thread-replay-cursor", [facts.toolDone("root", "spawn-test")]);
+  }
   await app.open(scenario === "idle" ? "/t/thread-router" : "/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
   const message = await screen.findByRole("combobox", { name: "Message" });
@@ -25,9 +29,7 @@ async function open(scenario: "idle" | "busy") {
 }
 
 test("typing replaces Stop with Queue and clearing the draft brings Stop back", async () => {
-  const { app, message } = await open("busy");
-  // The main agent stops waiting on its subagents and works itself: Stop is the send slot's.
-  act(() => app.daemon.apply("thread-replay-cursor", [facts.toolDone("root", "spawn-test")]));
+  const { message } = await open("busy");
   expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
   await userEvent.type(message, "Also check cold start");
   expect(screen.getByRole("button", { name: "Queue message" })).toBeTruthy();

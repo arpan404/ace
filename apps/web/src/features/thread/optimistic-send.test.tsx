@@ -25,7 +25,11 @@ beforeEach(() => {
 async function open(scenario: "idle" | "busy", options: Parameters<typeof harness>[0] = {}) {
   const app = harness(options);
   if (scenario === "idle") app.play(longHistory(2)).runUntilBlocked();
-  else app.play(replayCursor()).runThrough("finding");
+  else {
+    app.play(replayCursor()).runThrough("finding");
+    // The main agent is back at its own work, not only waiting on its subagents: follow-ups queue.
+    app.daemon.apply("thread-replay-cursor", [facts.toolDone("root", "spawn-test")]);
+  }
   await app.open(scenario === "idle" ? "/t/thread-router" : "/t/thread-replay-cursor");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const message = await screen.findByRole("combobox", { name: "Message" });
@@ -160,7 +164,7 @@ test("Stop reads Stopping… on its disabled button until the turn ends", async 
   const storage = memoryStorage();
   const saved = Promise.withResolvers<void>();
   let hold = false;
-  const { app } = await open("busy", {
+  await open("busy", {
     outbox: {
       load: storage.load,
       save: async (value) => {
@@ -169,9 +173,6 @@ test("Stop reads Stopping… on its disabled button until the turn ends", async 
       },
     },
   });
-  // The main agent works itself, so its turn's Stop and live line are the composer's own.
-  act(() => app.daemon.apply("thread-replay-cursor", [facts.toolDone("root", "spawn-test")]));
-  await waitFor(() => expect(screen.queryByRole("status", { name: /^Waiting for/ })).toBeNull());
   // Keep the stop pending at its durable outbox boundary while the connection stays ready.
   hold = true;
   try {

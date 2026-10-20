@@ -61,9 +61,13 @@ export interface TurnActivity {
   waitingOn?: TurnWait | undefined;
 }
 
-/** What a root that does nothing itself waits on; `title` names a single background command. */
+/**
+ * What a root that does nothing itself waits on. On subagents, `turnOver` says its own turn has
+ * ended while they carry on, rather than it waiting on them inside the turn. `title` names a
+ * single background command.
+ */
 export type TurnWait =
-  | { kind: "subagents"; count: number }
+  | { kind: "subagents"; count: number; turnOver: boolean }
   | { kind: "background"; count: number; title: string | undefined };
 
 export type ActivityReader = Pick<
@@ -234,7 +238,11 @@ export function readTurnActivity(
   const working = !stopped && treeWorking({ needsYou, root, subagents, backgroundCommands });
   const waitingOnSubagents = working && rootWaitsOnSubagents(status, subagents);
   const waitingOn: TurnWait | undefined = waitingOnSubagents
-    ? { kind: "subagents", count: subagents }
+    ? {
+        kind: "subagents",
+        count: subagents,
+        turnOver: !(status?.state === "blocked" && status.on === "subagents"),
+      }
     : !working && !needsYou && status?.state === "blocked" && status.on === "background_task"
       ? backgroundWait(reader, status.refs)
       : undefined;
@@ -463,5 +471,6 @@ export function sameActivity(a: TurnActivity | undefined, b: TurnActivity | unde
 function sameWait(a: TurnWait | undefined, b: TurnWait | undefined): boolean {
   if (a === b) return true;
   if (!a || !b || a.kind !== b.kind || a.count !== b.count) return false;
-  return a.kind === "subagents" || (b.kind === "background" && a.title === b.title);
+  if (a.kind === "subagents") return b.kind === "subagents" && a.turnOver === b.turnOver;
+  return b.kind === "background" && a.title === b.title;
 }

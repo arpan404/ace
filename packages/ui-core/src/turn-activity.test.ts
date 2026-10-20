@@ -441,13 +441,13 @@ test("a root waiting on its subagents says so instead of Working, keeping its ti
     label: "Waiting for 2 subagents",
     tone: "working",
     waitingOnSubagents: true,
-    waitingOn: { kind: "subagents", count: 2 },
+    waitingOn: { kind: "subagents", count: 2, turnOver: false },
     elapsedFrom: 0,
   });
   // A Stop on its way still knows what the root waits on, so its Stop stays where it was.
   expect(turnActivity(thread.reader, "root", { stopping: true })).toMatchObject({
     label: "Stopping…",
-    waitingOn: { kind: "subagents", count: 2 },
+    waitingOn: { kind: "subagents", count: 2, turnOver: false },
   });
   // Back at its own work, it reads Working again.
   thread.status(working);
@@ -464,6 +464,7 @@ test("a turn that ended with background subagents still running waits for them",
   expect(turnActivity(thread.reader, "root")).toMatchObject({
     label: "Waiting for 1 subagent",
     waitingOnSubagents: true,
+    waitingOn: { kind: "subagents", count: 1, turnOver: true },
   });
 });
 
