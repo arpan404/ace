@@ -82,7 +82,17 @@ const threadsFind = controlTool({
 const ThreadPage = z.looseObject({
   thread: z.looseObject({ id: z.string(), title: z.string() }).optional(),
   items: z.array(z.looseObject({ type: z.string(), id: z.string().optional() })).optional(),
-  itemsBefore: z.number().nullable().optional(),
+  itemsBefore: z
+    .number()
+    .nullable()
+    .optional()
+    .describe("Pass as before for the previous page; null when nothing is earlier."),
+  omitted: z
+    .array(z.looseObject({ itemId: z.string(), dropped: z.string() }))
+    .optional()
+    .describe(
+      "Items too large for a page: shown without raw payloads (dropped raw) or only summarized (dropped item).",
+    ),
   linkedPrs: z.array(z.unknown()).optional(),
   previews: z.array(z.unknown()).optional(),
   bytes: z.string().optional().describe("Base64 output bytes, when reading a stream"),

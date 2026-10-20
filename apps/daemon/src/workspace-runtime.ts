@@ -436,7 +436,7 @@ export class WorkspaceRuntime {
         if (context.fingerprint !== input.fingerprint) throw new Error("draft_changes_moved");
         const page =
           input.selection.kind === "pr"
-            ? this.store.readItemPage(op.threadId, this.store.headSeq() + 1, 12, 8192)
+            ? this.store.readBoundedItemPage(op.threadId, this.store.headSeq() + 1, 12, 8192)
             : undefined;
         const messages =
           page?.items.flatMap((item) =>

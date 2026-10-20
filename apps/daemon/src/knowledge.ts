@@ -139,7 +139,7 @@ function recentThreads(deps: KnowledgeDeps, self: Thread): NonNullable<Knowledge
 
 /** The thread's latest assistant answer, from its retained tail. */
 function lastAnswer(deps: KnowledgeDeps, id: ThreadId): string | undefined {
-  const items = deps.store.readItemPage(id, deps.store.headSeq() + 1, 20, 32 * 1024).items;
+  const items = deps.store.readBoundedItemPage(id, deps.store.headSeq() + 1, 20, 32 * 1024).items;
   for (const item of items.toReversed())
     if (item.type === "message" && item.role === "assistant") {
       const text = item.parts

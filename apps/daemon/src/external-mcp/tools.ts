@@ -65,7 +65,7 @@ export function externalTools(
         ok: true,
         data: {
           thread: value,
-          ...context.store.readItemPage(
+          ...context.store.readBoundedItemPage(
             value.id,
             input.before ?? context.store.headSeq() + 1,
             input.limit,

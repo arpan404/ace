@@ -3,7 +3,7 @@ import type { Store } from "../store.ts";
 
 /** One small page is sufficient for an outcome preview; full content stays in the payload store. */
 export function threadOutcome(store: Store, thread: Thread, cancelled = false): DelegationOutcome {
-  const page = store.readItemPage(thread.id, store.headSeq() + 1, 20, 48 * 1024);
+  const page = store.readBoundedItemPage(thread.id, store.headSeq() + 1, 20, 48 * 1024);
   let message: Extract<Item, { type: "message" }> | undefined;
   for (const item of page.items)
     if (item.type === "message" && item.role === "assistant") message = item;

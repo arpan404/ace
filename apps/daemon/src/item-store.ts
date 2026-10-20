@@ -1,4 +1,5 @@
 import { ItemTextStore } from "./item-text-store.ts";
+import { ItemPageCapacityExceeded } from "./item-page-capacity.ts";
 import { z } from "zod";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import {
@@ -187,15 +188,13 @@ export class ItemStore {
       // loading their body into JS, parsing it, or allocating its serialized copy.
       // Text items instead carry bounded previews and separate full-text sources.
       if (!preview && bytes + row.size + overhead > byteLimit) {
-        if (!items.length) throw new Error("Item detail exceeds page capacity");
+        if (!items.length) throw new ItemPageCapacityExceeded("Item detail exceeds page capacity");
         break;
       }
-      const item = preview
-        ? this.texts.read(id)
-        : this.materialize(id, this.statement("SELECT item FROM items WHERE id = ?").get(id)?.item);
+      const item = this.pageItem(id, row.item_type);
       const size = Buffer.byteLength(JSON.stringify(item)) + overhead;
       if (bytes + size > byteLimit) {
-        if (!items.length) throw new Error("Item detail exceeds page capacity");
+        if (!items.length) throw new ItemPageCapacityExceeded("Item detail exceeds page capacity");
         break;
       }
       items.push(item);
@@ -209,6 +208,35 @@ export class ItemStore {
       itemSeqs: Object.fromEntries(cursors),
       itemsBefore: rows.length > items.length ? (cursors.at(-1)?.[1] ?? before) : null,
     };
+  }
+  /** An item as a page shows it: text cut to its bounded preview, other bodies whole. */
+  private pageItem(id: string, type: string): Item {
+    return type === "message" || type === "notice" || type === "reasoning"
+      ? this.texts.read(id)
+      : this.materialize(id, this.statement("SELECT item FROM items WHERE id = ?").get(id)?.item);
+  }
+  /** The newest item created before `before`, as a page shows it, with its creation cursor. */
+  newestBefore(threadId: ThreadId, before: number): { item: Item; seq: number } | undefined {
+    const row = this.statement(
+      "SELECT id, created_seq, item_type FROM item_heads WHERE thread_id = ? AND created_seq < ? ORDER BY created_seq DESC LIMIT 1",
+    ).get(threadId, before);
+    if (!row) return undefined;
+    const head = z
+      .object({
+        id: ItemId,
+        created_seq: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+        item_type: z.string().min(1).max(64),
+      })
+      .parse(row);
+    return { item: this.pageItem(String(head.id), head.item_type), seq: head.created_seq };
+  }
+  hasItemBefore(threadId: ThreadId, before: number): boolean {
+    return (
+      this.statement("SELECT 1 FROM item_heads WHERE thread_id = ? AND created_seq < ? LIMIT 1").get(
+        threadId,
+        before,
+      ) !== undefined
+    );
   }
   /** One item as a step list shows it: text cut to its bounded preview, tool bodies whole. */
   stepItem(threadId: ThreadId, itemId: string): Item | undefined {
@@ -272,10 +300,7 @@ export class ItemStore {
         page = this.wirePage(threadId, seq + 1, 1, byteLimit - bytes + 512);
       } catch (error) {
         if (
-          seq !== targetSeq &&
-          error instanceof Error &&
-          error.message === "Item detail exceeds page capacity"
-        )
+seq !== targetSeq && error instanceof ItemPageCapacityExceeded)
           return false;
         throw error;
       }

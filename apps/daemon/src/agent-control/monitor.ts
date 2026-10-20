@@ -310,7 +310,7 @@ export class AgentMonitor {
   }
   /** The newest assistant output line, from one small page. */
   private lastOutput(thread: Thread, max: number): string | undefined {
-    const page = this.deps.store.readItemPage(thread.id, this.deps.store.headSeq() + 1, 5, 16384);
+    const page = this.deps.store.readBoundedItemPage(thread.id, this.deps.store.headSeq() + 1, 5, 16384);
     for (let index = page.items.length - 1; index >= 0; index--) {
       const item = page.items[index];
       if (item?.type !== "message" || item.role !== "assistant") continue;
