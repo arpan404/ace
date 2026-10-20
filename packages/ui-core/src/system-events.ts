@@ -102,6 +102,20 @@ const inputKinds = new Set<string>([
 ]);
 
 /**
+ * A wake origin no one can vouch for: not ace's own input (no command or child threads) and not
+ * a provider notice. Older daemons stamped every user message in a woken run with the run's
+ * trigger, so Claude's own notes there (an image's scale, an interruption) carry one.
+ */
+function wakeClaimWithoutNotice(item: Item, origin: OriginLike): boolean {
+  return (
+    (origin.kind === "background_completion" || origin.kind === "subagent_result") &&
+    !origin.commandId &&
+    !origin.threadIds?.length &&
+    !providerNotice(item)
+  );
+}
+
+/**
  * The ace input a message carries, or undefined for the person's own words (A3, IR-8/9/10/11).
  * `origin` decides when present: `person`, `queue` (their words, sent from the queue) and any
  * kind this build doesn't know keep it the person's. Without one, only ace's exact fixed texts
@@ -120,6 +134,7 @@ export function systemInput(item: Item | undefined): SystemInput | undefined {
     return { kind: "handoff", ...(origin?.kind === "handoff" ? { origin } : {}), text };
   if (origin) {
     if (origin.kind === "person" || !inputKinds.has(origin.kind)) return undefined;
+    if (wakeClaimWithoutNotice(item, origin)) return undefined;
     return { kind: origin.kind as InputKind, origin, text };
   }
   const known = knownInput(text.trim()) ?? providerNotice(item);

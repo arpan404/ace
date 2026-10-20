@@ -105,3 +105,32 @@ test("consecutive completions of different commands each keep their row", () => 
   const byId = (id: string) => items.find((item) => item.id === id);
   expect(repeatsEarlierEvent(order, 1, byId, "background_completion")).toBe(false);
 });
+
+/* Claude's own notes, which older daemons stamped with the woken run's trigger. */
+const stampedNote = (kind: "background_completion" | "subagent_result", text: string) =>
+  stored("user", text, { origin: { kind } });
+
+test("Claude's image note stamped with a woken run's trigger is neither a finished task nor a result", () => {
+  const note =
+    "[Image: original 1206x2622, displayed at 920x2000. Multiply coordinates by 1.31 to map to original image.]";
+  expect(systemInput(stampedNote("background_completion", note))).toBeUndefined();
+  expect(systemInput(stampedNote("subagent_result", note))).toBeUndefined();
+  expect(
+    systemInput(stampedNote("subagent_result", "[Request interrupted by user for tool use]")),
+  ).toBeUndefined();
+});
+
+test("a provider notice the adapter stamped keeps its kind", () => {
+  const item = Item.parse({
+    ...claudeNotification('Background command "ls" completed (exit code 0)'),
+    origin: { kind: "background_completion" },
+  });
+  expect(systemInput(item)?.kind).toBe("background_completion");
+});
+
+test("ace's own delegation result keeps its kind whatever its text", () => {
+  const item = stored("user", "Results are in.", {
+    origin: { kind: "subagent_result", commandId: "result", threadIds: ["child"] },
+  });
+  expect(systemInput(item)?.kind).toBe("subagent_result");
+});
