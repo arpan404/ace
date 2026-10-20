@@ -11,9 +11,9 @@ const Prompt = z.object({
   params: z.object({ prompt: z.array(z.object({ text: z.string().optional() }).passthrough()) }),
 });
 
-test("ACP sends ace's guidance with the first prompt only, not again on later turns", async () => {
+/** Opens a synthetic ACP session, sends three turns and returns each prompt's text. */
+async function promptsFor(options: { instructions?: string; brief: () => string }) {
   const frames: Frame[] = [];
-  let briefs = 0;
   const session = await openAcpSession(
     {
       threadId: ThreadId.parse("synthetic"),
@@ -24,12 +24,13 @@ test("ACP sends ace's guidance with the first prompt only, not again on later tu
       mcp: {
         httpServers: [{ name: "ace", type: "http", url: "http://127.0.0.1:1/mcp", headers: [] }],
         secrets: [],
+        ...(options.instructions ? { instructions: options.instructions } : {}),
         end() {},
       },
       aceMcp: {
         url: "http://127.0.0.1:1/mcp",
         bearer: "b".repeat(64),
-        session: () => ({ brief: `ace session facts, read ${++briefs}` }),
+        session: () => ({ brief: options.brief() }),
       },
     },
     genericQuirks,
@@ -52,13 +53,28 @@ test("ACP sends ace's guidance with the first prompt only, not again on later tu
       for (let attempt = 0; attempt < 200 && !prompts().some((p) => p.endsWith(text)); attempt++)
         await new Promise((resolve) => setTimeout(resolve, 10));
     }
-    const sent = prompts();
-    expect(sent).toHaveLength(3);
-    expect(sent[0]).toContain("<ace-tool-guidance>");
-    expect(sent[0]).toContain("ace session facts");
-    expect(sent.slice(1).some((prompt) => prompt.includes("ace-tool-guidance"))).toBe(false);
-    expect(sent.slice(1)).toEqual(["second", "third"]);
+    return prompts();
   } finally {
     await session.close("user");
   }
+}
+
+test("ACP sends ace's guidance with the first prompt only, not again on later turns", async () => {
+  let briefs = 0;
+  const sent = await promptsFor({ brief: () => `ace session facts, read ${++briefs}` });
+  expect(sent).toHaveLength(3);
+  expect(sent[0]).toContain("<ace-tool-guidance>");
+  expect(sent[0]).toContain("ace session facts");
+  expect(sent.slice(1).some((prompt) => prompt.includes("ace-tool-guidance"))).toBe(false);
+  expect(sent.slice(1)).toEqual(["second", "third"]);
+});
+
+test("an ACP session sends the daemon's guidance as given, once, on the first prompt", async () => {
+  const daemon = "Guidance the daemon rendered for this agent's listing.";
+  const sent = await promptsFor({ instructions: daemon, brief: () => "adapter-rendered facts" });
+  expect(sent).toHaveLength(3);
+  expect(sent[0]).toBe(`<ace-tool-guidance>\n${daemon}\n</ace-tool-guidance>\nfirst`);
+  // The adapter never renders its own copy beside the daemon's.
+  expect(sent.join("\n")).not.toContain("adapter-rendered facts");
+  expect(sent.slice(1)).toEqual(["second", "third"]);
 });
