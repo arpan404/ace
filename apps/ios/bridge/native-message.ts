@@ -2,6 +2,8 @@ import type { ClientCore } from "@ace/client";
 import { ItemId, ThreadId, type TextSource } from "@ace/protocol";
 import { z } from "zod";
 
+import { readNativeItem } from "./native-item.ts";
+
 export const NativeMessageRequest = z.object({
   type: z.literal("native.message"),
   threadId: ThreadId,
@@ -14,7 +16,7 @@ export async function readNativeMessage(
   request: z.infer<typeof NativeMessageRequest>,
   signal: AbortSignal,
 ) {
-  const item = owner.cachedThread(request.threadId)?.item(request.itemId);
+  const item = await readNativeItem(owner, request.threadId, request.itemId, signal);
   if (!item || (item.type !== "message" && item.type !== "reasoning"))
     throw new Error("Message unavailable");
   const parts: { text: string; source?: TextSource | undefined }[] =

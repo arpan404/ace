@@ -53,7 +53,8 @@ import XCTest
         let send = app.buttons["newThread.start"]
         XCTAssertLessThanOrEqual(message.frame.maxY, app.keyboards.firstMatch.frame.minY)
         XCTAssertTrue(send.isHittable)
-        XCTAssertLessThan(abs(send.frame.midY - message.frame.midY), 30)
+        XCTAssertGreaterThanOrEqual(send.frame.minY, message.frame.maxY)
+        XCTAssertLessThanOrEqual(send.frame.maxY, app.keyboards.firstMatch.frame.minY)
         capture("new-task-keyboard", app)
         app.navigationBars.buttons["Close"].tap()
     }
@@ -62,7 +63,12 @@ import XCTest
         let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "thread.")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 30)); row.tap()
         XCTAssertTrue(app.buttons["composer.model"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts["Loading conversation…"].waitForNonExistence(timeout: 30))
         XCTAssertTrue(app.buttons["composer.attach"].isHittable)
+        let model = app.buttons["composer.model"]
+        let inputBeforeKeyboard = app.textViews["composer.input"]
+        XCTAssertGreaterThanOrEqual(model.frame.minY, inputBeforeKeyboard.frame.maxY)
+        XCTAssertGreaterThan(inputBeforeKeyboard.frame.width, app.frame.width * 0.8)
         capture("thread-idle", app)
         let input = app.textViews["composer.input"]
         XCTAssertTrue(input.isHittable); input.tap()
@@ -73,6 +79,49 @@ import XCTest
         XCTAssertLessThanOrEqual(input.frame.maxY, app.keyboards.firstMatch.frame.minY)
         XCTAssertLessThan(abs(app.buttons["composer.model"].frame.midY - app.buttons["composer.attach"].frame.midY), 8)
         capture("thread-keyboard", app)
+        app.buttons["composer.model"].tap()
+        XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 15))
+        capture("thread-model-picker", app)
+        app.buttons["Done"].tap()
+        let latest = app.buttons["transcript.latest"]
+        // The first downward gesture can dismiss the keyboard. Continue into older messages.
+        for _ in 0..<3 where !latest.exists { app.collectionViews["transcript"].swipeDown() }
+        capture("thread-reading-history", app)
+        XCTAssertTrue(latest.waitForExistence(timeout: 5))
+        latest.tap()
+        XCTAssertTrue(latest.waitForNonExistence(timeout: 5))
+        capture("thread-latest", app)
+    }
+    func testOlderMessagesPageWithoutLeavingTheLiveConversation() {
+        let app = launch()
+        let current = app.buttons["thread.01a15b0e-7eef-705b-a011-fde54ae8afd1"]
+        XCTAssertTrue(current.waitForExistence(timeout: 30)); current.tap()
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Loading conversation…"].waitForNonExistence(timeout: 30))
+        app.buttons["thread.menu"].tap()
+        let history = app.buttons["Conversation history"]
+        XCTAssertTrue(history.waitForExistence(timeout: 10)); history.tap()
+        let earlier = app.buttons["history.earlier"]
+        XCTAssertTrue(earlier.waitForExistence(timeout: 30))
+        let later = app.buttons["history.later"]
+        expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: later)
+        waitForExpectations(timeout: 30)
+        capture("history-first-page", app)
+        // Windows include context on both sides. From the first item, the first next page
+        // still includes the beginning; another page makes earlier content available.
+        for _ in 0..<3 where !earlier.isEnabled {
+            let content = historyText(app)
+            later.tap()
+            waitForHistoryChange(app, from: content)
+        }
+        XCTAssertTrue(earlier.isEnabled)
+        let content = historyText(app)
+        earlier.tap()
+        waitForHistoryChange(app, from: content)
+        XCTAssertFalse(app.staticTexts["service.problem"].exists)
+        capture("history-next-page", app)
+        app.buttons["Done"].tap()
+        XCTAssertTrue(app.buttons["composer.model"].waitForExistence(timeout: 10))
     }
     func testMachineToolsLoadWithoutStartingAgentsOrDevices() {
         let app = launch()
@@ -136,6 +185,41 @@ import XCTest
         XCTAssertTrue(app.switches["Show emulator window"].waitForExistence(timeout: 30))
         capture("app-access-preferences", app)
         XCTAssertFalse(app.staticTexts["service.problem"].exists)
+    }
+    func testProjectCreationAndCloneReadHostDefaultsWithoutCreatingAnything() {
+        let app = launch()
+        app.buttons["inbox.library"].tap()
+        app.buttons["library.projects"].tap()
+        let add = app.buttons["Add project"]
+        if !add.isHittable { app.swipeUp() }
+        XCTAssertTrue(add.waitForExistence(timeout: 10)); add.tap()
+        app.buttons["New project"].tap()
+        let parent = app.textFields["project.create.parent"]
+        XCTAssertTrue(parent.waitForExistence(timeout: 10))
+        let ready = NSPredicate(format: "value BEGINSWITH '/' OR value BEGINSWITH '~'")
+        expectation(for: ready, evaluatedWith: parent)
+        waitForExpectations(timeout: 30)
+        XCTAssertTrue(app.switches["Initialise a Git repository"].exists)
+        XCTAssertTrue(app.textFields["project.create.name"].isHittable)
+        capture("new-project", app)
+        XCTAssertFalse(app.staticTexts["service.problem"].exists)
+        app.navigationBars.buttons["BackButton"].firstMatch.tap()
+        app.buttons["Clone repository"].tap()
+        XCTAssertTrue(app.textFields["project.clone.url"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["project.create.submit"].exists)
+        capture("clone-project", app)
+        XCTAssertFalse(app.staticTexts["service.problem"].exists)
+    }
+    private func historyText(_ app: XCUIApplication) -> String {
+        app.collectionViews["history.messages"].staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: "\n")
+    }
+    private func waitForHistoryChange(_ app: XCUIApplication, from previous: String) {
+        let changed = NSPredicate { object, _ in
+            guard let list = object as? XCUIElement else { return false }
+            return list.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: "\n") != previous
+        }
+        expectation(for: changed, evaluatedWith: app.collectionViews["history.messages"])
+        waitForExpectations(timeout: 30)
     }
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()

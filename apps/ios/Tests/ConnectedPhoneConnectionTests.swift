@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Ace
 
-/// Read-only transport check on the owner's saved pairing. It sends no credentials.
+/// Read-only checks on the saved pairing. Credentials remain in Keychain and the pinned transport.
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["ACE_IOS_CONNECTED_PHONE"] == "1", "Requires the paired physical phone"))
 @MainActor struct ConnectedPhoneConnectionTests {
     @Test func thePhoneAuthenticatesAndReadsItsRealInbox() async throws {
@@ -33,6 +33,33 @@ import Testing
         }
         await model.disconnectAndWait()
         try? FileManager.default.removeItem(at: temporary)
+    }
+    @Test func anEarlierMessageCanBeReadWithoutReplacingTheLiveConversation() async throws {
+        struct Directory: Decodable { let machines: [MachineEntry] }
+        struct Window: Decodable {
+            struct Row: Decodable { let id: String; let type: String; let text: String }
+            let rows: [Row]
+        }
+        struct Full: Decodable { let text: String }
+        let directory = try ProductionApp.storageDirectory()
+        let saved = try JSONDecoder().decode(Directory.self, from: Data(contentsOf: ProductionApp.machineDirectory(in: directory)))
+        let target = try #require(saved.machines.first?.connectionTarget)
+        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let model = ClientModel(now: { Date().timeIntervalSince1970 * 1000 })
+        await model.connect(target: target, directory: temporary)
+        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: temporary) } }
+        for _ in 0..<200 where model.connection != "ready" { try await Task.sleep(for: .milliseconds(100)) }
+        try #require(model.connection == "ready")
+        let threadId = "01a15b0e-7eef-705b-a011-fde54ae8afd1"
+        model.open(threadId)
+        for _ in 0..<200 where model.thread?.loaded != true { try await Task.sleep(for: .milliseconds(100)) }
+        try #require(model.thread?.loaded == true)
+        let window = try await model.service(["type": "native.history.window", "threadId": threadId, "aroundSeq": 0], as: Window.self)
+        let earlier = try #require(window.rows.first { $0.type == "message" && !$0.text.isEmpty })
+        #expect(model.thread?.items[earlier.id] == nil, "The history window must remain separate from the live tail")
+        let full = try await model.service(["type": "native.message", "threadId": threadId, "itemId": earlier.id], as: Full.self)
+        #expect(full.text.contains(earlier.text))
+        #expect(model.thread?.items[earlier.id] == nil, "Reading a historical message must preserve the live tail")
     }
     @Test func pairedProjectsPluginsAccountsAndDevicesAnswerThroughTheNativeBridge() async throws {
         struct Directory: Decodable { let machines: [MachineEntry] }

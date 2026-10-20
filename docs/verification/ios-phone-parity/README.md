@@ -1,4 +1,4 @@
-# iPhone browser-parity verification — 2026-10-20
+# iPhone browser parity verification, 2026-10-20
 
 Physical destination: iPhone 12 Pro, iOS 26.6.1, Xcode 26.3 (17C529).
 The owner required physical-phone testing. The browser reference was the running fake-daemon
@@ -15,8 +15,9 @@ Private conversation captures and pairing material are not committed.
   Projects and Accounts grants were needed in addition to administrator access. Superseded
   authorizations created during verification were revoked; old device databases were retained.
 - Inbox creation sits on the project-filter row. The thread header has Back, title, options,
-  Work and panel. Both composers keep attachment, message, model and send together. The
-  keyboard stays below the controls, and draft text is retained on a failed send.
+  Work and panel. Both composers give the message its own full-width line, with attachment, model/reasoning
+  and Send below it. The keyboard stays below the controls, and draft text is retained on
+  a failed send.
 - Active tools use the browser's shared grouping rules. Narration appears between groups;
   reasoning opens in place. Ended runs cannot leave an unfinished thought marked active.
   Finished work still folds; edit-summary blocks no longer repeat individual edit rows.
@@ -53,6 +54,52 @@ H.264, native JPEG decoding, viewport mapping, pinned authenticated services and
 permissions/preferences UI. The preceding run caught a JPEG fixture whose UIKit scale did
 not match its wire dimensions; correcting the fixture passed without relaxing the decoder.
 Computer-use captures are in `/tmp/ace-iphone-screen-8-attachments`.
+
+## Chat layout and long conversations
+
+The phone chat now uses a full-width message field above a compact attachment/model/send row,
+a smaller send/stop glyph inside its full touch target, an opaque header with quiet tool icons,
+right-aligned user messages and plain assistant responses. Per-message timestamps moved into
+the message menu alongside Copy and Share. Fenced code has a language header and Copy.
+The first-message screen uses the same composer and a separate project selector.
+
+Incoming updates follow the latest message while the person stays at the bottom. Reading older
+content pauses following and exposes Jump to latest. The first scroll-check failures were an
+accessibility identifier inherited from the transcript container, not a missing visible button.
+The final phone check targets the button independently and returns to the live tail.
+
+Earlier messages now open a separate bounded history window. Earlier/later page controls stay
+reachable below the content. This avoids repeatedly trying to fill an already-full live cache.
+Historical full-message and media reads resolve their authenticated item through the shared SDK
+without admitting the history into the live tail. A physical-phone regression failed before
+that resolver change; all five connected-phone service tests passed after it.
+
+New project and Clone repository retain their form and command identity across relaunch.
+The identity is persisted before submission; retrying an uncertain request reuses it. Clone
+progress and cancellation use the shared daemon operations. The phone tests read both forms
+and the host defaults; they did not create or clone a repository on the live machine.
+
+- `/tmp/ace-iphone-chat-10.xcresult`: 17 native tests in four suites and three UI flows passed.
+  The native cases cover message drafts, first-message drafts, Markdown and project draft
+  recovery, including refusing a submission whose draft cannot be saved.
+- `/tmp/ace-iphone-chat-14.xcresult`: the final composer/model/scroll-control flow passed.
+  Its individually filtered Swift Testing method selected zero native tests; those are covered
+  by the whole-suite history run below.
+- `/tmp/ace-iphone-history-red-15.xcresult`: four service tests passed and the new historical
+  full-message regression failed before the item resolver fix.
+
+- `/tmp/ace-iphone-history-16.xcresult`: all five native service tests passed, including the
+  historical full-message regression. Its history UI attempt exposed an entry that depended
+  on a delayed live-cache flag. History is now always in the conversation menu.
+- `/tmp/ace-iphone-history-19.xcresult`: history paging in both directions and return to the
+  live composer passed on the phone. The test compares displayed content between pages.
+  Earlier UI attempts assumed a non-overlapping page boundary; the SDK intentionally keeps
+  context on both sides of the target. The composer/scroll check also passed in run 16.
+
+Across these focused runs, 22 native tests in five suites and four UI flows passed for the
+chat/project follow-up. Only the connected physical iPhone was used. Captures are local under
+`/tmp/ace-iphone-chat-10-attachments` and the corresponding final xcresult attachments.
+Phone captures may include private conversation content and are not committed.
 
 ## Checks and limits
 

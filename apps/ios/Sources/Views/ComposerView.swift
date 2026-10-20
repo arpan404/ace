@@ -1,11 +1,10 @@
 import SwiftUI
 
-/// The compact composer keeps attachments, input, model and send on one row. While the agent works
+/// The message has the full width; attachment, model and send controls share the lower row. While the agent works
 /// an empty composer's button stops the whole tree; a typed message goes the way the
 /// bridge says (steer or queue), and a long press offers the other delivery where the
 /// provider can steer. The model chip opens the model list.
 struct ComposerView<Leading: View, Trailing: View>: View {
-    @Environment(\.colorScheme) private var colourScheme
     let controls: ControlsRow?
     let stopping: Bool
     let placeholder: String
@@ -23,42 +22,35 @@ struct ComposerView<Leading: View, Trailing: View>: View {
     private var empty: Bool { files == 0 && draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var stops: Bool { empty && controls?.busy == true && controls?.canStop == true }
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            HStack(alignment: .bottom, spacing: AceTheme.Spacing.xs) {
-                leading()
-                NativeTextInput(text: $draft.text, inputBegan: inputBegan, submit: { if !disabled && !stops { submit(alternate: false) } })
-                    .overlay(alignment: .leading) {
-                        // Visual only: VoiceOver hears the field's own label.
-                        if draft.text.isEmpty {
-                            Text(placeholder).aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.subtleForeground)
-                                .lineLimit(1).minimumScaleFactor(0.8).fixedSize(horizontal: false, vertical: true)
-                                .allowsHitTesting(false).accessibilityHidden(true)
-                        }
+        ComposerSurface {
+            NativeTextInput(text: $draft.text, inputBegan: inputBegan, submit: { if !disabled && !stops { submit(alternate: false) } })
+                .overlay(alignment: .topLeading) {
+                    if draft.text.isEmpty {
+                        Text(placeholder).aceFont(AceTheme.Typography.body, relativeTo: .body)
+                            .foregroundStyle(AceTheme.Colours.subtleForeground)
+                            .padding(.top, AceTheme.Spacing.md)
+                            .allowsHitTesting(false).accessibilityHidden(true)
                     }
-                    .accessibilityLabel(placeholder)
-                    .layoutPriority(1)
-                trailing()
-                Button {
+                }
+                .accessibilityLabel(placeholder)
+                .padding(.horizontal, AceTheme.Spacing.lg)
+            HStack(spacing: AceTheme.Spacing.xs) {
+                leading()
+                trailing().layoutPriority(1)
+                Spacer(minLength: AceTheme.Spacing.sm)
+                ComposerActionButton(stopping: stops, saving: draft.saving, disabled: disabled, label: label) {
                     feedback += 1
                     if stops { stop() } else { submit(alternate: false) }
-                } label: {
-                    Image(systemName: stops ? "stop.fill" : "arrow.up")
-                        .aceFont(AceTheme.Typography.title, relativeTo: .body).frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
-                        .foregroundStyle(AceTheme.Colours.background).background(AceTheme.Colours.foreground, in: Circle())
-                        .opacity(disabled ? AceTheme.Opacity.disabled(colourScheme) : 1)
                 }
-                .disabled(disabled)
                 .contextMenu {
                     if !empty, let alternate = controls?.alternate {
                         Button(alternate == "steer" ? "Steer now" : "Queue for after this turn", systemImage: alternate == "steer" ? "arrow.turn.down.right" : "text.line.last.and.arrowtriangle.forward") { submit(alternate: true) }
                     }
                 }
-                .accessibilityLabel(label)
                 .accessibilityIdentifier("composer.send")
             }
+            .padding(.horizontal, AceTheme.Spacing.sm)
         }
-        .padding(.leading, AceTheme.Spacing.xs).padding(.trailing, AceTheme.Spacing.sm).padding(.vertical, AceTheme.Spacing.sm)
-        .floatingGlass()
         .sensoryFeedback(.impact(weight: .light), trigger: feedback)
         .onChange(of: mention) { _, picked in if let picked { draft.text = Mention.insert(picked.path, into: draft.text) } }
         .padding(.horizontal, AceTheme.Dimensions.composerInset).padding(.bottom, AceTheme.Spacing.sm)

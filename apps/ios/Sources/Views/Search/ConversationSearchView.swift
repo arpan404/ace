@@ -56,8 +56,8 @@ struct ConversationSearchView: View {
                 Text("Visualizations").tag("html")
             }
             ForEach(search.hits) { hit in
-                if hit.itemId != nil {
-                    NavigationLink { SearchHistoryView(model: model, hit: hit, openThread: openThread) } label: { SearchHitLabel(hit: hit) }
+                if let itemId = hit.itemId {
+                    NavigationLink { ConversationHistoryView(model: model, threadId: hit.threadId, title: hit.threadTitle, itemId: itemId, openThread: openThread) } label: { SearchHitLabel(hit: hit) }
                         .accessibilityIdentifier("search.hit.\(hit.id)")
                 } else {
                     Button { openThread(hit.threadId) } label: { SearchHitLabel(hit: hit) }
@@ -92,56 +92,5 @@ private struct SearchHitLabel: View {
             Text("\(hit.provider.capitalized) · \(hit.kind.replacingOccurrences(of: "_", with: " "))")
                 .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground)
         }.padding(.vertical, AceTheme.Spacing.xs)
-    }
-}
-
-private struct HistoryWindowReply: Decodable {
-    struct Row: Decodable, Identifiable { let id: String; let seq: Int; let type: String; let role: String; let text: String; let truncated: Bool }
-    let target: Int?
-    let before: Int?
-    let after: Int?
-    let rows: [Row]
-}
-
-private struct SearchHistoryView: View {
-    let model: ClientModel
-    let hit: ConversationHit
-    let openThread: (String) -> Void
-    @State private var window: HistoryWindowReply?
-    @State private var problem: String?
-    @State private var loading = false
-    var body: some View {
-        ScrollViewReader { proxy in
-            List {
-                if let before = window?.before { Button("Earlier messages") { Task { await read(sequence: before) } }.disabled(loading) }
-                ForEach(window?.rows ?? []) { row in
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
-                        Text(row.role.isEmpty ? row.type.replacingOccurrences(of: "_", with: " ").capitalized : row.role.capitalized)
-                            .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
-                        MarkdownView(text: row.text)
-                        if row.truncated { Text("Message shortened").foregroundStyle(AceTheme.Colours.subtleForeground) }
-                    }
-                    .padding(.vertical, AceTheme.Spacing.sm)
-                    .listRowBackground(row.seq == window?.target ? AceTheme.Colours.fill : AceTheme.Colours.background)
-                    .id(row.id)
-                }
-                if let after = window?.after { Button("Later messages") { Task { await read(sequence: after) } }.disabled(loading) }
-                if loading { ProgressView().accessibilityLabel("Loading messages") }
-                if let problem { ServiceProblem(message: problem); Button("Retry") { Task { await read() } } }
-                Button("Open conversation") { openThread(hit.threadId) }.accessibilityIdentifier("search.openThread")
-            }
-            .listStyle(.plain)
-            .navigationTitle(hit.threadTitle).navigationBarTitleDisplayMode(.inline)
-            .task { await read(); if let itemId = hit.itemId { proxy.scrollTo(itemId, anchor: .center) } }
-        }
-    }
-    private func read(sequence: Int? = nil) async {
-        loading = true; problem = nil
-        defer { loading = false }
-        do {
-            var request: [String: Any] = ["type": "native.history.window", "threadId": hit.threadId]
-            if let sequence { request["aroundSeq"] = sequence } else { request["itemId"] = hit.itemId }
-            window = try await model.service(request, as: HistoryWindowReply.self)
-        } catch { if !Task.isCancelled { problem = error.localizedDescription } }
     }
 }

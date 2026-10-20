@@ -14,6 +14,8 @@ struct ThreadView: View {
     @State private var showModels = false
     @State private var lane: BlockRow.Agents.Entry?
     @State private var scrolledToTail = false
+    @State private var followsTail = true
+    @State private var readingByTouch = false
     @State private var showFiles = false
     @State private var media: TranscriptRow?
     @State private var fullMessage: TranscriptRow?
@@ -24,6 +26,7 @@ struct ThreadView: View {
     @State private var showTerminal = false
     @State private var showBrowser = false
     @State private var showSearch = false
+    @State private var showHistory = false
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
     private var metadata: ThreadRow? { thread.metadata ?? thread.placeholder?.metadata ?? model.inbox[thread.id] }
@@ -42,12 +45,12 @@ struct ThreadView: View {
     var body: some View {
         ScrollViewReader { proxy in
             List {
-                if screen.hasOlder {
-                    HStack { Spacer(); ProgressView(); Spacer() }
-                        .onAppear { model.loadOlder() }
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AceTheme.Colours.background)
-                        .accessibilityLabel("Loading earlier messages")
+                if screen.hasOlder, !thread.order.isEmpty {
+                    Button("Earlier messages", systemImage: "clock.arrow.circlepath") { showHistory = true }
+                        .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                        .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                        .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
+                        .accessibilityIdentifier("transcript.history")
                 }
                 // Back from a child: what this thread last showed stays until its session's first patch.
                 let shown = thread.placeholder ?? thread
@@ -65,17 +68,56 @@ struct ThreadView: View {
                     PendingSendRow(row: row, canRetry: model.canOperate) { await model.retrySend(row) }.listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
                 }
                 ThreadTailChips(metadata: metadata) { showChanges = true }.listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
-                Color.clear.frame(height: AceTheme.Dimensions.border).id("tail").listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background).accessibilityHidden(true)
+                TranscriptTail(thread: thread, following: followsTail) { proxy.scrollTo("tail", anchor: .bottom) }
+                    .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
             }
             .listStyle(.plain).scrollContentBackground(.hidden)
+            .environment(\.defaultMinListRowHeight, AceTheme.Spacing.none)
+            .contentMargins(.vertical, AceTheme.Spacing.lg, for: .scrollContent)
+            .onScrollPhaseChange { _, phase, context in
+                switch phase {
+                case .tracking, .interacting:
+                    readingByTouch = true
+                    followsTail = false
+                case .decelerating:
+                    readingByTouch = true
+                case .idle:
+                    readingByTouch = false
+                    let geometry = context.geometry
+                    followsTail = geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height + geometry.contentInsets.bottom - AceTheme.Spacing.xxl
+                case .animating: break
+                @unknown default: break
+                }
+            }
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height + geometry.contentInsets.bottom - AceTheme.Spacing.xxl
+            } action: { _, atBottom in
+                if readingByTouch { followsTail = atBottom }
+            }
+            .accessibilityIdentifier("transcript")
+            .overlay(alignment: .bottomTrailing) {
+                if !followsTail {
+                    Button {
+                        followsTail = true
+                        proxy.scrollTo("tail", anchor: .bottom)
+                    } label: {
+                        Image(systemName: "arrow.down")
+                            .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+                            .background(AceTheme.Colours.secondaryBackground, in: Circle())
+                            .overlay(Circle().stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+                    }
+                    .buttonStyle(.plain).accessibilityLabel("Jump to latest").accessibilityIdentifier("transcript.latest")
+                    .padding(AceTheme.Spacing.lg)
+                }
+            }
             .background(AceTheme.Colours.background)
             .scrollDismissesKeyboard(.interactively)
-            .accessibilityIdentifier("transcript")
             .onChange(of: thread.loaded) { _, loaded in
                 if loaded && !scrolledToTail { proxy.scrollTo("tail", anchor: .bottom); scrolledToTail = true }
             }
-            .onChange(of: ObjectIdentifier(thread)) { scrolledToTail = false }
+            .onChange(of: ObjectIdentifier(thread)) { scrolledToTail = false; followsTail = true }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                followsTail = true
                 proxy.scrollTo("tail", anchor: .bottom)
             }
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
@@ -113,7 +155,7 @@ struct ThreadView: View {
                         ComposerAccessories(model: model, screen: screen)
                         ServiceProblem(message: attachProblem)
                         ComposerView(controls: screen.controls, stopping: screen.stopping,
-                                     placeholder: thread.approvals.isEmpty ? "Steer or follow up…" : "Reply instead…",
+                                     placeholder: thread.approvals.isEmpty ? "Ask a follow-up" : "Reply instead…",
                                      send: { await model.sendMessage($0, alternate: $1) }, stop: { model.stopTree() },
                                      inputBegan: { model.metrics?.inputBegan() }, mention: mention,
                                      files: screen.attachments.count) {
@@ -131,15 +173,9 @@ struct ThreadView: View {
                     }
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .principal) { header }
-                ToolbarItem(placement: .topBarTrailing) { menu }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showWork = true } label: { Image(systemName: "laptopcomputer") }
-                        .accessibilityLabel("Work").accessibilityIdentifier("thread.work")
-                }
-                ToolbarItem(placement: .topBarTrailing) { panel }
-            }
+            .toolbar { chatToolbar }
+            .toolbarBackground(AceTheme.Colours.background, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
                 if typeSize.isAccessibilitySize, let status = metadata?.status {
                     StateLabel(status: status)
@@ -161,6 +197,9 @@ struct ThreadView: View {
             .sheet(item: $fullMessage) { item in FullMessageView(model: model, threadId: thread.id, item: item) }
             .sheet(item: $media) { item in
                 NavigationStack { NativeMediaView(model: model, threadId: thread.id, item: item) }.presentationDetents([.large]).presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $showHistory) {
+                NavigationStack { ConversationHistoryView(model: model, threadId: thread.id, title: metadata?.title ?? "History", itemId: thread.order.first) }
             }
             .sheet(isPresented: $showSearch) {
                 NavigationStack { ConversationSearchView(model: model, threadId: thread.id, openThread: { id in showSearch = false; openThread(id) }) }
@@ -202,8 +241,24 @@ struct ThreadView: View {
         return thread.epoch
     }
     /// The browser's compact title; canonical state and workspace details are in Work.
+    @ToolbarContentBuilder private var chatToolbar: some ToolbarContent {
+        ToolbarItem(placement: .principal) { header }
+        if #available(iOS 26, *) {
+            ToolbarItem(placement: .topBarTrailing) { menu }.sharedBackgroundVisibility(.hidden)
+            ToolbarItem(placement: .topBarTrailing) { workButton }.sharedBackgroundVisibility(.hidden)
+            ToolbarItem(placement: .topBarTrailing) { panel }.sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .topBarTrailing) { menu }
+            ToolbarItem(placement: .topBarTrailing) { workButton }
+            ToolbarItem(placement: .topBarTrailing) { panel }
+        }
+    }
+    private var workButton: some View {
+        Button { showWork = true } label: { Image(systemName: "laptopcomputer").imageScale(.small) }
+            .accessibilityLabel("Work").accessibilityIdentifier("thread.work")
+    }
     private var header: some View {
-        Text(metadata?.title ?? "Thread").aceFont(AceTheme.Typography.title, relativeTo: .headline).lineLimit(1)
+        Text(metadata?.title ?? "Thread").aceFont(AceTheme.Typography.rowTitle, relativeTo: .headline).lineLimit(1)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityValue(metadata?.status.label ?? "")
             .accessibilityIdentifier("thread.header")
@@ -215,12 +270,14 @@ struct ThreadView: View {
             if model.threadHasBrowser { Button("Browser", systemImage: "safari") { showBrowser = true } }
             Button("Computer use", systemImage: "macwindow") { showComputer = true }
             Button("Skills and tools", systemImage: "wrench.and.screwdriver") { showTools = true }
-        } label: { Image(systemName: "sidebar.right") }
+        } label: { Image(systemName: "sidebar.right").imageScale(.small) }
         .accessibilityLabel("Right panel").accessibilityIdentifier("thread.panel")
     }
     private var menu: some View {
         Menu {
             Button("Search conversation", systemImage: "magnifyingglass") { showSearch = true }
+            Button("Conversation history", systemImage: "clock.arrow.circlepath") { showHistory = true }
+                .accessibilityIdentifier("thread.history")
             Button("Changes", systemImage: "plusminus") { showChanges = true }.accessibilityIdentifier("thread.changes")
             Button("Terminal", systemImage: "terminal") { showTerminal = true }.accessibilityIdentifier("thread.terminal")
             Button("Files", systemImage: "folder") { showFiles = true }.accessibilityIdentifier("thread.files")
@@ -248,7 +305,7 @@ struct ThreadView: View {
             }
             Divider()
             Button("Connection details", systemImage: "network") { showDetails = true }
-        } label: { Image(systemName: "ellipsis") }
+        } label: { Image(systemName: "ellipsis").imageScale(.small) }
         .accessibilityLabel("Thread options")
         .accessibilityIdentifier("thread.menu")
     }

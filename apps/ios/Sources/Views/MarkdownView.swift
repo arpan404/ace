@@ -21,13 +21,8 @@ struct MarkdownView: View {
         case .heading(let level, let text):
             Text(Markdown.inline(text)).aceFont(level <= 2 ? AceTheme.Typography.title : AceTheme.Typography.rowTitle, relativeTo: .headline)
                 .accessibilityAddTraits(.isHeader)
-        case .code(_, let text):
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(verbatim: text).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote).fixedSize(horizontal: true, vertical: false)
-                    .padding(AceTheme.Spacing.md)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.code))
+        case .code(let language, let text):
+            MarkdownCodeBlock(language: language, text: text)
         case .list(let ordered, let start, let items):
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in

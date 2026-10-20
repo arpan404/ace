@@ -465,6 +465,18 @@ raw edit rows. Tables render natively, and long message/thought text can be read
 SDK's authenticated text source on demand, bounded to 8 MiB of UTF-16 text. The virtualized
 outer list and observed item identities stay in place.
 
+Chat gives the message its own line above attachment, model/reasoning and send/stop
+controls. User messages are inset on the right; assistant responses are plain text. Copy,
+Share and timestamps are in the message menu, and code blocks have a language/Copy header.
+Reading older content pauses tail following; Jump to latest resumes it. Conversation history
+uses separate bounded SDK windows and keeps page controls reachable below the content, so
+long conversations remain readable after the live cache is full. Historical full messages
+and media resolve their authenticated item without replacing the live tail.
+
+Projects > Add project also has New project and Clone repository. Their protected local
+drafts retain form fields and command IDs across relaunch. A retry of an uncertain result
+reuses that command; clone progress and cancellation use the shared daemon operations.
+
 Connected-phone checks are opt-in with `TEST_RUNNER_ACE_IOS_CONNECTED_PHONE=1` and a physical
 `platform=iOS` destination. `ConnectedPhoneConnectionTests` uses the saved pairing and a
 separate temporary database; it performs read-only checks against the real daemon. The

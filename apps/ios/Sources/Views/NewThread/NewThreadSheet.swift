@@ -94,15 +94,21 @@ struct NewThreadSheet: View {
                 ScrollView {
                     VStack(spacing: AceTheme.Spacing.lg) {
                         if inbox.sessions.count > 1 { machineSection }
-                        HStack(spacing: AceTheme.Spacing.xs) {
-                            Text("What should we build")
+                        VStack(spacing: AceTheme.Spacing.sm) {
+                            Text("What would you like to build?")
+                                .aceFont(AceTheme.Typography.title, relativeTo: .title2)
+                                .multilineTextAlignment(.center)
                             NavigationLink(value: NewThreadRoute.projects) {
-                                Text(project.map { "in \($0.name)?" } ?? "Choose a project")
-                                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                                HStack(spacing: AceTheme.Spacing.xs) {
+                                    Image(systemName: "folder")
+                                    Text(project?.name ?? "Choose a project").lineLimit(1)
+                                    Image(systemName: "chevron.down")
+                                }
+                                .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                                .frame(minHeight: AceTheme.Dimensions.touchTarget)
                             }.accessibilityIdentifier("newThread.project")
                         }
-                        .aceFont(AceTheme.Typography.title, relativeTo: .title2)
-                        .multilineTextAlignment(.center)
                         if draft.projectId != nil {
                             HStack {
                                 Toggle("Worktree", isOn: Binding(get: { draft.worktree && branches?.noWorktree == nil }, set: { on in drafts.edit { $0.worktree = on } }))
@@ -212,31 +218,34 @@ struct NewThreadSheet: View {
                     }
                 }
             }
-            HStack(alignment: .bottom, spacing: AceTheme.Spacing.xs) {
-                AttachMenu(stage: { staged in
-                    guard let client, let project = draft.projectId else { drafts.staging.discard(staged.localId); return }
-                    drafts.picked(staged, workspaceId: project)
-                    client.composeAttach(staged, workspaceId: project)
-                }, problem: $attachProblem, identifier: "newThread.attach", staging: drafts.staging) { Image(systemName: "plus") }
-                    .disabled(draft.projectId == nil || client?.canOperate != true)
-                TextField("What should it do?", text: Binding(get: { draft.text }, set: { text in drafts.edit { $0.text = text } }), axis: .vertical)
+            ComposerSurface {
+                TextField("Ask anything or describe a task", text: Binding(get: { draft.text }, set: { text in drafts.edit { $0.text = text } }), axis: .vertical)
                     .lineLimit(1...5).frame(minHeight: AceTheme.Dimensions.touchTarget)
                     .aceFont(AceTheme.Typography.body, relativeTo: .body)
+                    .padding(.horizontal, AceTheme.Spacing.lg)
                     .accessibilityIdentifier("newThread.message")
-                NavigationLink(value: NewThreadRoute.agents) {
-                    Text(model?.label ?? "Model").lineLimit(1).truncationMode(.middle)
+                HStack(spacing: AceTheme.Spacing.xs) {
+                    AttachMenu(stage: { staged in
+                        guard let client, let project = draft.projectId else { drafts.staging.discard(staged.localId); return }
+                        drafts.picked(staged, workspaceId: project)
+                        client.composeAttach(staged, workspaceId: project)
+                    }, problem: $attachProblem, identifier: "newThread.attach", staging: drafts.staging) { Image(systemName: "plus") }
+                        .disabled(draft.projectId == nil || client?.canOperate != true)
+                    NavigationLink(value: NewThreadRoute.agents) {
+                        HStack(spacing: AceTheme.Spacing.xs) {
+                            Text(model?.label ?? "Choose model").lineLimit(1).truncationMode(.middle)
+                            Image(systemName: "chevron.down")
+                        }
                         .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                        .frame(maxWidth: AceTheme.Dimensions.touchTarget * 2, minHeight: AceTheme.Dimensions.touchTarget)
-                }.accessibilityIdentifier("newThread.agent")
-                Button { send() } label: {
-                    Group { if sending { ProgressView() } else { Image(systemName: "arrow.up") } }
-                        .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
-                        .foregroundStyle(AceTheme.Colours.background).background(AceTheme.Colours.foreground, in: Circle())
-                }
-                .disabled(blocker != nil || sending).accessibilityHint(blocker ?? "")
-                .accessibilityLabel("Start thread").accessibilityIdentifier("newThread.start")
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    }.accessibilityIdentifier("newThread.agent")
+                    Spacer(minLength: AceTheme.Spacing.sm)
+                    ComposerActionButton(saving: sending, disabled: blocker != nil || sending, label: "Start thread", action: send)
+                        .accessibilityHint(blocker ?? "").accessibilityIdentifier("newThread.start")
+                }.padding(.horizontal, AceTheme.Spacing.sm)
             }
-            .padding(AceTheme.Spacing.xs).floatingGlass()
+
         }
     }
     private var options: some View {

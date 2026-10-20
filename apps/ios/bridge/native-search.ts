@@ -28,12 +28,17 @@ export async function readHistoryWindow(
     },
     { signal },
   );
+  const shortened = new Set(
+    page.omitted?.filter((item) => item.dropped !== "raw").map((item) => item.itemId),
+  );
   return {
     target: page.targetSeq,
     before: page.itemsBefore,
     after: page.itemsAfter,
     rows: page.items.map((item) =>
-      Object.assign(itemRow(item), itemDetail(item), { seq: page.itemSeqs[item.id] }),
+      Object.assign(itemRow(item, undefined, shortened.has(item.id)), itemDetail(item), {
+        seq: page.itemSeqs[item.id],
+      }),
     ),
   };
 }

@@ -30,10 +30,10 @@ private struct WorkProgressGroup: View {
                 Button { expanded.toggle() } label: {
                     HStack(spacing: AceTheme.Spacing.sm) {
                         if group.running, let active = thread.items[group.active] {
-                            RunningStepLine(item: active)
+                            RunningStepLine(item: active, fallback: group.label)
                         } else {
                             Image(systemName: StepRow.symbol(group.icon)).foregroundStyle(AceTheme.Colours.decoration)
-                            Text(group.label).lineLimit(2).multilineTextAlignment(.leading)
+                            Text(group.label.isEmpty ? "View work" : group.label).lineLimit(2).multilineTextAlignment(.leading)
                         }
                         Spacer(minLength: AceTheme.Spacing.none)
                         Image(systemName: "chevron.right").rotationEffect(.degrees(expanded ? 90 : 0))
@@ -58,6 +58,7 @@ private struct WorkProgressGroup: View {
 
 private struct RunningStepLine: View {
     @Bindable var item: ItemModel
+    let fallback: String
     var body: some View {
         if item.row.type == "reasoning" {
             Label("Thinking…", systemImage: "brain")
@@ -65,6 +66,8 @@ private struct RunningStepLine: View {
             Label {
                 Text([step.verb, step.target].filter { !$0.isEmpty }.joined(separator: " ")).lineLimit(1).truncationMode(.middle)
             } icon: { Image(systemName: StepRow.symbol(step.icon)) }
+        } else {
+            Text(fallback.isEmpty ? "Working" : fallback).lineLimit(1)
         }
     }
 }

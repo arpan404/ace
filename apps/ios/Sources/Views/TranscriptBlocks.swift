@@ -97,14 +97,20 @@ struct MessageRow: View {
             if let attachments = row.attachments, !attachments.isEmpty {
                 AttachmentChips(attachments: attachments, more: row.moreAttachments ?? 0)
             }
-            Text(Date(timeIntervalSince1970: row.createdAt / 1000), format: .dateTime.hour().minute())
-                .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
             if row.truncated, let openMessage {
                 Button("Read full message") { openMessage(row) }.aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .accessibilityIdentifier("message.full.\(row.id)")
             }
-        }.frame(maxWidth: .infinity, alignment: user ? .trailing : .leading)
+        }
+        .padding(.leading, user ? AceTheme.Spacing.xxxl : AceTheme.Spacing.none)
+        .padding(.vertical, AceTheme.Spacing.sm)
+        .frame(maxWidth: .infinity, alignment: user ? .trailing : .leading)
+        .contextMenu {
+            Button(row.truncated ? "Copy visible text" : "Copy message", systemImage: "doc.on.doc") { UIPasteboard.general.string = row.text }
+            ShareLink(item: row.text) { Label(row.truncated ? "Share visible text" : "Share message", systemImage: "square.and.arrow.up") }
+            if row.truncated, let openMessage { Button("Read full message") { openMessage(row) } }
+            Text(Date(timeIntervalSince1970: row.createdAt / 1000), format: .dateTime.month().day().hour().minute())
+        }
     }
 }
 
