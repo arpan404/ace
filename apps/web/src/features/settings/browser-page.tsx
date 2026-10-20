@@ -27,6 +27,11 @@ const profiles = [
   { value: "persistent", label: "Keep sign-ins" },
   { value: "ephemeral", label: "Private" },
 ] as const;
+const scopes = [
+  { value: "global", label: "Global" },
+  { value: "project", label: "Each project" },
+  { value: "thread", label: "Each thread" },
+] as const;
 const losses = [
   { value: "pause", label: "Pause" },
   { value: "headless", label: "Continue in ace's Chrome" },
@@ -78,6 +83,10 @@ export function BrowserSettings() {
     settingKeys.browserProfile,
     settingRow("browser.profile").title,
   );
+  const scope = useSettingControl(
+    settingKeys.browserProfileScope,
+    settingRow("browser.profileScope").title,
+  );
   const loss = useSettingControl(settingKeys.browserLoss, settingRow("browser.loss").title);
   const downloads = useSettingControl(
     settingKeys.browserDownloads,
@@ -121,6 +130,21 @@ export function BrowserSettings() {
               value={profile.value}
               options={profiles}
               onValueChange={profile.set}
+            />
+          </DaemonSlot>
+        </SettingRow>
+        <SettingRow
+          {...settingRow("browser.profileScope")}
+          description="Which sign-ins browsers opened from now on use. A project can choose its own in Edit project."
+        >
+          <DaemonSlot control={scope}>
+            <Select
+              label="Browser profile"
+              value={scope.value}
+              options={scopes}
+              disabled={scope.offline}
+              onValueChange={scope.set}
+              className="w-56"
             />
           </DaemonSlot>
         </SettingRow>
