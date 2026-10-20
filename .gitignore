@@ -35,4 +35,6 @@ native/screen-helper-windows/target/
 /output/evals/
 
 # Local Claude Code state, including agent worktrees under .claude/worktrees/.
-/.claude/
+# Project skills in .claude/skills/ are committed.
+/.claude/*
+!/.claude/skills/
