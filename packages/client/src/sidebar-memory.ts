@@ -3,6 +3,8 @@ import type { SidebarHalf } from "./read-records.ts";
 
 /** How many filters' lists a sidebar keeps in memory for this session (ADR 0030). */
 export const rememberedFilters = 8;
+/** How many rows those lists may hold between them, so paged-in lists cannot pile up. */
+export const rememberedRows = 2_000;
 
 /** Where a half painted before its subscription's snapshot came from. */
 export type ProvisionalSource = "remembered" | "derived";
@@ -14,18 +16,29 @@ export type ProvisionalSource = "remembered" | "derived";
  */
 export class FilterMemory {
   #lists = new Map<string, ThreadListView>();
+  #rows = 0;
   #limit: number;
-  constructor(limit = rememberedFilters) {
+  #rowLimit: number;
+  constructor(limit = rememberedFilters, rowLimit = rememberedRows) {
     this.#limit = limit;
+    this.#rowLimit = rowLimit;
   }
   remember(half: SidebarHalf, project: string | undefined, view: ThreadListView): void {
     const key = keyOf(half, project);
-    this.#lists.delete(key);
+    this.#forget(key);
+    if (rowsOf(view) > this.#rowLimit) return;
     this.#lists.set(key, view);
+    this.#rows += rowsOf(view);
     for (const oldest of this.#lists.keys()) {
-      if (this.#lists.size <= this.#limit) break;
-      this.#lists.delete(oldest);
+      if (this.#lists.size <= this.#limit && this.#rows <= this.#rowLimit) break;
+      this.#forget(oldest);
     }
+  }
+  #forget(key: string): void {
+    const view = this.#lists.get(key);
+    if (!view) return;
+    this.#lists.delete(key);
+    this.#rows -= rowsOf(view);
   }
   /**
    * What to paint for a half until its subscription's snapshot lands: the list this filter
@@ -48,6 +61,10 @@ export class FilterMemory {
     const view = all && narrow(all, project);
     return view && { view, source: "derived" };
   }
+}
+
+function rowsOf(view: ThreadListView): number {
+  return Object.keys(view.threads).length;
 }
 
 function keyOf(half: SidebarHalf, project: string | undefined): string {
