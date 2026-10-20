@@ -12,13 +12,16 @@ import { outboxKey } from "./worker-target.ts";
 const keyOf = (target: DaemonTarget, deviceId: string) =>
   `ace.knownHost.${outboxKey({ ...target, deviceId })}`;
 
-/** The host `target` verified as last time; the desktop names its own daemon outright. */
+/**
+ * The host `target` verified as last time. Only a daemon this window has met counts, the
+ * desktop's own included (its key names the identity of its current home): a first launch has
+ * nothing kept to show, so it waits for the daemon as before.
+ */
 export function knownHost(
   storage: KeyValueStorage,
   target: DaemonTarget,
   deviceId: string,
 ): string | undefined {
-  if (target.localHostId) return target.localHostId;
   try {
     return storage.getItem(keyOf(target, deviceId)) ?? undefined;
   } catch {
