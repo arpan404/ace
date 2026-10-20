@@ -29,11 +29,23 @@ Run from the main checkout (`~/Code/ace-next`). Every check passes before anythi
 
 ```sh
 bun install --frozen-lockfile
+unset ACE_VERSION
 set -a; source ~/.ace-release/release.env; set +a
 bun run desktop:package
 ```
 
+`unset ACE_VERSION` matters: a shell started by ace inherits `ACE_VERSION` from the running app, and the packager prefers it over `package.json`, so the build gets the old version's name.
+
 It takes 10–20 minutes (notarization is most of it); run it in the background and wait for it to exit. Done when it exits 0 and `apps/desktop/dist/release/` holds `ace-<version>-arm64.dmg` and `ace-<version>-arm64-mac.zip`.
+
+Then build and sign the update manifest the app's update check reads. It needs Node 24.13.0 exactly: download `node-v24.13.0-darwin-arm64.tar.gz` from nodejs.org into a new temp directory, check it against the `darwin-arm64` hash in `tools/release/src/node-runtime.ts`, and put its `bin` first on `PATH` for these two commands only.
+
+```sh
+bun run --filter @ace/release build <version> darwin-arm64 "$ACE_RELEASE_PUBLIC_KEY_FILE"
+bun run --filter @ace/release sign tools/release/dist/darwin-arm64.json ~/.ace-release/ace-key.pem tools/release/dist/darwin-arm64.sig
+```
+
+Done when `tools/release/dist/` holds `darwin-arm64.json`, `darwin-arm64.sig` and the archive named in the manifest's `archive` field.
 
 ## 3. Verify
 
@@ -51,10 +63,12 @@ Done when all three pass. A failure stops the run with the output shown to the o
 gh release create v<version> -R arpan404/ace --draft \
   --title "ace <version>" --notes "<notes>" \
   apps/desktop/dist/release/ace-<version>-arm64.dmg \
-  apps/desktop/dist/release/ace-<version>-arm64-mac.zip
+  apps/desktop/dist/release/ace-<version>-arm64-mac.zip \
+  tools/release/dist/darwin-arm64.json tools/release/dist/darwin-arm64.sig \
+  tools/release/dist/<archive from the manifest>
 ```
 
-Notes: one line naming the platform (macOS, Apple silicon) plus the user-facing changes since the previous release tag (`git log --oneline <previous-tag>..HEAD`, merged PR titles). Done when `gh release view v<version>` shows `draft: true` with both assets.
+Notes are what users read when the app offers the update, so write them for users, in Markdown: a platform and install line, then `## New`, `## Improved` and `## Fixed` sections covering the user-facing changes since the previous release tag (`git log --oneline <previous-tag>..HEAD`, merged PR titles). Done when `gh release view v<version>` shows `draft: true` with all five assets.
 
 ## 5. Publish
 
@@ -67,4 +81,3 @@ The release URL, draft or published, the two asset names and sizes, and the thre
 ## Known limits
 
 - Intel and Linux builds need matching machines; this skill ships Apple silicon only.
-- In-app update checks need the signed CLI manifests from `tools/release` (`build` then `sign`, Node 24.13.0 exactly), which this skill does not produce yet. Until then the app's update check reports an error and users update by downloading.
