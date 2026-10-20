@@ -6,12 +6,20 @@ import type {
   VideoCaptureHandle,
   VideoHost,
 } from "./backend.ts";
-import { CapturePressure } from "./capture-policy.ts";
 import type { CaptureViewer } from "./capture-policy.ts";
+import { LinkRate } from "./link-rate.ts";
+import { PictureScale } from "./video-scale.ts";
 import type { BrowserAudioChunk } from "./stream-audio.ts";
 import type { BrowserVideoChunk } from "./stream-video.ts";
 import { VideoFanout, type VideoSink } from "./video-fanout.ts";
-import { planVideo, type VideoEncode } from "./video-policy.ts";
+import {
+  maxBitrate,
+  minBitrate,
+  planVideo,
+  videoFps,
+  viewerPicture,
+  type VideoEncode,
+} from "./video-policy.ts";
 
 /*
  * One thread's live video (ADR 0088): which viewers take video, the tab capture and its encodes,
@@ -33,12 +41,16 @@ const knownCodecs = ["avc1.42E033", "vp09.00.41.08", "vp8"];
 const settleMs = 300;
 /** After the encoder failed to start, try again this much later. */
 const retryMs = 5_000;
-/** A slower tier is its own encode; stepping back up costs a keyframe, so it isn't hurried. */
-const recoveryMs = 3_000;
+/** Where a new viewer's bit rate starts, before its link has shown what it carries. */
+const initialBitrate = 4_000_000;
+/** An encode's bit rate changes in place when it moves this much, at most this often. */
+const bitrateChange = 0.1;
+const bitrateEveryMs = 400;
 
 interface Viewer {
   capture: CaptureViewer;
-  pressure: CapturePressure;
+  link: LinkRate;
+  scale: PictureScale;
 }
 
 interface Capture {
@@ -61,6 +73,9 @@ export class LiveVideo {
   private retryAt = -Infinity;
   private wanted: { width: number; height: number; since: number } | undefined;
   private encodes = "";
+  /** The bit rate each running encode was last given. */
+  private bitrates = new Map<string, number>();
+  private bitratesAt = -Infinity;
   private owedKeys = new Set<string>();
   private sequence = 0;
   private generation = 0;
@@ -71,13 +86,15 @@ export class LiveVideo {
   private soundSequence = 0;
   constructor(options: {
     now: () => number;
-    /** A viewer started or stopped showing video: pause or resume its JPEG frames. */
+    /** A viewer started or stopped showing video. */
     playing(id: string, playing: boolean): void;
   }) {
     this.now = options.now;
     this.fanout = new VideoFanout<BrowserVideoChunk>({
       keyframe: (encode) => this.owedKeys.add(encode),
       playing: options.playing,
+      sent: (id, sequence, bytes) => this.viewers.get(id)?.link.sent(sequence, bytes, this.now()),
+      dropped: (id) => this.viewers.get(id)?.link.dropped(this.now()),
     });
   }
   /** A viewer that asked for video, or its new pane; `audio` takes the sound once it unmutes. */
@@ -94,7 +111,10 @@ export class LiveVideo {
     const existing = this.viewers.get(id);
     this.viewers.set(id, {
       capture,
-      pressure: existing?.pressure ?? new CapturePressure(recoveryMs),
+      link:
+        existing?.link ??
+        new LinkRate({ min: minBitrate, max: maxBitrate, initial: initialBitrate }),
+      scale: existing?.scale ?? new PictureScale(),
     });
   }
   configure(id: string, capture: CaptureViewer): void {
@@ -117,6 +137,7 @@ export class LiveVideo {
     return this.viewers.has(id);
   }
   acknowledge(id: string, sequence: number): void {
+    this.viewers.get(id)?.link.acknowledged(sequence, this.now());
     this.fanout.acknowledge(id, sequence);
   }
   keyframe(id: string): void {
@@ -134,7 +155,7 @@ export class LiveVideo {
     this.page = page;
     this.retryAt = -Infinity;
   }
-  /** Stops the tab's capture; viewers fall back to JPEG until the next `attach`. */
+  /** Stops the tab's capture; viewers keep their last picture until the next `attach`. */
   detach(): void {
     this.generation++;
     this.capture?.handle.close();
@@ -169,18 +190,23 @@ export class LiveVideo {
         ...this.page,
         codecs: this.codecs.filter((codec) => !this.failedCodecs.has(codec)),
       },
-      [...this.viewers].map(([id, viewer]) => ({
-        id,
-        viewport: viewer.capture.viewport,
-        codecs: viewer.capture.video?.codecs ?? [],
-        load: viewer.pressure.sample(this.fanout.backlogged(id), now),
-      })),
+      [...this.viewers].map(([id, viewer]) => {
+        const full = viewerPicture(this.page, viewer.capture.viewport);
+        const link = viewer.link.rate;
+        return {
+          id,
+          viewport: viewer.capture.viewport,
+          codecs: viewer.capture.video?.codecs ?? [],
+          link,
+          scale: viewer.scale.update(link, full.width * full.height, videoFps, now),
+        };
+      }),
     );
     if (!plan.encodes.length) {
       if (this.capture) this.close();
       return;
     }
-    const size = largest(plan.encodes);
+    const size = plan.capture;
     const capture = this.capture;
     if (!capture || capture.width !== size.width || capture.height !== size.height) {
       if (!this.wanted || this.wanted.width !== size.width || this.wanted.height !== size.height)
@@ -193,8 +219,10 @@ export class LiveVideo {
       this.fanout.assign(id, open ? plan.viewers.get(id) : undefined);
     if (!open) return;
     const encodes = plan.encodes.map((encode) => encode.key).join(",");
-    if (encodes !== this.encodes) {
+    if (encodes !== this.encodes || this.bitratesMoved(plan.encodes, now)) {
       this.encodes = encodes;
+      this.bitrates = new Map(plan.encodes.map((encode) => [encode.key, encode.bitrate]));
+      this.bitratesAt = now;
       open.handle.encodes(plan.encodes);
     }
     for (const key of this.owedKeys)
@@ -205,6 +233,14 @@ export class LiveVideo {
       this.soundOn = this.sound.wanted;
       open.handle.audio?.(this.soundOn);
     }
+  }
+  /** Whether a running encode's bit rate should change in place now. */
+  private bitratesMoved(encodes: readonly VideoEncode[], now: number): boolean {
+    if (now - this.bitratesAt < bitrateEveryMs) return false;
+    return encodes.some((encode) => {
+      const given = this.bitrates.get(encode.key);
+      return given === undefined || Math.abs(encode.bitrate - given) > given * bitrateChange;
+    });
   }
   private probe(source: LiveVideoSource, now: number): void {
     if (this.opening || now < this.retryAt) return;
@@ -217,7 +253,7 @@ export class LiveVideo {
           this.codecs = codecs;
         },
         () => {
-          // No encoder yet (the extension failed to load): viewers keep JPEG, and it is retried.
+          // No encoder yet (the extension failed to load): it is retried.
           if (generation === this.generation) this.retryAt = this.now() + retryMs;
         },
       )
@@ -296,14 +332,4 @@ export class LiveVideo {
       ...(tabId ? { tabId } : {}),
     });
   }
-}
-
-function largest(encodes: readonly VideoEncode[]): { width: number; height: number } {
-  let width = 0,
-    height = 0;
-  for (const encode of encodes) {
-    width = Math.max(width, encode.width);
-    height = Math.max(height, encode.height);
-  }
-  return { width, height };
 }

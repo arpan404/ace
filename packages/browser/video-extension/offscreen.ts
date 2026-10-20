@@ -35,6 +35,8 @@ interface Encoder {
   watchdog: EncoderWatchdog;
   /** Configurations still to try, best first: hardware, then software. */
   configs: VideoEncoderConfig[];
+  /** The configuration the running encoder took. */
+  active: VideoEncoderConfig | undefined;
   description: string | undefined;
   /** Bumped per configuration: output from a replaced encoder is ignored. */
   generation: number;
@@ -131,12 +133,29 @@ async function configure(capture: Capture, entry: Encoder, reason: string): Prom
       },
     });
     encoder.configure(config);
+    entry.active = config;
     entry.encoder = encoder;
     entry.watchdog = new EncoderWatchdog();
     entry.pacer.requestKeyframe();
     return;
   }
   emit({ t: "failed", capture: capture.id, encode: entry.spec.key, reason });
+}
+
+/** A running encode's new bit rate: the encoder reconfigures in place, keeping its stream. */
+function retune(entry: Encoder, bitrate: number): void {
+  if (entry.spec.bitrate === bitrate) return;
+  entry.spec = { ...entry.spec, bitrate };
+  // Configurations not tried yet take the new rate too.
+  entry.configs = entry.configs.map((config) => ({ ...config, bitrate }));
+  const encoder = entry.encoder;
+  if (!encoder || encoder.state !== "configured" || !entry.active) return;
+  entry.active = { ...entry.active, bitrate };
+  try {
+    encoder.configure(entry.active);
+  } catch {
+    // An encoder that refuses a new rate keeps its old one.
+  }
 }
 
 function encode(entry: Encoder, frame: VideoFrame, key: boolean): void {
@@ -213,7 +232,7 @@ Object.assign(globalThis, {
     async supported(codecs: readonly string[], width: number, height: number) {
       const supported: string[] = [];
       for (const codec of codecs) {
-        const configs = configsFor({ key: "", codec, width, height, fps: 30, bitrate: 2e6 });
+        const configs = configsFor({ key: "", codec, width, height, fps: 60, bitrate: 6e6 });
         for (const config of configs) {
           const result = await VideoEncoder.isConfigSupported(config).catch(() => undefined);
           if (result?.supported) {
@@ -235,7 +254,7 @@ Object.assign(globalThis, {
           maxWidth: width,
           minHeight: height,
           maxHeight: height,
-          maxFrameRate: 30,
+          maxFrameRate: 60,
         },
       };
       // The tab's sound rides the same capture (ADR 0088, Audio); a capture that can't take it
@@ -273,7 +292,10 @@ Object.assign(globalThis, {
         emit({ t: "ended", capture: id, reason: String(error) });
       });
     },
-    /** The encodes capture `id` runs: new ones start (at a keyframe), missing ones stop. */
+    /**
+     * The encodes capture `id` runs: new ones start (at a keyframe), missing ones stop, and a
+     * running one given another bit rate takes it in place, without a keyframe.
+     */
     encodes(id: string, specs: readonly EncodeSpec[]): void {
       const capture = captures.get(id);
       if (!capture) return;
@@ -285,13 +307,18 @@ Object.assign(globalThis, {
           capture.encoders.delete(key);
         }
       for (const spec of specs) {
-        if (capture.encoders.has(spec.key)) continue;
+        const running = capture.encoders.get(spec.key);
+        if (running) {
+          retune(running, spec.bitrate);
+          continue;
+        }
         const entry: Encoder = {
           spec,
           encoder: undefined,
           pacer: new EncodePacer(spec.fps),
           watchdog: new EncoderWatchdog(),
           configs: configsFor(spec),
+          active: undefined,
           description: undefined,
           generation: 0,
         };

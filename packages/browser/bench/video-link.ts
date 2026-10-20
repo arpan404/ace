@@ -51,6 +51,7 @@ const bytesPerMs = (megabits * 1e6) / 8 / 1000;
 const jitter = () => Math.random() * jitterMs;
 
 const shown: number[] = [];
+const arrivals: { at: number; bytes: number }[] = [];
 let bytes = 0;
 let keyframes = 0;
 let counting = false;
@@ -68,7 +69,10 @@ const bridge = connectBrowser(service, {
       const arrives = linkFreeAt + oneWay + jitter();
       const envelope = assembler.push(piece);
       const message = envelope && decodeStreamMessage(envelope);
-      if (counting) bytes += piece.length;
+      if (counting) {
+        bytes += piece.length;
+        arrivals.push({ at: now, bytes: piece.length });
+      }
       if (!message || message.kind !== "browser.video") continue;
       const { sequence, key } = message.chunk;
       setTimeout(() => {
@@ -115,6 +119,13 @@ try {
     const from = start + index * 1000;
     return shown.filter((at) => at >= from && at < from + 1000).length;
   });
+  const sentMegabits = Array.from({ length: seconds }, (_, index) => {
+    const from = start + index * 1000;
+    const sum = arrivals
+      .filter((entry) => entry.at >= from && entry.at < from + 1000)
+      .reduce((total, entry) => total + entry.bytes, 0);
+    return Number(((sum * 8) / 1e6).toFixed(1));
+  });
   const sorted = perSecond.toSorted((a, b) => a - b);
   let longestGap = 0;
   for (let index = 1; index < shown.length; index++)
@@ -125,6 +136,7 @@ try {
     JSON.stringify({
       path: `${seconds} s scroll over ${megabits} Mbit/s, ${rttMs} ms RTT, ${jitterMs} ms jitter`,
       framesPerSecond: perSecond,
+      sentMegabits,
       median,
       p10,
       min: sorted[0] ?? 0,
