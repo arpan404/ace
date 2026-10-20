@@ -66,11 +66,5 @@ export function summarize(
   };
 }
 
-/** Stable key order so that `{a,b}` and `{b,a}` count as the same retry. */
-export function canonicalJson(value: unknown): string {
-  return JSON.stringify(value, (_key, entry: unknown) =>
-    entry && typeof entry === "object" && !Array.isArray(entry)
-      ? Object.fromEntries(Object.entries(entry).toSorted(([a], [b]) => a.localeCompare(b)))
-      : entry,
-  );
-}
+/** Stable key order, so that `{a,b}` and `{b,a}` count as the same retry. */
+export { canonicalJson } from "../canonical-json.ts";

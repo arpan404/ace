@@ -6,7 +6,12 @@ import { promisify } from "node:util";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, expect, test } from "vitest";
 import { spawnGitProcess } from "@ace/git";
-import { Thread, type ThreadStatus } from "@ace/protocol";
+import {
+  Thread,
+  type LinkedPullRequest,
+  type ThreadDetails,
+  type ThreadStatus,
+} from "@ace/protocol";
 import { migrateEngine } from "./engine/migrations.ts";
 import { Store } from "./store.ts";
 import { VirtualSchedule } from "./virtual-schedule-test-support.ts";
@@ -21,7 +26,10 @@ afterEach(async () => {
 });
 
 /** A thread on a real checkout, refreshed by the production sweep on virtual time. */
-async function refreshing(status: ThreadStatus, options: { viewed?: boolean } = {}) {
+async function refreshing(
+  status: ThreadStatus,
+  options: { viewed?: boolean; details?: ThreadDetails } = {},
+) {
   const home = await realpath(await mkdtemp(join(tmpdir(), "ace-workspace-refresh-")));
   const root = join(home, "repo");
   await mkdir(root);
@@ -52,6 +60,10 @@ async function refreshing(status: ThreadStatus, options: { viewed?: boolean } = 
     updatedAt: 1,
   });
   store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
+  if (options.details)
+    store.appendEvents(thread.id, [
+      { type: "thread.client.updated", changes: { details: options.details } },
+    ]);
   if (options.viewed) store.acquireThread(thread.id);
   const time = new VirtualSchedule();
   let statusReads = 0;
@@ -96,6 +108,36 @@ test("a quiet thread nobody is viewing is not re-read every minute", async () =>
   const before = thread.statusReads();
   await thread.time.advance(9 * minute);
   expect(thread.statusReads()).toBe(before);
+});
+
+const pullRequest = (state: LinkedPullRequest["state"]): LinkedPullRequest => ({
+  number: 7,
+  repo: { forge: "github", host: "github.com", owner: "octo", name: "ace" },
+  url: "https://github.com/octo/ace/pull/7",
+  state,
+  updatedAt: 1,
+});
+
+test("a quiet thread whose pull request merged settles to the slow cadence", async () => {
+  const thread = await refreshing(
+    { state: "done" },
+    { details: { linkedPrs: [pullRequest("merged")] } },
+  );
+  // The first read records the checkout; the next confirms nothing changed and settles.
+  await thread.time.advance(minute);
+  const before = thread.statusReads();
+  await thread.time.advance(9 * minute);
+  expect(thread.statusReads()).toBe(before);
+});
+
+test("a quiet thread with an open pull request is still read every minute", async () => {
+  const thread = await refreshing(
+    { state: "done" },
+    { details: { linkedPrs: [pullRequest("open")] } },
+  );
+  const before = thread.statusReads();
+  await thread.time.advance(3 * minute);
+  expect(thread.statusReads()).toBeGreaterThanOrEqual(before + 3);
 });
 
 test("a thread a client is viewing shows an edit made outside ace within a minute", async () => {

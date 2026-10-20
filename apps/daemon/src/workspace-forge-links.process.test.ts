@@ -116,6 +116,74 @@ test("state refresh batches all PRs per repo across threads, retains missing lin
   }
 });
 
+test("once a PR is merged or deleted, later refreshes ask GitHub only about PRs that can change", async () => {
+  const queries: string[] = [];
+  const f = await fixture(async (request) => {
+    if (request.args[1] !== "graphql") return { code: 1, stdout: "offline", truncated: false };
+    const asked = JSON.stringify(request);
+    queries.push(asked);
+    const pr = (number: number, state: string) =>
+      asked.includes(`pr${number}:`)
+        ? {
+            [`pr${number}`]: {
+              number,
+              title: `PR ${number}`,
+              url: `https://github.com/octo/ace/pull/${number}`,
+              state,
+              isDraft: false,
+              updatedAt: "2026-10-09T00:00:00Z",
+            },
+          }
+        : {};
+    return {
+      code: 0,
+      truncated: false,
+      stdout: `HTTP/1.1 200 OK\n\n${JSON.stringify({
+        data: {
+          repository: {
+            ...pr(283, "MERGED"),
+            ...pr(284, "OPEN"),
+            ...pr(286, "CLOSED"),
+            ...(asked.includes("pr285:") ? { pr285: null } : {}),
+          },
+        },
+        errors: asked.includes("pr285:")
+          ? [{ type: "NOT_FOUND", path: ["repository", "pr285"], message: "Missing" }]
+          : undefined,
+      })}`,
+    };
+  });
+  const first = ThreadId.parse("first");
+  const second = ThreadId.parse("second");
+  try {
+    for (const number of [283, 284, 285, 286])
+      await f.forge.link(first, "/fake", { repository: repo, number });
+    await f.forge.link(second, "/fake", { repository: repo, number: 283 });
+    const sweep = [
+      { id: first, cwd: "/fake" },
+      { id: second, cwd: "/fake" },
+    ];
+    await f.forge.refresh(sweep);
+    queries.length = 0;
+
+    await f.forge.refresh(sweep);
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toContain("pr284:");
+    expect(queries[0]).toContain("pr286:");
+    expect(queries[0]).not.toContain("pr283:");
+    expect(queries[0]).not.toContain("pr285:");
+
+    queries.length = 0;
+    await f.forge.refresh([{ id: second, cwd: "/fake" }]);
+    expect(queries).toEqual([]);
+    expect(f.store.getThread(second)?.details?.linkedPrs).toMatchObject([
+      { number: 283, state: "merged" },
+    ]);
+  } finally {
+    await f.close();
+  }
+});
+
 test("a known missing PR is refused, while an unauthenticated forge keeps an unverified link", async () => {
   const f = await fixture(async (request) => ({
     code: 1,

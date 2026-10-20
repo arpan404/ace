@@ -16,6 +16,7 @@ import { workspaceRepository } from "./workspace-repository.ts";
 import type { SourceControl } from "./source-control.ts";
 import { ThreadId, type ThreadDetails, type Command } from "@ace/protocol";
 import type { Store } from "./store.ts";
+import { sameJson } from "./canonical-json.ts";
 import { recordedBaseRef } from "./worktree-base.ts";
 import { defaultBaseFetchTimeoutMs } from "./worktree-base-resolution.ts";
 export type WorkspaceGit = Pick<GitService, keyof GitService>;
@@ -252,7 +253,7 @@ export class WorkspaceRoots {
       };
       delete details.worktreeMissing;
       if (!repository) delete details.repository;
-      if (JSON.stringify(current.details) !== JSON.stringify(details))
+      if (!sameJson(current.details, details))
         this.store.appendEvents(
           id,
           [{ type: "thread.client.updated", changes: { details } }],

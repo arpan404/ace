@@ -8,6 +8,7 @@ import {
 } from "@ace/protocol";
 import type { PrOwnerOperation } from "./agent-control/tools.ts";
 import type { WorkspaceForgeContext } from "./workspace-forge-context.ts";
+import { pullRequestFollow } from "./pull-request-follow.ts";
 
 /** A thread's PR associations: link, unlink, agent tools, status and batched refresh. */
 export class WorkspacePrAssociations {
@@ -206,7 +207,10 @@ export class WorkspacePrAssociations {
       throw error;
     }
   }
-  /** Each sweep batches lightweight state reads per repository, at most 100 refs per request. */
+  /**
+   * Each sweep batches lightweight state reads per repository, at most 100 refs per request.
+   * A merged or deleted PR cannot change again, so it is left out and costs no GitHub budget.
+   */
   async refresh(threads: readonly { id: ThreadId; cwd: string }[]): Promise<void> {
     const groups = new Map<
       string,
@@ -216,9 +220,16 @@ export class WorkspacePrAssociations {
         entries: { id: ThreadId; pr: ForgePrRef; generation: number }[];
       }
     >();
-    for (const thread of threads)
+    for (const thread of threads) {
+      const final = new Set(
+        this.ctx.links
+          .summaries(thread.id)
+          .filter((pr) => pullRequestFollow(pr) === "final")
+          .map((pr) => `${repositoryKey(pr.repo)}#${pr.number}`),
+      );
       for (const { link, generation } of this.ctx.links.getLinks(thread.id)) {
         const key = repositoryKey(link.pr.repository);
+        if (final.has(`${key}#${link.pr.number}`)) continue;
         let group = groups.get(key);
         if (!group) {
           group = { cwd: thread.cwd, repo: link.pr.repository, entries: [] };
@@ -226,6 +237,7 @@ export class WorkspacePrAssociations {
         }
         group.entries.push({ id: thread.id, pr: link.pr, generation });
       }
+    }
     let failure: unknown;
     for (const group of groups.values()) {
       try {
