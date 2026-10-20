@@ -1,21 +1,26 @@
 import { ciLine, formatAgo } from "@ace/ui-core";
 import type { ForgePrStatus } from "@ace/protocol";
 import { CheckCircleIcon, CircleIcon, WarningCircleIcon, ClockIcon } from "@phosphor-icons/react";
+import { useAvatar } from "@/lib/avatars.ts";
+import { cn } from "@/lib/cn.ts";
 import { useNow } from "@/lib/time.ts";
 import { MessageAvatar } from "@/components/ui/message.tsx";
 
-export function PrAvatar(props: { name: string; url?: string | undefined }) {
-  const url = props.url?.startsWith("https://") ? props.url : undefined;
+/**
+ * A person's avatar as the daemon relays it (never loaded from GitHub by the page), or their
+ * initial while it loads or when they have none.
+ */
+export function PrAvatar(props: {
+  name: string;
+  url?: string | undefined;
+  /** Its size; 20px when not given. */
+  className?: string | undefined;
+}) {
+  const image = useAvatar(props.url);
   return (
-    <MessageAvatar className="size-5 min-w-5 self-center">
-      {url ? (
-        <img
-          src={url}
-          alt={props.name}
-          className="size-full object-cover"
-          loading="lazy"
-          referrerPolicy="no-referrer"
-        />
+    <MessageAvatar className={cn("self-center", props.className ?? "size-5 min-w-5")}>
+      {image ? (
+        <img src={image} alt={props.name} className="size-full object-cover" />
       ) : (
         <span aria-label={props.name} className="text-xs">
           {props.name.slice(0, 1).toUpperCase()}

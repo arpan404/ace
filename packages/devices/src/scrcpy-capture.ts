@@ -91,6 +91,15 @@ export async function scrcpyCapture(options: {
   const scid = () =>
     createHash("sha256").update(runtime.id()).digest().readUInt32BE(0) & 0x7fffffff;
 
+  /** Why there is no control link: a restart in progress, or a capture that has ended. */
+  const unavailable = () =>
+    stopped
+      ? new DeviceError(
+          "command_failed",
+          "The Android screen stream ended",
+          "Start the device view again.",
+        )
+      : new DeviceError("busy", "Android control is reconnecting", "Retry the action.");
   const fail = (error: unknown) => {
     if (stopped) return;
     options.failure(error);
@@ -98,8 +107,7 @@ export async function scrcpyCapture(options: {
   };
   const send = (message: ControlMessage, current = link) => {
     const control = current?.connection.control;
-    if (!control || control.destroyed)
-      throw new DeviceError("busy", "Android control is reconnecting", "Retry the action.");
+    if (!control || control.destroyed) throw unavailable();
     if (control.writableLength > controlBacklog)
       throw new DeviceError("busy", "Android input backlog exceeded limit", "Retry the action.");
     control.write(encodeControl(message));
@@ -348,8 +356,7 @@ export async function scrcpyCapture(options: {
     },
     async input(input: DeviceInput, guard: () => void) {
       const current = link;
-      if (!current || stopped)
-        throw new DeviceError("busy", "Android control is reconnecting", "Retry the action.");
+      if (!current || stopped) throw unavailable();
       const video = current.units.size;
       if (!video.width || !video.height)
         throw new DeviceError("busy", "The Android screen has not started yet", "Retry shortly.");
@@ -369,15 +376,13 @@ export async function scrcpyCapture(options: {
     clipboard: {
       async read(guard) {
         const current = link;
-        if (!current || stopped)
-          throw new DeviceError("busy", "Android control is reconnecting", "Retry the action.");
+        if (!current || stopped) throw unavailable();
         guard();
         return current.clipboard.read();
       },
       async write(text, guard) {
         const current = link;
-        if (!current || stopped)
-          throw new DeviceError("busy", "Android control is reconnecting", "Retry the action.");
+        if (!current || stopped) throw unavailable();
         guard();
         await current.clipboard.write(text, false);
       },

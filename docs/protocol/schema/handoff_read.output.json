@@ -51,6 +51,25 @@
       "minimum": 0,
       "type": "integer"
     },
+    "omitted": {
+      "items": {
+        "additionalProperties": {},
+        "properties": {
+          "dropped": {
+            "type": "string"
+          },
+          "itemId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "itemId",
+          "dropped"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
     "threadId": {
       "type": "string"
     }

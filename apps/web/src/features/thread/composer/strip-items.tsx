@@ -6,6 +6,7 @@ import {
   CaretUpIcon,
   CheckCircleIcon,
   CircleIcon,
+  HourglassMediumIcon,
   ListChecksIcon,
   PaperPlaneTiltIcon,
   ShieldWarningIcon,
@@ -94,19 +95,25 @@ function Indicator(props: { kind: StripKind; counts: StripCounts; onPick(kind: S
                 `${counts.running} running`,
                 `Show ${plural(counts.running, "background command")} still running`,
               ]
-            : props.kind === "queue"
+            : props.kind === "waiting"
               ? [
-                  <Icon key="i" size={12} icon={TrayIcon} />,
-                  `${counts.queued} queued`,
-                  `Show ${plural(counts.queued, "queued message")}`,
+                  <Icon key="i" size={12} icon={HourglassMediumIcon} />,
+                  "Waiting",
+                  "Show what the agent is waiting for",
                 ]
-              : props.kind === "goal"
-                ? [<Icon key="i" size={12} icon={TargetIcon} />, "Goal", "Show goal"]
-                : [
-                    <Icon key="i" size={12} icon={ListChecksIcon} />,
-                    counts.plan ? `${counts.plan.done}/${counts.plan.total}` : "Tasks",
-                    counts.plan ? `Show tasks, ${planCount(counts.plan)} done` : "Show tasks",
-                  ];
+              : props.kind === "queue"
+                ? [
+                    <Icon key="i" size={12} icon={TrayIcon} />,
+                    `${counts.queued} queued`,
+                    `Show ${plural(counts.queued, "queued message")}`,
+                  ]
+                : props.kind === "goal"
+                  ? [<Icon key="i" size={12} icon={TargetIcon} />, "Goal", "Show goal"]
+                  : [
+                      <Icon key="i" size={12} icon={ListChecksIcon} />,
+                      counts.plan ? `${counts.plan.done}/${counts.plan.total}` : "Tasks",
+                      counts.plan ? `Show tasks, ${planCount(counts.plan)} done` : "Show tasks",
+                    ];
   return (
     <button
       type="button"

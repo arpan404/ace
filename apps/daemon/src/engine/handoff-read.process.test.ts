@@ -75,8 +75,9 @@ test("a fork pages its cutoff history and reads full text after portable deliver
   expect(
     await call("handoff_read", { sourceThreadId: source, before: page.itemsBefore }),
   ).toMatchObject({ structuredContent: { threadId: source } });
+  // A thread the handoff does not cite is refused with a reason the agent can act on.
   expect(await call("handoff_read", { sourceThreadId: ThreadId.parse("unrelated") })).toMatchObject(
-    { isError: true },
+    { isError: true, content: [{ text: expect.stringContaining('"code":"handoff_unavailable"') }] },
   );
 
   const latest = h.store.readItemPage(source, h.store.headSeq() + 1, 1).items[0];

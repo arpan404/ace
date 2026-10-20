@@ -1,5 +1,6 @@
 import { PublicToolError } from "@ace/mcp-server";
-import { logError, logFields } from "@ace/diagnostics";
+import { logError } from "@ace/diagnostics";
+import { logToolFailure } from "../tool-failure-log.ts";
 import { ItemId, type McpAttribution } from "@ace/protocol";
 import { AgentControlError } from "../agent-control/failure.ts";
 import type { ServiceContext } from "./types.ts";
@@ -16,24 +17,24 @@ export async function agentControlCall<T>(
     return await execute();
   } catch (error) {
     if (signal.aborted) throw error;
-    const failure = new PublicToolError(
+    const code =
       error instanceof AgentControlError || error instanceof PublicToolError
         ? error.code
-        : "execution_failed",
+        : "execution_failed";
+    const errorId = logToolFailure(context.log, context.id, {
+      tool: operation,
+      caller,
+      error,
+      code,
+    });
+    const failure = new PublicToolError(
+      code,
       error instanceof PublicToolError ? error.permission : undefined,
       undefined,
       undefined,
       error instanceof AgentControlError ? error.publicDetail : undefined,
-    );
-    context.log.log(
-      "error",
-      "Agent control tool failed",
-      logFields([
-        ["threadId", caller.threadId],
-        ["operation", operation],
-        ["code", failure.code],
-        ["error", logError(error)],
-      ]),
+      undefined,
+      errorId,
     );
     // Reporting cannot replace the original failure, including during shutdown.
     try {
@@ -53,7 +54,12 @@ export async function agentControlCall<T>(
               title: failure.message,
               // One short reason: what the agent was told it can retry with, else the hint.
               text: failure.detail ?? failure.hint,
-              raw: [{ type: "ace.agent_control.failed", data: { operation } }],
+              raw: [
+                {
+                  type: "ace.agent_control.failed",
+                  data: { operation, ...(errorId ? { errorId } : {}) },
+                },
+              ],
             },
           },
         ],

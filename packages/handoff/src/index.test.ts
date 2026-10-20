@@ -206,3 +206,43 @@ test("a provider resuming its own session is told only what happened while it wa
   expect(text).toContain("Your own history already holds everything before that.");
   expect(text).not.toContain("worked on before you");
 });
+
+test("a provider's background notice is handed off as ace's input, not the person's words", () => {
+  const notice = '<shell id="sh_1" state="completed" command="bun test">output</shell>';
+  const result = selectHandoff(
+    {
+      threadId,
+      throughSeq: 10,
+      totalItems: 2,
+      items: [
+        message("ask", "user", "Deploy the site"),
+        message("notice", "user", notice, {
+          synthetic: true,
+          origin: { kind: "background_completion" },
+        }),
+      ],
+    },
+    4096,
+  );
+  expect(ids(result)).toEqual(["ask", "notice"]);
+  expect(result.excerpts[0]?.text).toBe("user: Deploy the site");
+  expect(result.excerpts[1]?.text).toBe(`ace input (background_completion): ${notice}`);
+});
+
+test("queued and steered words still read as the person's", () => {
+  const result = selectHandoff(
+    {
+      threadId,
+      throughSeq: 11,
+      totalItems: 2,
+      items: [
+        message("queued", "user", "Also fix lint", { origin: { kind: "queue" } }),
+        message("steered", "user", "Keep going", { origin: { kind: "steer" } }),
+      ],
+    },
+    4096,
+  );
+  expect(ids(result)).toEqual(["queued", "steered"]);
+  expect(result.excerpts[0]?.text).toBe("user: Also fix lint");
+  expect(result.excerpts[1]?.text).toBe("user: Keep going");
+});

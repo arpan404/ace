@@ -4,11 +4,13 @@ import { useRef, useState, type ReactNode, type Ref } from "react";
 import { cn } from "@/lib/cn.ts";
 import { ActivityRipple, type ShownActivity } from "./activity-overlay.tsx";
 import { screenFraction } from "./agent-activity.ts";
+import { bodyTurn, deviceButtons } from "./device-buttons.ts";
 import { deviceKind } from "./device-catalog.ts";
 import { bareGeometry, DeviceFrame } from "./device-frame.tsx";
 import { defaultScreens, frameGeometry, framePoints, type Size } from "./device-frame-geometry.ts";
 import { DeviceScreen, type ShownScreen } from "./device-screen.tsx";
 import type { DeviceSession } from "./device-session.ts";
+import type { HardwarePress } from "./hardware-buttons.tsx";
 import { useElementSize } from "./use-element-size.ts";
 
 /** Room for the device when the page can't measure the stage (tests, a hidden panel). */
@@ -47,7 +49,9 @@ function BoundsOutline(props: { bounds: Bounds; screen: Size }) {
 
 /**
  * The stage: the live screen inside a frame drawn for its kind of device (or the screen alone),
- * centred and scaled to fit with its aspect kept, on a calm surface. Over it: the agent's taps,
+ * centred and scaled to fit with its aspect kept, on a calm surface. The frame's hardware
+ * buttons sit where the device has them, turned with it, and press through `press`. Over it:
+ * the agent's taps,
  * the hovered element's bounds, the control rail on the right, and at the bottom the keyboard
  * field and the agent's caption. A device that isn't streaming shows its frame dimmed and `idle`
  * (what to do next) over it.
@@ -62,6 +66,8 @@ export function DeviceStage({
   live: boolean;
   interactive: boolean;
   bare: boolean;
+  /** Pressing the frame's hardware buttons. */
+  press: HardwarePress;
   onInput(input: DeviceInput): void | Promise<void>;
   onFrame(shown: ShownScreen): void;
   activity: ShownActivity | undefined;
@@ -76,8 +82,13 @@ export function DeviceStage({
   const room = useRef<HTMLDivElement>(null);
   const measured = useElementSize(room);
   const [screen, setScreen] = useState<Size>(defaultScreens[kind]);
+  const [pictureTurn, setPictureTurn] = useState(0);
   const fit = measured.width > 0 && measured.height > 0 ? measured : fallbackRoom;
   const geometry = props.bare ? bareGeometry : frameGeometry(kind, row.name, screen);
+  const turn = bodyTurn(row.platform, screen, pictureTurn);
+  const hardware = props.bare
+    ? undefined
+    : { buttons: deviceButtons(kind, row.name, turn), turn, press: props.press };
   return (
     <div
       ref={ref}
@@ -89,6 +100,7 @@ export function DeviceStage({
           geometry={geometry}
           screen={screen}
           room={fit}
+          hardware={hardware}
           className={cn(
             "transition-opacity duration-(--motion-slow)",
             !props.live && !row.running && "opacity-40",
@@ -109,6 +121,7 @@ export function DeviceStage({
               onInput={props.onInput}
               onFrame={(header) => {
                 props.onFrame(header);
+                setPictureTurn(header.rotation);
                 const next = framePoints(header);
                 setScreen((before) =>
                   before.width === next.width && before.height === next.height ? before : next,

@@ -19,6 +19,41 @@ import UIKit
         #expect(!model.threadHasBrowser)
     }
 
+    @Test func aBrowserOpenedDuringAnUnchangedWorkingTurnIsFoundByFollowingIt() async throws {
+        let (model, session) = try await connected()
+        let epoch = try #require(model.thread?.epoch)
+        model.receive(try frame([working(epoch), ["type": "browser.available", "threadId": "thread", "epoch": epoch, "live": false]]))
+        var waits: [Duration] = []
+        // The agent opens its browser after the second probe; the state stays Working throughout.
+        await model.followBrowser { delay in
+            waits.append(delay)
+            if self.probes(session) == 2 {
+                model.receive(try self.frame([["type": "browser.available", "threadId": "thread", "epoch": epoch, "live": true]]))
+            }
+        }
+        #expect(model.threadHasBrowser)
+        #expect(probes(session) == 2)
+        #expect(waits == Array(ClientModel.browserFollowDelays.prefix(3)))
+    }
+    @Test func followingABrowserIsBoundedAndEndsOnLeavingTheThread() async throws {
+        let (model, session) = try await connected()
+        model.receive(try frame([working(try #require(model.thread?.epoch))]))
+        await model.followBrowser { _ in }
+        #expect(probes(session) == ClientModel.browserFollowDelays.count)
+        model.open("thread")
+        model.receive(try frame([working(try #require(model.thread?.epoch))]))
+        let before = probes(session)
+        await model.followBrowser { _ in if self.probes(session) == before + 1 { model.back() } }
+        #expect(probes(session) == before + 1)
+        // The view's task is cancelled when the thread leaves the screen or the app goes inactive.
+        model.open("thread")
+        model.receive(try frame([working(try #require(model.thread?.epoch))]))
+        let follow = Task { await model.followBrowser { try await Task.sleep(for: $0) } }
+        follow.cancel()
+        await follow.value
+        #expect(probes(session) == before + 1)
+    }
+
     @Test func openingSubscribesAtTheViewsSizeAndClosingReleasesIt() async throws {
         let (model, session) = try await connected()
         model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
@@ -210,6 +245,11 @@ import UIKit
         return try #require(image.jpegData(compressionQuality: 0.8))
     }
     private func frame(_ values: [[String: Any]]) throws -> Data { try JSONSerialization.data(withJSONObject: values) }
+    private func working(_ epoch: Int) -> [String: Any] {
+        ["type": "thread.controls", "threadId": "thread", "epoch": epoch,
+         "row": ["busy": true, "delivery": "queue", "alternate": NSNull(), "canStop": true, "provider": "codex", "model": "", "switching": ""]]
+    }
+    private func probes(_ session: BrowserRecorder) -> Int { session.browserActions.filter { $0["kind"] as? String == "probe" }.count }
     private func until(_ condition: () -> Bool) async throws {
         for _ in 0..<400 {
             if condition() { return }

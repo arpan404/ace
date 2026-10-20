@@ -33,7 +33,10 @@ const home = () => {
   return path;
 };
 
-function service(answers: { site?: Buffer | null | undefined; app?: Buffer | null }, limit = 8) {
+function service(
+  answers: { site?: Buffer | null | undefined; app?: Buffer | null; avatar?: Buffer | null },
+  limit = 8,
+) {
   const root = home();
   let now = 1_000;
   const asked: string[] = [];
@@ -54,6 +57,10 @@ function service(answers: { site?: Buffer | null | undefined; app?: Buffer | nul
     app: async (icon) => {
       asked.push(icon.kind === "app" ? icon.identity : "");
       return answers.app ?? null;
+    },
+    avatar: async (icon) => {
+      asked.push(icon.url);
+      return answers.avatar ?? null;
     },
     // Normalising is the decoder's concern; here bytes pass through.
     normalize: async (bytes) => bytes,
@@ -200,6 +207,7 @@ test("a favicon the decoder refuses is remembered as no icon", async () => {
       return corrupt;
     },
     app: async () => null,
+    avatar: async () => null,
     normalize: (bytes) => faviconPng(bytes),
     now: () => 1_000,
   });
@@ -215,4 +223,20 @@ test("temporary files a crash left are cleared when the cache opens", async () =
   const cache = tracked(new IconCache(root));
   expect(readdirSync(root).filter((name) => name.endsWith(".tmp"))).toEqual([]);
   expect(cache.size).toEqual({ icons: 0, bytes: 0 });
+});
+
+// Mutation: keying avatars like sites, or fetching an avatar on every row that shows it.
+test("a person's avatar is fetched once, kept apart from site icons, and read back by its hash", async () => {
+  const png = Buffer.from("avatar-png");
+  const { icons, asked } = service({ avatar: png, site: Buffer.from("site-png") });
+  const url = "https://avatars.githubusercontent.com/u/1?v=4&s=64";
+  const [first, second] = await Promise.all([
+    icons.resolve({ kind: "avatar", url }),
+    icons.resolve({ kind: "avatar", url }),
+  ]);
+  expect(first).toBe(second);
+  expect(await icons.resolve({ kind: "avatar", url })).toBe(first);
+  expect(asked).toEqual([url]);
+  expect(await icons.read(first ?? "")).toEqual(png);
+  expect(await icons.resolve(github)).not.toBe(first);
 });

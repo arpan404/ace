@@ -257,7 +257,8 @@ export class BrowserService {
       const native = this.embedded;
       const recover = async () => {
         // Every tab comes back with its id and address, not just the one that was shown.
-        const restoreTabs = owned.tabRecords().map(({ tabId, url }) => ({ tabId, url }));
+        // Tabs discarded while idle stay discarded where the backend can list them so.
+        const restoreTabs = owned.restoreEntries();
         const recoveryRequest: BackendOpen = restoreTabs.length
           ? { ...opened, restoreTabs }
           : opened;
@@ -474,7 +475,7 @@ export class BrowserService {
               },
             }
           : {}),
-        ...(backend.kind === "headless" ? this.lifecycle() : {}),
+        ...this.lifecycle(),
       });
       await session.live.start();
       this.sessions.set(options.threadId, session);
@@ -520,7 +521,7 @@ export class BrowserService {
       live && !live.state.closed ? live.tabRecords() : (this.options.tabStore?.load(parent) ?? []);
     return forkTabRecords(source, () => `tab-${this.id()}`, this.now());
   }
-  /** Idle tabs in ace's Chrome freeze; the desktop's views manage themselves. */
+  /** Idle tabs freeze and are later discarded, in ace's Chrome and in the desktop's views. */
   private lifecycle(): { lifecycle?: LifecycleSchedule } {
     const configured = this.options.tabLifecycle;
     if (configured === false) return {};

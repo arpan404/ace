@@ -161,7 +161,8 @@ import CryptoKit
                     if ok { approvalSubmissions[interactionId]?.phase = .waiting }
                     else { approvalSubmissions[interactionId] = nil; approvalRequests[id] = nil }
                 }
-                if !ok { error = message }
+                // A refused Stop leaves the tree working: offer Stop again.
+                if !ok { error = message; thread?.screen.stopFailed(id) }
             case .admission(let id, let ok, let message):
                 admissions.resolve(id, persisted: ok)
                 if let interactionId = approvalRequests[id], approvalSubmissions[interactionId]?.requestId == id {

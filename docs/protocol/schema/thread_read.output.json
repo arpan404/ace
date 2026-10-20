@@ -41,6 +41,7 @@
           "type": "array"
         },
         "itemsBefore": {
+          "description": "Pass as before for the previous page; null when nothing is earlier.",
           "type": [
             "number",
             "null"
@@ -52,6 +53,26 @@
         },
         "nextOffset": {
           "type": "number"
+        },
+        "omitted": {
+          "description": "Items too large for a page: shown without raw payloads (dropped raw) or only summarized (dropped item).",
+          "items": {
+            "additionalProperties": {},
+            "properties": {
+              "dropped": {
+                "type": "string"
+              },
+              "itemId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "itemId",
+              "dropped"
+            ],
+            "type": "object"
+          },
+          "type": "array"
         },
         "previews": {
           "items": {},

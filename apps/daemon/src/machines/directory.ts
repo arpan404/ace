@@ -139,7 +139,9 @@ export class MachineDirectory {
     const problem = this.problem(machine, error);
     return new AgentControlError(problem.code, problem.detail, error, problem.detail);
   }
-  toolError(machine: string, error: unknown): PublicToolError {
+  /** An unexpected error stays itself, so the registry logs its cause under an errorId. */
+  toolError(machine: string, error: unknown): unknown {
+    if (!(error instanceof MachineFailure)) return error;
     const problem = this.problem(machine, error);
     return new PublicToolError(problem.code, undefined, undefined, undefined, problem.detail);
   }

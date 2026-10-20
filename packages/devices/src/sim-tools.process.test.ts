@@ -253,3 +253,26 @@ it("recents reaches an Android emulator and is refused on iOS with a way forward
   });
   expect(h.platform.effects).toEqual([`${android} input {"kind":"key","key":"recents"}`]);
 });
+
+it("volume reaches both platforms, while the Action button and the watch side key are refused where the hardware has none", async () => {
+  const h = await setup();
+  await h.call("sim_start", { simId: android });
+  await h.call("sim_act", { simId: android, action: "key", key: "volumeUp" });
+  const action = await h.call("sim_act", { simId: android, action: "key", key: "action" });
+  await h.call("sim_start", { simId: ios });
+  await h.call("sim_act", { simId: ios, action: "key", key: "volumeDown" });
+  const side = await h.call("sim_act", { simId: ios, action: "key", key: "side" });
+
+  expect(action.json).toMatchObject({
+    code: "not_supported",
+    detail: "Android has no Action button",
+  });
+  expect(side.json).toMatchObject({
+    code: "not_supported",
+    detail: "Only Apple Watch has a side key",
+  });
+  expect(h.platform.effects).toEqual([
+    `${android} input {"kind":"key","key":"volumeUp"}`,
+    `${ios} input {"kind":"key","key":"volumeDown"}`,
+  ]);
+});
