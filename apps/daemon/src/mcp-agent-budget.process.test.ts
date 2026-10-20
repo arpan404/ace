@@ -127,10 +127,11 @@ it("only the entry points and tools_find load upfront, whatever the client", asy
   // 30 for image_show (#991), projects_find (#994) and thread_fork (#1001), each a capability
   // with no existing tool to fold into. A deferring client pays only for their names, which
   // the per-request budget above counts; a core or static client never lists them upfront.
+  // Raised to 31 for offshift (#899), a durable run record no thread tool can hold.
   const own = full.tools.filter(
     (tool) => !/^(?:browser|screen|sim)_/.test(bareToolName(tool.name)),
   );
-  expect(own.length).toBeLessThanOrEqual(30);
+  expect(own.length).toBeLessThanOrEqual(31);
 });
 
 it("a core-mode session gains a family's tools by reading its guide or using its entry point", async () => {

@@ -240,6 +240,22 @@ test("a Claude-spelled thread_control call reads as the action it took", () => {
   );
 });
 
+test("an offshift call reads as the record it changed", () => {
+  const words = (args: Record<string, unknown>) =>
+    aceStep(mcp("mcp__ace__offshift", args, { server: "claude" }))?.words;
+  expect(words({ action: "advance", runId: "r", phase: "review" })?.past).toBe(
+    "Moved an Offshift run to review",
+  );
+  expect(
+    words({ action: "evidence", evidence: { criterionId: "restore", result: "fail" } }),
+  ).toMatchObject({ past: "Recorded a failing check", target: "restore" });
+  expect(words({ action: "revise", criterion: { id: "restore" } })).toMatchObject({
+    past: "Revised a criterion",
+    target: "restore",
+  });
+  expect(words({ action: "list" })?.past).toBe("Listed Offshift runs");
+});
+
 test("delegating several tasks counts them; one task quotes its words", () => {
   const tasks = [
     { requestId: "a", task: "Write the parser", role: "parser" },
