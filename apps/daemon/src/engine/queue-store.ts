@@ -201,6 +201,18 @@ export class QueueStore {
     );
   }
   snapshot(id: ThreadId): QueueSnapshot {
+    // A thread the engine never queued for (a development thread) has nothing waiting; reading
+    // it must not fail the read it is part of, such as an agent's thread_read.
+    if (!this.sql("SELECT 1 FROM engine_queue WHERE thread_id=?").get(id))
+      return QueueSnapshot.parse({
+        threadId: id,
+        pendingCount: 0,
+        revision: 0,
+        paused: false,
+        reason: null,
+        resumeAt: null,
+        messages: [],
+      });
     const rows = this.sql(
       "SELECT payload,uncertain FROM intents WHERE thread_id=? AND (trigger IS NULL OR trigger != 'subagent_result') AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1)) ORDER BY position,id LIMIT 256",
     ).all(id);
