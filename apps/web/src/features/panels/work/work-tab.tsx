@@ -93,15 +93,13 @@ export default function WorkTab(props: TabViewProps) {
     for (const interaction of facts.interactions)
       if (!requests.has(interaction.agentId)) requests.set(interaction.agentId, interaction);
     const files = new Map(shares.map((share) => [share.agentId, share.files.map((f) => f.path)]));
-    const providers = new Set(facts.agents.map((agent) => agent.native.provider));
     return {
       requests,
       files,
       earlier: layout.runs.earlier,
       prs,
-      mixedProviders: providers.size > 1,
     };
-  }, [facts.interactions, facts.agents, shares, layout.runs, prs]);
+  }, [facts.interactions, shares, layout.runs, prs]);
   const counts = useMemo(() => {
     const states = subagentBranchStates(facts.agents, facts.work);
     const agents = facts.agents.filter(

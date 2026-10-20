@@ -136,9 +136,9 @@ test("a message queued in the composer shows in the Agents tab without extra exp
   await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   await within(panel).findByRole("treeitem", { name: "Main agent: Waiting on subagents" });
-  // Agents that all run on one provider carry no provider mark on every row.
+  // Each agent row carries its provider.
   const audit = within(panel).getByRole("treeitem", { name: "resume-sweep: Working" });
-  expect(within(audit).queryByRole("img", { name: "Claude Code" })).toBeNull();
+  expect(within(audit).getByRole("img", { name: "Claude Code" })).toBeTruthy();
   expect(within(panel).queryByRole("listitem", { name: /queued message/ })).toBeNull();
 
   await userEvent.type(

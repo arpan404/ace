@@ -33,15 +33,14 @@ export const historyKey = (agent: string) => `history:${agent}`;
 
 /**
  * Facts a row reads beyond its agent: the request each agent waits on, the files each changed in
- * the current turn (from the turn index's per-agent digests), each agent's earlier runs, the
- * thread's pull requests and whether its agents run on more than one provider.
+ * the current turn (from the turn index's per-agent digests), each agent's earlier runs, and the
+ * thread's pull requests.
  */
 export interface AgentRowFacts {
   requests: ReadonlyMap<string, Interaction>;
   files: ReadonlyMap<string, readonly string[]>;
   earlier: ReadonlyMap<string, readonly RunAgent[]>;
   prs: readonly LinkedPullRequest[];
-  mixedProviders: boolean;
 }
 
 export const noRowFacts: AgentRowFacts = {
@@ -49,7 +48,6 @@ export const noRowFacts: AgentRowFacts = {
   files: new Map(),
   earlier: new Map(),
   prs: [],
-  mixedProviders: false,
 };
 
 export const RowFacts = createContext<AgentRowFacts>(noRowFacts);

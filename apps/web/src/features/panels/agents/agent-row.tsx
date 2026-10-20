@@ -12,13 +12,14 @@ import { useAgent, useItem, useThreadMeta } from "@ace/client-react";
 import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { use } from "react";
 import { Button } from "@/components/ui/button.tsx";
-import { ProviderIconTip } from "@/components/ui/provider-icons.tsx";
+import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { useOpenSubagent } from "@/lib/subagent-link.tsx";
 import { useNow } from "@/lib/time.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { agentMark } from "./agent-status.tsx";
+import { useAgentDetails } from "./agent-details.ts";
 import { useAgentIdentity } from "./agent-identity.ts";
 import { PrChip } from "./pr-chip.tsx";
 import { StopAgent } from "./stop-agent.tsx";
@@ -59,6 +60,7 @@ export function AgentRow(props: {
   const work = use(TreeWorkContext);
   const live = useLiveConnection();
   const identity = useAgentIdentity(props.threadId, agent);
+  const details = useAgentDetails(thread, agent);
   const earlier = facts.earlier.get(props.agentId) ?? [];
   // A resumed agent's first run was started by the call that reports back on it.
   const firstSpawn = useItem(props.threadId, earlier[0]?.spawnedBy ?? "");
@@ -119,6 +121,7 @@ export function AgentRow(props: {
     ? undefined
     : agentPullRequest([identity.spawn, firstSpawn], facts.prs);
   const showTask = !root && task !== undefined && task !== name;
+  const settled = !running && !needsYou;
   const open = () => {
     if (!root)
       openSubagent({
@@ -140,6 +143,7 @@ export function AgentRow(props: {
         aria-owns={props.owns}
         aria-label={`${root ? "Main agent" : name}: ${label}`}
         aria-description={root ? undefined : `Opens ${name}`}
+        title={[showTask ? `${name}\n${task}` : name, ...details.lines].join("\n")}
         tabIndex={tree.active === agent.id ? 0 : -1}
         onFocus={() => tree.setActive(agent.id)}
         onClick={(event) => {
@@ -155,12 +159,19 @@ export function AgentRow(props: {
         )}
       >
         <CapsuleGlyph state={state} count={running ? props.subagents : undefined} />
+        <ProviderAccountIcon
+          provider={agent.native.provider}
+          acpAgentId={agent.native.acpAgentId}
+          instance={details.instance}
+          size={14}
+          tooltip={false}
+          className={cn(settled && "opacity-70")}
+        />
         <span
           className={cn(
-            "max-w-[65%] min-w-0 shrink-0 truncate font-medium",
+            "max-w-[60%] min-w-0 shrink-0 truncate font-medium",
             props.earlierRun && "font-normal text-muted-foreground",
           )}
-          title={showTask ? `${name}\n${task}` : name}
         >
           {props.earlierRun ? note : name}
         </span>
@@ -185,14 +196,12 @@ export function AgentRow(props: {
             {note}
           </span>
         )}
-        {pr && <PrChip pr={pr} />}
-        {facts.mixedProviders && (
-          <ProviderIconTip
-            provider={agent.native.provider}
-            acpAgentId={agent.native.acpAgentId}
-            className="shrink-0"
-          />
+        {details.model && !props.earlierRun && (
+          <span className="hidden shrink-0 text-xs text-subtle-foreground @[26rem]/summary:inline">
+            {details.model}
+          </span>
         )}
+        {pr && <PrChip pr={pr} />}
         <CapsuleChevron expanded={props.expanded} opens={!root} />
       </div>
       {finished && !root && !props.earlierRun && (

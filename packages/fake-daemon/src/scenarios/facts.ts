@@ -17,7 +17,7 @@ export function subagent(
   agent: Key,
   name: string,
   spawnedBy: Key,
-  options: { parent?: Key; background?: boolean; nativeId?: string } = {},
+  options: { parent?: Key; background?: boolean; nativeId?: string; model?: string } = {},
 ): Fact {
   return {
     type: "agent.seen",
@@ -31,6 +31,7 @@ export function subagent(
     cwd: "/Users/dev/acme",
     name,
     background: options.background ?? false,
+    ...(options.model ? { model: options.model } : {}),
   };
 }
 export function turn(agent: Key, trigger: RunTrigger = "user"): Fact {

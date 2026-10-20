@@ -48,8 +48,9 @@ test("an idle thread shows its outcome, not the person's message, and no empty s
   expect(within(work).queryByRole("region", { name: "Needs you" })).toBeNull();
   expect(within(work).queryByRole("region", { name: "Automations" })).toBeNull();
   expect(within(work).queryByText("No scheduled tasks")).toBeNull();
-  // The thread already shows how long it worked and on which model.
-  expect(work.textContent).not.toMatch(/Working for|Nothing running|Codex · /);
+  // No narrating lines; the status line names what the thread runs on.
+  expect(work.textContent).not.toMatch(/Working for|Nothing running/);
+  expect(within(work).getByTitle(/^Codex/)).toBeTruthy();
 });
 
 test("a working tree says each agent's status once and folds the completed ones into N done", async () => {

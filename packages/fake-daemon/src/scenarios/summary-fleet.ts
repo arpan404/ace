@@ -13,14 +13,28 @@ const restartMessage = "Daemon restarted; previous provider work stopped";
 const repo = { forge: "github", host: "github.com", owner: "acme", name: "relay" } as const;
 const prUrl = (number: number) => `https://github.com/acme/relay/pull/${number}`;
 
-function spawn(agent: Key, name: string, background = true): Fact[] {
+/** What a subagent runs on, as its provider records it. */
+interface RunsOn {
+  provider: "claude" | "codex";
+  model: string;
+}
+const opus: RunsOn = { provider: "claude", model: "claude-opus-5-5" };
+const codex: RunsOn = { provider: "codex", model: "gpt-5.5" };
+/** The thread's own selection: the main agent runs on it. */
+const execution = {
+  provider: "claude" as const,
+  model: "claude-opus-5-5",
+  options: { effort: "high" },
+};
+
+function spawn(agent: Key, name: string, on: RunsOn = opus): Fact[] {
   return [
     tool("root", `spawn-${agent}`, {
       kind: "agent.spawn",
       title: name,
       detail: { kind: "agent.spawn", description: name, childAgent: agent },
     }),
-    subagent("claude", agent, name, `spawn-${agent}`, { background }),
+    subagent(on.provider, agent, name, `spawn-${agent}`, { background: true, model: on.model }),
     turn(agent, "spawn"),
   ];
 }
@@ -34,7 +48,11 @@ function resume(agent: Key, name: string): Fact[] {
       title: `Continue ${name}`,
       detail: { kind: "agent.message", message: "Continue where you stopped." },
     }),
-    subagent("claude", run, name, `message-${agent}`, { background: true, nativeId: agent }),
+    subagent("claude", run, name, `message-${agent}`, {
+      background: true,
+      nativeId: agent,
+      model: opus.model,
+    }),
     turn(run, "parent_agent"),
   ];
 }
@@ -79,6 +97,7 @@ export function restartedSubagents(id = "thread-restarted"): Scenario {
       workspaceId: "relay",
       title: "Land the relay fixes",
       provider: "claude",
+      execution,
       details: {
         repository: repo,
         linkedPrs: [
@@ -226,6 +245,7 @@ export function summaryFleet(id = "thread-fleet"): Scenario {
       workspaceId: "relay",
       title: "Ship the device and browser work",
       provider: "claude",
+      execution,
       details: {
         workspace: { id: "relay", name: "relay", path: "/Users/dev/relay" },
         worktree: "/Users/dev/relay",
@@ -254,10 +274,13 @@ export function summaryFleet(id = "thread-fleet"): Scenario {
         facts: [
           rootResumed,
           ...resumed.flatMap((name, index) => resume(`resumed-${index}`, name)),
-          ...finished.flatMap((name, index) => spawn(`done-${index}`, name)),
+          // A mixed fleet: a few of them run on Codex.
+          ...finished.flatMap((name, index) =>
+            spawn(`done-${index}`, name, index % 6 === 4 ? codex : opus),
+          ),
           ...cancelled.flatMap((name, index) => spawn(`cancelled-${index}`, name)),
           ...spawn("devices", "Devices panel redesign"),
-          ...spawn("media", "Devices shared media"),
+          ...spawn("media", "Devices shared media", codex),
         ],
       },
       {

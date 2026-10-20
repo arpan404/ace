@@ -133,3 +133,22 @@ test("a fleet with resumed agents counts each agent once and asks only for the r
   expect(figures.textContent).toContain("Agents332 live");
   expect(within(work).getByRole("button", { name: "31 done" })).toBeTruthy();
 });
+
+test("each agent row names its provider and model, and the status line what the thread runs on", async () => {
+  const app = harness();
+  app.play(summaryFleet()).runUntilBlocked();
+  await app.open("/t/thread-fleet");
+  const work = await openWorkPanel();
+  expect(within(work).getByTitle("Claude Code · Opus 5.5 · High")).toBeTruthy();
+  const working = await within(work).findByRole("region", { name: "Working" });
+  const main = within(working).getByRole("treeitem", { name: /^Main agent: / });
+  expect(main.textContent).toContain("Opus 5.5 · High");
+  const devices = within(working).getByRole("treeitem", { name: /^Devices panel redesign: / });
+  expect(within(devices).getByRole("img", { name: "Claude Code" })).toBeTruthy();
+  expect(devices.textContent).toContain("Opus 5.5");
+  // A subagent's effort isn't recorded, so none is shown.
+  expect(devices.textContent).not.toContain("High");
+  expect(devices.getAttribute("title")).toMatch(/Claude Code · Opus 5\.5\nStarted /);
+  const media = within(working).getByRole("treeitem", { name: /^Devices shared media: / });
+  expect(within(media).getByRole("img", { name: "Codex" })).toBeTruthy();
+});
