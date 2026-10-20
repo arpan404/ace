@@ -51,6 +51,7 @@
     "@ace/mcp-server": "workspace:*",
     "@ace/models": "workspace:*",
     "@ace/notify": "workspace:*",
+    "@ace/offshift": "workspace:*",
     "@ace/orchestrator": "workspace:*",
     "@ace/plugins": "workspace:*",
     "@ace/preview": "workspace:*",

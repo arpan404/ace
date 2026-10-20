@@ -1,5 +1,6 @@
 import type { Fact, Key } from "@ace/core";
 import type { EventPayload, GitStatusFile, InteractionResolution } from "@ace/protocol";
+import type { OffshiftRunCard } from "@ace/protocol/offshift";
 import type { FakeDaemon, ThreadInit } from "./daemon.ts";
 import { withCardDetails } from "./scenarios/card-details.ts";
 
@@ -16,6 +17,12 @@ export type Step =
       label?: string;
       /** How long before the daemon's now these facts happened, so seeded threads look lived in. */
       agoMs?: number;
+    }
+  | {
+      /** An Offshift run of the thread changed, as the daemon publishes after a run write. */
+      kind: "offshift";
+      card: OffshiftRunCard;
+      label?: string;
     }
   | {
       kind: "await";
@@ -76,6 +83,8 @@ export class ScenarioPlayer {
       this.daemon.apply(this.threadId, step.facts, this.agoMs + (step.agoMs ?? 0));
     else if (step.kind === "update")
       this.daemon.updateThread(this.threadId, step.changes, this.agoMs);
+    else if (step.kind === "offshift")
+      this.daemon.updateOffshift(this.threadId, step.card, this.agoMs);
     else if (step.next)
       this.steps.splice(
         this.index,

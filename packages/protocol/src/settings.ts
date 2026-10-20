@@ -29,18 +29,28 @@ export const SettingsValues = z.object({
   "threads.forkOnSwitch": z.boolean(),
   "threads.limitPolicy": z.enum(["manual", "resume_at_reset", "snooze_until_reset", "migrate_now"]),
   "providers.default": ProviderKind,
-  "providers.coder.provider": ProviderKind,
+  /**
+   * Roles: who `delegate` tasks with `runRole` run as. build is `coder`, judgment `planner`,
+   * review `reviewer`, verify `verifier`. A role is set only when its provider is not null;
+   * `default` model, tier or effort leaves that field to the provider. Global only: sessions
+   * read them once when they start, into their instructions.
+   */
+  "providers.coder.provider": ProviderKind.nullable(),
   "providers.coder.model": name,
   "providers.coder.tier": tier,
   "providers.coder.reasoningEffort": effort,
-  "providers.reviewer.provider": ProviderKind,
+  "providers.reviewer.provider": ProviderKind.nullable(),
   "providers.reviewer.model": name,
   "providers.reviewer.tier": tier,
   "providers.reviewer.reasoningEffort": effort,
-  "providers.planner.provider": ProviderKind,
+  "providers.planner.provider": ProviderKind.nullable(),
   "providers.planner.model": name,
   "providers.planner.tier": tier,
   "providers.planner.reasoningEffort": effort,
+  "providers.verifier.provider": ProviderKind.nullable(),
+  "providers.verifier.model": name,
+  "providers.verifier.tier": tier,
+  "providers.verifier.reasoningEffort": effort,
   "browser.backend": z.enum(["auto", "embedded", "headless"]),
   "browser.backendLoss": z.enum(["pause", "headless"]),
   /** A thread's browser keeps its own cookies and storage, or opens privately in memory. */

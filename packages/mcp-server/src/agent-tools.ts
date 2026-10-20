@@ -8,6 +8,7 @@ import {
   MessageText,
   MonitorSnapshot,
   ProviderKind,
+  RunRole,
   ThreadId,
   WaitMode,
   WaitResult,
@@ -38,6 +39,7 @@ const DelegateTask = z.strictObject({
     "The whole assignment: goal, files, constraints, project notes that apply, and how to verify. The child sees none of your conversation.",
   ),
   role: DelegationRole,
+  runRole: RunRole.optional().describe("Run as a role from your Roles line."),
   provider: ProviderKind.optional().describe(
     "Provider that runs the child. Default: yours, or the one whose catalog has `model`.",
   ),

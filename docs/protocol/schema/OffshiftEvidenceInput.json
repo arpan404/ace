@@ -1,0 +1,67 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftEvidenceInput.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "description": "The command or interaction actually performed.",
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "artifact": {
+      "description": "Where the full output is kept: a path, URL or report reference.",
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "criterionId": {
+      "description": "The criterion this observation checks.",
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "kind": {
+      "description": "Which required kind this observation satisfies.",
+      "enum": [
+        "automated",
+        "source",
+        "ui",
+        "human",
+        "manual"
+      ],
+      "type": "string"
+    },
+    "note": {
+      "description": "The observed result and environment, in a sentence or two.",
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "result": {
+      "description": "What the check observed.",
+      "enum": [
+        "pass",
+        "fail"
+      ],
+      "type": "string"
+    },
+    "revision": {
+      "description": "The revision from get, read before the check ran.",
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "criterionId",
+    "kind",
+    "result",
+    "revision",
+    "action",
+    "artifact",
+    "note"
+  ],
+  "type": "object"
+}

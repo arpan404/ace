@@ -1,0 +1,28 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftPlaybook.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftPlaybookId.json"
+    },
+    "purpose": {
+      "maxLength": 160,
+      "minLength": 1,
+      "type": "string"
+    },
+    "steps": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/OffshiftPlaybookStep.json"
+      },
+      "maxItems": 8,
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "purpose",
+    "steps"
+  ],
+  "type": "object"
+}

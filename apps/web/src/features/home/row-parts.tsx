@@ -209,6 +209,7 @@ export function RowContext(props: { card: ThreadCard }) {
   const devices = use(ManyDevices);
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-meta leading-4 text-subtle-foreground">
+      {card.run && <RunMark run={card.run} />}
       {card.branch && (
         <span className="min-w-0 flex-1 truncate font-mono" title={card.branch.name}>
           {card.branch.name}
@@ -242,6 +243,27 @@ export function RowContext(props: { card: ThreadCard }) {
         </span>
       </span>
     </div>
+  );
+}
+
+/**
+ * Where a settled thread's Offshift run stopped: its phase word, after a paused ring in the
+ * waiting colour when a blocker holds it. Only a settled tree has one (`ThreadCard.run`).
+ */
+function RunMark(props: { run: NonNullable<ThreadCard["run"]> }) {
+  const { run } = props;
+  return (
+    <Tip label={run.label}>
+      <span
+        role="img"
+        aria-label={run.label}
+        data-run={run.blocked ? "blocked" : "open"}
+        className="inline-flex shrink-0 items-center gap-1 text-muted-foreground"
+      >
+        {run.blocked && <StatusGlyph state="paused" tone="waiting" size={12} />}
+        {run.phase}
+      </span>
+    </Tip>
   );
 }
 

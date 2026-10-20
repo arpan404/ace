@@ -92,6 +92,7 @@
         "@ace/mcp-server": "workspace:*",
         "@ace/models": "workspace:*",
         "@ace/notify": "workspace:*",
+        "@ace/offshift": "workspace:*",
         "@ace/orchestrator": "workspace:*",
         "@ace/plugins": "workspace:*",
         "@ace/preview": "workspace:*",
@@ -200,6 +201,7 @@
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/secure-channel": "workspace:*",
+        "@ace/settings": "workspace:*",
         "@ace/ui-core": "workspace:*",
         "@base-ui/react": "^1.8.0",
         "@noble/hashes": "2.0.1",
@@ -705,9 +707,18 @@
       "name": "@ace/notify",
       "dependencies": {
         "@ace/core": "workspace:*",
+        "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "zod": "^4.1.12",
+      },
+    },
+    "packages/offshift": {
+      "name": "@ace/offshift",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "zod": "^4.6.5",
       },
     },
     "packages/orchestrator": {
@@ -1083,6 +1094,8 @@
     "@ace/native-session": ["@ace/native-session@workspace:packages/native-session"],
 
     "@ace/notify": ["@ace/notify@workspace:packages/notify"],
+
+    "@ace/offshift": ["@ace/offshift@workspace:packages/offshift"],
 
     "@ace/orchestrator": ["@ace/orchestrator@workspace:packages/orchestrator"],
 

@@ -1,6 +1,7 @@
 import { agentTools } from "./agent-tools.ts";
 import { automationTools } from "./automation-tools.ts";
 import type { AgentControlPort, ControlTool } from "./control-tool.ts";
+import { offshift } from "./offshift-tools.ts";
 import { threadControl } from "./thread-control-tool.ts";
 import { threadTools } from "./thread-tools.ts";
 import type { Toolkit } from "./toolkits.ts";
@@ -16,6 +17,7 @@ export const agentControlToolCatalog: readonly ControlTool[] = [
   ...agentTools,
   ...threadTools,
   threadControl,
+  offshift,
   ...automationTools,
 ];
 

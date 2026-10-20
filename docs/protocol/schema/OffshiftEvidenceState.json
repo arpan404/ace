@@ -1,0 +1,12 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftEvidenceState.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "pass",
+    "fail",
+    "stale",
+    "missing",
+    "not_independent"
+  ],
+  "type": "string"
+}

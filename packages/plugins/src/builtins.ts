@@ -80,26 +80,33 @@ export async function prepareBuiltinSkills(provider: "claude" | "codex", root: s
 }
 
 /**
+ * Guides that load only when an agent asks for them (`guide` with their topic). They live
+ * outside `skills/`, so no provider receives them as a native skill.
+ */
+const guideOnly = ["offshift"] as const;
+
+/**
  * The shipped skills as guides for providers without native skills: name, the frontmatter's
  * one-line description and the body. Same files as the native projection, so one source.
- * Frontmatter is parsed as the YAML that provider skill loaders read, so a broken one fails here.
+ * Guide-only topics follow the skills. Frontmatter is parsed as the YAML that provider skill
+ * loaders read, so a broken one fails here.
  */
 export async function builtinGuides(
-  root?: string,
+  root = shippedRoot(),
 ): Promise<{ name: string; description: string; body: string }[]> {
   const [bundle] = await builtinSkills(root);
-  if (!bundle) return [];
-  return bundle.manifest.skills.map((skill) => {
-    const text = bundle.text[`${skill.path}/SKILL.md`] ?? "";
+  const sources = (bundle?.manifest.skills ?? []).map((skill) => ({
+    name: skill.name,
+    text: bundle?.text[`${skill.path}/SKILL.md`] ?? "",
+  }));
+  for (const name of guideOnly)
+    sources.push({ name, text: await readFile(join(root, "guides", name, "SKILL.md"), "utf8") });
+  return sources.map(({ name, text }) => {
     const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
     const meta = SkillFrontmatter.safeParse(parseYaml(match?.[1] ?? ""));
-    if (!match || !meta.success || meta.data.name !== skill.name)
-      throw new Error(`Built-in skill ${skill.name} has invalid frontmatter`);
-    return {
-      name: skill.name,
-      description: meta.data.description,
-      body: text.slice(match[0].length).trim(),
-    };
+    if (!match || !meta.success || meta.data.name !== name)
+      throw new Error(`Built-in skill ${name} has invalid frontmatter`);
+    return { name, description: meta.data.description, body: text.slice(match[0].length).trim() };
   });
 }
 const SkillFrontmatter = z.object({

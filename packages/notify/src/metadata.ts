@@ -10,8 +10,10 @@ import {
 import { AgentStatus } from "@ace/protocol/agent-status";
 import { BackgroundTask } from "@ace/protocol/background";
 import { ThreadStatus } from "@ace/protocol/thread-status";
+import { runMark } from "@ace/projection/offshift-mark";
 import type { Event } from "@ace/protocol";
 import { InteractionLink, interactionLink } from "./model.ts";
+import { RunSignal } from "./run-signal.ts";
 
 const idBound = z.string().max(200);
 export const OwnerState = z
@@ -27,6 +29,7 @@ const interaction = z
   })
   .strict();
 const Payload = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("offshift.updated"), run: RunSignal }).strict(),
   z
     .object({
       type: z.literal("thread.client.updated"),
@@ -171,6 +174,18 @@ export function metadata(event: Event): MetadataEvent | undefined {
     case "background_task.updated":
       payload = { type: p.type, taskId: p.taskId, status: p.status };
       break;
+    case "offshift.updated": {
+      const detail = (p.card.blocker ?? p.card.next)?.slice(0, 300);
+      payload = {
+        type: p.type,
+        run: {
+          key: `${p.card.id}:${p.card.version}`,
+          mark: runMark(p.card),
+          ...(detail ? { detail } : {}),
+        },
+      };
+      break;
+    }
     default:
       return undefined;
   }

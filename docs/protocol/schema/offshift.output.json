@@ -1,0 +1,618 @@
+{
+  "$id": "https://ace.local/protocol/v1/offshift.output.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "enum": [
+        "unsupported",
+        "forbidden",
+        "not_found",
+        "limit",
+        "not_ready",
+        "invalid",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "data": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "next": {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            },
+            "pending": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "criterionId": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^[a-zA-Z0-9_.-]+$",
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "automated",
+                      "source",
+                      "ui",
+                      "human",
+                      "manual"
+                    ],
+                    "type": "string"
+                  },
+                  "needs": {
+                    "const": "independent",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "criterionId",
+                  "kind"
+                ],
+                "type": "object"
+              },
+              "maxItems": 320,
+              "type": "array"
+            },
+            "revision": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "run": {
+              "additionalProperties": false,
+              "properties": {
+                "blocker": {
+                  "anyOf": [
+                    {
+                      "maxLength": 4096,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "createdAt": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "criteria": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "description": {
+                        "description": "The observable behaviour that must hold.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "id": {
+                        "description": "A stable id for the criterion (letters, digits, _ . -).",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[a-zA-Z0-9_.-]+$",
+                        "type": "string"
+                      },
+                      "independent": {
+                        "description": "Passes count only from another provider or model than the run owner's.",
+                        "type": "boolean"
+                      },
+                      "requiredKinds": {
+                        "description": "Evidence kinds that must each have a current pass.",
+                        "items": {
+                          "enum": [
+                            "automated",
+                            "source",
+                            "ui",
+                            "human",
+                            "manual"
+                          ],
+                          "type": "string"
+                        },
+                        "maxItems": 5,
+                        "minItems": 1,
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "description",
+                      "requiredKinds"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 64,
+                  "minItems": 1,
+                  "type": "array",
+                  "x-ace-constraint": "Criterion IDs must be unique."
+                },
+                "endpoint": {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "evidence": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "action": {
+                        "description": "The command or interaction actually performed.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "artifact": {
+                        "description": "Where the full output is kept: a path, URL or report reference.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "by": {
+                        "anyOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "model": {
+                                "anyOf": [
+                                  {
+                                    "maxLength": 256,
+                                    "minLength": 1,
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "provider": {
+                                "enum": [
+                                  "claude",
+                                  "codex",
+                                  "opencode",
+                                  "cursor",
+                                  "antigravity",
+                                  "acp",
+                                  "pi"
+                                ],
+                                "type": "string"
+                              },
+                              "threadId": {
+                                "minLength": 1,
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "threadId",
+                              "provider",
+                              "model"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null
+                      },
+                      "criterionId": {
+                        "description": "The criterion this observation checks.",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[a-zA-Z0-9_.-]+$",
+                        "type": "string"
+                      },
+                      "kind": {
+                        "description": "Which required kind this observation satisfies.",
+                        "enum": [
+                          "automated",
+                          "source",
+                          "ui",
+                          "human",
+                          "manual"
+                        ],
+                        "type": "string"
+                      },
+                      "note": {
+                        "description": "The observed result and environment, in a sentence or two.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "recordedAt": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "result": {
+                        "description": "What the check observed.",
+                        "enum": [
+                          "pass",
+                          "fail"
+                        ],
+                        "type": "string"
+                      },
+                      "revision": {
+                        "description": "The revision from get, read before the check ran.",
+                        "maxLength": 512,
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "criterionId",
+                      "kind",
+                      "result",
+                      "revision",
+                      "action",
+                      "artifact",
+                      "note",
+                      "recordedAt",
+                      "by"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 320,
+                  "type": "array"
+                },
+                "id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[a-zA-Z0-9_.-]+$",
+                  "type": "string"
+                },
+                "note": {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "outcome": {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "owner": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "model": {
+                          "anyOf": [
+                            {
+                              "maxLength": 256,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "provider": {
+                          "enum": [
+                            "claude",
+                            "codex",
+                            "opencode",
+                            "cursor",
+                            "antigravity",
+                            "acp",
+                            "pi"
+                          ],
+                          "type": "string"
+                        },
+                        "threadId": {
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "threadId",
+                        "provider",
+                        "model"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "phase": {
+                  "enum": [
+                    "plan",
+                    "implement",
+                    "verify",
+                    "review",
+                    "delivery"
+                  ],
+                  "type": "string"
+                },
+                "playbook": {
+                  "enum": [
+                    "fix",
+                    "feature",
+                    "refactor",
+                    "perf",
+                    "investigate",
+                    "ui",
+                    "land"
+                  ],
+                  "type": "string"
+                },
+                "steps": {
+                  "default": [],
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "id": {
+                        "description": "A stable id for the step (letters, digits, _ . -).",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[a-zA-Z0-9_.-]+$",
+                        "type": "string"
+                      },
+                      "note": {
+                        "maxLength": 1024,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "phase": {
+                        "description": "The phase the step belongs to.",
+                        "enum": [
+                          "plan",
+                          "implement",
+                          "verify",
+                          "review",
+                          "delivery"
+                        ],
+                        "type": "string"
+                      },
+                      "state": {
+                        "enum": [
+                          "todo",
+                          "done",
+                          "skipped"
+                        ],
+                        "type": "string"
+                      },
+                      "title": {
+                        "description": "What to do, as a short imperative.",
+                        "maxLength": 160,
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "title",
+                      "phase",
+                      "state"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 24,
+                  "type": "array"
+                },
+                "threadId": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "version": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "threadId",
+                "outcome",
+                "endpoint",
+                "criteria",
+                "owner",
+                "steps",
+                "phase",
+                "version",
+                "blocker",
+                "note",
+                "evidence",
+                "createdAt",
+                "updatedAt"
+              ],
+              "type": "object"
+            },
+            "state": {
+              "enum": [
+                "active",
+                "blocked",
+                "needs_evidence",
+                "waiting_on_tree",
+                "complete"
+              ],
+              "type": "string"
+            },
+            "treeState": {
+              "enum": [
+                "working",
+                "waiting",
+                "needs_you",
+                "failed",
+                "done",
+                "unknown"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "run",
+            "revision",
+            "state",
+            "pending",
+            "treeState",
+            "next"
+          ],
+          "type": "object"
+        },
+        {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-zA-Z0-9_.-]+$",
+                "type": "string"
+              },
+              "outcome": {
+                "maxLength": 512,
+                "type": "string"
+              },
+              "outcomeTruncated": {
+                "type": "boolean"
+              },
+              "phase": {
+                "enum": [
+                  "plan",
+                  "implement",
+                  "verify",
+                  "review",
+                  "delivery"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "phase",
+              "outcome",
+              "outcomeTruncated"
+            ],
+            "type": "object"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "playbooks": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "enum": [
+                      "fix",
+                      "feature",
+                      "refactor",
+                      "perf",
+                      "investigate",
+                      "ui",
+                      "land"
+                    ],
+                    "type": "string"
+                  },
+                  "purpose": {
+                    "maxLength": 160,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "steps": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "description": "A stable id for the step (letters, digits, _ . -).",
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "pattern": "^[a-zA-Z0-9_.-]+$",
+                          "type": "string"
+                        },
+                        "kinds": {
+                          "items": {
+                            "enum": [
+                              "automated",
+                              "source",
+                              "ui",
+                              "human",
+                              "manual"
+                            ],
+                            "type": "string"
+                          },
+                          "maxItems": 5,
+                          "minItems": 1,
+                          "type": "array"
+                        },
+                        "phase": {
+                          "description": "The phase the step belongs to.",
+                          "enum": [
+                            "plan",
+                            "implement",
+                            "verify",
+                            "review",
+                            "delivery"
+                          ],
+                          "type": "string"
+                        },
+                        "title": {
+                          "description": "What to do, as a short imperative.",
+                          "maxLength": 160,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title",
+                        "phase"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 8,
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "id",
+                  "purpose",
+                  "steps"
+                ],
+                "type": "object"
+              },
+              "maxItems": 16,
+              "type": "array"
+            }
+          },
+          "required": [
+            "playbooks"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "hint": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "ok": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "type": "object"
+}

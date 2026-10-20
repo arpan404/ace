@@ -252,7 +252,7 @@ export class HostRuntime {
         },
         (runId) => journal.afterObserve(runId),
       );
-      if (options.mcp) this.toolGuidance = await cursorToolGuidance();
+      if (options.mcp) this.toolGuidance = await cursorToolGuidance(options.instructions);
       const agentOptions = nativeCursorOptions(options, this.store, this.toolGuidance?.directory);
       let sandboxSupported = false;
       if (agentOptions.local?.sandboxOptions?.enabled) {

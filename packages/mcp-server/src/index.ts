@@ -88,6 +88,7 @@ export {
 export { SessionAwareness, type AwarenessPort } from "./awareness.ts";
 export { aceInstructions, guideTopics } from "./status.ts";
 export type { SessionGuidance } from "./injection.ts";
+export { renderRoles, type SessionRole, type SessionRoles } from "./roles.ts";
 export {
   knowledgeToolkit,
   knowledgeToolCatalog,

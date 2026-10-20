@@ -1,0 +1,39 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftCriterion.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "description": {
+      "description": "The observable behaviour that must hold.",
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "id": {
+      "description": "A stable id for the criterion (letters, digits, _ . -).",
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "independent": {
+      "description": "Passes count only from another provider or model than the run owner's.",
+      "type": "boolean"
+    },
+    "requiredKinds": {
+      "description": "Evidence kinds that must each have a current pass.",
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceKind.json"
+      },
+      "maxItems": 5,
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "description",
+    "requiredKinds"
+  ],
+  "type": "object"
+}

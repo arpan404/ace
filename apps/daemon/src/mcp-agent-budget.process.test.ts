@@ -82,9 +82,11 @@ function guidance(provider: ProviderKind): string {
   return native.includes(aceInstructions) ? native : `${aceInstructions}\n${native}`;
 }
 
-it("ace's always-on guidance stays under 300 tokens for every provider", () => {
+it("ace's always-on guidance stays under 315 tokens for every provider", () => {
+  // Raised from 300 for one clause naming offshift (#899): it loads only on request, so the
+  // instructions are the one place an agent learns it exists.
   for (const provider of ProviderKind.options)
-    expect(tokens(guidance(provider)), provider).toBeLessThanOrEqual(300);
+    expect(tokens(guidance(provider)), provider).toBeLessThanOrEqual(315);
 });
 
 it("each provider's per-request ace context stays within its budget", async () => {
@@ -98,8 +100,10 @@ it("each provider's per-request ace context stays within its budget", async () =
       names.join(" "),
     ].join("\n");
     // Every client starts small: deferred names, or the core list with tools_find (and, where the
-    // list never reloads, tools_call).
-    const budget = deferring.has(provider) ? 2_600 : reloading.has(provider) ? 3_200 : 3_300;
+    // list never reloads, tools_call). Deferring raised from 2,600 to 2,625 for offshift (#899):
+    // its deferred name, its guide topic and its clause in the instructions. Then to 2,655 for
+    // delegate's runRole field (Offshift roles), which the always-loaded delegate schema carries.
+    const budget = deferring.has(provider) ? 2_655 : reloading.has(provider) ? 3_200 : 3_300;
     expect(tokens(always), provider).toBeLessThanOrEqual(budget);
   }
 });
@@ -127,10 +131,11 @@ it("only the entry points and tools_find load upfront, whatever the client", asy
   // 30 for image_show (#991), projects_find (#994) and thread_fork (#1001), each a capability
   // with no existing tool to fold into. A deferring client pays only for their names, which
   // the per-request budget above counts; a core or static client never lists them upfront.
+  // Raised to 31 for offshift (#899), a durable run record no thread tool can hold.
   const own = full.tools.filter(
     (tool) => !/^(?:browser|screen|sim)_/.test(bareToolName(tool.name)),
   );
-  expect(own.length).toBeLessThanOrEqual(30);
+  expect(own.length).toBeLessThanOrEqual(31);
 });
 
 it("a core-mode session gains a family's tools by reading its guide or using its entry point", async () => {
@@ -153,6 +158,18 @@ it("a core-mode session gains a family's tools by reading its guide or using its
   });
   await core.refreshTools();
   expect(core.has("agents_status")).toBe(true);
+  await core.close();
+});
+
+it("a core-mode session lists offshift only once an agent reads the offshift guide", async () => {
+  const { core } = await session();
+  expect(core.has("offshift")).toBe(false);
+  await core.call("guide", { topic: "ace-threads" });
+  await core.refreshTools();
+  expect(core.has("offshift")).toBe(false);
+  await core.call("guide", { topic: "offshift" });
+  await core.refreshTools();
+  expect(core.has("offshift")).toBe(true);
   await core.close();
 });
 

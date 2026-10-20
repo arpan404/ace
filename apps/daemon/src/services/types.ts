@@ -106,6 +106,8 @@ export interface Services {
   settings: SettingsService;
   models: ModelCatalog;
   providerConfigurations: import("../provider-configurations.ts").ProviderConfigurationsState;
+  /** The person's role settings, for runRole and new sessions' instructions. */
+  roles: import("../role-settings.ts").RoleSettingsState;
   /** Filesystem admission completes separately from lazy metadata discovery. */
   modelsReady?: Promise<void>;
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;

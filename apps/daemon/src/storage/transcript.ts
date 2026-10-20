@@ -4,6 +4,8 @@ import type { ThreadId } from "@ace/protocol";
 
 /** These rows contain transcript data; identity/receipt/delegation/worktree ownership stays durable. */
 const payloadTables = new Set([
+  "offshift_receipts",
+  "offshift_runs",
   "items",
   "output_streams",
   "blobs",

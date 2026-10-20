@@ -1,0 +1,31 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftRunMark.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "pendingCount": {
+      "maximum": 320,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "phase": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftPhase.json"
+    },
+    "playbook": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftPlaybookId.json"
+    },
+    "state": {
+      "enum": [
+        "open",
+        "blocked",
+        "delivered"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "phase",
+    "state",
+    "pendingCount"
+  ],
+  "type": "object"
+}

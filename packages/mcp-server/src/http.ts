@@ -222,7 +222,7 @@ async function createHandler(
                 uri: "ace://session",
                 name: "ace session",
                 description:
-                  "This session's brief: project, branch, access mode, groups, delegation targets, live threads and pending requests.",
+                  "This session's brief: project, branch, access mode, groups, delegation targets, live threads and pending requests, and its roles line.",
                 mimeType: "application/json",
               },
             ]
@@ -246,7 +246,11 @@ async function createHandler(
             {
               uri: "ace://session",
               mimeType: "application/json",
-              text: JSON.stringify({ brief: awareness.brief(principal), facts }),
+              text: JSON.stringify({
+                brief: awareness.brief(principal),
+                roles: awareness.rolesLine(principal) ?? null,
+                facts,
+              }),
             },
           ],
         };
