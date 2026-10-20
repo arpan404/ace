@@ -10,14 +10,16 @@ const reopenMs = 30_000;
  * Brings a thread's tabs back in the desktop's fresh views (after an app restart, or when the
  * desktop came back without the views it kept): the same ids, in order, each at its address,
  * the first shown. The view the desktop opened blank gives way to them. A desktop that cannot
- * choose ids or hold more tabs keeps what it has; nothing here fails the open.
+ * choose ids or hold more tabs keeps what it has; nothing here fails the open. Tabs that were
+ * discarded stay discarded: listed, with no view until they are used or shown.
  */
 export async function restoreEmbeddedTabs(
   tabs: EmbeddedTabs,
-  entries: readonly BackendRestoreTab[],
+  restoring: readonly BackendRestoreTab[],
   signal: AbortSignal,
   clock: NavigationClock,
 ): Promise<void> {
+  const entries = restoring.filter((entry) => !entry.discarded);
   const blank = tabs.active();
   const opened: BackendRestoreTab[] = [];
   /** The blank view already has a restored tab's id (both are the desktop's first): reuse it. */
@@ -44,6 +46,7 @@ export async function restoreEmbeddedTabs(
   }
   const first = entries[0];
   if (!opened.length && blank && first) opened.push({ tabId: blank, url: first.url });
+  holdDiscardedTabs(tabs, restoring);
   await Promise.allSettled(
     opened.map(async ({ tabId, url }) => {
       if (url === "about:blank") return;
@@ -58,4 +61,34 @@ export async function restoreEmbeddedTabs(
       }
     }),
   );
+}
+
+/**
+ * The thread's discarded tabs the desktop has no view for (it never had one since the discard):
+ * listed again as discarded, so a dropped link or a replaced view never loses them.
+ */
+export function holdDiscardedTabs(
+  tabs: EmbeddedTabs,
+  entries: readonly BackendRestoreTab[],
+): void {
+  const listed = new Set(tabs.list().map((tab) => tab.tabId));
+  tabs.hold(entries.filter((entry) => entry.discarded && !listed.has(entry.tabId)));
+}
+
+/** Gives a discarded tab its view back at its address; a slow page is left as it is. */
+export async function reviveEmbeddedTab(
+  tabs: EmbeddedTabs,
+  tabId: string,
+  clock: NavigationClock,
+): Promise<void> {
+  if (!tabs.discarded(tabId)) return;
+  const deadline = new AbortController();
+  const cancel = clock.set(reopenMs, () =>
+    deadline.abort(new Error("The page did not reopen in time")),
+  );
+  try {
+    await tabs.restore(tabId, deadline.signal);
+  } finally {
+    cancel();
+  }
 }

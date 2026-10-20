@@ -609,6 +609,9 @@ export class EmbeddedPage implements ViewPage {
     // The daemon reads the history after every navigation (for Back and Forward). That is no
     // driving: an unseen tab whose page navigates by itself stays unrendered.
     if (method === "Page.getNavigationHistory") return this.send(method);
+    // The daemon freezing an idle tab, or waking it before its next command, is no driving
+    // either: a frozen view stays hidden and throttled (ADR 0083 lifecycle).
+    if (method === "Page.setWebLifecycleState") return this.send(method, params);
     if (method === "Page.startScreencast") this.screencasting = true;
     else if (method === "Page.stopScreencast") this.screencasting = false;
     if (agentWork(method)) this.drivenAt = Date.now();
