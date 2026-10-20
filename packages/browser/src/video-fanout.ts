@@ -184,17 +184,29 @@ export class VideoFanout<C extends VideoPiece> {
     while (viewer.queue.length) {
       const chunk = viewer.queue[0];
       if (!chunk || !this.fits(viewer, chunk)) return;
+      // In flight before it goes: a transport that acknowledges inside `send` finds it there,
+      // and the flush that ack starts never sends it again.
+      viewer.queue.shift();
+      const entry = { sequence: chunk.sequence, bytes: chunk.bytes.length };
+      viewer.inflight.push(entry);
+      viewer.inflightBytes += entry.bytes;
+      this.options.sent?.(viewer.id, chunk.sequence, entry.bytes);
       let sent = false;
       try {
         sent = viewer.sink.send(chunk);
       } catch {
         sent = false;
       }
-      if (!sent) return;
-      viewer.queue.shift();
-      viewer.inflight.push({ sequence: chunk.sequence, bytes: chunk.bytes.length });
-      viewer.inflightBytes += chunk.bytes.length;
-      this.options.sent?.(viewer.id, chunk.sequence, chunk.bytes.length);
+      if (!sent) {
+        // Refused: it waits at the head of the queue again, as if never sent.
+        const index = viewer.inflight.indexOf(entry);
+        if (index !== -1) {
+          viewer.inflight.splice(index, 1);
+          viewer.inflightBytes -= entry.bytes;
+        }
+        viewer.queue.unshift(chunk);
+        return;
+      }
       if (chunk.key && !viewer.playing) {
         viewer.playing = true;
         this.options.playing(viewer.id, true);
@@ -202,6 +214,7 @@ export class VideoFanout<C extends VideoPiece> {
       if (viewer.encode !== encode) return;
     }
   }
+
   private stopPlaying(id: string, viewer: Viewer<C>): void {
     if (!viewer.playing) return;
     viewer.playing = false;
