@@ -3,13 +3,15 @@ import type { OffshiftView } from "@ace/protocol/offshift";
 const plural = (count: number, one: string, many = `${one}s`) =>
   `${count} ${count === 1 ? one : many}`;
 
+const more = (count: number) => (count > 1 ? ` (${plural(count - 1, "more check")} pending)` : "");
+
 /** The current phase's first step to do, as the sentence that names it. */
 function stepToDo(run: OffshiftView["run"]): string | undefined {
   const open = run.steps.filter((step) => step.phase === run.phase && step.state === "todo");
   const [first] = open;
   if (!first) return undefined;
-  const more = open.length > 1 ? ` (${plural(open.length - 1, "more step")} in ${run.phase})` : "";
-  return `Step \`${first.id}\`: ${first.title.replace(/[.\s]+$/, "")}. Then call step: done with what you observed, or skipped with the reason${more}.`;
+  const rest = open.length > 1 ? ` (${plural(open.length - 1, "more step")} in ${run.phase})` : "";
+  return `Step \`${first.id}\`: ${first.title.replace(/[.\s]+$/, "")}. Then call step: done with what you observed, or skipped with the reason${rest}.`;
 }
 
 /**
@@ -37,8 +39,6 @@ export function nextStep(view: Omit<OffshiftView, "next">, children?: number): s
     run.evidence.find(
       (found) => found.criterionId === item.criterionId && found.kind === item.kind,
     );
-  const more = (count: number) =>
-    count > 1 ? ` (${plural(count - 1, "more check")} pending)` : "";
   // A check that failed at this revision is a known defect: it comes before any step.
   const failing = pending.find((item) => {
     const found = latest(item);

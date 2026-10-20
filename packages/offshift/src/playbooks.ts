@@ -2,23 +2,24 @@ import {
   OffshiftPlaybooks,
   type OffshiftPlaybook,
   type OffshiftPlaybookId,
+  type OffshiftPlaybookStep,
 } from "@ace/protocol/offshift";
 
 /*
  * Built-in playbooks: for each kind of work, the steps that separate verified work from a
  * plausible-looking diff. Pure data; it ships in tool results, so every line stays short.
  */
-const report = {
+const report: OffshiftPlaybookStep = {
   id: "report",
   title: "Report what changed and the evidence behind each claim; label anything unverified",
   phase: "delivery",
-} as const;
-const review = {
+};
+const review: OffshiftPlaybookStep = {
   id: "review",
   title: "Have another provider review a consequential diff, or skip with why it is trivial",
   phase: "review",
   kinds: ["source"],
-} as const;
+};
 
 const playbooks: readonly OffshiftPlaybook[] = [
   {

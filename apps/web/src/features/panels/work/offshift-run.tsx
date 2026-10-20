@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn.ts";
 
 /**
  * The thread's Offshift run: its state and phase, what blocks it, the evidence it still needs,
- * and its outcome, criteria and roles behind a disclosure.
+ * the current phase's steps, and its outcome, criteria and roles behind a disclosure.
  */
 export function OffshiftRun(props: { run: OffshiftSummary }) {
   const { run } = props;
@@ -43,6 +43,27 @@ export function OffshiftRun(props: { run: OffshiftSummary }) {
               +{formatCount(run.moreMissing)}
             </li>
           )}
+        </ul>
+      )}
+      {run.steps.length > 0 && (
+        <ul aria-label="Steps" className="flex min-w-0 flex-col">
+          {run.steps.map((step) => (
+            <li key={step.id} className="flex min-w-0 flex-col">
+              <span className="flex h-7 min-w-0 items-center gap-2">
+                <span className="min-w-0 truncate" title={step.title}>
+                  {step.title}
+                </span>
+                <span className="ml-auto shrink-0 text-xs text-subtle-foreground">
+                  {step.state}
+                </span>
+              </span>
+              {step.reason && (
+                <span className="min-w-0 pb-1 text-xs break-words text-muted-foreground">
+                  {step.reason}
+                </span>
+              )}
+            </li>
+          ))}
         </ul>
       )}
       <Disclosure summary="Outcome and criteria" summaryClassName="h-7">

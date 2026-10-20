@@ -34,6 +34,7 @@ function card(overrides: Partial<OffshiftRunCard>): OffshiftRunCard {
     pending: [],
     pendingCount: 0,
     roles: [],
+    steps: [],
     ...overrides,
   };
 }
@@ -151,6 +152,34 @@ test("an independent criterion shows who checked it, and the run's roles open wi
   );
   const roles = within(section).getByRole("list", { name: "Roles" });
   expect(within(roles).getByRole("listitem").textContent).toBe("VerifyCodex · high");
+});
+
+test("the current phase's steps show their state, and a skipped step shows its reason", async () => {
+  const section = await openRun(
+    card({
+      phase: "plan",
+      steps: [
+        { id: "reproduce", title: "Reproduce the defect", state: "done" },
+        {
+          id: "root-cause",
+          title: "Find the root cause",
+          state: "skipped",
+          reason: "The stack trace names it",
+        },
+        { id: "bisect", title: "Bisect the history", state: "todo" },
+      ],
+    }),
+  );
+  const steps = within(section).getByRole("list", { name: "Steps" });
+  expect(
+    within(steps)
+      .getAllByRole("listitem")
+      .map((item) => item.textContent),
+  ).toEqual([
+    "Reproduce the defectDone",
+    "Find the root causeSkippedThe stack trace names it",
+    "Bisect the historyTo do",
+  ]);
 });
 
 test("a delivered run with every check passing is not Done while a subagent still works", async () => {

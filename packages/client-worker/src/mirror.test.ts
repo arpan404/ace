@@ -288,6 +288,7 @@ test("a tab sees an Offshift run change live and a later tab starts from it", ()
       pending: [],
       pendingCount: 0,
       roles: [],
+      steps: [],
     },
   });
   expect(run.getSnapshot()).toBe("Need a test account");

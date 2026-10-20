@@ -47,6 +47,7 @@ test("an Offshift change reaches the offshift selection alone and survives expor
             criteriaCount: 1,
             pending: [],
             pendingCount: 0,
+            roles: [],
           },
         },
       }),

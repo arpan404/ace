@@ -109,7 +109,7 @@ function startSteps(request: Extract<OffshiftRequest, { action: "start" }>): Off
     );
   return listed
     .map(({ id, title, phase }) => ({ id, title, phase, state: "todo" as const }))
-    .sort((a, b) => phases.indexOf(a.phase) - phases.indexOf(b.phase));
+    .toSorted((a, b) => phases.indexOf(a.phase) - phases.indexOf(b.phase));
 }
 
 /** Pure transition; the caller supplies canonical tree status and a host-owned source revision. */

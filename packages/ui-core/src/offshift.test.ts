@@ -27,6 +27,7 @@ function card(overrides: Partial<OffshiftRunCard> = {}): OffshiftRunCard {
     pending: [],
     pendingCount: 0,
     roles: [],
+    steps: [],
     ...overrides,
   };
 }
@@ -188,4 +189,30 @@ test("roles read as the kind of work and who does it, in words", () => {
     { role: "Build", selection: "Codex · GPT-5" },
     { role: "Verify", selection: "Claude Code · high" },
   ]);
+});
+
+test("the current phase's steps read Done, Skipped with its reason, or To do", () => {
+  const steps = offshiftSummary(
+    card({
+      phase: "plan",
+      steps: [
+        { id: "reproduce", title: "Reproduce the defect", state: "done" },
+        { id: "root-cause", title: "Find the root cause", state: "skipped", reason: "Known" },
+        { id: "bisect", title: "Bisect", state: "todo" },
+      ],
+    }),
+    settled,
+  ).steps;
+  expect(steps.map((step) => [step.title, step.state, step.reason])).toEqual([
+    ["Reproduce the defect", "Done", undefined],
+    ["Find the root cause", "Skipped", "Known"],
+    ["Bisect", "To do", undefined],
+  ]);
+});
+
+test("a delivered run with a delivery step still to do is not Done", () => {
+  const steps = [{ id: "report", title: "Report", state: "todo" as const }];
+  expect(offshiftSummary(card({ steps }), settled)).toMatchObject({ word: "Waiting", done: false });
+  const reported = [{ id: "report", title: "Report", state: "done" as const }];
+  expect(offshiftSummary(card({ steps: reported }), settled).done).toBe(true);
 });

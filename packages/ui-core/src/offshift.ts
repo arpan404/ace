@@ -6,6 +6,7 @@ import type {
   OffshiftPhase,
   OffshiftRole,
   OffshiftRunCard,
+  OffshiftStepState,
 } from "@ace/protocol/offshift";
 import { listTreeFacts, treeWorking } from "./live-status.ts";
 import { providerNames } from "./providers.ts";
@@ -46,6 +47,13 @@ export interface OffshiftCriterionRow {
   independent: boolean;
   evidence: OffshiftEvidenceRow[];
 }
+/** One step of the current phase: its title, state word and, when skipped, the reason. */
+export interface OffshiftStepRow {
+  id: string;
+  title: string;
+  state: "Done" | "Skipped" | "To do";
+  reason: string | undefined;
+}
 /** "Verify", "Claude Code · Opus 4.5 · high". */
 export interface OffshiftRoleRow {
   role: string;
@@ -67,6 +75,8 @@ export interface OffshiftSummary {
   moreCriteria: number;
   /** Who does which kind of work, from the run or the project default. */
   roles: OffshiftRoleRow[];
+  /** The current phase's steps, in order. */
+  steps: OffshiftStepRow[];
   done: boolean;
 }
 
@@ -100,6 +110,11 @@ const stateNames: Record<OffshiftEvidenceState, string> = {
   missing: "Not checked",
   not_independent: "Not independent",
 };
+const stepStateNames: Record<OffshiftStepState, OffshiftStepRow["state"]> = {
+  todo: "To do",
+  done: "Done",
+  skipped: "Skipped",
+};
 const roleNames: Record<OffshiftRole, string> = {
   build: "Build",
   judgment: "Judgment",
@@ -132,7 +147,11 @@ function treeState(tree: OffshiftTree): { word: OffshiftWord; tone: Tone } | und
 /** What the Summary shows of `card`, gated on the whole tree. */
 export function offshiftSummary(card: OffshiftRunCard, tree: OffshiftTree): OffshiftSummary {
   const live = treeState(tree);
-  const unfinished = card.phase !== "delivery" || card.pendingCount > 0;
+  // In delivery the card's steps are delivery's: one still to do (the report) is unfinished.
+  const unfinished =
+    card.phase !== "delivery" ||
+    card.pendingCount > 0 ||
+    card.steps.some((step) => step.state === "todo");
   // A request to the person or a failure speaks first, blocker or not: that is what they act
   // on. Otherwise a blocker holds the run; then a live tree speaks for itself; a settled tree
   // with an unfinished run waits on whoever picks it up.
@@ -172,6 +191,12 @@ export function offshiftSummary(card: OffshiftRunCard, tree: OffshiftTree): Offs
     roles: card.roles.map((item) => ({
       role: roleNames[item.role],
       selection: [who(item.provider, item.model), item.effort].filter(Boolean).join(" · "),
+    })),
+    steps: card.steps.map((step) => ({
+      id: step.id,
+      title: step.title,
+      state: stepStateNames[step.state],
+      reason: step.reason,
     })),
     done: state.word === "Done",
   };

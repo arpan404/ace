@@ -314,6 +314,13 @@ function installPage(): Scenario {
             { role: "build", source: "run", provider: "opencode" },
             { role: "verify", source: "project", provider: "claude", effort: "high" },
           ],
+          steps: [
+            {
+              id: "real-surface",
+              title: "Use the feature where people will use it, not through a proxy",
+              state: "todo",
+            },
+          ],
         },
       },
       {

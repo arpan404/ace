@@ -83,7 +83,7 @@ export function runCard(
         id: step.id,
         title: step.title,
         state: step.state,
-        ...(step.state === "skipped" && step.note ? { reason: clip(step.note, 160) } : {}),
+        reason: step.state === "skipped" && step.note ? clip(step.note, 160) : undefined,
       })),
   });
 }

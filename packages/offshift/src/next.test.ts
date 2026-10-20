@@ -145,7 +145,15 @@ test("in order: a blocker, a failed check, the phase's next step, other pending 
   expect(next(run({ steps, evidence: [pass("automated", { revision: "r0" }), pass("ui")] }))).toBe(
     step,
   );
-  const marked = steps.map((item) => ({ ...item, state: "done" as const, note: "Seen" }));
+  const marked = [
+    {
+      id: "same-surface",
+      title: "Confirm on the same surface.",
+      phase: "verify" as const,
+      state: "done" as const,
+      note: "Seen",
+    },
+  ];
   expect(next(run({ steps: marked }))).toBe(
     "Record automated evidence for `restore` at revision r1 (1 more check pending).",
   );
