@@ -25,34 +25,106 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup().catch(() => {});
 }, 60_000);
 
-/** A long page that scrolls itself every frame while `window.scrolling` is true. */
-async function scrollingSite() {
+/** A long page that scrolls itself every frame. */
+function scrollingPage() {
   const lines = Array.from(
     { length: 400 },
     (_, index) => `<p>Line ${index}: the quick brown fox jumps over the lazy dog.</p>`,
   ).join("");
-  const server = createServer((_request, response) => {
+  return `<!doctype html><title>Scrolling</title><body>${lines}<script>
+    (function scroll() {
+      window.scrollBy(0, 3);
+      if (window.scrollY + innerHeight >= document.body.scrollHeight) window.scrollTo(0, 0);
+      requestAnimationFrame(scroll);
+    })();
+  </script></body>`;
+}
+
+/**
+ * A full-window canvas redrawn every frame: random pixels (whose JPEG no relay message holds)
+ * while the body's `data-noise` is set, else a small square moving on white.
+ */
+function noisePage() {
+  return `<!doctype html><title>Noise</title><body style="margin:0;overflow:hidden"><canvas></canvas><script>
+    const canvas = document.querySelector("canvas");
+    canvas.width = innerWidth;
+    canvas.height = innerHeight;
+    const context = canvas.getContext("2d");
+    const noise = context.createImageData(canvas.width, canvas.height);
+    const pixels = new Uint32Array(noise.data.buffer);
+    let frame = 0;
+    (function draw() {
+      frame++;
+      if (document.body.dataset.noise) {
+        for (let index = 0; index < pixels.length; index++)
+          pixels[index] = (Math.random() * 0xffffffff) | 0xff000000;
+        context.putImageData(noise, 0, 0);
+      } else {
+        context.fillStyle = "white";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.fillStyle = "black";
+        context.fillRect((frame * 4) % canvas.width, 100, 40, 40);
+      }
+      requestAnimationFrame(draw);
+    })();
+  </script></body>`;
+}
+
+async function site() {
+  const server = createServer((request, response) => {
     response.setHeader("Content-Type", "text/html");
-    response.end(`<!doctype html><title>Scrolling</title><body>${lines}<script>
-      window.scrolling = true;
-      (function scroll() {
-        if (!window.scrolling) return;
-        window.scrollBy(0, 3);
-        if (window.scrollY + innerHeight >= document.body.scrollHeight) window.scrollTo(0, 0);
-        requestAnimationFrame(scroll);
-      })();
-    </script></body>`);
+    response.end(request.url === "/noise" ? noisePage() : scrollingPage());
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   cleanups.push(async () => {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
   });
-  return `http://127.0.0.1:${(server.address() as AddressInfo).port}/scroll`;
+  return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+}
+
+const running = (child: ChildProcess) => child.exitCode === null && child.signalCode === null;
+
+/**
+ * The person's Chrome with ace for Chrome and an agent's tab in it, and ace's own browser
+ * service (which owns the encoder-only Chrome) wired to it as the daemon does. `encoders` are
+ * the Chromes ace's service started.
+ */
+async function watchedUserChrome(chromeArgs: readonly string[] = []) {
+  const browser = await connectedBrowser(executable ?? "", cleanups, chromeArgs);
+  const encoders: ChildProcess[] = [];
+  const ace = new BrowserService({
+    dataDir: join(browser.root, "ace-data"),
+    executablePath: executable ?? "",
+    videoEncoderIdleMs: 500,
+    chrome: {
+      spawn: (command, args, options) => {
+        const child = spawn(command, args, options);
+        encoders.push(child);
+        return child;
+      },
+    },
+  });
+  cleanups.push(() => ace.close());
+  const service = new BrowserService({
+    dataDir: join(browser.root, "user-threads"),
+    headlessBackend: new UserChromeTabsBackend(
+      new UserChromeBackend(browser.hub, process.platform, {
+        videoEncoder: () => ace.videoEncoder(),
+      }),
+    ),
+    backendPreference: () => "headless",
+  });
+  cleanups.push(() => service.close());
+  await service.open({ threadId: "thread", workspaceId: "workspace" });
+  return { browser, encoders, service, origin: await site() };
 }
 
 /** A phone viewer over a binary connection that asks for H.264 and acks what it receives. */
-function phoneViewer(service: BrowserService) {
+function phoneViewer(
+  service: BrowserService,
+  viewport = { width: 640, height: 400, devicePixelRatio: 2 },
+) {
   const video: BrowserVideoChunk[] = [];
   const kinds: StreamMessage["kind"][] = [];
   const assembler = new StreamAssembler();
@@ -98,46 +170,17 @@ function phoneViewer(service: BrowserService) {
         threadId: "thread",
         requestId: "subscribe",
         binaryFrames: true,
-        viewport: { width: 640, height: 400, devicePixelRatio: 2 },
+        viewport,
         video: { codecs: ["avc1.42E033"] },
       }),
   };
 }
 
-const running = (child: ChildProcess) => child.exitCode === null && child.signalCode === null;
-
 describe.skipIf(!executable || process.platform === "win32")("Use my Chrome live video", () => {
   test("a remote viewer of an agent's tab in the person's Chrome plays H.264 video, and ace's encoder Chrome runs only while someone watches", async () => {
-    const browser = await connectedBrowser(executable ?? "", cleanups);
-    const page = await scrollingSite();
-    // ace's own browser service, as the daemon runs it: it owns the encoder-only Chrome.
-    const encoders: ChildProcess[] = [];
-    const ace = new BrowserService({
-      dataDir: join(browser.root, "ace-data"),
-      executablePath: executable ?? "",
-      videoEncoderIdleMs: 500,
-      chrome: {
-        spawn: (command, args, options) => {
-          const child = spawn(command, args, options);
-          encoders.push(child);
-          return child;
-        },
-      },
-    });
-    cleanups.push(() => ace.close());
-    const service = new BrowserService({
-      dataDir: join(browser.root, "user-threads"),
-      headlessBackend: new UserChromeTabsBackend(
-        new UserChromeBackend(browser.hub, process.platform, {
-          videoEncoder: () => ace.videoEncoder(),
-        }),
-      ),
-      backendPreference: () => "headless",
-    });
-    cleanups.push(() => service.close());
-    await service.open({ threadId: "thread", workspaceId: "workspace" });
+    const { browser, encoders, service, origin } = await watchedUserChrome();
     await service.execute("thread", { action: "resize", width: 640, height: 400 });
-    await service.execute("thread", { action: "navigate", url: page });
+    await service.execute("thread", { action: "navigate", url: `${origin}/scroll` });
     // An agent working the person's tab with nobody watching starts no encoder.
     expect(encoders).toEqual([]);
 
@@ -197,5 +240,31 @@ describe.skipIf(!executable || process.platform === "win32")("Use my Chrome live
     // The viewer leaves: the encoder Chrome stops once it has been idle for its timeout.
     viewer.bridge.close();
     await until(() => !encoders.some(running), "the encoder Chrome to stop");
+  }, 120_000);
+
+  test("pictures too large for the relay are skipped, and the video resumes once the page's pictures fit", async () => {
+    // A screen and window large enough for a 1920 × 1080 tab.
+    const { service, origin } = await watchedUserChrome([
+      "--screen-info={0,0 2560x1600}",
+      "--window-size=2100,1400",
+    ]);
+    await service.execute("thread", { action: "resize", width: 1920, height: 1080 });
+    await service.execute("thread", { action: "navigate", url: `${origin}/noise` });
+    const viewer = phoneViewer(service, { width: 1920, height: 1080, devicePixelRatio: 1 });
+    await viewer.subscribe();
+    await until(() => viewer.video.length > 10, "video of the calm page");
+    // Two seconds of 1920 px noise: every screencast picture is over the relay's 1 MiB.
+    await service.execute("thread", {
+      action: "evaluate",
+      expression: "document.body.dataset.noise = '1'",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    await service.execute("thread", {
+      action: "evaluate",
+      expression: "delete document.body.dataset.noise",
+    });
+    // Chrome did not stall waiting for acks of the pictures the relay could not carry.
+    const before = viewer.video.length;
+    await until(() => viewer.video.length > before + 30, "video after the noise");
   }, 120_000);
 });
