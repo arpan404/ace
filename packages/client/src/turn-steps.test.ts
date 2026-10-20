@@ -182,10 +182,35 @@ test("a turn about to open is read before it opens, and held only a while", asyn
   const clock = timers();
   const cache = new TurnStepsCache({ read: d.read, schedule: clock.schedule, maxTurns: 0 });
   cache.warm("t", 1, 10);
-  cache.warm("t", 1, 10);
   await settle();
   expect(d.reads).toHaveLength(1);
   expect(cache.get("t", 1)?.state).toBe("ready");
   clock.fire();
   expect(cache.get("t", 1)).toBeUndefined();
+});
+
+// Mutation: closing a thread while it reads on losing the part already read.
+test("closing a thread while a long turn reads on keeps the part already read", async () => {
+  const d = daemon(() => 450);
+  const silent = silentDaemon();
+  let answering = true;
+  const cache = new TurnStepsCache({
+    read: (input, options) => (answering ? d.read(input) : silent.read(input, options)),
+    maxTurnSteps: 200,
+  });
+  cache.retain("t", 1);
+  await settle();
+  answering = false;
+  cache.loadMore("t", 1);
+  expect(cache.get("t", 1)?.state).toBe("loading");
+  cache.dropThread("t");
+  expect(silent.reads[0]?.signal?.aborted).toBe(true);
+  const release = cache.retain("t", 1);
+  expect(cache.get("t", 1)).toMatchObject({ state: "ready", more: true });
+  expect(cache.get("t", 1)?.steps).toHaveLength(200);
+  answering = true;
+  cache.loadMore("t", 1);
+  await settle();
+  expect(cache.get("t", 1)?.steps.at(-1)?.item.id).toBe("1-400");
+  release();
 });

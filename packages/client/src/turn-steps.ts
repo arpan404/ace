@@ -57,7 +57,7 @@ interface Slot {
   /** The read in flight. */
   abort: AbortController | undefined;
   /** What the turn held before the read in flight (`loadMore`), should that read be ended. */
-  resume: { entry: TurnStepsEntry; cursor: number | undefined } | undefined;
+  resume: TurnStepsEntry | undefined;
   /** The newest end of the turn its summaries named while it was read. */
   known: number | undefined;
 }
@@ -160,7 +160,7 @@ export class TurnStepsCache {
     const slot = this.slots.get(id);
     if (!slot || slot.entry.state !== "ready" || !slot.entry.more) return;
     const controller = new AbortController();
-    slot.resume = { entry: slot.entry, cursor: slot.cursor };
+    slot.resume = slot.entry;
     slot.entry = { ...slot.entry, state: "loading" };
     slot.abort = controller;
     this.emit();
@@ -184,8 +184,7 @@ export class TurnStepsCache {
         this.slots.delete(id);
         continue;
       }
-      slot.entry = slot.resume.entry;
-      slot.cursor = slot.resume.cursor;
+      slot.entry = slot.resume;
       slot.resume = undefined;
     }
     this.trim();
