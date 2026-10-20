@@ -38,6 +38,10 @@ import ApplicationServices
         settler = CUSettler(pid: pid, application: element)
         windows = CUWindowLister(pid: pid, application: element)
         chromium = cuIsChromiumFamily(bundleId: app.bundleIdentifier, frameworks: cuBundleFrameworks(app.bundleURL))
+        settler.observed = { [registry] element, notification in
+            let key = CUElementKey(element: element)
+            if notification == "AXUIElementDestroyed" { registry.facts.destroyed(key) } else { registry.facts.changed(key) }
+        }
         // Chromium and Electron build their accessibility tree only for clients that ask.
         // Never set AXEnhancedUserInterface: it is VoiceOver's flag and breaks window animations.
         if chromium, (cuAttribute(element, "AXManualAccessibility") as? Bool) != true {

@@ -7,7 +7,8 @@
  * - ace keeps ⌘ shortcuts, Ctrl+Shift shortcuts and Ctrl+Alt shortcuts, plus Ctrl+` (show or
  *   hide the terminal) so there is always a way out of it;
  * - a few keys are the terminal's own commands: copy, paste and find (⌘C/⌘V/⌘F on a Mac,
- *   Ctrl+Shift+C/V/F elsewhere, as desktop terminals do).
+ *   Ctrl+Shift+C/V/F elsewhere, as desktop terminals do);
+ * - on a Mac, ⌘⌫, ⌘⌦, ⌘← and ⌘→ edit the line as in macOS terminals (see lineEditBytes).
  *
  * Pure, so the rule is tested directly.
  */
@@ -51,4 +52,21 @@ export function keyOwner(event: KeyLike, apple: boolean): KeyOwner {
   }
   if (event.ctrlKey && event.altKey) return "app";
   return "terminal";
+}
+
+/*
+ * Mac line-editing keys, sent as the readline control bytes macOS terminals send:
+ * ⌘⌫ deletes to the line start (^U), ⌘⌦ to the line end (^K), ⌘← and ⌘→ move to the
+ * line start (^A) and end (^E). Undefined for any other key.
+ */
+const lineEdits: Record<string, string> = {
+  Backspace: "\x15",
+  Delete: "\x0b",
+  ArrowLeft: "\x01",
+  ArrowRight: "\x05",
+};
+
+export function lineEditBytes(event: KeyLike, apple: boolean): string | undefined {
+  if (!apple || !event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return undefined;
+  return lineEdits[event.key];
 }

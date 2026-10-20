@@ -188,3 +188,14 @@ operating while the Mac is locked; per-app approval prompts, which are intention
 done: ace never gates its own tools, and the provider's permission mode decides each call
 (ADR 0086). ace's web UI open in a browser is not covered by the block list; agents are
 told to use browser tools for web pages.
+
+## Amendment 2026-10-19: speed and a sharp live view (#1130)
+
+Settling ends 60 ms (40 ms between steps) after the app's last notification once it has
+reacted to the action, instead of a fixed 150 ms; an app that has not reacted keeps the full
+interval. Walks read a known element in one round trip (its remembered role predicts the
+attributes and is confirmed in the same read) and reuse action names until the app reports a
+change on that element. `screen_act` advertises one flat step object with a grammar on `type`
+and validates calls against the strict per-step union. The live view encodes H.264 High,
+re-sends a still picture once as a refined keyframe, captures at no more than native pixel
+density and crops windows without their shadow. Numbers: [computer-use-performance.md](../computer-use-performance.md).

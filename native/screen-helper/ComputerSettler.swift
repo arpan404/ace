@@ -37,7 +37,9 @@ struct CUSettleNoise {
 /// without a counted accessibility notification, never longer than `maximumMs` or the
 /// request's remaining budget.
 @MainActor final class CUSettler {
-    private var lastChange = DispatchTime.now().uptimeNanoseconds
+    /// The helper's own last change (an action), and the app's last counted notification.
+    private var lastHelperChange = DispatchTime.now().uptimeNanoseconds
+    private var lastAppChange: UInt64?
     private var observer: AXObserver?
     private let application: AXUIElement
     private var pending: [String]
@@ -48,6 +50,8 @@ struct CUSettleNoise {
     private(set) var events: UInt64 = 0
     /// True once every notification is registered, so silence means no change.
     var observingEverything: Bool { observer != nil && pending.isEmpty }
+    /// Told about every notification, for caches that a change on an element invalidates.
+    var observed: ((AXUIElement, String) -> Void)?
     /// Uptime after which settling stops waiting, set per request so a long batch stays bounded.
     var deadline: UInt64?
 
@@ -88,6 +92,7 @@ struct CUSettleNoise {
 
     private func received(_ notification: String, from element: AXUIElement) {
         events &+= 1
+        observed?(element, notification)
         if notification == "AXWindowCreated" || notification == "AXSheetCreated" { windowEvents += 1 }
         let key = Int(bitPattern: UInt(CFHash(element)))
         var role: String?
@@ -100,24 +105,25 @@ struct CUSettleNoise {
             }
         }
         let now = DispatchTime.now().uptimeNanoseconds
-        if noise.counts(element: key, notification: notification, role: role, now: now) { lastChange = now }
+        if noise.counts(element: key, notification: notification, role: role, now: now) { lastAppChange = now }
     }
 
     func markChanged() {
-        lastChange = DispatchTime.now().uptimeNanoseconds
+        lastHelperChange = DispatchTime.now().uptimeNanoseconds
         events &+= 1
     }
 
-    func settle(minimumMs: UInt64 = 80, quietMs: UInt64 = 150, maximumMs: UInt64 = 2_000) async {
+    /// `respondedQuietMs` (default `quietMs`) is the quiet needed once the app has reacted to
+    /// the helper's last change; see `CUSettleWindow`.
+    func settle(minimumMs: UInt64 = 80, quietMs: UInt64 = 150, respondedQuietMs: UInt64? = nil, maximumMs: UInt64 = 2_000) async {
         register()
         let started = DispatchTime.now().uptimeNanoseconds
         var limit = started + maximumMs * 1_000_000
         if let deadline { limit = min(limit, max(deadline, started)) }
-        while true {
-            let now = DispatchTime.now().uptimeNanoseconds
-            if now >= limit { return }
-            if now - started >= minimumMs * 1_000_000, now >= lastChange, now - lastChange >= quietMs * 1_000_000 { return }
-            try? await Task.sleep(nanoseconds: 15_000_000)
+        let window = CUSettleWindow(started: started, minimumNs: minimumMs * 1_000_000, quietNs: quietMs * 1_000_000,
+                                    respondedQuietNs: (respondedQuietMs ?? quietMs) * 1_000_000, limit: limit)
+        while !window.settled(now: DispatchTime.now().uptimeNanoseconds, lastHelperChange: lastHelperChange, lastAppChange: lastAppChange) {
+            try? await Task.sleep(nanoseconds: 5_000_000)
         }
     }
 

@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent, useId, useRef } from "react";
 import { webgl2Available } from "@/components/gpu-text/support.ts";
 import { applePlatform } from "@/lib/keymap.ts";
-import { keyOwner } from "./keys.ts";
+import { keyOwner, lineEditBytes } from "./keys.ts";
 import { joinWrapped } from "./search.ts";
 import type { TerminalSessions } from "./sessions.ts";
 import { scrollbackRows, terminalText, type TerminalSurface } from "./surface.ts";
@@ -139,6 +139,15 @@ export function XtermView(props: {
       });
 
       term.attachCustomKeyEventHandler((event) => {
+        const line = lineEditBytes(event, applePlatform);
+        if (line !== undefined) {
+          event.stopPropagation();
+          if (event.type === "keydown") {
+            event.preventDefault();
+            if (!term.options.disableStdin) sessions.write(id, line);
+          }
+          return false;
+        }
         const owner = keyOwner(event, applePlatform);
         if (owner === "terminal") {
           // The shell's key: no ace shortcut may act on it.

@@ -25,6 +25,8 @@ let cuAXTimeout: Float = 1.0
     private var generation: UInt64 = 0
     /// Role descriptions by role and subrole; they don't vary per element, so each is read once.
     var roleDescriptions: [String: String] = [:]
+    /// Roles and action names from earlier walks; see `CUElementFacts`.
+    var facts = CUElementFacts<CUElementKey>()
 
     func beginWalk() { generation += 1 }
 
