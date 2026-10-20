@@ -112,3 +112,33 @@ so another daemon, device or credential never reads them and no token is stored.
   a send that failed on this device stands), the tab title counts only such local failures, the
   thread's live line says "Syncing…" instead of being at rest or working, and Stop is not
   offered.
+
+## Amendment 2026-10-19: cache scope, invalidation and warming
+
+A remote device on a slow link showed skeletons wherever a view had no copy yet. These rules
+widen what is kept and say when it goes.
+
+- **Filed under the host.** `ClientCore` files every record under the daemon's verified host id
+  (`read-snapshot-scope.ts`): pinned (`expectedHostId`), bound in an earlier session
+  (`hostBinding`), or the first welcome's. A record is read only once that id is known and only
+  under it, so a daemon started afresh at the same address (a new host id) never paints its
+  predecessor's threads. Nothing is written before the id is known. Records written by earlier
+  builds without a host prefix are no longer read and age out of the cache.
+- **Dropped with the credential.** `ReadSnapshotStorage.clear()` (optional) deletes every record
+  of the caller's scope. The client calls it when the connection goes fatal with `auth` (close
+  4001 or 4003, a refused ticket or token) and writes nothing afterwards, closing checkpoints
+  included. The web app also deletes records on Disconnect (every scope: all of the window's
+  credentials go), on Forget the old ace (that target's scope) and when a machine is removed from
+  the pool (its scope). A dropped connection keeps them.
+- **Kept lookups.** The page keeps a small set of daemon lookups (projects, host identity, model
+  catalog, accounts, provider status and readiness, onboarding, provider settings, base refs,
+  permission capabilities, skills, automations) as one record, `queries`, in the same scope
+  (`apps/web/src/lib/query-persistence.ts`). The record names the build and the host id; another
+  build's or daemon's record is ignored. A restored entry never replaces newer data and starts
+  invalidated, so the first view to read it shows it and asks the daemon again, whatever its
+  `staleTime`. Writes are at most one a second and only while the connection is ready. File
+  contents, diffs, search results, logs and keys holding client objects are never kept.
+- **Warming on intent.** The thread route's loader runs when a link to the thread is pointed at,
+  focused or touched (the router's intent preload). It leases the thread for 20 s, at most three
+  at once, oldest released first (`apps/web/src/lib/thread-warmer.ts`), so opening it paints from
+  the store the lease filled (marked unconfirmed once released) instead of waiting a round trip.
