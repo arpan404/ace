@@ -40,13 +40,7 @@ const rows = {
 export function RoleSettings() {
   const note = useNotConnectedNote();
   return (
-    <SettingSection
-      label="Roles"
-      anchor="roles"
-      card
-      scope="daemon"
-      note={note}
-    >
+    <SettingSection label="Roles" anchor="roles" card scope="daemon" note={note}>
       {runRoles.map((role) => (
         <RoleRow key={role} role={role} />
       ))}
