@@ -1,5 +1,5 @@
 import { isSecretKey } from "@ace/redaction";
-import { errorSummary, ownData } from "./error-summary.ts";
+import { errorSummary, ownData, stackFrames } from "./error-summary.ts";
 class Fields {
   entries: readonly (readonly [string, unknown])[];
   constructor(entries: readonly (readonly [string, unknown])[]) {
@@ -42,6 +42,8 @@ function preparedError(error: unknown, redact: (text: string) => string): object
   const causeSummary = cause ? errorSummary(cause, redact) : undefined;
   const code = errcode(error);
   const causeCode = errcode(cause);
+  const stack = stackFrames(error, redact);
+  const causeStack = stackFrames(cause, redact).slice(0, 4);
   return logFields([
     ["message", summary.message],
     ...(summary.code === undefined ? [] : [["code", summary.code] as const]),
@@ -50,6 +52,8 @@ function preparedError(error: unknown, redact: (text: string) => string): object
     ...(causeSummary ? [["cause", causeSummary.message] as const] : []),
     ...(causeSummary?.code === undefined ? [] : [["causeCode", causeSummary.code] as const]),
     ...(causeCode === undefined ? [] : [["causeErrcode", causeCode] as const]),
+    ...(stack.length ? [["stack", stack] as const] : []),
+    ...(causeStack.length ? [["causeStack", causeStack] as const] : []),
   ]);
 }
 function own(input: object, key: string): unknown {
@@ -66,6 +70,18 @@ function* producerFields(input: object): Iterable<readonly [string, unknown]> {
     const key = own(entry, "0");
     if (typeof key === "string") yield [key, own(entry, "1")];
   }
+}
+/** A producer's own plain record (`{ code, reason }`): its own data fields, in order. */
+function* plainFields(input: object): Iterable<readonly [string, unknown]> {
+  const keys = Object.keys(input);
+  for (let n = 0; n < Math.min(keys.length, 32); n++) {
+    const key = keys[n];
+    if (key !== undefined) yield [key, own(input, key)];
+  }
+}
+function isPlainRecord(input: object): boolean {
+  const prototype: unknown = Object.getPrototypeOf(input);
+  return prototype === Object.prototype || prototype === null;
 }
 /** Enumeration belongs only to standalone export, outside the logger's hot path. */
 function* metadataFields(input: object): Iterable<readonly [string, unknown]> {
@@ -96,6 +112,9 @@ function normalize(
       return safe.length > 2048 ? "<OVERSIZED>" : safe;
     }
     if (input === null || typeof input === "number" || typeof input === "boolean") return input;
+    // Absent stays absent: JSON drops the field rather than recording a placeholder.
+    if (input === undefined) return undefined;
+    if (typeof input === "bigint") return String(input);
     if (typeof input !== "object") return "<UNSUPPORTED>";
     if (seen.has(input)) return "<CYCLE>";
     seen.add(input);
@@ -110,18 +129,21 @@ function normalize(
         result.push(visit(own(input, String(n)), depth + 1));
       return result;
     }
+    let entries: Iterable<readonly [string, unknown]> = fields(input);
     if (fields === producerFields && !(input instanceof Fields)) {
-      const code = ownData(input, "code");
-      if (
-        typeof ownData(input, "message") === "string" ||
-        typeof code === "string" ||
-        typeof code === "number"
-      )
+      // Something carrying a message is an error, whatever its class: summarized, never
+      // enumerated, so its stack, stderr or environment stay out.
+      if (typeof ownData(input, "message") === "string")
         return visit(preparedError(input, redactText), depth + 1);
-      return "<UNPREPARED OBJECT OMITTED>";
+      try {
+        if (!isPlainRecord(input)) return "<UNPREPARED OBJECT OMITTED>";
+        entries = [...plainFields(input)];
+      } catch {
+        return "<UNPREPARED OBJECT OMITTED>";
+      }
     }
     const result: Record<string, unknown> = {};
-    for (const [key, item] of fields(input)) {
+    for (const [key, item] of entries) {
       if (remaining <= 0) break;
       if (key.length > 128 || key.length > characters) {
         remaining--;

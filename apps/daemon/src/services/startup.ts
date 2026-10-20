@@ -233,14 +233,17 @@ export class ServiceStartup {
     resources.onShutdown(() => controller.abort());
     this.context.resources.onShutdown(() => resources.beginShutdown());
     let closing: Promise<void> | undefined;
+    let awaitingDependents = false;
     const close = (): Promise<void> => {
       closing ??= Promise.resolve().then(async () => {
         // Preserve dependency lifetimes while unrelated branches drain together.
+        awaitingDependents = true;
         await Promise.allSettled(
           [...this.cleanups.values()]
             .filter((entry) => entry.dependencies.includes(name))
             .map((entry) => entry.close()),
         );
+        awaitingDependents = false;
         await boundedCleanup(name, resources, this.runtime).catch(async (error: unknown) => {
           this.context.log.log(
             "error",
@@ -258,7 +261,10 @@ export class ServiceStartup {
       return closing;
     };
     this.cleanups.set(name, { dependencies: [...definition.requires, ...definition.after], close });
-    this.context.resources.ownParallel(close);
+    this.context.resources.ownParallel(close, {
+      name: `service ${name}`,
+      pending: () => (awaitingDependents ? ["waiting for dependents"] : resources.pending()),
+    });
     try {
       await bounded(
         name,
