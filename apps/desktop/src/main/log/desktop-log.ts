@@ -1,3 +1,4 @@
+import { isSensitiveField } from "@ace/redaction";
 import type { FileLog } from "./file-log.ts";
 
 export type LogLevel = "info" | "warn" | "error";
@@ -15,6 +16,38 @@ function clip(text: string, limit: number): string {
 const bigints = (_key: string, value: unknown) =>
   typeof value === "bigint" ? value.toString() : value;
 
+type Scalar = string | number | boolean | bigint | null | undefined;
+const scalar = (value: unknown): value is Scalar =>
+  value === null || (typeof value !== "object" && typeof value !== "function");
+
+/**
+ * Flat fields (a stream name, an exit code, a renderer's report) are redacted one value at a
+ * time: each string as prose, so text that only looks like JSON stays readable, and a value
+ * under a secret-named key replaced whole.
+ */
+function flatFields(
+  data: LogData,
+  redact: (text: string) => string,
+): Record<string, unknown> | undefined {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (!scalar(value)) return undefined;
+    const safe =
+      value !== null && value !== undefined && isSensitiveField(key, value)
+        ? "<SECRET>"
+        : typeof value === "string"
+          ? redact(value)
+          : value;
+    Object.defineProperty(result, redact(key), {
+      enumerable: true,
+      configurable: true,
+      writable: true,
+      value: safe,
+    });
+  }
+  return result;
+}
+
 /** The record's data as it is written: redacted, then the fields or a clipped text of them. */
 function fields(
   data: LogData | undefined,
@@ -23,8 +56,9 @@ function fields(
   if (data === undefined) return undefined;
   let text: string;
   try {
-    // Redacted as one serialized text, before clipping, so a cut never leaves half a secret.
-    text = redact(JSON.stringify(data, bigints));
+    // Redacted before serializing and clipping, so a cut never leaves half a secret.
+    const flat = flatFields(data, redact);
+    text = flat ? JSON.stringify(flat, bigints) : redact(JSON.stringify(data, bigints));
   } catch {
     return { value: { unserializable: true }, text: '{"unserializable":true}' };
   }
@@ -42,8 +76,7 @@ export interface DesktopLogOptions {
   now(): number;
   console(level: LogLevel, text: string): void;
   /**
-   * The daemon's diagnostic redactor (`@ace/redaction/diagnostic`). Every message and field
-   * passes through it before anything reaches the console or is queued for the file.
+   * The desktop redactor (`createDesktopRedactor`). Every message and field passes through it before anything reaches the console or is queued for the file.
    */
   redact(text: string): string;
 }
