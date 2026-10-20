@@ -1,10 +1,13 @@
 import { expect, it, onTestFinished } from "vitest";
 import { Client } from "@ace/client";
 import { ScreenClient } from "@ace/client/screen";
-import { ScreenStreamClient, type PortableFrame } from "@ace/client/screen-stream";
+import { ScreenStreamClient, type SourcePicture } from "@ace/client/screen-stream";
 import { DeviceClient } from "@ace/client/devices";
 import { DeviceId, ScreenState, ThreadId, ThreadView } from "@ace/protocol";
 import { FakeDaemon, fakeTransport } from "./index.ts";
+
+/** Let queued pictures draw: a view draws on a later microtask than the one that got it. */
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 function noop() {}
 async function fixture(deviceId = "owner", scopes?: readonly ("read" | "operate" | "admin")[]) {
@@ -146,7 +149,7 @@ it("fake targets enforce eight sessions, holder identity, unprompted foreground,
   expect(f.stream.getSnapshot().states).toEqual([]);
 });
 
-it("fake desktop viewers decode JPEG packets and receive fresh frames after reconnect without replaying input", async () => {
+it("fake desktop viewers get JPEG pictures on the media stream and fresh ones after reconnect without replaying input", async () => {
   const f = await fixture();
   await f.screen.enable(true);
   expect(await f.screen.openApp("com.apple.TextEdit")).toMatchObject({
@@ -154,15 +157,20 @@ it("fake desktop viewers decode JPEG packets and receive fresh frames after reco
     bundleId: "com.apple.TextEdit",
   });
   const state = await f.screen.start({ kind: "app", bundleId: "com.apple.TextEdit" });
-  const frames: PortableFrame[] = [];
-  const stop = f.stream.watchFrames(state.sessionId, (frame) => {
+  const frames: SourcePicture[] = [];
+  const stop = f.stream.watchPictures(state.sessionId, (frame) => {
     frames.push(frame);
+    f.stream.ack(frame);
   });
   onTestFinished(stop);
   await f.stream.request({ op: "subscribe", sessionId: state.sessionId });
-  await Promise.resolve();
-  expect(frames[0]?.header).toMatchObject({ sessionId: state.sessionId, codec: "jpeg" });
-  expect([...(frames[0]?.payload.subarray(0, 2) ?? [])]).toEqual([255, 216]);
+  await settle();
+  expect(frames[0]).toMatchObject({ sourceId: state.sessionId, codec: "jpeg" });
+  expect([...(frames[0]?.bytes.subarray(0, 2) ?? [])]).toEqual([255, 216]);
+  expect(f.daemon.screen.acks.at(-1)).toMatchObject({
+    sessionId: state.sessionId,
+    sequence: frames[0]?.sequence,
+  });
   await f.stream.request({ op: "controller", sessionId: state.sessionId, controller: "human" });
   f.stream.disconnect();
   expect((await f.screen.sessions())[0]?.controller).toBe("none");
@@ -171,7 +179,7 @@ it("fake desktop viewers decode JPEG packets and receive fresh frames after reco
   const prior = frames.length;
   expect(f.stream.getSnapshot().states).toEqual([]);
   await f.stream.request({ op: "subscribe", sessionId: state.sessionId });
-  await Promise.resolve();
+  await settle();
   expect(frames.length).toBe(prior + 1);
 });
 
