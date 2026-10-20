@@ -2,16 +2,17 @@ import { nextFrame } from "./lib/next-frame.ts";
 import type { ClientApi } from "@ace/client";
 import type { MachinePool } from "@ace/client-worker/machines";
 import { frameBatch } from "@ace/client-react";
-import { StrictMode, type ReactNode } from "react";
+import { StrictMode, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { App, AppFrame } from "./app.tsx";
+import { App, AppFrame, createQueryClient } from "./app.tsx";
 import { scheduleMathWarmup } from "./components/markdown/math-warm.ts";
-import { ConnectionGate } from "./app/connection-gate.tsx";
+import { ConnectionGate, type GateConnection } from "./app/connection-gate.tsx";
 import { defaultDaemonUrl, forgetToken, type DaemonTarget } from "./boot/connection-settings.ts";
 import { pairingLinkFromUrl } from "./boot/fragment-handoff.ts";
 import { DaemonConnectionContext } from "./boot/connection.tsx";
 import { createDaemonClient, forgetDaemonIdentity } from "./boot/daemon.ts";
 import { useBrowserMachinePool } from "./boot/machine-pool-boot.ts";
+import { useKeptQueries } from "./boot/kept-queries.ts";
 import {
   desktopConnection,
   desktopDaemon,
@@ -58,12 +59,18 @@ const batch = frameBatch(nextFrame);
 const app = (client: ClientApi, machines?: MachinePool) => (
   <App client={client} storage={local} batch={batch} machines={machines} />
 );
-/** A real daemon's app, with the machine pool this browser has stored for its connection. */
-function DaemonApp(props: { client: ClientApi }) {
+/**
+ * A real daemon's app, with the machine pool this browser has stored for its connection and its
+ * lookups kept between sessions.
+ */
+function DaemonApp(props: { client: ClientApi; connection: GateConnection }) {
   const { pool, ensure } = useBrowserMachinePool(local, session);
+  const [queryClient] = useState(createQueryClient);
+  useKeptQueries(queryClient, props.client, props.connection);
   return (
     <App
       client={props.client}
+      queryClient={queryClient}
       storage={local}
       batch={batch}
       machines={pool}
@@ -71,7 +78,9 @@ function DaemonApp(props: { client: ClientApi }) {
     />
   );
 }
-const daemonApp = (client: ClientApi) => <DaemonApp client={client} />;
+const daemonApp = (client: ClientApi, connection: GateConnection) => (
+  <DaemonApp client={client} connection={connection} />
+);
 const forgetFragment = () => history.replaceState(null, "", location.pathname + location.search);
 
 const pairingLink = pairingLinkFromUrl(new URL(location.href));

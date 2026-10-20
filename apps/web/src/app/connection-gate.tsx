@@ -62,7 +62,13 @@ type Progress =
   | { kind: "connecting" }
   | { kind: "starting" }
   | { kind: "unreachable"; offline: boolean; mismatch?: boolean }
-  | { kind: "ready" };
+  | { kind: "ready"; hostId: string };
+
+/** What the app is opened for: the target it reached and the host that verified itself there. */
+export interface GateConnection {
+  target: DaemonTarget;
+  hostId: string;
+}
 
 function problemOf(code: ClientError["code"] | undefined): ConnectionProblem {
   return code === "auth" || code === "identity" || code === "protocol" || code === "storage"
@@ -99,7 +105,7 @@ export function ConnectionGate(props: {
   /** When the first-attempt deadline runs; injected by tests. */
   schedule?: Schedule;
   onFragmentRead?(): void;
-  children(client: ClientApi): ReactNode;
+  children(client: ClientApi, connection: GateConnection): ReactNode;
 }) {
   const { stores, defaultUrl, createClient, fragment, onFragmentRead } = props;
   const schedule = props.schedule ?? timers;
@@ -237,10 +243,10 @@ export function ConnectionGate(props: {
             });
             stops.push(stopWaiting);
             terminalCloses.identified.then(
-              () => {
+              (hostId) => {
                 identified = true;
                 stopWaiting();
-                if (!replaced && next.state === "ready") progress({ kind: "ready" });
+                if (!replaced && next.state === "ready") progress({ kind: "ready", hostId });
               },
               (error: unknown) => {
                 stopWaiting();
@@ -250,8 +256,8 @@ export function ConnectionGate(props: {
             );
           } else
             void terminalCloses.identified.then(
-              () => {
-                if (!replaced && next.state === "ready") progress({ kind: "ready" });
+              (hostId) => {
+                if (!replaced && next.state === "ready") progress({ kind: "ready", hostId });
               },
               () => {},
             );
@@ -444,8 +450,13 @@ export function ConnectionGate(props: {
   const manually = props.desktop ? edit : undefined;
   return (
     <DaemonConnectionContext.Provider value={connection}>
-      {client && status.kind === "ready" ? (
-        <Fragment key={client.key}>{props.children(client.client)}</Fragment>
+      {client && status.kind === "ready" && client.progress.kind === "ready" ? (
+        <Fragment key={client.key}>
+          {props.children(client.client, {
+            target: client.request.target,
+            hostId: client.progress.hostId,
+          })}
+        </Fragment>
       ) : status.kind === "starting" ? (
         <StartupPending state="starting" onConnectManually={manually} />
       ) : behindSplash ? (
