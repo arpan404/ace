@@ -15,6 +15,7 @@ import {
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { DiffStat } from "@/components/diff-stat.tsx";
+import { PullRequestLink, pullRequestAt } from "@/components/pull-request-link.tsx";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import { PrOwnComment } from "./pr-review-forms.tsx";
 import {
@@ -118,6 +119,22 @@ function CommentBody(props: { comment: ForgeComment; expansion: TimelineExpansio
     </>
   );
 }
+/** Where a reference points: a pull request opens in a tab beside this one, an issue on GitHub. */
+function ReferenceTarget(props: { url: string; pullRequest: boolean; children: ReactNode }) {
+  const className = "hover:underline focus-ring";
+  const pr = props.pullRequest ? pullRequestAt(props.url) : undefined;
+  if (pr)
+    return (
+      <PullRequestLink href={props.url} pr={pr} className={className}>
+        {props.children}
+      </PullRequestLink>
+    );
+  return (
+    <a href={props.url} target="_blank" rel="noreferrer noopener" className={className}>
+      {props.children}
+    </a>
+  );
+}
 function ReferenceLine(props: { reference: PrReference }) {
   const target = props.reference.target;
   if (!target) return <span>mentioned this pull request</span>;
@@ -137,14 +154,9 @@ function ReferenceLine(props: { reference: PrReference }) {
     <span className="min-w-0">
       referenced this in{" "}
       {target.url ? (
-        <a
-          href={target.url}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="hover:underline focus-ring"
-        >
+        <ReferenceTarget url={target.url} pullRequest={target.pullRequest}>
           {label}
-        </a>
+        </ReferenceTarget>
       ) : (
         label
       )}

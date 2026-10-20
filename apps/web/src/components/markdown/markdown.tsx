@@ -6,6 +6,7 @@ import { ThreadReference, ThreadReferenceScope } from "../thread-reference.tsx";
 import { MarkdownImage } from "@/components/attachment-markdown.tsx";
 import { codeSpanClass } from "@/components/inline-markdown.tsx";
 import { FileReferenceLink } from "@/components/file-reference.tsx";
+import { PullRequestLink, pullRequestAt } from "@/components/pull-request-link.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useEdgeFade } from "@/lib/edge-fade.ts";
 import type { MarkdownBlock } from "./blocks.ts";
@@ -92,8 +93,12 @@ function ProseText(props: { text: string }): ReactNode {
   );
 }
 
+const linkClass =
+  "text-link underline decoration-ring/40 underline-offset-[3px] wrap-break-word hover:decoration-current";
+
 function Inline(props: { token: Token }): ReactNode {
   const links = useContext(Links);
+  const scope = useContext(ThreadReferenceScope);
   const token = props.token;
   if (isMathToken(token)) {
     // An opener still waiting for its closer shows as text; invalid TeX falls
@@ -121,13 +126,16 @@ function Inline(props: { token: Token }): ReactNode {
       const href = safeHref(token.href);
       if (!href)
         return <ThreadReference reference={token.href}>{inline(token.tokens)}</ThreadReference>;
+      // A pull request opens in a side panel: the enclosing PR tab's, or the thread's.
+      const pr = pullRequestAt(href);
+      if (pr)
+        return (
+          <PullRequestLink threadId={scope?.threadId} href={href} pr={pr} className={linkClass}>
+            {children}
+          </PullRequestLink>
+        );
       return (
-        <a
-          href={href}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="text-link underline decoration-ring/40 underline-offset-[3px] wrap-break-word hover:decoration-current"
-        >
+        <a href={href} target="_blank" rel="noreferrer noopener" className={linkClass}>
           {children}
         </a>
       );

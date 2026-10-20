@@ -1,5 +1,5 @@
 import * as z from "zod/mini";
-import type { OpenRequest } from "@/lib/workspace/index.ts";
+import type { OpenRequest } from "./model.ts";
 
 /** A pull request tab's identity, kept in local storage: decoded before it reaches a read. */
 export const PullRequestTabData = z.object({

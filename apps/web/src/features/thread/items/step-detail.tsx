@@ -5,6 +5,7 @@ import {
   CollapsibleContent,
 } from "@/components/ui/collapsible.tsx";
 import { MessageAttachments } from "@/components/attachment-message.tsx";
+import { PullRequestLink, pullRequestAt } from "@/components/pull-request-link.tsx";
 import { useAgent, useClient } from "@ace/client-react";
 import type { FileChange, Item, OutputSummary, TodoEntry } from "@ace/protocol";
 import { CheckCircleIcon, CircleHalfIcon, CircleIcon, XCircleIcon } from "@phosphor-icons/react";
@@ -47,6 +48,24 @@ export function StepDetail(props: {
 
 type ToolItem = Extract<Item, { type: "tool_call" }>;
 
+const addressClass = "text-ui break-all text-foreground underline underline-offset-2";
+
+/** The page a fetch read; a pull request's opens in the thread's side panel. */
+function FetchedAddress(props: { url: string; threadId: string | undefined }) {
+  const pr = pullRequestAt(props.url);
+  if (pr)
+    return (
+      <PullRequestLink threadId={props.threadId} href={props.url} pr={pr} className={addressClass}>
+        {props.url}
+      </PullRequestLink>
+    );
+  return (
+    <a href={props.url} target="_blank" rel="noreferrer" className={addressClass}>
+      {props.url}
+    </a>
+  );
+}
+
 function CallDetail(props: { threadId: string; item: ToolItem }) {
   const agent = useAgent(props.threadId, props.item.agentId);
   return (
@@ -75,16 +94,7 @@ function CallBody(props: { item: ToolItem; cwd: string | undefined; threadId?: s
           Searched for <q className="text-foreground">{detail.query}</q>
         </p>
       )}
-      {detail.kind === "web.fetch" && (
-        <a
-          href={detail.url}
-          target="_blank"
-          rel="noreferrer"
-          className="text-ui break-all text-foreground underline underline-offset-2"
-        >
-          {detail.url}
-        </a>
-      )}
+      {detail.kind === "web.fetch" && <FetchedAddress url={detail.url} threadId={props.threadId} />}
       {(detail.kind === "todo" || detail.kind === "plan") && (
         <>
           {detail.kind === "plan" && detail.markdown && (

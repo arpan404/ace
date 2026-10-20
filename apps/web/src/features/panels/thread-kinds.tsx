@@ -11,7 +11,7 @@ import {
 } from "@phosphor-icons/react";
 import { ComputerUseIcon } from "@/components/ace-icons.tsx";
 import { ChangesSkeleton, FilesSkeleton } from "./tab-skeletons.tsx";
-import { defineTabKind, type TabKind } from "@/lib/workspace/index.ts";
+import { defineTabKind, PullRequestTabData, type TabKind } from "@/lib/workspace/index.ts";
 import { addressHost } from "@ace/ui-core";
 import { PullRequestGlyph } from "@/components/pull-request-state.tsx";
 import { LoadingBadge } from "./browser/loading-badge.tsx";
@@ -23,7 +23,6 @@ import { QuickOpenOverlay } from "./files/quick-open-overlay.tsx";
 import { quickOpen } from "./files/quick-open-store.ts";
 import { fileTabId } from "./files/tab-id.ts";
 import { logsKind } from "./logs/logs-kind.tsx";
-import { PullRequestTabData } from "./pull-request-tab.ts";
 import { shellKind, terminalKind } from "./terminal/terminal-kinds.tsx";
 import { visualizationKind } from "@/features/visualization/index.ts";
 

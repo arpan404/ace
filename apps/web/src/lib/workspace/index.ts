@@ -44,6 +44,7 @@ export { defaultBottomSize, defaultSize, WorkspaceStore, type ClosedTab } from "
 export { allTabs, bottomOf, isShowing, locateTab, placeOf, type PanelPlace } from "./places.ts";
 
 export { fileTab, fileTabId } from "./file-tab.ts";
+export { pullRequestTab, PullRequestTabData } from "./pull-request-tab.ts";
 export { tabDragType } from "./drag.ts";
 
 export { attachWorkspaceScroll } from "./scroll.ts";

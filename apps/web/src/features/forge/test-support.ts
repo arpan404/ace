@@ -1,5 +1,5 @@
 import type { ForgeRepository } from "@ace/protocol";
-import { pullRequestTab } from "@/features/panels/index.ts";
+import { pullRequestTab } from "@/lib/workspace/index.ts";
 import type { harness } from "@/test/harness.tsx";
 
 /** The thread whose side panel shows the pull request: the tab names its own project. */
