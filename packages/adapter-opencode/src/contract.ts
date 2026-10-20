@@ -17,7 +17,13 @@ import {
  * moves or drops one of these operations is still refused, naming what changed.
  */
 export const minimumVersion = cliRequirements.opencode.minimum;
-export const supportedRange = `OpenCode 2.0.x, ${minimumVersion} or newer`;
+/**
+ * The 2.x minor lines whose servers ace has run against. 2.1 kept every route and event ace
+ * reads; it renamed only opaque provider state (`state`/`providerState`/`resultState` to
+ * `native`), which ace redacts and never decodes.
+ */
+const checkedMinors: ReadonlySet<number> = new Set([0, 1]);
+export const supportedRange = `OpenCode 2.0.x or 2.1.x, ${minimumVersion} or newer`;
 
 export const requiredRoutes: Readonly<Record<string, string>> = {
   "server.info": "GET /api/info",
@@ -42,13 +48,13 @@ export const requiredRoutes: Readonly<Record<string, string>> = {
   "model.list": "GET /api/model",
 };
 
-/** The 2.0 release line, whose API ace drives; a newer line is a different contract, not "too old". */
+/** A release line ace has checked; a newer line is a different contract, not "too old". */
 function checkedLine(value: string): boolean {
   const parsed = parseCliVersion(value);
-  return parsed?.major === 2 && parsed.minor === 0 && !parsed.prerelease.length;
+  return parsed?.major === 2 && checkedMinors.has(parsed.minor) && !parsed.prerelease.length;
 }
 
-/** True for OpenCode 2.0.x at or above the minimum; the contract probe decides the rest. */
+/** True for a checked OpenCode line at or above the minimum; the contract probe decides the rest. */
 export function version(value: unknown): boolean {
   return typeof value === "string" && admitsVersion("opencode", value) && checkedLine(value);
 }

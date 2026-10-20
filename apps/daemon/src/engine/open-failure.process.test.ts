@@ -102,6 +102,39 @@ test("structured open failures reach diagnostics and stored notices with the sam
   }
 });
 
+test("a CLI version ace refuses holds the message under that reason, not a connection hint", async () => {
+  const h = await harness([], scriptFrames());
+  try {
+    h.registry.register(
+      {
+        ...h.adapter,
+        async openSession() {
+          throw {
+            code: "cli_unsupported",
+            title: "OpenCode startup failed",
+            detail:
+              "OpenCode 2.2.0 is newer than ace has checked; ace supports OpenCode 2.0.x or 2.1.x, 2.0.22 or newer",
+          };
+        },
+      },
+      { installed: true, auth: "logged_in", loginHint: "unused" },
+    );
+    const id = await h.create();
+    expect(h.engine.queue(id)).toMatchObject({
+      paused: true,
+      reason: "not_sent",
+      lastFailure: {
+        code: "cli_unsupported",
+        title:
+          "OpenCode 2.2.0 is newer than ace has checked; ace supports OpenCode 2.0.x or 2.1.x, 2.0.22 or newer",
+      },
+      messages: [{ state: "queued" }],
+    });
+  } finally {
+    await h.close();
+  }
+});
+
 test("why a CLI couldn't start, from its stderr, reaches the failed send's detail, redacted", async () => {
   const warnings: ProviderErrorDetails[] = [];
   const h = await harness([], scriptFrames(), {

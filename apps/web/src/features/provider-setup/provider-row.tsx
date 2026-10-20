@@ -227,7 +227,8 @@ export function ProviderSetupRow({
       {(failed || plan?.needsAdmin || unsupported) && (
         <p className="py-1 text-sm text-muted-foreground">
           {failed
-            ? "The installer couldn't finish. Retry, or open Details to check what happened."
+            ? progress?.message ||
+              "The installer couldn't finish. Retry, or open Details to check what happened."
             : plan?.needsAdmin
               ? "This installer needs administrator approval. Open Details for the official command to run in your terminal."
               : plan?.message}

@@ -99,6 +99,8 @@ test("Settings installs on the list, a failed attempt offers Retry and Details, 
   await within(item()).findByRole("progressbar");
   app.daemon.services.providerInstalls.complete("fake-install-1");
   await within(item()).findByRole("button", { name: "Retry" });
+  // The daemon's own reason, not a generic line, says why the attempt failed.
+  expect(within(item()).getByText("The official installer failed. Try again.")).toBeTruthy();
   await userEvent.click(within(item()).getByRole("button", { name: "Codex installation details" }));
   expect(within(item()).getByLabelText("Codex redacted installation log").textContent).toContain(
     "Downloading official package",

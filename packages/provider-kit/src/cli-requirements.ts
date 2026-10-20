@@ -41,7 +41,7 @@ export const cliRequirements = {
     name: "OpenCode",
     minimum: "2.0.22",
     reason:
-      "The v2 HTTP API of @opencode/client 2.0.22, including session.inbox.delivered events (fixtures/opencode/2.0.22). Newer lines are checked against the served OpenAPI document instead.",
+      "The v2 HTTP API of @opencode/client 2.0.22, including session.inbox.delivered events (fixtures/opencode/2.0.22). The 2.0 and 2.1 lines are admitted and each server's OpenAPI document is probed; other lines are refused until checked.",
     verified: true,
   },
   pi: {

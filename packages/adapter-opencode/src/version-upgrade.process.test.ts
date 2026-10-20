@@ -7,7 +7,7 @@ const release = (version: string, env: Record<string, string> = {}) => ({
   discovery: { env: { ACE_TEST_RELEASE: `release-${version}`, ...env } },
 });
 
-test.each(["2.0.22", "2.0.26", "2.0.27", "2.0.28"])(
+test.each(["2.0.22", "2.0.26", "2.0.27", "2.0.28", "2.1.0", "2.1.1"])(
   "%s recovers a dropped stream on its verified server generation",
   async (version) => {
     const h = await setup(release(version));
@@ -65,10 +65,10 @@ test.each(["2.0.21", "1.18.33"])(
 );
 
 test("a newer OpenCode line ace hasn't checked is refused as unsupported, never as too old", async () => {
-  await expect(setup(release("2.1.0"))).rejects.toMatchObject({
+  await expect(setup(release("2.2.0"))).rejects.toMatchObject({
     code: "cli_unsupported",
     message: expect.stringContaining(
-      "OpenCode 2.1.0 is newer than ace has checked; ace supports OpenCode 2.0.x, 2.0.22 or newer",
+      "OpenCode 2.2.0 is newer than ace has checked; ace supports OpenCode 2.0.x or 2.1.x, 2.0.22 or newer",
     ),
   });
 });
