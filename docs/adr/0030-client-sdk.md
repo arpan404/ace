@@ -151,3 +151,26 @@ widen what is kept and say when it goes.
   to the connection screen; `auth` and `identity` refusals also forget the known host, so the
   next load waits for an answer. A different host identifying itself reopens the app for it
   (fresh caches), and becomes the known host.
+
+## Amendment 2026-10-19: sidebar filter switches
+
+Switching the sidebar's project filter, or opening Archived, showed a skeleton until the
+daemon's snapshot for the new filter arrived, a long wait on a slow link. The sidebar now paints
+what it already holds for that filter (`packages/client/src/sidebar-memory.ts`):
+
+- **Remembered.** Each list a filter leaves is kept in memory for the session, one per half
+  (Home or archive) and project: the last 8, and at most 2,000 rows between them, least
+  recently used dropped. Switching back paints it at once.
+- **Derived.** A project never seen this session paints the rows of the remembered
+  all-projects list (same half) whose `workspaceId` is that project. No rows derives nothing
+  unless that list was whole (its window had nothing before it). With no all-projects list
+  remembered (widening to all, say, in a session that started on one project) nothing is
+  derived: the filter's disk record or the skeleton waits as before.
+- **Provisional.** Either kind of list is `unconfirmed` (rows say "Syncing") and `syncing`
+  until the subscription's snapshot replaces it, and carries no `window`, so nothing pages
+  from it. The filter's disk record replaces a derived list but not a remembered or live one.
+  A derived list is never written to disk as the filter's record, nor remembered as the
+  project's own. Wire ids and the per-filter snapshot binding still fence late snapshots and
+  records for the previous filter.
+- **Held skeletons.** Home's list and the archive show their skeleton only once loading has
+  lasted `statusDelayMs` (`useHeld`), so a switch that resolves quickly never flashes one.
