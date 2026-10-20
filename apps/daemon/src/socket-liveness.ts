@@ -32,7 +32,7 @@ export function clientAgent(userAgent: string | undefined): ClientAgent {
   if (/\bElectron\//.test(userAgent)) return "desktop";
   if (/\bCFNetwork\/|\bDarwin\//.test(userAgent) && !/Mozilla\//.test(userAgent)) return "ios";
   if (/\bokhttp\/|\bDalvik\//.test(userAgent)) return "android";
-  if (/^Mozilla\//.test(userAgent)) return "browser";
+  if (userAgent.startsWith("Mozilla/")) return "browser";
   return "other";
 }
 

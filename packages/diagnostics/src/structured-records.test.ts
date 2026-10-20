@@ -15,7 +15,13 @@ async function persisted(write: (logger: ReturnType<typeof createLogger>) => voi
   write(logger);
   await logger.close();
   const text = await readFile(join(directory, "ace.jsonl"), "utf8");
-  return { text, records: text.trim().split("\n").map((line) => JSON.parse(line)) };
+  return {
+    text,
+    records: text
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line)),
+  };
 }
 
 it("a WebSocket heartbeat loss is logged with its code, reason, duration and client", async () => {

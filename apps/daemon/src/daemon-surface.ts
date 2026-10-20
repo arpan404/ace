@@ -103,6 +103,7 @@ export function daemonHandle({
   store,
   cliControl,
   log,
+  pendingShutdown,
   close,
 }: {
   server: Awaited<ReturnType<typeof startServer>>;
@@ -113,6 +114,7 @@ export function daemonHandle({
   store: Store;
   cliControl: ReturnType<typeof createCliControl>;
   log: ServiceContext["log"];
+  pendingShutdown: () => string[];
   close: (reason?: StopReason) => Promise<void>;
 }) {
   return {
@@ -183,6 +185,8 @@ export function daemonHandle({
       return requireService(services.mcp, "mcp");
     },
     log,
+    /** What a shutdown in progress still waits on, by name. */
+    pendingShutdown,
     close,
   };
 }

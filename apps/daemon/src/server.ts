@@ -496,6 +496,8 @@ export async function startServer(options: ServerOptions): Promise<{
     throw error;
   }
   const closingStages = new Set<string>();
+  const stage = <T>(name: string, task: Promise<T> | undefined) =>
+    trackStage(closingStages, name, task);
   return {
     pendingShutdown: () => [...closingStages],
     ...(preview ? { preview } : {}),
@@ -540,8 +542,6 @@ export async function startServer(options: ServerOptions): Promise<{
             socket.close(1001, "Daemon shutdown");
             socket.terminate();
           }
-        const stage = <T,>(name: string, task: Promise<T> | undefined) =>
-          trackStage(closingStages, name, task);
         void Promise.all([
           stage("local listener", closeListener(local)),
           ...(remote ? [stage("remote listener", closeListener(remote))] : []),
