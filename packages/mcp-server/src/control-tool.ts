@@ -62,6 +62,8 @@ export function controlTool<I extends z.ZodObject>(
         // The envelope (`ok`, `code`, `hint`, open `data`) told a model nothing the result
         // does not; each tool still validates its own data shape.
         advertisedOutput: null,
+        // A refusal is a result with a code and hint, and still a failed call to the client.
+        failed: (result) => result["ok"] === false,
         maxInputBytes: maxInputBytes ?? maxControlInputBytes,
         run: (input, context) =>
           run(input, {

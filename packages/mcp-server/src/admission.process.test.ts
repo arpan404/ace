@@ -87,7 +87,10 @@ for (const limit of ["tools", "HTTP"] as const) {
       else {
         expect(denied.status).toBe(200);
         expect(await denied.json()).toMatchObject({
-          result: { isError: true, content: [{ text: "Tool capacity reached" }] },
+          result: {
+            isError: true,
+            content: [{ text: expect.stringContaining('"code":"calls_limit"') }],
+          },
         });
       }
       expect(effects).toEqual(["first"]);

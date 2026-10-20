@@ -3,7 +3,8 @@ import { PublicToolError } from "@ace/mcp-server/errors";
 export class BrowserOriginError extends PublicToolError {
   readonly blocked: BrowserOriginBlock;
   constructor(origin: string, reason: BrowserOriginBlock["reason"], message: string) {
-    super(reason);
+    // Only a pending site approval runs out of time: the person did not answer.
+    super(reason === "timeout" ? "approval_timeout" : reason);
     void message;
     this.blocked = { origin: origin.slice(0, 8192), reason };
   }

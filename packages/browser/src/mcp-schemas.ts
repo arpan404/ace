@@ -274,6 +274,12 @@ export const browserFindShape = {
     .max(1024)
     .optional()
     .describe("Accessible name; a case-insensitive substring unless exact is true."),
+  query: z
+    .string()
+    .min(1)
+    .max(1024)
+    .optional()
+    .describe("Same as name, as other *_find tools spell it."),
   exact: z.boolean().default(false).describe("Match the whole name exactly."),
   text: z
     .string()

@@ -1,5 +1,5 @@
 import { inputTooLarge, parseToolArguments, toolFailure } from "./tool-failure.ts";
-import { PublicToolError } from "./public-error.ts";
+import { PublicToolError, type PublicToolCode } from "./public-error.ts";
 import { maxStructuredResultBytes } from "./result-budgets.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
 import { describeAceAction } from "./action-target.ts";
@@ -95,6 +95,11 @@ export interface ToolDefinition<I extends z.ZodObject, O extends z.ZodObject> ex
   advertisedOutput?: z.ZodObject | null;
   /** Trusted definition override; ordinary tools remain capped at 64 KiB. */
   maxInputBytes?: number;
+  /**
+   * Whether a result the tool returned (rather than threw) reports a failure, so the client
+   * shows the call as failed (`isError`) while the agent still reads its code and hint.
+   */
+  failed?: (result: z.output<O>) => boolean;
   run(input: z.output<I>, context: ToolContext): Promise<z.input<O>>;
 }
 export interface Scheduler {
@@ -134,10 +139,8 @@ interface Entry {
   timeoutMs: number;
   execute(input: unknown, context: ToolContext): Promise<CallToolResult>;
 }
-const failure = (text: string): CallToolResult => ({
-  isError: true,
-  content: [{ type: "text", text }],
-});
+/** A failure the registry itself decides: a fixed public code with its next step. */
+const failure = (code: PublicToolCode): CallToolResult => toolFailure(new PublicToolError(code));
 
 export class ToolRegistry {
   private entries = new Map<string, Entry>();
@@ -190,14 +193,18 @@ export class ToolRegistry {
         async execute(value, context) {
           const maxInput = definition.maxInputBytes ?? 64 * 1024;
           if (!withinJsonBudget(value, maxInput)) throw inputTooLarge(maxInput);
-          const args = parseToolArguments(input, value);
+          const args = parseToolArguments(input, value, bareToolName(name));
           context.signal.throwIfAborted();
           const result = await definition.run(args, context);
           if (!withinJsonBudget(result, maxStructuredResultBytes)) throw new ResultBudgetExceeded();
           const structuredContent = output.parse(result);
           const text = JSON.stringify(structuredContent);
           if (Buffer.byteLength(text) > maxStructuredResultBytes) throw new ResultBudgetExceeded();
-          return { content: [{ type: "text", text }], structuredContent };
+          return {
+            ...(definition.failed?.(structuredContent) ? { isError: true } : {}),
+            content: [{ type: "text", text }],
+            structuredContent,
+          };
         },
       },
     );
@@ -377,7 +384,7 @@ export class ToolRegistry {
     requestSignal: AbortSignal,
     options: { listing?: ToolListing; session?: SessionTools } = {},
   ): Promise<CallToolResult> {
-    if (principal.signal.aborted) return failure("Session ended");
+    if (principal.signal.aborted) return failure("session_ended");
     const { sessionId, threadId, agentId } = principal.scope;
     const controller = new AbortController();
     const signal = AbortSignal.any([principal.signal, requestSignal, controller.signal]);
@@ -405,8 +412,8 @@ export class ToolRegistry {
       this.active >= this.maxCalls ||
       (this.activeThreads.get(threadId) ?? 0) >= this.maxCallsPerThread
     )
-      return finish(failure("Tool capacity reached"));
-    if (signal.aborted) return finish(failure("Tool cancelled"));
+      return finish(failure("calls_limit"));
+    if (signal.aborted) return finish(failure("cancelled"));
     this.active++;
     this.activeThreads.set(threadId, (this.activeThreads.get(threadId) ?? 0) + 1);
     let executionSettled = false;
@@ -419,7 +426,7 @@ export class ToolRegistry {
         else this.activeThreads.delete(threadId);
       }
     };
-    let reason = "Tool cancelled";
+    let reason: PublicToolCode = "cancelled";
     let stopTimer: () => void = noop;
     let stopAbort: () => void = noop;
     const stopped = new Promise<CallToolResult>((resolve) => {
@@ -427,7 +434,7 @@ export class ToolRegistry {
       signal.addEventListener("abort", abort, { once: true });
       stopAbort = () => signal.removeEventListener("abort", abort);
       stopTimer = this.scheduler.after(entry.timeoutMs, () => {
-        reason = "Tool timed out";
+        reason = "tool_timeout";
         controller.abort();
       });
     });
@@ -435,7 +442,7 @@ export class ToolRegistry {
       .then(() => entry.execute(input, { ...context, signal }))
       .catch((error: unknown) =>
         error instanceof ResultBudgetExceeded
-          ? failure("Tool result too large")
+          ? failure("result_too_large")
           : toolFailure(error, this.report(entry.name, context.caller, error)),
       )
       .finally(() => {

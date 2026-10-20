@@ -315,7 +315,10 @@ const pageTools: Tool[] = [
     input: browserFindShape,
     timeoutMs: 60_000,
     run: (args, caller, port, signal) => {
-      const { text, ...query } = args;
+      const { text, query: words, ...named } = args;
+      // `query` is how every other *_find tool names its search words; here it is the name.
+      const query =
+        named["name"] === undefined && words !== undefined ? { ...named, name: words } : named;
       if (typeof text === "string")
         return run(port, caller, signal, "find_text", {
           text,

@@ -76,7 +76,10 @@ it("revocation aborts a running tool and prevents a late success", async () => {
   expect(await result).toMatchObject({ isError: true });
   expect(
     await h.registry.call("ace_wait", {}, lease.principal, new AbortController().signal),
-  ).toMatchObject({ isError: true, content: [{ text: "Session ended" }] });
+  ).toMatchObject({
+    isError: true,
+    content: [{ text: expect.stringContaining('"code":"session_ended"') }],
+  });
 });
 
 it("timeouts abort the tool using an injected timer and suppress late results", async () => {
@@ -108,7 +111,10 @@ it("timeouts abort the tool using an injected timer and suppress late results", 
   const result = client.callTool({ name: "ace_wait" });
   await started.promise;
   (await timerReady.promise)();
-  expect(await result).toMatchObject({ isError: true, content: [{ text: "Tool timed out" }] });
+  expect(await result).toMatchObject({
+    isError: true,
+    content: [{ text: expect.stringContaining('"code":"tool_timeout"') }],
+  });
   await aborted.promise;
 });
 
@@ -143,10 +149,13 @@ it("retains capacity for a backend that ignores timeout until it finishes", asyn
   const signal = new AbortController().signal;
   const first = registry.call("ace_wait", {}, lease.principal, signal);
   (await timer.promise)();
-  expect(await first).toMatchObject({ isError: true, content: [{ text: "Tool timed out" }] });
+  expect(await first).toMatchObject({
+    isError: true,
+    content: [{ text: expect.stringContaining('"code":"tool_timeout"') }],
+  });
   expect(await registry.call("ace_wait", {}, lease.principal, signal)).toMatchObject({
     isError: true,
-    content: [{ text: "Tool capacity reached" }],
+    content: [{ text: expect.stringContaining('"code":"calls_limit"') }],
   });
   release.resolve();
   await finished.promise;
@@ -231,7 +240,7 @@ it("rejects oversized, cyclic and deeply nested results before output validation
   for (const kind of ["large", "cycle", "deep"])
     expect(await client.callTool({ name: "ace_large", arguments: { kind } })).toMatchObject({
       isError: true,
-      content: [{ text: "Tool result too large" }],
+      content: [{ text: expect.stringContaining('"code":"result_too_large"') }],
     });
   expect(await client.callTool({ name: "ace_large", arguments: { kind: "small" } })).toMatchObject({
     structuredContent: { data: "small" },
@@ -277,7 +286,10 @@ it("expiry revokes credentials and aborts an in-flight tool before a late result
   await started.promise;
   (await deadline.promise)();
   await aborted.promise;
-  expect(await result).toMatchObject({ isError: true, content: [{ text: "Tool cancelled" }] });
+  expect(await result).toMatchObject({
+    isError: true,
+    content: [{ text: expect.stringContaining('"code":"cancelled"') }],
+  });
   expect(credentials.authenticate(lease.bearer)).toBeUndefined();
 });
 
