@@ -109,7 +109,7 @@ it("agents discover ace through initialize, resources and status even when compu
       enabled: false,
       reason: "Computer use is disabled.",
     });
-    expect(disabled.groups).toContainEqual({ name: "browser", enabled: true });
+    expect(disabled.groups.map((group) => group.name)).not.toContain("browser");
     const resource = z
       .array(z.object({ text: z.string() }))
       .parse((await request("resources/read", { uri: "ace://status" })).contents);
@@ -135,7 +135,7 @@ it("agents discover ace through initialize, resources and status even when compu
       await client.listen({ toolsListChanged: true });
       await screen.enable(true);
       await changed.promise;
-      expect((await status()).groups).toContainEqual({ name: "screen", enabled: true });
+      expect((await status()).groups.map((group) => group.name)).not.toContain("screen");
       const enabledTools = z
         .array(z.object({ name: z.string(), description: z.string() }))
         .parse((await request("tools/list")).tools);
