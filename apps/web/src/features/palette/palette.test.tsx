@@ -36,6 +36,30 @@ test("⌘K finds a thread by its branch and opens it", async () => {
   expect(screen.queryByRole("combobox", { name: "Search commands" })).toBeNull();
 });
 
+test("moving the highlight to a thread follows it before it is opened", async () => {
+  const app = await openApp();
+  const search = await palette();
+  await userEvent.type(search, "app-server");
+  await waitFor(() => {
+    expect(options().some((text) => text.includes("Retry budget for app-server restarts"))).toBe(
+      true,
+    );
+    expect(options().some((text) => text.includes("Bump Codex app-server to 0.48"))).toBe(true);
+  });
+  await waitFor(() =>
+    expect(app.client.cachedThread?.("thread-bump-codex")?.thread?.title).toBe(
+      "Bump Codex app-server to 0.48",
+    ),
+  );
+  expect(app.client.cachedThread?.("thread-retry-budget")?.thread).toBeUndefined();
+  await userEvent.keyboard("{ArrowDown}");
+  await waitFor(() =>
+    expect(app.client.cachedThread?.("thread-retry-budget")?.thread?.title).toBe(
+      "Retry budget for app-server restarts",
+    ),
+  );
+});
+
 test("typing finds threads that are absent from the empty palette", async () => {
   await openApp();
   const search = await palette();

@@ -360,7 +360,12 @@ export class BrowserSession {
     signal?: AbortSignal,
   ): Promise<void> {
     await this.swap(backend, kind, signal);
-    for (const tab of this.tabs.all()) tab.refs.restarted();
+    for (const tab of this.tabs.all()) {
+      tab.refs.restarted();
+      // Fresh pages run: a frozen tab is live again, a discarded one only if it reopened.
+      if (tab.lifecycle !== "live")
+        tab.lifecycle = backend.tabs?.discarded?.(tab.id) ? "discarded" : "live";
+    }
     this.pageStateLost = true;
     this.reason = "The page was reopened after the browser disconnected";
     this.emit();
@@ -843,6 +848,16 @@ export class BrowserSession {
   /** The thread's tabs as a restore brings them back: ids, addresses, labels, order. */
   tabRecords(): import("./tab-store.ts").BrowserTabRecord[] {
     return this.tabs.records();
+  }
+  /** The tabs a recovering backend reopens: each with its id and address, discarded ones so. */
+  restoreEntries(): import("./backend.ts").BackendRestoreTab[] {
+    return this.tabs
+      .records()
+      .map(({ tabId, url }) =>
+        this.tabs.find(tabId)?.lifecycle === "discarded"
+          ? { tabId, url, discarded: true }
+          : { tabId, url },
+      );
   }
   /** The tab an agent's next command without `tabId` would use, with its address. */
   currentTab(actor: Actor): { tabId: string; url: string; title: string } {

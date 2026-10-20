@@ -15,8 +15,7 @@ import {
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { DiffStat } from "@/components/diff-stat.tsx";
-import { MessageAvatar } from "@/components/ui/message.tsx";
-import { PrTime } from "./pr-presentation.tsx";
+import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import { PrOwnComment } from "./pr-review-forms.tsx";
 import {
   eventText,
@@ -43,23 +42,8 @@ const lifecycleWords: Record<PrLifecycleState, { text: string; tone: string }> =
 };
 
 function Avatar(props: { name: string; url?: string | undefined; small?: boolean }) {
-  const url = props.url?.startsWith("https://") ? props.url : undefined;
   return (
-    <MessageAvatar className={cn("self-center", props.small ? "size-5 min-w-5" : "size-8")}>
-      {url ? (
-        <img
-          src={url}
-          alt={props.name}
-          className="size-full object-cover"
-          loading="lazy"
-          referrerPolicy="no-referrer"
-        />
-      ) : (
-        <span aria-label={props.name} className="text-xs">
-          {props.name.slice(0, 1).toUpperCase()}
-        </span>
-      )}
-    </MessageAvatar>
+    <PrAvatar name={props.name} url={props.url} className={props.small ? undefined : "size-8"} />
   );
 }
 function IconMarker(props: { icon: ComponentType<IconProps>; tone?: string | undefined }) {

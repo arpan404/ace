@@ -1,4 +1,5 @@
 import type { DeviceInput } from "@ace/protocol/devices";
+import { refuseAndroidKey } from "./key-support.ts";
 import { DeviceError } from "./sdk.ts";
 import {
   clipboardTextLimit,
@@ -42,7 +43,11 @@ export function scrcpyInputPlan(
     pointerId = 0,
     delayMs = 0,
   ): InputStep => {
-    if (x < 0 || y < 0 || x >= display.width || y >= display.height)
+    // Points are the picture's own pixels over one factor. Its sides are rounded separately,
+    // so its height in points can pass the display's: the bound is the picture, not the display.
+    const videoX = x * factor;
+    const videoY = y * factor;
+    if (videoX < 0 || videoY < 0 || videoX >= video.width || videoY >= video.height)
       throw new DeviceError(
         "invalid_data",
         "Input is outside the device screen",
@@ -54,8 +59,8 @@ export function scrcpyInputPlan(
         type: "touch",
         action,
         pointerId: BigInt(pointerId),
-        x: x * factor,
-        y: y * factor,
+        x: videoX,
+        y: videoY,
         screen: video,
         pressure: action === "up" || action === "cancel" ? 0 : 1,
       },
@@ -129,6 +134,13 @@ export function scrcpyInputPlan(
           return press(keycode.power);
         case "recents":
           return press(keycode.appSwitch);
+        case "volumeUp":
+          return press(keycode.volumeUp);
+        case "volumeDown":
+          return press(keycode.volumeDown);
+        case "action":
+        case "side":
+          return refuseAndroidKey(input.key);
       }
   }
 }

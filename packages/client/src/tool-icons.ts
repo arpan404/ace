@@ -1,16 +1,17 @@
-import type { IconRef, IconsReadResponse, IconsResolveResponse, ThreadId } from "@ace/protocol";
+import type { IconRef, IconResult, IconsReadResponse, ThreadId } from "@ace/protocol";
 
 /*
  * The site and app icons browser and computer-use rows show, as the daemon resolved them on its
  * own host for the thread's recorded steps: asked for in batches by step (`icons.resolve`), each
  * PNG read once by its content hash (`icons.read`) and kept as a data URL in a bounded cache.
  * Never fetched from the site itself. A lookup that failed in a way that may pass is asked again
- * after a while, never remembered as "no icon".
+ * after a while, never remembered as "no icon". The same cache holds people's avatars: there the
+ * group is a fixed name and each id an avatar URL (`avatars.resolve`).
  */
 
-export interface ToolIconCacheOptions {
-  /** `icons.resolve` for up to 32 of a thread's steps. */
-  resolve(threadId: ThreadId, itemIds: string[]): Promise<IconsResolveResponse>;
+export interface ToolIconCacheOptions<Group extends string = ThreadId> {
+  /** `icons.resolve` for up to 32 of a group's ids (a thread's steps), one result per id. */
+  resolve(group: Group, ids: string[]): Promise<{ icons: IconResult[] }>;
   /** `icons.read` for one resolved icon. */
   read(ref: IconRef): Promise<IconsReadResponse>;
   /** Icons kept at once; the least recently shown go first. */
@@ -30,17 +31,17 @@ export type IconImage = string | null | undefined;
 
 const stepKey = (threadId: string, itemId: string) => `${threadId}\u0000${itemId}`;
 
-export class ToolIconCache {
+export class ToolIconCache<Group extends string = ThreadId> {
   private readonly images = new Map<string, string | null>();
   private readonly byRef = new Map<IconRef, Promise<string | undefined>>();
   private readonly loading = new Set<string>();
   /** Steps whose icon may come later, and when to ask again. */
   private readonly retryAt = new Map<string, number>();
-  private readonly queue = new Map<ThreadId, Set<string>>();
+  private readonly queue = new Map<Group, Set<string>>();
   private readonly listeners = new Set<() => void>();
-  private readonly options: ToolIconCacheOptions;
+  private readonly options: ToolIconCacheOptions<Group>;
   private scheduled = false;
-  constructor(options: ToolIconCacheOptions) {
+  constructor(options: ToolIconCacheOptions<Group>) {
     this.options = options;
   }
 
@@ -59,7 +60,7 @@ export class ToolIconCache {
   }
 
   /** Ask for a step's icon unless it is known, on its way or due later. `ref` skips resolving. */
-  load(threadId: ThreadId, itemId: string, ref?: IconRef): void {
+  load(threadId: Group, itemId: string, ref?: IconRef): void {
     const id = stepKey(threadId, itemId);
     if (this.images.has(id) || this.loading.has(id)) return;
     if ((this.retryAt.get(id) ?? 0) > this.now()) return;
@@ -118,7 +119,7 @@ export class ToolIconCache {
       const ids = [...steps];
       for (let start = 0; start < ids.length; start += 32) {
         const batch = ids.slice(start, start + 32);
-        let icons: IconsResolveResponse["icons"];
+        let icons: IconResult[];
         try {
           icons = (await this.options.resolve(threadId, batch)).icons;
         } catch {

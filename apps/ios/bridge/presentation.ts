@@ -3,6 +3,7 @@ import { threadAttention } from "@ace/projection";
 import { mobileStatus, transcriptRowContent } from "@ace/ui-core/mobile";
 import type { ThreadReader } from "@ace/client";
 import {
+  inputLine,
   parseDelegationResults,
   projectBadge,
   settledResults,
@@ -38,6 +39,14 @@ function settledInput(item: Item) {
   return input?.kind === "subagent_result" ? input : undefined;
 }
 
+// Handoffs keep their divider; any other ace input with a line reads as a quiet notice.
+function quietLine(item: Item) {
+  if (item.type !== "message") return undefined;
+  const input = systemInput(item);
+  if (!input || input.kind === "subagent_result" || input.kind === "handoff") return undefined;
+  return inputLine(input);
+}
+
 export function threadRow(thread: Thread | ThreadListEntry) {
   return {
     id: thread.id,
@@ -69,7 +78,8 @@ export function itemRow(item: Item, index?: number, sourceTruncated = false) {
   let text = content.text;
   // A settled delegation is ace's input on either delivery path, never the person's bubble.
   const input = settledInput(item);
-  const role = item.type === "message" && !input ? item.role : "";
+  const line = quietLine(item);
+  const role = item.type === "message" && !input && !line ? item.role : "";
   if (item.type === "tool_call") text = item.call.title;
   else if (item.type === "reasoning") text = item.text;
   else if (item.type === "delegation.started") text = item.title;
@@ -80,6 +90,7 @@ export function itemRow(item: Item, index?: number, sourceTruncated = false) {
       sourceTruncated || !item.complete
         ? "Delegated results available"
         : (settledMessageText(input.text) ?? "Delegated results available");
+  else if (line) text = line.text;
   else if (
     item.type !== "message" &&
     item.type !== "html" &&
@@ -93,7 +104,7 @@ export function itemRow(item: Item, index?: number, sourceTruncated = false) {
     quiet: content.quiet,
     id: item.id,
     index: index ?? null,
-    type: input ? "delegation.settled" : item.type,
+    type: input ? "delegation.settled" : line ? "notice" : item.type,
     role,
     text: host.previewTail(text, 8192),
     complete: item.complete,

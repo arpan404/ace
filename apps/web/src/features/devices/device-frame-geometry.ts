@@ -24,10 +24,8 @@ export interface FrameGeometry {
   /** The body's corner radius, as a fraction of the screen's width. */
   bodyRadius: number;
   cutout: Cutout;
-  /** A round home button under the screen (older iPhones). */
+  /** A round home button under the screen (older iPhones), in the bezel the bottom turned to. */
   homeButton: boolean;
-  /** The Digital Crown and side button on the right edge (Apple Watch). */
-  crown: boolean;
 }
 
 /** A frame's size in points (input and geometry use points; frames carry pixels). */
@@ -64,7 +62,6 @@ export function frameGeometry(kind: DeviceKind, name: string, screen: Size): Fra
     bodyRadius: (screenRadius + bezel) * short,
     cutout: { kind: "none" },
     homeButton: false,
-    crown: false,
   });
   switch (kind) {
     case "iphone": {
@@ -78,7 +75,7 @@ export function frameGeometry(kind: DeviceKind, name: string, screen: Size): Fra
             ? { top: 0.06 * short, right: 0.2 * short, bottom: 0.06 * short, left: 0.2 * short }
             : { top: 0.24, right: 0.06, bottom: 0.24, left: 0.06 },
           bodyRadius: 0.16 * short,
-          homeButton: !landscape,
+          homeButton: true,
         };
       }
       const frame = plain(0.045, 0.14);
@@ -94,7 +91,7 @@ export function frameGeometry(kind: DeviceKind, name: string, screen: Size): Fra
     case "ipad":
       return plain(0.05, 0.035);
     case "watch":
-      return { ...plain(0.1, 0.22), crown: true };
+      return plain(0.1, 0.22);
     case "android-phone": {
       const frame = plain(0.035, 0.09);
       return landscape ? frame : { ...frame, cutout: { kind: "punch", size: 0.03, top: 0.025 } };

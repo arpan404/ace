@@ -57,6 +57,7 @@ import {
   IconsReadRequest,
   IconsReadResponse,
 } from "./turn-steps.ts";
+import { AvatarsResolveRequest, AvatarsResolveResponse } from "./avatars.ts";
 import {
   HostIdentityRequest,
   HostIdentityResult,
@@ -195,6 +196,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   TurnStepsRequest,
   IconsResolveRequest,
   IconsReadRequest,
+  AvatarsResolveRequest,
   ThreadSearchRequest,
   ThreadCatchUpRequest,
   ThreadReadStateRequest,
@@ -278,6 +280,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   TurnStepsResponse,
   IconsResolveResponse,
   IconsReadResponse,
+  AvatarsResolveResponse,
   ThreadSearchResponse,
   ThreadCatchUpResponse,
   ThreadReadStateResponse,
