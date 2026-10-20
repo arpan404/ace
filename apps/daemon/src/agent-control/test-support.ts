@@ -105,6 +105,7 @@ export function setup(
                           options: [{ id: "safe", label: "Safe" }],
                           multiSelect: false,
                           allowOther: false,
+                          secret: false,
                         },
                       ],
                     },

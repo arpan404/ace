@@ -296,6 +296,7 @@ test("a message with an inline reference sent while a question waits clears it b
               text: "What should be reviewed?",
               multiSelect: false,
               allowOther: true,
+              secret: false,
               options: [],
             },
           ],

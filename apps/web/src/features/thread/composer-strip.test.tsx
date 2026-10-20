@@ -96,6 +96,7 @@ const ask = (app: ReturnType<typeof harness>, id: string) =>
               text: "Include generated files?",
               options: [],
               allowOther: true,
+              secret: false,
               multiSelect: false,
             },
           ],

@@ -72,6 +72,7 @@ test("waiting on several tasks exits 0 when settled, 2 for a request, 3 on timeo
             options: [{ id: "a", label: "A" }],
             multiSelect: false,
             allowOther: false,
+            secret: false,
           },
         ],
       },

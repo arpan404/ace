@@ -294,6 +294,7 @@ export async function evalWorld(options: {
               options: [{ id: "email", label: "Email" }],
               multiSelect: false,
               allowOther: false,
+              secret: false,
             },
           ],
         },

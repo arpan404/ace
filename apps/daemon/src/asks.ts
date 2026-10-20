@@ -56,6 +56,7 @@ export class Asks {
           options: (input.options ?? []).map((label, index) => ({ id: `o${index}`, label })),
           multiSelect: false,
           allowOther: input.allowOther || !input.options?.length,
+          secret: false,
         },
       ],
     };

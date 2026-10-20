@@ -24,6 +24,7 @@ const question: Fact = {
         ],
         multiSelect: false,
         allowOther: false,
+        secret: false,
       },
       {
         id: "many",
@@ -34,6 +35,7 @@ const question: Fact = {
         ],
         multiSelect: true,
         allowOther: true,
+        secret: false,
       },
     ],
   },

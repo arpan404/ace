@@ -254,6 +254,7 @@ export function askingQuestion(id = "thread-asking"): Scenario {
                   text: "How many events should a cold start replay?",
                   multiSelect: false,
                   allowOther: true,
+                  secret: false,
                   options: [
                     { id: "200", label: "The last 200" },
                     { id: "1000", label: "The last 1,000" },

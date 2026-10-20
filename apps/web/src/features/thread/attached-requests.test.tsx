@@ -251,6 +251,7 @@ function twoQuestions(): Scenario {
                   text: "Which store backs the cache?",
                   multiSelect: false,
                   allowOther: false,
+                  secret: false,
                   options: [
                     { id: "sqlite", label: "SQLite" },
                     { id: "memory", label: "In memory" },
@@ -261,6 +262,7 @@ function twoQuestions(): Scenario {
                   text: "How long do entries live?",
                   multiSelect: false,
                   allowOther: false,
+                  secret: false,
                   options: [
                     { id: "hour", label: "An hour" },
                     { id: "day", label: "A day" },

@@ -20524,6 +20524,7 @@ Example:
 | options | yes | array | {"items":{"type":"object","properties":{"id":{"type":"string"},"label":{"type":"string"},"description":{"type":"string"}},"required":["id","label"]}} |
 | multiSelect | no | boolean | {"default":false} |
 | allowOther | no | boolean | {"default":false} |
+| secret | no | boolean | {"default":false} |
 
 Example:
 
@@ -20532,6 +20533,7 @@ Example:
   "id": "example",
   "multiSelect": true,
   "options": [],
+  "secret": false,
   "text": "example"
 }
 ```
@@ -20557,13 +20559,11 @@ Example:
   "id": "example",
   "input": [
     {
-      "entryId": "example",
-      "kind": "agent",
-      "name": "example",
-      "type": "mention"
+      "text": "example",
+      "type": "text"
     }
   ],
-  "state": "queued"
+  "state": "uncertain"
 }
 ```
 
@@ -20584,7 +20584,6 @@ Example:
 
 ```json
 {
-  "limit": 3,
   "requestId": "example",
   "threadId": "example",
   "type": "queue.get"
@@ -20602,9 +20601,8 @@ Example:
 ```json
 [
   {
-    "name": "example",
-    "path": "example",
-    "type": "file"
+    "text": "example",
+    "type": "text"
   }
 ]
 ```
@@ -20630,14 +20628,16 @@ Example:
 
 ```json
 {
+  "lastFailure": null,
   "messages": [],
   "next": "example",
-  "paused": false,
-  "reason": "uncertain",
-  "resumeAt": 0,
-  "revision": 9,
+  "paused": true,
+  "pendingCount": 2,
+  "reason": null,
+  "resumeAt": null,
+  "revision": 8,
   "threadId": "example",
-  "total": 1
+  "total": 5
 }
 ```
 
@@ -20656,14 +20656,19 @@ Example:
 ```json
 {
   "queue": {
+    "lastFailure": {
+      "code": "example",
+      "title": "example"
+    },
     "messages": [],
-    "next": "example",
+    "next": null,
     "paused": true,
+    "pendingCount": 6,
     "reason": null,
-    "resumeAt": 4,
-    "revision": 7,
+    "resumeAt": null,
+    "revision": 0,
     "threadId": "example",
-    "total": 1
+    "total": 3
   },
   "requestId": "example",
   "type": "queue.result"
@@ -20689,11 +20694,14 @@ Example:
 
 ```json
 {
-  "lastFailure": null,
+  "lastFailure": {
+    "code": "example",
+    "title": "example"
+  },
   "messages": [],
   "paused": true,
-  "reason": "uncertain",
-  "resumeAt": 0,
+  "reason": null,
+  "resumeAt": 3,
   "revision": 2,
   "threadId": "example"
 }
@@ -20716,10 +20724,15 @@ Example:
 
 ```json
 {
-  "paused": true,
+  "lastFailure": {
+    "code": "example",
+    "title": "example"
+  },
+  "paused": false,
+  "pendingCount": 8,
   "reason": null,
   "resumeAt": null,
-  "revision": 7
+  "revision": 1
 }
 ```
 
@@ -20741,11 +20754,12 @@ Example:
 
 ```json
 {
-  "paused": true,
+  "lastFailure": null,
+  "paused": false,
   "pendingCount": 5,
-  "reason": "not_sent",
-  "resumeAt": 3,
-  "revision": 2,
+  "reason": "restart",
+  "resumeAt": null,
+  "revision": 9,
   "type": "queue.updated"
 }
 ```
@@ -20764,8 +20778,8 @@ Example:
 
 ```json
 {
-  "endMinute": 4,
-  "startMinute": 8,
+  "endMinute": 8,
+  "startMinute": 3,
   "timeZone": "UTC"
 }
 ```
@@ -20783,7 +20797,8 @@ Example:
 
 ```json
 {
-  "available": 2
+  "available": 2,
+  "nextExpiresAt": null
 }
 ```
 
@@ -20806,10 +20821,11 @@ Example:
 
 ```json
 {
-  "remainingPercent": 6,
-  "resetsAt": null,
-  "usedPercent": 0,
-  "windowDurationMins": 5
+  "remainingPercent": 9,
+  "resetsAt": 6,
+  "source": "status_estimate",
+  "usedPercent": 4,
+  "windowDurationMins": 7
 }
 ```
 
@@ -20830,7 +20846,6 @@ Example:
 ```json
 {
   "data": null,
-  "name": "example",
   "type": "example"
 }
 ```
@@ -20850,8 +20865,9 @@ Example:
 ```json
 {
   "blobRef": "example",
+  "name": "example",
   "preview": "example",
-  "size": 5,
+  "size": 7,
   "type": "example"
 }
 ```
@@ -20886,11 +20902,11 @@ Example:
   "acpAgentId": "example",
   "auth": "unknown",
   "authors": [],
-  "availability": "available",
-  "coverage": "generic",
+  "availability": "unsupported_distribution",
+  "coverage": "source_profile",
   "description": "example",
-  "homepage": "https://example.invalid/",
   "isolation": "unsupported",
+  "license": "example",
   "loginHint": "example",
   "name": "example",
   "source": "https://example.invalid/",
@@ -20919,9 +20935,13 @@ Example:
 ```json
 {
   "acpAgentId": "example",
-  "evidence": "sha256",
+  "evidence": "unsigned_https",
   "installationId": "example",
   "instanceId": "example",
+  "packageManager": {
+    "command": "example",
+    "package": "example"
+  },
   "profileRevision": "example",
   "source": "example",
   "version": "example"

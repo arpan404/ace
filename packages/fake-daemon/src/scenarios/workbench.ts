@@ -159,6 +159,7 @@ function sheetRotate(): Scenario {
                   text: "How should the sheet recover after rotate?",
                   multiSelect: false,
                   allowOther: false,
+                  secret: false,
                   options: [
                     {
                       id: "persist",

@@ -331,6 +331,7 @@ const recovery = {
       text: "How should the sheet recover after rotate?",
       multiSelect: false,
       allowOther: false,
+      secret: false,
       options: [
         { id: "persist", label: "Persist the draft" },
         { id: "lock", label: "Block rotation" },

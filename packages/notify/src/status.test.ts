@@ -78,7 +78,14 @@ it("questions produce needs-you with no approval actions", async () => {
     request: {
       kind: "question",
       questions: [
-        { id: "q", text: "private question", options: [], multiSelect: false, allowOther: true },
+        {
+          id: "q",
+          text: "private question",
+          options: [],
+          multiSelect: false,
+          allowOther: true,
+          secret: false,
+        },
       ],
     },
   });

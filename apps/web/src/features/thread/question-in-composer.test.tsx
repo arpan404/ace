@@ -41,6 +41,7 @@ function asksIndentation(): Scenario {
                   text: "Tabs or Spaces?",
                   multiSelect: false,
                   allowOther: true,
+                  secret: false,
                   options: [
                     { id: "tabs", label: "Tabs" },
                     { id: "spaces", label: "Spaces" },
