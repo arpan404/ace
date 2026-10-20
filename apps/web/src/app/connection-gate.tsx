@@ -20,6 +20,7 @@ import {
   type DaemonTarget,
 } from "@/boot/connection-settings.ts";
 import { handoffFromFragment, type Handoff } from "@/boot/fragment-handoff.ts";
+import { forgetKnownHost, knownHost, rememberHost } from "@/boot/known-host.ts";
 
 /** How long a first attempt may take before the screen says it can't reach the daemon. */
 export const firstAttemptMs = 6_000;
@@ -64,7 +65,10 @@ type Progress =
   | { kind: "unreachable"; offline: boolean; mismatch?: boolean }
   | { kind: "ready"; hostId: string };
 
-/** What the app is opened for: the target it reached and the host that verified itself there. */
+/**
+ * What the app is opened for: the target and its host, the one that verified itself there or,
+ * until it does, the one it verified as last time (the app then paints what was kept for it).
+ */
 export interface GateConnection {
   target: DaemonTarget;
   hostId: string;
@@ -83,10 +87,12 @@ function detailOf(error: ClientError | undefined): string | undefined {
 
 /**
  * Owns the daemon client. Without a usable target it shows the connection screen; with one it
- * creates a client, starts it and renders the app once the daemon has welcomed it, keeping the
- * app mounted through later reconnects. A target that can't be reached, or that the daemon
- * refuses, returns to the connection screen with the reason. Changing the target replaces the
- * client.
+ * creates a client, starts it and renders the app once the daemon has welcomed it and named its
+ * host, keeping the app mounted through later reconnects. A target whose host is known from an
+ * earlier visit opens the app at once, on what this device kept, while the daemon answers (the
+ * shell's notice says how the connection is going). A target that can't be reached at a first
+ * visit, or that the daemon refuses at any time before its welcome, returns to the connection
+ * screen with the reason. Changing the target replaces the client.
  */
 export function ConnectionGate(props: {
   stores: ConnectionStores;
@@ -178,7 +184,15 @@ export function ConnectionGate(props: {
   // is closed and, being for another request, is never shown again, even while the new
   // client is still loading.
   const [installed, setClient] = useState<
-    { client: ClientApi; key: number; progress: Progress; request: ClientRequest } | undefined
+    | {
+        client: ClientApi;
+        key: number;
+        progress: Progress;
+        request: ClientRequest;
+        /** The host this target verified as before: the app opens for it before the welcome. */
+        known: string | undefined;
+      }
+    | undefined
   >(undefined);
   // An in-page client that failed to load (its chunk never arrived) is a boot failure.
   const [failure, setFailure] = useState<{ error: unknown } | undefined>(undefined);
@@ -200,8 +214,12 @@ export function ConnectionGate(props: {
     let current: ClientApi | undefined;
     let replaced = false;
     const stops: (() => void)[] = [];
+    const device = request.target.pairedDeviceId ?? deviceId();
     const refuse = (error: ClientError | undefined) => {
       const problem = problemOf(error?.code);
+      // A refused token or another daemon: the next load waits for an answer before opening.
+      if (stores.local && (problem === "auth" || problem === "identity"))
+        forgetKnownHost(stores.local, request.target, device);
       const detail = detailOf(error);
       // The screen names the problem; the console keeps the client's own words for support.
       console.error(`ace: connection stopped (${error?.code ?? "unknown"})`, detail ?? "");
@@ -222,7 +240,8 @@ export function ConnectionGate(props: {
             ? { ...previous, progress: value }
             : previous,
         );
-      setClient({ client: next, key, progress: { kind: "connecting" }, request });
+      const known = stores.local ? knownHost(stores.local, request.target, device) : undefined;
+      setClient({ client: next, key, progress: { kind: "connecting" }, request, known });
       let welcomed = false;
       const states = next.connectionState();
       const follow = () => {
@@ -246,7 +265,9 @@ export function ConnectionGate(props: {
               (hostId) => {
                 identified = true;
                 stopWaiting();
-                if (!replaced && next.state === "ready") progress({ kind: "ready", hostId });
+                if (replaced) return;
+                if (stores.local) rememberHost(stores.local, request.target, device, hostId);
+                if (next.state === "ready") progress({ kind: "ready", hostId });
               },
               (error: unknown) => {
                 stopWaiting();
@@ -314,7 +335,7 @@ export function ConnectionGate(props: {
       removeEventListener("offline", offline);
       if (current) void current.close();
     };
-  }, [request, createClient, schedule]);
+  }, [request, createClient, schedule, stores]);
 
   const connect = useCallback(
     (target: DaemonTarget, remember: boolean) => {
@@ -436,6 +457,10 @@ export function ConnectionGate(props: {
   );
 
   if (failure) throw failure.error;
+  // The verified host once it has identified itself; before that, a host this target verified
+  // as before: the app opens on what this device kept for it while the daemon answers. Any
+  // refusal still returns to the connection screen, since it ends the request.
+  const opened = client?.progress.kind === "ready" ? client.progress.hostId : client?.known;
   // Connecting behind the startup screen: nothing of the gate's own until the daemon answers or
   // doesn't. The desktop's own daemon reconnecting at boot stays there too ("Reconnecting…"),
   // with Connect manually once it stalls, rather than dropping to the address form. A daemon of
@@ -450,12 +475,10 @@ export function ConnectionGate(props: {
   const manually = props.desktop ? edit : undefined;
   return (
     <DaemonConnectionContext.Provider value={connection}>
-      {client && status.kind === "ready" && client.progress.kind === "ready" ? (
-        <Fragment key={client.key}>
-          {props.children(client.client, {
-            target: client.request.target,
-            hostId: client.progress.hostId,
-          })}
+      {client && opened ? (
+        // Opened for a host it then turns out isn't there: reopened for the one that is.
+        <Fragment key={`${client.key}:${opened}`}>
+          {props.children(client.client, { target: client.request.target, hostId: opened })}
         </Fragment>
       ) : status.kind === "starting" ? (
         <StartupPending state="starting" onConnectManually={manually} />

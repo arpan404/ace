@@ -4,11 +4,14 @@ import { DeviceId, ServerMessage } from "@ace/protocol";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { expect, test } from "vitest";
 import { App, AppFrame } from "@/app.tsx";
 import { memoryStorage } from "@/boot/client.ts";
 import type { DaemonTarget } from "@/boot/connection-settings.ts";
 import { useDaemonConnection } from "@/boot/connection.tsx";
+import { deviceId } from "@/boot/device-id.ts";
+import { knownHost, rememberHost } from "@/boot/known-host.ts";
 import { fakeClient, memoryKeyValue } from "@/test/harness.tsx";
 import { ConnectionGate, firstAttemptMs, identityMs } from "./connection-gate.tsx";
 
@@ -29,12 +32,20 @@ function silentClient(): Client {
   });
 }
 
+/** The host the app was mounted for: a later host must mount a fresh app, caches and all. */
+function MountedFor(props: { hostId: string }) {
+  const [mounted] = useState(props.hostId);
+  return <output aria-label="Opened for">{mounted}</output>;
+}
+
 /** The gate with its first-attempt deadline in the test's hands. */
 function boot(
   options: {
     createClient?: (target: DaemonTarget, daemon: FakeDaemon) => Client | Promise<Client>;
     remembered?: boolean;
     desktop?: boolean;
+    /** The host this device met at the remembered address on an earlier visit. */
+    known?: string;
   } = {},
 ) {
   const daemon = new FakeDaemon({ clock: () => 1, token });
@@ -44,6 +55,7 @@ function boot(
     local.setItem("ace.daemon.url", url);
     local.setItem("ace.daemon.token", token);
   }
+  if (options.known) rememberHost(local, { url, token }, deviceId(), options.known);
   const deadlines: { delay: number; run: () => void }[] = [];
   render(
     <AppFrame environment={{}}>
@@ -64,8 +76,11 @@ function boot(
           };
         }}
       >
-        {(client) => (
-          <App client={client} history={createMemoryHistory({ initialEntries: ["/"] })} />
+        {(client, connection) => (
+          <>
+            <MountedFor hostId={connection.hostId} />
+            <App client={client} history={createMemoryHistory({ initialEntries: ["/"] })} />
+          </>
         )}
       </ConnectionGate>
     </AppFrame>,
@@ -74,7 +89,12 @@ function boot(
     act(() => {
       for (const deadline of deadlines) if (deadline.delay === delay) deadline.run();
     });
-  return { daemon, runOutFirstAttempt: () => runOut(firstAttemptMs), runOut };
+  return {
+    daemon,
+    local,
+    runOutFirstAttempt: () => runOut(firstAttemptMs),
+    runOut,
+  };
 }
 
 /** A client whose daemon welcomes it with a protocol version this build doesn't speak. */
@@ -192,6 +212,48 @@ test("a remembered daemon that is down says so instead of a shell stuck reconnec
   runOutFirstAttempt();
   expect((await screen.findByRole("alert")).textContent).toMatch(/Couldn't reach/);
   expect(shell()).toBeNull();
+});
+
+const openedFor = () => screen.queryByRole("status", { name: "Opened for" })?.textContent;
+
+test("a daemon this device met before opens the app at once, before it answers", async () => {
+  const { runOutFirstAttempt } = boot({
+    remembered: true,
+    known: hostId,
+    createClient: silentClient,
+  });
+  expect(openedFor()).toBe(hostId);
+  await screen.findByRole("navigation", { name: "Threads" });
+  // Still unreachable: the shell stays, on what this device kept, rather than the form.
+  runOutFirstAttempt();
+  expect(screen.queryByRole("heading", { name: "Connect to ace" })).toBeNull();
+  expect(openedFor()).toBe(hostId);
+});
+
+test("a daemon that answers remembers its host, so the next load opens at once", async () => {
+  const { daemon, local } = boot({ remembered: true });
+  await screen.findByRole("link", { name: /Fix flaky checkout test/ });
+  expect(knownHost(local, { url, token }, deviceId())).toBe(daemon.hostId);
+});
+
+test("a known daemon that refuses the token returns to the form and the next load waits", async () => {
+  const { local } = boot({
+    remembered: true,
+    known: hostId,
+    createClient: (_target, daemon) => fakeClient(daemon, "cd".repeat(32)),
+  });
+  expect(openedFor()).toBe(hostId);
+  await screen.findByRole("heading", { name: "Connect to ace" });
+  expect(openedFor()).toBeUndefined();
+  expect(knownHost(local, { url, token }, deviceId())).toBeUndefined();
+});
+
+test("another daemon answering at a known address reopens the app for the one that answered", async () => {
+  const { daemon, local } = boot({ remembered: true, known: hostId });
+  expect(openedFor()).toBe(hostId);
+  await waitFor(() => expect(openedFor()).toBe(daemon.hostId));
+  await screen.findByRole("link", { name: /Fix flaky checkout test/ });
+  expect(knownHost(local, { url, token }, deviceId())).toBe(daemon.hostId);
 });
 
 test("inside the desktop app the form never tells the person to start a daemon by hand", async () => {

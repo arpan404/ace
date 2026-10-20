@@ -142,3 +142,12 @@ widen what is kept and say when it goes.
   focused or touched (the router's intent preload). It leases the thread for 20 s, at most three
   at once, oldest released first (`apps/web/src/lib/thread-warmer.ts`), so opening it paints from
   the store the lease filled (marked unconfirmed once released) instead of waiting a round trip.
+- **Opening before the daemon answers.** The web app remembers, per target and device, the host
+  each daemon last verified itself as (`apps/web/src/boot/known-host.ts`; a host id, never the
+  token). A load with a known host opens the app at once on what this device kept (the worker's
+  client restores records under the host bound in its outbox before the socket opens) while the
+  daemon answers; the shell's notice says how the connection is going, and an unreachable daemon
+  keeps the app rather than returning to the form. Any refusal before the welcome still returns
+  to the connection screen; `auth` and `identity` refusals also forget the known host, so the
+  next load waits for an answer. A different host identifying itself reopens the app for it
+  (fresh caches), and becomes the known host.
