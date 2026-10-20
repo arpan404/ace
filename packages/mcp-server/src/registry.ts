@@ -8,7 +8,7 @@ import { executeContent, type ContentToolDefinition } from "./content-tools.ts";
 import type { McpAttribution, McpCapability } from "@ace/protocol";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/server";
 import { withinJsonBudget, ResultBudgetExceeded } from "./json-budget.ts";
-import { advertisedInputSchema } from "./advertised-schema.ts";
+import { advertisedInputSchema, advertisedOutputSchema } from "./advertised-schema.ts";
 import type { Principal } from "./credentials.ts";
 import {
   bareToolName,
@@ -89,9 +89,10 @@ export interface ToolDefinition<I extends z.ZodObject, O extends z.ZodObject> ex
   output: O;
   /**
    * The output schema clients see, when the validated one is too large to be worth its context.
-   * It must accept every value `output` accepts (use open objects).
+   * It must accept every value `output` accepts (use open objects). `null` advertises none:
+   * for a shape that would tell a model nothing it does not read in the result itself.
    */
-  advertisedOutput?: z.ZodObject;
+  advertisedOutput?: z.ZodObject | null;
   /** Trusted definition override; ordinary tools remain capped at 64 KiB. */
   maxInputBytes?: number;
   run(input: z.output<I>, context: ToolContext): Promise<z.input<O>>;
@@ -174,7 +175,11 @@ export class ToolRegistry {
     const { name, description, input, output } = definition;
     this.add(
       definition,
-      this.descriptor(definition, input, definition.advertisedOutput ?? output),
+      this.descriptor(
+        definition,
+        input,
+        definition.advertisedOutput === null ? undefined : (definition.advertisedOutput ?? output),
+      ),
       {
         action(value) {
           const parsed = input.safeParse(value);
@@ -274,10 +279,12 @@ export class ToolRegistry {
       inputSchema,
       ...(output
         ? {
-            outputSchema: JsonObjectSchema.parse({
-              ...z.toJSONSchema(output, { io: "output" }),
-              type: "object",
-            }),
+            outputSchema: JsonObjectSchema.parse(
+              advertisedOutputSchema({
+                ...z.toJSONSchema(output, { io: "output" }),
+                type: "object",
+              }),
+            ),
           }
         : {}),
     };
