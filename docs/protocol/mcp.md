@@ -550,7 +550,7 @@ Example:
 
 ## thread_read
 
-Read a thread: title, status, branch, linked PRs, preview servers, queued messages (with entryIds for queue_edit) and a page of its transcript, newest first. Omit threadId for this thread. Page back with before = itemsBefore. A truncated part with source.streamId continues with streamId and offset (base64 bytes, then nextOffset).
+Read a thread: title, status, branch, linked PRs, preview servers, queued messages (with entryIds for queue_edit) and a page of its latest transcript items, oldest first. Omit threadId for this thread. Page back with before = itemsBefore until it is null; an item too large for a page is listed in omitted. A truncated part with source.streamId continues with streamId and offset (base64 bytes, then nextOffset).
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
