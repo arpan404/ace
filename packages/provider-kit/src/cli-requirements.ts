@@ -41,7 +41,7 @@ export const cliRequirements = {
     name: "OpenCode",
     minimum: "2.0.22",
     reason:
-      "The v2 HTTP API of @opencode/client 2.0.22, including session.inbox.delivered events (fixtures/opencode/2.0.22). The 2.0 and 2.1 lines are admitted and each server's OpenAPI document is probed; other lines are refused until checked.",
+      "The v2 HTTP API of @opencode/client 2.0.22, including session.inbox.delivered events (fixtures/opencode/2.0.22). Newer releases are admitted; each server's OpenAPI document is probed and a release that drops or moves a route ace calls is refused.",
     verified: true,
   },
   pi: {
@@ -54,8 +54,7 @@ export const cliRequirements = {
   "cursor-sdk": {
     name: "Cursor SDK",
     minimum: "1.0.35",
-    reason:
-      "Ships with ace (ADR 0043) and is pinned exactly; a different version means a broken ace installation.",
+    reason: "Ships with ace (ADR 0043). Older copies are refused; newer ones are admitted.",
     verified: true,
   },
   // ACP agents (ADR 0044).

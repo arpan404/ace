@@ -5,7 +5,7 @@ import { CursorSdkAuth } from "@ace/protocol/accounts";
 import { CursorModelParams } from "@ace/provider-kit/cursor-selection";
 import { cliRequirements } from "@ace/provider-kit/cli-requirements";
 
-/** The SDK ships with ace pinned exactly; its floor and pin are both ace's declared minimum. */
+/** The oldest SDK ace admits; it ships with ace, and a newer resolved copy is admitted too. */
 export const sdkVersion = cliRequirements["cursor-sdk"].minimum;
 const identity = z.string().min(1).max(512);
 export const Limits = z.strictObject({

@@ -110,10 +110,10 @@ test("a CLI version ace refuses holds the message under that reason, not a conne
         ...h.adapter,
         async openSession() {
           throw {
-            code: "cli_unsupported",
-            title: "OpenCode startup failed",
+            code: "cli_too_old",
+            title: "Update OpenCode",
             detail:
-              "OpenCode 2.2.0 is newer than ace has checked; ace supports OpenCode 2.0.x or 2.1.x, 2.0.22 or newer",
+              "OpenCode 2.0.21 is older than 2.0.22, the oldest version ace supports. Update OpenCode, then refresh.",
           };
         },
       },
@@ -124,9 +124,9 @@ test("a CLI version ace refuses holds the message under that reason, not a conne
       paused: true,
       reason: "not_sent",
       lastFailure: {
-        code: "cli_unsupported",
+        code: "cli_too_old",
         title:
-          "OpenCode 2.2.0 is newer than ace has checked; ace supports OpenCode 2.0.x or 2.1.x, 2.0.22 or newer",
+          "OpenCode 2.0.21 is older than 2.0.22, the oldest version ace supports. Update OpenCode, then refresh.",
       },
       messages: [{ state: "queued" }],
     });

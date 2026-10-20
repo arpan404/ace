@@ -10,14 +10,12 @@ test("installing an OpenCode or Pi release ace starts reports no refusal", () =>
   expect(installRefusal(install("opencode"), "2.0.28")).toBeUndefined();
   expect(installRefusal(install("opencode"), "2.0.22")).toBeUndefined();
   expect(installRefusal(install("opencode"), "2.1.1")).toBeUndefined();
+  expect(installRefusal(install("opencode"), "3.0.0")).toBeUndefined();
   expect(installRefusal(install("pi"), "1.2.0")).toBeUndefined();
   expect(installRefusal(install("codex"), "0.200.0")).toBeUndefined();
 });
 
 test("an installer that lands on a release ace would refuse says so, naming the version", () => {
-  expect(installRefusal(install("opencode"), "2.2.0")).toBe(
-    "Installed, but ace can't use this version yet. OpenCode 2.2.0 is newer than ace has checked; ace supports OpenCode 2.0.x or 2.1.x, 2.0.22 or newer.",
-  );
   expect(installRefusal(install("pi"), "0.84.4")).toBe(
     "Installed, but ace can't use this version. Pi 0.84.4 is older than 0.85.1, the oldest version ace supports.",
   );

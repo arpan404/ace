@@ -18,14 +18,33 @@ const options = {
   arch: "arm64",
   nodeVersion: "24.0.0",
 };
-it("admits an SDK without requiring a CLI and refuses unsupported resolved versions", async () => {
+const resolved = (version: string, helper = version) => ({
+  ...options,
+  read: async (path: string) =>
+    (await options.read(path)).replace(
+      "1.0.35",
+      path === "/helper/package.json" ? helper : version,
+    ),
+});
+it("admits the minimum SDK and any newer one without requiring a CLI, and refuses older ones", async () => {
   expect(await discoverCursorSdk(options)).toMatchObject({ installed: true, supported: true });
-  expect(
-    await discoverCursorSdk({
-      ...options,
-      read: async (path) => (await options.read(path)).replace("1.0.35", "1.0.36"),
-    }),
-  ).toMatchObject({ installed: true, supported: false, version: "1.0.36" });
+  expect(await discoverCursorSdk(resolved("1.0.36"))).toMatchObject({
+    supported: true,
+    version: "1.0.36",
+  });
+  expect(await discoverCursorSdk(resolved("2.0.0"))).toMatchObject({ supported: true });
+  expect(await discoverCursorSdk(resolved("1.0.34"))).toMatchObject({
+    installed: true,
+    supported: false,
+    version: "1.0.34",
+    error: "Install @cursor/sdk 1.0.35 or newer; resolved 1.0.34",
+  });
+});
+it("refuses a newer SDK whose platform helper is a different version", async () => {
+  expect(await discoverCursorSdk(resolved("1.0.36", "1.0.35"))).toMatchObject({
+    supported: false,
+    error: "SDK platform helper version mismatch",
+  });
 });
 it("distinguishes absent SDK from a broken installation and refuses Windows supervision", async () => {
   expect(await discoverCursorSdk({ ...options, nodeVersion: "malformed" })).toMatchObject({
