@@ -17,8 +17,11 @@ test("agent LaTeX renders as math, not as text with eaten backslashes", async ()
   expect(view.container.querySelectorAll(".katex-display").length).toBe(2);
   expect(view.container.querySelectorAll(".mfrac").length).toBeGreaterThan(0);
   expect(view.container.querySelector(".katex-error")).toBeNull();
-  expect(view.container.innerHTML).not.toContain("\\(");
-  expect(view.container.innerHTML).not.toContain("\\[");
+  // No delimiter is left showing outside the rendered formulas.
+  const prose = view.container.cloneNode(true) as HTMLElement;
+  for (const formula of prose.querySelectorAll(".katex")) formula.remove();
+  expect(prose.textContent).not.toContain("\\(");
+  expect(prose.textContent).not.toContain("\\[");
   view.unmount();
 });
 
@@ -30,15 +33,33 @@ test("dollar math renders inline and as a display block on one line", async () =
   view.unmount();
 });
 
-test("currency stays text", async () => {
-  const view = render(<Markdown text={"It costs $5 and $10 total"} />);
-  await screen.findByText(/costs \$5 and \$10/);
-  expect(view.container.querySelector(".katex")).toBeNull();
-  expect(view.container.textContent).toContain("$5 and $10");
+test("inline \\( \\) math renders as math, not code", async () => {
+  // The reply that showed raw TeX in a code font (2026-10-19).
+  const text =
+    "**2) \\(T(n)=2\\cdot3^{n-1}-1\\)**, assuming the recurrence applies for \\(n\\ge2\\). " +
+    "Two-sum takes expected \\(O(n)\\) time; sorting takes \\(O(n\\log n)\\).";
+  const view = render(<Markdown text={text} />);
+  await waitFor(() => expect(view.container.querySelectorAll("math").length).toBe(4));
+  expect(view.container.querySelector("strong math")).not.toBeNull();
+  expect(view.container.querySelector("code")).toBeNull();
+  expect(view.container.querySelector("annotation")?.textContent).toBe("T(n)=2\\cdot3^{n-1}-1");
   view.unmount();
 });
 
-test("math inside code spans and code blocks stays literal", async () => {
+test("dollar amounts in prose stay text", async () => {
+  const text =
+    "It costs $5 and $10, or $5-$10 total. Set $HOME/$USER, run echo $PATH, pay \\$x$ now.";
+  const view = render(<Markdown text={text} />);
+  await screen.findByText(/costs \$5 and \$10/);
+  expect(view.container.querySelector("math")).toBeNull();
+  expect(view.container.querySelector(".katex")).toBeNull();
+  expect(view.container.textContent).toBe(
+    "It costs $5 and $10, or $5-$10 total. Set $HOME/$USER, run echo $PATH, pay $x$ now.",
+  );
+  view.unmount();
+});
+
+test("math inside a code span stays code", async () => {
   const view = render(
     <Markdown text={"Use `$x$` and `\\(y\\)` here.\n\n```\n$x$\n\\(z\\)\n```"} />,
   );
@@ -66,13 +87,29 @@ test("an unclosed delimiter shows text mid-stream then renders once closed", asy
   view.unmount();
 });
 
-test("invalid TeX shows its source without throwing", async () => {
+test("an unterminated \\( while streaming renders as text", async () => {
+  const stream = "thread/math-unterminated-paren";
+  const view = render(<Markdown stream={stream} streaming text={"Two-sum takes \\(O(n"} />);
+  await screen.findByText(/Two-sum/);
+  expect(view.container.textContent).toBe("Two-sum takes \\(O(n");
+  expect(view.container.querySelector("math")).toBeNull();
+  expect(view.container.querySelector("code")).toBeNull();
+  view.rerender(<Markdown stream={stream} streaming text={"Two-sum takes \\(O(n)\\) time"} />);
+  await waitFor(() => expect(view.container.querySelector("math")).not.toBeNull());
+  expect(view.container.textContent).toContain(" time");
+  view.unmount();
+});
+
+test("invalid TeX shows its source", async () => {
   const view = render(<Markdown text={"See \\(\\unknowncommand{\\) done"} />);
   await waitFor(() =>
-    expect(view.container.querySelector("code")?.textContent).toBe("\\(\\unknowncommand{\\)"),
+    expect(view.container.querySelector(".text-muted-foreground")?.textContent).toBe(
+      "\\(\\unknowncommand{\\)",
+    ),
   );
+  expect(view.container.textContent).toBe("See \\(\\unknowncommand{\\) done");
+  expect(view.container.querySelector("code")).toBeNull();
   expect(view.container.querySelector(".katex")).toBeNull();
-  expect(view.container.querySelector(".katex-error")).toBeNull();
   expect(view.container.innerHTML).not.toContain("cc0000");
   view.unmount();
 });
