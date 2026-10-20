@@ -1,13 +1,14 @@
 import { useAgent } from "@ace/client-react";
 import { formatAgo, type NeedsYouItem } from "@ace/ui-core";
 import { Button } from "@/components/ui/button.tsx";
+import { rowCard } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { useOpenRequest } from "@/lib/request-link.ts";
 import { useOpenSubagent } from "@/lib/subagent-link.tsx";
 import { useNow } from "@/lib/time.ts";
 import { useAgentIdentity } from "../agents/agent-identity.ts";
 import { StopAgent } from "../agents/stop-agent.tsx";
-import { capsule, CapsuleGlyph, CapsuleMeta } from "../agents/task-capsule.tsx";
+import { CapsuleGlyph, CapsuleMeta } from "../agents/task-capsule.tsx";
 
 const requestVerbs: Record<Extract<NeedsYouItem, { kind: "request" }>["request"], string> = {
   approval: "Approve",
@@ -18,9 +19,10 @@ const requestVerbs: Record<Extract<NeedsYouItem, { kind: "request" }>["request"]
 };
 
 /**
- * What waits on the person across the agent tree, each row with its one action: Show takes a
+ * What waits on the person across the agent tree, each a card with its one action: Show takes a
  * request to its card in the composer's strip (where it is answered), Open goes to an agent
- * that failed or asks from its own thread, Stop ends one that stopped responding.
+ * that failed or asks from its own thread, Stop ends one that stopped responding. A failure the
+ * agent was since resumed past is not here (`needsYou` reads only latest runs).
  */
 export function NeedsYouList(props: {
   threadId: string;
@@ -28,7 +30,7 @@ export function NeedsYouList(props: {
   subagents: ReadonlyMap<string, number>;
 }) {
   return (
-    <ul>
+    <ul className="flex flex-col gap-1.5">
       {props.items.map((item) => (
         <NeedsYouRow
           key={item.kind === "request" ? item.id : `${item.kind}:${item.agentId}`}
@@ -76,9 +78,9 @@ function NeedsYouRow(props: { threadId: string; item: NeedsYouItem; subagents: n
   return (
     <li
       aria-label={title}
-      className={cn("flex min-h-8 items-start gap-2 py-1.5 pr-1 pl-2 text-ui", capsule)}
+      className={cn("flex min-h-11 items-center gap-2 py-1.5 pr-1.5 pl-2.5 text-ui", rowCard)}
     >
-      <span className="flex h-5 shrink-0 items-center">
+      <span className="flex h-5 shrink-0 items-center self-start">
         <CapsuleGlyph
           state={item.kind === "request" || item.kind === "waiting" ? "needs-you" : "failed"}
         />

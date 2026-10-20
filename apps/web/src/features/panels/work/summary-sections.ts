@@ -6,12 +6,14 @@ export interface SummaryFacts {
   turn: boolean;
   /** Plans the thread shows. */
   plans: number;
-  /** The main agent has subagents, working or finished (each opens as its own chat). */
-  subagents: boolean;
-  /** Some agent is in a turn, waiting on its tree, or waiting on the person. */
-  agentsLive: boolean;
+  /** Agents still working or waiting: the main agent, or any subagent. */
+  working: number;
   /** Background commands still run, or input is queued. */
   background: boolean;
+  /** Pull requests the thread linked or its agents opened. */
+  prs: number;
+  /** Subagents whose whole branch settled. */
+  done: number;
   /** Agents whose changes in the turn the Summary attributes. */
   changingAgents: number;
   /** Checks the turn ran. */
@@ -24,9 +26,11 @@ export interface SummaryFacts {
 
 export interface SummarySections {
   needsYou: boolean;
+  working: boolean;
+  prs: boolean;
+  done: boolean;
   turn: boolean;
   plans: boolean;
-  agents: boolean;
   changes: boolean;
   checks: boolean;
   catchUp: boolean;
@@ -36,16 +40,18 @@ export interface SummarySections {
 
 /**
  * Which sections the Summary draws. A section with nothing in it is left out rather than saying
- * it is empty: a lone main agent at rest is no tree, and changes by agent show only once more
- * than one agent changed files (one agent's are the turn's own list). Labels appear only when
- * there is more than one section to tell apart. Pure.
+ * it is empty: a lone main agent at rest is nothing working, and changes by agent show only once
+ * more than one agent changed files (one agent's are the turn's own list). Labels appear only
+ * when there is more than one section to tell apart. Pure.
  */
 export function summarySections(facts: SummaryFacts): SummarySections {
   const shown = {
     needsYou: facts.needsYou > 0,
+    working: facts.working > 0 || facts.background,
+    prs: facts.prs > 0,
+    done: facts.done > 0,
     turn: facts.turn,
     plans: facts.plans > 0,
-    agents: facts.subagents || facts.agentsLive || facts.background,
     changes: facts.changingAgents > 1,
     checks: facts.checks > 0,
     catchUp: facts.catchUp,

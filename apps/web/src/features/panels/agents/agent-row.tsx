@@ -1,7 +1,9 @@
 import {
+  agentPullRequest,
   agentResult,
   agentStep,
   agentWorkState,
+  endedByRestart,
   formatSpan,
   isRunning,
   pluralCount,
@@ -18,12 +20,12 @@ import { useNow } from "@/lib/time.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { agentMark } from "./agent-status.tsx";
 import { useAgentIdentity } from "./agent-identity.ts";
+import { PrChip } from "./pr-chip.tsx";
 import { StopAgent } from "./stop-agent.tsx";
 import {
   capsule,
   CapsuleBadge,
   CapsuleGlyph,
-  CapsuleMeta,
   stateWords,
   type CapsuleState,
 } from "./task-capsule.tsx";
@@ -31,20 +33,22 @@ import { RowFacts, Tree } from "./tree-state.ts";
 import { TreeWorkContext } from "./tree-work-context.ts";
 
 /**
- * One agent in the tree: its name (an unnamed subagent goes by its task), the task in one line
- * when its name doesn't already say it, and what it is doing in plain words ("editing
- * work-side.tsx", "waiting on approval"). Once finished, the first line of its result and how
- * many files it changed, with Open and Diff.
+ * One agent in the tree, on one line: its glyph, its name (an unnamed subagent goes by its task),
+ * then what it is doing in plain words with how long it has run ("running bun run test · 8m"),
+ * or once finished the first line of its result. The pull request it opened sits at the end.
+ * An agent a provider ran again is one row in its latest state; its earlier runs fold under it.
  */
 export function AgentRow(props: {
   threadId: string;
   agentId: string;
   depth: number;
-  /** Has subagents: whether they show. */
+  /** Has subagents or earlier runs: whether they show. */
   expanded: boolean | undefined;
   /** The id of the group of subagents it shows. */
   owns: string | undefined;
   subagents: number;
+  /** An earlier run of the agent on the row above: its history, not its state. */
+  earlierRun?: boolean | undefined;
 }) {
   const tree = use(Tree);
   const facts = use(RowFacts);
@@ -55,6 +59,9 @@ export function AgentRow(props: {
   const work = use(TreeWorkContext);
   const live = useLiveConnection();
   const identity = useAgentIdentity(props.threadId, agent);
+  const earlier = facts.earlier.get(props.agentId) ?? [];
+  // A resumed agent's first run was started by the call that reports back on it.
+  const firstSpawn = useItem(props.threadId, earlier[0]?.spawnedBy ?? "");
   const status = agent?.status;
   const tool = useItem(
     props.threadId,
@@ -90,9 +97,25 @@ export function AgentRow(props: {
           : finished
             ? (result ?? stateWords.done)
             : (stateWords[state] ?? activity);
-  const meta = finished && files.length ? `${step} · ${pluralCount(files.length, "file")}` : step;
-  // The main agent's time is the thread's own, which the turn already counts.
-  const elapsed = !root && end - agent.createdAt >= 1000 ? formatSpan(agent.createdAt, end) : "";
+  // The main agent's time is the thread's own, which the status line already counts.
+  const elapsed =
+    running && !root && end - agent.createdAt >= 1000 ? formatSpan(agent.createdAt, end) : "";
+  const note = props.earlierRun
+    ? "Earlier run"
+    : earlier.some(endedByRestart)
+      ? "resumed after a restart"
+      : earlier.length
+        ? `ran ${pluralCount(earlier.length + 1, "time")}`
+        : "";
+  // An earlier run says how it ended, in its own words when it failed.
+  const ended = props.earlierRun && status.state === "failed" ? status.error.message : undefined;
+  const meta = [ended ?? step, finished && files.length ? pluralCount(files.length, "file") : ""]
+    .filter(Boolean)
+    .join(" · ");
+  const after = [elapsed, props.earlierRun ? "" : note].filter(Boolean);
+  const pr = props.earlierRun
+    ? undefined
+    : agentPullRequest([identity.spawn, firstSpawn], facts.prs);
   const showTask = !root && task !== undefined && task !== name;
   const open = () => {
     if (!root)
@@ -103,7 +126,7 @@ export function AgentRow(props: {
       });
   };
   return (
-    <div className={cn("group/agent flex flex-wrap items-center gap-1", capsule)}>
+    <div className={cn("group/agent flex items-center gap-1", capsule)}>
       {/* The row is the tree item: Enter or a click opens the agent as the whole chat; a click on
           its chevron, or anywhere on the main agent (which opens nothing), folds its subagents. */}
       {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- Enter opens it through the tree's key handler (treeKeys) */}
@@ -125,37 +148,44 @@ export function AgentRow(props: {
           open();
         }}
         className={cn(
-          "focus-ring-inset relative flex min-h-8 min-w-0 flex-1 items-start gap-2 rounded-md py-1.5 pr-0.5 pl-2 text-left text-ui",
+          "focus-ring-inset relative flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md pr-0.5 pl-2 text-left text-ui",
           (!root || props.expanded !== undefined) && "cursor-pointer",
         )}
       >
-        <span className="flex h-5 shrink-0 items-center">
-          <CapsuleGlyph state={state} count={running ? props.subagents : undefined} />
+        <CapsuleGlyph state={state} count={running ? props.subagents : undefined} />
+        <span
+          className={cn(
+            "max-w-[65%] min-w-0 shrink-0 truncate font-medium",
+            props.earlierRun && "font-normal text-muted-foreground",
+          )}
+          title={showTask ? `${name}\n${task}` : name}
+        >
+          {props.earlierRun ? note : name}
         </span>
-        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="flex h-5 min-w-0 items-center gap-2">
-            <span className="min-w-0 shrink truncate font-medium">{name}</span>
-            {needsYou && <CapsuleBadge state={state}>Needs you</CapsuleBadge>}
-            <span className="flex-1" />
-            {elapsed && (
-              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{elapsed}</span>
-            )}
-            <ProviderIconTip
-              provider={agent.native.provider}
-              acpAgentId={agent.native.acpAgentId}
-              className="shrink-0"
-            />
-          </span>
-          {showTask && (
-            <span className="min-w-0 truncate text-xs text-subtle-foreground" title={task}>
-              {task}
+        {needsYou && <CapsuleBadge state={state}>Needs you</CapsuleBadge>}
+        <span
+          className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
+          title={[meta, ...after].join(" · ") || undefined}
+        >
+          <span>{meta}</span>
+          {after.length > 0 && (
+            <span className="text-subtle-foreground tabular-nums">
+              {meta ? " · " : ""}
+              {after.join(" · ")}
             </span>
           )}
-          <CapsuleMeta>{meta}</CapsuleMeta>
         </span>
+        {pr && <PrChip pr={pr} />}
+        {facts.mixedProviders && (
+          <ProviderIconTip
+            provider={agent.native.provider}
+            acpAgentId={agent.native.acpAgentId}
+            className="shrink-0"
+          />
+        )}
         <CapsuleChevron expanded={props.expanded} opens={!root} />
       </div>
-      {finished && !root && (
+      {finished && !root && !props.earlierRun && (
         <span className="mr-0.5 hidden items-center gap-0.5 group-focus-within/agent:inline-flex group-hover/agent:inline-flex pointer-coarse:inline-flex">
           <Button
             size="sm"
@@ -206,7 +236,7 @@ export function AgentRow(props: {
 
 /**
  * A capsule's chevron, drawn inside its tree item, whose click handles it: ⌄ on an agent with
- * subagents folds them (as ← → do), › on one that opens as its own tab.
+ * subagents or earlier runs folds them (as ← → do), › on one that opens as its own tab.
  */
 export function CapsuleChevron(props: { expanded: boolean | undefined; opens: boolean }) {
   if (props.expanded === undefined && !props.opens) return null;
@@ -216,7 +246,7 @@ export function CapsuleChevron(props: { expanded: boolean | undefined; opens: bo
       aria-hidden
       data-capsule-fold={props.expanded === undefined ? undefined : ""}
       className={cn(
-        "grid size-6 shrink-0 place-items-center self-start rounded-sm text-muted-foreground hover:text-foreground",
+        "grid size-6 shrink-0 place-items-center rounded-sm text-faint-foreground hover:text-foreground",
         // An opening › is a hint, not state: it shows with the row's hover or focus.
         props.expanded === undefined &&
           "opacity-0 group-focus-within/agent:opacity-100 group-hover/agent:opacity-100 pointer-coarse:opacity-100",
@@ -225,7 +255,7 @@ export function CapsuleChevron(props: { expanded: boolean | undefined; opens: bo
       <Glyph
         size={14}
         className={cn(
-          "transition-transform duration-(--motion-base) ease-spring",
+          "transition-transform duration-(--motion-base) ease-out",
           props.expanded === false && "-rotate-90",
         )}
       />

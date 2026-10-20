@@ -16,6 +16,21 @@ export async function openWorkPanel() {
   return work;
 }
 
+/**
+ * Open the Summary's folded Done section (its "N done" header) and resolve to its tree: the
+ * agents whose work settled, finished, failed or stopped.
+ */
+export async function openDoneAgents(work: HTMLElement) {
+  const fold = await within(work).findByRole("button", { name: /^\d+ done$/ });
+  if (fold.getAttribute("aria-expanded") === "false") await userEvent.click(fold);
+  return within(work).findByRole("tree", { name: "Done agents" });
+}
+
+/** The Summary's one-line thread status: "Working · 2 agents running · 4m", "Done · finished …". */
+export async function summaryStatus(work: HTMLElement) {
+  return (await within(work).findByRole("status", { name: /^Thread status/ })).textContent ?? "";
+}
+
 /** The header's thread details icon; its name gains ", working" or ", something needs you" with a dot. */
 export async function workButton() {
   return within(await screen.findByRole("banner")).findByRole("button", {

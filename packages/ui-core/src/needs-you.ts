@@ -1,5 +1,6 @@
 import type { Agent, Interaction, InteractionRequest } from "@ace/protocol";
 import { isActionableInteraction } from "@ace/core/human";
+import { agentRuns } from "./agent-runs.ts";
 import { approvalCopy } from "./approval-copy.ts";
 
 /*
@@ -51,7 +52,8 @@ export function requestTitle(request: InteractionRequest): string {
 /**
  * What needs the person across the tree: pending requests they can act on, agents waiting on a
  * request held elsewhere, failed agents and unresponsive ones. Each agent appears once, under the
- * most urgent of its states.
+ * most urgent of its states. Only an agent's latest run counts: a run that failed (a daemon
+ * restart stopped it) and was then resumed is history, not something to act on.
  */
 export function needsYou(
   agents: readonly Agent[],
@@ -64,6 +66,8 @@ export function needsYou(
     )
     .toSorted((left, right) => left.createdAt - right.createdAt);
   const asking = new Set(requests.map((interaction) => interaction.agentId));
+  const superseded = agentRuns(agents).latest;
+  const current = superseded.size ? agents.filter((agent) => !superseded.has(agent.id)) : agents;
   const items: NeedsYouItem[] = requests.map((interaction) => ({
     kind: "request",
     id: interaction.id,
@@ -71,7 +75,7 @@ export function needsYou(
     request: interaction.request.kind,
     title: requestTitle(interaction.request),
   }));
-  for (const agent of agents)
+  for (const agent of current)
     if (
       agent.status.state === "blocked" &&
       agent.status.on === "human" &&
@@ -79,14 +83,14 @@ export function needsYou(
       agent.childThreadId
     )
       items.push({ kind: "waiting", agentId: agent.id });
-  for (const agent of agents)
+  for (const agent of current)
     if (agent.status.state === "failed")
       items.push({
         kind: "failed",
         agentId: agent.id,
         message: line(agent.status.error.message) ?? "Couldn't finish",
       });
-  for (const agent of agents)
+  for (const agent of current)
     if (agent.status.state === "unresponsive")
       items.push({ kind: "stuck", agentId: agent.id, since: agent.status.lastSignalAt });
   return items;

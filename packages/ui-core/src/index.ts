@@ -9,6 +9,8 @@ export * from "./notice-text.ts";
 export * from "./accounts.ts";
 export * from "./account-threads.ts";
 export * from "./agents.ts";
+export * from "./agent-runs.ts";
+export * from "./agent-prs.ts";
 export * from "./arrange.ts";
 export * from "./attachment-fit.ts";
 export * from "./attachment-limits.ts";
