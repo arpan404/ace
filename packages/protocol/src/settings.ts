@@ -67,6 +67,13 @@ export const SettingsValues = z.object({
    */
   "computer.blockedApps": z.array(z.string().min(1).max(200)).max(200),
   /**
+   * Android emulators ace starts open their own window too, for its extended controls
+   * (sensors, camera, fingerprint). Off by default: ace shows and drives the device itself.
+   * Read when an emulator boots, so a change applies to the next boot. Emulators the person
+   * started themselves are never changed.
+   */
+  "devices.emulatorWindow": z.boolean(),
+  /**
    * This daemon's access for new threads: the mode the person last chose or set in Settings.
    * A thread's own choice and its project's default come first.
    */

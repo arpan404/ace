@@ -1,4 +1,4 @@
-import { longHistory, replayCursor } from "@ace/fake-daemon";
+import { facts, longHistory, replayCursor } from "@ace/fake-daemon";
 import { ThreadId, type CatalogEntry } from "@ace/protocol";
 import { configure, act, cleanup, screen, waitFor, within } from "@testing-library/react";
 
@@ -216,6 +216,8 @@ test("Send again replaces an uncertain queued message and allows it to run", asy
   const app = harness();
   const player = app.play(replayCursor());
   player.runThrough("finding");
+  // The main agent is back at its own work, not only waiting on its subagents: follow-ups queue.
+  app.daemon.apply("thread-replay-cursor", [facts.toolDone("root", "spawn-test")]);
   await app.open("/t/thread-replay-cursor");
   const message = await screen.findByRole("combobox", { name: "Message" });
   await userEvent.type(message, "Check reconnects{Enter}");

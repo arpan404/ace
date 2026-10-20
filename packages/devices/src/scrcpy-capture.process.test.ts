@@ -298,3 +298,14 @@ it("the view fails when the emulator side of the stream goes away", async () => 
   device.hangUp();
   expect(await until(() => failures[0])).toMatchObject({ code: "command_failed" });
 });
+
+it("input after the emulator went away says the view ended, not that control is reconnecting", async () => {
+  const { capture, device, frames, failures } = await fixture();
+  await until(() => (frames.length ? true : undefined));
+  device.hangUp();
+  await until(() => failures[0]);
+  await expect(capture.input?.({ kind: "tap", x: 10, y: 10 }, () => {})).rejects.toMatchObject({
+    code: "command_failed",
+    message: "The Android screen stream ended",
+  });
+});

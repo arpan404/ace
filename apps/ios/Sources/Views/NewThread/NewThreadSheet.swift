@@ -69,14 +69,20 @@ struct NewThreadSheet: View {
                         Text("None").tag("")
                         ForEach(profiles) { Text($0.name).tag($0.id) }
                     }
+                    .accessibilityIdentifier("newThread.profile")
                     TextField("Custom instructions", text: Binding(get: { draft.instructions ?? "" }, set: { value in drafts.edit { $0.instructions = value } }), axis: .vertical).lineLimit(2...6)
+                        .accessibilityIdentifier("newThread.instructions")
                     NavigationLink("Manage profiles") { TaskProfilesView(store: TaskProfileStore(defaults: .standard)) }
+                        .accessibilityIdentifier("newThread.profiles")
                 } footer: { Text("Instructions are included in this task's first message.") }
                 if let failure {
                     Text(failure).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.StatusText.failed)
                         .accessibilityIdentifier("newThread.failure")
                 }
             }
+            // The form reappears when Manage profiles pops back: read the profiles again there, so
+            // one created or edited meanwhile is in the picker at once.
+            .onAppear { profiles = TaskProfileStore(defaults: .standard).load() }
             .navigationTitle("New thread").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
@@ -105,7 +111,6 @@ struct NewThreadSheet: View {
         }
         .onChange(of: choiceKey) { _, _ in client?.composeChoice(draft) }
         .onDisappear { client?.composeAction(["kind": "close"]) }
-        .onAppear { profiles = TaskProfileStore(defaults: .standard).load() }
         .sheet(isPresented: $browsing) { projectFiles }
     }
     /// The chosen project's own folder, read-only, before the thread exists.

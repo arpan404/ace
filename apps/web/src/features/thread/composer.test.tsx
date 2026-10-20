@@ -1,7 +1,7 @@
 import { currentCheckout, gitAction, openWorkCard } from "@/test/open-work.ts";
 import { sourceTab } from "@/test/model-control.ts";
 import { chooseAccount } from "@/test/model-control.ts";
-import { fixtureImage, longHistory, replayCursor } from "@ace/fake-daemon";
+import { facts, fixtureImage, longHistory, replayCursor } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
@@ -47,7 +47,11 @@ function phoneWindow() {
 async function open(scenario: "idle" | "busy") {
   const app = harness();
   if (scenario === "idle") app.play(longHistory(2)).runUntilBlocked();
-  else app.play(replayCursor()).runThrough("finding");
+  else {
+    app.play(replayCursor()).runThrough("finding");
+    // The main agent is back at its own work, not only waiting on its subagents: follow-ups queue.
+    app.daemon.apply("thread-replay-cursor", [facts.toolDone("root", "spawn-test")]);
+  }
   await app.open(scenario === "idle" ? "/t/thread-router" : "/t/thread-replay-cursor");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const message = await screen.findByRole("combobox", { name: "Message" });
@@ -63,6 +67,21 @@ test("a message sent to a settled thread lands in the transcript and the agent s
   expect(message.textContent).toBe("");
   // The agent is busy now: the composer's tab says so and offers Stop.
   expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
+});
+
+test("while the agent only waits on its subagents, Enter sends the message in now", async () => {
+  const app = harness();
+  app.play(replayCursor()).runThrough("finding");
+  await app.open("/t/thread-replay-cursor");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  const message = await screen.findByRole("combobox", { name: "Message" });
+  await screen.findByRole("status", { name: /^Waiting for/ });
+  await userEvent.type(message, "Also check the iOS cold-start path");
+  expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Queue message" })).toBeNull();
+  await userEvent.keyboard("{Enter}");
+  expect(await within(feed).findByText("Also check the iOS cold-start path")).toBeTruthy();
+  expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
 });
 
 test("while the thread works, Enter queues the message until the agent's turn ends", async () => {

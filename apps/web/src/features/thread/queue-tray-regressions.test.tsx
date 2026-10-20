@@ -1,4 +1,4 @@
-import { replayCursor } from "@ace/fake-daemon";
+import { facts, replayCursor } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -48,6 +48,8 @@ test("Steer stays available when no root turn runs and sends the message at once
   // Keep older transcript pages outside this device's retained window.
   app.daemon.holdRequests("items.page");
   app.play(replayCursor()).runThrough("finding");
+  // The main agent is back at its own work, not only waiting on its subagents: follow-ups queue.
+  app.daemon.apply(threadId, [facts.toolDone("root", "spawn-test")]);
   app.daemon.apply(threadId, [
     {
       type: "item.upsert",
@@ -89,6 +91,8 @@ test("Steer stays available when no root turn runs and sends the message at once
 test("a queued message reaches the agent when the root's turn ends while subagents keep working", async () => {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
+  // The main agent is back at its own work, not only waiting on its subagents: follow-ups queue.
+  app.daemon.apply(threadId, [facts.toolDone("root", "spawn-test")]);
   await app.open(`/t/${threadId}`);
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   await userEvent.type(
@@ -114,6 +118,8 @@ test("a queued message reaches the agent when the root's turn ends while subagen
 test("an edit moved beyond the visible page can still be saved from the composer", async () => {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
+  // The main agent is back at its own work, not only waiting on its subagents: follow-ups queue.
+  app.daemon.apply(threadId, [facts.toolDone("root", "spawn-test")]);
   await app.open(`/t/${threadId}`);
   await screen.findByRole("combobox", { name: "Message" });
   await act(async () => {
@@ -169,6 +175,8 @@ test("an edit moved beyond the visible page can still be saved from the composer
 test("a pending keyboard reorder preserves focus deliberately moved to the composer", async () => {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
+  // The main agent is back at its own work, not only waiting on its subagents: follow-ups queue.
+  app.daemon.apply(threadId, [facts.toolDone("root", "spawn-test")]);
   await app.open(`/t/${threadId}`);
   const composer = await screen.findByRole("combobox", { name: "Message" });
   await userEvent.type(composer, "First{Enter}Second{Enter}");

@@ -163,7 +163,11 @@
             "rotate",
             "enter",
             "power",
-            "recents"
+            "recents",
+            "volumeUp",
+            "volumeDown",
+            "action",
+            "side"
           ],
           "type": "string"
         },

@@ -1,7 +1,7 @@
 import { workbench } from "@ace/fake-daemon";
-import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
@@ -120,6 +120,32 @@ test("a clicked row shows its status again once the pointer moves off it", async
   expect(document.activeElement).toBe(card(row));
   expect(firstLine(row)).not.toContain("Approve");
   await userEvent.unhover(card(row));
+  expect(firstLine(row)).toContain("Approve");
+});
+
+test("a clicked row keeps its status when the window gives focus back to it", async () => {
+  await openHome();
+  const row = /^Partial refunds double-count tax/;
+  await userEvent.click(card(row));
+  await userEvent.unhover(card(row));
+  // Leaving the app blurs the row's link as the window loses focus; coming back refocuses it.
+  const away = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+  await act(async () => card(row).blur());
+  away.mockRestore();
+  await act(async () => card(row).focus());
+  expect(document.activeElement).toBe(card(row));
+  expect(firstLine(row)).toContain("Approve");
+});
+
+test("a row shows its status again once its ⋯ menu closes under the pointer", async () => {
+  await openHome();
+  const row = /^Partial refunds double-count tax/;
+  await userEvent.hover(card(row));
+  await userEvent.click(screen.getByRole("button", { name: /^Actions for Partial refunds/ }));
+  // The pointer moves off the row onto the menu, which then closes from under it.
+  await userEvent.hover(await screen.findByRole("menuitem", { name: /^Rename/ }));
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("menuitem", { name: /^Rename/ })).toBeNull());
   expect(firstLine(row)).toContain("Approve");
 });
 

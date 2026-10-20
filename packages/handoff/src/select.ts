@@ -55,13 +55,21 @@ function attribution(item: Item): string {
   return by ? ` (${by.model ? `${by.model} on ${by.provider}` : by.provider})` : "";
 }
 
+/** Who a message's excerpt names: the agent, the person, or ace speaking for itself. */
+function speaker(item: Extract<Item, { type: "message" }>): string {
+  if (item.role !== "user") return `assistant${attribution(item)}`;
+  if (personMessage(item)) return "user";
+  const kind = originKind(item);
+  return kind ? `ace input (${kind})` : "ace input";
+}
+
 /** One excerpt's text, or undefined when the item carries nothing the next agent can use. */
 function excerpt(item: Item): string | undefined {
   if (!item.complete) return undefined;
   switch (item.type) {
     case "message": {
       if (item.role === "user" && quietOrigins.has(originKind(item) ?? "")) return undefined;
-      let text = item.role === "user" ? "user: " : `assistant${attribution(item)}: `;
+      let text = `${speaker(item)}: `;
       const start = text.length;
       for (const [index, part] of item.parts.entries()) {
         const available = maxExcerpt - text.length;

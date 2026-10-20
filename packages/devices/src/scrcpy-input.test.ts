@@ -93,8 +93,40 @@ describe("Android input over the scrcpy control socket", () => {
     expect(firstFor("rotate")).toEqual({ type: "rotate" });
   });
 
+  it("the volume keys press KEYCODE_VOLUME_UP and KEYCODE_VOLUME_DOWN down then up", () => {
+    expect(plan({ kind: "key", key: "volumeUp" }).map((step) => step.message)).toEqual([
+      { type: "keycode", action: "down", keycode: 24 },
+      { type: "keycode", action: "up", keycode: 24 },
+    ]);
+    expect(plan({ kind: "key", key: "volumeDown" }).map((step) => step.message)).toEqual([
+      { type: "keycode", action: "down", keycode: 25 },
+      { type: "keycode", action: "up", keycode: 25 },
+    ]);
+  });
+
+  it("the iPhone Action button is refused on Android rather than pressing something else", () => {
+    expect(() => plan({ kind: "key", key: "action" })).toThrow(
+      expect.objectContaining({ code: "not_supported" }),
+    );
+  });
+
   it("refuses a point outside the screen instead of injecting it at the edge", () => {
     expect(() => plan({ kind: "tap", x: 1080, y: 10 })).toThrow("outside the device screen");
+  });
+
+  it("a swipe from the bottom edge lands when the rounded picture is taller than the display", () => {
+    // 1080 × 2340 encoded as 584 × 1280: one factor makes the picture 2367 points tall.
+    const steps = scrcpyInputPlan(
+      { kind: "pointer", phase: "down", x: 540, y: 2360 },
+      { width: 1080, height: 2340 },
+      { width: 584, height: 1280 },
+      () => 0n,
+    );
+    expect(steps[0]?.message).toMatchObject({ type: "touch", action: "down" });
+    const touch = steps[0]?.message;
+    if (touch?.type !== "touch") throw new Error("expected a touch");
+    expect(touch.y).toBeGreaterThan(1270);
+    expect(touch.y).toBeLessThan(1280);
   });
 
   it("fingers still held when control moves on are lifted where they were last seen", () => {

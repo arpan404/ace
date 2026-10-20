@@ -27,7 +27,7 @@ export interface PaletteCommand {
   kind?: "thread" | "project" | "message";
   /** When it was last opened or run (ms): breaks ranking ties, newest first. */
   at?: number;
-  /** The thread a message was found in. */
+  /** The thread it opens: a thread's own, or the one a message was found in. */
   threadId?: string;
   /** A message's matching text, its matched ranges marked. */
   snippet?: { text: string; highlights: readonly { start: number; end: number }[] };

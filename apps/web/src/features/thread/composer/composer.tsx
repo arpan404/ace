@@ -277,7 +277,8 @@ function ComposerBody({
       submit: (other) => submit(other && (!!props.otherSend || props.canSteer !== false)),
     });
   // A steer always goes in now, a running command included: the daemon interrupts it if needed.
-  const mode = !props.busy ? "send" : props.followUp !== "steer" ? "queue" : "steer";
+  const mode =
+    !props.busy || props.sendsNow ? "send" : props.followUp !== "steer" ? "queue" : "steer";
   const placeholder =
     props.unavailable?.short ??
     (compact ? (props.shortPlaceholder ?? props.placeholder) : props.placeholder) ??
@@ -398,7 +399,7 @@ function ComposerBody({
               otherKeys={otherKeys}
               otherHint={props.otherSend?.hint}
               describedBy={props.unavailable?.describedBy ?? props.sendBlocked?.describedBy}
-              canStop={canStop && empty}
+              canStop={canStop && empty && !props.stopInStrip}
               stopping={!!props.stopping}
               onSend={footer.onSend}
               onStop={footer.onStop}

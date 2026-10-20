@@ -41,13 +41,17 @@ test("a background command appears once in the transcript while its row keeps th
   expect(within(header).queryByRole("status")).toBeNull();
 });
 
-test("a thread whose turn ended with a background command reads Background, never Working or Done", async () => {
+/** The strip above the composer, by what it says. */
+const strip = (name: string | RegExp) => screen.findByRole("status", { name });
+
+test("a thread whose turn ended with a background command reads Background, its strip offering Stop", async () => {
   const { feed, header, row } = await open(watchingRelay());
-  // No agent is doing a turn: no "Working for" timer, the command named instead.
-  expect(within(feed).queryByRole("status", { name: /^Working/ })).toBeNull();
+  // No agent is doing a turn: no "Working for" timer; the strip says what is left running.
   expect(
-    within(feed).getByRole("status", { name: "Running in background bun run dev:relay" }),
-  ).toBeTruthy();
+    within(feed).queryByRole("status", { name: /^Working|^Running in background/ }),
+  ).toBeNull();
+  const waiting = await strip(/^Waiting for bun run dev:relay/);
+  expect(within(waiting).getByRole("button", { name: "Stop the background command" })).toBeTruthy();
   expect(within(row).getByText("Background · 1", { exact: true })).toBeTruthy();
   expect(within(row).queryByText("Working", { exact: true })).toBeNull();
   expect(within(row).queryByText("Done", { exact: true })).toBeNull();
@@ -56,36 +60,38 @@ test("a thread whose turn ended with a background command reads Background, neve
   expect(await within(header).findByRole("button", { name: /^Thread details$/ })).toBeTruthy();
 });
 
-test("a thread waiting on subagents keeps the transcript live with their count", async () => {
+test("a thread waiting on subagents keeps their count in the composer strip", async () => {
   const { header, row } = await open(waitingOnSubagents());
-  expect(screen.getByRole("group", { name: "Turn in progress" }).textContent).toContain(
-    "2 subagents",
-  );
+  expect((await strip(/^Waiting for 2 subagents/)).textContent).toContain("2 subagents");
   expect(screen.queryByRole("region", { name: "Agents" })).toBeNull();
   expect(row.getAttribute("aria-label")).toContain("2 subagents running");
   expect(within(header).queryByRole("status")).toBeNull();
 });
 
-test.each([["waiting on its subagents", waitingOnSubagents]])(
-  "a thread %s stays Working in its sidebar row while its transcript says what it waits for",
-  async (_name, scenario) => {
-    const { feed, row } = await open(scenario());
-    // The main agent does nothing itself: its live line waits, timed, never "Working for".
-    const line = within(feed).getByRole("status", { name: "Waiting for 2 subagents" });
-    expect(line.textContent).toMatch(/^Waiting for 2 subagents · \d/);
-    expect(within(feed).queryByRole("status", { name: /^Working/ })).toBeNull();
-    expect(within(row).getByText("Working", { exact: true })).toBeTruthy();
-    expect(within(row).queryByText("Waiting", { exact: true })).toBeNull();
-    // What the row says aloud and what its hover card shows read the same word.
-    const spoken = row.getAttribute("aria-label") ?? "";
-    expect(spoken).toContain(". Working");
-    expect(spoken).not.toMatch(/Waiting on|Watching/);
-    await userEvent.hover(row);
-    const details = await screen.findByLabelText(/^Details for /);
-    expect(details.textContent).toContain("Working");
-    expect(details.textContent).not.toMatch(/Waiting on|Watching/);
-  },
-);
+test("a thread waiting on its subagents reads Waiting in its row, its strip timed with the only Stop", async () => {
+  const { feed, row } = await open(waitingOnSubagents());
+  // The main agent does nothing itself: no "Working for" line; the strip waits, timed.
+  const waiting = await strip(/^Waiting for 2 subagents/);
+  expect(waiting.textContent).toMatch(/^Waiting for 2 subagents · \d/);
+  expect(within(feed).queryByRole("status", { name: /^Working|^Waiting/ })).toBeNull();
+  // Stop sits in the strip, not also in the composer's send slot.
+  expect(screen.getAllByRole("button", { name: "Stop the agent" })).toEqual([
+    within(waiting).getByRole("button", { name: "Stop the agent" }),
+  ]);
+  expect(within(row).getByText("Waiting", { exact: true })).toBeTruthy();
+  expect(within(row).queryByText("Working", { exact: true })).toBeNull();
+  // What the row says aloud and what its hover card shows read the same word.
+  const spoken = row.getAttribute("aria-label") ?? "";
+  expect(spoken).toContain(". Waiting for 2 subagents");
+  expect(spoken).not.toMatch(/Working/);
+  await userEvent.hover(row);
+  const details = await screen.findByLabelText(/^Details for /);
+  expect(details.textContent).toContain("Waiting");
+  expect(details.textContent).not.toMatch(/Working/);
+
+  await userEvent.click(within(waiting).getByRole("button", { name: "Stop the agent" }));
+  expect(await within(waiting).findByRole("button", { name: "Stopping…" })).toBeTruthy();
+});
 
 test("a thread that asked a question keeps the waiting state in the thread, row and details icon", async () => {
   const { header, row } = await open(askingQuestion());
