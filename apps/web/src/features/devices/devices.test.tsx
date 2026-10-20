@@ -101,16 +101,19 @@ test("booting an emulator shows its live screen, which takes keys and text while
   expect(subtitle(pixel, /^Android 15 · Live/)).toBeTruthy();
   expect(await controlChip(pixel, "You're in control")).toBeTruthy();
 
-  // The rail's keys, then the keyboard field it opens, which types on the device.
+  // The rail's keys (Software keyboard brings the device's own keyboard back), then the text
+  // field Type text opens, which types on the device.
   await userEvent.click(within(pixel).getByRole("button", { name: "Back" }));
+  await userEvent.click(within(pixel).getByRole("button", { name: "Software keyboard" }));
   expect(within(pixel).queryByRole("textbox", { name: "Type on the device" })).toBeNull();
-  await userEvent.click(within(pixel).getByRole("button", { name: "Keyboard" }));
+  await userEvent.click(within(pixel).getByRole("button", { name: "Type text" }));
   await userEvent.type(within(pixel).getByRole("textbox", { name: "Type on the device" }), "hello");
   await userEvent.click(within(pixel).getByRole("button", { name: "Send" }));
 
   await waitFor(() =>
     expect(app.daemon.appDevices.inputs.map((entry) => entry.input)).toEqual([
       { kind: "key", key: "back" },
+      { kind: "key", key: "keyboard" },
       { kind: "type", text: "hello" },
     ]),
   );

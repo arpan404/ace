@@ -5,6 +5,7 @@ import {
   HouseSimpleIcon,
   KeyboardIcon,
   RecordIcon,
+  TextAaIcon,
 } from "@phosphor-icons/react";
 import { formatElapsed } from "@ace/ui-core";
 import { useEffect, useState, type RefObject } from "react";
@@ -17,7 +18,8 @@ export const railKeys = {
   home: "mod+shift+h",
   back: "mod+backspace",
   rotate: "mod+arrowright",
-  keyboard: "mod+shift+k",
+  type: "mod+shift+k",
+  softwareKeyboard: "mod+alt+k",
   screenshot: "mod+s",
   record: "mod+alt+r",
 } as const;
@@ -43,8 +45,9 @@ function useRecordingTime(recording: boolean): string | undefined {
 }
 
 /**
- * The floating rail on the stage's right edge: Home, Back (Android), Rotate and Keyboard while
- * you drive, then Screenshot and Record (with its running time). Each has a tooltip and a key.
+ * The floating rail on the stage's right edge: Home, Back (Android), Rotate, Software keyboard
+ * (brings back the device's on-screen keyboard; toggles it on iOS) and Type text while you
+ * drive, then Screenshot and Record (with its running time). Each has a tooltip and a key.
  */
 export function ControlRail(props: {
   /** The device's tab: the rail's keys only work while focus is inside it. */
@@ -55,7 +58,7 @@ export function ControlRail(props: {
   pending: boolean;
   recording: boolean;
   keyboardOpen: boolean;
-  onKey(key: "home" | "back" | "rotate"): void;
+  onKey(key: "home" | "back" | "rotate" | "keyboard"): void;
   onKeyboard(): void;
   onScreenshot(): void;
   onRecord(): void;
@@ -68,7 +71,8 @@ export function ControlRail(props: {
   useHotkey(railKeys.home, () => props.onKey("home"), { enabled: drive, when });
   useHotkey(railKeys.back, () => props.onKey("back"), { enabled: drive && props.android, when });
   useHotkey(railKeys.rotate, () => props.onKey("rotate"), { enabled: drive, when });
-  useHotkey(railKeys.keyboard, props.onKeyboard, { enabled: drive, when });
+  useHotkey(railKeys.softwareKeyboard, () => props.onKey("keyboard"), { enabled: drive, when });
+  useHotkey(railKeys.type, props.onKeyboard, { enabled: drive, when });
   useHotkey(railKeys.screenshot, props.onScreenshot, { enabled: props.live, when });
   useHotkey(railKeys.record, props.onRecord, { enabled: props.live, when });
   return (
@@ -109,8 +113,17 @@ export function ControlRail(props: {
       />
       <IconButton
         icon={KeyboardIcon}
-        label="Keyboard"
-        keys={railKeys.keyboard}
+        label="Software keyboard"
+        keys={railKeys.softwareKeyboard}
+        resolve={false}
+        disabled={!drive}
+        reason={props.live ? reason : undefined}
+        onClick={() => props.onKey("keyboard")}
+      />
+      <IconButton
+        icon={TextAaIcon}
+        label="Type text"
+        keys={railKeys.type}
         resolve={false}
         pressed={props.keyboardOpen}
         disabled={!drive}
