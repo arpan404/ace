@@ -785,8 +785,8 @@
       "sha256": "69f233f863568c3aa101348d41253e010aea4e9c47d586156fd1900890eaf099"
     },
     "schema/DaemonHealth.json": {
-      "bytes": 841,
-      "sha256": "8d158c83167e826f0a563f4fff74619b8ead46f840aedea1bc8c66a1de0d1676"
+      "bytes": 681,
+      "sha256": "110c4498095e01d5fc626a102ce75d30404113bff481622efc25d9853fb82bd0"
     },
     "schema/DelegateTaskOperation.json": {
       "bytes": 2943,
@@ -3761,10 +3761,10 @@
       "sha256": "3c00a18ea5c34e708a57c9d0f5d0cdba097745d6b5fc80bd543053d4c1079efc"
     },
     "types.md": {
-      "bytes": 803796,
-      "sha256": "60fcc22215993a204ca43482cdf55753954cc976d83809e5aa378f43de82b791"
+      "bytes": 803672,
+      "sha256": "837c564ec2ea08ed0fb63acfc72891d6145a34e2af2aac7b120a2e93973068bb"
     }
   },
-  "input": "beb855d9465a5e8f292553589b41d01dd1f2ea095ded7b72a2b045aa8ed963fd",
+  "input": "45508ae86ea691cdb91e8a43f4cc5e5a517e50b4abd2756929ad32ceccedb3f6",
   "version": 1
 }

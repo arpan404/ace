@@ -9296,7 +9296,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | running | yes | `true` |  |
-| version | yes | union | {"anyOf":[{"type":"string","const":"development"},{"type":"string","maxLength":80,"pattern":"^\\d+\\.\\d+\\.\\d+(?:-[a-z0-9.]+)?$","x-ace-constraint":"Daemon version must have a nonzero major version; legacy ace 0.x is incompatible."}]} |
+| version | yes | union | {"anyOf":[{"type":"string","const":"development"},{"$ref":"https://ace.local/protocol/v1/ReleaseVersion.json"}]} |
 | ready | no | `true` |  |
 
 Example:

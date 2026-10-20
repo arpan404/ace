@@ -4,7 +4,6 @@ import { InstalledRelease, ReleaseDirectory } from "@ace/protocol";
 import { PinnedDirectory } from "@ace/workspace/pinned-directory";
 import { isDesktopShim, renderLauncher } from "./launcher.ts";
 export { CLI_SHIM_MARKER, isDesktopShim, renderLauncher } from "./launcher.ts";
-import { installableVersion } from "./version.ts";
 import { assertTestHomeIsolation } from "./test-home-guard.ts";
 
 export {
@@ -76,7 +75,6 @@ export function installedVersion(root: string): string {
     const release = InstalledRelease.parse(
       JSON.parse(generation.readText("release.json", 16 * 1024)),
     );
-    installableVersion(release.version);
     if (target !== `releases/${release.version}-${release.target}`)
       throw new Error("Release metadata does not match its directory");
     const bin = home.child("bin");

@@ -2,7 +2,6 @@ import { lstatSync, readFileSync, readlinkSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { InstalledRelease, ReleaseDirectory } from "@ace/protocol";
 import { renderLauncher } from "./launcher.ts";
-import { installableVersion } from "./version.ts";
 
 /** Whether anything, a dangling pointer included, is at `path`. */
 function present(path: string): boolean {
@@ -29,7 +28,6 @@ function carriedVersion(backup: string, home: string): string | undefined {
     const release = InstalledRelease.parse(
       JSON.parse(readFileSync(join(backup, target, "release.json"), "utf8").slice(0, 16 * 1024)),
     );
-    installableVersion(release.version);
     if (target !== `releases/${release.version}-${release.target}`) return undefined;
     // The launcher names the home it was installed for, so it is correct again once moved back.
     if (readFileSync(join(backup, "bin", "ace"), "utf8").slice(0, 8192) !== renderLauncher(home))
