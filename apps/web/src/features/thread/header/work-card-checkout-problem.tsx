@@ -22,7 +22,7 @@ import { RowAction, RowLabel, RowStatic } from "./work-card-parts.tsx";
 type Change = NonNullable<ThreadDetails["workspaceChange"]>;
 
 /**
- * What stops the thread's checkout, in the Work card's Environment: a move that failed (or
+ * What stops the thread's checkout, in the Work card's Workspace: a move that failed (or
  * whose outcome ace couldn't confirm) with Retry, which asks for the same move again, and
  * Clear, which releases what the move held once the person confirms; or a worktree folder that
  * is gone, with Move to local and Recreate worktree.

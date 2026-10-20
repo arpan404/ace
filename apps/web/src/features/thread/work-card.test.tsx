@@ -263,7 +263,10 @@ test("running subagents show while completed ones fold under their own toggle, w
   expect(within(agents).getByRole("button", { name: /^Open Alpha,/ })).toBeTruthy();
   expect(within(agents).queryByRole("button", { name: /^Open Beta,/ })).toBeNull();
   expect(within(agents).queryByRole("button", { name: /^Open Gamma,/ })).toBeNull();
-  await userEvent.click(within(agents).getByRole("button", { name: /Completed \(2\).*1 failed/ }));
+  const completed = within(agents).getByRole("button", { name: /Completed \(2\).*1 failed/ });
+  expect(completed.getAttribute("aria-expanded")).toBe("false");
+  await userEvent.click(completed);
+  expect(completed.getAttribute("aria-expanded")).toBe("true");
   expect(within(agents).getByRole("button", { name: /^Open Beta,/ })).toBeTruthy();
   expect(within(agents).getByRole("button", { name: /^Open Gamma,/ })).toBeTruthy();
   await userEvent.click(within(agents).getByRole("button", { name: /^Completed \(2\)$/ }));
@@ -330,4 +333,23 @@ test("the Agents heading counts running subagents, and reads Agents when none ru
   card = await openWorkCard();
   agents = within(card).getByRole("region", { name: "Agents" });
   expect(within(agents).getByRole("heading", { name: "Agents" })).toBeTruthy();
+});
+
+test("a subagent whose own turn ended stays with the running ones while its subagent still runs", async () => {
+  const { card } = await openAgents("agents-nested", "Agents nested", [
+    ...spawn("lead", "Lead"),
+    facts.tool("lead", "spawn-helper", {
+      kind: "agent.spawn",
+      title: "Helper",
+      detail: { kind: "agent.spawn", description: "Helper", childAgent: "helper" },
+    }),
+    facts.subagent("codex", "helper", "Helper", "spawn-helper", { parent: "lead" }),
+    facts.turn("helper", "spawn"),
+    facts.toolDone("lead", "spawn-helper"),
+    facts.endTurn("lead"),
+  ]);
+  const agents = within(card).getByRole("region", { name: "Agents" });
+  expect(within(agents).getByRole("heading", { name: "Agents · 1 running" })).toBeTruthy();
+  expect(within(agents).getByRole("button", { name: /^Open Lead,/ })).toBeTruthy();
+  expect(within(agents).queryByRole("button", { name: /^Completed/ })).toBeNull();
 });

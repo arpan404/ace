@@ -14,9 +14,9 @@ const CreateFile = lazy(() => loadCreateFile().then((module) => ({ default: modu
 
 /**
  * The thread details card's sections: Workspace, Branch and Agents (a child thread's parent,
- * else the main agent's subagents), a hairline between each. What runs (the agent tree, background commands, automations) has one
- * home, the Summary tab. Its forms (commit, PR, a guarded checkout move, a new script file)
- * outlive the card, which closes when one opens.
+ * else the main agent's subagents), a hairline between each. What runs in detail (the agent
+ * tree, background commands, automations) has one home, the Summary tab. Its forms (commit,
+ * PR, a guarded checkout move, a new script file) outlive the card, which closes when one opens.
  */
 export function WorkCard(props: { threadId: string; onClose(): void }) {
   const meta = useThreadMeta(props.threadId);

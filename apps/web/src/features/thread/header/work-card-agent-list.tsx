@@ -16,8 +16,8 @@ const none: readonly string[] = [];
 const page = 5;
 
 /**
- * The agents beside the one on screen: running first, settled behind their own toggle. The
- * parent row stays above as `children`. No list, no section.
+ * The Agents section: `children` (a parent row) above the parent agent's subagents, running
+ * first, settled behind their own toggle. Nothing to show, no section.
  */
 export function AgentListSection(props: {
   threadId: string;
@@ -47,7 +47,7 @@ export function AgentListSection(props: {
   const [open, setOpen] = useState(false);
   const [allRunning, setAllRunning] = useState(false);
   const [allSettled, setAllSettled] = useState(false);
-  if (ids.length === 0 && !props.children) return null;
+  if (running.length + settled.length === 0 && !props.children) return null;
   const title = running.length > 0 ? `Agents · ${running.length} running` : "Agents";
   const shownRunning = allRunning ? running : running.slice(0, page);
   const shownSettled = allSettled ? settled : settled.slice(0, page);
