@@ -46,7 +46,7 @@ export const stalledMessage = "Agents are still working. Restart again once they
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /**
- * The app's update, from check to restart (ADR 0087). Checks run in the background and on
+ * The app's update, from check to restart (ADR 0091). Checks run in the background and on
  * request; a found update waits for the person to download it, and a downloaded one for
  * their Restart, which never cuts off running agents: it drains them first and stays
  * downloaded if work remains. `apply` (the CLI's `ace update apply`) runs every step.

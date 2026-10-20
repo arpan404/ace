@@ -52,7 +52,7 @@ export async function latestDesktopVersion(
 /**
  * `ace update` from the CLI inside the desktop app. `check` reports the newest release;
  * `apply` asks the app to install it: the app downloads and verifies the update, waits for
- * running agents to finish, then restarts with its new daemon (ADR 0087). There is no
+ * running agents to finish, then restarts with its new daemon (ADR 0091). There is no
  * standalone transaction to `recover`.
  */
 export async function desktopUpdateCli(

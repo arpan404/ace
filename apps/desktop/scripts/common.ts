@@ -14,7 +14,7 @@ export const dist = join(desktop, "dist");
 
 /**
  * The release authority's public key for the bundled daemon's `ace update` on standalone
- * installs (ADR 0041). The app itself updates through electron-updater (ADR 0087).
+ * installs (ADR 0041). The app itself updates through electron-updater (ADR 0091).
  */
 export function releasePublicKey(env: NodeJS.ProcessEnv): string {
   const path = env.ACE_RELEASE_PUBLIC_KEY_FILE;

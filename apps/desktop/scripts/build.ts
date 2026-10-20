@@ -86,7 +86,7 @@ await bundleDaemon(repo, daemon, releasePublicKey(process.env));
 await cp(join(app, "renderer"), join(daemon, "web"), { recursive: true });
 await stageNodePty(daemon);
 await copyFile(join(repo, "LICENSE"), join(daemon, "ACE-LICENSE"));
-// The bundled CLI's `ace update` hands the update to the app instead (ADR 0087).
+// The bundled CLI's `ace update` hands the update to the app instead (ADR 0091).
 await writeFile(
   join(daemon, desktopAppMarker),
   JSON.stringify(DesktopApp.parse({ version: appVersion })) + "\n",

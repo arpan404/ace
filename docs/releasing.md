@@ -2,7 +2,7 @@
 
 Releases are built, signed and notarized on your Mac, then published as a GitHub release.
 Every installed app checks GitHub releases and updates itself from them
-([ADR 0087](adr/0087-desktop-auto-update.md)).
+([ADR 0091](adr/0091-desktop-auto-update.md)).
 
 ## One-time setup
 
@@ -28,15 +28,16 @@ Every installed app checks GitHub releases and updates itself from them
 
 ## Make a release
 
-Versions are semver and start at 1.0.0: ace refuses 0.x versions, which belong to the legacy
-app. `1.2.0-preview.1` publishes a prerelease, which only preview installs move to.
+Versions are semver, 0.x included. The version you pass must match `apps/desktop/package.json`,
+so bump it in a PR first. `0.1.0-preview.1` publishes a prerelease, which only preview
+installs move to.
 
 ```sh
 git switch main && git pull           # release from a pushed commit
 bun run release:doctor
-bun run release:build 1.0.0           # or: --unsigned until you have a Developer ID
-open dist/releases/v1.0.0             # try the dmg before publishing
-bun run release:publish 1.0.0         # or: --draft to review it on GitHub first
+bun run release:build 0.0.3 --with-daemon
+open dist/releases/v0.0.3             # try the dmg before publishing
+bun run release:publish 0.0.3 --notes-file notes.md   # or: --draft to review it first
 ```
 
 `release:build` packages the app for this Mac's architecture, signs and notarizes it, and
@@ -50,7 +51,8 @@ it. Release notes come from `--notes-file notes.md`, or are generated from merge
 To include standalone CLI archives (`ace update` on installs from `install.sh`), pass
 `--with-daemon` to `release:build`. Set `ACE_RELEASE_PUBLIC_KEY_FILE` and
 `ACE_RELEASE_PRIVATE_KEY_FILE` (kept outside the repository), and run it on Node 24.13.0. See
-[tools/release](../tools/release/README.md).
+[tools/release](../tools/release/README.md). Always pass it: apps from before this updater
+(0.0.2 and earlier) check those signed manifests, and offer the download when they find one.
 
 ## What people see
 
@@ -73,6 +75,8 @@ To include standalone CLI archives (`ace update` on installs from `install.sh`),
 
 ## Notes
 
+- The first release built with this updater is the first one installed apps can update to
+  in place. Apps from before it (0.0.2 and earlier) show "is available" with Download.
 - One build covers one architecture, the Mac's own. Intel Macs update in place only from a
   release built on an Intel Mac; otherwise they are offered the download.
 - To test an update end to end, install release N, publish N+1 (a `--draft` is not seen), then

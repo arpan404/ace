@@ -122,7 +122,7 @@ export async function updateCli(args: string[]) {
   const command = z.enum(["check", "apply", "recover"]).parse(args[0]);
   if (args.length > 2 || (args[1] !== undefined && (args[1] !== "--drain" || command !== "apply")))
     throw new Error("Usage: ace update check|apply [--drain]|recover");
-  // Inside the desktop app the app owns the update, daemon included (ADR 0087).
+  // Inside the desktop app the app owns the update, daemon included (ADR 0091).
   const desktop = await bundledDesktopApp(daemonDirectory(import.meta.url));
   if (desktop) {
     await desktopUpdateCli(command, desktop, (line) => process.stdout.write(`${line}\n`));

@@ -27,8 +27,9 @@ export function headCommit(): string {
   return capture("git", ["rev-parse", "HEAD"]).out;
 }
 
+/** No tracked file differs from the commit; untracked notes and scratch files don't count. */
 export function worktreeClean(): boolean {
-  const status = capture("git", ["status", "--porcelain"]);
+  const status = capture("git", ["status", "--porcelain", "--untracked-files=no"]);
   return status.ok && status.out === "";
 }
 

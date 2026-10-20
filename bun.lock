@@ -142,7 +142,7 @@
         "@ace/redaction": "workspace:*",
         "@ace/service": "workspace:*",
         "@ace/ui-core": "workspace:*",
-        "electron-updater": "^6.8.9",
+        "electron-updater": "6.8.9",
         "zod": "^4.6.5",
       },
       "devDependencies": {

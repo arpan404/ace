@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { installableVersion } from "@ace/service";
+import { ReleaseVersion } from "@ace/protocol";
 import {
   changedFiles,
   checksumList,
@@ -16,7 +16,7 @@ import {
   StagedRelease,
 } from "../src/packaging/release-plan.ts";
 import { notaryCredentials } from "../src/packaging/release-signing.ts";
-import { desktop, dist, repo } from "./common.ts";
+import { appVersion, desktop, dist, repo } from "./common.ts";
 import {
   capture,
   githubReady,
@@ -31,11 +31,11 @@ import {
 
 /**
  * Desktop releases built, signed and notarized on this Mac and published as a GitHub release,
- * which every installed app's updater reads (ADR 0087).
+ * which every installed app's updater reads (ADR 0091).
  *
  *   bun run release:doctor
- *   bun run release:build 1.0.0 [--unsigned] [--with-daemon] [--allow-dirty]
- *   bun run release:publish 1.0.0 [--draft] [--notes-file notes.md]
+ *   bun run release:build 0.0.3 [--unsigned] [--with-daemon] [--allow-dirty]
+ *   bun run release:publish 0.0.3 [--draft] [--notes-file notes.md]
  *
  * `build` packages the app for this Mac's architecture (dmg, the zip Squirrel.Mac updates
  * from, blockmaps and `latest-mac.yml`), verifies its signature, notarization and staple, and
@@ -75,15 +75,18 @@ try {
   process.exitCode = 1;
 }
 
-/** Semver from 1.0.0 up: ace refuses 0.x, which belongs to the legacy app (ADR 0041). */
+/**
+ * The version being released: valid semver that matches `apps/desktop/package.json`, so the
+ * build, its file names and the tag all agree. Bump the version in a PR first.
+ */
 function releaseVersion(value: string): string {
-  try {
-    return installableVersion(value.replace(/^v/, ""));
-  } catch {
-    throw new Error(
-      `${value} is not a release version: use semver from 1.0.0 up, like 1.0.0 or 1.1.0-preview.1`,
-    );
-  }
+  const version = value.replace(/^v/, "");
+  if (!ReleaseVersion.safeParse(version).success)
+    throw new Error(`${value} is not a release version: use semver like 0.0.3 or 0.1.0-preview.1`);
+  const manifest = appVersion();
+  if (version !== manifest)
+    throw new Error(`apps/desktop/package.json is at ${manifest}; bump it to ${version} first`);
+  return version;
 }
 
 function doctor(): void {

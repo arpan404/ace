@@ -178,7 +178,7 @@ runtime it runs on (`Resources/runtime`, the same one as the standalone archive)
 and the other staged runtime packages, `rg` from `@vscode/ripgrep`, and the platform's screen
 helper. Electron's `runAsNode` fuse is off. A full package also carries the update feed
 (`app-update.yml`), and electron-builder writes `latest*.yml` beside it: the app updates itself
-from GitHub releases ([ADR 0087](docs/adr/0087-desktop-auto-update.md)), and the bundled
+from GitHub releases ([ADR 0091](docs/adr/0091-desktop-auto-update.md)), and the bundled
 `ace update` hands updates to the app. `ACE_RELEASE_PUBLIC_KEY_FILE` embeds the release
 authority's Ed25519 key in the bundled daemon for standalone installs (ADR 0041).
 

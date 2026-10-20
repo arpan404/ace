@@ -12,7 +12,7 @@ import { verifyNatives } from "./verify-natives.ts";
  * `bun run desktop:build`: an unsigned app for this machine (macOS: `.app` and dmg).
  * `bun run desktop:package`: the full platform package for one architecture (macOS dmg+zip,
  * Windows NSIS, Linux AppImage and deb) with the update feed (`app-update.yml` inside the
- * app, `latest*.yml` beside the packages; ADR 0087). On macOS it is signed with the Developer
+ * app, `latest*.yml` beside the packages; ADR 0091). On macOS it is signed with the Developer
  * ID in the keychain (CSC_NAME picks one) and notarized with whichever notarytool
  * credentials are set (see `notaryCredentials`). The identity must already be in a keychain
  * on the search list: the screen helper is signed during the build, before electron-builder

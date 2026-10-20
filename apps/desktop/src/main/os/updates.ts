@@ -19,7 +19,7 @@ export interface EngineOptions {
 }
 
 /**
- * electron-updater on the GitHub release feed (ADR 0087), or undefined for a build without
+ * electron-updater on the GitHub release feed (ADR 0091), or undefined for a build without
  * a feed (`app-update.yml` is written only by release packaging). electron-updater checks
  * each download's SHA-512 against the release's `latest*.yml`; on macOS Squirrel.Mac also
  * requires the update to carry the running app's code signature.

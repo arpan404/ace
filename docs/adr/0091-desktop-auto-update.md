@@ -1,4 +1,4 @@
-# 0087: Desktop auto-update through electron-updater and GitHub releases
+# 0091: Desktop auto-update through electron-updater and GitHub releases
 
 Status: accepted. Date: 2026-10-18. Completes the update follow-up of ADR 0054; the standalone
 daemon's updater (ADR 0041) is unchanged.

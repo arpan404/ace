@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * What a desktop release publishes (ADR 0087), as pure decisions over file names and
+ * What a desktop release publishes (ADR 0091), as pure decisions over file names and
  * recorded hashes. `scripts/release.ts` is the I/O around it.
  */
 

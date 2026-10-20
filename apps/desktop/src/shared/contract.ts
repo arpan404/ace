@@ -362,7 +362,7 @@ export const UpdateReleaseNote = z.object({
 export type UpdateReleaseNote = z.infer<typeof UpdateReleaseNote>;
 
 /**
- * The app's own update (ADR 0087), one object whatever its state:
+ * The app's own update (ADR 0091), one object whatever its state:
  * - `disabled`: a build without the release feed; `idle`: not checked yet; `checking`;
  *   `current`: up to date; `error`: the check failed and nothing is on offer.
  * - `available`: `version` is on offer; the person downloads it (or, when `inPlace` is false,

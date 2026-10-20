@@ -5,7 +5,7 @@ import { isNewer } from "./version.ts";
 
 /**
  * What the desktop app and the CLI bundled inside it share about the app's own update
- * (ADR 0087). The app updates itself through electron-updater; its bundled `ace update`
+ * (ADR 0091). The app updates itself through electron-updater; its bundled `ace update`
  * hands the request to the app instead of installing a standalone release.
  */
 
