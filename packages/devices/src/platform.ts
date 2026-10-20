@@ -39,7 +39,7 @@ export type PlatformOptions = SDKOptions & {
   screen?: ScreenManager;
   /** Where ace keeps downloaded device tools (the pinned scrcpy server), inside ace's home. */
   toolsDirectory?: string;
-  emulatorWindow?: AndroidOptions["emulatorWindow"];
+  emulatorWindow?: NonNullable<AndroidOptions["emulatorWindow"]>;
 };
 export type ScreenBinding = { sessionId: string; actor: "human" | "agent"; owner: string };
 const Text = z

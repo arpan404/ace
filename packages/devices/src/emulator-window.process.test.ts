@@ -13,6 +13,8 @@ const pixel: Device = {
   state: "shutdown",
 };
 
+const ok = (stdout = "") => ({ stdout, stderr: "", code: 0 });
+
 /**
  * An SDK whose emulator stays running until stopped, and an adb that reports it booted once
  * started. Returns the arguments each emulator ace started was given.
@@ -35,11 +37,10 @@ async function bootEmulator(options: {
     env: { PATH: "/usr/bin:/bin" },
     ...(options.emulatorWindow ? { emulatorWindow: options.emulatorWindow } : {}),
     spawn: (spawn) => {
-      if (spawn.name === "device-emulator") started.push([...spawn.args]);
+      if (spawn.name === "device-emulator") started.push([...(spawn.args ?? [])]);
       return spawnSupervised(spawn);
     },
     probe: (async (_command: string, args: readonly string[]) => {
-      const ok = (stdout = "") => ({ stdout, stderr: "", code: 0 });
       if (args.includes("-list-avds")) return ok("Pixel_API_35");
       if (args[0] === "devices")
         return ok(
