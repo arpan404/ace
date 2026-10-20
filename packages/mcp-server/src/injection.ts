@@ -119,7 +119,7 @@ export function acpInjection(
         ],
       },
     ],
-    developerInstructions: developerInstructions(provider, input.session?.()),
+    developerInstructions: developerInstructions(provider, { ...input.session?.(), listing }),
   };
 }
 

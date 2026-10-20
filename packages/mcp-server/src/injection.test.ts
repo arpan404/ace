@@ -40,7 +40,8 @@ it("builds Claude Agent SDK HTTP mcpServers with bearer headers", () => {
       headers: { Authorization: `Bearer ${connection.bearer}`, "X-Ace-Notifications": "stream" },
     },
   });
-  expect(result.developerInstructions).toContain("mcp__ace__delegate");
+  // Claude loads a deferred ace tool through its own tool search, by exact name.
+  expect(result.developerInstructions).toContain("select:mcp__ace__thread_start");
   expect(result.env.MCP_TOOL_TIMEOUT).toBe("660000");
 });
 it("exposes OpenCode tools directly through the v2 runtime server configuration", () => {

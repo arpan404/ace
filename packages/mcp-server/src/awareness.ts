@@ -1,4 +1,4 @@
-import type { McpAttribution } from "@ace/protocol";
+import type { AccessMode, McpAttribution } from "@ace/protocol";
 import type { Principal } from "./credentials.ts";
 import { renderBrief, renderDigest, type SessionFacts } from "./brief.ts";
 import { renderRoles, type SessionRoles } from "./roles.ts";
@@ -53,7 +53,7 @@ export class SessionAwareness {
     return this.current(principal, true);
   }
   /**
-   * The brief, enabled groups, roles line and callable tools. The first read also marks what
+   * The brief, enabled groups, roles line, callable tools and access mode. The first read marks what
    * this session has seen and fixes its roles line for the rest of the session.
    */
   guidance(principal: Principal): {
@@ -61,6 +61,7 @@ export class SessionAwareness {
     groups?: string[];
     roles?: string;
     tools?: string[];
+    access?: AccessMode;
   } {
     const facts = this.current(principal, true);
     if (!facts) return {};
@@ -72,6 +73,7 @@ export class SessionAwareness {
       groups: [...facts.groups],
       ...(roles ? { roles } : {}),
       ...(tools.length ? { tools } : {}),
+      ...(facts.access ? { access: facts.access } : {}),
     };
   }
   /** This session's roles line, rendered on its first read and kept as it was. */

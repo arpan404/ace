@@ -95,14 +95,17 @@ function guidance(provider: ProviderKind): string {
   return native.includes(aceInstructions) ? native : `${aceInstructions}\n${native}`;
 }
 
-it("ace's always-on guidance stays under 315 tokens for every provider", () => {
+it("ace's shared guidance stays under 315 tokens and each provider's own lines stay short", () => {
   // Raised from 300 for one clause naming offshift (#899): it loads only on request, so the
   // instructions are the one place an agent learns it exists.
-  // Codex's developer prefix carries its exec recipe instead of any tool schema or name listing;
-  // mcp-codex-discovery.process.test.ts holds its whole developer text under 900 tokens.
-  for (const provider of ProviderKind.options.filter((kind) => kind !== "codex"))
-    expect(tokens(guidance(provider)), provider).toBeLessThanOrEqual(315);
   expect(tokens(aceInstructions)).toBeLessThanOrEqual(315);
+  // What varies by provider and listing (naming, how to reach an unlisted tool) is the provider's
+  // own prefix, never the shared text. Codex's prefix carries its exec recipe instead of any
+  // schema or name listing; mcp-codex-discovery.process.test.ts holds it under 900 tokens whole.
+  for (const provider of ProviderKind.options.filter((kind) => kind !== "codex")) {
+    const own = guidance(provider).replace(aceInstructions, "");
+    expect(tokens(own), provider).toBeLessThanOrEqual(90);
+  }
 });
 
 it("each provider's per-request ace context stays within its budget", async () => {
