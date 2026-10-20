@@ -144,7 +144,7 @@ import {
 import { CursorAuthRequest, CursorAuthEvent } from "./cursor-auth.ts";
 import { AccountsRequest, AccountsResponse } from "./accounts.ts";
 import { DeviceAck, DeviceClientMessage, DeviceServerMessage } from "./devices.ts";
-import { ScreenClientMessage, ScreenServerMessage } from "./screen.ts";
+import { ScreenAck, ScreenClientMessage, ScreenServerMessage } from "./screen.ts";
 import {
   ModelsListRequest,
   ModelsRefreshRequest,
@@ -247,6 +247,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   SearchQueryRequest,
   SearchStatusRequest,
   ScreenClientMessage,
+  ScreenAck,
   DeviceClientMessage,
   DeviceAck,
   ...BrowserClientMessage.options,

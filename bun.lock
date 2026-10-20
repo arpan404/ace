@@ -450,7 +450,6 @@
         "@ace/files": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
-        "@ace/screen": "workspace:*",
         "@ace/secure-channel": "workspace:*",
         "zod": "^4.3.6",
       },
@@ -790,6 +789,7 @@
     "packages/screen": {
       "name": "@ace/screen",
       "dependencies": {
+        "@ace/browser": "workspace:*",
         "@ace/interaction": "workspace:*",
         "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",

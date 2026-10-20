@@ -1466,6 +1466,9 @@
       "$ref": "https://ace.local/protocol/v1/ScreenClientMessage.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ScreenAck.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/DeviceClientMessage.json"
     },
     {

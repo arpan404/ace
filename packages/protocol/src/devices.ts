@@ -155,15 +155,8 @@ export const DeviceOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("stop"), ...target }),
   z.object({ op: z.literal("stream.configure"), ...target, settings: ScreenStreamSettings }),
   z.object({ op: z.literal("stream.keyframe"), ...target }),
-  z.object({
-    op: z.literal("subscribe"),
-    ...target,
-    /**
-     * Send this device's pictures as stream kind `deviceFrame` (`@ace/browser/stream`), paced by
-     * `devices.ack`, instead of screen frame packets. Older daemons ignore it and send packets.
-     */
-    mediaStream: z.literal(true).optional(),
-  }),
+  /** The device's pictures as stream kind `deviceFrame` (`@ace/browser/stream`), paced by `devices.ack`. */
+  z.object({ op: z.literal("subscribe"), ...target }),
   z.object({ op: z.literal("unsubscribe"), ...target }),
   z.object({
     op: z.literal("controller"),
@@ -200,8 +193,7 @@ export const DeviceClientMessage = z.object({
 export type DeviceClientMessage = z.infer<typeof DeviceClientMessage>;
 /**
  * A viewer showed a device's pictures up to `sequence` of capture `streamId` (cumulative, as
- * `browser.ack` for video). No reply. Sent only for pictures that came as stream kind
- * `deviceFrame`, so a daemon that sends screen packets never receives one.
+ * `browser.ack` for video). No reply. Screenshots (still pictures) are never acked.
  */
 export const DeviceAck = z.object({
   type: z.literal("devices.ack"),
@@ -212,6 +204,22 @@ export const DeviceAck = z.object({
   keyframe: z.literal(true).optional(),
 });
 export type DeviceAck = z.infer<typeof DeviceAck>;
+/**
+ * A `screenshot` result: the still picture the daemon sent just before it on the devices
+ * channel (stream kind `deviceFrame`, flagged still), named by its capture and sequence.
+ */
+export const DeviceScreenshot = z.object({
+  streamId: ScreenId,
+  sequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  width: z.number().int().min(1).max(8192),
+  height: z.number().int().min(1).max(8192),
+  bytes: z
+    .number()
+    .int()
+    .min(1)
+    .max(8 * 1024 * 1024),
+});
+export type DeviceScreenshot = z.infer<typeof DeviceScreenshot>;
 export const DeviceServerMessage = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("devices.result"),

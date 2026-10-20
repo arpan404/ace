@@ -89,6 +89,10 @@ test("an agent's app shows live in the background; taking over and handing back 
   );
   const live = within(card).getByRole("img", { name: "TextEdit live view" });
   await waitFor(() => expect(browser.draws(live)).toBeGreaterThan(0));
+  // Each shown picture is acked on the shared stream, naming its session.
+  await waitFor(() =>
+    expect(app.daemon.screen.acks.at(-1)).toMatchObject({ sessionId, streamId: sessionId }),
+  );
 
   await userEvent.click(within(card).getByRole("button", { name: "Take over" }));
   await waitFor(async () =>

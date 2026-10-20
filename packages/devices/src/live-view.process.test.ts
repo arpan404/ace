@@ -162,17 +162,18 @@ function connect(service: DevicesService, owner = "browser-1") {
           sent.push(message);
           events.message(JSON.parse(JSON.stringify(message)));
         },
-        async image(packet) {
-          events.message(new Uint8Array(packet));
-        },
-        async frame(packet) {
-          events.message(new Uint8Array(packet));
+        media: {
+          bufferedBytes: () => 0,
+          async write(piece) {
+            events.message(piece);
+          },
         },
       });
       queueMicrotask(() => events.ready());
     },
     send(message) {
-      void channel?.request(message);
+      if (message.type === "devices.ack") channel?.ack(message);
+      else void channel?.request(message);
     },
     close() {
       channel?.close();
@@ -339,8 +340,9 @@ it("frames from a simulator reach the client", async () => {
   await client.request({ op: "enable", enabled: true });
   await client.request({ op: "list" });
   const shown: string[] = [];
-  client.watchFrames(deviceId, async (frame) => {
-    shown.push(Buffer.from(frame.payload).toString());
+  client.watchPictures(deviceId, async (picture) => {
+    shown.push(Buffer.from(picture.bytes).toString());
+    client.ack(picture);
   });
 
   await client.request({ op: "start", deviceId, fps: 10 });
@@ -358,8 +360,9 @@ it("input is refused without control and reaches the simulator with it", async (
   await client.request({ op: "enable", enabled: true });
   await client.request({ op: "list" });
   const shown: string[] = [];
-  client.watchFrames(deviceId, async (frame) => {
-    shown.push(Buffer.from(frame.payload).toString());
+  client.watchPictures(deviceId, async (picture) => {
+    shown.push(Buffer.from(picture.bytes).toString());
+    client.ack(picture);
   });
   await client.request({ op: "start", deviceId, fps: 10 });
   await client.request({ op: "subscribe", deviceId });
@@ -542,8 +545,9 @@ it("a Simulator streams to a person and is handed to an agent while computer use
   await client.request({ op: "enable", enabled: true });
   await client.request({ op: "list" });
   const shown: string[] = [];
-  client.watchFrames(deviceId, async (frame) => {
-    shown.push(Buffer.from(frame.payload).toString());
+  client.watchPictures(deviceId, async (picture) => {
+    shown.push(Buffer.from(picture.bytes).toString());
+    client.ack(picture);
   });
   expect(await client.request({ op: "permissions" })).toEqual({
     screenRecording: true,

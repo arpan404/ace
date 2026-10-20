@@ -8,7 +8,7 @@ import type {
   DeviceSettings,
   DeviceState,
 } from "@ace/protocol";
-import { AgentId, ThreadId, ScreenFrameHeader, ScreenUITreeResult } from "@ace/protocol";
+import { AgentId, ThreadId, ScreenUITreeResult } from "@ace/protocol";
 import {
   deviceControls,
   deviceProblem,
@@ -310,24 +310,9 @@ export function useDevices(threadId: string, deviceId?: string) {
       target &&
       act(async () => {
         if (!session) return;
-        let image: Uint8Array | undefined;
-        const candidates = new Map<string, Uint8Array>();
-        const release = session.client.watchFrames(target, async (frame) => {
-          candidates.set(JSON.stringify(frame.header), frame.payload);
-          if (candidates.size > 4) {
-            const oldest = candidates.keys().next().value;
-            if (oldest !== undefined) candidates.delete(oldest);
-          }
-        });
-        try {
-          const reply = ScreenFrameHeader.parse(await run({ op: "screenshot", deviceId: target }));
-          image = candidates.get(JSON.stringify(reply));
-          if (!image) throw new Error("Couldn't save the screenshot. Try again.");
-        } finally {
-          release();
-        }
-        if (!image) return;
-        const url = URL.createObjectURL(new Blob([image.slice()], { type: "image/jpeg" }));
+        setFailed(undefined);
+        const image = await session.client.screenshot(target);
+        const url = URL.createObjectURL(new Blob([image.bytes.slice()], { type: "image/jpeg" }));
         const link = document.createElement("a");
         link.href = url;
         link.download = `${selected.name}.jpg`;

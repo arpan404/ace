@@ -310,14 +310,15 @@ keyframe, as scrcpy and serve-sim hand it over, so the daemon still never decode
   keyframes are at most 500 ms apart per viewer. The viewer takes every captured frame in
   order (`subscribeEvery`), not the hub's newest-only delivery, so no delta is lost before
   the window decides. A viewer also stops while its transport holds more than 128 KiB, the
-  screen packets' limit, so control replies on the same channel never queue behind pictures.
-- **Compatibility: one release both ways.** A client asks with `subscribe { mediaStream:
-true }`; a daemon without it ignores the flag and keeps sending packets, which the client
-  still reads (and never acks). Screenshots stay screen packets, so the client reads a
-  binary message as a stream piece only between packets. The next release can drop the
-  packet path from live views.
+  limit screen packets had, so control replies on the same channel never queue behind pictures.
+- **Compatibility: none (#1129).** The one release of both formats ended with ADR 0011
+  "One media pipeline": `subscribe` always streams pictures (the `mediaStream` flag is
+  gone), the daemon sends no screen packets, and a screenshot is a still picture on the
+  stream followed by the result that names it (`DeviceScreenshot`). The paced viewer moved
+  to `@ace/browser/picture-channel`, shared with computer use.
 - **Renderer.** The web app decodes device H.264 with the browser view's `VideoStream`
-  (moved to `apps/web/src/lib/video/`), so both views share one WebCodecs path. A
+  (moved to `apps/web/src/lib/video/`), so both views share one WebCodecs path; since #1129
+  the renderer itself is `lib/video/picture-renderer.ts`, shared with computer use. A
   `NotSupportedError` falls back to JPEG at once; other decode errors ask for a keyframe and
   give up on video after three in a row. A hidden page holds its newest ack, so the daemon
   stops sending, and acks it with a keyframe request when the page shows again.

@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { framePacket } from "@ace/screen";
-import { encodeDeviceFrame } from "@ace/browser/stream";
+import { encodePicture, streamKinds } from "@ace/browser/stream";
 import { devicePoint } from "@ace/ui-core";
-import { ScreenFrameReader } from "@ace/screen/frames-client";
 import { DeviceClient, type DeviceTransport, type DeviceTransportEvents } from "./client.ts";
 import type { DeviceAck, DeviceClientMessage, DeviceState } from "@ace/protocol/devices";
 
@@ -17,22 +15,32 @@ function state(streamId = "stream_1"): DeviceState {
     controller: "none",
   };
 }
-function frame(sequence: number, sessionId = "stream_1", version: 1 | 2 = 1): Uint8Array {
-  const payload = Buffer.from([sequence]);
-  const shared = {
-    sessionId,
-    width: 100,
-    height: 200,
-    codec: "jpeg",
-    bytes: payload.length,
-  } as const;
-  return framePacket(
-    version === 1
-      ? { ...shared, version, sequence, timestamp: 10 }
-      : { ...shared, version, seq: sequence, ts: 10, scale: 2 },
-    payload,
+/** A device's live JPEG picture as its stream pieces. */
+function frame(sequence: number, streamId = "stream_1"): Uint8Array[] {
+  return encodePicture(
+    streamKinds.deviceFrame,
+    sequence,
+    deviceId,
+    {
+      sequence,
+      timestamp: 10,
+      width: 100,
+      height: 200,
+      scale: 2,
+      rotation: 0,
+      codec: "jpeg",
+      key: true,
+      streamId,
+    },
+    new Uint8Array([sequence]),
   );
 }
+const encodeDeviceFrame = (
+  id: number,
+  source: string,
+  chunk: Parameters<typeof encodePicture>[3],
+  bytes: Uint8Array,
+) => encodePicture(streamKinds.deviceFrame, id, source, chunk, bytes);
 function deferred<T>() {
   let resolve: (value: T) => void = () => {
     throw new Error(`Uninitialized promise ${typeof promise}`);
@@ -71,7 +79,8 @@ function setup() {
   client.connect(transport);
   const receive = (message: unknown) => {
     if (!events) throw new Error("Transport not open");
-    events.message(message);
+    if (Array.isArray(message)) for (const piece of message) events.message(piece);
+    else events.message(message);
   };
   const result = (index: number, data: unknown) => {
     const message = sent[index];
@@ -148,28 +157,15 @@ describe("portable device clients", () => {
     host.client.disconnect();
   });
 
-  it("renders a fragmented v2 frame using the existing screen wire format", async () => {
-    const host = setup();
-    host.receive({ type: "devices.state", state: state() });
-    const drawn = deferred<{ width: number; payload: number[] }>();
-    host.client.watchFrames(deviceId, async (image) => {
-      drawn.resolve({ width: image.header.width, payload: [...image.payload] });
-    });
-    const packet = frame(7, "stream_1", 2);
-    for (const byte of packet) host.receive(new Uint8Array([byte]));
-    expect(await drawn.promise).toEqual({ width: 100, payload: [7] });
-    host.client.disconnect();
-  });
-
-  it("replaces blocked renderer frames with the newest complete frame", async () => {
+  it("a busy view gets every paced picture in order once it is free", async () => {
     const host = setup();
     host.receive({ type: "devices.state", state: state() });
     const first = deferred<void>();
     const unblock = deferred<void>();
     const latest = deferred<void>();
     const drawn: number[] = [];
-    host.client.watchFrames(deviceId, async (image) => {
-      drawn.push(image.payload[0] ?? -1);
+    host.client.watchPictures(deviceId, async (image) => {
+      drawn.push(image.bytes[0] ?? -1);
       if (drawn.length === 1) {
         first.resolve();
         await unblock.promise;
@@ -182,19 +178,21 @@ describe("portable device clients", () => {
     expect(drawn).toEqual([1]);
     unblock.resolve();
     await latest.promise;
-    expect(drawn).toEqual([1, 3]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // The daemon's ack window paces pictures, so the view loses none of them.
+    expect(drawn).toEqual([1, 2, 3]);
     host.client.disconnect();
   });
 
   it("keeps other viewers receiving after one viewer unmounts", async () => {
     const host = setup();
     host.receive({ type: "devices.state", state: state() });
-    const removed = host.client.watchFrames(deviceId, async () => {
+    const removed = host.client.watchPictures(deviceId, async () => {
       throw new Error("Unmounted viewer invoked");
     });
     const drawn = deferred<number>();
-    host.client.watchFrames(deviceId, async (image) => {
-      drawn.resolve(image.payload[0] ?? -1);
+    host.client.watchPictures(deviceId, async (image) => {
+      drawn.resolve(image.bytes[0] ?? -1);
     });
     removed();
     host.receive(frame(9));
@@ -229,8 +227,8 @@ describe("portable device clients", () => {
     const unblock = deferred<void>();
     const resumed = deferred<void>();
     const drawn: number[] = [];
-    host.client.watchFrames(deviceId, async (image) => {
-      drawn.push(image.payload[0] ?? -1);
+    host.client.watchPictures(deviceId, async (image) => {
+      drawn.push(image.bytes[0] ?? -1);
       if (drawn.length === 1) {
         started.resolve();
         await unblock.promise;
@@ -281,22 +279,11 @@ describe("portable device clients", () => {
     host.client.disconnect();
   });
 
-  it("rejects an oversized payload header before allocating or rendering its image", () => {
+  it("a binary message that is not a stream piece ends the connection", () => {
     const host = setup();
     host.receive({ type: "devices.state", state: state() });
-    const json = new TextEncoder().encode(
-      JSON.stringify({
-        version: 1,
-        sessionId: "stream_1",
-        sequence: 0,
-        timestamp: 0,
-        width: 100,
-        height: 200,
-        codec: "jpeg",
-        bytes: 8 * 1024 * 1024 + 1,
-      }),
-    );
-    const packet = new Uint8Array(4 + json.length);
+    const json = new TextEncoder().encode(JSON.stringify({ sessionId: "stream_1", bytes: 1 }));
+    const packet = new Uint8Array(4 + json.length + 1);
     new DataView(packet.buffer).setUint32(0, json.length);
     packet.set(json, 4);
     host.receive(packet);
@@ -335,31 +322,6 @@ describe("portable device clients", () => {
     expect(batches).toEqual([["Selected log"]]);
     expect(host.client.getSnapshot().connected).toBe(false);
   });
-
-  it("decodes coalesced packets without consuming the next frame's prefix as pixels", () => {
-    const observed: number[][] = [];
-    const reader = new ScreenFrameReader((image) => observed.push([...image.payload]));
-    const first = frame(5);
-    const second = frame(6, "stream_1", 2);
-    const combined = new Uint8Array(first.length + second.length);
-    combined.set(first);
-    combined.set(second, first.length);
-    reader.push(combined);
-    reader.end();
-    expect(observed).toEqual([[5], [6]]);
-  });
-
-  it("detects truncated wire images and resumes after an explicit reset", () => {
-    const payloads: number[] = [];
-    const reader = new ScreenFrameReader((image) => payloads.push(image.payload[0] ?? -1));
-    const packet = frame(5);
-    reader.push(packet.subarray(0, packet.length - 1));
-    expect(() => reader.end()).toThrow("Truncated frame");
-    reader.reset();
-    reader.push(frame(6));
-    reader.end();
-    expect(payloads).toEqual([6]);
-  });
 });
 
 it("the inventory stays loading until a successful reply and resets on reconnect", async () => {
@@ -384,8 +346,8 @@ it("a mounted viewer subscribes to replacement capture after the device moves to
     state: { ...state("stream_2"), threadId: "thread-1" },
   });
   expect(host.sent.map((message) => message.operation)).toEqual([
-    { op: "subscribe", deviceId, mediaStream: true },
-    { op: "subscribe", deviceId, mediaStream: true },
+    { op: "subscribe", deviceId },
+    { op: "subscribe", deviceId },
   ]);
   release();
   host.client.disconnect();
@@ -394,12 +356,12 @@ it("a mounted viewer subscribes to replacement capture after the device moves to
 it("pictures on the shared media stream reach the view in order, and its acks name their capture", async () => {
   const host = setup();
   host.receive({ type: "devices.state", state: state() });
-  const drawn: { sequence: number; codec: string; rotation: number; paced: boolean }[] = [];
+  const drawn: { sequence: number; codec: string; rotation: number }[] = [];
   const shown = deferred<void>();
   host.client.watchPictures(deviceId, async (picture) => {
     drawn.push(picture);
     host.client.ack(picture);
-    if (drawn.length === 4) shown.resolve();
+    if (drawn.length === 3) shown.resolve();
   });
   const picture = (sequence: number, key: boolean, size = 10) =>
     encodeDeviceFrame(
@@ -418,20 +380,15 @@ it("pictures on the shared media stream reach the view in order, and its acks na
       },
       new Uint8Array(size).fill(sequence),
     );
-  // A keyframe bigger than one binary message, then deltas; then an older daemon's packet.
+  // A keyframe bigger than one binary message, then deltas.
   for (const piece of [...picture(1, true, 200_000), ...picture(2, false), ...picture(3, false)])
     host.receive(piece);
-  host.receive(frame(4));
   await shown.promise;
-  expect(
-    drawn.map(({ sequence, codec, rotation, paced }) => ({ sequence, codec, rotation, paced })),
-  ).toEqual([
-    { sequence: 1, codec: "avc1.640028", rotation: 0, paced: true },
-    { sequence: 2, codec: "avc1.640028", rotation: 0, paced: true },
-    { sequence: 3, codec: "avc1.640028", rotation: 90, paced: true },
-    { sequence: 4, codec: "jpeg", rotation: 0, paced: false },
+  expect(drawn.map(({ sequence, codec, rotation }) => ({ sequence, codec, rotation }))).toEqual([
+    { sequence: 1, codec: "avc1.640028", rotation: 0 },
+    { sequence: 2, codec: "avc1.640028", rotation: 0 },
+    { sequence: 3, codec: "avc1.640028", rotation: 90 },
   ]);
-  // Packets are never acked: only a daemon that sent stream pictures hears an ack.
   expect(host.acks).toEqual(
     [1, 2, 3].map((sequence) => ({
       type: "devices.ack",

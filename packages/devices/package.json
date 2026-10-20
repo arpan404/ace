@@ -6,7 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./client": "./src/client.ts",
-    "./video-client": "./src/video-client.ts",
+    "./stream-profile": "./src/stream-profile.ts",
     "./testing": "./src/testing/fake-sim.ts"
   },
   "scripts": {

@@ -1,12 +1,7 @@
 import { fileExportSource } from "../file-export-source.ts";
 import { projectFilesBinding } from "../project-files-binding.ts";
 import { providerAuthRelay } from "./provider-auth-relay.ts";
-import {
-  connectDevices,
-  sendDeviceFrame,
-  devicePacketDelivery,
-  type DevicesService,
-} from "@ace/devices";
+import { connectDevices, type DevicesService } from "@ace/devices";
 import { connectBrowser, type BrowserService } from "@ace/browser";
 import { screenConnection, Simulators, type ScreenManager } from "@ace/screen";
 import {
@@ -46,7 +41,7 @@ export interface RelayServices {
   /** Warn-level daemon log for refused requests. */
   warn?: ((message: string, fields: object) => void) | undefined;
 }
-/** A dedicated authenticated relay channel never mixes file packets and screen packets. */
+/** A dedicated authenticated relay channel never mixes file packets and media stream pieces. */
 export function attachRelayService(
   options: RelayServices,
   connection: {
@@ -90,19 +85,6 @@ export function attachRelayService(
       agentExists: (threadId, agentId) =>
         options.store?.getMcpAgent(ThreadId.parse(threadId), AgentId.parse(agentId)) !== undefined,
       send,
-      ...devicePacketDelivery({
-        bufferedBytes: () => channel.bufferedBytes,
-        authorize: () => authorize("admin"),
-        write: (packet) =>
-          sendDeviceFrame(
-            packet,
-            (chunk) => channel.sendBinary(chunk),
-            () => authorize("admin"),
-          ).catch((error: unknown) => {
-            channel.close();
-            throw error;
-          }),
-      }),
       media: {
         bufferedBytes: () => channel.bufferedBytes,
         write: async (piece) => {
@@ -164,20 +146,20 @@ export function attachRelayService(
       send(message) {
         void send(message).catch(() => channel.close());
       },
-      frame: (packet) =>
-        sendDeviceFrame(
-          packet,
-          (chunk) => channel.sendBinary(chunk),
-          () => authorize("admin"),
-        ).catch((error: unknown) => {
-          channel.close();
-          throw error;
-        }),
+      media: {
+        bufferedBytes: () => channel.bufferedBytes,
+        write: async (piece) => {
+          if (!authorize("admin")) throw new Error("Screen stream access revoked");
+          await channel.sendBinary(piece);
+        },
+      },
+      failed: () => channel.close(),
     });
     return {
       accept(message: ClientMessage) {
-        if (!authorize("admin") || message.type !== "screen.request")
-          throw new Error("Screen access denied");
+        if (!authorize("admin")) throw new Error("Screen access denied");
+        if (message.type === "screen.ack") return endpoint.ack(message);
+        if (message.type !== "screen.request") throw new Error("Screen access denied");
         return endpoint.request(message);
       },
       binary() {

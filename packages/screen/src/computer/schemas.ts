@@ -79,7 +79,7 @@ export const computerToolMetadata = {
     riskClass: "external-effect" as const,
     timeoutMs: 90_000,
     description:
-      'Act in an app in the background, then get what changed. Batch steps that need no look in between, e.g. [{"type":"click","id":12},{"type":"type","text":"hi"},{"type":"key","key":"Return"}]. Click by element id; use x,y screenshot pixels only for things missing from the outline. Clicks take modifiers (⌘-click), move hovers, drag takes ids or points, window moves, resizes or closes the window. wait_for waits for text or an element to appear or go; an if step runs the next steps only if an element is there, so one batch can handle a dialog that may or may not show. Prefer set_value for fields, paste for long or formatted text (markdown keeps headings and lists), and menu paths for commands. activate brings the app to the front and interrupts the person: use it only when background actions do not work.',
+      'Act in an app in the background, then get what changed. Batch steps that need no look in between, e.g. [{"type":"click","id":12},{"type":"type","text":"hi"},{"type":"key","key":"Return"}]. Act by element id; use x,y screenshot pixels only for things missing from the outline. Prefer set_value for fields, paste for long or formatted text (markdown keeps headings and lists) and menu paths for commands. wait_for and if let one batch handle a dialog that may or may not show. activate brings the app to the front and interrupts the person: use it only when background actions do not work.',
   },
 };
 export type ComputerToolName = keyof typeof computerSchemas;

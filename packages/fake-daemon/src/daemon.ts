@@ -408,7 +408,9 @@ export class FakeDaemon implements Host {
         services.authenticated?.(device);
       },
       handle: async (message, device) => {
-        if (message.type === "screen.request") {
+        if (message.type === "screen.ack") {
+          if (admin) screen.ack(message);
+        } else if (message.type === "screen.request") {
           if (!admin)
             send({
               type: "screen.result",

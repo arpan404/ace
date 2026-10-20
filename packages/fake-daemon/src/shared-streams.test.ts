@@ -1,5 +1,5 @@
 import { DeviceClient, type DevicePicture } from "@ace/client/devices";
-import { ScreenStreamClient, type PortableFrame } from "@ace/client/screen-stream";
+import { ScreenStreamClient, type SourcePicture } from "@ace/client/screen-stream";
 import { expect, it, onTestFinished } from "vitest";
 import { FakeDaemon } from "./index.ts";
 
@@ -7,15 +7,15 @@ import { FakeDaemon } from "./index.ts";
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 /** One live view as the web app mounts it: its frames, and its hold on the stream. */
-function view<F = PortableFrame>(
+function view<F = SourcePicture>(
   client: {
-    watchFrames(target: string, render: (frame: F) => Promise<void>): () => void;
+    watchPictures(target: string, render: (frame: F) => Promise<void>): () => void;
     retainStream: ScreenStreamClient["retainStream"];
   },
   target: string,
 ): { frames: F[]; close(): void } {
   const frames: F[] = [];
-  const unwatch = client.watchFrames(target, async (frame) => void frames.push(frame));
+  const unwatch = client.watchPictures(target, async (frame) => void frames.push(frame));
   const release = client.retainStream(target);
   return {
     frames,
@@ -60,8 +60,8 @@ it("two views of one app share its stream: closing one leaves the other live, cl
 
   settings.close();
   // Nothing holds the stream now: a view that only watches frames gets none.
-  const watcher: PortableFrame[] = [];
-  onTestFinished(stream.watchFrames(sessionId, async (frame) => void watcher.push(frame)));
+  const watcher: SourcePicture[] = [];
+  onTestFinished(stream.watchPictures(sessionId, async (frame) => void watcher.push(frame)));
   await paint();
   expect(watcher).toEqual([]);
 });
@@ -87,13 +87,8 @@ it("two views of one device share its stream: closing one leaves the other live,
     await settle();
   };
 
-  // A device's live view draws pictures (`watchPictures`), whichever way they come.
-  const pictures = {
-    watchFrames: devices.watchPictures.bind(devices),
-    retainStream: devices.retainStream.bind(devices),
-  };
-  const first = view<DevicePicture>(pictures, deviceId);
-  const second = view<DevicePicture>(pictures, deviceId);
+  const first = view<DevicePicture>(devices, deviceId);
+  const second = view<DevicePicture>(devices, deviceId);
   await settle();
   first.close();
   const before = second.frames.length;

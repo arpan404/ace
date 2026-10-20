@@ -1,24 +1,36 @@
-import type { DevicePicture } from "@ace/client/devices";
-import type { DecodedPicture, VideoDecoderFactory } from "@/lib/video/codecs.ts";
-import { VideoStream } from "@/lib/video/stream.ts";
+import type { DecodedPicture, VideoDecoderFactory } from "./codecs.ts";
+import { VideoStream } from "./stream.ts";
 
 /** Something drawable for one picture, freed once drawn. */
-export interface DeviceImage {
+export interface PictureImage {
   draw(context: CanvasRenderingContext2D, width: number, height: number): void;
   close(): void;
 }
 
-export interface DeviceRendererPorts {
+/**
+ * One live picture as a picture kind carries it (a device's, or a computer-use session's): a
+ * JPEG, or one H.264 access unit with its parameter sets in front of every keyframe.
+ */
+export interface LivePicture {
+  streamId: string;
+  sequence: number;
+  timestamp: number;
+  width: number;
+  height: number;
+  codec: string;
+  key: boolean;
+  bytes: Uint8Array;
+}
+
+export interface PictureRendererPorts<P extends LivePicture> {
   /** WebCodecs, or undefined where there is none (every picture must be JPEG then). */
   decoder: VideoDecoderFactory | undefined;
   /** A JPEG's bytes as something drawable. */
-  image(bytes: Uint8Array): Promise<DeviceImage>;
+  image(bytes: Uint8Array): Promise<PictureImage>;
   /** Show this picture; the image is the renderer's to close after. */
-  show(image: DeviceImage, picture: DevicePicture): void;
+  show(image: PictureImage, picture: P): void;
   /** Tell the daemon the view showed `picture`; `keyframe`: the decoder lost its place. */
-  ack(picture: DevicePicture, keyframe: boolean): void;
-  /** Ask for a keyframe on a stream the daemon doesn't pace (an older daemon's packets). */
-  keyframe(): void;
+  ack(picture: P, keyframe: boolean): void;
   /** This client can't decode the stream's video: ask for JPEG instead. */
   fallback(): void;
   /** The view fell behind or lost pictures: a lighter stream may keep up. */
@@ -29,22 +41,19 @@ export interface DeviceRendererPorts {
 const failureLimit = 3;
 
 /**
- * A device's pictures onto its view (ADR 0064, "Shared media stream"): JPEGs drawn as they come,
- * H.264 through the same `VideoStream` the browser's live view decodes with. Every picture the
- * daemon paces is acked once shown, or at once when it can't be shown, so the daemon's window
- * never waits on a picture this view dropped. A delta after a gap waits for a keyframe, which is
- * asked for through the ack (paced) or a request (packets).
+ * A source's live pictures onto its view (devices and computer use; ADR 0011 "One media
+ * pipeline", ADR 0064 "Shared media stream"): JPEGs drawn as they come, H.264 through the same
+ * `VideoStream` the browser's live view decodes with. Every picture is acked once shown, or at
+ * once when it can't be shown, so the daemon's window never waits on a picture this view
+ * dropped. A delta after a gap waits for a keyframe, which is asked for through the ack.
  */
-export function deviceRenderer(ports: DeviceRendererPorts) {
-  // Only the daemon's paced stream waits for acks; an older daemon's packets have none.
-  const ack = (picture: DevicePicture, keyframe: boolean) => {
-    if (picture.paced) ports.ack(picture, keyframe);
-  };
+export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPorts<P>) {
+  const ack = (picture: P, keyframe: boolean) => ports.ack(picture, keyframe);
   let stream: string | undefined;
   let previous = -1;
   let video: VideoStream | undefined;
   /** The newest H.264 picture handed to the decoder: acks name its stream. */
-  let latest: DevicePicture | undefined;
+  let latest: P | undefined;
   /** Deltas can't be decoded until a keyframe comes; `asked`: one was asked for. */
   let needKey = true;
   let asked = 0;
@@ -54,12 +63,11 @@ export function deviceRenderer(ports: DeviceRendererPorts) {
   let refused = false;
   let closed = false;
 
-  const recover = (picture: DevicePicture) => {
+  const recover = (picture: P) => {
     needKey = true;
     asked = 1;
     ports.pressure();
-    if (picture.paced) ack(picture, true);
-    else ports.keyframe();
+    ack(picture, true);
   };
   const toVideo = (): VideoStream | undefined => {
     const factory = ports.decoder;
@@ -95,7 +103,7 @@ export function deviceRenderer(ports: DeviceRendererPorts) {
     });
     return video;
   };
-  const giveUp = (picture: DevicePicture) => {
+  const giveUp = (picture: P) => {
     ack(picture, false);
     if (unsupported) return;
     unsupported = true;
@@ -111,7 +119,7 @@ export function deviceRenderer(ports: DeviceRendererPorts) {
   };
 
   return {
-    async render(picture: DevicePicture): Promise<void> {
+    async render(picture: P): Promise<void> {
       if (closed) return;
       if (picture.streamId !== stream) {
         // A new capture: its sequence starts over, and its first picture to show is a keyframe.
@@ -125,7 +133,7 @@ export function deviceRenderer(ports: DeviceRendererPorts) {
       previous = picture.sequence;
       if (picture.codec === "jpeg") {
         video?.reset();
-        let image: DeviceImage | undefined;
+        let image: PictureImage | undefined;
         try {
           image = await ports.image(picture.bytes);
           if (!closed) ports.show(image, picture);
@@ -165,7 +173,7 @@ export function deviceRenderer(ports: DeviceRendererPorts) {
   };
 }
 
-const asImage = (picture: DecodedPicture): DeviceImage => ({
+const asImage = (picture: DecodedPicture): PictureImage => ({
   draw: (context, width, height) => picture.draw(context, width, height),
   close: () => {},
 });

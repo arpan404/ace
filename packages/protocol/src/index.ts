@@ -101,6 +101,7 @@ export {
   DeviceOperation,
   DeviceClientMessage,
   DeviceAck,
+  DeviceScreenshot,
   DeviceServerMessage,
 } from "./devices.ts";
 export * from "./thread-transitions.ts";

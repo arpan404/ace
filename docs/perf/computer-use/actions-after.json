@@ -1,0 +1,47 @@
+{
+  "rounds": 12,
+  "load": "{ 13.30 13.85 10.74 }",
+  "sequenceP50Ms": 733,
+  "steps": {
+    "look": {
+      "coldMs": 221,
+      "p50Ms": 5,
+      "p95Ms": 7
+    },
+    "type expression": {
+      "coldMs": 292,
+      "p50Ms": 275,
+      "p95Ms": 281
+    },
+    "click by id": {
+      "coldMs": 108,
+      "p50Ms": 104,
+      "p95Ms": 108
+    },
+    "click by id, no observe": {
+      "coldMs": 5,
+      "p50Ms": 4,
+      "p95Ms": 5
+    },
+    "screenshot only": {
+      "coldMs": 125,
+      "p50Ms": 32,
+      "p95Ms": 35
+    },
+    "look + screenshot": {
+      "coldMs": 67,
+      "p50Ms": 53,
+      "p95Ms": 68
+    },
+    "repeat look": {
+      "coldMs": 7,
+      "p50Ms": 5,
+      "p95Ms": 5
+    },
+    "act + screenshot": {
+      "coldMs": 261,
+      "p50Ms": 255,
+      "p95Ms": 260
+    }
+  }
+}

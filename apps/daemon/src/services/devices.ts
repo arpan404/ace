@@ -4,7 +4,6 @@ import {
   connectDevices,
   renderDeviceVideo,
   consumeDeviceRecording,
-  devicePacketDelivery,
   deviceControlDelivery,
   deviceFailure,
 } from "@ace/devices";
@@ -125,16 +124,6 @@ export function createDevicesSession(context: SocketContext): SocketService {
           context.options.store.getMcpAgent(ThreadId.parse(threadId), AgentId.parse(agentId)) !==
           undefined,
         send: delivery.send,
-        ...devicePacketDelivery({
-          bufferedBytes: () => context.socket.bufferedAmount,
-          authorize: () => context.connected() && context.authorize("admin"),
-          write: (packet) =>
-            new Promise<void>((resolve, reject) => {
-              context.socket.send(packet, { binary: true, compress: false }, (error) =>
-                error ? reject(error) : resolve(),
-              );
-            }),
-        }),
         media: {
           bufferedBytes: () => context.socket.bufferedAmount,
           write: (piece) =>

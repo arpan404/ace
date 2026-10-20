@@ -1,29 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { decodeStreamMessage, StreamAssembler } from "@ace/browser/stream";
-import { framePacket, type Frame } from "@ace/screen";
-import { DeviceMediaViewer } from "./media-viewer.ts";
+import { decodeStreamMessage, StreamAssembler } from "./stream.ts";
+import { streamKinds } from "./stream-envelope.ts";
+import { PictureViewer, type CapturedPicture } from "./picture-viewer.ts";
 
 const deviceId = "android:emulator-5554";
 
 function frame(
   sequence: number,
   options: { key?: boolean; codec?: "jpeg" | "h264"; stream?: string; size?: number } = {},
-): Frame {
-  const payload = Buffer.alloc(options.size ?? 1000, sequence % 256);
-  const codec = options.codec ?? "h264";
-  const header = {
-    version: 1 as const,
-    sessionId: options.stream ?? "capture-1",
+): CapturedPicture {
+  const jpeg = options.codec === "jpeg";
+  return {
     sequence,
     timestamp: sequence * 33,
     width: 720,
     height: 1600,
-    codec,
-    ...(codec === "h264" ? { keyframe: options.key ?? false, videoCodec: "avc1.640028" } : {}),
     scale: 0.5,
-    bytes: payload.length,
+    rotation: 0,
+    codec: jpeg ? "jpeg" : "avc1.640028",
+    key: jpeg || options.key === true,
+    codecNamed: !jpeg,
+    streamId: options.stream ?? "capture-1",
+    bytes: new Uint8Array(options.size ?? 1000).fill(sequence % 256),
   };
-  return { header, payload, packet: framePacket(header, payload) };
 }
 
 function setup(options: { refuse?: () => boolean } = {}) {
@@ -33,7 +32,7 @@ function setup(options: { refuse?: () => boolean } = {}) {
   let keyframes = 0;
   let ids = 0;
   const assembler = new StreamAssembler();
-  const viewer = new DeviceMediaViewer(deviceId, {
+  const viewer = new PictureViewer(streamKinds.deviceFrame, deviceId, {
     messageId: () => ++ids,
     now: () => now,
     after(ms, run) {
@@ -74,7 +73,7 @@ function setup(options: { refuse?: () => boolean } = {}) {
   };
 }
 
-describe("a device's pictures on the shared media stream", () => {
+describe("a source's pictures on the shared media stream", () => {
   it("holds a video viewer to its window until it acks, then carries on", () => {
     const view = setup();
     view.viewer.push(frame(1, { key: true }));
@@ -146,9 +145,8 @@ describe("a device's pictures on the shared media stream", () => {
   it("a delta whose capture didn't name its codec is in its keyframe's", () => {
     const view = setup();
     view.viewer.push(frame(1, { key: true }));
-    const delta = frame(2);
-    const { videoCodec: _named, ...unnamed } = delta.header;
-    view.viewer.push({ ...delta, header: unnamed });
+    // A capture that names no codec on a delta: the default, until the keyframe's carries over.
+    view.viewer.push({ ...frame(2), codec: "avc1.42E01F", codecNamed: false });
     expect(view.received.map((picture) => picture.codec)).toEqual(["avc1.640028", "avc1.640028"]);
   });
 

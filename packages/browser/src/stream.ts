@@ -8,12 +8,13 @@ import {
 import { decodeBrowserVideo, type BrowserVideoChunk } from "./stream-video.ts";
 import { decodeBrowserAudio, type BrowserAudioChunk } from "./stream-audio.ts";
 import { decodeDownloadChunk, type DownloadChunkMessage } from "./stream-download.ts";
-import { decodeDeviceFrame, type DeviceFrameChunk } from "./stream-device.ts";
+import { decodePicture, type PictureChunk } from "./stream-picture.ts";
 export { downloadBusy, encodeDownloadChunk, type DownloadChunkMessage } from "./stream-download.ts";
 
 /*
  * The portable stream surface (`@ace/browser/stream`): the envelope, the browser frame kind's
- * header (below), the video kind's (`stream-video.ts`) and the audio kind's (`stream-audio.ts`).
+ * header (below), the video kind's (`stream-video.ts`), the audio kind's (`stream-audio.ts`) and
+ * the picture kinds' (`stream-picture.ts`, devices and computer use).
  * A frame's header carries what `BrowserFrame` carries besides its picture:
  *
  *   0  f64  sequence
@@ -36,11 +37,12 @@ export {
 export { encodeBrowserVideo, type BrowserVideoChunk } from "./stream-video.ts";
 export { encodeBrowserAudio, type BrowserAudioChunk } from "./stream-audio.ts";
 export {
-  encodeDeviceFrame,
-  deviceRotations,
-  type DeviceFrameChunk,
-  type DeviceRotation,
-} from "./stream-device.ts";
+  encodePicture,
+  pictureRotations,
+  type PictureChunk,
+  type PictureKind,
+  type PictureRotation,
+} from "./stream-picture.ts";
 
 // Made per call (they are cheap): importing this module needs no text codecs.
 const utf8 = (value: string) => new TextEncoder().encode(value);
@@ -50,13 +52,15 @@ const text = (bytes: Uint8Array) => new TextDecoder("utf-8", { fatal: true }).de
 export type BrowserFrameBytes = Omit<BrowserFrame, "data"> & { bytes: Uint8Array };
 /**
  * A decoded stream message: a browser JPEG frame, an encoded video or audio chunk, a download
- * chunk, or a device's picture (its source id names the device).
+ * chunk, or a picture of a device's screen or a computer-use session (its source id names the
+ * device or the screen session).
  */
 export type StreamMessage =
   | { kind: "browser.frame"; threadId: ThreadId; frame: BrowserFrameBytes }
   | { kind: "browser.video"; threadId: ThreadId; chunk: BrowserVideoChunk }
   | { kind: "browser.audio"; threadId: ThreadId; chunk: BrowserAudioChunk }
-  | { kind: "device.frame"; sourceId: string; frame: DeviceFrameChunk }
+  | { kind: "device.frame"; sourceId: string; frame: PictureChunk }
+  | { kind: "screen.frame"; sourceId: string; frame: PictureChunk }
   | DownloadChunkMessage;
 
 const FrameHeader = BrowserFrame.omit({ data: true });
@@ -118,7 +122,15 @@ export function decodeStreamMessage(envelope: StreamEnvelope): StreamMessage | u
   if (envelope.kind === streamKinds.browserAudio)
     return { kind: "browser.audio", ...decodeBrowserAudio(envelope.meta, envelope.payload) };
   if (envelope.kind === streamKinds.deviceFrame)
-    return { kind: "device.frame", ...decodeDeviceFrame(envelope.meta, envelope.payload) };
+    return {
+      kind: "device.frame",
+      ...decodePicture(streamKinds.deviceFrame, envelope.meta, envelope.payload),
+    };
+  if (envelope.kind === streamKinds.screenFrame)
+    return {
+      kind: "screen.frame",
+      ...decodePicture(streamKinds.screenFrame, envelope.meta, envelope.payload),
+    };
   if (envelope.kind === streamKinds.browserDownload)
     return decodeDownloadChunk(envelope.meta, envelope.payload);
   return undefined;
