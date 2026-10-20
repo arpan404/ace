@@ -99,7 +99,10 @@ function QuestionLine(props: { threadId: string; interaction: Interaction; inLog
   return <ClosedLine asker={asker} questions={questions} resolution={resolution} meta={meta} />;
 }
 
-/** "Codex is asking · Tabs or Spaces?": the whole line brings its card up on the composer. */
+/**
+ * "Codex is asking · Tabs or Spaces?", in the row's own ink (no status colour): the whole line
+ * brings its card up on the composer.
+ */
 function WaitingLine(props: { asker: string; title: string; onActivate(): void }) {
   return (
     <button
@@ -108,7 +111,7 @@ function WaitingLine(props: { asker: string; title: string; onActivate(): void }
       onClick={props.onActivate}
       className={cn(pressableRowClass, "text-muted-foreground")}
     >
-      <span className="flex min-w-5 shrink-0 items-center justify-center text-status-needs-you">
+      <span className="flex min-w-5 shrink-0 items-center justify-center text-foreground">
         <Icon icon={ChatTeardropDotsIcon} size={16} />
       </span>
       <span className="min-w-0 flex-1 truncate">
@@ -155,7 +158,7 @@ function ClosedLine(props: {
                 className="mx-1 inline-block align-[-1px] text-subtle-foreground"
               />
               <span className="sr-only">, answered: </span>
-              <span className="text-foreground">{answer}</span>
+              <span>{answer}</span>
             </>
           )}
           {outcome && <span className="text-subtle-foreground"> · {outcome}</span>}

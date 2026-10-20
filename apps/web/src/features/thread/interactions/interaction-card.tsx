@@ -229,9 +229,14 @@ function OpenRequest(props: {
   return (
     <article tabIndex={-1} aria-label={title} onKeyDown={onKeyDown} className={props.className}>
       {request.kind !== "approval" && (
-        <p className="flex min-h-6 items-center gap-[7px] text-xs text-subtle-foreground">
+        <p
+          className={cn(
+            "flex min-h-6 items-center gap-[7px] text-xs",
+            request.kind === "question" ? "text-muted-foreground" : "text-subtle-foreground",
+          )}
+        >
           {request.kind === "question" ? (
-            <Icon icon={ChatTeardropDotsIcon} size={14} className="text-status-needs-you" />
+            <Icon icon={ChatTeardropDotsIcon} size={14} />
           ) : (
             <Dot tone="needs-you" />
           )}
