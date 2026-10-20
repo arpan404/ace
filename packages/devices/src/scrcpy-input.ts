@@ -1,5 +1,5 @@
 import type { DeviceInput } from "@ace/protocol/devices";
-import { refuseKey } from "./key-support.ts";
+import { refuseAndroidKey } from "./key-support.ts";
 import { DeviceError } from "./sdk.ts";
 import {
   clipboardTextLimit,
@@ -139,7 +139,8 @@ export function scrcpyInputPlan(
         case "volumeDown":
           return press(keycode.volumeDown);
         case "action":
-          return refuseKey("android", input.key);
+        case "side":
+          return refuseAndroidKey(input.key);
       }
   }
 }

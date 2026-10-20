@@ -10271,7 +10271,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | kind | yes | `"key"` |  |
-| key | yes | ["home","back","rotate","enter","power","recents","volumeUp","volumeDown","action"] |  |
+| key | yes | ["home","back","rotate","enter","power","recents","volumeUp","volumeDown","action","side"] |  |
 
 Example:
 

@@ -40,7 +40,7 @@ export async function performDeviceAction(
       break;
     case "input":
       if (operation.input.kind === "key") {
-        const refusal = keyRefusal(session.device.platform, operation.input.key);
+        const refusal = keyRefusal(session.device, operation.input.key);
         if (refusal) throw refusal;
       }
       if (

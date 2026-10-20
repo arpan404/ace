@@ -42,6 +42,7 @@ export const DeviceInput = z.discriminatedUnion("kind", [
       "volumeUp",
       "volumeDown",
       "action",
+      "side",
     ]),
   }),
 ]);

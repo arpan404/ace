@@ -166,7 +166,8 @@
             "recents",
             "volumeUp",
             "volumeDown",
-            "action"
+            "action",
+            "side"
           ],
           "type": "string"
         },

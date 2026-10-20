@@ -121,15 +121,17 @@ it("a Simulator's side buttons press the HID codes Xcode's device chrome gives t
   const { sim, live } = await capture();
   const input = live.input;
   if (!input) throw new Error("Missing native input");
-  for (const key of ["volumeUp", "volumeDown", "action", "power"] as const)
+  for (const key of ["volumeUp", "volumeDown", "action", "power", "side"] as const)
     await input({ kind: "key", key }, () => {});
 
-  await expect.poll(() => sim.hid.length).toBe(4);
+  await expect.poll(() => sim.hid.length).toBe(5);
   expect(sim.hid).toEqual([
     [4, { page: 12, usage: 233 }],
     [4, { page: 12, usage: 234 }],
     [4, { page: 11, usage: 45 }],
     [4, { button: "power", page: 12, usage: 48 }],
+    // Apple Watch's side button.
+    [4, { page: 12, usage: 149 }],
   ]);
 });
 

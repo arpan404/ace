@@ -148,10 +148,11 @@ Settings hint. The screenrecord fallback's `adb shell input` text accepts printa
 ASCII and rejects Unicode and the special `%s` sequence rather than corrupting it,
 and accepts one finger only. Android semantic
 actions validate a fresh accessibility ref and disclose coordinate fallback.
-iOS back and recents keys are unsupported, as is the Action button on Android; home,
-rotate and enter use Simulator keys. Power, volume up/down and the Action button press
-the Simulator's hardware buttons: through serve-sim as the HID usage Xcode's device chrome
-gives each one, otherwise by name on the Simulator window (idb has no volume buttons).
+iOS back and recents keys are unsupported, as are the Action button on Android and the
+side key on anything but Apple Watch; home, rotate and enter use Simulator keys. Power,
+volume up/down, the Action button and the watch's side button press the Simulator's
+hardware buttons: through serve-sim as the HID usage Xcode's device chrome gives each
+one, otherwise by name on the Simulator window (idb has no volume buttons).
 
 Recording requires `ACE_WORKSPACE_ROOT` so the daemon has a file artifact
 registry, and ffmpeg for MP4 export. Raw recordings are capped at 512 MiB;

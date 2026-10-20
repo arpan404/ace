@@ -246,7 +246,7 @@ simulator with its `simId`, for example `"android:Pixel"` or `"ios:UUID"`.
 agent holds it (`lease_required` / `busy`). Read with `sim_ui({simId})`, or pass `role`,
 `name` or `text` to find. `sim_act({simId, action: "ui", ref, uiAction})` acts through
 accessibility; `tap`, `long_press`, `swipe`, `type` and `key` (`home`, `back`, `rotate`,
-`enter`, `power`, `volumeUp`, `volumeDown`, Android's `recents` and the iPhone's `action`)
+`enter`, `power`, `volumeUp`, `volumeDown`, Android's `recents`, the iPhone's `action` and Apple Watch's `side`)
 are the coordinate and key fallbacks, in target
 points. `open_app`, `open_url`, `install`, `record_start` and `record_stop` cover apps and
 recordings; `clipboard_get` reads the clipboard (`{text, truncated}`, at most 4,096

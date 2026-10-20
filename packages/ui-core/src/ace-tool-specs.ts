@@ -411,6 +411,7 @@ const deviceKeys: Record<string, string> = {
   volumeUp: "Volume Up",
   volumeDown: "Volume Down",
   action: "the Action button",
+  side: "the side button",
 };
 const tapped: Verbs = ["Tapped", "Tapping", "Tap"];
 
