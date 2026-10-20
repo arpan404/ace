@@ -214,6 +214,13 @@ open `Views/Browser/BrowserLiveView` full screen; the request's Done is offered 
 - Tests: `BrowserStreamTests` (pieces written by the daemon's encoder), `BrowserInputTests`,
   `H264DecodeTests` (real VideoToolbox frames), `BrowserLiveTests`, and
   `bunx vitest run apps/ios/bridge/browser-live.test.ts` on the fake daemon.
+- Device pictures (kind 4, ADR 0064 "Shared media stream") are read too, ahead of a device view:
+  `Sources/Devices/DeviceFrameChunk` decodes the header, `AnnexB` pulls the parameter sets out of
+  a keyframe and length-prefixes the rest for `H264Decoder(annexBKeyframe:)`, and
+  `DeviceViewport` turns the picture upright, fits it, and maps a finger back to device points.
+  `BinaryRouter` returns them as `.device`; `PinnedSocket` drops them until a view reads the
+  devices channel. Tests: `DeviceStreamTests` (daemon-encoded pieces), `DeviceH264Tests`,
+  `DeviceViewportTests`.
 
 ## Agents and Changes sheets
 

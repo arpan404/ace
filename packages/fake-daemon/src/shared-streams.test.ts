@@ -1,4 +1,4 @@
-import { DeviceClient } from "@ace/client/devices";
+import { DeviceClient, type DevicePicture } from "@ace/client/devices";
 import { ScreenStreamClient, type PortableFrame } from "@ace/client/screen-stream";
 import { expect, it, onTestFinished } from "vitest";
 import { FakeDaemon } from "./index.ts";
@@ -7,11 +7,14 @@ import { FakeDaemon } from "./index.ts";
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 /** One live view as the web app mounts it: its frames, and its hold on the stream. */
-function view(
-  client: Pick<ScreenStreamClient, "watchFrames" | "retainStream">,
+function view<F = PortableFrame>(
+  client: {
+    watchFrames(target: string, render: (frame: F) => Promise<void>): () => void;
+    retainStream: ScreenStreamClient["retainStream"];
+  },
   target: string,
-): { frames: PortableFrame[]; close(): void } {
-  const frames: PortableFrame[] = [];
+): { frames: F[]; close(): void } {
+  const frames: F[] = [];
   const unwatch = client.watchFrames(target, async (frame) => void frames.push(frame));
   const release = client.retainStream(target);
   return {
@@ -84,8 +87,13 @@ it("two views of one device share its stream: closing one leaves the other live,
     await settle();
   };
 
-  const first = view(devices, deviceId);
-  const second = view(devices, deviceId);
+  // A device's live view draws pictures (`watchPictures`), whichever way they come.
+  const pictures = {
+    watchFrames: devices.watchPictures.bind(devices),
+    retainStream: devices.retainStream.bind(devices),
+  };
+  const first = view<DevicePicture>(pictures, deviceId);
+  const second = view<DevicePicture>(pictures, deviceId);
   await settle();
   first.close();
   const before = second.frames.length;
@@ -93,8 +101,8 @@ it("two views of one device share its stream: closing one leaves the other live,
   expect(second.frames.length).toBe(before + 1);
 
   second.close();
-  const watcher: PortableFrame[] = [];
-  onTestFinished(devices.watchFrames(deviceId, async (frame) => void watcher.push(frame)));
+  const watcher: DevicePicture[] = [];
+  onTestFinished(devices.watchPictures(deviceId, async (picture) => void watcher.push(picture)));
   await paint();
   expect(watcher).toEqual([]);
 });

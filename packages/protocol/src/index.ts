@@ -99,6 +99,7 @@ export {
   DeviceState,
   DeviceOperation,
   DeviceClientMessage,
+  DeviceAck,
   DeviceServerMessage,
 } from "./devices.ts";
 export * from "./thread-transitions.ts";

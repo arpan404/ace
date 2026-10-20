@@ -283,6 +283,10 @@
         "deviceId": {
           "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
         },
+        "mediaStream": {
+          "const": true,
+          "type": "boolean"
+        },
         "op": {
           "const": "subscribe",
           "type": "string"
@@ -374,6 +378,43 @@
       "required": [
         "op",
         "deviceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "op": {
+          "const": "clipboard.get",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "op": {
+          "const": "clipboard.set",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId",
+        "text"
       ],
       "type": "object"
     },

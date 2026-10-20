@@ -2,11 +2,28 @@ import type { DeviceInput } from "@ace/protocol/devices";
 import type { RawSupervisedProcess } from "@ace/provider-kit/process";
 import type { DeviceRuntime } from "./runtime.ts";
 import { DeviceError } from "./sdk.ts";
+import {
+  endFingers,
+  fingerDown,
+  fingerMove,
+  fingerUp,
+  noFingers,
+  simulatorFinger,
+  type FingerPoint,
+  type FingerStep,
+  type HeldFingers,
+} from "./simulator-fingers.ts";
 
-/** One native touch and keyboard operation, revoked synchronously when control changes. */
+/**
+ * Native touch (one finger, or two as serve-sim's two-finger touch) and keyboard operations,
+ * revoked synchronously when control changes.
+ */
 export class SimulatorInput {
   private epoch = new AbortController();
-  private held: { x: number; y: number; edge: number; epoch: AbortController } | undefined;
+  private held: { fingers: HeldFingers; epoch: AbortController } = {
+    fingers: noFingers,
+    epoch: this.epoch,
+  };
   private typing: RawSupervisedProcess | undefined;
   private cleanup: Promise<void> = Promise.resolve();
   private readonly options: {
@@ -37,10 +54,18 @@ export class SimulatorInput {
     return this.cleanup;
   }
   private end(epoch: AbortController) {
-    const held = this.held;
-    if (!held || held.epoch !== epoch) return;
-    this.options.send(3, touchMessage("end", held), true);
-    this.held = undefined;
+    if (this.held.epoch !== epoch) return;
+    this.apply(epoch, { held: noFingers, messages: endFingers(this.held.fingers) });
+  }
+  /** Sends a finger step's messages; lifting fingers is never held back by input backlog. */
+  private apply(epoch: AbortController, step: FingerStep) {
+    for (const message of step.messages)
+      this.options.send(message.tag, message.payload, message.payload.type === "end");
+    this.held = { fingers: step.held, epoch };
+  }
+  /** Fingers held under this control epoch; a revoked epoch's fingers were already lifted. */
+  private fingers(epoch: AbortController): HeldFingers {
+    return this.held.epoch === epoch ? this.held.fingers : noFingers;
   }
   async input(input: DeviceInput, guard: () => void): Promise<void> {
     const epoch = this.epoch;
@@ -50,27 +75,32 @@ export class SimulatorInput {
       guard();
     };
     check();
-    const touch = (type: "begin" | "move", x: number, y: number, gesture = false) => {
+    const point = (x: number, y: number): FingerPoint => {
       check();
       const { width, height } = this.options.dimensions();
       if (!width || !height || x < 0 || y < 0 || x >= width || y >= height)
         throw new Error("Simulator input is outside the current frame");
-      const point = { x: x / width, y: y / height };
+      return { x: x / width, y: y / height };
+    };
+    const touch = (type: "begin" | "move", x: number, y: number, gesture = false) => {
+      const at = point(x, y);
       // A drag that starts on a screen edge is a system edge gesture (home, Control Centre).
-      const edge =
-        type === "begin" ? (gesture ? screenEdge(point.x, point.y) : 0) : (this.held?.edge ?? 0);
-      const held = { ...point, edge, epoch };
-      this.options.send(3, touchMessage(type, held));
-      this.held = held;
+      this.apply(
+        epoch,
+        type === "begin"
+          ? fingerDown(noFingers, 0, at, gesture ? screenEdge(at.x, at.y) : 0)
+          : fingerMove(this.fingers(epoch), 0, at),
+      );
     };
     if (input.kind === "pointer") {
+      const finger = simulatorFinger(input.pointerId);
+      const held = this.fingers(epoch);
       if (input.phase === "down") {
-        this.end(epoch);
-        touch("begin", input.x, input.y, true);
-      } else if (input.phase === "move") {
-        if (!this.held) throw new Error("Simulator pointer is not held");
-        touch("move", input.x, input.y);
-      } else this.end(epoch);
+        const at = point(input.x, input.y);
+        this.apply(epoch, fingerDown(held, finger, at, screenEdge(at.x, at.y)));
+      } else if (input.phase === "move")
+        this.apply(epoch, fingerMove(held, finger, point(input.x, input.y)));
+      else this.apply(epoch, fingerUp(held, finger));
       return;
     }
     if (input.kind === "tap" || input.kind === "swipe" || input.kind === "longPress") {
@@ -158,16 +188,6 @@ export class SimulatorInput {
       if (signal.aborted) abort();
     });
   }
-}
-
-/** serve-sim's touch message; the edge field is sent only for edge gestures. */
-function touchMessage(
-  type: "begin" | "move" | "end",
-  point: { x: number; y: number; edge: number },
-) {
-  return point.edge
-    ? { type, x: point.x, y: point.y, edge: point.edge }
-    : { type, x: point.x, y: point.y };
 }
 
 /**

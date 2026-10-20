@@ -9,6 +9,7 @@ import { SimulatorJpeg } from "./simulator-jpeg.ts";
 import { SimulatorH264 } from "./simulator-h264.ts";
 import { simulatorUI } from "./simulator-ui.ts";
 import { nativeId } from "./commands.ts";
+import { simulatorRotation } from "./simulator-rotation.ts";
 
 const Endpoint = z.object({
   device: z.string().uuid(),
@@ -106,7 +107,9 @@ export async function simulatorCapture(options: {
     options.failure(error);
     void stop().catch(() => {});
   };
-  const publish = (header: ScreenLegacyFrameHeader, payload: Buffer) => {
+  // Pictures stay in the portrait framebuffer when the device turns; viewers turn them upright.
+  const publish = (frame: ScreenLegacyFrameHeader, payload: Buffer) => {
+    const header: Frame["header"] = { ...frame, rotation: simulatorRotation(screen.orientation) };
     const packet = framePacket(header, payload);
     options.publish({ header, payload: packet.subarray(packet.length - payload.length), packet });
   };
@@ -214,8 +217,13 @@ export async function simulatorCapture(options: {
       try {
         const config = ScreenConfig.safeParse(JSON.parse(bytes.subarray(1).toString("utf8")));
         if (config.success) {
+          const before = simulatorRotation(screen.orientation);
           Object.assign(screen, config.data);
           sized.resolve();
+          // A portrait-only app shows no new picture when the device turns; resend one so
+          // viewers learn the new rotation anyway.
+          if (input && simulatorRotation(screen.orientation) !== before)
+            void (mode === "h264" ? h264?.keyframe() : jpeg?.replay())?.catch(() => {});
         }
       } catch {
         // Unknown or malformed control messages are ignored; input keeps the last size.
@@ -305,6 +313,8 @@ export async function simulatorCapture(options: {
     };
     return {
       streamId: options.streamId,
+      // serve-sim takes a two-finger touch, so pointer ids 0 and 1 both reach it.
+      multiTouch: true,
       get terminated() {
         return terminated;
       },

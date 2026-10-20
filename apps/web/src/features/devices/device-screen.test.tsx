@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
 import { deviceBrowser, openDevice, openDevices } from "@/test/device-browser.ts";
@@ -153,4 +153,38 @@ test("a DPR-three device viewer requests every physical pixel and follows monito
     HTMLElement.prototype.getBoundingClientRect = original;
     if (previous) Object.defineProperty(window, "devicePixelRatio", previous);
   }
+});
+
+test("on an emulator that takes several fingers, an Option-drag pinches with two mirrored fingers", async () => {
+  const browser = deviceBrowser("none");
+  current = browser;
+  const { app, panel } = await openDevices();
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  const pixel = await openDevice(panel, "Pixel 9");
+  await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
+  const screenImage = await within(pixel).findByRole("img", { name: "Pixel 9 screen" });
+  await waitFor(() => expect(browser.draws(screenImage)).toBeGreaterThan(0));
+
+  // Option held, as Simulator pinches with a mouse.
+  const mouse = { pointerId: 1, pointerType: "mouse", altKey: true };
+  fireEvent.pointerDown(screenImage, { ...mouse, clientX: 150, clientY: 300 });
+  fireEvent.pointerMove(screenImage, { ...mouse, clientX: 100, clientY: 250 });
+  fireEvent.pointerUp(screenImage, { ...mouse, clientX: 100, clientY: 250 });
+
+  const sent = () => app.daemon.appDevices.inputs.map((entry) => entry.input);
+  await waitFor(() =>
+    expect(sent().slice(-2)).toEqual([
+      { kind: "pointer", phase: "up", x: 289, y: 593, pointerId: 1 },
+      { kind: "pointer", phase: "up", x: 100, y: 250, pointerId: 0 },
+    ]),
+  );
+  // The second finger mirrors the first through the middle of the 390 × 844 point screen.
+  expect(sent().slice(0, 2)).toEqual([
+    { kind: "pointer", phase: "down", x: 150, y: 300, pointerId: 0 },
+    { kind: "pointer", phase: "down", x: 239, y: 543, pointerId: 1 },
+  ]);
+  // Motion is coalesced (an unsent move gives way to its finger's lift), never reordered.
+  const moves = sent().slice(2, -2);
+  expect(moves[0]).toEqual({ kind: "pointer", phase: "move", x: 100, y: 250, pointerId: 0 });
+  expect(moves.every((input) => input.kind === "pointer" && input.phase === "move")).toBe(true);
 });

@@ -407,6 +407,7 @@ const deviceKeys: Record<string, string> = {
   rotate: "Rotate",
   enter: "Return",
   power: "Power",
+  recents: "Recents",
 };
 const tapped: Verbs = ["Tapped", "Tapping", "Tap"];
 
@@ -470,6 +471,12 @@ const simActs: Record<string, { input?: InputKind; words: AceToolSpec["words"] }
   },
   record_stop: {
     words: ({ subject }) => say(verbs.stopped, ` recording ${subject ?? "the simulator"}`),
+  },
+  clipboard_get: {
+    words: ({ subject }) => say(verbs.read, ` the clipboard${on(subject)}`),
+  },
+  clipboard_set: {
+    words: ({ subject }) => say(["Set", "Setting", "Set"], ` the clipboard${on(subject)}`),
   },
 };
 const simAct = (args: Record<string, unknown>) =>

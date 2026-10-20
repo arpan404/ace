@@ -36,6 +36,7 @@ const Shot = z.looseObject({
 });
 const Lines = z.looseObject({ lines: z.array(z.string()) });
 const Acted = z.looseObject({ ref: z.string(), role: z.string(), name: z.string() });
+const Clipboard = z.looseObject({ text: z.string(), truncated: z.boolean() });
 
 function outline(nodes: Node[], depth: number, lines: string[]): void {
   for (const node of nodes) {
@@ -77,6 +78,9 @@ export function simHuman(verb: CliSimVerb, data: unknown): string {
       return lines.join("\n") || "No elements.";
     }
     case "act": {
+      const clipboard = Clipboard.safeParse(data);
+      if (clipboard.success)
+        return `${clipboard.data.text}${clipboard.data.truncated ? "\n(truncated)" : ""}`;
       const acted = Acted.safeParse(data);
       return acted.success
         ? `ok ${acted.data.ref} ${acted.data.role}${acted.data.name ? ` ${JSON.stringify(acted.data.name)}` : ""}`

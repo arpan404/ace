@@ -152,6 +152,8 @@ export interface FrameSize {
   width: number;
   height: number;
   scale?: number | undefined;
+  /** Degrees clockwise the picture is turned to show upright (a landscape simulator). */
+  rotation?: number | undefined;
 }
 
 /** A coordinate rounded onto the screen: 0 to its last whole point. */
@@ -172,10 +174,21 @@ export function devicePoint(
   const scale = frame.scale ?? 1;
   const width = frame.width / scale;
   const height = frame.height / scale;
-  return {
-    x: clamp(((pointer.x - shown.left) * width) / shown.width, width),
-    y: clamp(((pointer.y - shown.top) * height) / shown.height, height),
-  };
+  // Where on the shown box (0 to 1), then turned back into the picture's own orientation:
+  // input goes to the device in the picture's coordinates, whichever way it is shown.
+  const u = (pointer.x - shown.left) / shown.width;
+  const v = (pointer.y - shown.top) / shown.height;
+  const turn = (((frame.rotation ?? 0) % 360) + 360) % 360;
+  const [x, y] =
+    turn === 90 ? [v, 1 - u] : turn === 180 ? [1 - u, 1 - v] : turn === 270 ? [1 - v, u] : [u, v];
+  return { x: clamp(x * width, width), y: clamp(y * height, height) };
+}
+
+/** The size a picture shows at once turned upright: a quarter turn swaps its sides. */
+export function shownFrameSize(frame: FrameSize): { width: number; height: number } {
+  return (frame.rotation ?? 0) % 180 === 0
+    ? { width: frame.width, height: frame.height }
+    : { width: frame.height, height: frame.width };
 }
 
 const swipeDistance = 8;

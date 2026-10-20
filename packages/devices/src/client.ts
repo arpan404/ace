@@ -1,8 +1,11 @@
 import { deviceInputTimeout } from "./input-budget.ts";
 import { z } from "zod";
 import { PendingScreenshots } from "./client-screenshots.ts";
+import { decodeStreamMessage, isStreamPiece, StreamAssembler } from "@ace/browser/stream";
+import { DevicePictures, packetPicture, type DevicePicture } from "./client-pictures.ts";
 import {
   type AppDevice as Device,
+  type DeviceAck,
   DeviceClientMessage,
   DeviceOperation,
   DeviceServerMessage,
@@ -27,7 +30,7 @@ export interface DeviceTransportEvents {
 }
 export interface DeviceTransport {
   open(events: DeviceTransportEvents): void;
-  send(message: DeviceClientMessage): void | Promise<void>;
+  send(message: DeviceClientMessage | DeviceAck): void | Promise<void>;
   close(): void;
 }
 export interface DeviceClientOptions {
@@ -97,6 +100,9 @@ export class DeviceClient {
   private error: DeviceClientError | undefined;
   private epoch = 0;
   private reader: ScreenFrameReader;
+  /** Stream kind messages (`@ace/browser/stream`) being put back together. */
+  private readonly assembler = new StreamAssembler();
+  private readonly pictures = new DevicePictures();
   constructor(options: DeviceClientOptions) {
     this.options = options;
     this.reader = this.createReader();
@@ -104,7 +110,10 @@ export class DeviceClient {
   private createReader(): ScreenFrameReader {
     return new ScreenFrameReader((frame) => {
       const id = this.streams.get(frame.header.sessionId);
-      if (id) this.frameHubs.get(id)?.hub.publish({ frame, epoch: this.epoch });
+      if (id) {
+        this.frameHubs.get(id)?.hub.publish({ frame, epoch: this.epoch });
+        this.pictures.publish(packetPicture(id, frame));
+      }
       this.screenshots.retain(frame);
     });
   }
@@ -192,6 +201,8 @@ export class DeviceClient {
     this.issues = [];
     this.enabled = undefined;
     this.reader.reset();
+    this.assembler.reset();
+    this.pictures.discard();
     this.screenshots.clear();
     for (const entry of this.frameHubs.values()) entry.hub.discardPending();
     for (const pending of this.pending.values()) {
@@ -292,6 +303,43 @@ export class DeviceClient {
     };
   }
 
+  /**
+   * A device's pictures for its live view, in order, whichever way they come: stream kind
+   * `deviceFrame` (ack each with `ack` once shown) or an older daemon's screen packets.
+   * Screenshots arrive here too, unpaced.
+   */
+  watchPictures(deviceId: string, draw: (picture: DevicePicture) => Promise<void>): () => void {
+    try {
+      return this.pictures.watch(deviceId, async (picture) => {
+        if (this.connected) await draw(picture);
+      });
+    } catch {
+      throw new DeviceClientError("limit", "Device frame view limit");
+    }
+  }
+
+  /**
+   * The view showed `picture` (and every one before it); `keyframe`: its decoder lost its place.
+   * Pictures from screen packets need none. Never answered and never retried: a lost ack only
+   * holds the stream until the next one.
+   */
+  ack(picture: DevicePicture, keyframe = false): void {
+    const transport = this.transport;
+    if (!picture.paced || !transport || !this.connected) return;
+    const message: DeviceAck = {
+      type: "devices.ack",
+      deviceId: picture.deviceId,
+      streamId: picture.streamId,
+      sequence: picture.sequence,
+      ...(keyframe ? { keyframe: true as const } : {}),
+    };
+    try {
+      void Promise.resolve(transport.send(message)).catch(() => {});
+    } catch {
+      /* The channel is closing; its close resets the view. */
+    }
+  }
+
   private readonly liveStreams = new SharedStreams();
   /**
    * Keep `deviceId`'s live stream open for one view. Views of the same device share one daemon
@@ -300,7 +348,7 @@ export class DeviceClient {
   retainStream(deviceId: string): () => void {
     return this.liveStreams.retain(
       deviceId,
-      () => void this.request({ op: "subscribe", deviceId }).catch(() => {}),
+      () => void this.request({ op: "subscribe", deviceId, mediaStream: true }).catch(() => {}),
       () => void this.request({ op: "unsubscribe", deviceId }).catch(() => {}),
     );
   }
@@ -339,7 +387,10 @@ export class DeviceClient {
       if (!this.connected)
         throw new DeviceClientError("disconnected", "Unauthenticated device message");
       if (data instanceof Uint8Array) {
-        this.reader.push(data);
+        // A screen packet's later fragments may start with anything: only between packets can
+        // a binary message be a stream piece.
+        if (this.reader.idle && isStreamPiece(data)) this.receivePiece(data);
+        else this.reader.push(data);
         return;
       }
       if (typeof data === "string") {
@@ -392,6 +443,7 @@ export class DeviceClient {
             this.frameHubs
               .get(image.deviceId)
               ?.hub.publish({ frame: image.frame, epoch: this.epoch, direct: true });
+            this.pictures.publish(packetPicture(image.deviceId, image.frame));
           }
           if (pending.operation.op === "list") {
             const found = inventory.parse(message.data);
@@ -425,6 +477,13 @@ export class DeviceClient {
       this.fail(error);
     }
   }
+  private receivePiece(data: Uint8Array): void {
+    const envelope = this.assembler.push(data);
+    // Kinds this client doesn't draw are skipped, never fatal.
+    const message = envelope && decodeStreamMessage(envelope);
+    if (message?.kind !== "device.frame") return;
+    this.pictures.publish({ ...message.frame, deviceId: message.sourceId, paced: true });
+  }
   private putState(state: DeviceState): void {
     const previous = this.states.get(state.device.id);
     if (!previous && this.states.size >= 32)
@@ -436,7 +495,12 @@ export class DeviceClient {
       if (state.streamId !== previous?.streamId || previous?.lifecycle !== "live")
         this.liveStreams.refresh(
           state.device.id,
-          () => void this.request({ op: "subscribe", deviceId: state.device.id }).catch(() => {}),
+          () =>
+            void this.request({
+              op: "subscribe",
+              deviceId: state.device.id,
+              mediaStream: true,
+            }).catch(() => {}),
         );
     }
   }
@@ -466,3 +530,5 @@ export class DeviceClient {
     }
   }
 }
+
+export type { DevicePicture } from "./client-pictures.ts";

@@ -16,6 +16,7 @@ import { DevicesService } from "../service.ts";
 import { DeviceError } from "../sdk.ts";
 import { androidFind } from "../android-ui.ts";
 import { shotJpeg, type DeviceShot } from "../one-off-screenshot.ts";
+import { boundedClipboard } from "../clipboard.ts";
 
 /** A UI node for a fake screen: actionable when it lists actions. */
 export function fakeNode(
@@ -90,6 +91,15 @@ export class FakeSimPlatform extends DevicePlatform {
   }
   override async input(device: Device, input: DeviceInput): Promise<void> {
     this.effects.push(`${device.id} input ${JSON.stringify(input)}`);
+  }
+  /** Each device's clipboard text; tests may seed it. */
+  readonly clipboards = new Map<string, string>();
+  override async clipboardRead(device: Device) {
+    return boundedClipboard(this.clipboards.get(device.id) ?? "");
+  }
+  override async clipboardWrite(device: Device, text: string): Promise<void> {
+    this.effects.push(`${device.id} clipboard ${JSON.stringify(text)}`);
+    this.clipboards.set(device.id, text);
   }
   override async screenshot(device: Device): Promise<DeviceShot> {
     this.shots.push(device.id);

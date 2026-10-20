@@ -1,8 +1,21 @@
-import type { StreamMessage } from "@ace/client";
-import type { DecodedPicture, VideoDecoderConfig, VideoDecoderFactory } from "./video-codecs.ts";
+import type { DecodedPicture, VideoDecoderConfig, VideoDecoderFactory } from "./codecs.ts";
 
-/** One encoded chunk of a thread's video, as the daemon's stream message carries it. */
-export type BrowserVideoChunk = Extract<StreamMessage, { kind: "browser.video" }>["chunk"];
+/**
+ * One encoded chunk as a stream message carries it: a thread's browser video (`browser.video`)
+ * or a device's H.264 picture (`device.frame`, whose coded size is its size).
+ */
+export interface VideoChunk {
+  sequence: number;
+  timestamp: number;
+  width: number;
+  height: number;
+  codedWidth: number;
+  codedHeight: number;
+  codec: string;
+  key: boolean;
+  description?: Uint8Array | undefined;
+  bytes: Uint8Array;
+}
 
 /** A decoded picture with the chunk's sizes: CSS pixels for input, coded for the bitmap. */
 export interface VideoPicture {
@@ -36,7 +49,7 @@ const sameConfig = (a: VideoDecoderConfig | undefined, b: VideoDecoderConfig) =>
 type Sizes = Omit<VideoPicture, "picture">;
 
 /**
- * One thread's video: chunks in, pictures out (ADR 0088). A keyframe configures the decoder
+ * One video stream: chunks in, pictures out (ADR 0088). A keyframe configures the decoder
  * (again, when its codec, size or description changed); deltas before a keyframe can't be
  * decoded, so they are skipped and acked at once. A decode error drops the decoder, asks the
  * daemon for a keyframe, and skips deltas until one arrives.
@@ -54,7 +67,7 @@ export class VideoStream {
     this.#factory = factory;
     this.#handlers = handlers;
   }
-  receive(chunk: BrowserVideoChunk): void {
+  receive(chunk: VideoChunk): void {
     if (this.#closed) return;
     this.#latest = Math.max(this.#latest, chunk.sequence);
     if (chunk.key) {

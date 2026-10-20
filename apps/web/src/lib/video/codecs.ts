@@ -1,9 +1,11 @@
-import type { Schedule } from "../schedule.ts";
+/** Runs `callback` after `ms`; the result cancels it. */
+type Schedule = (callback: () => void, ms: number) => () => void;
 
 /*
- * The WebCodecs boundary for the browser's live view (ADR 0088): which codecs this client can
- * decode, and a decoder that hands back pictures to draw. Everything else in the video path
- * takes these as injected functions, so tests run without WebCodecs.
+ * The WebCodecs boundary for live video (ADR 0088): the browser's view and device screens.
+ * Which codecs this client can decode, and a decoder that hands back pictures to draw.
+ * Everything else in the video path takes these as injected functions, so tests run without
+ * WebCodecs.
  */
 
 /** Codecs the daemon may encode, in the order this client prefers them. */
@@ -35,7 +37,8 @@ export interface VideoDecoding {
 
 export type VideoDecoderFactory = (handlers: {
   output(picture: DecodedPicture): void;
-  error(): void;
+  /** `unsupported`: the platform can't decode this stream at all (WebCodecs' NotSupportedError). */
+  error(unsupported?: boolean): void;
 }) => VideoDecoding;
 
 /** Whether this platform has WebCodecs decoding at all. */
@@ -72,7 +75,7 @@ export function webCodecsDecoder(): VideoDecoderFactory | undefined {
           draw: (context, width, height) => context.drawImage(frame, 0, 0, width, height),
           close: () => frame.close(),
         }),
-      error: () => handlers.error(),
+      error: (failure) => handlers.error(failure.name === "NotSupportedError"),
     });
     return {
       configure: (config) =>

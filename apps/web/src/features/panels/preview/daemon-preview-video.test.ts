@@ -5,8 +5,8 @@ import { ThreadId } from "@ace/protocol";
 import { fakeClient } from "@/test/fake-client.ts";
 import { daemonPreview } from "./daemon-preview.ts";
 import { streamingClient } from "./stream-test-support.ts";
-import type { VideoDecoderConfig, VideoDecoderFactory } from "./video-codecs.ts";
-import type { BrowserVideoChunk } from "./video-stream.ts";
+import type { VideoDecoderConfig, VideoDecoderFactory } from "@/lib/video/codecs.ts";
+import type { BrowserVideoChunk } from "./thread-videos.ts";
 
 const thread = "thread-settings";
 

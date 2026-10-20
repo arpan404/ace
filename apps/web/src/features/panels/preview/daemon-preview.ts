@@ -42,7 +42,7 @@ import {
   webCodecsSupport,
   type VideoDecoderFactory,
   type VideoSupport,
-} from "./video-codecs.ts";
+} from "@/lib/video/codecs.ts";
 
 /** How often a watched thread without a browser asks again, and re-reads its dev servers. */
 const retryMs = 5_000;

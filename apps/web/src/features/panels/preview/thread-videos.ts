@@ -1,7 +1,11 @@
 import type { Schedule } from "../schedule.ts";
 import type { ScreenFrame } from "../sources.ts";
-import { within, type VideoDecoderFactory, type VideoSupport } from "./video-codecs.ts";
-import { VideoStream, type BrowserVideoChunk, type VideoPicture } from "./video-stream.ts";
+import type { StreamMessage } from "@ace/client";
+import { within, type VideoDecoderFactory, type VideoSupport } from "@/lib/video/codecs.ts";
+import { VideoStream, type VideoPicture } from "@/lib/video/stream.ts";
+
+/** One encoded chunk of a thread's video, as the daemon's stream message carries it. */
+export type BrowserVideoChunk = Extract<StreamMessage, { kind: "browser.video" }>["chunk"];
 
 /** A picture ready to show, and how to free it. */
 export interface ShownVideo extends ScreenFrame {

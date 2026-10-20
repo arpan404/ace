@@ -288,8 +288,13 @@ test("relay starts and stops on saved settings without replacing the host socket
       token: issued.token,
     });
     expect(await channel.receive()).toMatchObject({ type: "welcome", hostId: "host" });
+    // Status names the route a paired client just used: the relay, its pinned key, the host.
     expect(await f.local("/v1/status")).toMatchObject({
-      remoteAccess: { enabled: true, transport: "relay" },
+      remoteAccess: {
+        enabled: true,
+        transport: "relay",
+        relay: { url: relay.url, fingerprint: pin, hostId: "host" },
+      },
     });
     expect(PairingResponse.parse(await f.local("/v1/pairings", {})).url).toContain("/pair#");
     expect(await f.set("remote.transport", "lan")).toMatchObject({ ok: true });
@@ -298,6 +303,7 @@ test("relay starts and stops on saved settings without replacing the host socket
     });
     expect(await f.set("remote.enabled", false)).toMatchObject({ ok: true });
     await channel.closed;
+    expect(await f.local("/v1/status")).not.toHaveProperty("remoteAccess.relay");
     await expect(connect()).rejects.toThrow();
     f.client.send({ type: "host.identity", requestId: "host-after-relay" });
     expect(await f.client.next()).toMatchObject({ identity: { displayName: "Office Mac" } });

@@ -1,0 +1,32 @@
+{
+  "$id": "https://ace.local/protocol/v1/DeviceAck.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "deviceId": {
+      "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+    },
+    "keyframe": {
+      "const": true,
+      "type": "boolean"
+    },
+    "sequence": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "streamId": {
+      "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+    },
+    "type": {
+      "const": "devices.ack",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "deviceId",
+    "streamId",
+    "sequence"
+  ],
+  "type": "object"
+}

@@ -24,6 +24,29 @@
         }
       ]
     },
+    "relay": {
+      "properties": {
+        "fingerprint": {
+          "pattern": "^[A-Z2-7]{52}$",
+          "type": "string"
+        },
+        "hostId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 2048,
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "fingerprint",
+        "hostId"
+      ],
+      "type": "object"
+    },
     "relayOverride": {
       "type": "boolean"
     },

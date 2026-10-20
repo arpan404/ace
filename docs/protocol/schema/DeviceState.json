@@ -69,6 +69,14 @@
     },
     "threadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "touch": {
+      "enum": [
+        "multi",
+        "pointer",
+        "gestures"
+      ],
+      "type": "string"
     }
   },
   "required": [
