@@ -21,7 +21,11 @@ function frontmost(): string {
   return execFileSync("lsappinfo", ["info", "-only", "bundleid", asn]).toString().trim();
 }
 function calculatorRunning(): boolean {
-  return execFileSync("lsappinfo", ["find", `bundleid=${calculator}`]).toString().trim() !== "";
+  return (
+    execFileSync("lsappinfo", ["find", `bundleid=${calculator}`])
+      .toString()
+      .trim() !== ""
+  );
 }
 
 it.skipIf(process.platform !== "darwin" || process.env.ACE_COMPUTER_LIVE !== "1")(
@@ -47,7 +51,8 @@ it.skipIf(process.platform !== "darwin" || process.env.ACE_COMPUTER_LIVE !== "1"
     const wasRunning = calculatorRunning();
     onTestFinished(() => {
       // Quitting by Apple event never activates; only a Calculator this test opened is closed.
-      if (!wasRunning) execFileSync("osascript", ["-e", `tell application id "${calculator}" to quit`]);
+      if (!wasRunning)
+        execFileSync("osascript", ["-e", `tell application id "${calculator}" to quit`]);
     });
 
     const before = frontmost();
