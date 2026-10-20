@@ -83,6 +83,13 @@ test("a merged browser, screen or simulator tool reads by the action it was aske
     "Swiped on the simulator",
   );
   expect(past("sim_act", { action: "key", key: "home" })).toBe("Pressed Home on the simulator");
+  expect(past("sim_act", { action: "key", key: "recents" })).toBe(
+    "Pressed Recents on the simulator",
+  );
+  expect(past("sim_act", { action: "clipboard_get" })).toBe("Read the clipboard on the simulator");
+  expect(past("sim_act", { action: "clipboard_set", text: "x" })).toBe(
+    "Set the clipboard on the simulator",
+  );
 });
 
 test("a later browser action names the element a text snapshot listed for its ref", () => {

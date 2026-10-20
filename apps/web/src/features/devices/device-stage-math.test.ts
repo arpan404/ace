@@ -95,16 +95,17 @@ test("the subtitle leaves out what it can't know: the rate in the first second, 
 const refsOf = (nodes: ReturnType<typeof shortRefs>): unknown[] =>
   nodes.map((entry) => [entry.node.name, entry.ref, refsOf(entry.children)]);
 
+const leaf = (ref: string, name: string, actions: "press"[] = ["press"]) => ({
+  ref,
+  role: "Button",
+  name,
+  bounds: { x: 0, y: 0, w: 1, h: 1 },
+  states: [],
+  actions,
+  children: [],
+});
+
 test("the UI tree numbers the elements agents can act on as agents do, children before parents", () => {
-  const leaf = (ref: string, name: string, actions: "press"[] = ["press"]) => ({
-    ref,
-    role: "Button",
-    name,
-    bounds: { x: 0, y: 0, w: 1, h: 1 },
-    states: [],
-    actions,
-    children: [],
-  });
   const tree = shortRefs([
     {
       ...leaf("ax-cell", "Wi-Fi"),

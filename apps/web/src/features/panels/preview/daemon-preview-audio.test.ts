@@ -7,7 +7,7 @@ import type { AudioDecoderFactory, AudioOutputFactory, DecodedSound } from "./au
 import { bufferMs } from "./av-sync.ts";
 import { daemonPreview } from "./daemon-preview.ts";
 import { streamingClient } from "./stream-test-support.ts";
-import type { VideoDecoderFactory } from "./video-codecs.ts";
+import type { VideoDecoderFactory } from "@/lib/video/codecs.ts";
 
 const thread = "thread-settings";
 

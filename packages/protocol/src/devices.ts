@@ -112,6 +112,12 @@ export const DeviceState = z.object({
   recordingNotice: z.string().max(256).optional(),
   recording: z.boolean().optional(),
   streamId: ScreenId.optional(),
+  /**
+   * What the live view's input reaches: several fingers streamed live (`pointer` with
+   * `pointerId`), one finger streamed live, or only whole gestures (tap, swipe, long press).
+   * Absent from older daemons.
+   */
+  touch: z.enum(["multi", "pointer", "gestures"]).optional(),
   controller: z.enum(["none", "human", "agent"]),
   /** Whether this authenticated connection holds the human controller lease. */
   ownedHere: z.boolean().optional(),
@@ -149,7 +155,15 @@ export const DeviceOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("stop"), ...target }),
   z.object({ op: z.literal("stream.configure"), ...target, settings: ScreenStreamSettings }),
   z.object({ op: z.literal("stream.keyframe"), ...target }),
-  z.object({ op: z.literal("subscribe"), ...target }),
+  z.object({
+    op: z.literal("subscribe"),
+    ...target,
+    /**
+     * Send this device's pictures as stream kind `deviceFrame` (`@ace/browser/stream`), paced by
+     * `devices.ack`, instead of screen frame packets. Older daemons ignore it and send packets.
+     */
+    mediaStream: z.literal(true).optional(),
+  }),
   z.object({ op: z.literal("unsubscribe"), ...target }),
   z.object({
     op: z.literal("controller"),
@@ -160,6 +174,10 @@ export const DeviceOperation = z.discriminatedUnion("op", [
   }),
   z.object({ op: z.literal("input"), ...target, input: DeviceInput }),
   z.object({ op: z.literal("screenshot"), ...target }),
+  /** The device clipboard's text, at most 4,096 characters. Needs control, like input. */
+  z.object({ op: z.literal("clipboard.get"), ...target }),
+  /** Put text on the device clipboard without pasting it. Needs control, like input. */
+  z.object({ op: z.literal("clipboard.set"), ...target, text: z.string().max(4096) }),
   ScreenUITreeOptions.extend({ op: z.literal("ui.tree"), ...target }),
   ScreenUIFindOptions.extend({ op: z.literal("ui.find"), ...target }),
   ScreenUIActOptions.extend({ op: z.literal("ui.act"), ...target }),
@@ -180,6 +198,20 @@ export const DeviceClientMessage = z.object({
   operation: DeviceOperation,
 });
 export type DeviceClientMessage = z.infer<typeof DeviceClientMessage>;
+/**
+ * A viewer showed a device's pictures up to `sequence` of capture `streamId` (cumulative, as
+ * `browser.ack` for video). No reply. Sent only for pictures that came as stream kind
+ * `deviceFrame`, so a daemon that sends screen packets never receives one.
+ */
+export const DeviceAck = z.object({
+  type: z.literal("devices.ack"),
+  deviceId: AppDeviceId,
+  streamId: ScreenId,
+  sequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  /** The viewer's decoder lost its place (a decode error): send it a keyframe. */
+  keyframe: z.literal(true).optional(),
+});
+export type DeviceAck = z.infer<typeof DeviceAck>;
 export const DeviceServerMessage = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("devices.result"),

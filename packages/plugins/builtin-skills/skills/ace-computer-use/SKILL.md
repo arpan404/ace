@@ -68,7 +68,7 @@ sim_* drives the iOS simulators and Android emulators on this machine. Paired ma
 
 1. `sim_list` shows simIds and status.
 2. `sim_start` takes one for this thread, boots it if needed and starts capture. It is refused while a person or another agent holds it.
-3. Read with `sim_ui` (pass `role`, `name` or `text` to find). Actionable elements carry refs like `@e3`. Act on a ref: `sim_act` with `action: "tap"` and `ref`, `"type"` with `ref` and `text`, or `"ui"` with a `uiAction`. Points (`x`, `y`), `swipe` and `key` are the fallbacks; `open_app`, `open_url`, `install` and `record_start` / `record_stop` cover apps and recordings.
+3. Read with `sim_ui` (pass `role`, `name` or `text` to find). Actionable elements carry refs like `@e3`. Act on a ref: `sim_act` with `action: "tap"` and `ref`, `"type"` with `ref` and `text`, or `"ui"` with a `uiAction`. Points (`x`, `y`), `swipe` and `key` are the fallbacks; `open_app`, `open_url`, `install` and `record_start` / `record_stop` cover apps and recordings; `clipboard_get` / `clipboard_set` read and set the clipboard.
 4. `sim_screenshot` for a visual check, with or without the live view; `sim_logs` for a log tail.
 5. `sim_stop` when you finish, so the person and other threads can use it.
 

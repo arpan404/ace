@@ -17,6 +17,12 @@ import { connectClientViaRelay, startRelay, type ClientChannel } from "@ace/rela
 import { fingerprint, keyPair } from "@ace/secure-channel";
 import { framePacket, type Frame } from "@ace/screen";
 import { ScreenFrameReader, type PortableFrame } from "@ace/screen/frames-client";
+import {
+  decodeStreamMessage,
+  isStreamPiece,
+  StreamAssembler,
+  type StreamMessage,
+} from "@ace/browser/stream";
 import { Store } from "./store.ts";
 import { allows, type Scope } from "./devices.ts";
 import { RemoteAuth } from "./remote-auth.ts";
@@ -52,6 +58,8 @@ class DeviceClient {
   readonly channel: ClientChannel;
   readonly chunks: number[] = [];
   private readonly images: PortableFrame[] = [];
+  private readonly pictures: Extract<StreamMessage, { kind: "device.frame" }>[] = [];
+  private readonly assembler = new StreamAssembler();
   private readonly reader: ScreenFrameReader;
   private sequence = 0;
   constructor(channel: ClientChannel) {
@@ -73,7 +81,11 @@ class DeviceClient {
     if (frame instanceof Uint8Array) {
       if (this.chunks.length >= 128) throw new Error("Unexpected fragment flood");
       this.chunks.push(frame.length);
-      this.reader.push(frame);
+      if (isStreamPiece(frame)) {
+        const envelope = this.assembler.push(frame);
+        const message = envelope && decodeStreamMessage(envelope);
+        if (message?.kind === "device.frame") this.pictures.push(message);
+      } else this.reader.push(frame);
       return undefined;
     }
     return DeviceServerMessage.parse(frame);
@@ -98,6 +110,19 @@ class DeviceClient {
     const frame = this.images.shift();
     if (!frame) throw new Error("Missing frame");
     return frame;
+  }
+  /** The next device picture that came as stream kind `deviceFrame`. */
+  async picture() {
+    while (this.pictures.length === 0) {
+      const message = await this.next();
+      if (message?.type === "devices.result") throw new Error("Unconsumed device result");
+    }
+    const picture = this.pictures.shift();
+    if (!picture) throw new Error("Missing picture");
+    return picture;
+  }
+  async ack(deviceId: string, streamId: string, sequence: number) {
+    await this.channel.send({ type: "devices.ack", deviceId, streamId, sequence });
   }
   end(): void {
     this.reader.end();
@@ -239,7 +264,7 @@ async function fixture() {
   return { service, auth, admin, reader, connect, connected, publish, inputs };
 }
 
-async function ready(client: DeviceClient, deviceId: string) {
+async function ready(client: DeviceClient, deviceId: string, mediaStream = false) {
   expect(await client.request({ op: "controller", deviceId, controller: "human" })).toMatchObject({
     ok: true,
   });
@@ -250,8 +275,37 @@ async function ready(client: DeviceClient, deviceId: string) {
   const started = await client.request({ op: "start", deviceId });
   expect(started.ok).toBe(true);
   expect(DeviceState.parse(started.data).lifecycle).toBe("live");
-  expect(await client.request({ op: "subscribe", deviceId })).toMatchObject({ ok: true });
+  expect(
+    await client.request({ op: "subscribe", deviceId, ...(mediaStream ? { mediaStream } : {}) }),
+  ).toMatchObject({ ok: true });
 }
+
+it("a relay viewer on the shared media stream gets an emulator's pictures at the pace it acks", async () => {
+  const f = await fixture();
+  const client = await f.connected();
+  await client.request({ op: "enable", enabled: true });
+  await ready(client, "android:Tablet", true);
+  const first = await client.picture();
+  expect(first.sourceId).toBe("android:Tablet");
+  expect(first.frame).toMatchObject({ sequence: 0, codec: "jpeg", key: true, width: 640 });
+  expect(Buffer.from(first.frame.bytes)).toEqual(Buffer.alloc(128 * 1024, 22));
+  // Each 128 KiB picture crossed the relay in pieces no larger than a relay message.
+  expect(client.chunks.every((length) => length <= 64 * 1024)).toBe(true);
+  const shown = [first];
+  for (let sequence = 1; sequence <= 7; sequence++) {
+    f.publish("android:Tablet", sequence, 40 + sequence);
+    shown.push(await client.picture());
+  }
+  expect(shown.map((picture) => picture.frame.sequence)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  // Eight pictures unacked fill the window: the next ones wait, each replacing the one before.
+  f.publish("android:Tablet", 8, 48);
+  f.publish("android:Tablet", 9, 49);
+  await client.ack("android:Tablet", first.frame.streamId, 7);
+  const newest = await client.picture();
+  expect(newest.frame.sequence).toBe(9);
+  expect(Buffer.from(newest.frame.bytes)).toEqual(Buffer.alloc(128 * 1024, 49));
+  client.end();
+});
 
 it("a paired phone boots and controls an emulator and reassembles large encrypted device frames", async () => {
   const f = await fixture();

@@ -89,7 +89,7 @@ const delegate = controlTool({
       .max(maxDelegateTasks)
       .describe("One entry per child. Roles must be unique among your live children."),
     waitSeconds: WaitTimeoutSeconds.optional().describe(
-      "Wait up to this many seconds (max 600) for the children before returning, as `wait` does. Omit to return at once.",
+      "Wait up to this many seconds for the children before returning, as `wait` does. Omit to return at once.",
     ),
     waitFor: WaitMode.default("all").describe(
       "With waitSeconds: return when all children settle (default) or when any does.",
@@ -116,7 +116,7 @@ const wait = controlTool({
   riskClass: "read-only",
   capability: null,
   description:
-    "Block until threads settle, up to timeoutSeconds. Returns early with needs_you, naming each request, when a thread waits on the person: tell the person and treat it as unfinished. timeout or interrupted: the threads keep working; call wait again. Use this, never a polling loop.",
+    "Block until threads settle, up to timeoutSeconds. Returns early with needs_you, naming each request, when a thread waits on the person: tell the person and treat it as unfinished. timeout or interrupted: the threads keep working; call wait again, never a polling loop.",
   input: z.strictObject({
     threadIds: z
       .array(ThreadId)
@@ -124,9 +124,7 @@ const wait = controlTool({
       .max(maxWaitThreads)
       .describe("Threads to watch: children from delegate, or any thread you can read."),
     mode: WaitMode.default("all").describe("all (default): every thread settles; any: the first."),
-    timeoutSeconds: WaitTimeoutSeconds.default(120).describe(
-      "Longest wait in seconds, 1 to 600 (default 120).",
-    ),
+    timeoutSeconds: WaitTimeoutSeconds.default(120).describe("Longest wait in seconds."),
   }),
   output: controlResult(WaitResult),
   run: (input, control) => control.run({ op: "wait", ...input }),

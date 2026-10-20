@@ -375,6 +375,7 @@ function interceptDeviceRequests(
       },
       send(message) {
         if (
+          message.type === "devices.ack" ||
           !handle(
             message,
             (next) => {
@@ -503,6 +504,7 @@ test("administrator refusals explain inventory and enable access immediately", a
         queueMicrotask(() => next.ready());
       },
       send(message) {
+        if (message.type === "devices.ack") return;
         events?.message({
           type: "devices.result",
           requestId: message.requestId,

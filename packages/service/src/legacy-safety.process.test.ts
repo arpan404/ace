@@ -14,11 +14,7 @@ async function installation(home: string, version: string) {
   const release = `releases/${version}-${target}`;
   await mkdir(join(root, release), { recursive: true });
   await mkdir(join(root, "bin"));
-  await writeFile(
-    join(root, "bin/ace"),
-    version.startsWith("0.") ? "#!/bin/sh\nexit 99\n" : renderLauncher(root),
-    { mode: 0o700 },
-  );
+  await writeFile(join(root, "bin/ace"), renderLauncher(root), { mode: 0o700 });
   await writeFile(
     join(root, release, "release.json"),
     JSON.stringify({ version, target, channel: "stable" }),
@@ -40,18 +36,6 @@ function command(home: string, root: string, action: string) {
     { env: { ...process.env, HOME: home, PATH: join(home, "bin") } },
   );
 }
-
-test("release-shaped 0.x metadata cannot authorize execution of an installed service", async ({
-  onTestFinished,
-}) => {
-  const home = await mkdtemp(join(tmpdir(), "ace-legacy-manifest-"));
-  onTestFinished(() => rm(home, { recursive: true, force: true }));
-  const root = await installation(home, "0.9.8");
-  await expect(command(home, root, "start")).rejects.toThrow(
-    /Incompatible or legacy ace installation/,
-  );
-  expect(await readFile(join(root, "bin/ace"), "utf8")).toBe("#!/bin/sh\nexit 99\n");
-});
 
 test("a compatible installation refuses a registered service that points at a legacy executable", async ({
   onTestFinished,

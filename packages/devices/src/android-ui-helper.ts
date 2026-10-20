@@ -2,10 +2,13 @@ import { fileURLToPath } from "node:url";
 import type { spawnSupervised, SupervisedProcess } from "@ace/provider-kit/process";
 import { DeviceError } from "./sdk.ts";
 
-/** ace's own dex (source and build script beside it), pushed to the emulator on first use. */
-export const androidUiHelperJar = fileURLToPath(
-  new URL("./android-ui-helper/ace-ui-helper.jar", import.meta.url),
-);
+/**
+ * ace's own dex (source and build script beside it), pushed to the emulator on first use.
+ * Resolved on use, not at import: the daemon's package graph also loads under test environments
+ * whose `import.meta.url` is not a file URL.
+ */
+const androidUiHelperJar = (): string =>
+  fileURLToPath(new URL("./android-ui-helper/ace-ui-helper.jar", import.meta.url));
 const remoteJar = "/data/local/tmp/ace-ui-helper.jar";
 /** The tree is one line of XML; the parser's own budget is 1 MiB. */
 const maxReplyBytes = 2 * 1024 * 1024;
@@ -171,7 +174,7 @@ export class AndroidUiHelpers {
     const start = (async () => {
       this.helpers.delete(id);
       await current?.close();
-      await this.options.install(serial, androidUiHelperJar, remoteJar);
+      await this.options.install(serial, androidUiHelperJar(), remoteJar);
       const helper = new AndroidUiHelper({
         adb,
         serial,

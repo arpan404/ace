@@ -1,4 +1,3 @@
-import type { ScreenFrameHeader } from "@ace/protocol";
 import { CaretLeftIcon } from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -20,6 +19,7 @@ import { needsPermission, PermissionGuide } from "./device-permission.tsx";
 import { noteDeviceUse, takeBootRequest, useScreenOnly } from "./device-prefs.ts";
 import { Problem } from "./device-problem.tsx";
 import { DeviceStage, type Bounds } from "./device-stage.tsx";
+import type { ShownScreen } from "./device-screen.tsx";
 import { DevicesMenu } from "./devices-menu.tsx";
 import { KeyboardField } from "./keyboard-field.tsx";
 import { StreamMeter, streamSummary, type StreamStats } from "./stream-stats.ts";
@@ -36,10 +36,10 @@ function useStreamStats(sameClock: boolean, live: boolean) {
     const timer = setInterval(() => setStats(meter.read(Date.now())), 1000);
     return () => clearInterval(timer);
   }, [meter, live]);
-  const onFrame = (header: ScreenFrameHeader) =>
+  const onFrame = (shown: ShownScreen) =>
     meter.add({
-      codec: header.codec,
-      capturedAt: header.version === 1 ? header.timestamp : header.ts,
+      codec: shown.codec,
+      capturedAt: shown.capturedAt,
       shownAt: Date.now(),
     });
   return { stats: live ? stats : undefined, onFrame };

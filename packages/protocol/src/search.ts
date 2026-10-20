@@ -14,11 +14,13 @@ export const SearchKind = z.enum([
   "artifact",
   "html",
 ]);
+/** Every `ThreadStatus` state: a hit carries its thread's state, whatever it is. */
 export const SearchState = z.enum([
   "new",
   "working",
   "waiting",
   "needs_you",
+  "limited",
   "done",
   "failed",
   "unresponsive",

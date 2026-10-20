@@ -4,6 +4,10 @@ export function appendTextSource(item: Item): TextSource | undefined {
   const part = item.type === "message" ? item.parts.at(-1) : undefined;
   return part?.type === "text" ? part.source : undefined;
 }
+/** Only text items get a stored preview; every other item is paged from its full body. */
+export function hasTextPreview(item: Pick<Item, "type">): boolean {
+  return item.type === "message" || item.type === "reasoning" || item.type === "notice";
+}
 /** Pure preview policy; storage owns assigning sources and writing their bytes. */
 export function textPreview(value: Item): {
   item: Item;

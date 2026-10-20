@@ -6,7 +6,7 @@ import Foundation
 ///
 ///     0  u32  magic "ACES"
 ///     4  u8   version (1)
-///     5  u8   kind (1 JPEG frame, 2 video chunk, 8 download chunk)
+///     5  u8   kind (1 JPEG frame, 2 video chunk, 4 device picture, 8 download chunk)
 ///     6  u16  meta length: the kind's own header at the start of the body
 ///     8  u32  message id, per sender
 ///     12 u32  body length (meta + payload)
@@ -20,7 +20,12 @@ enum StreamWire {
     static let pieceBytes = 64 * 1024
     /// The largest logical message a receiver assembles.
     static let maxBytes = 8 * 1024 * 1024
-    enum Kind { static let frame: UInt8 = 1; static let video: UInt8 = 2; static let download: UInt8 = 8 }
+    enum Kind {
+        static let frame: UInt8 = 1
+        static let video: UInt8 = 2
+        static let deviceFrame: UInt8 = 4
+        static let download: UInt8 = 8
+    }
 
     /// Whether a binary message is a stream piece rather than another binary channel's frame.
     static func isPiece(_ bytes: Data) -> Bool {
@@ -91,6 +96,7 @@ struct ByteReader {
     func u8(_ at: Int) -> UInt8 { data[data.startIndex + at] }
     func u16(_ at: Int) -> UInt16 { UInt16(u8(at)) << 8 | UInt16(u8(at + 1)) }
     func u32(_ at: Int) -> UInt32 { UInt32(u16(at)) << 16 | UInt32(u16(at + 2)) }
+    func f32(_ at: Int) -> Float { Float(bitPattern: u32(at)) }
     func f64(_ at: Int) -> Double {
         var bits: UInt64 = 0
         for index in 0..<8 { bits = bits << 8 | UInt64(u8(at + index)) }

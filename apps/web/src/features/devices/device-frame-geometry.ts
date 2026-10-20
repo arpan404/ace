@@ -1,4 +1,3 @@
-import type { ScreenFrameHeader } from "@ace/protocol";
 import { iphoneCutout, type DeviceKind } from "./device-catalog.ts";
 
 /*
@@ -32,7 +31,11 @@ export interface FrameGeometry {
 }
 
 /** A frame's size in points (input and geometry use points; frames carry pixels). */
-export function framePoints(header: Pick<ScreenFrameHeader, "width" | "height" | "scale">): Size {
+export function framePoints(header: {
+  width: number;
+  height: number;
+  scale?: number | undefined;
+}): Size {
   const scale = header.scale ?? 1;
   return { width: header.width / scale, height: header.height / scale };
 }

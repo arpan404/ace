@@ -29,6 +29,7 @@ import { mirrorDeviceController } from "./screen-controller.ts";
 import { InventoryWatch, sameDevice, type DeviceLog, type Inventory } from "./inventory.ts";
 import { SimAgentState } from "./sim-state.ts";
 import { oneOffFrame } from "./one-off-screenshot.ts";
+import { deviceTouch } from "./touch-support.ts";
 
 /** Expected refusals a person can act on; anything else is a fault worth a warning. */
 const routine = new Set(["lease_required", "permission_denied", "busy", "not_booted"]);
@@ -159,6 +160,7 @@ export class DevicesService {
       recordingNotice: session.recordingNotice,
       recording: session.recording !== undefined,
       streamId: session.streamId,
+      ...(session.capture ? { touch: deviceTouch(session.device, session.capture) } : {}),
       ...session.lease.status(),
       error: session.error,
       activity: session.activity,
@@ -707,7 +709,36 @@ export class DevicesService {
     });
     return session.streamControl;
   }
+  /** The live view's frames, the newest one whenever `sink` is ready for another. */
   async subscribe(id: string, actor: Actor, sink: FrameSink): Promise<() => void> {
+    return this.view(id, actor, (session, check) =>
+      session.hub.subscribe(async (frame) => {
+        check();
+        await sink(frame);
+      }, session.latest),
+    );
+  }
+  /**
+   * Every frame of the live view, in order, as it is captured: for a viewer that paces itself
+   * (the shared media stream's ack window), which must not lose a delta to coalescing.
+   */
+  async subscribeEvery(
+    id: string,
+    actor: Actor,
+    sink: (frame: Frame) => void,
+  ): Promise<() => void> {
+    return this.view(id, actor, (session, check) =>
+      session.hub.subscribeEvery((frame) => {
+        check();
+        sink(frame);
+      }, session.latest),
+    );
+  }
+  private async view(
+    id: string,
+    actor: Actor,
+    attach: (session: DeviceSession, check: () => void) => () => void,
+  ): Promise<() => void> {
     const viewer = this.streamOwners.scope(actor.owner);
     const session = await this.session(id);
     viewer.guard();
@@ -718,13 +749,12 @@ export class DevicesService {
     const preferences = this.streamControlFor(session);
     if (!preferences.has(actor.owner)) await preferences.set(actor.owner, deviceImageStream);
     viewer.guard();
-    const stop = session.hub.subscribe(async (frame) => {
+    const stop = attach(session, () => {
       viewer.guard();
       if (actor.kind === "agent" && session.bindingEpoch !== epoch)
         throw new Error("Device binding changed");
       this.authorize(session, actor);
-      await sink(frame);
-    }, session.latest);
+    });
     const remove = viewer.subscribe(id, () => {
       void preferences
         .remove(actor.owner)

@@ -58,6 +58,10 @@ function directOperation(args: SimAct): unknown {
       return { op: "record.start", deviceId };
     case "record_stop":
       return { op: "record.stop", deviceId };
+    case "clipboard_get":
+      return { op: "clipboard.get", deviceId };
+    case "clipboard_set":
+      return { op: "clipboard.set", deviceId, text: args.text };
   }
 }
 

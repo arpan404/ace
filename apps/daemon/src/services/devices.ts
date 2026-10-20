@@ -135,6 +135,17 @@ export function createDevicesSession(context: SocketContext): SocketService {
               );
             }),
         }),
+        media: {
+          bufferedBytes: () => context.socket.bufferedAmount,
+          write: (piece) =>
+            new Promise<void>((resolve, reject) => {
+              if (!context.connected() || !context.authorize("admin"))
+                return reject(new Error("Device socket revoked"));
+              context.socket.send(piece, { binary: true, compress: false }, (error) =>
+                error ? reject(error) : resolve(),
+              );
+            }),
+        },
       });
     },
     close() {
@@ -142,6 +153,15 @@ export function createDevicesSession(context: SocketContext): SocketService {
       channel?.close();
     },
     handle(message) {
+      if (message.type === "devices.ack") {
+        // Fire and forget: a stale or refused ack only leaves that viewer's window as it was.
+        try {
+          if (context.authorize("admin")) channel?.ack(message);
+        } catch (error) {
+          context.options.log?.(error);
+        }
+        return true;
+      }
       if (message.type !== "devices.request") return false;
       const refuse = (error: import("@ace/protocol").DeviceFailure) =>
         context.send({ type: "devices.result", requestId: message.requestId, ok: false, error });

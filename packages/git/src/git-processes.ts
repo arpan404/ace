@@ -66,7 +66,9 @@ const longLived = (command: string) => command.includes("fsmonitor--daemon");
 
 function run(command: string, args: string[]): Promise<string | undefined> {
   return new Promise((resolve) => {
-    execFile(command, args, { timeout: 5000, maxBuffer: 4_194_304 }, (error, stdout) => {
+    // One output format whatever locale the daemon inherited: lsof escapes non-ASCII as bytes.
+    const env = { ...process.env, LC_ALL: "C" };
+    execFile(command, args, { timeout: 5000, maxBuffer: 4_194_304, env }, (error, stdout) => {
       // lsof exits 1 with no output when nothing matches.
       if (error && !(typeof error.code === "number" && error.code === 1 && stdout === ""))
         resolve(undefined);
@@ -77,30 +79,41 @@ function run(command: string, args: string[]): Promise<string | undefined> {
 
 const escapes: Record<string, string> = { n: "\n", t: "\t", r: "\r", b: "\b", f: "\f", "\\": "\\" };
 /**
- * lsof writes a backslash as `\\` and control bytes as `\n`, `\t`, `\xNN` or `^X`. Decode what
- * is unambiguous. Anything else can't be compared, so the process may be working anywhere.
+ * lsof writes a backslash as `\\` and control bytes as `\n`, `\t`, `\xNN` or `^X`. Without a
+ * UTF-8 locale (a daemon launchd started) it also writes each byte of a non-ASCII name as `\xNN`,
+ * so the bytes are collected and decoded as UTF-8. Anything else can't be compared, so the
+ * process may be working anywhere.
  */
 function lsofName(name: string): string | undefined {
   if (/\^[@A-Z[\\\]^_?]/.test(name)) return;
-  let decoded = "";
-  for (let index = 0; index < name.length; index++) {
-    const character = name[index];
+  const bytes: number[] = [];
+  // By code point, so a character lsof left as it is keeps its whole encoding.
+  const characters = Array.from(name);
+  for (let index = 0; index < characters.length; index++) {
+    const character = characters[index] ?? "";
     if (character !== "\\") {
-      decoded += character;
+      bytes.push(...utf8Bytes.encode(character));
       continue;
     }
-    const next = name[index + 1] ?? "";
-    const hex = /^x([0-9a-fA-F]{2})/.exec(name.slice(index + 1));
+    const next = characters[index + 1] ?? "";
+    const hex = /^x([0-9a-fA-F]{2})/.exec(characters.slice(index + 1, index + 4).join(""));
+    const escaped = escapes[next];
     if (hex?.[1]) {
-      decoded += String.fromCharCode(Number.parseInt(hex[1], 16));
+      bytes.push(Number.parseInt(hex[1], 16));
       index += 3;
-    } else if (escapes[next] !== undefined) {
-      decoded += escapes[next];
+    } else if (escaped !== undefined) {
+      bytes.push(...utf8Bytes.encode(escaped));
       index += 1;
     } else return;
   }
-  return decoded;
+  try {
+    return utf8.decode(Uint8Array.from(bytes));
+  } catch {
+    return;
+  }
 }
+const utf8 = new TextDecoder("utf-8", { fatal: true });
+const utf8Bytes = new TextEncoder();
 
 async function darwin(): Promise<GitProcess[] | undefined> {
   const listing = await run("lsof", ["-nP", "-w", "-a", "-c", "git", "-d", "cwd", "-F", "pn"]);

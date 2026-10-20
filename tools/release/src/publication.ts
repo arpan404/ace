@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { z } from "zod";
-import { verifyManifest, hashFile, installableVersion } from "@ace/service";
+import { verifyManifest, hashFile } from "@ace/service";
 import { ReleaseTarget } from "@ace/protocol";
 import { validateReleaseArchive } from "./archive.ts";
 import { createNpxPackage } from "./npx-package.ts";
@@ -17,7 +17,6 @@ for (const target of ReleaseTarget.options) {
   const bytes = await readFile(join(directory, `${target}.json`));
   const signature = (await readFile(join(directory, `${target}.sig`), "utf8")).trim();
   const m = verifyManifest(bytes, signature, key);
-  installableVersion(m.version);
   if (m.target !== target || (await hashFile(join(directory, m.archive))) !== m.sha256)
     throw new Error("Publication artifact mismatch");
   await validateReleaseArchive(join(directory, m.archive));

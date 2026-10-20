@@ -246,8 +246,10 @@ simulator with its `simId`, for example `"android:Pixel"` or `"ios:UUID"`.
 agent holds it (`lease_required` / `busy`). Read with `sim_ui({simId})`, or pass `role`,
 `name` or `text` to find. `sim_act({simId, action: "ui", ref, uiAction})` acts through
 accessibility; `tap`, `long_press`, `swipe`, `type` and `key` (`home`, `back`, `rotate`,
-`enter`, `power`) are the coordinate and key fallbacks, in target points. `open_app`,
-`open_url`, `install`, `record_start` and `record_stop` cover apps and recordings;
+`enter`, `power`, and Android's `recents`) are the coordinate and key fallbacks, in target
+points. `open_app`, `open_url`, `install`, `record_start` and `record_stop` cover apps and
+recordings; `clipboard_get` reads the clipboard (`{text, truncated}`, at most 4,096
+characters) and `clipboard_set` puts `text` on it without pasting;
 install paths are local to the daemon. `sim_screenshot` and `sim_logs` read, and
 `sim_stop` releases it.
 

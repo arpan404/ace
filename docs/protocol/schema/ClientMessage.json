@@ -1469,6 +1469,9 @@
       "$ref": "https://ace.local/protocol/v1/DeviceClientMessage.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/DeviceAck.json"
+    },
+    {
       "properties": {
         "options": {
           "$ref": "https://ace.local/protocol/v1/BrowserOpen.json"

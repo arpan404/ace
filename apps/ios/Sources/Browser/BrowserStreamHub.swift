@@ -22,6 +22,8 @@ struct BinaryRouter {
         /// Waiting for more pieces, or a kind the live view doesn't draw.
         case none
         case stream(BrowserStreamMessage)
+        /// A simulator's or emulator's picture (kind 4), on the devices channel.
+        case device(DeviceFrameChunk)
         /// Not a stream piece: the SDK's own binary channel reads it.
         case sdk
         /// A malformed piece: the connection is dropped, as the SDK does.
@@ -32,7 +34,9 @@ struct BinaryRouter {
     mutating func route(_ bytes: Data) -> Outcome {
         guard StreamWire.isPiece(bytes) else { return .sdk }
         do {
-            guard let envelope = try assembler.push(bytes), let message = try BrowserStreamMessage.decode(envelope) else { return .none }
+            guard let envelope = try assembler.push(bytes) else { return .none }
+            if envelope.kind == StreamWire.Kind.deviceFrame { return .device(try DeviceFrameChunk.decode(envelope.meta, envelope.payload)) }
+            guard let message = try BrowserStreamMessage.decode(envelope) else { return .none }
             return .stream(message)
         } catch {
             assembler.reset()

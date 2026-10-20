@@ -1,38 +1,87 @@
 import { browserCredential } from "@/boot/remote-credential.ts";
+import { AccessClient } from "@ace/client";
 import {
   DeviceClient,
   type DeviceConnection,
   deviceTransport,
   browserDeviceSocket,
+  ephemeralRelayKeys,
+  failoverTransport,
   type DeviceClientSnapshot,
   type DeviceTransport,
 } from "@ace/client/devices";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { DaemonEndpoint } from "@/boot/connection.tsx";
+import { webStorage } from "@/boot/web-storage.ts";
+import { learnRelay, type RelayRoute } from "./relay-route.ts";
 
 const schedule = (callback: () => void, delayMs: number) => {
   const timer = setTimeout(callback, delayMs);
   return () => clearTimeout(timer);
 };
 
+const loopback = (url: string) =>
+  ["localhost", "127.0.0.1", "[::1]"].includes(new URL(url).hostname);
+
+/** The daemon's HTTP origin for its socket address. */
+const httpOrigin = (url: string) => {
+  const origin = new URL(url);
+  origin.protocol = origin.protocol === "wss:" ? "https:" : "http:";
+  return `${origin.origin}/`;
+};
+
 /**
  * The dedicated, authenticated devices channel for this endpoint: a socket of its own against a
- * real daemon (frames never share the client's socket), the fake daemon's in memory.
+ * real daemon (frames never share the client's socket), the fake daemon's in memory. A paired
+ * daemon elsewhere is tried at its own address first and, when that won't open, through its
+ * end-to-end encrypted relay (`routed` says which one carries it).
  */
-function transportFor(endpoint: DaemonEndpoint): DeviceTransport {
+function transportFor(
+  endpoint: DaemonEndpoint,
+  routed: (route: DeviceConnection) => void,
+): DeviceTransport {
   if (endpoint.kind === "fake") return endpoint.devices();
-  const { url } = endpoint.target;
-  const { deviceId } = endpoint;
-  return deviceTransport({
-    target: { kind: "local", url },
+  const { target, deviceId } = endpoint;
+  const direct = deviceTransport({
+    target: { kind: "local", url: target.url },
     deviceId,
-    credential: browserCredential(endpoint.target),
+    credential: browserCredential(target),
     socket: browserDeviceSocket,
-    keys: () => {
-      throw new Error("Relay targets are not reachable from the web app.");
-    },
+    keys: ephemeralRelayKeys,
     schedule,
   });
+  const token = target.token;
+  if (loopback(target.url) || !target.pairedDeviceId) return direct;
+  const relay = learnRelay(
+    webStorage(() => localStorage),
+    target.url,
+    () =>
+      new AccessClient({
+        origin: httpOrigin(target.url),
+        fetch: (input, init) => fetch(input, init),
+        token: async () => token,
+      }).remoteStatus(),
+  );
+  return failoverTransport(
+    direct,
+    async () => {
+      const route: RelayRoute | undefined = await relay;
+      return (
+        route &&
+        deviceTransport({
+          target: { kind: "relay", url: route.url, pinnedFingerprint: route.fingerprint },
+          expectedHostId: route.hostId,
+          deviceId,
+          // Inside the encrypted channel the paired token itself; tickets need the address.
+          credential: async () => token,
+          socket: browserDeviceSocket,
+          keys: ephemeralRelayKeys,
+          schedule,
+        })
+      );
+    },
+    (route) => routed(route === "fallback" ? "relay" : "remote"),
+  );
 }
 
 /** The client's snapshot, and whether its channel has closed since it was opened. */
@@ -53,6 +102,8 @@ export interface DeviceSession {
 function openSession(endpoint: DaemonEndpoint): DeviceSession {
   const client = new DeviceClient({ id: () => crypto.randomUUID(), schedule });
   const listeners = new Set<() => void>();
+  let connection: DeviceConnection =
+    endpoint.kind === "fake" || loopback(endpoint.target.url) ? "local" : "remote";
   let opening = true;
   let snapshot: DeviceSessionSnapshot = { ...client.getSnapshot(), closed: false };
   const stop = client.watch((next) => {
@@ -60,15 +111,18 @@ function openSession(endpoint: DaemonEndpoint): DeviceSession {
     snapshot = { ...next, closed: !opening && !next.connected };
     for (const listener of listeners) listener();
   });
-  client.connect(transportFor(endpoint));
+  client.connect(
+    transportFor(endpoint, (route) => {
+      connection = route;
+    }),
+  );
   opening = false;
   return {
     client,
-    connection:
-      endpoint.kind === "fake" ||
-      ["localhost", "127.0.0.1", "[::1]"].includes(new URL(endpoint.target.url).hostname)
-        ? "local"
-        : "remote",
+    /** Which way the channel goes: the stream profile is sized for it. */
+    get connection() {
+      return connection;
+    },
     subscribe(listener) {
       listeners.add(listener);
       return () => void listeners.delete(listener);

@@ -8,12 +8,12 @@ import { mkdir, readFile, writeFile, cp, chmod, stat, rm } from "node:fs/promise
 import { join, resolve } from "node:path";
 import { createPublicKey } from "node:crypto";
 import { z } from "zod";
-import { ReleaseTarget } from "@ace/protocol";
-import { hashFile, installableVersion } from "@ace/service";
+import { ReleaseTarget, ReleaseVersion } from "@ace/protocol";
+import { hashFile } from "@ace/service";
 import { nodeVersion, stageNodeRuntime } from "./node-runtime.ts";
 const NativeInputs = z.record(ReleaseTarget, LinuxNativeInput.optional());
 async function main() {
-  const version = installableVersion(process.argv[2]);
+  const version = ReleaseVersion.parse(process.argv[2]);
   if (process.versions.node !== nodeVersion)
     throw new Error(`Release builds require Node ${nodeVersion}; use that runtime on PATH`);
   const target = ReleaseTarget.parse(process.argv[3]);

@@ -1,4 +1,4 @@
-import type { DeviceInput, ScreenFrameHeader } from "@ace/protocol";
+import type { DeviceInput } from "@ace/protocol";
 import type { DeviceRow } from "@ace/ui-core";
 import { useRef, useState, type ReactNode, type Ref } from "react";
 import { cn } from "@/lib/cn.ts";
@@ -7,7 +7,7 @@ import { screenFraction } from "./agent-activity.ts";
 import { deviceKind } from "./device-catalog.ts";
 import { bareGeometry, DeviceFrame } from "./device-frame.tsx";
 import { defaultScreens, frameGeometry, framePoints, type Size } from "./device-frame-geometry.ts";
-import { DeviceScreen } from "./device-screen.tsx";
+import { DeviceScreen, type ShownScreen } from "./device-screen.tsx";
 import type { DeviceSession } from "./device-session.ts";
 import { useElementSize } from "./use-element-size.ts";
 
@@ -63,7 +63,7 @@ export function DeviceStage({
   interactive: boolean;
   bare: boolean;
   onInput(input: DeviceInput): void | Promise<void>;
-  onFrame(header: ScreenFrameHeader): void;
+  onFrame(shown: ShownScreen): void;
   activity: ShownActivity | undefined;
   highlight: Bounds | undefined;
   idle?: ReactNode;

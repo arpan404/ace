@@ -1,5 +1,5 @@
 import { logFields, logError } from "@ace/diagnostics";
-import { randomUUID } from "node:crypto";
+import { timeOrderedIds } from "./time-ordered-id.ts";
 import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { assertTestHomeIsolation } from "@ace/provider-kit/test-isolation";
@@ -164,7 +164,7 @@ export class DaemonHistory {
       historyRuntime: this.options.historyRuntime,
       adapters: this.options.adapters,
       now: this.options.now ?? Date.now,
-      nextId: this.options.nextId ?? randomUUID,
+      nextId: this.options.nextId ?? timeOrderedIds(),
     }).catch((error: unknown) => {
       this.session = undefined;
       throw error;

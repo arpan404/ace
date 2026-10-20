@@ -3,20 +3,38 @@ import CoreVideo
 import Foundation
 import VideoToolbox
 
-/// Hardware H.264 decoding (VideoToolbox) of the daemon's AVC-format chunks: length-prefixed NAL
-/// units, configured from a keyframe's `avcC`. Each chunk decodes synchronously into a pixel
-/// buffer at its coded size (the view's size times the screen's scale, ADR 0088). Confined to
-/// the renderer's queue.
+/// Hardware H.264 decoding (VideoToolbox) of the daemon's chunks: the browser's AVC format
+/// (length-prefixed NAL units, configured from a keyframe's `avcC`), or a device's Annex B
+/// (configured from the parameter sets in front of its keyframe, ADR 0064). Each chunk decodes
+/// synchronously into a pixel buffer at its coded size. Confined to the renderer's queue.
 final class H264Decoder {
     enum DecodeError: Error { case unsupported, format(OSStatus), session(OSStatus), sample(OSStatus), decode(OSStatus), noPicture }
 
     private let format: CMVideoFormatDescription
     private let session: VTDecompressionSession
+    /// The sequence then picture parameter sets this decoder was configured with: a keyframe
+    /// carrying others (a new capture size or rotation) needs a new decoder.
+    let parameterSets: [Data]
 
-    init(config: VideoDecoderConfig) throws {
+    /// A browser video decoder, configured from a keyframe's `avcC`.
+    convenience init(config: VideoDecoderConfig) throws {
         guard config.codec.hasPrefix("avc1"), let record = config.description,
               let avc = try? AVCDescription(record) else { throw DecodeError.unsupported }
-        let sets = (avc.sequenceParameterSets + avc.pictureParameterSets).map { [UInt8]($0) }
+        try self.init(sequenceParameterSets: avc.sequenceParameterSets, pictureParameterSets: avc.pictureParameterSets,
+                      nalLengthSize: avc.nalLengthSize)
+    }
+
+    /// A device picture decoder, configured from the parameter sets in front of an Annex B
+    /// keyframe; its pictures then go through `decode(annexB:)`.
+    convenience init(annexBKeyframe keyframe: Data) throws {
+        guard let sets = AnnexB.parameterSets(keyframe) else { throw DecodeError.unsupported }
+        try self.init(sequenceParameterSets: sets.sequence, pictureParameterSets: sets.picture, nalLengthSize: 4)
+    }
+
+    init(sequenceParameterSets: [Data], pictureParameterSets: [Data], nalLengthSize: Int) throws {
+        guard !sequenceParameterSets.isEmpty, !pictureParameterSets.isEmpty else { throw DecodeError.unsupported }
+        parameterSets = sequenceParameterSets + pictureParameterSets
+        let sets = parameterSets.map { [UInt8]($0) }
         let buffers = sets.map { bytes -> UnsafeMutablePointer<UInt8> in
             let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bytes.count)
             buffer.initialize(from: bytes, count: bytes.count)
@@ -27,7 +45,7 @@ final class H264Decoder {
         let made = CMVideoFormatDescriptionCreateFromH264ParameterSets(
             allocator: kCFAllocatorDefault, parameterSetCount: sets.count,
             parameterSetPointers: buffers.map { UnsafePointer($0) }, parameterSetSizes: sets.map(\.count),
-            nalUnitHeaderLength: Int32(avc.nalLengthSize), formatDescriptionOut: &described)
+            nalUnitHeaderLength: Int32(nalLengthSize), formatDescriptionOut: &described)
         guard made == noErr, let described else { throw DecodeError.format(made) }
         format = described
         let attributes: [CFString: Any] = [
@@ -42,6 +60,9 @@ final class H264Decoder {
         session = created
     }
     deinit { VTDecompressionSessionInvalidate(session) }
+
+    /// One Annex B access unit's picture (a device's H.264); its parameter sets are skipped.
+    func decode(annexB bytes: Data) throws -> CVPixelBuffer { try decode(AnnexB.lengthPrefixed(bytes)) }
 
     /// One chunk's picture. Throws on a decode error; the renderer then asks for a keyframe.
     func decode(_ bytes: Data) throws -> CVPixelBuffer {

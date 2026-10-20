@@ -4,6 +4,8 @@ export type Frame = {
   header: ScreenLegacyFrameHeader & {
     scale?: number | undefined;
     dirtyRects?: { x: number; y: number; w: number; h: number }[];
+    /** Degrees clockwise a viewer turns the picture to show it upright. */
+    rotation?: 0 | 90 | 180 | 270;
   };
   payload: Buffer;
   packet: Buffer;

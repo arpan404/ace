@@ -103,6 +103,31 @@ it("ace sim drives a simulator with the same results, refs and leases as the sim
     expect(h.platform.effects).toHaveLength(2);
   }));
 
+it("ace sim reads and sets the clipboard and presses recents exactly as sim_act does", () =>
+  scenario(async (h) => {
+    const android = "android:Pixel_Fake";
+    await h.sim("start", ios);
+    const set = await h.sim("act", ios, "clipboard_set", "from the shell 👋");
+    expect(set.code, set.stderr).toBe(0);
+    const read = await h.sim("act", ios, "clipboard_get");
+    expect(read.json).toEqual({ text: "from the shell 👋", truncated: false });
+    expect(read.json).toEqual(await h.mcp("sim_act", { simId: ios, action: "clipboard_get" }));
+
+    await h.sim("start", android);
+    expect((await h.sim("act", android, "key", "recents")).code).toBe(0);
+    const refused = await h.sim("act", ios, "key", "recents");
+    expect(refused.json).toEqual({
+      ok: false,
+      ...z
+        .record(z.string(), z.unknown())
+        .parse(await h.mcp("sim_act", { simId: ios, action: "key", key: "recents" })),
+    });
+    expect(h.platform.effects).toEqual([
+      `${ios} clipboard "from the shell 👋"`,
+      `${android} input {"kind":"key","key":"recents"}`,
+    ]);
+  }));
+
 it("ace sim screenshot writes a JPEG even when no live view runs", () =>
   scenario(async (h) => {
     await h.sim("start", ios);

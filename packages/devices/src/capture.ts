@@ -11,6 +11,7 @@ import type { DevicePlatform } from "./platform.ts";
 import type { Capture, DeviceRuntime } from "./runtime.ts";
 import { permissionDenied } from "./screen-failure.ts";
 import type { CaptureUI } from "./simulator-ui.ts";
+import type { DeviceClipboard } from "./clipboard.ts";
 import { pinnedServeSim, serveSimStatus } from "./serve-sim-version.ts";
 
 export interface DeviceCapture extends Capture {
@@ -24,6 +25,8 @@ export interface DeviceCapture extends Capture {
   readonly multiTouch?: boolean;
   /** Accessibility served by the capture's own transport rather than the screen helper. */
   ui?: CaptureUI;
+  /** The device clipboard over the capture's own control channel. */
+  clipboard?: DeviceClipboard;
 }
 export async function startCapture(options: {
   device: Device;

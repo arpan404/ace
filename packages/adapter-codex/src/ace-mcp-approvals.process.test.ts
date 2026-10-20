@@ -46,14 +46,14 @@ test.each([
 test("a destructive ace tool asks once when the person allows it for the thread", async () => {
   const h = await scripted();
   try {
-    const done = await turn(h, "call thread_merge 5");
+    const done = await turn(h, "call automation_remove 5");
     const first = await h.wait(() => approvals(h).some((i) => i.state === "pending"));
     expect(first).toBeTruthy();
     const [asked] = approvals(h);
     expect(asked?.request).toMatchObject({
       kind: "approval",
       mcpServer: { name: "ace" },
-      target: { tool: "thread_merge" },
+      target: { tool: "automation_remove" },
       options: expect.arrayContaining([
         expect.objectContaining({ kind: "allow_session", label: "Allow for this thread" }),
       ]),
@@ -65,7 +65,7 @@ test("a destructive ace tool asks once when the person allows it for the thread"
     await done();
     expect(approvals(h)).toHaveLength(1);
     expect(
-      calls(h, "thread_merge").filter(
+      calls(h, "automation_remove").filter(
         (item) => item.type === "tool_call" && item.call.status === "succeeded",
       ),
     ).toHaveLength(5);
@@ -77,7 +77,7 @@ test("a destructive ace tool asks once when the person allows it for the thread"
 test("allowing a destructive ace tool once asks again on its next call", async () => {
   const h = await scripted();
   try {
-    const done = await turn(h, "call thread_merge 2");
+    const done = await turn(h, "call automation_remove 2");
     for (const round of [1, 2]) {
       await h.wait(
         () =>

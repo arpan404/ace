@@ -10,6 +10,7 @@ import { bindListener, closeListener } from "./listener.ts";
 import { startRelayTransport } from "./services/transports.ts";
 import type { ServerOptions } from "./server-options.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
+import { relayRoute } from "./relay-route.ts";
 
 import { remotePlan, type RemotePreferences as Preferences } from "./remote-policy.ts";
 const keys = ["remote.enabled", "remote.transport", "remote.relayUrl"] as const;
@@ -156,6 +157,7 @@ export function remoteRuntime(
       transport: relay ? ("relay" as const) : directTransport,
       listenOverride: options.remoteConfig?.listenOverride ? options.remoteConfig.listen : null,
       relayOverride: options.remoteConfig?.relayUrl !== undefined,
+      ...(relay ? relayRoute(options.relay, options.hostId) : {}),
     }),
     async start() {
       if (!options.remoteConfig) return;

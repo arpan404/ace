@@ -1,4 +1,5 @@
 import { shutdownDeadline } from "./shutdown.ts";
+import { relayRoute } from "./relay-route.ts";
 import { startTransports, startLocalTransports } from "./services/transports.ts";
 import { createSocketRegistry, parseSocketMessage } from "./services/registry.ts";
 import type { SocketMessage } from "./services/socket.ts";
@@ -92,6 +93,7 @@ export async function startServer(options: ServerOptions): Promise<{
         transport: options.relay ? "relay" : remoteOrigin ? "lan" : "local",
         listenOverride: null,
         relayOverride: false,
+        ...relayRoute(options.relay, options.hostId),
       },
     allowedOrigins: webOriginAllowlist(options.webOrigins),
     ...(options.pairingAddress ? { sourceAddress: options.pairingAddress } : {}),
