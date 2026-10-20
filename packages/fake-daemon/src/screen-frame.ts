@@ -1,8 +1,11 @@
 import { encodePicture, streamKinds, type PictureKind } from "@ace/browser/stream";
 import { deviceScreens } from "./device-screens.ts";
+import { deviceVideoCodec, deviceVideoScreens } from "./device-video.ts";
 
-function fixture(screen: keyof typeof deviceScreens): Uint8Array {
-  const binary = atob(deviceScreens[screen]);
+type Screen = keyof typeof deviceScreens;
+
+function fixture(screen: Screen, codec: "jpeg" | "h264" = "jpeg"): Uint8Array {
+  const binary = atob(codec === "h264" ? deviceVideoScreens[screen] : deviceScreens[screen]);
   const payload = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index++) payload[index] = binary.charCodeAt(index);
   return payload;
@@ -10,13 +13,14 @@ function fixture(screen: keyof typeof deviceScreens): Uint8Array {
 
 /** A fixture picture's size and bytes, as a viewer or a screenshot gets them. */
 export const fakePictureSize = { width: 390, height: 844 } as const;
-export function fakePictureBytes(screen: keyof typeof deviceScreens = "home"): Uint8Array {
+export function fakePictureBytes(screen: Screen = "home"): Uint8Array {
   return fixture(screen);
 }
 
 /**
  * A bounded fixture picture as stream pieces, for fake device (`deviceFrame`, named by the device
- * id) and computer-use (`screenFrame`, named by the session id) live views.
+ * id) and computer-use (`screenFrame`, named by the session id) live views. H.264 carries a real
+ * IDR of the same screen, which a browser's decoder shows.
  */
 export function fakePicture(options: {
   kind: PictureKind;
@@ -24,7 +28,7 @@ export function fakePicture(options: {
   streamId: string;
   sequence: number;
   timestamp: number;
-  screen?: keyof typeof deviceScreens;
+  screen?: Screen;
   codec?: "jpeg" | "h264";
   keyframe?: boolean;
   /** A screenshot: outside the paced live view. */
@@ -42,12 +46,12 @@ export function fakePicture(options: {
       ...fakePictureSize,
       scale: 1,
       rotation: 0,
-      codec: codec === "h264" ? "avc1.42E01F" : "jpeg",
+      codec: codec === "h264" ? deviceVideoCodec : "jpeg",
       key: codec === "jpeg" || options.keyframe === true,
       streamId: options.streamId,
       ...(options.still ? { still: true as const } : {}),
     },
-    fixture(options.screen ?? "home"),
+    fixture(options.screen ?? "home", codec),
   );
 }
 
@@ -57,7 +61,7 @@ export function fakeDeviceFrame(options: {
   sessionId: string;
   sequence: number;
   timestamp: number;
-  screen?: keyof typeof deviceScreens;
+  screen?: Screen;
   codec?: "jpeg" | "h264";
   keyframe?: boolean;
   still?: boolean;

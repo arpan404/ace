@@ -1,5 +1,4 @@
 import { deviceImageStream, sameDeviceStream } from "./stream-control.ts";
-import { H264AccessUnits } from "./h264.ts";
 import { framePacket, type Frame } from "@ace/screen";
 import type { ScreenStreamSettings } from "@ace/protocol";
 import type { AppDevice as Device } from "@ace/protocol/devices";
@@ -12,9 +11,10 @@ import type { DeviceRuntime } from "./runtime.ts";
 import type { DeviceCapture } from "./capture.ts";
 
 /**
- * The fallback Android view: `adb exec-out screenrecord` H.264 decoded to JPEG by ffmpeg. Used
- * when the scrcpy server cannot start. It restarts at screenrecord's time limit and has no frame
- * rate or keyframe control.
+ * The fallback Android capture when the scrcpy server cannot start: `adb exec-out screenrecord`
+ * H.264 decoded to JPEG by ffmpeg, for agents' stills and recordings. It restarts at
+ * screenrecord's time limit and has no frame rate or keyframe control, so it can't carry a live
+ * view: asking it for video fails with `liveViewUnavailable`, which says why scrcpy didn't start.
  */
 export async function screenrecordCapture(
   options: {
@@ -27,6 +27,7 @@ export async function screenrecordCapture(
     publish(frame: Frame): void;
     failure(error: unknown): void;
     signal?: AbortSignal;
+    liveViewUnavailable: DeviceError;
   },
   checkAbort: () => void,
 ): Promise<DeviceCapture> {
@@ -124,20 +125,16 @@ export async function screenrecordCapture(
           "h264",
           "-i",
           "pipe:0",
-          ...(settings?.codec === "h264"
-            ? ["-c:v", "copy", "-bsf:v", "h264_metadata=aud=insert", "-f", "h264"]
-            : [
-                "-vf",
-                `fps=${settings?.fps ?? options.fps},scale='min(${settings?.maxWidth ?? 1920},iw)':'min(${settings?.maxHeight ?? 2160},ih)':force_original_aspect_ratio=decrease,mpdecimate=hi=0:lo=0:frac=0`,
-                "-fps_mode",
-                "vfr",
-                "-c:v",
-                "mjpeg",
-                "-q:v",
-                "5",
-                "-f",
-                "image2pipe",
-              ]),
+          "-vf",
+          `fps=${settings?.fps ?? options.fps},scale='min(${settings?.maxWidth ?? 1920},iw)':'min(${settings?.maxHeight ?? 2160},ih)':force_original_aspect_ratio=decrease,mpdecimate=hi=0:lo=0:frac=0`,
+          "-fps_mode",
+          "vfr",
+          "-c:v",
+          "mjpeg",
+          "-q:v",
+          "5",
+          "-f",
+          "image2pipe",
           "pipe:1",
         ],
         env: options.env,
@@ -169,30 +166,11 @@ export async function screenrecordCapture(
       const packet = framePacket(header, payload);
       options.publish({ header, payload: packet.subarray(packet.length - header.bytes), packet });
     });
-    const video = new H264AccessUnits((payload, keyframe, videoCodec) => {
-      if (stopped || current.intent !== "run" || cycle !== current) return;
-      const header = {
-        version: 1 as const,
-        sessionId: options.streamId,
-        sequence: sequence++,
-        timestamp: runtime.now(),
-        width: size.width,
-        height: size.height,
-        scale: size.width / transport.width,
-        codec: "h264" as const,
-        keyframe,
-        ...(keyframe ? { videoCodec } : {}),
-        bytes: payload.length,
-      };
-      const packet = framePacket(header, payload);
-      options.publish({ header, payload: packet.subarray(packet.length - payload.length), packet });
-    });
     output.stdout.on("data", (chunk: unknown) => {
       if (stopped || current.intent !== "run") return;
       try {
         if (!Buffer.isBuffer(chunk)) throw new Error("Invalid JPEG chunk");
-        if (settings?.codec === "h264") video.push(chunk);
-        else jpeg.push(chunk);
+        jpeg.push(chunk);
       } catch (error) {
         fail(error);
       }
@@ -301,10 +279,9 @@ export async function screenrecordCapture(
       return terminated;
     },
     async configure(next) {
-      // Latest-frame delivery is safe for JPEG; Android H.264 needs a GOP-aware transport.
-      const images = { ...next, codec: "jpeg" as const };
-      if (!sameDeviceStream(settings, images)) {
-        settings = images;
+      if (next.codec === "h264") throw options.liveViewUnavailable;
+      if (!sameDeviceStream(settings, next)) {
+        settings = next;
         await restart();
       }
       return { codec: "jpeg" };

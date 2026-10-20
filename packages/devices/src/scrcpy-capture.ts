@@ -19,7 +19,7 @@ import {
 import { ScrcpyVideoUnits, type VideoUnit } from "./scrcpy-video.ts";
 import { HeldPointers, scrcpyInputPlan } from "./scrcpy-input.ts";
 import { startScrcpyServer, type ScrcpyConnection } from "./scrcpy-server.ts";
-import { ScrcpyJpeg } from "./scrcpy-jpeg.ts";
+import { H264Jpeg } from "./h264-jpeg.ts";
 import { ScrcpyClipboard } from "./scrcpy-clipboard.ts";
 
 /** Control bytes queued in the socket before input is refused rather than delayed. */
@@ -80,7 +80,7 @@ export async function scrcpyCapture(options: {
       : { width: shortEdge, height: longEdge };
   let settings: ScreenStreamSettings = { ...deviceImageStream, codec: "h264", fps: options.fps };
   let link: Link | undefined;
-  let jpeg: ScrcpyJpeg | undefined;
+  let jpeg: H264Jpeg | undefined;
   let stopped = false;
   let terminated = false;
   let sequence = 0;
@@ -249,9 +249,9 @@ export async function scrcpyCapture(options: {
   const setImages = async (images: boolean, fps: number) => {
     if (images && !jpeg) {
       const ffmpeg = await discoverExecutable("ffmpeg", options.env);
-      // Without ffmpeg every viewer gets H.264; still images need a decoder for this device.
+      // Without ffmpeg the capture stays H.264, and agents' stills come from the device instead.
       if (!ffmpeg) return false;
-      jpeg = new ScrcpyJpeg({
+      jpeg = new H264Jpeg({
         ffmpeg,
         fps,
         runtime,

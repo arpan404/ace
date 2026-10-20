@@ -25,13 +25,16 @@ export interface LivePicture {
 export interface PictureRendererPorts<P extends LivePicture> {
   /** WebCodecs, or undefined where there is none (every picture must be JPEG then). */
   decoder: VideoDecoderFactory | undefined;
-  /** A JPEG's bytes as something drawable. */
-  image(bytes: Uint8Array): Promise<PictureImage>;
+  /**
+   * A JPEG's bytes as something drawable. Absent for a view that takes video only (a device's
+   * live view): a JPEG is then acked and never drawn.
+   */
+  image?(bytes: Uint8Array): Promise<PictureImage>;
   /** Show this picture; the image is the renderer's to close after. */
   show(image: PictureImage, picture: P): void;
   /** Tell the daemon the view showed `picture`; `keyframe`: the decoder lost its place. */
   ack(picture: P, keyframe: boolean): void;
-  /** This client can't decode the stream's video: ask for JPEG instead. */
+  /** This client can't decode the stream's video: ask for JPEG instead, or say so (video only). */
   fallback(): void;
   /** The view fell behind or lost pictures: a lighter stream may keep up. */
   pressure(): void;
@@ -132,10 +135,12 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
       const gap = previous >= 0 && picture.sequence !== previous + 1;
       previous = picture.sequence;
       if (picture.codec === "jpeg") {
+        const decode = ports.image;
+        if (!decode) return void ack(picture, false);
         video?.reset();
         let image: PictureImage | undefined;
         try {
-          image = await ports.image(picture.bytes);
+          image = await decode(picture.bytes);
           if (!closed) ports.show(image, picture);
         } catch {
           // An undecodable JPEG is skipped; the next one replaces it.

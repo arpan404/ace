@@ -4,36 +4,45 @@ import type { ScreenStreamSettings } from "@ace/protocol";
 const bucket = (value: number, limit: number) =>
   Math.min(limit, Math.max(64, Math.ceil(value / 64) * 64));
 export type DeviceConnection = "local" | "remote" | "relay";
-/** Panel dimensions are physical pixels. Preserve aspect ratio in the native capture. */
+
+/** A live view is H.264 at this rate on every connection, whatever the pressure. */
+export const deviceFrameRate = 60;
+/** Below this, 60 fps of a phone screen turns to mush; pressure stops lowering here. */
+const minimumBitrate = 1_000_000;
+
+/**
+ * Per connection: the largest picture (a phone screen at its device pixel ratio fits the remote
+ * and relay boxes) and the bit rate a 60 fps stream gets before any pressure.
+ */
+const budgets: Record<DeviceConnection, { width: number; height: number; bitrate: number }> = {
+  local: { width: 3840, height: 3840, bitrate: 12_000_000 },
+  remote: { width: 1440, height: 2880, bitrate: 8_000_000 },
+  relay: { width: 1080, height: 2160, bitrate: 5_000_000 },
+};
+
+/**
+ * The stream a live view asks for. Panel dimensions are physical pixels; the native capture keeps
+ * its aspect ratio inside them. Pressure (0–3, the view falling behind) lowers the bit rate, and
+ * only at its worst shrinks the picture of a remote or relay view. The frame rate never drops.
+ */
 export function deviceStreamProfile(
   panel: { width: number; height: number },
   connection: DeviceConnection,
-  video: boolean,
   pressure = 0,
 ): ScreenStreamSettings {
-  const limits =
-    connection === "local"
-      ? [3840, 3840, 60, 12000000]
-      : connection === "remote"
-        ? [1080, 1440, 30, 2500000]
-        : [720, 1280, 30, 1200000];
-  const factor = 1 / (1 + Math.max(0, Math.min(3, pressure)) * 0.5);
+  const budget = budgets[connection];
+  const level = Math.max(0, Math.min(3, pressure));
+  const shrink = level >= 3 && connection !== "local" ? 0.75 : 1;
   return {
-    codec: video ? "h264" : "jpeg",
-    maxWidth: bucket(
-      Math.min(panel.width, limits[0] ?? 3840) * (connection === "local" ? 1 : factor),
-      limits[0] ?? 3840,
-    ),
-    maxHeight: bucket(
-      Math.min(panel.height, limits[1] ?? 2160) * (connection === "local" ? 1 : factor),
-      limits[1] ?? 2160,
-    ),
-    fps: pressure ? 30 : (limits[2] ?? 30),
-    bitrate: Math.max(128000, Math.round((limits[3] ?? 2500000) * factor * factor)),
+    codec: "h264",
+    maxWidth: bucket(Math.min(panel.width, budget.width) * shrink, budget.width),
+    maxHeight: bucket(Math.min(panel.height, budget.height) * shrink, budget.height),
+    fps: deviceFrameRate,
+    bitrate: Math.max(minimumBitrate, Math.round(budget.bitrate / (1 + level * 0.5))),
   };
 }
 
-/** Whether this client's WebCodecs decodes the H.264 a device live view asks for. */
+/** Whether this client's WebCodecs decodes the H.264 a device live view streams. */
 export async function deviceVideoSupported(): Promise<boolean> {
   if (typeof VideoDecoder === "undefined") return false;
   try {

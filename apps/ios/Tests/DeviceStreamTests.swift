@@ -20,13 +20,23 @@ import Testing
             deviceId: "ios:0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9", streamId: "cap-1", sequence: 7, timestamp: 1500.25,
             width: 1179, height: 2556, scale: 3, rotation: .quarter, codec: "jpeg", key: true,
             bytes: Data([0xff, 0xd8, 0xff, 0xd9])))
+        // Live views are video only: a JPEG that isn't a screenshot is never drawn.
+        #expect(!frame.isLiveVideo && !frame.still)
+    }
+
+    @Test func aScreenshotIsAStillJPEGOutsideTheLiveVideo() throws {
+        var piece = try hex(Self.jpeg)
+        piece[piece.startIndex + 20 + 26] = 2
+        var router = BinaryRouter()
+        guard case .device(let frame) = router.route(piece) else { Issue.record("no device frame"); return }
+        #expect(frame.still && frame.isJPEG && !frame.isLiveVideo)
     }
 
     @Test func anEmulatorH264KeyframeCarriesItsParameterSetsInAnnexB() throws {
         var router = BinaryRouter()
         guard case .device(let frame) = router.route(try hex(Self.keyframe)) else { Issue.record("no device frame"); return }
         #expect(frame.deviceId == "android:emulator-5554" && frame.streamId == "cap-2")
-        #expect(frame.codec == "avc1.42E01F" && frame.key && !frame.isJPEG)
+        #expect(frame.codec == "avc1.42E01F" && frame.key && !frame.isJPEG && frame.isLiveVideo)
         #expect(frame.width == 1080 && frame.height == 2400 && frame.rotation == .threeQuarters)
         // The f32 on the wire reads back as the scale the daemon meant.
         #expect(frame.scale == 2.625)

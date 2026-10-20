@@ -42,7 +42,12 @@ const ax = [
  * A stand-in for serve-sim: a CLI announcing one helper for `udid`, which serves MJPEG, AVCC,
  * `/ax` (a Settings screen with a General row) and the HID socket on one port.
  */
-export async function fakeServeSim(home: string, version: string, udid: string) {
+export async function fakeServeSim(
+  home: string,
+  version: string,
+  udid: string,
+  options: { video?: boolean } = {},
+) {
   const base = `/helper/${udid}`;
   const avcc: ServerResponse[] = [];
   let avccOpened = 0;
@@ -61,7 +66,7 @@ export async function fakeServeSim(home: string, version: string, udid: string) 
       res.write(jpeg);
       return;
     }
-    if (req.url === `${base}/stream.avcc`) {
+    if (req.url === `${base}/stream.avcc` && options.video !== false) {
       avccOpened++;
       res.writeHead(200, { "content-type": "application/octet-stream" });
       avcc.push(res);

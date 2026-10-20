@@ -5,7 +5,7 @@ import { deviceBrowser, openDevice, openDevices } from "@/test/device-browser.ts
 let browser: ReturnType<typeof deviceBrowser>;
 const urls = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
 beforeEach(() => {
-  browser = deviceBrowser("none");
+  browser = deviceBrowser("decodes");
 });
 afterEach(() => {
   browser.restore();

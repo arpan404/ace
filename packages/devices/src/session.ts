@@ -4,6 +4,7 @@ import type { AppDevice as Device, DeviceActivity, DeviceFailure } from "@ace/pr
 import { ControllerLease } from "./lease.ts";
 import { DeviceLogs } from "./logs.ts";
 import type { DeviceCapture } from "./capture.ts";
+import type { RecordingFeed } from "./recording-feed.ts";
 export interface DeviceSession {
   device: Device;
   threadId?: string;
@@ -35,6 +36,8 @@ export interface DeviceSession {
   recordingOpening?: Promise<Recording>;
   recordingClosing?: Promise<RecordingArtifact>;
   recording?: Recording;
+  /** What the recording writes: JPEG frames as they come, or the live H.264 decoded. */
+  recordingFeed?: RecordingFeed;
   completed?: Recording;
   recordingArtifact?: { id: string; bytes: number; mimeType: string };
   recordingStarting: boolean;

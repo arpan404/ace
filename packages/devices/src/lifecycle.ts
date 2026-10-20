@@ -101,7 +101,7 @@ export async function startDevice(
         session.latest = frame;
         firstResolve?.();
         session.hub.publish(frame);
-        if (frame.header.codec === "jpeg") session.recording?.push(frame);
+        session.recordingFeed?.push(frame);
       },
       failure(error) {
         if (session.generation !== generation) return;

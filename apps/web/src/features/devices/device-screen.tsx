@@ -1,19 +1,36 @@
 import {
   coalescedPointerMoves,
+  DeviceClientError,
   deviceVideoSupported,
   deviceStreamProfile,
   type DevicePicture,
 } from "@ace/client/devices";
 import type { DeviceInput } from "@ace/protocol";
 import { deviceGesture, devicePoint, type FrameSize } from "@ace/ui-core";
-import { useEffect, useRef, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { cn } from "@/lib/cn.ts";
 import { webCodecsDecoder } from "@/lib/video/codecs.ts";
 import { TouchGestures, type TouchEffect } from "@/lib/touch-gestures.ts";
 import type { DeviceSession } from "./device-session.ts";
 import { pictureRenderer, type PictureImage } from "@/lib/video/picture-renderer.ts";
-import { drawUpright, jpegImage } from "@/lib/video/picture-canvas.ts";
+import { drawUpright } from "@/lib/video/picture-canvas.ts";
 import { DeviceFingers, pinchPartner } from "./device-fingers.ts";
+import { Problem } from "./device-problem.tsx";
+import type { DeviceProblem } from "./use-devices.ts";
+
+/** Live views are H.264 only: a browser that can't decode it gets this instead of a picture. */
+const noDecoder: DeviceProblem = {
+  message: "This browser can't decode H.264 video",
+  hint: "Live views are video only. Open this device in a browser with WebCodecs H.264, such as current Chrome, Edge or Safari.",
+};
+/**
+ * Why the daemon refused this view's stream, in its own words: its hint names the fix (the
+ * serve-sim install, why scrcpy didn't start), which a generic line per code would lose.
+ */
+function streamProblem(error: unknown): DeviceProblem {
+  if (error instanceof DeviceClientError) return { message: error.message, hint: error.hint };
+  return { message: "The live view couldn't start its video.", hint: "Try again." };
+}
 
 type Touch = "multi" | "pointer" | "gestures";
 
@@ -25,7 +42,6 @@ export interface ShownScreen {
   scale: number;
   /** Degrees clockwise the picture was turned to stand upright (a turned Simulator's). */
   rotation: number;
-  codec: "jpeg" | "h264";
   /** When it was captured, on the daemon's clock. */
   capturedAt: number;
 }
@@ -42,8 +58,9 @@ const partnerId = 1_000_000;
 
 /**
  * The device's live screen on a canvas, with no React render per frame. Pictures come on the
- * shared media stream (H.264 through WebCodecs when it can decode it, JPEG otherwise) and are
- * acked as they show; a landscape picture is turned upright. Unmounting, a reconnect (a new
+ * shared media stream as H.264 at 60 fps, decoded with WebCodecs, and are acked as they show; a
+ * landscape picture is turned upright. A browser without an H.264 decoder, or a device that can't
+ * stream video, shows why instead of a picture. Unmounting, a reconnect (a new
  * session) or a hidden page closes the decoder and its frames. With control, fingers stream
  * live (several at once where the device takes them; Option-drag pinches with a mouse); a
  * device that takes only whole gestures gets a tap, swipe or long press.
@@ -68,6 +85,8 @@ export function DeviceScreen(props: {
     latestFrame.current = props.onFrame;
   }, [props.onInput, props.onFrame]);
   const touch = useRef<Touch>("gestures");
+  /** Why there is no picture: no H.264 decoder here, or the daemon refused the video. */
+  const [unavailable, setUnavailable] = useState<DeviceProblem | undefined>();
   const frame = useRef<FrameSize | undefined>(undefined);
   /** The live touch sequence: its gesture reader, the device's fingers and coalesced moves. */
   const live = useRef<
@@ -106,8 +125,9 @@ export function DeviceScreen(props: {
     const context = element.getContext("2d", { alpha: false });
     if (!context) return;
     let disposed = false,
-      video = false,
       pressure = 0;
+    /** Whether this browser decodes H.264: unknown until WebCodecs answers. */
+    let decodes: boolean | undefined;
     let streaming = false,
       configured = "";
     let lastPressure = 0,
@@ -116,22 +136,31 @@ export function DeviceScreen(props: {
     let resizeTimer: ReturnType<typeof setTimeout> | undefined;
     /** The newest picture a hidden page didn't show: acked when the page shows again. */
     let owed: DevicePicture | undefined;
+    const cannotDecode = () => {
+      decodes = false;
+      setUnavailable(noDecoder);
+    };
     const configure = () => {
-      if (disposed || !streaming) return;
+      if (disposed || !streaming || !decodes) return;
       const parent = element.parentElement?.getBoundingClientRect();
       const ratio = window.devicePixelRatio || 1;
       const settings = deviceStreamProfile(
         { width: (parent?.width ?? 480) * ratio, height: (parent?.height ?? 900) * ratio },
         session.connection ?? "local",
-        video,
         pressure,
       );
       const signature = JSON.stringify(settings);
       if (signature === configured) return;
       configured = signature;
-      void session.client.request({ op: "stream.configure", deviceId, settings }).catch(() => {
-        configured = "";
-      });
+      void session.client.request({ op: "stream.configure", deviceId, settings }).then(
+        () => {
+          if (!disposed && decodes) setUnavailable(undefined);
+        },
+        (error: unknown) => {
+          configured = "";
+          if (!disposed && decodes) setUnavailable(streamProblem(error));
+        },
+      );
     };
     const show = (picture: PictureImage, shown: DevicePicture) => {
       if (disposed) return;
@@ -142,7 +171,6 @@ export function DeviceScreen(props: {
         height,
         scale: shown.scale,
         rotation: shown.rotation,
-        codec: shown.codec === "jpeg" ? "jpeg" : "h264",
         capturedAt: shown.timestamp,
       });
       const previous = frame.current;
@@ -165,16 +193,12 @@ export function DeviceScreen(props: {
         rotation: shown.rotation,
       };
     };
+    // Video only: no JPEG decoder, and a platform that refuses H.264 says so.
     const renderer = pictureRenderer<DevicePicture>({
       decoder: webCodecsDecoder(),
-      image: jpegImage,
       show,
       ack: (picture, keyframe) => session.client.ack(picture, keyframe),
-      fallback: () => {
-        video = false;
-        configured = "";
-        configure();
-      },
+      fallback: cannotDecode,
       pressure: () => {
         const now = performance.now();
         stableSince = now;
@@ -210,8 +234,9 @@ export function DeviceScreen(props: {
       }
     });
     void deviceVideoSupported().then((supported) => {
-      if (disposed) return;
-      video = supported;
+      if (disposed || decodes === false) return;
+      if (!supported) return cannotDecode();
+      decodes = true;
       configured = "";
       configure();
     });
@@ -411,6 +436,11 @@ export function DeviceScreen(props: {
         className="pointer-events-none fixed top-0 left-0 z-50 h-4 w-4 rounded-full border border-white bg-white/20"
         style={{ display: "none" }}
       />
+      {unavailable && (
+        <div className="absolute inset-0 grid place-items-center bg-background p-6 text-center">
+          <Problem problem={unavailable} />
+        </div>
+      )}
     </>
   );
 }
