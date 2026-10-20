@@ -56,6 +56,7 @@ const shown: number[] = [];
 const arrivals: { at: number; bytes: number }[] = [];
 let bytes = 0;
 let keyframes = 0;
+const codecs = new Set<string>();
 let counting = false;
 /** When the link finishes sending what is queued on it. */
 let linkFreeAt = 0;
@@ -77,6 +78,7 @@ const bridge = connectBrowser(service, {
       }
       if (!message || message.kind !== "browser.video") continue;
       const { sequence, key } = message.chunk;
+      if (counting) codecs.add(message.chunk.codec);
       setTimeout(() => {
         if (counting) {
           shown.push(performance.now());
@@ -109,7 +111,8 @@ try {
     requestId: "phone-subscribe",
     binaryFrames: true,
     viewport: pane,
-    video: { codecs: ["avc1.42E033", "vp8"] },
+    // What a current web client offers (apps/web lib/video/codecs.ts), HEVC first.
+    video: { codecs: ["hvc1.1.6.L153.B0", "avc1.640033", "avc1.42E033", "vp8"] },
   });
   await new Promise((resolve) => setTimeout(resolve, 3_000));
   const start = performance.now();
@@ -144,6 +147,7 @@ try {
       min: sorted[0] ?? 0,
       longestGapMs: Math.round(longestGap),
       keyframes,
+      codecs: [...codecs],
       megabitsPerSecond: Number(((bytes * 8) / seconds / 1e6).toFixed(2)),
     }),
   );

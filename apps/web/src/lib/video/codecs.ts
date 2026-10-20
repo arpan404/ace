@@ -8,8 +8,18 @@ type Schedule = (callback: () => void, ms: number) => () => void;
  * WebCodecs.
  */
 
-/** Codecs the daemon may encode, in the order this client prefers them. */
-export const videoCandidates = ["avc1.42E033", "vp09.00.41.08", "vp8"] as const;
+/**
+ * Codecs the daemon may encode, in the order this client prefers them: HEVC first (Apple
+ * hardware encodes it, and it needs roughly half H.264's bits for the same picture), then
+ * H.264 High, then Baseline. A browser lists only those its decoder takes.
+ */
+export const videoCandidates = [
+  "hvc1.1.6.L153.B0",
+  "avc1.640033",
+  "avc1.42E033",
+  "vp09.00.41.08",
+  "vp8",
+] as const;
 
 /** Which candidates this client decodes, best first; empty without WebCodecs. */
 export type VideoSupport = () => Promise<readonly string[]>;
