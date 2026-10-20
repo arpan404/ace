@@ -10,11 +10,17 @@ const text = z.string().min(1).max(4096);
 export const OffshiftEvidenceKind = z.enum(["automated", "source", "ui", "human", "manual"]);
 export const OffshiftPhase = z.enum(["plan", "implement", "verify", "review", "delivery"]);
 export const OffshiftCriterion = z.strictObject({
-  id: key,
-  description: text,
-  requiredKinds: z.array(OffshiftEvidenceKind).min(1).max(5),
+  id: key.describe("A stable id for the criterion (letters, digits, _ . -)."),
+  description: text.describe("The observable behaviour that must hold."),
+  requiredKinds: z
+    .array(OffshiftEvidenceKind)
+    .min(1)
+    .max(5)
+    .describe("Evidence kinds that must each have a current pass."),
 });
-const criteria = z
+export type OffshiftCriterion = z.infer<typeof OffshiftCriterion>;
+/** A run holds at most 64 criteria, each id once. */
+export const OffshiftCriteria = z
   .array(OffshiftCriterion)
   .min(1)
   .max(64)
@@ -25,15 +31,16 @@ const criteria = z
   .meta({ "x-ace-constraint": "Criterion IDs must be unique." });
 export const OffshiftRevision = z.string().min(1).max(512);
 export const OffshiftEvidence = z.strictObject({
-  criterionId: key,
-  kind: OffshiftEvidenceKind,
-  result: z.enum(["pass", "fail"]),
-  revision: OffshiftRevision,
-  action: text,
-  artifact: text,
-  note: text,
+  criterionId: key.describe("The criterion this observation checks."),
+  kind: OffshiftEvidenceKind.describe("Which required kind this observation satisfies."),
+  result: z.enum(["pass", "fail"]).describe("What the check observed."),
+  revision: OffshiftRevision.describe("The revision from get, read before the check ran."),
+  action: text.describe("The command or interaction actually performed."),
+  artifact: text.describe("Where the full output is kept: a path, URL or report reference."),
+  note: text.describe("The observed result and environment, in a sentence or two."),
   recordedAt: Timestamp,
 });
+export const OffshiftEvidenceInput = OffshiftEvidence.omit({ recordedAt: true });
 const mutation = { runId: key, requestId: key, version: z.number().int().nonnegative() };
 export const OffshiftRequest = z.discriminatedUnion("action", [
   z.strictObject({
@@ -42,17 +49,20 @@ export const OffshiftRequest = z.discriminatedUnion("action", [
     requestId: key,
     outcome: text,
     endpoint: text,
-    criteria,
+    criteria: OffshiftCriteria,
   }),
   z.strictObject({ action: z.literal("get"), runId: key }),
   z.strictObject({ action: z.literal("list") }),
   z.strictObject({ action: z.literal("advance"), ...mutation, phase: OffshiftPhase, note: text }),
   z.strictObject({ action: z.literal("block"), ...mutation, note: text }),
   z.strictObject({ action: z.literal("resume"), ...mutation, note: text }),
+  z.strictObject({ action: z.literal("evidence"), ...mutation, evidence: OffshiftEvidenceInput }),
+  /** Adds a criterion, or replaces the one with its id and drops that criterion's evidence. */
   z.strictObject({
-    action: z.literal("evidence"),
+    action: z.literal("revise"),
     ...mutation,
-    evidence: OffshiftEvidence.omit({ recordedAt: true }),
+    criterion: OffshiftCriterion,
+    note: text,
   }),
 ]);
 export type OffshiftRequest = z.infer<typeof OffshiftRequest>;
@@ -61,7 +71,7 @@ export const OffshiftRun = z.object({
   threadId: ThreadId,
   outcome: text,
   endpoint: text,
-  criteria,
+  criteria: OffshiftCriteria,
   phase: OffshiftPhase,
   version: z.number().int().nonnegative(),
   blocker: text.nullable(),
@@ -79,3 +89,14 @@ export const OffshiftView = z.object({
   treeState: z.enum(["working", "waiting", "needs_you", "failed", "done", "unknown"]),
 });
 export type OffshiftView = z.infer<typeof OffshiftView>;
+/** One line of `list`: metadata only, so evidence bodies never multiply the result size. */
+export const OffshiftRunSummary = z.object({
+  id: key,
+  phase: OffshiftPhase,
+  outcome: z.string().max(512),
+  outcomeTruncated: z.boolean(),
+});
+export type OffshiftRunSummary = z.infer<typeof OffshiftRunSummary>;
+/** What `offshift` returns: a run's view, or the caller's run summaries for `list`. */
+export const OffshiftResult = z.union([OffshiftView, z.array(OffshiftRunSummary).max(32)]);
+export type OffshiftResult = z.infer<typeof OffshiftResult>;

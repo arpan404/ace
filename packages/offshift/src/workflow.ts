@@ -1,4 +1,9 @@
-import { OffshiftRun, OffshiftView, type OffshiftRequest } from "@ace/protocol/offshift";
+import {
+  OffshiftRun,
+  OffshiftView,
+  type OffshiftCriterion,
+  type OffshiftRequest,
+} from "@ace/protocol/offshift";
 
 export class OffshiftError extends Error {
   constructor(message: string) {
@@ -71,6 +76,7 @@ export function transition(
   if (request.action === "block") return { ...next, blocker: request.note, note: request.note };
   if (request.action === "resume") return { ...next, blocker: null, note: request.note };
   if (current.blocker) throw new OffshiftError("Resolve the recorded blocker before continuing");
+  if (request.action === "revise") return revise(current, next, request.criterion, request.note);
   if (request.action === "evidence") {
     const evidence = request.evidence;
     const criterion = current.criteria.find((item) => item.id === evidence.criterionId);
@@ -99,4 +105,27 @@ export function transition(
   if (request.phase === "delivery" && view(current, context).pending.length)
     throw new OffshiftError("Delivery requires current passing evidence for every criterion");
   return OffshiftRun.parse({ ...next, phase: request.phase, note: request.note });
+}
+
+/**
+ * A revised criterion is a new requirement: earlier passes checked the old wording, so its
+ * evidence is dropped and must be gathered again.
+ */
+function revise(
+  current: OffshiftRun,
+  next: OffshiftRun,
+  criterion: OffshiftCriterion,
+  note: string,
+): OffshiftRun {
+  const replaces = current.criteria.some((item) => item.id === criterion.id);
+  if (!replaces && current.criteria.length >= 64)
+    throw new OffshiftError("A run holds at most 64 criteria; replace one or start a new run");
+  return OffshiftRun.parse({
+    ...next,
+    criteria: replaces
+      ? current.criteria.map((item) => (item.id === criterion.id ? criterion : item))
+      : [...current.criteria, criterion],
+    evidence: current.evidence.filter((item) => item.criterionId !== criterion.id),
+    note,
+  });
 }

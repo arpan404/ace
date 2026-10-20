@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { z } from "zod";
-import { OffshiftRequest, OffshiftRun } from "@ace/protocol/offshift";
+import { OffshiftPhase, OffshiftRequest, OffshiftRun } from "@ace/protocol/offshift";
 import { OffshiftError, transition, view, type Context } from "./workflow.ts";
 
 const stored = z.object({ body: z.string() });
@@ -37,7 +37,7 @@ export class OffshiftJournal {
           .all(context.threadId)
           .map((row) => {
             const item = z
-              .object({ id: z.string(), outcome: z.string(), phase: z.string() })
+              .object({ id: z.string(), outcome: z.string(), phase: OffshiftPhase })
               .parse(row);
             // Bound encoded bytes too: 32 full Unicode outcomes can exceed the MCP budget.
             const outcome = Array.from(item.outcome).slice(0, 128).join("");
