@@ -195,9 +195,13 @@ export class ChromeBackend implements BrowserBackend {
         resize: (width, height, devicePixelRatio) =>
           tabs.resize(width, height, tabId(), devicePixelRatio),
         captureScale: () => tabs.captureScale(tabId()),
-        // A private context is another browser context: the video extension can't see its tabs.
-        video: () =>
-          isolated || !current ? undefined : this.video(current.instance, request.profileDir),
+        // A private context is another browser context the extension's tab capture can't see:
+        // its tabs' video comes from their screencast, encoded by the same extension.
+        video: () => {
+          if (!current) return undefined;
+          const video = this.video(current.instance, request.profileDir);
+          return isolated ? video.pictures() : video;
+        },
         emulate: (device) => tabs.emulate(device, tabId()),
         zoom: (factor) => tabs.zoom(factor, tabId()),
         clearData: () => clearHeadlessData(cdp(), tabs.origins()),

@@ -120,6 +120,70 @@ export class ChromeVideo implements VideoHost {
       },
     };
   }
+  /**
+   * Video of a tab the extension can't capture (a private browser context, ADR 0088 amended):
+   * the live capture hands the tab's JPEG screencast frames to `pictures.push`, and the same
+   * offscreen document decodes and encodes them. Viewers still get only video. One picture is
+   * in flight to the document; a newer one replaces a waiting one.
+   */
+  async openPictures(
+    _page: BrowserCdp,
+    width: number,
+    height: number,
+    events: CaptureEvents,
+  ): Promise<VideoCaptureHandle> {
+    const { document } = await this.extension();
+    const id = `capture-${++this.ids}`;
+    this.captures.set(id, events);
+    let open = true;
+    let sending = false;
+    let waiting: string | undefined;
+    const send = (data: string) => {
+      sending = true;
+      void evaluate(document, "aceVideo.picture", [id, data])
+        .catch(() => {})
+        .finally(() => {
+          sending = false;
+          const next = waiting;
+          waiting = undefined;
+          if (open && next) send(next);
+        });
+    };
+    try {
+      await evaluate(document, "aceVideo.startPictures", [id]);
+    } catch (error) {
+      this.captures.delete(id);
+      throw error;
+    }
+    const call = (name: string, args: unknown[]) =>
+      void evaluate(document, name, args).catch(() => {});
+    return {
+      encodes: (specs) => call("aceVideo.encodes", [id, specs]),
+      keyframe: (encode) => call("aceVideo.keyframe", [id, encode]),
+      pictures: {
+        width,
+        height,
+        push: (data) => {
+          if (!open) return;
+          if (sending) waiting = data;
+          else send(data);
+        },
+      },
+      close: () => {
+        if (!open) return;
+        open = false;
+        this.captures.delete(id);
+        call("aceVideo.stop", [id]);
+      },
+    };
+  }
+  /** `openPictures` as a video host of its own, for the tabs of a private context. */
+  pictures(): VideoHost {
+    return {
+      supported: (codecs, width, height) => this.supported(codecs, width, height),
+      open: (page, width, height, events) => this.openPictures(page, width, height, events),
+    };
+  }
   private extension(): Promise<{ worker: BrowserCdp; document: BrowserCdp }> {
     this.ready ??= this.load().catch((error: unknown) => {
       this.ready = undefined;

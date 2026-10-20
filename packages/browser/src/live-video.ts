@@ -136,6 +136,15 @@ export class LiveVideo {
   has(id: string): boolean {
     return this.viewers.has(id);
   }
+  /** The screencast size an open capture fed by pictures needs; undefined: none needed. */
+  pictures(): { width: number; height: number } | undefined {
+    const pictures = this.capture?.handle.pictures;
+    return pictures ? { width: pictures.width, height: pictures.height } : undefined;
+  }
+  /** One screencast frame for a capture fed by pictures. */
+  picture(base64: string): void {
+    this.capture?.handle.pictures?.push(base64);
+  }
   acknowledge(id: string, sequence: number): void {
     this.viewers.get(id)?.link.acknowledged(sequence, this.now());
     this.fanout.acknowledge(id, sequence);

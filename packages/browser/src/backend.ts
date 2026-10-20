@@ -43,6 +43,11 @@ export interface VideoCaptureHandle {
   keyframe(encode: string): void;
   /** Encode the tab's sound too (ADR 0088, Audio), or stop; it starts off. */
   audio?(on: boolean): void;
+  /**
+   * Present on a capture fed by the page's own screencast (a tab the encoder can't capture):
+   * the live capture keeps its screencast running at this size and hands every frame here.
+   */
+  pictures?: { width: number; height: number; push(base64: string): void };
   close(): void;
 }
 /** An engine's video encoder (ADR 0088): what a live capture needs to stream a tab as video. */

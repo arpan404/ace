@@ -44,8 +44,12 @@ interface Encoder {
 
 interface Capture {
   id: string;
-  track: MediaStreamTrack;
-  reader: FrameReader;
+  /** A tab capture's track and its frames; absent for a capture fed pushed pictures. */
+  track: MediaStreamTrack | undefined;
+  reader: FrameReader | undefined;
+  /** Pushed pictures: one decodes at a time, and only the newest waiting one is kept. */
+  decoding: boolean;
+  waiting: Uint8Array | undefined;
   last: VideoFrame | undefined;
   lastAt: number;
   encoders: Map<string, Encoder>;
@@ -173,21 +177,28 @@ function encode(entry: Encoder, frame: VideoFrame, key: boolean): void {
 
 const busy = (entry: Encoder) => (entry.encoder?.encodeQueueSize ?? 0) > 2;
 
+/** A new captured frame: each encode takes it as its pacer says. The capture keeps it. */
+function feed(capture: Capture, frame: VideoFrame): void {
+  capture.last?.close();
+  capture.last = frame;
+  capture.lastAt = now();
+  for (const entry of capture.encoders.values()) {
+    const decision = entry.pacer.frame(capture.lastAt, busy(entry));
+    if (decision !== "skip") encode(entry, frame, decision === "key");
+  }
+}
+
 async function pump(capture: Capture): Promise<void> {
+  const reader = capture.reader;
+  if (!reader) return;
   for (;;) {
-    const { done, value } = await capture.reader.read();
+    const { done, value } = await reader.read();
     if (done || !value) break;
     if (capture.stopped) {
       value.close();
       break;
     }
-    capture.last?.close();
-    capture.last = value;
-    capture.lastAt = now();
-    for (const entry of capture.encoders.values()) {
-      const decision = entry.pacer.frame(capture.lastAt, busy(entry));
-      if (decision !== "skip") encode(entry, value, decision === "key");
-    }
+    feed(capture, value);
   }
   if (!capture.stopped) {
     stop(capture.id);
@@ -205,11 +216,35 @@ function stop(id: string): void {
     if (entry.encoder?.state !== "closed") entry.encoder?.close();
   }
   capture.encoders.clear();
-  void capture.reader.cancel().catch(() => {});
-  capture.track.stop();
+  void capture.reader?.cancel().catch(() => {});
+  capture.track?.stop();
+  capture.waiting = undefined;
   capture.audio?.stop();
   capture.last?.close();
   capture.last = undefined;
+}
+
+/** Decodes a pushed-picture capture's newest waiting picture until none waits. */
+async function decodePictures(capture: Capture): Promise<void> {
+  capture.decoding = true;
+  try {
+    for (let bytes = capture.waiting; bytes && !capture.stopped; bytes = capture.waiting) {
+      capture.waiting = undefined;
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/jpeg" })).catch(
+        () => undefined,
+      );
+      if (!bitmap) continue;
+      if (capture.stopped) {
+        bitmap.close();
+        break;
+      }
+      const frame = new VideoFrame(bitmap, { timestamp: Math.round(now() * 1000) });
+      bitmap.close();
+      feed(capture, frame);
+    }
+  } finally {
+    capture.decoding = false;
+  }
 }
 
 // Owed keyframes on a still page, and encoders that stopped answering.
@@ -277,6 +312,8 @@ Object.assign(globalThis, {
         id,
         track,
         reader: new MediaStreamTrackProcessor({ track }).readable.getReader(),
+        decoding: false,
+        waiting: undefined,
         last: undefined,
         lastAt: 0,
         encoders: new Map(),
@@ -291,6 +328,32 @@ Object.assign(globalThis, {
         stop(id);
         emit({ t: "ended", capture: id, reason: String(error) });
       });
+    },
+    /**
+     * Opens capture `id` fed by pushed pictures (a page's JPEG screencast) instead of a tab
+     * capture: for tabs this extension can't capture, such as a private browser context.
+     */
+    startPictures(id: string): void {
+      stop(id);
+      captures.set(id, {
+        id,
+        track: undefined,
+        reader: undefined,
+        decoding: false,
+        waiting: undefined,
+        last: undefined,
+        lastAt: 0,
+        encoders: new Map(),
+        audio: undefined,
+        stopped: false,
+      });
+    },
+    /** One pushed picture (a base64 JPEG) for capture `id`. */
+    picture(id: string, base64: string): void {
+      const capture = captures.get(id);
+      if (!capture || capture.track) return;
+      capture.waiting = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+      if (!capture.decoding) void decodePictures(capture);
     },
     /**
      * The encodes capture `id` runs: new ones start (at a keyframe), missing ones stop, and a

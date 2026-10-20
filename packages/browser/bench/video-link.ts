@@ -14,7 +14,8 @@ import { decodeStreamMessage, StreamAssembler } from "../src/stream.ts";
  * amendment). Skipped where no Chrome is installed.
  *
  * ACE_VIDEO_LINK_SECONDS, ACE_VIDEO_LINK_MBPS, ACE_VIDEO_LINK_RTT_MS and
- * ACE_VIDEO_LINK_JITTER_MS change the run.
+ * ACE_VIDEO_LINK_JITTER_MS change the run; ACE_VIDEO_LINK_PROFILE=ephemeral watches a private
+ * context's tab (video from its screencast).
  */
 
 const seconds = Number(process.env.ACE_VIDEO_LINK_SECONDS ?? 20);
@@ -22,6 +23,7 @@ const megabits = Number(process.env.ACE_VIDEO_LINK_MBPS ?? 25);
 const rttMs = Number(process.env.ACE_VIDEO_LINK_RTT_MS ?? 120);
 const jitterMs = Number(process.env.ACE_VIDEO_LINK_JITTER_MS ?? 30);
 const enforce = process.env.ACE_VIDEO_LINK_REPORT_ONLY !== "1";
+const profile = process.env.ACE_VIDEO_LINK_PROFILE === "ephemeral" ? "ephemeral" : "persistent";
 const pane = { width: 1280, height: 800, devicePixelRatio: 2 };
 const executablePath = await detectChromium();
 if (!executablePath) {
@@ -98,7 +100,7 @@ const bridge = connectBrowser(service, {
 });
 
 try {
-  await service.open({ threadId: "bench", workspaceId: "bench" });
+  await service.open({ threadId: "bench", workspaceId: "bench", profile });
   await service.execute("bench", { action: "navigate", url: `http://127.0.0.1:${address.port}/` });
   await service.execute("bench", { action: "resize", width: pane.width, height: pane.height });
   await bridge.handle({
@@ -134,7 +136,7 @@ try {
   const p10 = sorted[Math.floor(sorted.length / 10)] ?? 0;
   console.log(
     JSON.stringify({
-      path: `${seconds} s scroll over ${megabits} Mbit/s, ${rttMs} ms RTT, ${jitterMs} ms jitter`,
+      path: `${seconds} s scroll (${profile}) over ${megabits} Mbit/s, ${rttMs} ms RTT, ${jitterMs} ms jitter`,
       framesPerSecond: perSecond,
       sentMegabits,
       median,

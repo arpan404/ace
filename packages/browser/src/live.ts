@@ -12,6 +12,8 @@ const Ack = z.object({ sessionId: z.number().int() });
 const lingerMs = 5000;
 /** How often the live video re-plans its encodes and retries chunks a transport refused. */
 const videoTickMs = 50;
+/** The largest screencast a capture fed by pictures takes, on its long side. */
+const picturesLongSide = 1920;
 /**
  * The thread's live view (ADR 0088, amended). Viewers get encoded video only, never JPEG. The
  * JPEG screencast is internal: it feeds recordings and keeps a headless page drawing while an
@@ -91,8 +93,25 @@ export class LiveCapture {
     this.linger.unref();
   }
   private wanted(): boolean {
-    return this.needed() || this.holds > 0;
+    return this.needed() || this.holds > 0 || this.video.pictures() !== undefined;
   }
+  /**
+   * The screencast's settings: larger while it feeds a video capture, up to what Chrome can
+   * JPEG-encode 60 times a second (1920 px on the long side, quality 80).
+   */
+  private screencast() {
+    const pictures = this.video.pictures();
+    if (!pictures) return screencastSettings;
+    const fit = Math.min(1, picturesLongSide / Math.max(pictures.width, pictures.height));
+    return {
+      ...screencastSettings,
+      quality: 80,
+      maxWidth: Math.round(pictures.width * fit),
+      maxHeight: Math.round(pictures.height * fit),
+    };
+  }
+  /** What the running screencast was started for, to restart it when that changes. */
+  private screencastKey = "";
   private holds = 0;
   /**
    * Frames are wanted while `run` works. A headless page nobody watches draws no frames, and
@@ -159,13 +178,41 @@ export class LiveCapture {
   private tickVideo(): void {
     const run = this.attached && !this.closed && this.sinks.size > 0;
     if (run && !this.videoTimer) {
-      this.videoTimer = setInterval(() => this.video.tick(this.viewport()), videoTickMs);
+      this.videoTimer = setInterval(() => this.stepVideo(), videoTickMs);
       this.videoTimer.unref();
     } else if (!run && this.videoTimer) {
-      clearInterval(this.videoTimer);
-      this.videoTimer = undefined;
-      this.video.tick(this.viewport());
+      this.stopVideoClock();
+      this.stepVideo();
     }
+  }
+  /** One video step; a page that went away meanwhile skips it rather than throw in a timer. */
+  private stepVideo(): void {
+    let viewport: { width: number; height: number };
+    try {
+      viewport = this.viewport();
+    } catch {
+      return;
+    }
+    this.video.tick(viewport);
+    // A capture fed by pictures needs the screencast, at its size.
+    const pictures = this.video.pictures();
+    const key = pictures ? `${pictures.width}x${pictures.height}` : "";
+    if (key === this.screencastKey) return;
+    this.screencastKey = key;
+    if (this.streaming) void this.restart().catch(() => {});
+    else this.demand();
+  }
+  /** Starts the screencast again with what it is needed for now. */
+  private async restart(): Promise<void> {
+    const run = this.queue.then(async () => {
+      if (!this.streaming) return;
+      await this.cdp.send("Page.stopScreencast").catch(() => {});
+      this.streaming = false;
+      if (this.wanted()) await this.begin();
+    });
+    this.queue = run.catch(() => {});
+    await run;
+    this.demand();
   }
   private configureVideo(id: string, sink: ViewerSink, capture: CaptureViewer): void {
     if (sink.video && capture.video) {
@@ -184,6 +231,7 @@ export class LiveCapture {
     if (ack.success) void cdp.send("Page.screencastFrameAck", ack.data).catch(() => {});
     const parsed = Screencast.safeParse(raw);
     if (!parsed.success || this.closed || generation !== this.generation) return;
+    this.video.picture(parsed.data.data);
     const timestamp = this.now();
     if (timestamp - this.lastFrame < 1000 / this.settings.fps) return;
     this.lastFrame = timestamp;
@@ -279,7 +327,7 @@ export class LiveCapture {
   private async begin(): Promise<void> {
     if (this.closed) throw new Error("Browser capture closed");
     this.streaming = true;
-    this.settings = screencastSettings;
+    this.settings = this.screencast();
     const generation = this.generation;
     await this.cdp.send("Page.startScreencast", {
       format: "jpeg",
