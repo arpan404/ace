@@ -1,6 +1,6 @@
 # 0090: Native Offshift workflow records
 
-Date: 2026-10-16. Updated 2026-10-20. Status: accepted.
+Date: 2026-10-16. Updated 2026-10-20 (playbooks and steps). Status: accepted.
 
 ## Context
 
@@ -22,8 +22,8 @@ the caller's thread, so a retry after a lost response still applies once, and an
 identical request is never mistaken for a replay.
 
 Agents reach it through one control tool, `offshift`, in its own `offshift` family (ADR 0086). Its
-`action` is one of `start`, `get`, `list`, `advance`, `block`, `resume`, `evidence`, `revise` or
-`roles`.
+`action` is one of `start`, `get`, `list`, `playbooks`, `advance`, `block`, `resume`, `evidence`,
+`revise`, `roles` or `step`.
 The input is one flat object, with each action's required fields checked before anything runs.
 It sits behind the `thread_control` capability, like the other tools that write to the caller's
 own thread. The daemon routes the `offshift` agent-control operation through the agent owners
@@ -105,6 +105,38 @@ authorization; `by` proves which session recorded it, not that the check ran. Th
 no permission mode and grants no publication or deployment authority. Project roles are bounded
 by construction: four roles of three bounded fields.
 
+## Playbooks and steps
+
+Prompt-only procedures tell a model what good work looks like but cannot tell whether it did it.
+Offshift stores the procedure with the run and checks it. A playbook is pure data in
+`@ace/offshift`: an id, a one-line purpose and four to eight steps, each with a stable id, a short
+imperative title, its phase, and optionally the evidence kinds its criteria usually need. The
+built-ins are `fix`, `feature`, `refactor`, `perf`, `investigate`, `ui` and `land`, written for
+this project. They encode the quality bar as steps: a fix is reproduced on the surface where it
+was reported, traced to the first point that went wrong, covered by a test that fails because of
+the defect, changed at the root, and confirmed on the same surface; `investigate` has no implement
+steps and delivers a cited answer; `land` drives an open PR through conflicts, review threads and
+CI. The read-only `playbooks` action returns the catalogue (ids, purposes, steps) so an agent can
+choose without reading code; it needs no run, revision or Git workspace.
+
+`start` takes an optional `playbook` and optional custom `steps` (`{id, title, phase}`). The run
+stores the playbook's steps, then the custom ones, in phase order, each `todo`, `done` or
+`skipped` with an optional note. A run holds at most 24 steps, titles up to 160 characters and
+notes up to 1,024; a reused id or more than 24 steps is refused at start. `step` marks one step
+`done` (note: what was observed, recommended) or `skipped` (note: the reason, required). A step of
+a later phase is refused until the run reaches it, so the phase stays the honest place in the
+procedure. Advancing forward out of a phase is refused while it has `todo` steps, and the hint
+names them. Going back to an earlier phase is always allowed and does not reset done steps: the
+work was observed once, and repair findings belong in criteria and evidence, which already go
+stale when the source changes. A delivered run with a delivery step still to do (the report) is
+`active`, not complete.
+
+`next` folds steps into its order: a blocker; then, from verify on, a check that failed at the
+current revision (a known defect outranks the procedure); the current phase's first step to do;
+other pending evidence (stale, missing, then independent); advancing; and the tree. In plan and
+implement, evidence is not yet expected, so `next` names the step or says to advance. A run with
+steps names its work in them, so a phase without steps of its own just advances.
+
 ## Clients
 
 The person sees the run, not only the agent. Every successful change (start, advance, block,
@@ -113,17 +145,21 @@ as the run write; reads, receipt replays and refused requests append nothing. Th
 bounded `OffshiftRunCard` of that one run as observed at the write: outcome (512 characters,
 with a truncated flag), endpoint, phase, blocker, version, revision, the first 16 criteria with
 each required kind's state (pass, fail, stale, missing or not independent) and who recorded it
-(provider and model, no ids), the first 16 pending kinds with full counts, and the roles in use. Notes, actions and artifacts stay in the record. A card stays under 24 KB at the
-run limits and is usually well under 2 KB.
+(provider and model, no ids), the first 16 pending kinds with full counts, the roles in use, and
+the current phase's steps with their state and, for a skipped step, its reason clipped to 160
+characters. The card carries only the current phase's steps because that is what the person can
+act on now; the run's 24-step limit bounds the list. Notes, actions, artifacts and done-step notes
+stay in the record. A card stays under 52 KB at the run limits and is usually well under 2 KB.
 
 Thread views and snapshots keep only the most recently updated run's card, so a snapshot stays
 bounded however many runs a thread starts; the daemon materializes it beside the queue and it
 survives restarts. The card says what the run recorded, but the agent writes it mid-turn, so the
 card alone can never mean done. The Summary tab words it against the whole tree with the fixed
-status words, and shows roles, independent criteria and who checked each kind: Waiting while a blocker is recorded; otherwise the tree's own state (Working,
+status words, and shows the current phase's steps (Done, Skipped with its reason, To do), roles,
+independent criteria and who checked each kind: Waiting while a blocker is recorded; otherwise the tree's own state (Working,
 Approve, Answer, Failed, Waiting) while anything in it works, waits on the person or is held;
 Waiting while a settled tree leaves the run unfinished; Done only for a delivered run with every
-kind current on a settled tree. A done run leaves the Summary. There is no route, palette entry,
+kind current and no delivery step to do on a settled tree. A done run leaves the Summary. There is no route, palette entry,
 composer strip or sidebar change.
 
 ## Verification
@@ -131,11 +167,14 @@ composer strip or sidebar change.
 Behaviour coverage uses real SQLite through the public journal: reopening, concurrent versions,
 request replay with and without a requestId, failed and stale evidence, criterion revision,
 blockers, roles and their project fallback, independent criteria, and live or human-waiting
-trees. `next` is tested across states as a pure function. Daemon coverage calls `offshift` through a real MCP client, checks
+trees. Pure tests cover starting from a playbook or custom steps, refusing to leave a phase with
+steps to do, skipping without a reason, delivery steps holding completion and the card's steps.
+`next` is tested across states as a pure function, including its order around steps. Daemon coverage calls `offshift` through a real MCP client, checks
 authenticated thread isolation and the real Git revision boundary, and covers the non-Git
 `unavailable` answer. A delegated child on another provider records an independent check on its
 parent's run and it counts, while the owner's own pass does not; a thread outside the tree is
-refused; `delegate` with `runRole` starts the child on the run's role or the project default, and
+refused; an agent lists `playbooks`, starts from `fix`, is refused leaving plan until it marks
+both steps, and advances; `delegate` with `runRole` starts the child on the run's role or the project default, and
 task fields win. It also proves that a change publishes the card to subscribers and
 snapshots, that replays and refusals publish nothing, and that the snapshot keeps the card after
 the store reopens. The web Summary is tested against the fake daemon for a blocked run, missing

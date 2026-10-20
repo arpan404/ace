@@ -42,6 +42,15 @@ back to the project default. `delegate` tasks with `runRole` take that role's pr
 effort (task fields win); a role set nowhere is refused. `resolveRole` and `applyRole` hold the
 pure rules; `OffshiftProjectRoles` stores the defaults per workspace, outside transcript purges.
 
+Playbooks are built-in step lists for one kind of work: `fix`, `feature`, `refactor`, `perf`,
+`investigate`, `ui` and `land` (`playbooks.ts`, pure data). `{action: "playbooks"}` returns the
+catalogue. Start with `playbook` and/or `steps: [{id, title, phase}]`; the run keeps them in phase
+order as `todo`, up to 24. Mark one with `{action: "step", runId, version, stepId, state: "done" |
+"skipped", note}`; skipping needs the reason in `note`. Advancing out of a phase is refused while
+it has steps to do; going back keeps done steps. `next` names the current phase's first step to
+do, after a blocker and any check that failed at the current revision. A delivered run with a
+delivery step to do is not complete.
+
 When a requirement changes, `{action: "revise", runId, requestId, version, criterion, note}` adds
 the criterion or replaces the one with its id, and drops that criterion's evidence. A run holds at
 most 64 criteria; revising is refused while it is blocked.
@@ -53,11 +62,11 @@ agent's final tool call, `waiting_on_tree` is expected until the agent itself se
 
 Each successful change also publishes a bounded card of the run (`runCard`) as an
 `offshift.updated` thread event, so the person sees the latest run in the Summary tab, worded
-against the whole tree.
+against the whole tree, with the current phase's steps.
 
 `OffshiftJournal` takes the host's synchronous SQLite transaction port and stores runs and request
 receipts atomically in the daemon database. Records cascade with the owner thread and are purged
-with transcript payloads. It keeps at most 32 runs per thread, 512 changes per run, 64 criteria,
+with transcript payloads. It keeps at most 32 runs per thread, 512 changes per run, 64 criteria, 24 steps,
 five evidence kinds per criterion and 48 KiB per run. Explicit calls snapshot tracked and
 nonignored source with `@ace/git`; the real index is untouched. A workspace Git cannot snapshot
 answers `unavailable` instead of recording evidence without a source.

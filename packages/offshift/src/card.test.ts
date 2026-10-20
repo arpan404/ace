@@ -97,11 +97,21 @@ test("a run at full capacity yields a card of a few KB that keeps counts and cli
     description: long,
     requiredKinds: kinds,
   }));
+  const steps = Array.from({ length: 24 }, (_, index) => ({
+    id: `step-${index}`.padEnd(128, "x"),
+    title: "雪".repeat(160),
+    phase: "verify" as const,
+    state: "skipped" as const,
+    note: "雪".repeat(1024),
+  }));
   const card = runCard(
-    run({ outcome: long, endpoint: long, blocker: long, criteria }),
+    run({ outcome: long, endpoint: long, blocker: long, criteria, steps }),
     "r".repeat(512),
   );
-  expect(Buffer.byteLength(JSON.stringify(card))).toBeLessThan(24 * 1024);
+  // Raised from 24 KB for Offshift steps: 24 steps with clipped skip reasons add up to 27 KB.
+  expect(Buffer.byteLength(JSON.stringify(card))).toBeLessThan(52 * 1024);
+  expect(card.steps).toHaveLength(24);
+  expect(card.steps[0]?.reason?.length).toBe(160);
   expect(card.criteria).toHaveLength(16);
   expect(card.criteriaCount).toBe(64);
   expect(card.pending).toHaveLength(16);

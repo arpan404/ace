@@ -54,8 +54,19 @@
     "phase": {
       "$ref": "https://ace.local/protocol/v1/OffshiftPhase.json"
     },
+    "playbook": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftPlaybookId.json"
+    },
     "roles": {
       "$ref": "https://ace.local/protocol/v1/OffshiftRoles.json"
+    },
+    "steps": {
+      "default": [],
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/OffshiftStep.json"
+      },
+      "maxItems": 24,
+      "type": "array"
     },
     "threadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"

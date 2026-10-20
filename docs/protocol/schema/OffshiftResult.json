@@ -14,6 +14,9 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/OffshiftProjectRoles.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/OffshiftPlaybooks.json"
     }
   ]
 }

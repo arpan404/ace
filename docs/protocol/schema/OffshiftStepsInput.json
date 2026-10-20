@@ -1,0 +1,11 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftStepsInput.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "$ref": "https://ace.local/protocol/v1/OffshiftStepInput.json"
+  },
+  "maxItems": 24,
+  "minItems": 1,
+  "type": "array",
+  "x-ace-constraint": "Step IDs must be unique."
+}

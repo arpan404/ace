@@ -319,6 +319,18 @@
                   ],
                   "type": "string"
                 },
+                "playbook": {
+                  "enum": [
+                    "fix",
+                    "feature",
+                    "refactor",
+                    "perf",
+                    "investigate",
+                    "ui",
+                    "land"
+                  ],
+                  "type": "string"
+                },
                 "roles": {
                   "additionalProperties": false,
                   "properties": {
@@ -441,6 +453,60 @@
                   },
                   "type": "object"
                 },
+                "steps": {
+                  "default": [],
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "id": {
+                        "description": "A stable id for the step (letters, digits, _ . -).",
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[a-zA-Z0-9_.-]+$",
+                        "type": "string"
+                      },
+                      "note": {
+                        "maxLength": 1024,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "phase": {
+                        "description": "The phase the step belongs to.",
+                        "enum": [
+                          "plan",
+                          "implement",
+                          "verify",
+                          "review",
+                          "delivery"
+                        ],
+                        "type": "string"
+                      },
+                      "state": {
+                        "enum": [
+                          "todo",
+                          "done",
+                          "skipped"
+                        ],
+                        "type": "string"
+                      },
+                      "title": {
+                        "description": "What to do, as a short imperative.",
+                        "maxLength": 160,
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "title",
+                      "phase",
+                      "state"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 24,
+                  "type": "array"
+                },
                 "threadId": {
                   "minLength": 1,
                   "type": "string"
@@ -464,6 +530,7 @@
                 "criteria",
                 "owner",
                 "roles",
+                "steps",
                 "phase",
                 "version",
                 "blocker",
@@ -678,6 +745,102 @@
           "required": [
             "scope",
             "roles"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "playbooks": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "enum": [
+                      "fix",
+                      "feature",
+                      "refactor",
+                      "perf",
+                      "investigate",
+                      "ui",
+                      "land"
+                    ],
+                    "type": "string"
+                  },
+                  "purpose": {
+                    "maxLength": 160,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "steps": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "description": "A stable id for the step (letters, digits, _ . -).",
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "pattern": "^[a-zA-Z0-9_.-]+$",
+                          "type": "string"
+                        },
+                        "kinds": {
+                          "items": {
+                            "enum": [
+                              "automated",
+                              "source",
+                              "ui",
+                              "human",
+                              "manual"
+                            ],
+                            "type": "string"
+                          },
+                          "maxItems": 5,
+                          "minItems": 1,
+                          "type": "array"
+                        },
+                        "phase": {
+                          "description": "The phase the step belongs to.",
+                          "enum": [
+                            "plan",
+                            "implement",
+                            "verify",
+                            "review",
+                            "delivery"
+                          ],
+                          "type": "string"
+                        },
+                        "title": {
+                          "description": "What to do, as a short imperative.",
+                          "maxLength": 160,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title",
+                        "phase"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 8,
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "id",
+                  "purpose",
+                  "steps"
+                ],
+                "type": "object"
+              },
+              "maxItems": 16,
+              "type": "array"
+            }
+          },
+          "required": [
+            "playbooks"
           ],
           "type": "object"
         }

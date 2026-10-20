@@ -4,17 +4,19 @@
   "additionalProperties": false,
   "properties": {
     "action": {
-      "description": "start: open a run with its outcome, endpoint, criteria and optional roles. get: the run, revision, pending evidence and next. list: this thread's runs. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record one check's result. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked. roles: replace the run's roles (runId, version), or the project default with scope project.",
+      "description": "start: open a run with its outcome, endpoint, criteria, and optional playbook, steps and roles. get: the run, revision, pending evidence and next. list: this thread's runs. playbooks: the built-in playbooks and their steps. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record one check's result. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked. roles: replace the run's roles (runId, version), or the project default with scope project. step: mark stepId done or skipped (note: what you saw, or why).",
       "enum": [
         "start",
         "get",
         "list",
+        "playbooks",
         "advance",
         "block",
         "resume",
         "evidence",
         "revise",
-        "roles"
+        "roles",
+        "step"
       ],
       "type": "string"
     },
@@ -37,7 +39,7 @@
       "description": "evidence: one check, at the revision get returned before it ran."
     },
     "note": {
-      "description": "advance, block, resume and revise: why, in a sentence.",
+      "description": "advance, block, resume, revise and step: why, in a sentence. Required to skip.",
       "maxLength": 4096,
       "minLength": 1,
       "type": "string"
@@ -51,6 +53,10 @@
     "phase": {
       "$ref": "https://ace.local/protocol/v1/OffshiftPhase.json",
       "description": "advance: plan, implement, verify, review, then delivery."
+    },
+    "playbook": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftPlaybookId.json",
+      "description": "start: a built-in playbook's steps."
     },
     "requestId": {
       "description": "Optional on changes; omitted, an identical retry still applies once.",
@@ -82,6 +88,25 @@
       ],
       "type": "string"
     },
+    "state": {
+      "description": "step: done or skipped.",
+      "enum": [
+        "done",
+        "skipped"
+      ],
+      "type": "string"
+    },
+    "stepId": {
+      "description": "step: the step to mark.",
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "steps": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftStepsInput.json",
+      "description": "start: your own steps ({id, title, phase}), after the playbook's; up to 24 in all."
+    },
     "version": {
       "description": "Every change after start: the version the last result returned. A mismatch means the run changed; get it again.",
       "maximum": 9007199254740991,
@@ -93,5 +118,5 @@
     "action"
   ],
   "type": "object",
-  "x-ace-constraint": "start needs runId, outcome, endpoint and criteria; get needs runId; advance needs runId, version, phase and note; block and resume need runId, version and note; evidence needs runId, version and evidence; revise needs runId, version, criterion and note; roles needs roles, plus runId and version unless scope is project."
+  "x-ace-constraint": "start needs runId, outcome, endpoint and criteria; get needs runId; advance needs runId, version, phase and note; block and resume need runId, version and note; evidence needs runId, version and evidence; revise needs runId, version, criterion and note; step needs runId, version, stepId and state; roles needs roles, plus runId and version unless scope is project."
 }

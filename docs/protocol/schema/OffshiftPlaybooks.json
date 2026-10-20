@@ -1,0 +1,17 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftPlaybooks.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "playbooks": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/OffshiftPlaybook.json"
+      },
+      "maxItems": 16,
+      "type": "array"
+    }
+  },
+  "required": [
+    "playbooks"
+  ],
+  "type": "object"
+}

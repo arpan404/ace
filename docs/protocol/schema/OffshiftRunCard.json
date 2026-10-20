@@ -94,6 +94,39 @@
       "maxItems": 4,
       "type": "array"
     },
+    "steps": {
+      "default": [],
+      "items": {
+        "properties": {
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_.-]+$",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 160,
+            "type": "string"
+          },
+          "state": {
+            "$ref": "https://ace.local/protocol/v1/OffshiftStepState.json"
+          },
+          "title": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "state"
+        ],
+        "type": "object"
+      },
+      "maxItems": 24,
+      "type": "array"
+    },
     "updatedAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
