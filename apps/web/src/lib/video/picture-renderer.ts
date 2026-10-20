@@ -38,6 +38,13 @@ export interface PictureRendererPorts<P extends LivePicture> {
   fallback(): void;
   /** The view fell behind or lost pictures: a lighter stream may keep up. */
   pressure(): void;
+  /**
+   * Runs `draw` at the display's next refresh (`requestAnimationFrame`); the result cancels it.
+   * Given, decoded video is acked at once and only the newest picture is drawn at each refresh,
+   * so a burst after a stall jumps to the present instead of replaying it. Absent, each picture
+   * is drawn as it decodes.
+   */
+  nextFrame?(draw: () => void): () => void;
 }
 
 /** Decoder errors in a row without a picture before the codec counts as unsupported here. */
@@ -46,9 +53,9 @@ const failureLimit = 3;
 /**
  * A source's live pictures onto its view (devices and computer use; ADR 0011 "One media
  * pipeline", ADR 0064 "Shared media stream"): JPEGs drawn as they come, H.264 through the same
- * `VideoStream` the browser's live view decodes with. Every picture is acked once shown, or at
- * once when it can't be shown, so the daemon's window never waits on a picture this view
- * dropped. A delta after a gap waits for a keyframe, which is asked for through the ack.
+ * `VideoStream` the browser's live view decodes with. Every picture is acked once shown (once
+ * decoded, when drawing is paced to the display), or at once when it can't be shown, so the
+ * daemon's window never waits on a picture this view dropped. A delta after a gap waits for a keyframe, which is asked for through the ack.
  */
 export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPorts<P>) {
   const ack = (picture: P, keyframe: boolean) => ports.ack(picture, keyframe);
@@ -65,6 +72,26 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
   /** The platform said it can't decode this stream at all: no point asking for a keyframe. */
   let refused = false;
   let closed = false;
+  /** The newest decoded picture waiting for the display's next refresh. */
+  let queued: { picture: DecodedPicture; shown: P } | undefined;
+  let cancelFrame: (() => void) | undefined;
+  const dropQueued = () => {
+    cancelFrame?.();
+    cancelFrame = undefined;
+    queued?.picture.close();
+    queued = undefined;
+  };
+  const drawQueued = () => {
+    cancelFrame = undefined;
+    const next = queued;
+    queued = undefined;
+    if (!next) return;
+    try {
+      if (!closed) ports.show(asImage(next.picture), next.shown);
+    } finally {
+      next.picture.close();
+    }
+  };
 
   const recover = (picture: P) => {
     needKey = true;
@@ -88,6 +115,15 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
         const shown = latest && { ...latest, sequence: picture.sequence };
         if (closed || !shown) return picture.close();
         failures = 0;
+        const nextFrame = ports.nextFrame;
+        if (nextFrame) {
+          // Newest wins: a picture replaced before the refresh is freed undrawn, but acked.
+          queued?.picture.close();
+          queued = { picture, shown };
+          cancelFrame ??= nextFrame(drawQueued);
+          ack(shown, false);
+          return;
+        }
         try {
           ports.show(asImage(picture), shown);
         } finally {
@@ -115,6 +151,7 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
     ports.fallback();
   };
   const reset = () => {
+    dropQueued();
     video?.reset();
     previous = -1;
     needKey = true;
@@ -172,6 +209,7 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
     reset,
     close() {
       closed = true;
+      dropQueued();
       video?.close();
       video = undefined;
     },

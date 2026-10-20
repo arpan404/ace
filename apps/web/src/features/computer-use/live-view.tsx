@@ -3,13 +3,14 @@ import { useEffect, useRef } from "react";
 import { cn } from "@/lib/cn.ts";
 import { webCodecsDecoder } from "@/lib/video/codecs.ts";
 import { drawUpright, jpegImage } from "@/lib/video/picture-canvas.ts";
+import { nextFrame } from "@/lib/next-frame.ts";
 import { pictureRenderer } from "@/lib/video/picture-renderer.ts";
 import type { ScreenSession } from "./screen-session.ts";
 
 /**
  * An app window's live picture on a canvas, with no React render per frame. Pictures come on the
  * shared media stream (stream kind `screenFrame`) and draw through the same renderer as a
- * device's: JPEG, or the helper's H.264 through WebCodecs, each acked once shown. Mounting holds
+ * device's: JPEG, or the helper's H.264 through WebCodecs, the newest drawn at each refresh. Mounting holds
  * the session's stream (shared with every other view of it); unmounting (or a new channel) lets
  * it go and closes the decoder. A hidden page holds its newest ack, so the daemon stops sending,
  * and acks it with a keyframe request when the page shows again.
@@ -33,6 +34,7 @@ export function LiveView(props: {
     let owed: SourcePicture | undefined;
     const renderer = pictureRenderer<SourcePicture>({
       decoder: webCodecsDecoder(),
+      nextFrame,
       image: jpegImage,
       show: (image, picture) => {
         if (disposed) return;

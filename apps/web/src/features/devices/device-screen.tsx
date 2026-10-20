@@ -12,6 +12,7 @@ import { cn } from "@/lib/cn.ts";
 import { webCodecsDecoder } from "@/lib/video/codecs.ts";
 import { TouchGestures, type TouchEffect } from "@/lib/touch-gestures.ts";
 import type { DeviceSession } from "./device-session.ts";
+import { nextFrame } from "@/lib/next-frame.ts";
 import { pictureRenderer, type PictureImage } from "@/lib/video/picture-renderer.ts";
 import { drawUpright } from "@/lib/video/picture-canvas.ts";
 import { DeviceFingers, pinchPartner } from "./device-fingers.ts";
@@ -58,7 +59,7 @@ const partnerId = 1_000_000;
 
 /**
  * The device's live screen on a canvas, with no React render per frame. Pictures come on the
- * shared media stream as H.264 at 60 fps, decoded with WebCodecs, and are acked as they show; a
+ * shared media stream as H.264 at 60 fps, decoded with WebCodecs and acked as they decode; the newest is drawn at each refresh, and a
  * landscape picture is turned upright. A browser without an H.264 decoder, or a device that can't
  * stream video, shows why instead of a picture. Unmounting, a reconnect (a new
  * session) or a hidden page closes the decoder and its frames. With control, fingers stream
@@ -196,6 +197,7 @@ export function DeviceScreen(props: {
     // Video only: no JPEG decoder, and a platform that refuses H.264 says so.
     const renderer = pictureRenderer<DevicePicture>({
       decoder: webCodecsDecoder(),
+      nextFrame,
       show,
       ack: (picture, keyframe) => session.client.ack(picture, keyframe),
       fallback: cannotDecode,

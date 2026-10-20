@@ -124,3 +124,45 @@ test("a video-only view acks a JPEG without drawing it and keeps its place in th
   expect(shown).toEqual([1, 3]);
   expect(acks).toEqual([1, 2, 3].map((sequence) => ({ sequence, keyframe: false })));
 });
+
+test("paced to the display, a burst draws only its newest picture at the refresh, acking and freeing the rest", async () => {
+  const shown: number[] = [];
+  const acks: number[] = [];
+  const closed: number[] = [];
+  const refreshes: (() => void)[] = [];
+  const renderer = pictureRenderer<LivePicture>({
+    decoder: (handlers) => ({
+      configure: () => {},
+      decode: (chunk) =>
+        handlers.output({
+          sequence: chunk.sequence,
+          draw: () => {},
+          close: () => closed.push(chunk.sequence),
+        }),
+      close: () => {},
+    }),
+    show: (_image, target) => shown.push(target.sequence),
+    ack: (target) => acks.push(target.sequence),
+    fallback: () => {},
+    pressure: () => {},
+    nextFrame: (draw) => {
+      refreshes.push(draw);
+      return () => {};
+    },
+  });
+  // Pictures held up by a stalled link arrive together, between two refreshes.
+  await renderer.render(picture(1, { key: true }));
+  for (let sequence = 2; sequence <= 5; sequence++) await renderer.render(picture(sequence));
+  // Every decoded picture frees the daemon's window at once; none is drawn before the refresh.
+  expect(acks).toEqual([1, 2, 3, 4, 5]);
+  expect(shown).toEqual([]);
+  expect(closed).toEqual([1, 2, 3, 4]);
+  expect(refreshes).toHaveLength(1);
+  refreshes.shift()?.();
+  expect(shown).toEqual([5]);
+  expect(closed).toEqual([1, 2, 3, 4, 5]);
+  await renderer.render(picture(6));
+  refreshes.shift()?.();
+  expect(shown).toEqual([5, 6]);
+  renderer.close();
+});
