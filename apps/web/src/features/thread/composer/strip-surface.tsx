@@ -15,9 +15,14 @@ import {
  * takes its height at once, however late its parts arrive, so a thread opening on a request
  * never grows the strip (lifting the transcript) after its first paint. Content taller than
  * half the window scrolls inside it. One-line content (the queue, the connection, the plan)
- * sits on dense 12px rows; a request keeps a card's padding.
+ * sits on dense 12px rows; a request keeps a card's padding. Each new `flash` lights its edge
+ * once (a question's line in the transcript brought it up).
  */
-export function StripSurface(props: { slot: string; children: ReactNode }) {
+export function StripSurface(props: {
+  slot: string;
+  children: ReactNode;
+  flash?: number | undefined;
+}) {
   const body = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   // The body follows its content's height through the style alone, so a change of height
@@ -71,6 +76,15 @@ export function StripSurface(props: { slot: string; children: ReactNode }) {
             </div>
           </div>
         </div>
+        {/* A new key replays the fade. */}
+        {props.flash !== undefined && (
+          <span
+            key={props.flash}
+            aria-hidden
+            data-strip-flash=""
+            className="composer-strip-flash"
+          />
+        )}
       </div>
     </div>
   );

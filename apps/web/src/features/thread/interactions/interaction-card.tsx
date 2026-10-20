@@ -21,7 +21,8 @@ import {
   questionTitle,
   requestIdentity,
 } from "@ace/ui-core";
-import { CheckIcon } from "@phosphor-icons/react";
+import { ChatTeardropDotsIcon, CheckIcon } from "@phosphor-icons/react";
+import { Icon } from "@/components/icon.tsx";
 import { ApprovalHeading, ApprovalRequest } from "@/components/approval-request.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -295,8 +296,12 @@ function OpenRequest(props: {
     <article tabIndex={-1} aria-label={title} onKeyDown={onKeyDown} className={props.className}>
       {request.kind !== "approval" && (
         <p className="flex min-h-6 items-center gap-[7px] text-xs text-subtle-foreground">
-          <Dot tone="needs-you" />
-          {props.asker} · {kind}
+          {request.kind === "question" ? (
+            <Icon icon={ChatTeardropDotsIcon} size={14} className="text-status-needs-you" />
+          ) : (
+            <Dot tone="needs-you" />
+          )}
+          {request.kind === "question" ? props.asker : `${props.asker} · ${kind}`}
           <span className="ml-auto flex items-center gap-3">{props.aside}</span>
         </p>
       )}

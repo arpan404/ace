@@ -1,6 +1,6 @@
 import { useClient, useConnectionState, useInteractions, useThreadMeta } from "@ace/client-react";
 import type { QueuedMessage, ThreadStatus } from "@ace/protocol";
-import { Suspense, useEffect, useEffectEvent, useState } from "react";
+import { Suspense, useEffect, useEffectEvent, useRef, useState } from "react";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useClaimConnectionNotice } from "@/features/shell/index.ts";
 import { useShownPlans } from "@/lib/use-plans.ts";
@@ -13,6 +13,7 @@ import { queuedCount } from "./queued.tsx";
 import { useQueuedPending } from "./queued-pending.ts";
 import { OutgoingStrip, useOutgoing } from "./outgoing-strip.tsx";
 import { RequestStack } from "./request-stack.tsx";
+import { onFocusRequest } from "../interactions/request-focus.ts";
 import { descendantKey } from "./descendant-card.tsx";
 import { useDescendantRequest } from "./descendant-request.ts";
 import { ConnectionStrip, PlanStrip, StripIndicators, type StripCounts } from "./strip-items.tsx";
@@ -112,6 +113,20 @@ export function ComposerStrip(props: {
     plan: !!plan,
   };
   const [pick, setPick] = useState<ReturnType<typeof pickStrip>>();
+  // A waiting question's line in the transcript asks for its card: the slot goes back to the
+  // requests, and each ask focuses that card and lights the strip's edge once.
+  const [asked, setAsked] = useState<{ id: string; at: number }>();
+  const asks = useRef(0);
+  useEffect(
+    () =>
+      onFocusRequest(props.threadId, (id) => {
+        setPick(undefined);
+        setAsked({ id, at: ++asks.current });
+      }),
+    [props.threadId],
+  );
+  // Once that request closes the ask is spent: a later card never takes focus for it.
+  if (asked && !own.includes(asked.id)) setAsked(undefined);
   const slot = stripSlot(facts, pick);
   const waitingShown = slot.shown === "waiting";
   const reportWaiting = useEffectEvent((shown: boolean) => props.onWaitingShown?.(shown));
@@ -136,7 +151,7 @@ export function ComposerStrip(props: {
     />
   );
   return (
-    <StripSurface slot={slot.shown}>
+    <StripSurface slot={slot.shown} flash={slot.shown === "request" ? asked?.at : undefined}>
       {slot.shown === "confirm-stop" ? (
         <ConfirmStopStrip subagents={props.confirmStop?.subagents ?? 0} />
       ) : slot.shown === "stopped" ? (
@@ -158,6 +173,7 @@ export function ComposerStrip(props: {
             descendant={descendant}
             queued={queued}
             target={props.requestTarget}
+            focus={asked}
             onLeave={props.onLeave}
             indicators={indicators}
           />

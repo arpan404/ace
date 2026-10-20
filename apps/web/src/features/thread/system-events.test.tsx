@@ -413,13 +413,13 @@ test("the same native request replayed after it was answered reads as answered",
   const feed = await answerThenReplay(
     replayScenario("thread-replay", [opened("ask-2", "asked", recovery)]),
   );
-  // Both lines read as answered: the copy with the first one's answer.
+  // One line for the request, reading as answered: the copy with the first one's answer.
   await waitFor(() => {
     const lines = within(feed).getAllByRole("group", {
       name: "Question: How should the sheet recover after rotate?",
     });
-    expect(lines).toHaveLength(2);
-    for (const line of lines) expect(line.textContent).toContain("Block rotation");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.textContent).toContain("Block rotation");
   });
   // On the deck the copy reads as answered earlier, with no form, and can be answered anew.
   const deck = await screen.findByRole("region", { name: "Waiting for you" });
