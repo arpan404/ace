@@ -19,6 +19,7 @@ import { reportedOrTable } from "@ace/provider-kit/access-modes";
 import type { AdapterRegistry } from "./registry.ts";
 import { z } from "zod";
 import { unavailableNativeHistory } from "./resume-open-error.ts";
+import { settleSessionBoundTasks } from "./session-bound-tasks.ts";
 
 const TurnPermissionSupport = z.object({ event: z.literal("permission-turn-policy-supported") });
 const AppliedPermission = z.object({
@@ -197,7 +198,14 @@ export class Sessions {
       });
       if (backend === "cursor-sdk")
         await this.dependencies.repo.recovery.restore(actor.id, actor.translator);
-      actor.apply([{ type: "process.started" }]);
+      // The previous provider process is gone: work that lived inside it has stopped.
+      actor.apply([
+        ...settleSessionBoundTasks(
+          this.dependencies.repo,
+          this.dependencies.repo.requireState(actor.id),
+        ),
+        { type: "process.started" },
+      ]);
       const rootAgent = state.agents[rootKey]?.agent;
       const aceMcp =
         rootAgent && state.config.provider !== "acp"
@@ -368,12 +376,15 @@ export class Sessions {
             const lost =
               !exit.deliberate &&
               lostWork(before, 0, undefined, this.dependencies.clock.now()) !== undefined;
+            const stale = settleSessionBoundTasks(this.dependencies.repo, before);
             actor.apply([
               { type: "process.exited", ...exit },
               ...(lost
                 ? [interruptedNotice(before.rootKey, this.dependencies.clock.now(), "exit")]
                 : []),
               { type: "queue.changed", source: "provider", count: 0 },
+              // After the exit fact, so lost work still counts; then none of it reads live.
+              ...stale,
             ]);
             // The interrupted turn waits for the next message; the queue behind it is not sent.
             if (lost) this.dependencies.interrupted(actor.id);
