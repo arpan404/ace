@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { OffshiftError, OffshiftJournal } from "@ace/offshift";
+import { OffshiftError, OffshiftJournal, runCard } from "@ace/offshift";
 import type { OffshiftView } from "@ace/protocol/offshift";
 import type { AgentControlResult, McpAttribution } from "@ace/protocol";
 import type { ThreadStatus } from "@ace/protocol/thread-status";
@@ -58,16 +58,27 @@ export function createOffshifts(context: ServiceContext, delegations: Delegation
       if (!thread || !store.getMcpAgent(caller.threadId, caller.agentId))
         return { ok: false, code: "forbidden" };
       const counts = delegations.monitor.snapshot(caller).counts;
+      const at = now();
       try {
-        return {
-          ok: true,
-          data: journal.execute(operation.request, {
+        // The card event commits with the run write (atomic nests), so a client never sees a
+        // change the journal rolled back, and reads and receipt replays publish nothing.
+        const data = store.atomic(() => {
+          const executed = journal.execute(operation.request, {
             threadId: caller.threadId,
-            now: now(),
+            now: at,
             revision,
             treeState: treeState(thread.status.state, counts),
-          }),
-        };
+          });
+          const changed = executed.changed;
+          if (changed)
+            store.appendEvents(
+              caller.threadId,
+              [{ type: "offshift.updated", card: runCard(changed.run, changed.revision) }],
+              at,
+            );
+          return executed.result;
+        });
+        return { ok: true, data };
       } catch (error) {
         if (!(error instanceof OffshiftError)) throw error;
         return { ok: false, code: "invalid", hint: error.message };

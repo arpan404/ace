@@ -376,6 +376,6 @@ test("purging a thread removes its Offshift outcome and evidence while preservin
       { threadId: retained.id, now: 2, revision: "source", treeState: "done" },
     ),
   ).toMatchObject({
-    run: { outcome: "Private outcome", evidence: [{ note: "Private observation" }] },
+    result: { run: { outcome: "Private outcome", evidence: [{ note: "Private observation" }] } },
   });
 });

@@ -1,9 +1,11 @@
 import { rmSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
+import type { OffshiftRunCard } from "@ace/protocol/offshift";
 import { OffshiftView } from "@ace/protocol/offshift";
 import { evalWorld, type EvalWorld } from "./evals/world.ts";
+import { Store } from "./store.ts";
 
 /** `offshift` through the real daemon and a real MCP client, read the way a model reads it. */
 let world: EvalWorld | undefined;
@@ -58,6 +60,55 @@ it("an agent starts a run, records a check at the current revision and reads it 
   expect(read.pending).toEqual([]);
   expect(read.run.evidence).toMatchObject([{ criterionId: "error", result: "pass" }]);
   expect(read.run.version).toBe(1);
+});
+
+it("each change publishes the run's card to the thread and its snapshot, and nothing else does, across a restart", async () => {
+  world = await evalWorld({ browser: false });
+  const { agent, threadId } = await world.agent({});
+  const cards: OffshiftRunCard[] = [];
+  world.store.subscribe((events) => {
+    for (const event of events)
+      if (event.threadId === threadId && event.payload.type === "offshift.updated")
+        cards.push(event.payload.card);
+  });
+  const view = OffshiftView.parse(Control.parse((await agent.call("offshift", start)).data).data);
+  expect(cards).toMatchObject([
+    { id: "login", phase: "plan", version: 0, pending: [{ criterionId: "error", kind: "ui" }] },
+  ]);
+
+  // A lost-response retry, a read and a stale write change nothing, so they publish nothing.
+  expect((await agent.call("offshift", start)).failed).toBe(false);
+  await agent.call("offshift", { action: "get", runId: "login" });
+  const stale = await agent.call("offshift", {
+    action: "block",
+    runId: "login",
+    requestId: "stale",
+    version: 7,
+    note: "Need a test account",
+  });
+  expect(Control.parse(stale.data)).toMatchObject({ ok: false, code: "invalid" });
+  expect(cards).toHaveLength(1);
+
+  await agent.call("offshift", {
+    action: "block",
+    runId: "login",
+    requestId: "block",
+    version: view.run.version,
+    note: "Need a test account",
+  });
+  expect(cards).toHaveLength(2);
+  expect(cards[1]).toMatchObject({ blocker: "Need a test account", version: 1 });
+  expect(world.store.snapshotThread(threadId).offshift).toEqual(cards[1]);
+
+  const path = join(dirname(world.daemon.tokenPath), "events.sqlite");
+  await world.close();
+  world = undefined;
+  const reopened = new Store(path);
+  try {
+    expect(reopened.snapshotThread(threadId).offshift).toEqual(cards[1]);
+  } finally {
+    reopened.close();
+  }
 });
 
 it("a change missing its required fields is refused before anything is recorded", async () => {
