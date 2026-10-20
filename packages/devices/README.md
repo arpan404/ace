@@ -39,7 +39,14 @@ Local sockets use `devices.request`, `devices.result`, `devices.state` and
 `devices.logs`. A subscribed view gets its pictures as stream kind `deviceFrame` on the
 browser's stream envelope (`@ace/browser/stream`), paced by `devices.ack` with the browser
 video's window and keyframe rules (`@ace/browser/picture-channel`, ADR 0064 "Shared media
-stream"). A screenshot is a still picture on the same stream, sent just before the
+stream"). Live views are H.264 only, at 60 fps on every connection (`deviceStreamProfile`:
+local 12 Mbit/s, remote 8 Mbit/s in a 1440×2880 box, relay 5 Mbit/s in 1080×2160). Pressure
+lowers the bit rate, down to 1 Mbit/s, and at its worst shrinks a remote or relay picture to
+three quarters; it never lowers the frame rate. No live view receives a JPEG: a capture that
+can only make JPEG refuses the view with a typed error naming the fix, and the JPEG a capture
+makes for agents while nobody watches stays off the stream. A screenshot of a watched device
+comes from the device itself, and a watched recording decodes the live H.264 to its own JPEG
+budget, so neither changes the view. A screenshot is a still picture on the same stream, sent just before the
 `devices.result` that names it (`DeviceScreenshot`); `DeviceClient.screenshot` resolves with
 its bytes. There is no other binary format. Relay clients open a dedicated channel with `hello.channel = "devices"`, then
 perform the existing paired-client authentication. Browser and screen have dedicated
@@ -89,11 +96,14 @@ verified local copy. It is pushed with adb and started with `app_process` (video
 audio off, control on) behind an `adb forward` tunnel. The emulator's own H.264 is
 passed through to viewers with its parameter sets in front of every keyframe; a
 keyframe request resets the device encoder; size, frame rate and bitrate come from
-the shared stream profile. There is no time limit and no ffmpeg in the live view.
-JPEG viewers, screenshots and recordings decode that H.264 once through ffmpeg;
-without ffmpeg every viewer stays on H.264. Input goes over the control socket:
+the shared stream profile (`max_fps=60`, `video_bit_rate` from the profile). There is no
+time limit and no ffmpeg in the live view. While nobody watches, agents' stills and
+recordings decode that H.264 once through ffmpeg; without ffmpeg the capture stays on
+H.264 and stills come from `screencap`. Input goes over the control socket:
 multi-touch with pointer ids (`pointer.pointerId`), keys including back, home,
-recents and volume up/down, rotation, and text. Printable ASCII is injected as text; anything else
+recents and volume up/down, rotation, and text. The `keyboard` key presses Alt+K, Gboard's "Show
+on-screen keyboard": physical-keyboard input (the emulator window, its console) collapses Gboard
+to a floating toolbar that no tap undoes. Printable ASCII is injected as text; anything else
 (accents, emoji) is pasted through the device clipboard and the action completes
 when the device acknowledges it, so it replaces the emulator's clipboard. The
 `clipboard.get`/`clipboard.set` operations (sim_act `clipboard_get`/`clipboard_set`) use
@@ -102,8 +112,10 @@ clipboard), a write waits for its acknowledgement. Without the scrcpy view the A
 clipboard is refused as unsupported; on iOS they run `xcrun simctl pbpaste|pbcopy`.
 Reads return at most 4,096 characters with `truncated` set when cut. When the
 server cannot start, capture falls back to `adb exec-out screenrecord` into ffmpeg
-(JPEG, restarted at screenrecord's time limit, input through `adb shell input`).
-`ACE_ANDROID_SCRCPY=off` forces that fallback.
+(JPEG, restarted at screenrecord's time limit, input through `adb shell input`) for
+agents only: it has no frame rate or keyframe control, so a live view on it is refused
+with `not_supported` saying why scrcpy didn't start. `ACE_ANDROID_SCRCPY=off` forces that
+fallback.
 
 Android UI trees come from ace's own long-running UiAutomation reader
 (`src/android-ui-helper/`, a 4 KB dex built from `Main.java` with the SDK's javac
@@ -116,13 +128,18 @@ platform a tools directory.
 
 iOS prefers a pinned `serve-sim` (0.1.47 or 0.1.48; install with
 `npm install -g serve-sim@0.1.48`, or point `ACE_SERVE_SIM` at it). ace spawns
-and supervises it per device: viewers that decode H.264 get its stream re-framed
-as Annex B with no decode or re-encode, other viewers, screenshots and recordings
-get its MJPEG through the bounded resize path, input uses its HID socket (edge
-gestures included), and `ui.tree`/`ui.find`/`ui.act` read its accessibility
+and supervises it per device: live views get its H.264 (serve-sim encodes at 60 fps,
+6 Mbit/s; it has no options for either) re-framed as Annex B with no decode or
+re-encode, and a stream that won't start refuses the view with a reinstall hint. Agents'
+stills and recordings while nobody watches get its MJPEG through the bounded resize path,
+input uses its HID socket (edge
+gestures included; typed text is HID keyboard keys, which put iOS into hardware-keyboard mode and
+hide the on-screen keyboard, so ace toggles it back 250 ms after typing unless the person hid it
+with the `keyboard` key, Simulator's Toggle Software Keyboard), and `ui.tree`/`ui.find`/`ui.act` read its accessibility
 bridge. Other serve-sim versions are not driven (ADR 0064, "Native Simulator
 transport"). Without it, iOS capture and semantic actions use the Simulator window
-through the macOS helper. Set `ACE_SCREEN_HELPER` and grant Screen Recording and Accessibility
+through the macOS helper; its live view needs the helper's H.264 encoder and is otherwise
+refused with `tool_missing` and the serve-sim install command. Set `ACE_SCREEN_HELPER` and grant Screen Recording and Accessibility
 to **Ace Screen Helper** (the helper disclaims its launcher, so the grants belong
 to its stable `dev.ace.screen-helper` identity). A missing permission fails with
 `permission_denied` and a `permission` field naming it; `permissions` reads the

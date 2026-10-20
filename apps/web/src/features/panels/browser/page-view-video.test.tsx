@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
 import type { BrowserView, ForwardedInput, PreviewSource, ScreenFrame } from "../sources.ts";
+import { browserVideo } from "@/test/browser-video.ts";
 import { PageView } from "./page-view.tsx";
 
 /** A source that records the person's input and has no page state; nothing else is used. */
@@ -24,42 +25,82 @@ const view: BrowserView = {
   closed: false,
 };
 
-/** A video picture: 390 × 800 CSS pixels, decoded at 3x. */
-function videoFrame(drawn: HTMLCanvasElement[]): ScreenFrame {
-  return {
-    sequence: 5,
-    src: "",
+/** A live picture: 390 × 800 CSS pixels, decoded at 3x; `next` brings a newer picture. */
+function livePicture() {
+  const listeners = new Set<() => void>();
+  let sequence = 5;
+  const draws: { sequence: number; width: number; height: number }[] = [];
+  const frame: ScreenFrame = {
+    get sequence() {
+      return sequence;
+    },
     width: 390,
     height: 800,
-    video: {
-      codedWidth: 1170,
-      codedHeight: 2400,
-      draw(canvas) {
-        drawn.push(canvas);
-        return true;
-      },
+    codedWidth: 1170,
+    codedHeight: 2400,
+    draw(_context, width, height) {
+      draws.push({ sequence, width, height });
+      return true;
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  return {
+    frame,
+    draws,
+    next() {
+      sequence++;
+      for (const listener of listeners) listener();
     },
   };
 }
 
-test("a video frame is drawn on a canvas at its device pixels, not scaled up from CSS size", () => {
-  const drawn: HTMLCanvasElement[] = [];
+const animationFrame = () =>
+  act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+
+test("a live picture is drawn on a canvas at its device pixels, not scaled up from CSS size", () => {
+  browserVideo();
+  const live = livePicture();
   render(
     <PageView
       source={recordingSource([])}
       threadId="thread-1"
       view={view}
       tab={undefined}
-      frame={videoFrame(drawn)}
+      frame={live.frame}
       interactive
       fit
     />,
   );
   const picture = screen.getByRole("img", { name: "Live view of https://example.com/" });
   expect(picture.tagName).toBe("CANVAS");
-  expect(drawn).toEqual([picture]);
   expect((picture as HTMLCanvasElement).width).toBe(1170);
   expect((picture as HTMLCanvasElement).height).toBe(2400);
+  expect(live.draws).toEqual([{ sequence: 5, width: 1170, height: 2400 }]);
+});
+
+test("newer pictures are drawn on the next animation frame, only the newest of them", async () => {
+  browserVideo();
+  const live = livePicture();
+  render(
+    <PageView
+      source={recordingSource([])}
+      threadId="thread-1"
+      view={view}
+      tab={undefined}
+      frame={live.frame}
+      interactive
+      fit
+    />,
+  );
+  live.next();
+  live.next();
+  live.next();
+  expect(live.draws.map((draw) => draw.sequence)).toEqual([5]);
+  await animationFrame();
+  expect(live.draws.map((draw) => draw.sequence)).toEqual([5, 8]);
 });
 
 test("a click on a video picture reaches the page in its CSS pixels, through the drawn box", () => {
@@ -70,7 +111,7 @@ test("a click on a video picture reaches the page in its CSS pixels, through the
       threadId="thread-1"
       view={view}
       tab={undefined}
-      frame={videoFrame([])}
+      frame={livePicture().frame}
       interactive
       fit
     />,

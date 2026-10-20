@@ -102,3 +102,25 @@ test("a new capture starts over: its sequence may begin lower than the last one'
   await view.renderer.render(picture(2, { streamId: "capture-2" }));
   expect(view.shown).toEqual([90, 1, 2]);
 });
+
+test("a video-only view acks a JPEG without drawing it and keeps its place in the video", async () => {
+  const shown: number[] = [];
+  const acks: { sequence: number; keyframe: boolean }[] = [];
+  const renderer = pictureRenderer<LivePicture>({
+    decoder: (handlers) => ({
+      configure: () => {},
+      decode: (chunk) =>
+        handlers.output({ sequence: chunk.sequence, draw: () => {}, close: () => {} }),
+      close: () => {},
+    }),
+    show: (_image, shown_) => shown.push(shown_.sequence),
+    ack: (target, keyframe) => acks.push({ sequence: target.sequence, keyframe }),
+    fallback: () => {},
+    pressure: () => {},
+  });
+  await renderer.render(picture(1, { key: true }));
+  await renderer.render(picture(2, { codec: "jpeg", key: true }));
+  await renderer.render(picture(3));
+  expect(shown).toEqual([1, 3]);
+  expect(acks).toEqual([1, 2, 3].map((sequence) => ({ sequence, keyframe: false })));
+});

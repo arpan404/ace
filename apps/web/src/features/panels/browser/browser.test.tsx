@@ -2,6 +2,7 @@ import { coldStartReplay, failingSubagent, seedPanels } from "@ace/fake-daemon";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { browserVideo } from "@/test/browser-video.ts";
 import { harness } from "@/test/harness.tsx";
 import type { BrowserView } from "../sources.ts";
 import { PageDialog } from "./page-dialog.tsx";
@@ -11,6 +12,7 @@ async function openBrowser(
   path = "/t/thread-cold-start",
   through?: string,
 ) {
+  const video = browserVideo();
   const app = harness();
   const script = app.play(scenario);
   if (through) script.runThrough(through);
@@ -21,11 +23,11 @@ async function openBrowser(
   // ⌃⇧B opens the Browser in the side panel.
   await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  return { app, panel, browser: app.daemon.browser, script };
+  return { app, panel, browser: app.daemon.browser, script, video };
 }
 
 const thread = "thread-cold-start";
-/** The page the agent opened shows, as the screencast's live picture. */
+/** The page the agent opened shows, as its live video picture. */
 const agentPage = (panel: HTMLElement) =>
   within(panel).findByRole("img", { name: "Live view of localhost:5173/settings/devices" });
 /** The panel's own tab strip: each of the thread's browser tabs is one of its tabs. */
@@ -111,18 +113,38 @@ async function goTo(panel: HTMLElement, text: string) {
   await userEvent.type(field, `${text}{Enter}`);
 }
 
-test("the browser shows the page an agent works in, marks its tab with the agent cursor, and follows its frames", async () => {
-  const { panel, browser } = await openBrowser(coldStartReplay(), "/t/thread-cold-start", "turn-2");
-  const frame = await agentPage(panel);
+test("the browser shows the page an agent works in, marks its tab with the agent cursor, and follows its pictures", async () => {
+  const { panel, browser, video } = await openBrowser(
+    coldStartReplay(),
+    "/t/thread-cold-start",
+    "turn-2",
+  );
+  const picture = await agentPage(panel);
   expect(within(strip(panel)).getByRole("img", { name: /is using this tab$/ })).toBeTruthy();
-  const first = frame.getAttribute("src");
   act(() => browser.type(thread, "iPhone 16 Pro Max"));
-  await waitFor(() => expect(frame.getAttribute("src")).not.toBe(first));
-  expect(decodeURIComponent(frame.getAttribute("src") ?? "")).toContain("iPhone 16 Pro Max");
+  const typed = browser.frame(thread)?.sequence;
+  await waitFor(() => expect(video.shown(picture)).toBe(typed));
   // At rest the address pill reads just the site; the field holds the whole address.
   expect((address(panel) as HTMLInputElement).value).toBe("localhost:5173/settings/devices");
   // Nobody takes over or hands back: there is no such control.
   expect(within(panel).queryByRole("button", { name: /Take over|Hand back/ })).toBeNull();
+});
+
+test("a browser that can't decode video says so in place of the page, and the rest still works", async () => {
+  // jsdom has no WebCodecs, as an older browser hasn't.
+  const scenario = coldStartReplay();
+  const app = harness();
+  app.play(scenario).step();
+  seedPanels(app.daemon);
+  await app.open("/t/thread-cold-start");
+  await screen.findByRole("heading", { level: 1, name: scenario.thread.title });
+  await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  expect(
+    await within(panel).findByRole("heading", { name: "This browser can't decode video" }),
+  ).toBeTruthy();
+  expect(within(panel).queryByRole("img", { name: /^Live view of/ })).toBeNull();
+  expect((address(panel) as HTMLInputElement).value).toBe("localhost:5173/settings/devices");
 });
 
 test("the person can use a tab an agent is working in, with no control to take", async () => {
@@ -490,25 +512,21 @@ function visibility(state: DocumentVisibilityState) {
   document.dispatchEvent(new Event("visibilitychange"));
 }
 
-test("while the window is hidden the browser stops pulling frames, and shows the latest once shown", async () => {
-  const { panel, browser } = await openBrowser();
-  await agentPage(panel);
-  const page = () =>
-    within(panel).getByRole("img", { name: "Live view of localhost:5173/settings/devices" });
+test("while the window is hidden the browser stops pulling pictures, and shows the latest once shown", async () => {
+  const { panel, browser, video } = await openBrowser();
+  const picture = await agentPage(panel);
   try {
     act(() => visibility("hidden"));
     act(() => browser.type(thread, "Pixel 9"));
-    await waitFor(() =>
-      expect(decodeURIComponent(page().getAttribute("src") ?? "")).toContain("Pixel 9"),
-    );
-    // That frame is not acknowledged while hidden, so the browser sends no more.
+    const pixel = browser.frame(thread)?.sequence;
+    await waitFor(() => expect(video.frames.at(-1)?.timestamp).toBe(pixel));
+    // That picture's ack is owed while hidden, so the browser sends no more.
     act(() => browser.type(thread, "Galaxy S25"));
     await act(async () => {});
-    expect(decodeURIComponent(page().getAttribute("src") ?? "")).not.toContain("Galaxy S25");
+    expect(video.frames.at(-1)?.timestamp).toBe(pixel);
     act(() => visibility("visible"));
-    await waitFor(() =>
-      expect(decodeURIComponent(page().getAttribute("src") ?? "")).toContain("Galaxy S25"),
-    );
+    const galaxy = browser.frame(thread)?.sequence;
+    await waitFor(() => expect(video.shown(picture)).toBe(galaxy));
   } finally {
     visibility("visible");
   }

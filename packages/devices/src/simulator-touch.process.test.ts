@@ -135,6 +135,32 @@ it("a Simulator's side buttons press the HID codes Xcode's device chrome gives t
   ]);
 });
 
+it("typing on a Simulator brings back the on-screen keyboard its keys hid, unless the person hid it", async () => {
+  const { sim, live } = await capture();
+  const input = live.input;
+  if (!input) throw new Error("Missing native input");
+  const toggles = () => sim.hid.filter((entry) => Array.isArray(entry) && entry[0] === 12).length;
+
+  // Typed keys put iOS into hardware-keyboard mode; the toggle after them undoes that.
+  await input({ kind: "type", text: "hi" }, () => {});
+  await expect.poll(toggles).toBe(1);
+  // The keyboard key is Simulator's Toggle Software Keyboard: here the person hides it…
+  await input({ kind: "key", key: "keyboard" }, () => {});
+  await expect.poll(toggles).toBe(2);
+  // …so text typed now leaves it hidden.
+  await input({ kind: "type", text: "x" }, () => {});
+  // Shown again, Return keeps it shown.
+  await input({ kind: "key", key: "keyboard" }, () => {});
+  await input({ kind: "key", key: "enter" }, () => {});
+  await expect.poll(toggles).toBe(4);
+  expect(sim.hid).toEqual([
+    [12, {}],
+    [12, {}],
+    [12, {}],
+    [12, {}],
+  ]);
+});
+
 it("a key iOS hardware doesn't have is refused without reaching the Simulator", async () => {
   const { sim, live } = await capture();
   const input = live.input;

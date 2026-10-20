@@ -1,4 +1,12 @@
 import type { ScreenStreamSettings } from "@ace/protocol";
+import { DeviceError } from "./sdk.ts";
+import { deviceFrameRate } from "./stream-profile.ts";
+import { recordingImages } from "./recording-feed.ts";
+
+/**
+ * A capture nobody is watching: agents' stills and recordings read its JPEG frames. No live view
+ * ever receives one; a view's arrival switches the capture to H.264.
+ */
 export const deviceImageStream: ScreenStreamSettings = {
   codec: "jpeg",
   maxWidth: 1920,
@@ -6,13 +14,32 @@ export const deviceImageStream: ScreenStreamSettings = {
   fps: 30,
   bitrate: 4000000,
 };
-/** All viewers must be able to decode the shared capture; the slowest panel sets its budget. */
+/** A live view that hasn't sized its stream yet: H.264 at 60 fps in a phone-sized box. */
+export const deviceVideoStream: ScreenStreamSettings = {
+  codec: "h264",
+  maxWidth: 1440,
+  maxHeight: 2880,
+  fps: deviceFrameRate,
+  bitrate: 8000000,
+};
+
+/** A live view only takes video; a client asking for JPEG is out of date. */
+export function liveViewRequest(settings: ScreenStreamSettings): ScreenStreamSettings {
+  if (settings.codec !== "h264")
+    throw new DeviceError(
+      "not_supported",
+      "Device live views are H.264 video only",
+      "Update ace on this device; live views no longer stream JPEG.",
+    );
+  return settings;
+}
+/** Every viewer decodes the shared capture's H.264; the slowest panel sets its budget. */
 export function commonDeviceStream(
   profiles: readonly ScreenStreamSettings[],
 ): ScreenStreamSettings {
   if (!profiles.length) return deviceImageStream;
   return {
-    codec: profiles.every((p) => p.codec === "h264") ? "h264" : "jpeg",
+    codec: "h264",
     maxWidth: Math.min(...profiles.map((p) => p.maxWidth)),
     maxHeight: Math.min(...profiles.map((p) => p.maxHeight)),
     fps: Math.min(...profiles.map((p) => p.fps)),
@@ -29,7 +56,11 @@ export function sameDeviceStream(a: ScreenStreamSettings, b: ScreenStreamSetting
   );
 }
 
-/** Coalesce reconfiguration while a native update is outstanding. No queue of old sizes. */
+/**
+ * Coalesce reconfiguration while a native update is outstanding. No queue of old sizes. While
+ * anyone watches, the capture streams H.264 at the viewers' common budget, recording or not
+ * (a recording decodes that video itself); a capture that can't is refused, never downgraded.
+ */
 export class DeviceStreamControl {
   private readonly viewers = new Map<string, ScreenStreamSettings>();
   private readonly apply: (settings: ScreenStreamSettings) => Promise<{ codec: "jpeg" | "h264" }>;
@@ -39,7 +70,6 @@ export class DeviceStreamControl {
   private result: { codec: "jpeg" | "h264" } = { codec: "jpeg" };
   private running: Promise<{ codec: "jpeg" | "h264" }> | undefined;
   private closed = false;
-  private images = 0;
   private recordings = 0;
   constructor(apply: (settings: ScreenStreamSettings) => Promise<{ codec: "jpeg" | "h264" }>) {
     this.apply = apply;
@@ -47,10 +77,10 @@ export class DeviceStreamControl {
   has(owner: string): boolean {
     return this.viewers.has(owner);
   }
-  set(owner: string, settings: ScreenStreamSettings) {
+  async set(owner: string, settings: ScreenStreamSettings): Promise<{ codec: "jpeg" | "h264" }> {
     if (this.closed) throw new Error("Stream closed");
     if (!this.viewers.has(owner) && this.viewers.size >= 64) throw new Error("Stream viewer limit");
-    this.viewers.set(owner, settings);
+    this.viewers.set(owner, liveViewRequest(settings));
     return this.refresh();
   }
   remove(owner: string): Promise<{ codec: "jpeg" | "h264" }> {
@@ -67,20 +97,6 @@ export class DeviceStreamControl {
       await this.running;
     } while (!this.closed && this.applied !== this.revision);
     return this.result;
-  }
-  acquireImage(): { ready: Promise<{ codec: "jpeg" | "h264" }>; release(): Promise<void> } {
-    if (this.closed) throw new Error("Stream closed");
-    this.images++;
-    let released = false;
-    return {
-      ready: this.refresh(),
-      release: async () => {
-        if (released) return;
-        released = true;
-        this.images--;
-        if (!this.closed) await this.refresh();
-      },
-    };
   }
   acquireRecording(): { ready: Promise<{ codec: "jpeg" | "h264" }>; release(): Promise<void> } {
     if (this.closed) throw new Error("Stream closed");
@@ -100,20 +116,21 @@ export class DeviceStreamControl {
     let result = this.result;
     while (!this.closed && this.applied !== this.revision) {
       const revision = this.revision;
-      const settings = commonDeviceStream([...this.viewers.values()]);
-      const next = this.recordings
-        ? {
-            ...settings,
-            codec: "jpeg" as const,
-            maxWidth: Math.min(settings.maxWidth, 1280),
-            maxHeight: Math.min(settings.maxHeight, 720),
-            fps: Math.min(settings.fps, 15),
-          }
-        : this.images
-          ? { ...settings, codec: "jpeg" as const }
-          : settings;
+      const next = this.viewers.size
+        ? commonDeviceStream([...this.viewers.values()])
+        : this.recordings
+          ? { ...deviceImageStream, ...recordingImages }
+          : deviceImageStream;
       if (!this.settings || !sameDeviceStream(this.settings, next)) {
+        // A refused update may have half-applied: the next one always reaches the capture.
+        this.settings = undefined;
         result = await this.apply(next);
+        if (next.codec === "h264" && result.codec !== "h264")
+          throw new DeviceError(
+            "not_supported",
+            "This device's capture can't stream video for a live view",
+            "Live views are H.264 only. Restart the device's live view; if it persists, check its capture tools.",
+          );
         this.settings = { ...next };
         this.result = result;
       }

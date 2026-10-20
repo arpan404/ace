@@ -195,3 +195,26 @@ describe("video to each viewer at its own pace", () => {
     expect(fanout.playing("phone")).toBe(false);
   });
 });
+
+describe("a transport that acknowledges as it sends", () => {
+  it("gets each chunk once", () => {
+    const sent: number[] = [];
+    const fanout: VideoFanout<{ sequence: number; key: boolean; bytes: Uint8Array }> =
+      new VideoFanout({ keyframe: () => {}, playing: () => {} });
+    fanout.add("viewer", {
+      send: (chunk) => {
+        sent.push(chunk.sequence);
+        fanout.acknowledge("viewer", chunk.sequence);
+        return true;
+      },
+    });
+    fanout.assign("viewer", "encode");
+    for (let number = 1; number <= 5; number++)
+      fanout.publish("encode", {
+        sequence: number,
+        key: number === 1,
+        bytes: new Uint8Array(100),
+      });
+    expect(sent).toEqual([1, 2, 3, 4, 5]);
+  });
+});

@@ -39,6 +39,7 @@ struct RemoteSettingsCategory: Identifiable {
             .init(key: "browser.backend", title: "Browser", control: .choices(["auto", "embedded", "headless"])),
             .init(key: "browser.backendLoss", title: "When browser disconnects", control: .choices(["pause", "headless"])),
             .init(key: "browser.profile", title: "Browser data", control: .choices(["persistent", "ephemeral"])),
+            .init(key: "browser.profileScope", title: "Browser profile", control: .choices(["global", "project", "thread"])),
             .init(key: "browser.downloadDir", title: "Download folder on machine", control: .text),
             .init(key: "browser.userChrome.storageReads", title: "Agents can read Chrome storage", control: .toggle),
         ]),

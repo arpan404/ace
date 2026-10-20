@@ -6,7 +6,6 @@ import {
   ThreadId,
   type BrowserArtifact,
   type BrowserState,
-  type BrowserFrame,
 } from "@ace/protocol";
 import { recoverHeadless } from "./recovery.ts";
 import { DesktopLoss } from "./desktop-loss.ts";
@@ -19,7 +18,7 @@ import { daemonTabLimit, threadTabLimit } from "./tab-limits.ts";
 import { defaultTabLifecycle } from "./tab-lifecycle.ts";
 import type { LifecycleSchedule } from "./session-lifecycle.ts";
 import { EmbeddedBackend, type EmbeddedTransport } from "./embedded.ts";
-import type { BrowserBackend, BackendOpen, BrowserBackendSession } from "./backend.ts";
+import type { BrowserBackend, BackendOpen, BrowserBackendSession, VideoHost } from "./backend.ts";
 import type {
   BrowserAnnotationMessage,
   BrowserBackendLost,
@@ -31,7 +30,7 @@ import { agentResumes, backendCandidates } from "./backend-choice.ts";
 import { BrowserSession, type Actor } from "./session.ts";
 import type { AgentScreenshot } from "./session-images.ts";
 import { defaultCursorStyle, type CursorStyle } from "@ace/browser-annotate";
-import type { FrameSink } from "./fanout.ts";
+import type { ViewerSink } from "./viewer-sink.ts";
 import { BrowserSubscriptions } from "./subscriptions.ts";
 
 /** How long an agent's cursor glides before its click lands: long enough to follow by eye. */
@@ -42,12 +41,10 @@ import { watchWake } from "./wake-watch.ts";
 import { setMaxListeners } from "node:events";
 import {
   encodeBrowserAudio,
-  encodeBrowserFrame,
   encodeBrowserVideo,
   type BrowserAudioChunk,
   type BrowserVideoChunk,
 } from "./stream.ts";
-import { frameBytes } from "./frame-bytes.ts";
 import type { BrowserServiceOptions } from "./service-options.ts";
 import type { PersonRequest } from "./person-requests.ts";
 import type { DownloadRead } from "./download-read.ts";
@@ -60,12 +57,12 @@ export class BrowserService {
   /** The person's accent, from the viewer that reported it last; every tab's cursor uses it. */
   private cursorStyle: CursorStyle = defaultCursorStyle;
   private generations = new WeakMap<BrowserSession, number>();
+  /** Each open session's project, for closing them when the project is removed. */
+  private workspaces = new WeakMap<BrowserSession, string>();
   private sequence = 0;
   private opening = new Map<string, Promise<BrowserSession>>();
   private profiles: BrowserProfiles;
   private subscriptions: BrowserSubscriptions;
-  private frameMessages = new WeakMap<BrowserFrame, string>();
-  private framePieces = new WeakMap<BrowserFrame, readonly Uint8Array[]>();
   private videoPieces = new WeakMap<BrowserVideoChunk, readonly Uint8Array[]>();
   private audioPieces = new WeakMap<BrowserAudioChunk, readonly Uint8Array[]>();
   private streamIds = 0;
@@ -82,6 +79,10 @@ export class BrowserService {
   private seeded = new Set<string>();
   /** Sessions paused by desktop loss, with a single-flight recovery on the available backend. */
   private resumable = new Map<string, () => Promise<void>>();
+  /** Whether the desktop's screen draws its views (false while locked). */
+  private desktopCanDraw = true;
+  /** Per `auto` session: move its pages from the desktop to ace's Chromium. */
+  private handOffs = new Map<string, () => Promise<void>>();
   get hasActiveSessions(): boolean {
     return this.sessions.size > 0 || this.opening.size > 0 || this.recoveries.size > 0;
   }
@@ -92,6 +93,14 @@ export class BrowserService {
   }
   downloadProgress(listener: (progress: BrowserDownloadProgress) => void): () => void {
     return this.acquisition.subscribe(listener);
+  }
+  /**
+   * An encoder for another service's pages that have none ("Use my Chrome", ADR 0088): a Chrome
+   * of ace's that encodes their screencast, started by a viewer and stopped once idle. Absent
+   * when this service runs no Chrome of its own.
+   */
+  videoEncoder(): VideoHost | undefined {
+    return this.acquisition.videoEncoder();
   }
   private policyScopes = new Map<string, AbortController>();
   private navigationClock: import("./navigation.ts").NavigationClock;
@@ -197,12 +206,22 @@ export class BrowserService {
     const preference = (await this.options.backendPreference?.(options)) ?? "auto";
     const lossPolicy = (await this.options.backendLoss?.(options)) ?? "pause";
     const embedded = this.embedded;
-    const candidates = backendCandidates(preference, embedded !== undefined).map((kind) =>
+    // A desktop that can't draw (its screen locked) is no place for an `auto` page.
+    const offered = embedded !== undefined && (preference !== "auto" || this.desktopCanDraw);
+    const candidates = backendCandidates(preference, offered).map((kind) =>
       kind === "embedded" && embedded ? embedded : this.headless,
     );
     let backend = candidates[0] ?? this.headless;
+    // A private page is a throwaway context in the shared profile's Chrome: no extra browser.
+    const profileScope =
+      options.profile === "persistent"
+        ? ((await this.options.profileScope?.(options)) ?? "global")
+        : "global";
     signal.throwIfAborted();
-    const profileLease = await this.profiles.acquire(options.threadId);
+    const profileLease = await this.profiles.acquire(options.threadId, {
+      scope: profileScope,
+      workspaceId: options.workspaceId,
+    });
     const { profile, dir, downloadDir } = profileLease;
     const store = this.options.tabStore;
     const restoredTabs = this.restoredTabs(options.threadId);
@@ -210,6 +229,8 @@ export class BrowserService {
     let recoveryGeneration = 0;
     let session: BrowserSession | undefined;
     let released = false;
+    /** The session being closed is handed on to the next backend, not ended. */
+    let retiring = false;
     let backendLost = false;
     const loss = new DesktopLoss(this.navigationClock, this.options.desktopReadoptionGraceMs);
     let opening: BackendOpen | undefined;
@@ -223,6 +244,7 @@ export class BrowserService {
       if (this.policyScopes.get(options.threadId) === scope)
         this.policyScopes.delete(options.threadId);
       if (this.resumable.get(options.threadId) === resume) this.resumable.delete(options.threadId);
+      if (this.handOffs.get(options.threadId) === handOff) this.handOffs.delete(options.threadId);
     };
     /** Tells viewers the thread's pages are gone and why. */
     const announce = (url: string, reason: string) => {
@@ -313,6 +335,57 @@ export class BrowserService {
       this.recoveries.set(options.threadId, recovery);
       return recovery;
     };
+    /**
+     * The desktop can't draw (its screen locked): its views give no live picture, so the pages
+     * move to ace's Chromium, every tab with its address and the shown one still shown. They
+     * stay there after the screen unlocks; moving back mid-work would reload them again.
+     */
+    const handOff = (): Promise<void> => {
+      const owned = session;
+      if (!owned || owned.state.closed || !opening || backendLost) return Promise.resolve();
+      if (owned.state.backend !== "embedded" || this.desktopCanDraw) return Promise.resolve();
+      // A tab the person keeps agents out of moves too, still private: they keep a live picture
+      // and agents stay out. (Desktop-loss recovery keeps `agentResumes`.)
+      const running = this.recoveries.get(options.threadId);
+      if (running) return running;
+      const opened = opening;
+      const move = async () => {
+        const restoreTabs = owned.restoreEntries();
+        // The person stays signed in: the partition's cookies go into the context the thread's
+        // profile opens in ace's Chrome (the kept profile its scope names, global, project or
+        // thread, as the desktop's partition did; or a throwaway one for a private session)
+        // before any tab loads.
+        const cookies = await owned.signIns();
+        const generation = ++recoveryGeneration;
+        await recoverHeadless({
+          request: {
+            ...opened,
+            ...(restoreTabs.length ? { restoreTabs } : {}),
+            ...(cookies.length ? { cookies } : {}),
+          },
+          backend: this.headless,
+          session: owned,
+          url: owned.state.url,
+          profile: options.profile,
+          lost: (reason) => {
+            if (signal.aborted || owned.state.closed || recoveryGeneration !== generation) return;
+            owned.suspend(reason);
+            this.resumable.set(options.threadId, resume);
+          },
+        });
+      };
+      const moving = move()
+        .catch((error: unknown) => {
+          this.options.onError?.(error);
+          // Still locked: try again shortly; the desktop's frozen view stays meanwhile.
+          if (signal.aborted) return;
+          const retry = setTimeout(() => void handOff(), 5_000);
+          retry.unref();
+        })
+        .finally(() => this.recoveries.delete(options.threadId));
+      this.recoveries.set(options.threadId, moving);
+      return moving;
+    };
     try {
       const policies = sessionPolicies(
         options,
@@ -339,6 +412,7 @@ export class BrowserService {
         artifact: (artifact) => this.options.onArtifact?.(options.threadId, artifact),
         options,
         profileDir: profile,
+        profileScope,
         signal,
         allowed: policies.allowed,
         popup: (url, target) =>
@@ -395,93 +469,123 @@ export class BrowserService {
         },
       };
       opening = request;
+      const ffmpeg = this.options.ffmpeg ?? (await detectFfmpeg());
+      const build = (opened: BrowserBackendSession, kind: BrowserBackend["kind"]) =>
+        new BrowserSession({
+          threadId: options.threadId,
+          backend: opened,
+          backendKind: kind,
+          dir,
+          now: this.now,
+          id: this.id,
+          navigationClock: this.navigationClock,
+          cancelPolicy: () => {
+            if (!retiring) scope.abort();
+          },
+          ...(this.options.userChromeStorageReads
+            ? {
+                storageReads: () =>
+                  this.options.userChromeStorageReads?.(options.threadId) ?? false,
+              }
+            : {}),
+          ...(this.options.agentCursor
+            ? {
+                cursor: {
+                  visible: true,
+                  glideMs: this.options.agentCursor.glideMs ?? defaultGlideMs,
+                  style: () => this.cursorStyle,
+                  name: (agentId: string | undefined) =>
+                    this.options.agentCursor?.name?.(options.threadId, agentId),
+                },
+              }
+            : {}),
+          ...(this.options.collaboration ? { collaboration: this.options.collaboration } : {}),
+          ...(this.options.spawn ? { spawn: this.options.spawn } : {}),
+          ...(ffmpeg ? { ffmpeg } : {}),
+          ...policies.session,
+          artifact: (artifact) => this.options.onArtifact?.(options.threadId, artifact),
+          state: (state) => this.emit(state),
+          annotation: (connectionId, event) =>
+            this.subscriptions.annotation(connectionId, {
+              type: "browser.annotation",
+              threadId: options.threadId,
+              event,
+            }),
+          pageState: (tabId, page) =>
+            this.subscriptions.page({
+              type: "browser.page",
+              threadId: options.threadId,
+              tabId,
+              page,
+            }),
+          cleanup: async () => {
+            // A session handed on to the next backend keeps the thread's scope and profile.
+            if (!retiring) await release();
+          },
+          ...(restoredTabs.length ? { restoredTabs } : {}),
+          ...(store
+            ? {
+                persistTabs: (records) => {
+                  try {
+                    store.save(options.threadId, records);
+                  } catch (error) {
+                    this.options.onError?.(error);
+                  }
+                },
+                forgetTabs: () => {
+                  try {
+                    store.clear(options.threadId);
+                  } catch (error) {
+                    this.options.onError?.(error);
+                  }
+                },
+              }
+            : {}),
+          ...this.lifecycle(),
+        });
       for (const [index, candidate] of candidates.entries()) {
+        const last = index === candidates.length - 1;
         backend = candidate;
         try {
           context = await candidate.open(request);
-          break;
         } catch (error) {
           // The desktop could not host the view: auto continues with ace's own Chromium.
-          if (signal.aborted || index === candidates.length - 1) throw error;
+          if (signal.aborted || last) throw error;
           this.options.onError?.(error);
+          continue;
+        }
+        signal.throwIfAborted();
+        session = build(context, candidate.kind);
+        try {
+          await (last
+            ? session.live.start()
+            : drawsWithin(session.live.start(), this.options.firstPictureMs ?? 10_000));
+          break;
+        } catch (error) {
+          // A view that opened but draws nothing (a locked or sleeping desktop) is no better
+          // than one that failed to open: the next backend takes the session.
+          if (signal.aborted || last) throw error;
+          this.options.onError?.(error);
+          const failed = session;
+          session = undefined;
+          context = undefined;
+          retiring = true;
+          await failed.close().catch(() => {});
+          retiring = false;
         }
       }
-      if (!context) throw new Error("No browser backend opened");
-      signal.throwIfAborted();
-      const ffmpeg = this.options.ffmpeg ?? (await detectFfmpeg());
-      session = new BrowserSession({
-        threadId: options.threadId,
-        backend: context,
-        backendKind: backend.kind,
-        dir,
-        now: this.now,
-        id: this.id,
-        navigationClock: this.navigationClock,
-        cancelPolicy: () => scope.abort(),
-        ...(this.options.userChromeStorageReads
-          ? {
-              storageReads: () => this.options.userChromeStorageReads?.(options.threadId) ?? false,
-            }
-          : {}),
-        ...(this.options.agentCursor
-          ? {
-              cursor: {
-                visible: true,
-                glideMs: this.options.agentCursor.glideMs ?? defaultGlideMs,
-                style: () => this.cursorStyle,
-                name: (agentId: string | undefined) =>
-                  this.options.agentCursor?.name?.(options.threadId, agentId),
-              },
-            }
-          : {}),
-        ...(this.options.collaboration ? { collaboration: this.options.collaboration } : {}),
-        ...(this.options.spawn ? { spawn: this.options.spawn } : {}),
-        ...(ffmpeg ? { ffmpeg } : {}),
-        ...policies.session,
-        artifact: (artifact) => this.options.onArtifact?.(options.threadId, artifact),
-        state: (state) => this.emit(state),
-        annotation: (connectionId, event) =>
-          this.subscriptions.annotation(connectionId, {
-            type: "browser.annotation",
-            threadId: options.threadId,
-            event,
-          }),
-        pageState: (tabId, page) =>
-          this.subscriptions.page({
-            type: "browser.page",
-            threadId: options.threadId,
-            tabId,
-            page,
-          }),
-        cleanup: async () => {
-          await release();
-        },
-        ...(restoredTabs.length ? { restoredTabs } : {}),
-        ...(store
-          ? {
-              persistTabs: (records) => {
-                try {
-                  store.save(options.threadId, records);
-                } catch (error) {
-                  this.options.onError?.(error);
-                }
-              },
-              forgetTabs: () => {
-                try {
-                  store.clear(options.threadId);
-                } catch (error) {
-                  this.options.onError?.(error);
-                }
-              },
-            }
-          : {}),
-        ...this.lifecycle(),
-      });
-      await session.live.start();
+      if (!session) throw new Error("No browser backend opened");
       this.sessions.set(options.threadId, session);
+      this.workspaces.set(session, options.workspaceId);
       this.generations.set(session, ++this.sequence);
       this.subscriptions.replace(options.threadId, session.live);
       this.emit(session.state);
+      // Only an `auto` page may leave the desktop; an explicit `embedded` never falls back.
+      if (preference === "auto") {
+        this.handOffs.set(options.threadId, handOff);
+        // The screen locked while this page was opening.
+        void handOff();
+      }
       return session;
     } catch (error) {
       await session?.close().catch(() => {});
@@ -537,6 +641,16 @@ export class BrowserService {
       },
     };
   }
+  /**
+   * The desktop's screen locked (false) or unlocked. A locked desktop draws no frames, so its
+   * `auto` pages move to ace's Chromium, whose viewers keep a live picture, and new `auto` pages
+   * open there. Unlocking moves nothing back.
+   */
+  desktopDrawable(drawable: boolean): void {
+    this.desktopCanDraw = drawable;
+    if (drawable) return;
+    for (const handOff of this.handOffs.values()) void handOff();
+  }
   registerEmbedded(transport: EmbeddedTransport): EmbeddedBackend {
     if (this.closing) throw new Error("Browser service shutting down");
     if (this.embedded) throw new Error("Desktop browser backend already registered");
@@ -549,6 +663,8 @@ export class BrowserService {
       this.navigationClock,
     );
     this.embedded = backend;
+    // A new desktop draws until it says otherwise (it reports a locked screen on registering).
+    this.desktopCanDraw = true;
     // After this returns the caller sends the registration reply; requests follow it.
     queueMicrotask(() => {
       this.options.onEmbeddedRegistered?.();
@@ -558,17 +674,35 @@ export class BrowserService {
   }
   /**
    * The thread was deleted: close its browser and, when a desktop is registered, drop its native
-   * partition. ace's own browser profile is shared by every thread and stays (ADR 0083).
-   * `desktop` says whether the desktop purged.
+   * partition. Its own profile in ace's Chrome goes; a shared one (global or its project's)
+   * stays (ADR 0083). `desktop` says whether the desktop purged.
    */
   async forgetThread(threadId: string, workspaceId: string): Promise<{ desktop: boolean }> {
     await this.closeThread(threadId);
     this.options.tabStore?.clear(threadId);
+    await this.headless.retireProfile?.(this.profiles.threadProfile(threadId));
     // Its downloads and logs in ace's data go too; what the person saved elsewhere stays.
     await this.profiles.forget(threadId);
     const embedded = this.embedded;
     if (!embedded) return { desktop: false };
     await embedded.purge(threadId, workspaceId);
+    return { desktop: true };
+  }
+  /**
+   * The project was removed: its threads' open browsers close, and its own profile goes, in
+   * ace's Chrome and (when a desktop is registered) the desktop's partition. `desktop` says
+   * whether the desktop purged.
+   */
+  async forgetProject(workspaceId: string): Promise<{ desktop: boolean }> {
+    const threads = [...this.sessions].flatMap(([threadId, session]) =>
+      this.workspaces.get(session) === workspaceId ? [threadId] : [],
+    );
+    await Promise.all(threads.map((threadId) => this.closeThread(threadId)));
+    await this.headless.retireProfile?.(this.profiles.projectProfile(workspaceId));
+    await this.profiles.forgetProject(workspaceId);
+    const embedded = this.embedded;
+    if (!embedded) return { desktop: false };
+    await embedded.purgeProject(workspaceId);
     return { desktop: true };
   }
   /**
@@ -593,8 +727,9 @@ export class BrowserService {
     if (generation === undefined) throw new Error("Browser generation unavailable");
     return generation;
   }
+  /** A viewer that subscribed again starts over at a keyframe. */
   replayFrame(threadId: string, connectionId: string): void {
-    this.get(threadId).live.fanout.replay(connectionId);
+    this.get(threadId).live.replay(connectionId);
   }
   state(threadId: string): BrowserState {
     return this.get(threadId).state;
@@ -673,13 +808,13 @@ export class BrowserService {
   subscribe(
     threadId: string,
     connectionId: string,
-    sink: FrameSink,
+    sink: ViewerSink,
     onState: (state: BrowserState) => void,
     onBackendEvent?: (
       event: BrowserBackendLost | BrowserAnnotationMessage | BrowserPageMessage,
     ) => void,
     /** What this viewer shows, known before its first frame so that frame is sized for it. */
-    capture?: import("./fanout.ts").CaptureViewer,
+    capture?: import("./viewer-sink.ts").CaptureViewer,
   ): () => void {
     const session = this.get(threadId);
     const stop = this.subscriptions.add(threadId, session.live, session.state, {
@@ -697,7 +832,7 @@ export class BrowserService {
   configureCapture(
     threadId: string,
     connectionId: string,
-    capture: import("./fanout.ts").CaptureViewer,
+    capture: import("./viewer-sink.ts").CaptureViewer,
   ): void {
     this.subscriptions.configure(threadId, connectionId, capture);
     this.get(threadId).live.configure(connectionId, capture);
@@ -709,9 +844,6 @@ export class BrowserService {
       this.cursorStyle = { fill: style.fill, outline: style.outline };
       for (const session of this.sessions.values()) session.restyleCursors();
     }
-  }
-  acknowledge(threadId: string, connectionId: string, sequence: number): void {
-    this.get(threadId).live.fanout.acknowledge(connectionId, sequence);
   }
   /**
    * A viewer showed every video chunk up to `sequence` (ADR 0088); `keyframe`: its decoder lost
@@ -746,29 +878,6 @@ export class BrowserService {
       const { bytes, ...header } = chunk;
       pieces = encodeBrowserAudio(this.streamIds, threadId, header, bytes);
       this.audioPieces.set(chunk, pieces);
-    }
-    return pieces;
-  }
-  /** Share one serialization across every viewer of this exact frame. */
-  serializeFrame(threadId: string, frame: BrowserFrame): string {
-    let message = this.frameMessages.get(frame);
-    if (!message) {
-      message = JSON.stringify({ type: "browser.frame", threadId, frame });
-      this.frameMessages.set(frame, message);
-    }
-    return message;
-  }
-  /**
-   * Share one binary encoding (`@ace/browser/stream`) across every viewer of this exact frame:
-   * the JPEG is decoded from base64 once and never re-encoded per viewer.
-   */
-  streamFrame(threadId: string, frame: BrowserFrame): readonly Uint8Array[] {
-    let pieces = this.framePieces.get(frame);
-    if (!pieces) {
-      this.streamIds = (this.streamIds + 1) >>> 0;
-      const { data: _data, ...header } = frame;
-      pieces = encodeBrowserFrame(this.streamIds, threadId, header, frameBytes(frame));
-      this.framePieces.set(frame, pieces);
     }
     return pieces;
   }
@@ -833,5 +942,21 @@ export class BrowserService {
       if (failed?.status === "rejected") throw failed.reason;
     })();
     return this.closing;
+  }
+}
+
+/** The first picture within `ms`, or an error naming why the backend is passed over. */
+async function drawsWithin(start: Promise<void>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`The desktop drew no picture of the page within ${ms} ms`)),
+      ms,
+    );
+  });
+  try {
+    await Promise.race([start, late]);
+  } finally {
+    clearTimeout(timer);
   }
 }

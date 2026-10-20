@@ -1,14 +1,15 @@
 import type { BrowserCaptureViewport } from "@ace/protocol";
-import { longestFrameSide, type CaptureLoad } from "./capture-policy.ts";
+import { longestFrameSide } from "./capture-policy.ts";
 
 /*
  * Which video encodes a tab runs for its viewers, and who watches which (ADR 0088). Pure: the
  * live capture feeds it the page, what the encoder can do and each viewer's pane and load.
  *
- * A viewer gets the pixels its screen shows the page at. Viewers share an encode when their
- * codec and load tier match and the shared picture is at most a quarter larger than their own;
- * a viewer that falls behind moves to a slower tier, which is its own encode, so it never slows
- * the others. Resolution stays; frame rate drops first.
+ * A viewer gets the pixels its screen shows the page at, always at 60 frames per second.
+ * Viewers share an encode when their codec matches and the shared picture is at most a quarter
+ * larger than their own. What a link can't carry costs picture quality, never frames: each
+ * encode's bit rate is the lowest its viewers' links carry (`link-rate.ts`), and changes in
+ * place without a new encoder.
  */
 
 export interface VideoViewer {
@@ -16,7 +17,10 @@ export interface VideoViewer {
   viewport: BrowserCaptureViewport;
   /** The codecs the viewer's decoder supports, best first. */
   codecs: readonly string[];
-  load: CaptureLoad;
+  /** Bits per second the viewer's link carries now. */
+  link: number;
+  /** The share of its full picture (per side) the link carries at 60 fps (`video-scale.ts`). */
+  scale?: number;
 }
 
 export interface VideoSource {
@@ -30,7 +34,10 @@ export interface VideoSource {
 }
 
 export interface VideoEncode {
-  /** Stable while the encode's settings are: a new key is a new encoder (and a keyframe). */
+  /**
+   * Stable while the encoder's codec and size are: a new key is a new encoder (and a keyframe).
+   * The bit rate is not part of it; the encoder takes a new one in place.
+   */
   key: string;
   codec: string;
   width: number;
@@ -41,6 +48,8 @@ export interface VideoEncode {
 
 export interface VideoPlan {
   encodes: VideoEncode[];
+  /** The tab capture's size: the largest full picture. Encoders scale it down themselves. */
+  capture: { width: number; height: number };
   /** Each video viewer's encode key. A viewer missing here takes JPEG frames. */
   viewers: Map<string, string>;
 }
@@ -49,11 +58,12 @@ export interface VideoPlan {
 export const maxEncodes = 4;
 /** A shared picture may be this much larger (per side) than a member's own. */
 const shareSlack = 1.25;
-const tierFps: Record<CaptureLoad, number> = { 0: 30, 1: 15, 2: 8 };
-/** Bits per pixel per frame: slower tiers spend a little more on each frame they send. */
-const tierBpp: Record<CaptureLoad, number> = { 0: 0.07, 1: 0.09, 2: 0.09 };
-const minBitrate = 300_000;
-const maxBitrate = 8_000_000;
+/** Every live view runs at this rate (owner decision, ADR 0088 amendment). */
+export const videoFps = 60;
+/** Bits per pixel per frame a picture gets at most: sharp text, more is wasted. */
+const ceilingBpp = 0.06;
+export const minBitrate = 500_000;
+export const maxBitrate = 16_000_000;
 
 const even = (value: number) => Math.max(2, 2 * Math.round(value / 2));
 
@@ -71,18 +81,23 @@ export function viewerPicture(
   return { width: even(source.width * scale), height: even(source.height * scale) };
 }
 
+/** The most bits per second a picture of this size is worth at 60 fps. */
+export function bitrateCeiling(picture: { width: number; height: number }): number {
+  return Math.round(
+    Math.min(
+      maxBitrate,
+      Math.max(minBitrate, picture.width * picture.height * videoFps * ceilingBpp),
+    ),
+  );
+}
+
 export function encodeSettings(
   codec: string,
   picture: { width: number; height: number },
-  tier: CaptureLoad,
+  link: number,
 ): VideoEncode {
-  const fps = tierFps[tier];
-  const bitrate = Math.round(
-    Math.min(
-      maxBitrate,
-      Math.max(minBitrate, picture.width * picture.height * fps * tierBpp[tier]),
-    ),
-  );
+  const fps = videoFps;
+  const bitrate = Math.round(Math.max(minBitrate, Math.min(bitrateCeiling(picture), link)));
   return {
     key: `${codec}/${picture.width}x${picture.height}/${fps}`,
     codec,
@@ -95,7 +110,7 @@ export function encodeSettings(
 
 interface Group {
   codec: string;
-  tier: CaptureLoad;
+  link: number;
   width: number;
   height: number;
   members: string[];
@@ -105,7 +120,18 @@ export function planVideo(source: VideoSource, viewers: readonly VideoViewer[]):
   const wanted = viewers.flatMap((viewer) => {
     const codec = viewer.codecs.find((candidate) => source.codecs.includes(candidate));
     if (!codec || viewer.viewport.nativeShown) return [];
-    return [{ id: viewer.id, codec, tier: viewer.load, ...viewerPicture(source, viewer.viewport) }];
+    const full = viewerPicture(source, viewer.viewport);
+    const scale = viewer.scale ?? 1;
+    return [
+      {
+        id: viewer.id,
+        codec,
+        link: viewer.link,
+        full,
+        width: even(full.width * scale),
+        height: even(full.height * scale),
+      },
+    ];
   });
   // Largest first, so a group's first member sets its size and later ones are no larger.
   wanted.sort((a, b) => b.width * b.height - a.width * a.height || a.id.localeCompare(b.id));
@@ -114,19 +140,25 @@ export function planVideo(source: VideoSource, viewers: readonly VideoViewer[]):
     const fits = groups.find(
       (group) =>
         group.codec === viewer.codec &&
-        group.tier === viewer.tier &&
         group.width <= viewer.width * shareSlack &&
         group.height <= viewer.height * shareSlack,
     );
     if (fits) {
       fits.members.push(viewer.id);
+      fits.link = Math.min(fits.link, viewer.link);
       continue;
     }
     if (groups.length < maxEncodes) {
-      groups.push({ ...viewer, members: [viewer.id] });
+      groups.push({
+        codec: viewer.codec,
+        link: viewer.link,
+        width: viewer.width,
+        height: viewer.height,
+        members: [viewer.id],
+      });
       continue;
     }
-    // Out of encoders: the nearest encode of the same codec, whatever its tier.
+    // Out of encoders: the nearest encode of the same codec.
     const nearest = groups
       .filter((group) => group.codec === viewer.codec)
       .toSorted(
@@ -134,11 +166,19 @@ export function planVideo(source: VideoSource, viewers: readonly VideoViewer[]):
           Math.abs(a.width * a.height - viewer.width * viewer.height) -
           Math.abs(b.width * b.height - viewer.width * viewer.height),
       )[0];
-    nearest?.members.push(viewer.id);
+    if (nearest) {
+      nearest.members.push(viewer.id);
+      nearest.link = Math.min(nearest.link, viewer.link);
+    }
   }
-  const plan: VideoPlan = { encodes: [], viewers: new Map() };
+  const capture = { width: 0, height: 0 };
+  for (const viewer of wanted) {
+    capture.width = Math.max(capture.width, viewer.full.width);
+    capture.height = Math.max(capture.height, viewer.full.height);
+  }
+  const plan: VideoPlan = { encodes: [], capture, viewers: new Map() };
   for (const group of groups) {
-    const encode = encodeSettings(group.codec, group, group.tier);
+    const encode = encodeSettings(group.codec, group, group.link);
     plan.encodes.push(encode);
     for (const member of group.members) plan.viewers.set(member, encode.key);
   }

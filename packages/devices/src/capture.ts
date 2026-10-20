@@ -154,7 +154,17 @@ export async function startCapture(options: {
       return {
         screenSessionId: state.sessionId,
         streamId: state.sessionId,
-        configure: (settings) => screen.configureStream(state.sessionId, settings),
+        async configure(settings) {
+          const result = await screen.configureStream(state.sessionId, settings);
+          // The screen helper encodes H.264 only where macOS lets it; serve-sim always does.
+          if (settings.codec === "h264" && result.codec !== "h264")
+            throw new DeviceError(
+              "tool_missing",
+              "This Mac's screen helper can't stream video for the Simulator live view",
+              `Install serve-sim ${pinnedServeSim} for the live view: npm install -g serve-sim@${pinnedServeSim}`,
+            );
+          return result;
+        },
         keyframe: () => screen.requestKeyframe(state.sessionId),
         stop: cleanup,
         get terminated() {
@@ -172,6 +182,7 @@ export async function startCapture(options: {
       "Android emulator is not booted",
       "Boot the emulator and wait for adb to report device state.",
     );
+  let why = "ACE_ANDROID_SCRCPY is off";
   if (options.env["ACE_ANDROID_SCRCPY"] !== "off") {
     const jar = await scrcpyServerJar({
       directory: options.platform.toolsDirectory,
@@ -181,16 +192,29 @@ export async function startCapture(options: {
       ...(options.signal ? { signal: options.signal } : {}),
     }).catch(() => undefined);
     checkAbort();
+    why = "scrcpy-server couldn't be downloaded";
     if (jar) {
       try {
         return await scrcpyCapture({ ...options, jar });
-      } catch {
-        // scrcpy could not start on this image: the screenrecord view still works.
+      } catch (error) {
+        // scrcpy could not start on this image: agents still get stills from screenrecord.
         checkAbort();
+        why = error instanceof Error ? error.message : "scrcpy-server didn't start";
       }
     }
   }
-  return screenrecordCapture(options, checkAbort);
+  return screenrecordCapture(
+    { ...options, liveViewUnavailable: androidLiveViewError(why) },
+    checkAbort,
+  );
+}
+/** Why an Android capture without scrcpy refuses a live view, which is video only. */
+function androidLiveViewError(why: string): DeviceError {
+  return new DeviceError(
+    "not_supported",
+    `The Android live view needs scrcpy-server: ${why}`,
+    "Use an emulator image with Android 5 or later, check the network for the first download, unset ACE_ANDROID_SCRCPY, then start the live view again.",
+  );
 }
 /**
  * The one Simulator window showing this device. A booted device whose window is closed (booted

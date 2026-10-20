@@ -4,6 +4,7 @@ import type {
   BackendOpen,
   BrowserBackendPage,
   BrowserBackendSession,
+  VideoHost,
 } from "./backend.ts";
 import { cancellableCdp } from "./cancellable-cdp.ts";
 import { navigateCdp } from "./cdp-navigation.ts";
@@ -15,6 +16,8 @@ import { modelScreenshot } from "./model-screenshot.ts";
 import { clearHeadlessData } from "./browsing-data.ts";
 import { ChromeVideo } from "./chrome-video.ts";
 import type { ChromeInstance } from "./chrome-instance.ts";
+import { plantCookies } from "./cookie-carry.ts";
+import { EncoderChrome } from "./encoder-chrome.ts";
 
 export interface ChromeBackendOptions {
   executable(signal: AbortSignal): Promise<string>;
@@ -23,13 +26,20 @@ export interface ChromeBackendOptions {
   platform: NodeJS.Platform;
   launch: ChromeLaunch;
   cleanup: ChromeCleanup;
+  /**
+   * An encoder-only Chrome for pages of a backend without one ("Use my Chrome"): its profile
+   * directory, and how long it runs after its last capture. Absent: no such encoder.
+   */
+  encoder?: { profileDir: string; idleMs: number };
 }
 const Png = z.object({ data: z.string().max(64 * 1024 * 1024) });
 
 /**
- * ace's own Chrome for Testing, driven over a pipe. One host per profile is shared by every
- * thread; a thread gets tabs in the persistent profile, or in a throwaway context when its
- * browser is ephemeral. A crashed browser is restarted and the thread's page reopened.
+ * ace's own Chrome for Testing, driven over a pipe. One host per profile directory is shared by
+ * every thread that opens in it (the global profile, a project's or a thread's own); a thread
+ * gets tabs in that profile, or in a throwaway context when its browser is ephemeral. A host
+ * with no sessions stops its Chrome after the idle wait. A crashed browser is restarted and the
+ * thread's page reopened.
  */
 export class ChromeBackend implements BrowserBackend {
   readonly kind = "headless";
@@ -37,12 +47,40 @@ export class ChromeBackend implements BrowserBackend {
   /** Each running Chrome's video encoder, made when a viewer first asks for video. */
   private videos = new WeakMap<ChromeInstance, ChromeVideo>();
   private options: ChromeBackendOptions;
+  private encoderChrome: EncoderChrome | undefined;
   constructor(options: ChromeBackendOptions) {
     this.options = options;
   }
   /** Stops every browser this backend started. Sessions must be closed first. */
   async close(): Promise<void> {
-    await Promise.allSettled([...this.hosts.values()].map((host) => host.close()));
+    await Promise.allSettled([
+      ...[...this.hosts.values()].map((host) => host.close()),
+      this.encoderChrome?.close(),
+    ]);
+  }
+  /**
+   * Video for another backend's pages (ADR 0088, amended): a Chrome of ace's that only encodes
+   * the pictures it is given, started by the first capture and stopped once idle.
+   */
+  encoder(): VideoHost | undefined {
+    const encoder = this.options.encoder;
+    if (!encoder) return undefined;
+    this.encoderChrome ??= new EncoderChrome({
+      executable: (signal) => this.options.executable(signal),
+      profileDir: encoder.profileDir,
+      stagingDir: this.options.stagingDir(encoder.profileDir),
+      platform: this.options.platform,
+      launch: { ...this.options.launch, idleMs: encoder.idleMs },
+      cleanup: this.options.cleanup,
+    });
+    return this.encoderChrome.video;
+  }
+  /** A profile about to be deleted: its Chrome stops now rather than after the idle wait. */
+  async retireProfile(profileDir: string): Promise<void> {
+    const host = this.hosts.get(profileDir);
+    if (!host) return;
+    this.hosts.delete(profileDir);
+    await host.close();
   }
   private video(instance: ChromeInstance, profileDir: string): ChromeVideo {
     let video = this.videos.get(instance);
@@ -95,6 +133,14 @@ export class ChromeBackend implements BrowserBackend {
       const browserContextId = isolated
         ? await instance.targets.createContext(instance.stagingDir)
         : undefined;
+      // Sign-ins carried from the desktop go in before any tab loads (and again into the fresh
+      // context of a restarted browser).
+      if (request.cookies?.length)
+        await plantCookies(
+          (method, params) => instance.connection.send(method, params),
+          request.cookies,
+          browserContextId,
+        );
       current = { instance, browserContextId };
       void instance.exited.then((reason) => {
         if (current?.instance === instance && !signal.aborted) recover(reason);
@@ -195,9 +241,13 @@ export class ChromeBackend implements BrowserBackend {
         resize: (width, height, devicePixelRatio) =>
           tabs.resize(width, height, tabId(), devicePixelRatio),
         captureScale: () => tabs.captureScale(tabId()),
-        // A private context is another browser context: the video extension can't see its tabs.
-        video: () =>
-          isolated || !current ? undefined : this.video(current.instance, request.profileDir),
+        // A private context is another browser context the extension's tab capture can't see:
+        // its tabs' video comes from their screencast, encoded by the same extension.
+        video: () => {
+          if (!current) return undefined;
+          const video = this.video(current.instance, request.profileDir);
+          return isolated ? video.pictures() : video;
+        },
         emulate: (device) => tabs.emulate(device, tabId()),
         zoom: (factor) => tabs.zoom(factor, tabId()),
         clearData: () => clearHeadlessData(cdp(), tabs.origins()),

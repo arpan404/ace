@@ -3,7 +3,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BrowserService } from "../src/index.ts";
-import { Screencast } from "../src/cdp.ts";
 import { Recording } from "../src/recording.ts";
 import type { BrowserFrame } from "@ace/protocol";
 
@@ -15,30 +14,7 @@ try {
     data: "x".repeat(100_000),
     metadata: { deviceWidth: 1280, deviceHeight: 720 },
   };
-  const start = performance.now();
-  const iterations = 2000;
-  for (let i = 0; i < iterations; i++) {
-    const parsed = Screencast.parse(raw);
-    const frame: BrowserFrame = {
-      sequence: i,
-      timestamp: i,
-      data: parsed.data,
-      width: parsed.metadata.deviceWidth,
-      height: parsed.metadata.deviceHeight,
-    };
-    for (let viewer = 0; viewer < 8; viewer++) service.serializeFrame("bench", frame);
-  }
-  const elapsed = performance.now() - start;
-  console.log(
-    JSON.stringify({
-      path: "CDP validation and shared 100 KB JSON for eight viewers",
-      iterations,
-      opsPerSecond: Math.round((iterations / elapsed) * 1000),
-      microseconds: (elapsed * 1000) / iterations,
-      peakRssMiB: process.resourceUsage().maxRSS / 1024,
-    }),
-  );
-
+  // Recording is what still takes the JPEG screencast (live views are video, ADR 0088).
   const recording = await Recording.start(join(home, "recording"), undefined);
   const frame: BrowserFrame = {
     sequence: 0,

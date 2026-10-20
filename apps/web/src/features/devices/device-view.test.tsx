@@ -6,7 +6,7 @@ import { deviceBrowser, openDevice, openDevices } from "@/test/device-browser.ts
 const iphoneId = "ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b";
 let browser: ReturnType<typeof deviceBrowser>;
 beforeEach(() => {
-  browser = deviceBrowser("none");
+  browser = deviceBrowser("decodes");
 });
 afterEach(() => {
   browser.restore();

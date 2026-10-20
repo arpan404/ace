@@ -23,6 +23,8 @@ export async function startUserBrowser(context: ServiceContext): Promise<void> {
         return () => clearTimeout(timer);
       },
     },
+    // ace's browser service starts later; its encoder is looked up when a viewer first needs it.
+    videoEncoder: () => context.services.browser?.videoEncoder(),
     ...context.options.userBrowser,
   });
   context.resources.own(() => service.close());

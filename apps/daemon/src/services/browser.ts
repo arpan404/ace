@@ -18,6 +18,8 @@ import {
 import { desktopCredential } from "../browser-desktop.ts";
 import { daemonDownloadFolder, downloadsHost } from "../download-folder.ts";
 import { BrowserForget } from "../browser-forget.ts";
+import { chooseProfileScope, projectProfileScope } from "../browser-profile-scope.ts";
+import { BrowserProjectForget } from "../browser-forget-projects.ts";
 import { SqliteBrowserTabStore } from "../browser-tab-store.ts";
 import { watchBrowserTurns, type BrowserTurnPort } from "../browser-turns.ts";
 import type { ServiceContext } from "./types.ts";
@@ -27,6 +29,7 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
 
   await desktopCredential(config.dataDir, store.devices, now);
   let forget: BrowserForget | undefined;
+  let projectForget: BrowserProjectForget | undefined;
   const workspaceRoot: BrowserServiceOptions["workspaceRoot"] =
     options.browser?.workspaceRoot ??
     ((threadId) => {
@@ -106,6 +109,17 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
             )
           )?.value ?? "persistent",
         )),
+    // A project's choice in Edit project comes before the setting; a thread's own setting first.
+    profileScope:
+      options.browser?.profileScope ??
+      (async (open) =>
+        chooseProfileScope(
+          await services.settings?.get(
+            "browser.profileScope",
+            settingsScope(store, { threadId: open.threadId, workspaceId: open.workspaceId }),
+          ),
+          projectProfileScope(store, open.workspaceId),
+        )),
     // ace's Chrome saves downloads in the folder chosen for this daemon, else this machine's
     // Downloads folder; read per download, so a change applies to the next one. Global only:
     // a project's settings file must not send downloads into another folder.
@@ -117,6 +131,7 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
       }),
     onEmbeddedRegistered: () => {
       void forget?.flush().catch((error: unknown) => context.log.log("warn", String(error)));
+      void projectForget?.flush();
       options.browser?.onEmbeddedRegistered?.();
     },
     backendLoss:
@@ -191,6 +206,12 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
     forgetFailed,
   );
   resources.own(() => forget?.close());
+  // A removed project's own profile goes (the Projects service reports removals).
+  projectForget = new BrowserProjectForget(store, browser, (error) =>
+    context.log.log("warn", `Browser cleanup for a removed project: ${String(error)}`),
+  );
+  resources.own(() => projectForget?.close());
+  services.browserProjects = projectForget;
   const turns: BrowserTurnPort[] = [browser];
   if (services.userBrowserSessions) turns.push(services.userBrowserSessions);
   resources.own(
@@ -212,7 +233,6 @@ export function createBrowserSession(context: SocketContext): SocketService {
   let stopRevocation: (() => void) | undefined;
   const browser = connectBrowser(options.browser, {
     connectionId: sessionId,
-    local: context.local ?? false,
     authorize: (threadId, workspaceId, access) => {
       const id = ThreadId.parse(threadId);
       const thread = options.store.getThread(id);
@@ -242,6 +262,8 @@ export function createBrowserSession(context: SocketContext): SocketService {
     },
   });
   return {
+    // The desktop's video encoder events (ADR 0088), once it registered as the backend.
+    binary: (frame) => backend?.binary(frame) ?? false,
     close() {
       stopRevocation?.();
       backend?.disconnect("Desktop app disconnected");
@@ -271,6 +293,7 @@ export function createBrowserSession(context: SocketContext): SocketService {
                 return true;
               },
               close: (reason) => socket.close(4009, reason.slice(0, 120)),
+              video: backendMessage.data.capabilities.video === true,
             });
             stopRevocation = options.store.devices.onRevoke((id) => {
               if (id === device) backend?.disconnect("Desktop credential revoked");
@@ -287,6 +310,10 @@ export function createBrowserSession(context: SocketContext): SocketService {
             // The desktop's computer woke: check every engine, ace's Chrome included (#947).
             if (!backend) throw new Error("Desktop backend not registered");
             options.browser?.wake();
+          } else if (backendMessage.data.type === "browser.backend.drawable") {
+            // The desktop's screen locked or unlocked: while it can't draw, its pages move.
+            if (!backend) throw new Error("Desktop backend not registered");
+            options.browser?.desktopDrawable(backendMessage.data.drawable);
           } else {
             if (!backend) throw new Error("Desktop backend not registered");
             backend.handle(backendMessage.data);

@@ -1,8 +1,9 @@
 import Foundation
 
 /// One picture of a simulator's or emulator's screen (stream kind 4, `@ace/browser`'s
-/// `stream-picture.ts`): a JPEG, or one H.264 access unit in Annex B with its parameter sets in
-/// front of every keyframe. Header, big-endian:
+/// `stream-picture.ts`): one H.264 access unit in Annex B with its parameter sets in front of
+/// every keyframe, or a JPEG still (a screenshot). Live views are H.264 at 60 fps only; a view
+/// draws `isLiveVideo` pictures and never a JPEG. Header, big-endian:
 ///
 ///     0  f64  sequence (per capture, acked cumulatively)
 ///     8  f64  timestamp (ms)
@@ -10,7 +11,7 @@ import Foundation
 ///     18 u16  height
 ///     20 f32  scale (picture pixels per device point)
 ///     24 u16  rotation (degrees clockwise that show the picture upright)
-///     26 u8   flags: bit 0 keyframe (every JPEG is one)
+///     26 u8   flags: bit 0 keyframe (every JPEG is one); bit 1 still (a screenshot, never acked)
 ///     27 u8   codec length, then its ASCII (`jpeg` or `avc1.PPCCLL`)
 ///     ..  u16  source id length, then its UTF-8 (the device id)
 ///     ..  u16  stream id length, then its UTF-8 (the capture)
@@ -26,8 +27,13 @@ struct DeviceFrameChunk: Equatable, Sendable {
     let codec: String
     let key: Bool
     let bytes: Data
+    /// A one-shot screenshot, outside the live view's ack window.
+    var still = false
 
     var isJPEG: Bool { codec == "jpeg" }
+    /// A picture a live view draws: H.264 that isn't a still. A JPEG live picture (an older
+    /// daemon's) is never drawn.
+    var isLiveVideo: Bool { !isJPEG && !still }
 
     /// A device picture from its envelope's header and payload; throws on anything malformed,
     /// as the daemon's own reader does.
@@ -60,7 +66,7 @@ struct DeviceFrameChunk: Equatable, Sendable {
         return DeviceFrameChunk(
             deviceId: deviceId, streamId: streamId, sequence: Int(sequence), timestamp: timestamp,
             width: width, height: height, scale: scale, rotation: rotation, codec: codec,
-            key: codec == "jpeg" || reader.u8(26) & 1 == 1, bytes: payload)
+            key: codec == "jpeg" || reader.u8(26) & 1 == 1, bytes: payload, still: reader.u8(26) & 2 == 2)
     }
 
     private static func text(_ bytes: Data) throws -> String {

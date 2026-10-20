@@ -56,7 +56,7 @@ export interface PageMenu {
 const icon = (glyph: typeof CopyIcon) => <Icon icon={glyph} />;
 
 /**
- * The right-click menu over a page drawn by ace (the screencast): the link or image under the
+ * The right-click menu over a page drawn by ace (its live video): the link or image under the
  * pointer first, as a browser's menu has them. The desktop's own pages get
  * the native menu instead (`apps/desktop/src/main/browser/context-menu.ts`); both offer the same
  * history, editing and page tools, in the same order.

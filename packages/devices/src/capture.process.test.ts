@@ -37,12 +37,7 @@ process.stdin.on("data",chunk=>{
   for(const byte of chunk){
     if(byte===1) process.stdout.write(image.subarray(0,image.length-1),()=>process.stderr.write("prefix\\n"));
     if(byte===2) process.stdout.write(image.subarray(image.length-1));
-    if(byte===3) {
-      if(process.argv.includes("copy")) {
-        const nal=(...data)=>Buffer.from([0,0,0,1,...data]);
-        process.stdout.write(Buffer.concat([nal(9,240),nal(103,66,224,31),nal(104,1),nal(101,3),nal(9,240),nal(65,4),nal(9,240),nal(65,5)]));
-      } else process.stdout.write(image);
-    }
+    if(byte===3) process.stdout.write(image);
   }
 });
 process.stdin.on("end",()=>process.exit(process.env.MODE==="endfailure"?7:0));`,
@@ -522,21 +517,26 @@ it("an Android transport changing during dimension lookup cannot start a capture
   await expect(fixture("dimensionmove")).rejects.toMatchObject({ code: "not_found" });
 });
 
-it("Android video requests keep independent JPEG frames and a keyframe request preserves the pipeline", async () => {
+it("screenrecord refuses a live view's video, saying why scrcpy didn't start, and keeps its JPEG pipeline", async () => {
   const f = await fixture();
   const settings = {
     codec: "h264" as const,
     maxWidth: 640,
     maxHeight: 1280,
-    fps: 10,
+    fps: 60,
     bitrate: 4000000,
   };
-  expect(await f.capture.configure?.(settings)).toEqual({ codec: "jpeg" });
+  await expect(f.capture.configure?.(settings)).rejects.toMatchObject({
+    code: "not_supported",
+    message: expect.stringContaining("scrcpy-server"),
+  });
   f.send(3);
   const first = await f.frame();
   const running = f.inputs.at(-1);
   await f.capture.keyframe?.();
-  await f.capture.configure?.({ ...settings });
+  await expect(f.capture.configure?.({ ...settings })).rejects.toMatchObject({
+    code: "not_supported",
+  });
   f.send(3);
   const second = await f.frame();
   expect(first.header.codec).toBe("jpeg");

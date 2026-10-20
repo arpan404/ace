@@ -5,7 +5,7 @@ import { deviceBrowser, openDevice, openDevices, unusable } from "@/test/device-
 
 let browser: ReturnType<typeof deviceBrowser>;
 beforeEach(() => {
-  browser = deviceBrowser("none");
+  browser = deviceBrowser("decodes");
 });
 afterEach(() => {
   browser.restore();

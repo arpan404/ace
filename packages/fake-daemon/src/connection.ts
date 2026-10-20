@@ -42,8 +42,14 @@ export interface Host {
   fault?(type: ClientMessage["type"]): "fail" | "hold" | { code: string } | undefined;
   /** Catalog request/response services; false when the message isn't one of them. */
   service(message: ClientMessage, connection: Connection): boolean;
-  /** This socket's stateful services (context, terminals, browser, plugins, planning). */
-  session(send: (message: ServerMessage) => void): FakeWireSession;
+  /**
+   * This socket's stateful services (context, terminals, browser, plugins, planning); `binary`
+   * sends a binary stream piece where the socket carries them.
+   */
+  session(
+    send: (message: ServerMessage) => void,
+    binary?: (bytes: Uint8Array) => void,
+  ): FakeWireSession;
   release(connection: Connection): void;
   /**
    * Commands run across this host's sockets, for `command.status`. A host without it answers
@@ -54,6 +60,8 @@ export interface Host {
 /** The socket half the connection writes to. Delivery is asynchronous, like a real socket. */
 export interface Wire {
   send(text: string): void;
+  /** A binary stream piece (`@ace/browser/stream`); absent: the socket carries text only. */
+  binary?(bytes: Uint8Array): void;
   close(code: number): void;
 }
 interface Subscription {
@@ -87,7 +95,14 @@ export class Connection {
   constructor(host: Host, wire: Wire) {
     this.host = host;
     this.wire = wire;
-    this.session = host.session(this.push);
+    const binary = wire.binary?.bind(wire);
+    this.session = host.session(
+      this.push,
+      binary &&
+        ((bytes) => {
+          if (!this.closed) binary(bytes);
+        }),
+    );
     this.flights = host.commandFlights ?? new CommandFlights();
   }
   receive(text: string): void {

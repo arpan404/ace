@@ -2,16 +2,22 @@ import { BrowserOriginError } from "@ace/browser/policy";
 import { BrowserState, type BrowserClientMessage, type ServerMessage } from "@ace/protocol";
 import type { FakeBrowser } from "./browser.ts";
 import { fakeScreenshotSet } from "./browser-captures.ts";
+import { fakeVideoChunk, fakeVideoCodec } from "./browser-video.ts";
 import type { FakeServiceContext } from "./service-context.ts";
 
-/** The fixture emits data URLs for its synthetic SVG frames, with the same ACK lifetime. */
+/**
+ * The fixture emits data URLs for its synthetic SVG frames, with the same ACK lifetime: as JSON
+ * frames, or as video chunks to a viewer that asked for video on a socket with binary messages.
+ */
 export function fakeBrowserSession(
   browser: FakeBrowser,
   host: FakeServiceContext,
   send: (message: ServerMessage) => void,
   connectionId: string,
+  binary?: (bytes: Uint8Array) => void,
 ) {
   const recording = new Set<string>();
+  let streamIds = 0;
   const stopAnnotations = browser.annotations.connect(connectionId, send);
   const subscriptions = new Map<
     string,
@@ -20,6 +26,8 @@ export function fakeBrowserSession(
       pump(): void;
       subscribers: Set<string>;
       generation: number;
+      /** The codec of a viewer that takes video. */
+      video?: string;
       sent?: number;
       ack?: number;
     }
@@ -246,11 +254,14 @@ export function fakeBrowserSession(
         case "browser.subscribe": {
           if (!browser.view(id) || browser.view(id)?.closed) throw new Error("browser_not_open");
           const subscriber = message.subscriberId ?? "legacy";
+          const video = binary ? fakeVideoCodec(message.video) : undefined;
           const existing = subscriptions.get(id);
           if (existing) {
             if (existing.subscribers.size >= 64 && !existing.subscribers.has(subscriber))
               throw new Error("subscription_limit");
             existing.subscribers.add(subscriber);
+            if (video) existing.video = video;
+            else delete existing.video;
             delete existing.sent;
             delete existing.ack;
             existing.pump();
@@ -262,11 +273,13 @@ export function fakeBrowserSession(
             pump(): void;
             subscribers: Set<string>;
             generation: number;
+            video?: string;
             sent?: number;
             ack?: number;
           } = {
             subscribers: new Set([subscriber]),
             generation: browser.generation(id),
+            ...(video ? { video } : {}),
             stop: noop,
             pump() {
               if (!host.thread(id)) {
@@ -288,6 +301,17 @@ export function fakeBrowserSession(
                 (entry.sent === undefined || entry.sent === entry.ack)
               ) {
                 entry.sent = frame.sequence;
+                if (entry.video && binary) {
+                  for (const piece of fakeVideoChunk(
+                    ++streamIds,
+                    id,
+                    frame,
+                    entry.video,
+                    host.now(),
+                  ))
+                    binary(piece);
+                  return;
+                }
                 send({
                   type: "browser.frame",
                   threadId: id,

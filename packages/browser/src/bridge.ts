@@ -9,7 +9,7 @@ import {
   type DeviceScope,
 } from "@ace/protocol";
 import type { BrowserService } from "./service.ts";
-import type { CaptureViewer } from "./fanout.ts";
+import type { CaptureViewer } from "./viewer-sink.ts";
 import { downloadBusy, encodeDownloadChunk } from "./stream-download.ts";
 
 type BrowserAccess = Extract<DeviceScope, "read" | "operate">;
@@ -51,7 +51,6 @@ export function connectBrowser(
   service: BrowserService,
   options: {
     connectionId: string;
-    local?: boolean;
     authorize: (
       threadId: string,
       workspaceId: string | undefined,
@@ -89,44 +88,27 @@ export function connectBrowser(
     entry.stop = service.subscribe(
       threadId,
       options.connectionId,
-      {
-        send: (frame) =>
-          entry.binary && sendStream
-            ? sendStream(service.streamFrame(threadId, frame))
-            : options.send(
-                { type: "browser.frame", threadId: ThreadId.parse(threadId), frame },
-                service.serializeFrame(threadId, frame),
-              ),
-        ...(sendStream
-          ? {
-              video: {
-                send: (chunk) =>
-                  entry.binary && entry.video !== undefined
-                    ? sendStream(service.streamVideo(threadId, chunk))
-                    : false,
-              },
-              audio: {
-                send: (chunk) =>
-                  entry.binary && entry.video !== undefined
-                    ? sendStream(service.streamAudio(threadId, chunk))
-                    : false,
-              },
-            }
-          : {}),
-      },
+      sendStream
+        ? {
+            video: {
+              send: (chunk) =>
+                entry.binary && entry.video !== undefined
+                  ? sendStream(service.streamVideo(threadId, chunk))
+                  : false,
+            },
+            audio: {
+              send: (chunk) =>
+                entry.binary && entry.video !== undefined
+                  ? sendStream(service.streamAudio(threadId, chunk))
+                  : false,
+            },
+          }
+        : {},
       (state) => options.send({ type: "browser.state", state }),
       (event) => options.send(event),
       capture,
     );
   };
-  const viewer = (
-    viewport: BrowserCaptureViewport,
-    video: BrowserVideoRequest | undefined,
-  ): CaptureViewer => ({
-    viewport,
-    local: options.local ?? false,
-    ...(video ? { video } : {}),
-  });
   let pending = 0;
   let closed = false;
   // Download chunks' stream message ids, apart from the service's frame ids.
@@ -375,6 +357,7 @@ export function connectBrowser(
             break;
           }
           case "browser.ack":
+            // Live views are video only: an ack without `video` names nothing the daemon sent.
             if (message.video)
               service.acknowledgeVideo(
                 threadId,
@@ -382,7 +365,6 @@ export function connectBrowser(
                 message.sequence,
                 message.keyframe === true,
               );
-            else service.acknowledge(threadId, options.connectionId, message.sequence);
             break;
           case "browser.recording.start":
             await service.startRecording(threadId, {
@@ -423,4 +405,11 @@ export function connectBrowser(
       service.disconnect(options.connectionId);
     },
   };
+}
+
+function viewer(
+  viewport: BrowserCaptureViewport,
+  video: BrowserVideoRequest | undefined,
+): CaptureViewer {
+  return { viewport, ...(video ? { video } : {}) };
 }

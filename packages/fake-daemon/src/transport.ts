@@ -20,6 +20,10 @@ export function fakeTransport(daemon: { connect(wire: Wire): Connection }): Tran
           queueMicrotask(() => {
             if (live) events.message(text);
           }),
+        binary: (bytes) =>
+          queueMicrotask(() => {
+            if (live) events.binary?.(bytes);
+          }),
         close: (code) =>
           queueMicrotask(() => {
             if (!live) return;

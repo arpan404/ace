@@ -3,10 +3,9 @@ import { BrowserState, DeviceId, ServerMessage } from "@ace/protocol";
 import { waitFor } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { Client, type OneWayMessage } from "@ace/client";
-import { FrameFanout } from "@ace/browser";
 import { memoryStorage } from "@/boot/client.ts";
 import { daemonPreview } from "./daemon-preview.ts";
-import type { DecodedFrame } from "./frames.ts";
+import { heldDecoder, playsH264 } from "./video-test-support.ts";
 
 const ignoreMessage = () => {};
 const clients: Client[] = [];
@@ -14,6 +13,10 @@ afterEach(async () => {
   await Promise.all(clients.splice(0).map((client) => client.close()));
 });
 
+/**
+ * A preview over the fake daemon's video, with a decoder that holds every chunk until the test
+ * lets it out, so a picture can land after its stream started over.
+ */
 async function setup() {
   const daemon = new FakeDaemon({ clock: () => 1000 });
   new ScenarioPlayer(daemon, failingSubagent()).step();
@@ -41,8 +44,7 @@ async function setup() {
   client.onMessage = (listener) => {
     receive = listener;
     return onMessage((message) => {
-      if (!quiet || (message.type !== "browser.frame" && message.type !== "browser.state"))
-        listener(message);
+      if (!quiet || message.type !== "browser.state") listener(message);
     });
   };
   const sent: OneWayMessage[] = [];
@@ -51,63 +53,42 @@ async function setup() {
     sent.push(message);
     send(message);
   };
-  const decodes = new Map<string, ReturnType<typeof Promise.withResolvers<DecodedFrame>>>();
-  const released: string[] = [];
+  const decoder = heldDecoder();
   let visible = true;
+  /** The view's next retry, fired by hand. */
+  let retry: (() => void) | undefined;
   const source = daemonPreview(client, {
-    schedule: () => () => {},
-    visibility: { visible: () => visible, watch: () => () => {} },
-    decode: (picture) => {
-      const data = typeof picture === "string" ? picture : "binary";
-      if (!data.startsWith("pending-")) return Promise.resolve({ src: data, release() {} });
-      const decode = Promise.withResolvers<DecodedFrame>();
-      decodes.set(data, decode);
-      return decode.promise;
+    schedule: (callback) => {
+      retry = callback;
+      return () => {
+        if (retry === callback) retry = undefined;
+      };
     },
+    visibility: { visible: () => visible, watch: () => () => {} },
+    videoDecoder: decoder.factory,
+    videoSupport: playsH264,
   });
   const threadId = "thread-settings";
   const stop = source.watch(threadId);
   await source.open(threadId, failingSubagent().thread.workspaceId);
-  await waitFor(() => expect(source.frame(threadId)).toBeDefined());
-  const frame = (data: string, sequence = 100) =>
-    receive(
-      ServerMessage.parse({
-        type: "browser.frame",
-        threadId,
-        frame: { data, sequence, timestamp: 1000, width: 100, height: 100 },
-      }),
-    );
-  const finish = async (data: string, failed = false) => {
-    const decode = decodes.get(data);
-    if (!decode) throw new Error("No pending decode");
-    if (failed) decode.reject(new Error("decode failed"));
-    else
-      decode.resolve({
-        src: data,
-        release: () => {
-          released.push(data);
-        },
-      });
-    await Promise.resolve();
-  };
+  await waitFor(() => expect(decoder.decoders.at(-1)?.pending.length).toBe(1));
+  const acks = () => sent.filter((message) => message.type === "browser.ack");
   return {
     daemon,
     source,
     client,
     threadId,
     stop,
-    frame,
-    finish,
-    sent,
-    released,
+    decoder,
+    acks,
     receive,
     hide: () => {
       visible = false;
     },
+    retry: () => retry?.(),
     quiet: () => {
       quiet = true;
     },
-    decoding: (data: string) => decodes.has(data),
   };
 }
 
@@ -115,6 +96,7 @@ test.each(["paused", "recovering", "backend replacement"])(
   "removing the last watcher while hidden after %s leaves room for eight later previews",
   async (transition) => {
     const t = await setup();
+    t.decoder.decoders.at(-1)?.flush();
     await t.client.request({ type: "browser.tabs.list", threadId: t.threadId });
     const previous = t.source.view(t.threadId);
     t.quiet();
@@ -136,7 +118,8 @@ test.each(["paused", "recovering", "backend replacement"])(
         status: transition === "backend replacement" ? "ready" : transition,
       }),
     });
-    expect(t.source.frame(t.threadId)).toBeUndefined();
+    // The page's last picture stays while its stream starts over.
+    expect(t.source.frame(t.threadId)).toBeDefined();
     t.stop();
     // Drain last-watcher cleanup through the real client/daemon connection.
     await Promise.resolve();
@@ -155,10 +138,10 @@ test.each(["paused", "recovering", "backend replacement"])(
 );
 
 test.each(["local close", "remote close", "unwatch", "disconnect"])(
-  "%s fences a late frame with the same sequence as the replacement",
+  "after %s, a picture the old stream's decoder still held is freed unshown and never acked",
   async (transition) => {
     const t = await setup();
-    t.frame("pending-old");
+    const old = t.decoder.decoders.at(-1);
     if (transition === "local close") {
       await t.source.close(t.threadId);
       await t.source.open(t.threadId, failingSubagent().thread.workspaceId);
@@ -181,6 +164,8 @@ test.each(["local close", "remote close", "unwatch", "disconnect"])(
           closed: false,
         }),
       });
+      // The view asks again on its next retry.
+      t.retry();
     } else if (transition === "unwatch") {
       t.stop();
       await Promise.resolve();
@@ -190,116 +175,74 @@ test.each(["local close", "remote close", "unwatch", "disconnect"])(
       t.client.networkOnline(true);
       await waitFor(() => expect(t.client.state).toBe("ready"));
     }
+    // The new stream starts from a keyframe in a new decoder.
+    await waitFor(() => {
+      expect(t.decoder.decoders.at(-1)).not.toBe(old);
+      expect(t.decoder.decoders.at(-1)?.pending.length).toBeGreaterThan(0);
+    });
+    // Whatever else the reopened browser says has arrived.
     await t.client.request({ type: "browser.tabs.list", threadId: t.threadId });
-    await Promise.resolve();
-    t.frame("pending-new");
-    await t.finish("pending-new");
-    const acks = t.sent.filter((message) => message.type === "browser.ack").length;
-    await t.finish("pending-old");
-    expect(t.source.frame(t.threadId)?.src).toBe("pending-new");
-    expect(t.released).toContain("pending-old");
-    expect(t.released).not.toContain("pending-new");
-    expect(t.sent.filter((message) => message.type === "browser.ack")).toHaveLength(acks);
+    const current = t.decoder.decoders.at(-1);
+    const before = t.acks().length;
+    old?.flush();
+    expect(t.decoder.pictures.at(-1)?.closed).toBe(true);
+    expect(t.source.frame(t.threadId)).toBeUndefined();
+    expect(t.acks()).toHaveLength(before);
+    current?.flush();
+    // (The fixture sends its current picture again on each subscribe; one of them shows.)
+    const shown = t.decoder.pictures.findLast((picture) => !picture.closed);
+    expect(shown).toBeDefined();
+    expect(t.source.frame(t.threadId)?.sequence).toBe(shown?.sequence);
+    expect(t.acks().at(-1)).toMatchObject({ sequence: shown?.sequence, video: true });
   },
 );
 
-test("an obsolete decode failure cannot acknowledge the replacement browser's frame", async () => {
+test("an old stream's decode error can't ask the new stream for a keyframe", async () => {
   const t = await setup();
-  t.frame("pending-old");
+  const old = t.decoder.decoders.at(-1);
   await t.source.close(t.threadId);
   await t.source.open(t.threadId, failingSubagent().thread.workspaceId);
-  await t.client.request({ type: "browser.tabs.list", threadId: t.threadId });
-  await Promise.resolve();
-  t.frame("pending-new");
-  const acks = t.sent.filter((message) => message.type === "browser.ack").length;
-  await t.finish("pending-old", true);
-  expect(t.sent.filter((message) => message.type === "browser.ack")).toHaveLength(acks);
-  await t.finish("pending-new");
-  expect(t.source.frame(t.threadId)?.src).toBe("pending-new");
-  expect(t.sent.at(-1)).toMatchObject({ type: "browser.ack", sequence: 100 });
+  await waitFor(() => expect(t.decoder.decoders.at(-1)).not.toBe(old));
+  const before = t.acks().length;
+  old?.fail();
+  expect(t.acks()).toHaveLength(before);
+  t.decoder.decoders.at(-1)?.flush();
+  expect(t.acks().at(-1)).toMatchObject({ video: true });
+  expect(t.acks().at(-1)).not.toHaveProperty("keyframe");
 });
 
 test.each(["backend replacement", "recovery"])(
-  "a frame delivered before %s state is replayed and later frames keep flowing",
+  "after %s, the view subscribes again and the page's pictures keep flowing",
   async (transition) => {
     const t = await setup();
-    t.quiet();
-    const state = BrowserState.parse({
-      threadId: t.threadId,
-      url: "about:blank",
-      controller: "agent",
-      closed: false,
-      backend: transition === "backend replacement" ? "embedded" : "headless",
-      status: "ready",
+    t.decoder.decoders.at(-1)?.flush();
+    const previous = t.source.view(t.threadId);
+    const decodersBefore = t.decoder.decoders.length;
+    t.receive({
+      type: "browser.state",
+      state: BrowserState.parse({
+        threadId: t.threadId,
+        url: previous?.url ?? "about:blank",
+        controller: "agent",
+        closed: false,
+        activeTabId: previous?.activeTabId,
+        backend:
+          transition === "backend replacement"
+            ? previous?.backend === "embedded"
+              ? "headless"
+              : "embedded"
+            : previous?.backend,
+        status: transition === "recovery" ? "recovering" : "ready",
+      }),
     });
-    t.receive({ type: "browser.state", state });
-    t.stop();
-    await t.client.request({ type: "browser.tabs.list", threadId: t.threadId });
-    const fanout = new FrameFanout();
-    const publish = (sequence: number, data: string) =>
-      fanout.publish({
-        sequence,
-        data,
-        timestamp: 1000,
-        width: 100,
-        height: 100,
-      });
-    publish(100, "pending-before-state");
-    const replayStarted = Promise.withResolvers<void>();
-    const resumeReplay = Promise.withResolvers<void>();
-    let subscribed = false;
-    let stopFrames = ignoreMessage;
-    const request = t.client.request.bind(t.client);
-    t.client.request = async (input, options) => {
-      if (input.type === "browser.subscribe" && subscribed) {
-        replayStarted.resolve();
-        await resumeReplay.promise;
-      }
-      const result = await request(input, options);
-      if (input.type === "browser.subscribe") {
-        subscribed = true;
-        stopFrames();
-        stopFrames = fanout.subscribe("viewer", {
-          send: (frame) => {
-            t.receive({ type: "browser.frame", threadId: state.threadId, frame });
-            return true;
-          },
-        });
-        // This is the production initial subscription/recovery order.
-        t.receive({
-          type: "browser.state",
-          state: {
-            ...state,
-            backend: "headless",
-            status: transition === "recovery" ? "recovering" : "ready",
-          },
-        });
-      }
-      return result;
-    };
-    const send = t.client.send.bind(t.client);
-    t.client.send = (message) => {
-      if (message.type === "browser.ack") fanout.acknowledge("viewer", message.sequence);
-      else send(message);
-    };
-    const stop = t.source.watch(t.threadId);
-    try {
-      await replayStarted.promise;
-      await t.finish("pending-before-state");
-      expect(t.released).toContain("pending-before-state");
-      publish(101, "pending-replayed");
-      resumeReplay.resolve();
-      await waitFor(() => expect(t.decoding("pending-replayed")).toBe(true));
-      await t.finish("pending-replayed");
-      expect(t.source.frame(t.threadId)?.src).toBe("pending-replayed");
-      publish(102, "pending-following");
-      await waitFor(() => expect(t.decoding("pending-following")).toBe(true));
-      await t.finish("pending-following");
-      expect(t.source.frame(t.threadId)?.src).toBe("pending-following");
-    } finally {
-      resumeReplay.resolve();
-      stopFrames();
-      stop();
-    }
+    // The new subscription's first keyframe goes to a new decoder.
+    await waitFor(() => expect(t.decoder.decoders.length).toBeGreaterThan(decodersBefore));
+    t.decoder.decoders.at(-1)?.flush();
+    t.daemon.browser.type(t.threadId, "after the restart");
+    const latest = t.daemon.browser.frame(t.threadId)?.sequence;
+    await waitFor(() => {
+      t.decoder.decoders.at(-1)?.flush();
+      expect(t.source.frame(t.threadId)?.sequence).toBe(latest);
+    });
   },
 );

@@ -70,7 +70,12 @@ async function daemonSocket(hub: UserChromeHub, cleanups: Cleanups) {
  * The person's browser with ace for Chrome loaded unpacked and the real native host registered
  * under its profile, connected to a daemon-side hub.
  */
-export async function connectedBrowser(chromePath: string, cleanups: Cleanups) {
+export async function connectedBrowser(
+  chromePath: string,
+  cleanups: Cleanups,
+  /** More flags for the person's browser. */
+  chromeArgs: readonly string[] = [],
+) {
   const root = await mkdtemp(join(tmpdir(), "ace-my-chrome-"));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   const dataDir = join(root, "ace");
@@ -112,7 +117,7 @@ export async function connectedBrowser(chromePath: string, cleanups: Cleanups) {
     // A browser started with --user-data-dir reads hosts only from its own profile.
     extraDirs: [join(userDataDir, "NativeMessagingHosts")],
   });
-  const chrome = await launchTestChrome(chromePath, userDataDir);
+  const chrome = await launchTestChrome(chromePath, userDataDir, chromeArgs);
   cleanups.push(() => chrome.close());
   const loaded = z
     .object({ id: z.string() })

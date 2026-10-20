@@ -243,6 +243,8 @@ import CryptoKit
     }
     /// Where this runtime's sockets deliver browser pictures (`ClientModel+Browser.swift`).
     var browserStreams: BrowserStreamHub? { runtime?.browserStreams }
+    /// The runtime the live browser's acknowledgements go to, straight from its decoding queue.
+    var browserSession: (any ClientSession)? { runtime }
     /// A sheet action for the open thread (`bridge/sheets.ts`).
     @discardableResult func sheet(_ value: [String: Any]) -> Bool { action(["type": "sheet", "action": value]) }
     /// Durable stop through the SDK's outbox: true once admitted on this device. `agentId` nil
@@ -296,8 +298,13 @@ import CryptoKit
         return dispatched
     }
     @discardableResult func action(_ value: [String: Any]) -> Bool {
-        guard let runtime, let data = try? JSONSerialization.data(withJSONObject: value) else { return false }
-        runtime.invoke("aceAction", json: String(decoding: data, as: UTF8.self))
+        guard let runtime else { return false }
+        return Self.action(value, to: runtime)
+    }
+    /// A bridge action from any thread; the session's VM thread runs actions in the order sent.
+    @discardableResult nonisolated static func action(_ value: [String: Any], to session: any ClientSession) -> Bool {
+        guard let data = try? JSONSerialization.data(withJSONObject: value) else { return false }
+        session.invoke("aceAction", json: String(decoding: data, as: UTF8.self))
         return true
     }
     func disconnectAndWait() async {

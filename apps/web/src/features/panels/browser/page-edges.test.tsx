@@ -2,10 +2,12 @@ import { coldStartReplay, seedPanels } from "@ace/fake-daemon";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { browserVideo } from "@/test/browser-video.ts";
 import { harness } from "@/test/harness.tsx";
 
 const thread = "thread-cold-start";
 async function openBrowser() {
+  browserVideo();
   const app = harness();
   const scenario = coldStartReplay();
   app.play(scenario).step();

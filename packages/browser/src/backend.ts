@@ -43,6 +43,11 @@ export interface VideoCaptureHandle {
   keyframe(encode: string): void;
   /** Encode the tab's sound too (ADR 0088, Audio), or stop; it starts off. */
   audio?(on: boolean): void;
+  /**
+   * Present on a capture fed by the page's own screencast (a tab the encoder can't capture):
+   * the live capture keeps its screencast running at this size and hands every frame here.
+   */
+  pictures?: { width: number; height: number; push(base64: string): void };
   close(): void;
 }
 /** An engine's video encoder (ADR 0088): what a live capture needs to stream a tab as video. */
@@ -104,6 +109,12 @@ export interface BackendOpen {
    * ids (the desktop's views) ignores it; the thread browser then keeps what the backend reports.
    */
   restoreTabs?: readonly BackendRestoreTab[];
+  /**
+   * Sign-ins brought from another backend (the desktop's partition, when its screen locked):
+   * set in the page's browser context before any tab loads. A backend that has no context of
+   * its own to set them in (the desktop's views) ignores it.
+   */
+  cookies?: readonly import("./cookie-carry.ts").CarriedCookie[];
   /** Most tabs one thread may hold in this backend, popups included. */
   maxTabs?: number;
   changed?(): void;
@@ -114,6 +125,11 @@ export interface BackendOpen {
   downloadAllowed?(url: string): Promise<boolean>;
   artifact?(artifact: import("@ace/protocol").BrowserArtifact): void | Promise<void>;
   profileDir: string;
+  /**
+   * Which kept profile `profileDir` is (`browser.profileScope`). The desktop picks the matching
+   * partition; ace's Chrome needs only `profileDir`.
+   */
+  profileScope?: import("@ace/protocol").BrowserProfileScope;
   signal: AbortSignal;
   allowed(url: string, context?: { navigation?: boolean; human?: boolean }): Promise<boolean>;
   /** A page event submits navigation through the session owner before asking for approval. */
@@ -252,8 +268,10 @@ export interface BrowserBackendPage {
    */
   captureScale?(): number;
   /**
-   * The engine's video encoder for this page's tab (ADR 0088). Absent, or undefined: remote
-   * viewers take JPEG frames (the desktop's views, the person's Chrome, private contexts).
+   * The video encoder for this page's tab (ADR 0088): the engine's own, or one fed the page's
+   * screencast (private contexts, the person's Chrome). Absent, or undefined: remote viewers
+   * get no live picture (a desktop without the `video` capability, Use my Chrome without ace's
+   * Chrome).
    */
   video?(): VideoHost | undefined;
   viewport(): { width: number; height: number };
@@ -306,4 +324,9 @@ export interface BrowserBackend {
   /** `user`: the person's own browser through the ace extension (ADR 0084). */
   readonly kind: "embedded" | "headless" | "user";
   open(request: BackendOpen): Promise<BrowserBackendSession>;
+  /**
+   * The profile at `profileDir` is about to be deleted: stop the browser running in it, if
+   * any. Sessions using it were closed first.
+   */
+  retireProfile?(profileDir: string): Promise<void>;
 }

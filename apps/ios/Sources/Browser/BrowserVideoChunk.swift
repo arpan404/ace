@@ -1,23 +1,5 @@
 import Foundation
 
-/// One JPEG screencast frame (stream kind 1). Header, big-endian:
-///
-///     0  f64  sequence
-///     8  f64  timestamp
-///     16 u32  width (CSS pixels)
-///     20 u32  height
-///     24 u16  thread id length, then its UTF-8
-///     ..  u16  tab id length (0: none), then its UTF-8
-struct BrowserJPEGFrame: Equatable, Sendable {
-    let threadId: String
-    let sequence: Int
-    let timestamp: Double
-    let width: Int
-    let height: Int
-    let tabId: String?
-    let bytes: Data
-}
-
 /// One encoded video chunk (stream kind 2, ADR 0088). Header, big-endian:
 ///
 ///     0  f64  sequence (acked cumulatively)
@@ -47,42 +29,13 @@ struct BrowserVideoChunk: Equatable, Sendable {
     let bytes: Data
 }
 
-enum BrowserStreamMessage: Equatable, Sendable {
-    case frame(BrowserJPEGFrame)
-    case video(BrowserVideoChunk)
-
-    var threadId: String {
-        switch self {
-        case .frame(let frame): frame.threadId
-        case .video(let chunk): chunk.threadId
-        }
-    }
-
-    /// A stream message, decoded; nil for a kind the live view doesn't draw (downloads, and kinds
-    /// a newer daemon adds), which is skipped. A malformed header throws.
-    static func decode(_ envelope: StreamEnvelope) throws -> BrowserStreamMessage? {
-        switch envelope.kind {
-        case StreamWire.Kind.frame: .frame(try frame(envelope.meta, envelope.payload))
-        case StreamWire.Kind.video: .video(try video(envelope.meta, envelope.payload))
-        default: nil
-        }
-    }
-
-    private static func frame(_ meta: Data, _ payload: Data) throws -> BrowserJPEGFrame {
-        let reader = ByteReader(meta)
-        guard meta.count >= 28 else { throw StreamEnvelopeError.invalidHeader }
-        let threadLength = Int(reader.u16(24))
-        guard 28 + threadLength <= meta.count else { throw StreamEnvelopeError.invalidHeader }
-        let tabLength = Int(reader.u16(26 + threadLength))
-        guard 28 + threadLength + tabLength == meta.count, !payload.isEmpty else { throw StreamEnvelopeError.invalidHeader }
-        return BrowserJPEGFrame(
-            threadId: try threadId(reader.slice(26, threadLength)),
-            sequence: try sequence(reader.f64(0)),
-            timestamp: try finite(reader.f64(8)),
-            width: try cssSide(reader.u32(16)),
-            height: try cssSide(reader.u32(20)),
-            tabId: try tabId(reader.slice(28 + threadLength, tabLength)),
-            bytes: payload)
+extension BrowserVideoChunk {
+    /// A stream message's video chunk; nil for any other kind, which the live view doesn't draw
+    /// (JPEG frames, downloads, and kinds a newer daemon adds) and skips unread. A malformed
+    /// video header throws.
+    static func decode(_ envelope: StreamEnvelope) throws -> BrowserVideoChunk? {
+        guard envelope.kind == StreamWire.Kind.video else { return nil }
+        return try video(envelope.meta, envelope.payload)
     }
 
     private static func video(_ meta: Data, _ payload: Data) throws -> BrowserVideoChunk {

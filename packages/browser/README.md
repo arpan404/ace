@@ -30,7 +30,11 @@ Downloads report progress through `onDownload` and `browser.download.progress`.
 Production startup never searches personal Chrome installations or profiles.
 `detectChromium` remains a diagnostic and test discovery API; the trusted
 `executablePath` option supports CI and packaged executables, always with an
-ace-owned profile. Persistent profiles are isolated by workspace and thread.
+ace-owned profile. Persistent pages open in the kept profile `browser.profileScope`
+names: one shared by every project (`global`, the default, `<dataDir>/browser/profile`),
+one per project or one per thread (`<dataDir>/browser/profiles/`). The desktop opens
+them in the matching partition, so a session has the same sign-ins on either backend
+([ADR 0083](../../docs/adr/0083-browser-v2-daemon-chrome.md), amendment: profile scope).
 
 The desktop bridge contract is [ADR 0055](../../docs/adr/0055-browser-backends.md).
 `BrowserBackend` opens a session with a CDP transport and page operations.
@@ -41,8 +45,10 @@ and client commands keep using `BrowserService`. `browser.backend` can be
 opens (`background`) get the same choice, so agents drive the desktop's native
 view when one is registered; `auto` falls back to headless when the desktop
 cannot open a view ([ADR 0069](../../docs/adr/0069-shared-native-browser.md)).
-`profilePreference` fills an open without a profile; `forgetThread` closes a
-deleted thread's browser and purges its persistent profiles.
+`profilePreference` fills an open without a profile and `profileScope` picks its
+kept profile; `forgetThread` closes a deleted thread's browser and purges its own
+profile and desktop partition; `forgetProject` closes a removed project's browsers
+and purges its project profile and partition.
 Desktop disconnect emits `browser.backend.lost` and pauses by default; the
 agent's next open resumes a paused page headlessly unless a person holds it.
 `browser.backendLoss: headless` reopens the last URL in an ephemeral
@@ -83,10 +89,10 @@ authenticated transport. The daemon mounts it on its existing socket after
 `read` or `operate` access. The daemon applies paired-device scopes: viewing,
 acknowledgements and inspection require read; browser creation, control and
 recording require operate. Device revocation disconnects its controller.
-`send` must return false when the transport cannot accept a frame. It receives an
-optional shared serialized string so WebSocket clients don't serialize a JPEG
-separately for each viewer. Reliable result/state messages must be delivered or
-the connection closed. The daemon does the latter under transport pressure.
+`send` carries JSON messages; `sendStream` carries the binary stream messages live video
+travels in, and must return false when the transport cannot take them. Reliable result/state
+messages must be delivered or the connection closed. The daemon does the latter under
+transport pressure.
 
 Clients send `browser.open`, `browser.subscribe`, `browser.ack`,
 `browser.input`, `browser.execute`, `browser.tabs.*` (list, open, select, close,
@@ -96,19 +102,22 @@ has `options: BrowserOpen`. Input is one of mouse, key, scroll or touch. Keyboar
 key/code pairs to CDP virtual key codes so editing and navigation work as well
 as character insertion, including numpad navigation and arithmetic. Unsupported codes and inconsistent named keys fail
 explicitly; clients can use `char` for text composition, delivered through CDP `Input.insertText`.
-Responses are `browser.result`, `browser.state` and `browser.frame`. See the
-exported browser schemas for field definitions.
+Responses are `browser.result` and `browser.state`; live pictures are video chunks on the
+binary stream. See the exported browser schemas for field definitions.
 
-After rendering a frame, acknowledge its `sequence`. Each viewer gets one
-in-flight frame and one replaceable latest frame. Slow viewers cannot hold back
-others. A new subscription gets the latest captured frame and current state.
-CDP acknowledgements happen independently of client acknowledgements. Quality
-and capture rate drop to JPEG 40 at up to 6 FPS after sustained pressure. Local
-viewers report CSS pane size and DPR through `browser.capture`, capped at 2560
-pixels on the long edge with a 30 FPS / JPEG 90 target. Remote demand is capped at
-1280 pixels with a 15 FPS / JPEG 80 target. CDP captures changed frames, not a
-heartbeat. Frame width/height describe the CSS viewport for mapping pointer and
-touch coordinates. Capture demand follows page replacement and reconnects.
+Live views are video only (ADR 0088, amended). A viewer subscribes with `binaryFrames` and
+the codecs its decoder supports, reports its CSS pane size and DPR through `browser.capture`,
+and acknowledges each decoded chunk's `sequence` with `browser.ack` `video: true` (cumulative).
+Every encode runs at 60 fps; each viewer's bit rate follows its link's round trips, and a thin
+link gets a smaller picture rather than fewer frames. A viewer may have one second of chunks
+unacknowledged. Slow viewers cannot hold back others. A chunk's width/height describe the CSS
+viewport for mapping pointer and touch coordinates. A viewer without video gets state only.
+
+A tab in the person's own Chrome (Use my Chrome) has no encoder ace may use. Its video comes
+from an encoder-only Chrome of ace's (`BrowserService.videoEncoder`, profile
+`<dataDir>/browser/encoder`): the tab's screencast, relayed by the extension, is decoded and
+encoded there. That Chrome starts when a viewer first watches such a tab and stops 30 s
+(`videoEncoderIdleMs`) after the last capture ends.
 
 People and agents share every tab (ADR 0067, Collaboration). The person's input
 never queues behind agent commands and is never refused for agent activity. An
@@ -238,10 +247,11 @@ redacted through @ace/redaction. No request bodies or response headers are kept.
 A private tab ("Keep agents out") excludes agent observations, logs, network
 inspection, downloads and recorded frames. Other tabs keep agent observation access.
 
-`node packages/browser/bench/crisp.ts` measures a local CSS animation and click-to-decoded
-pixel latency in an isolated Chromium context. It prints encoded dimensions, mean JPEG
-bytes, delivered fps, median latency and starting host load. It excludes the daemon's
-command and viewer WebSocket routing. Run timing comparisons on an otherwise idle host.
+Live views are video only, at 60 fps, with each viewer's bit rate following its link (ADR
+0088, amendment). `node packages/browser/bench/video-link.ts` watches a scrolling page in real
+headless Chrome through a simulated phone link and prints frames shown per second, the longest
+gap and the bit rate per second; `ACE_VIDEO_LINK_MBPS`, `ACE_VIDEO_LINK_RTT_MS`,
+`ACE_VIDEO_LINK_JITTER_MS` and `ACE_VIDEO_LINK_PROFILE=ephemeral` change the link and the tab.
 
 `browser_measure` observes the current tab or dispatches an optional
 `interaction` using the existing click/type/press/scroll/drag command shape. The

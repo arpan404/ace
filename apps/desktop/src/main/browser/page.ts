@@ -28,6 +28,8 @@ import { HumanInputReports } from "./human-input.ts";
 import { UnloadGuard } from "./unload.ts";
 import type { CertificateExceptions } from "./certificates.ts";
 import { audioMuted } from "./audio.ts";
+import { PageVideo, type PageVideoHost } from "./page-video.ts";
+import { cookieExport } from "./cookie-export.ts";
 const throttleIdleMs = 30_000;
 /** The longest the view keeps keys for the app before giving them up. */
 const handoffMs = 1_000;
@@ -56,6 +58,8 @@ export interface PageOptions {
   confirmLeave(window: BaseWindow): boolean;
   /** Certificates the person trusted in this thread's browser (shared by its tabs). */
   certificates?: CertificateExceptions | undefined;
+  /** The app's video encoder, for `ace.video.*` (ADR 0088); absent: no video. */
+  video?: PageVideoHost<WebContents> | undefined;
 }
 
 export class EmbeddedPage implements ViewPage {
@@ -120,6 +124,8 @@ export class EmbeddedPage implements ViewPage {
   /** When an agent last read or acted in this view (`agentWork`); never: -∞. */
   private drivenAt = -Infinity;
   private screencasting = false;
+  /** Video captures of this view; they keep it rendering like a screencast. */
+  private video: PageVideo<WebContents> | undefined;
   private throttled = false;
   private throttleTimer: ReturnType<typeof setTimeout> | undefined;
   private paused = new PausedRequests();
@@ -156,6 +162,8 @@ export class EmbeddedPage implements ViewPage {
     this.contents = options.view.webContents;
     this.home = options.window;
     const contents = this.contents;
+    if (options.video)
+      this.video = new PageVideo(options.video, contents, () => this.updateThrottle());
     this.auth = new NativeBasicAuth(contents, () => this.nativeInput, options.authPreload);
     this.dialogs = new NativeDialogs(contents, (method, params) => this.emit(method, params));
     this.unload = new UnloadGuard(
@@ -547,6 +555,9 @@ export class EmbeddedPage implements ViewPage {
     // Liveness for the daemon: answered here, without waiting on the page's renderer.
     if (method === "ace.ping")
       return { alive: !this.contents.isDestroyed(), crashed: this.crashed };
+    // Watching is no driving: a captured view renders unthrottled for as long as it is captured.
+    const video = this.video?.command(method, params);
+    if (video) return video;
     if (this.crashed) {
       if (method !== "Page.reload") throw new Error("The page crashed. Reload it to try again.");
       this.restart(0);
@@ -596,6 +607,8 @@ export class EmbeddedPage implements ViewPage {
     }
     if (this.popups.command(method, params) || this.dialogs.answer(method, params)) return {};
     if (this.downloads.command(method, params)) return {};
+    // The partition's sign-ins, for the daemon to carry to ace's Chromium (a locked screen).
+    if (method === "ace.cookies") return cookieExport(await this.contents.session.cookies.get({}));
     if (method === "ace.findText") {
       const { text, forward } = z
         .object({ text: z.string().max(4096), forward: z.boolean().default(true) })
@@ -893,6 +906,7 @@ export class EmbeddedPage implements ViewPage {
   }
 
   private async destroy(): Promise<void> {
+    this.video?.close();
     this.popups.close();
     this.auth.close();
     this.dialogs.close();
@@ -946,6 +960,7 @@ export class EmbeddedPage implements ViewPage {
         nativeInput: this.nativeInput,
         agentControl: this.agentControl,
         screencasting: this.screencasting,
+        videoCapture: this.video?.capturing() ?? false,
         lastDrivenAt: this.lastDrivenAt,
       },
       Date.now(),

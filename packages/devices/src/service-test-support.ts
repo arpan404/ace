@@ -37,8 +37,9 @@ export const agent: Actor = {
   owner: agentOwner("thread-1", "agent-1"),
 };
 export const deviceId = "android:Pixel";
-export function frame(streamId: string, sequence: number): Frame {
-  const payload = Buffer.from(`jpeg-${sequence}`);
+/** A capture's frame: JPEG while nobody watches, an H.264 keyframe once a viewer asked for video. */
+export function frame(streamId: string, sequence: number, codec: "jpeg" | "h264" = "jpeg"): Frame {
+  const payload = Buffer.from(`${codec}-${sequence}`);
   const header = {
     version: 1 as const,
     sessionId: streamId,
@@ -46,7 +47,8 @@ export function frame(streamId: string, sequence: number): Frame {
     timestamp: sequence,
     width: 100,
     height: 200,
-    codec: "jpeg" as const,
+    codec,
+    ...(codec === "h264" ? { keyframe: true, videoCodec: "avc1.42E01F" } : {}),
     bytes: payload.length,
   };
   return { header, payload, packet: framePacket(header, payload) };
@@ -66,6 +68,8 @@ export async function harness(
   let now = 0;
   let exists = true;
   let firstFrame = true;
+  /** What the fake capture streams: JPEG until a viewer's video preference reaches it. */
+  let codec: "jpeg" | "h264" = "jpeg";
   const frameDeadline = deferred<void>();
   let id = 0;
   const timers = new Map<() => void, number>();
@@ -212,6 +216,7 @@ export async function harness(
         await owned.stop({ graceMs: 0 });
         throw new DOMException("Capture startup cancelled", "AbortError");
       }
+      codec = "jpeg";
       if (firstFrame) options.publish(frame(options.streamId, 0));
       return {
         async releaseInput() {
@@ -220,6 +225,7 @@ export async function harness(
         },
         async configure(settings) {
           profiles.push(settings);
+          codec = settings.codec;
           return { codec: settings.codec };
         },
         async stop() {
@@ -331,7 +337,7 @@ export async function harness(
     },
     publish(sequence: number, bytes?: number) {
       if (!captureOptions) throw new Error("Capture is not started");
-      const image = frame(captureOptions.streamId, sequence);
+      const image = frame(captureOptions.streamId, sequence, codec);
       if (bytes !== undefined) {
         image.payload = Buffer.alloc(bytes, 7);
         image.header = { ...image.header, bytes };

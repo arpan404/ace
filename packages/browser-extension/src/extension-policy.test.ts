@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { cdpAllowed, pageAllowed } from "../extension/policy.ts";
+import { cdpAllowed, pageAllowed, unrelayableFrame } from "../extension/policy.ts";
 import { browserFamily } from "../extension/identity.ts";
 import { extensionId, extensionIdFor } from "./extension-id.ts";
 
@@ -77,4 +77,12 @@ test("the browser is named from its own brand, not the Chromium brand every fork
   });
   expect(browserFamily([chromium]).family).toBe("chromium");
   expect(browserFamily([]).family).toBe("other");
+});
+
+const frame = (bytes: number) => ({ sessionId: 3, data: "A".repeat(bytes), metadata: {} });
+test("a screencast picture the relay can't carry is acknowledged in the browser; one that fits goes to ace", () => {
+  expect(unrelayableFrame("Page.screencastFrame", frame(1024 * 1024))).toBe(3);
+  expect(unrelayableFrame("Page.screencastFrame", frame(300 * 1024))).toBeUndefined();
+  // Other large events are the host's to refuse; nothing in the browser waits on them.
+  expect(unrelayableFrame("Network.dataReceived", frame(1024 * 1024))).toBeUndefined();
 });

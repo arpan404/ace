@@ -15,7 +15,7 @@ it("a detached desktop view rejects its pending read and reopens on the survivin
   f.service.subscribe(
     "lost",
     "viewer",
-    { send: () => true },
+    {},
     (state) => {
       if (state.backend === "embedded" && state.status === "ready" && state.pageStateLost)
         ready.resolve();
@@ -61,7 +61,7 @@ it("a dropped desktop link reports the page lost only once the desktop has had i
   f.service.subscribe(
     "thread",
     "viewer",
-    { send: () => true },
+    {},
     () => {},
     (event) => {
       if (event.type === "browser.backend.lost") events.push(event);

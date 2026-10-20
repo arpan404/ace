@@ -21,6 +21,10 @@ let sessionId = "";
 let sequence = 0;
 let capturing = false;
 let heldPointer = false;
+/** HELPER_VIDEO=off stands in for a Mac whose helper can't encode H.264. */
+const video = process.env["HELPER_VIDEO"] !== "off";
+let codec: "jpeg" | "h264" = "jpeg";
+let screen = "home";
 
 const permissions = (): {
   screenRecording: boolean;
@@ -29,9 +33,11 @@ const permissions = (): {
   frontmost?: boolean;
 } => JSON.parse(readFileSync(permissionsFile, "utf8"));
 const record = (entry: unknown) => appendFileSync(journal, `${JSON.stringify(entry)}\n`);
-function paint(screen: string) {
+/** One picture of `next`: a JPEG, or once video is asked for, a stand-in H.264 keyframe. */
+function paint(next: string) {
+  screen = next;
   if (!capturing) return;
-  const payload = Buffer.from(`simulator:${screen}`);
+  const payload = Buffer.from(`simulator:${next}`);
   frames.write(
     framePacket(
       {
@@ -42,7 +48,8 @@ function paint(screen: string) {
         width: 780,
         height: 1688,
         scale: 2,
-        codec: "jpeg",
+        codec,
+        ...(codec === "h264" ? { keyframe: true, videoCodec: "avc1.42E01F" } : {}),
         bytes: payload.length,
       },
       payload,
@@ -64,7 +71,7 @@ commands.on("line", (line) => {
         input: { pointer: true, keyboard: true, scroll: true, text: true },
         uiTree: false,
         semanticActions: [],
-        codecs: ["jpeg"],
+        codecs: video ? ["jpeg", "h264"] : ["jpeg"],
         permissions: { screen: "granted", input: "granted" },
       };
       break;
@@ -90,6 +97,7 @@ commands.on("line", (line) => {
       break;
     case "start":
       sessionId = request.sessionId;
+      codec = "jpeg";
       sequence = 0;
       break;
     case "capture":
@@ -99,6 +107,14 @@ commands.on("line", (line) => {
       break;
     case "stop":
       capturing = false;
+      break;
+    case "stream.configure":
+      codec = request.settings.codec;
+      data = { codec };
+      setTimeout(() => paint(screen), 5);
+      break;
+    case "stream.keyframe":
+      setTimeout(() => paint(screen), 5);
       break;
     case "button.press":
       if (!permissions().accessibility)

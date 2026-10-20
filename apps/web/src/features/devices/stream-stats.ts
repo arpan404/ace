@@ -1,10 +1,10 @@
 /*
  * What the live screen's subtitle says about its stream ("H.264 · 59 fps · 35 ms"), from the
- * frames it showed. Pure: callers pass each frame's capture time and the time it was shown.
+ * frames it showed. Live views are H.264 only. Pure: callers pass each frame's capture time and
+ * the time it was shown.
  */
 
 export interface ShownFrame {
-  codec: "jpeg" | "h264";
   /** When the frame was captured, on the daemon's clock (milliseconds). */
   capturedAt: number;
   /** When it was drawn, on the page's wall clock. */
@@ -12,7 +12,6 @@ export interface ShownFrame {
 }
 
 export interface StreamStats {
-  codec: "jpeg" | "h264";
   /** Frames drawn in the last second; undefined until a second has passed. */
   fps: number | undefined;
   /** Capture to screen, when both clocks are the same machine's; undefined otherwise. */
@@ -47,7 +46,6 @@ export class StreamMeter {
       ? Math.round(latencies.reduce((sum, value) => sum + value, 0) / latencies.length)
       : undefined;
     return {
-      codec: last.codec,
       fps: spanned ? recent.length : undefined,
       latencyMs:
         this.sameClock && latency !== undefined && latency >= 0 && latency < 10_000
@@ -61,7 +59,7 @@ export class StreamMeter {
 export function streamSummary(stats: StreamStats | undefined): string[] {
   if (!stats) return [];
   return [
-    stats.codec === "h264" ? "H.264" : "JPEG",
+    "H.264",
     // A still screen sends no frames; "0 fps" would read as a broken stream.
     ...(stats.fps ? [`${stats.fps} fps`] : []),
     ...(stats.latencyMs === undefined ? [] : [`${stats.latencyMs} ms`]),

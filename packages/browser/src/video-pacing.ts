@@ -4,8 +4,11 @@
  * frame, and tests drive it directly. No imports, so it bundles into the extension as is.
  */
 
-/** A keyframe at least this often, so a viewer that lost its place is never stuck for long. */
-export const keyframePeriodMs = 6_000;
+/**
+ * A keyframe at least this often. Rare on purpose: a keyframe is many deltas big, and a viewer
+ * that lost its place asks for one at once.
+ */
+export const keyframePeriodMs = 20_000;
 /** Forced keyframes (a viewer joined or dropped deltas) at most this often per encode. */
 export const keyframeGapMs = 500;
 /** A still page sends no frames: an owed keyframe re-encodes the last one after this long. */

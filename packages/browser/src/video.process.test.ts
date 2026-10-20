@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { connectBrowser } from "./index.ts";
 import { decodeStreamMessage, StreamAssembler, type StreamMessage } from "./stream.ts";
 import type { BrowserVideoChunk } from "./stream-video.ts";
+import { videoWindow } from "./video-fanout.ts";
 import { executablePath, fixture } from "./test-support.ts";
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
@@ -9,12 +10,17 @@ type Fixture = Awaited<ReturnType<typeof fixture>>;
 /** A phone-sized viewer over a binary connection that asks for video. */
 function videoViewer(f: Fixture, connectionId = "phone", codecs = ["avc1.42E033", "vp8"]) {
   const streamed: StreamMessage[] = [];
+  /** The type of every JSON message the connection sent. */
+  const sent: string[] = [];
   const assembler = new StreamAssembler();
   const waiters = new Set<() => void>();
   const bridge = connectBrowser(f.service, {
     connectionId,
     authorize: () => true,
-    send: () => true,
+    send: (message) => {
+      sent.push(message.type);
+      return true;
+    },
     sendStream: (pieces) => {
       for (const piece of pieces) {
         const envelope = assembler.push(piece);
@@ -54,6 +60,7 @@ function videoViewer(f: Fixture, connectionId = "phone", codecs = ["avc1.42E033"
   return {
     bridge,
     streamed,
+    sent,
     video,
     until,
     ack,
@@ -65,6 +72,14 @@ function videoViewer(f: Fixture, connectionId = "phone", codecs = ["avc1.42E033"
         binaryFrames: true,
         viewport: { width: 640, height: 400, devicePixelRatio: 2 },
         video: { codecs },
+      }),
+    /** The viewer's screen changed: it now shows the pane at `devicePixelRatio`. */
+    rescale: (devicePixelRatio: number) =>
+      bridge.handle({
+        type: "browser.capture",
+        threadId: "thread",
+        requestId: `capture-${devicePixelRatio}`,
+        viewport: { width: 640, height: 400, devicePixelRatio },
       }),
   };
 }
@@ -108,19 +123,19 @@ const animate =
   "window.animating=true; window.counter=0; (function animate(){ if(!window.animating)return; document.body.style.background=`rgb(${++window.counter%255},40,90)`; document.getElementById('result').textContent=String(window.counter); requestAnimationFrame(animate)})()";
 
 describe.skipIf(!executablePath)("live video from ace's Chrome", () => {
-  it("a viewer that asks for video gets JPEG first, then decodable video sized for its screen", async () => {
+  it("a viewer that asks for video starts at a keyframe sized for its screen, plays decodable video and never gets JPEG", async () => {
     const f = await fixture();
     await f.navigate();
     await f.service.execute("thread", { action: "resize", width: 640, height: 400 });
     const viewer = videoViewer(f);
     await viewer.subscribe();
-    // The page's picture comes at once, as JPEG, while the encoder starts.
-    expect(viewer.streamed[0]?.kind).toBe("browser.frame");
     await f.evaluate(animate);
-    await viewer.until(() => viewer.video().some((chunk) => chunk.key));
-    const start = viewer.video().findIndex((chunk) => chunk.key);
-    const key = viewer.video()[start];
-    if (!key) throw new Error("No keyframe");
+    await viewer.until(() => viewer.video().length > 0);
+    // The first thing the viewer gets is a keyframe: nothing before it, no JPEG stand-in.
+    const key = viewer.video()[0];
+    if (!key) throw new Error("No video");
+    expect(key.key).toBe(true);
+    expect(viewer.streamed[0]?.kind).toBe("browser.video");
     expect(key).toMatchObject({ width: 640, height: 400, codec: "avc1.42E033" });
     // The pane is 640 × 400 CSS pixels at DPR 2: the picture is 1280 × 800 device pixels.
     expect([key.codedWidth, key.codedHeight]).toEqual([1280, 800]);
@@ -131,18 +146,100 @@ describe.skipIf(!executablePath)("live video from ace's Chrome", () => {
       const count = viewer.video().length;
       await viewer.until(() => viewer.video().length > count);
     }
-    const played = viewer.video().slice(start);
+    const played = viewer.video();
     expect(played.filter((chunk) => !chunk.key).length).toBeGreaterThan(0);
     const decoded = await decode(f, played);
     expect(decoded.errors).toEqual([]);
     expect(decoded.pictures.length).toBe(played.length);
     expect(decoded.pictures[0]).toEqual([1280, 800]);
-    // While it plays video, the viewer takes no JPEG frames.
-    const lastJpeg = viewer.streamed.findLastIndex((message) => message.kind === "browser.frame");
-    const firstVideo = viewer.streamed.findIndex((message) => message.kind === "browser.video");
-    expect(lastJpeg).toBeLessThan(firstVideo);
+    // Live views are video only: no JPEG frame on either channel, ever.
+    expect(viewer.streamed.filter((message) => message.kind === "browser.frame")).toEqual([]);
+    expect(viewer.sent.filter((type) => type === "browser.frame")).toEqual([]);
     await f.evaluate("window.animating=false");
     viewer.bridge.close();
+  }, 90_000);
+
+  it("a viewer whose screen changes scale gets a keyframe sized for the new screen", async () => {
+    const f = await fixture();
+    await f.navigate();
+    await f.service.execute("thread", { action: "resize", width: 640, height: 400 });
+    const viewer = videoViewer(f);
+    await viewer.subscribe();
+    await f.evaluate(animate);
+    await viewer.until(() => viewer.video().some((chunk) => chunk.key));
+    expect(viewer.video().find((chunk) => chunk.key)?.codedWidth).toBe(1280);
+    // Moved to a DPR 1 screen: the picture is only what it shows there.
+    const before = viewer.video().length;
+    await viewer.rescale(1);
+    const resized = () =>
+      viewer
+        .video()
+        .slice(before)
+        .find((chunk) => chunk.key);
+    await viewer.until(() => {
+      const shown = viewer.video().at(-1);
+      if (shown) void viewer.ack(shown.sequence);
+      return resized()?.codedWidth === 640;
+    });
+    // Input coordinates still refer to the page's CSS size, not the picture's pixels.
+    expect(resized()).toMatchObject({ width: 640, height: 400, codedWidth: 640, codedHeight: 400 });
+    await f.evaluate("window.animating=false");
+    viewer.bridge.close();
+  }, 90_000);
+
+  it("a video viewer keeps playing after the browser closes and reopens", async () => {
+    const f = await fixture();
+    await f.navigate();
+    const viewer = videoViewer(f);
+    await viewer.subscribe();
+    await f.evaluate(animate);
+    await viewer.until(() => viewer.video().some((chunk) => chunk.key));
+    await f.service.closeThread("thread");
+    const before = viewer.video().length;
+    await f.service.open({ threadId: "thread", workspaceId: "workspace" });
+    await f.navigate();
+    await f.evaluate(animate);
+    // The same viewer, without subscribing again, starts over at a keyframe of the new page.
+    await viewer.until(() => {
+      const shown = viewer.video().at(-1);
+      if (shown) void viewer.ack(shown.sequence);
+      return viewer
+        .video()
+        .slice(before)
+        .some((chunk) => chunk.key);
+    });
+    await f.evaluate("window.animating=false");
+    viewer.bridge.close();
+  }, 90_000);
+
+  it("a viewer on a connection without binary messages follows the browser's state but gets no pictures", async () => {
+    const f = await fixture();
+    await f.navigate();
+    const sent: string[] = [];
+    const bridge = connectBrowser(f.service, {
+      connectionId: "plain",
+      authorize: () => true,
+      send: (message) => {
+        sent.push(message.type);
+        return true;
+      },
+    });
+    // It asks for video, but video travels only as binary messages.
+    await bridge.handle({
+      type: "browser.subscribe",
+      threadId: "thread",
+      requestId: "subscribe",
+      binaryFrames: true,
+      viewport: { width: 640, height: 400, devicePixelRatio: 1 },
+      video: { codecs: ["avc1.42E033", "vp8"] },
+    });
+    await f.evaluate(animate);
+    await f.service.execute("thread", { action: "navigate", url: `${f.url}/?again` });
+    expect(sent).toContain("browser.state");
+    // No JPEG stand-in on the JSON channel either.
+    expect(sent).not.toContain("browser.frame");
+    await f.evaluate("window.animating=false");
+    bridge.close();
   }, 90_000);
 
   it("a viewer whose decoder lost its place gets a fresh keyframe", async () => {
@@ -177,13 +274,13 @@ describe.skipIf(!executablePath)("live video from ace's Chrome", () => {
     await keeping.subscribe();
     await f.evaluate(animate);
     await stalled.until(() => stalled.video().some((chunk) => chunk.key));
-    // Long enough for dozens of frames at 30 per second; one viewer acks each, one none.
+    // Well past a full window (a second at 60 fps); one viewer acks each chunk, one none.
     await keeping.until(() => {
       const shown = keeping.video().at(-1);
       if (shown) void keeping.ack(shown.sequence);
-      return keeping.video().length >= 24;
+      return keeping.video().length >= 2 * videoWindow.frames;
     });
-    expect(stalled.video().length).toBeLessThanOrEqual(8);
+    expect(stalled.video().length).toBeLessThanOrEqual(videoWindow.frames);
     await f.evaluate("window.animating=false");
     stalled.bridge.close();
     keeping.bridge.close();

@@ -9,6 +9,9 @@ Amended 2026-10-17 by [ADR 0085](0085-desktop-native-view-lifecycle.md): under t
 hybrid decision the desktop's native view stays the in-app renderer, so the embedded backend
 is kept, not deleted.
 
+Amended 2026-10-20 (Amendment: profile scope, at the end): the shared profile is the default
+`browser.profileScope`; a project or each thread may keep its own.
+
 ## Context
 
 The owner wants the Browser to behave like a real browser: agents use several tabs at once with
@@ -282,3 +285,31 @@ another, a screenshot of one tab leaving the view alone, a private tab blocking 
 there, the person busy in one tab never slowing an agent in another, the per-agent and daemon limits, freeze and wake, MCP routing by tab id and cursor,
 and a daemon restart restoring tab ids, labels and cookies through SQLite. CI installs the pinned Chrome for Testing with the same acquisition code and points the
 suites at it.
+
+## Amendment: profile scope (2026-10-20)
+
+Owner request: the shared profile stays the default, and a project (or each thread) may keep
+its own sign-ins instead. `browser.profileScope` is `global` (default), `project` or `thread`;
+a project's choice in Edit project (`ProjectDefaults.browserProfileScope`) comes before the
+daemon's setting and a thread's own setting before both. It is read when a browser opens, so a
+change applies to browsers opened afterwards; live sessions keep their profile.
+
+- **ace's Chrome**: `global` is `<dataDir>/browser/profile` as before; `project` and `thread`
+  are `<dataDir>/browser/profiles/project-<hash>` and `.../thread-<hash>` (sha-256 of the id).
+  Each profile directory has its own `ChromeHost`, so a scoped profile in use costs one more
+  Chrome process, stopped after the idle wait once no session leases it. Private pages
+  (`profile: "ephemeral"`) stay throwaway contexts in the global profile's Chrome.
+- **The desktop**: the backend `open` request carries `profileScope`; the desktop opens a kept
+  page in `persist:ace-browser-global`, `persist:ace-browser-project-<hash>` or the thread's own
+  partition (the one it used before scopes; an older daemon that sends no scope keeps it). A
+  session therefore has the same sign-ins on either backend, and the lock handoff carries the
+  partition's cookies into the matching profile in ace's Chrome.
+- **Removal**: deleting a thread removes its own profile in ace's Chrome (its Chrome stopped
+  first) and its desktop partition as before. Removing a project closes its threads' browsers,
+  removes its project profile, and asks the desktop to purge the project partition
+  (`purgeProject`); a desktop that is closed purges when it next registers. A project added
+  back before that keeps its profile.
+
+Existing installs stay on `global`: ace's Chrome keeps its profile. The desktop's kept pages
+move from per-thread partitions to the shared one, so a thread's earlier desktop sign-ins show
+again only under the `thread` scope.

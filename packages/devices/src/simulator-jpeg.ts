@@ -5,8 +5,8 @@ import { SimulatorFrames } from "./simulator-frames.ts";
 type Image = { bytes: Buffer; width: number; height: number };
 
 /**
- * serve-sim's MJPEG stream, resized and re-compressed to the viewers' budget. This is the
- * fallback for viewers that can't decode the H.264 stream, and the source of still images.
+ * serve-sim's MJPEG stream, resized and re-compressed to an image budget: agents' stills and
+ * recordings while nobody watches. Live views never get it; they take the H.264 stream.
  */
 export class SimulatorJpeg {
   private readonly controller = new AbortController();

@@ -9,13 +9,13 @@ const fast: ScreenStreamSettings = {
   bitrate: 6000000,
 };
 const slow: ScreenStreamSettings = {
-  codec: "jpeg",
+  codec: "h264",
   maxWidth: 360,
   maxHeight: 720,
-  fps: 30,
+  fps: 60,
   bitrate: 1000000,
 };
-it("a slow image viewer sets the shared stream budget and its disconnect restores video", async () => {
+it("a slow viewer sets the shared stream budget and its disconnect restores the faster one", async () => {
   const applied: ScreenStreamSettings[] = [];
   const control = new DeviceStreamControl(async (settings) => {
     applied.push(settings);
@@ -57,44 +57,61 @@ it("a resize following an unchanged update applies before either acknowledgement
   expect(native).toEqual(slow);
   await control.close();
 });
-it("recording readiness applies its image cap after an unchanged viewer update", async () => {
+it("a recording leaves a watched capture on the viewers' video", async () => {
   let native = fast;
   const control = new DeviceStreamControl(async (settings) => {
     native = settings;
     return { codec: settings.codec };
   });
   await control.set("view", fast);
-  const unchanged = control.refresh();
   const recording = control.acquireRecording();
   await recording.ready;
-  expect(native).toEqual({ ...fast, codec: "jpeg", maxHeight: 720, fps: 15 });
-  await unchanged;
+  expect(native).toEqual(fast);
   await recording.release();
   expect(native).toEqual(fast);
+  await control.close();
+});
+it("a recording nobody watches gets its JPEG image budget, and loses it when a viewer arrives", async () => {
+  let native: ScreenStreamSettings | undefined;
+  const control = new DeviceStreamControl(async (settings) => {
+    native = settings;
+    return { codec: settings.codec };
+  });
+  const recording = control.acquireRecording();
+  await recording.ready;
+  expect(native).toMatchObject({ codec: "jpeg", maxWidth: 1280, maxHeight: 720, fps: 15 });
+  await control.set("view", fast);
+  expect(native).toEqual(fast);
+  await control.remove("view");
+  expect(native).toMatchObject({ codec: "jpeg", maxHeight: 720, fps: 15 });
+  await recording.release();
+  await control.close();
+});
+it("a live view never accepts JPEG, and a capture that can't stream video is refused", async () => {
+  const control = new DeviceStreamControl(async () => ({ codec: "jpeg" }));
+  await expect(control.set("old", { ...fast, codec: "jpeg" })).rejects.toMatchObject({
+    code: "not_supported",
+  });
+  await expect(control.set("view", fast)).rejects.toMatchObject({ code: "not_supported" });
+  await control.close();
+});
+it("after a refused video request the capture gets the remaining settings again", async () => {
+  const applied: ScreenStreamSettings[] = [];
+  const control = new DeviceStreamControl(async (settings) => {
+    applied.push(settings);
+    return { codec: "jpeg" };
+  });
+  await control.refresh();
+  await expect(control.set("view", fast)).rejects.toMatchObject({ code: "not_supported" });
+  await control.remove("view");
+  expect(applied.map((settings) => settings.codec)).toEqual(["jpeg", "h264", "jpeg"]);
+  expect(applied.at(-1)).toEqual(applied[0]);
   await control.close();
 });
 it("the shared capture fits every viewer instead of letting the latest subscriber increase traffic", () => {
   const mixed = commonDeviceStream([
     fast,
-    { ...fast, maxWidth: 800, maxHeight: 1200, fps: 30, bitrate: 2000000 },
+    { ...fast, maxWidth: 800, maxHeight: 1200, bitrate: 2000000 },
   ]);
-  expect(mixed).toEqual({ ...fast, maxWidth: 800, maxHeight: 1200, fps: 30, bitrate: 2000000 });
-});
-
-it("concurrent screenshots keep JPEG until the last image consumer releases, then restore video", async () => {
-  const applied: ScreenStreamSettings[] = [];
-  const control = new DeviceStreamControl(async (settings) => {
-    applied.push(settings);
-    return { codec: settings.codec };
-  });
-  await control.set("view", fast);
-  const first = control.acquireImage();
-  const second = control.acquireImage();
-  await Promise.all([first.ready, second.ready]);
-  expect(applied.at(-1)?.codec).toBe("jpeg");
-  await first.release();
-  expect(applied.at(-1)?.codec).toBe("jpeg");
-  await second.release();
-  expect(applied.at(-1)).toEqual(fast);
-  await control.close();
+  expect(mixed).toEqual({ ...fast, maxWidth: 800, maxHeight: 1200, bitrate: 2000000 });
 });

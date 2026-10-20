@@ -79,16 +79,15 @@ test("the log filter keeps lines containing its text, ignoring case", () => {
 
 test("the stream's subtitle counts the last second's frames and their delay on one machine", () => {
   const meter = new StreamMeter({ sameClock: true });
-  for (let at = 0; at <= 1500; at += 25)
-    meter.add({ codec: "h264", capturedAt: at - 30, shownAt: at });
+  for (let at = 0; at <= 1500; at += 25) meter.add({ capturedAt: at - 30, shownAt: at });
   expect(streamSummary(meter.read(1500))).toEqual(["H.264", "40 fps", "30 ms"]);
 });
 
 test("the subtitle leaves out what it can't know: the rate in the first second, a remote delay", () => {
   const remote = new StreamMeter({ sameClock: false });
-  remote.add({ codec: "jpeg", capturedAt: 0, shownAt: 100 });
-  expect(streamSummary(remote.read(200))).toEqual(["JPEG"]);
-  expect(streamSummary(remote.read(5000))).toEqual(["JPEG"]);
+  remote.add({ capturedAt: 0, shownAt: 100 });
+  expect(streamSummary(remote.read(200))).toEqual(["H.264"]);
+  expect(streamSummary(remote.read(5000))).toEqual(["H.264"]);
   expect(streamSummary(new StreamMeter({ sameClock: true }).read(0))).toEqual([]);
 });
 

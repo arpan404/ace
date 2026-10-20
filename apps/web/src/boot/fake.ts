@@ -21,6 +21,7 @@ import type { Client } from "@ace/client";
 import type { MachinePool } from "@ace/client-worker/machines";
 import { createBrowserClient, memoryStorage } from "./client.ts";
 import { fakeMachinePool } from "./fake-machines.ts";
+import { installFakeVideoDecoder } from "./fake-video.ts";
 import { seedBuildServerUsage, seedLimitReadings } from "./fake-usage.ts";
 import { fallback, type DaemonConnection } from "./connection.tsx";
 
@@ -42,6 +43,8 @@ export function bootFake(): {
   /** A second machine, a build server, in the window's machine pool. */
   machines: Promise<MachinePool>;
 } {
+  // The fake browser's live view is video of SVG pictures: decode them as the real stream is.
+  installFakeVideoDecoder();
   const daemon = new FakeDaemon({
     clock: () => Date.now(),
     hostId: "this-mac",

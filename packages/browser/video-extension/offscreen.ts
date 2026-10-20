@@ -1,4 +1,5 @@
 import { EncodePacer, EncoderWatchdog } from "../src/video-pacing.ts";
+import { QuantizerControl } from "../src/quantizer-control.ts";
 import { TabAudio } from "./audio.ts";
 
 /*
@@ -6,6 +7,8 @@ import { TabAudio } from "./audio.ts";
  * WebCodecs, once per encode the daemon asks for, and its sound as Opus while asked (`audio.ts`).
  * The daemon drives it over CDP (`Runtime.evaluate` on this document) and receives every chunk
  * through the CDP binding `aceVideoEvent`: a JSON line, then for a chunk its bytes in base64.
+ * The desktop app loads the same code in its own encoder page and receives events through
+ * `aceVideoEmit` instead (`apps/desktop/src/main/browser/video-encoder.ts`).
  * Every chunk says how long ago (`age`, ms) its picture or sound was captured, so the daemon
  * stamps video and audio on one clock.
  */
@@ -35,6 +38,10 @@ interface Encoder {
   watchdog: EncoderWatchdog;
   /** Configurations still to try, best first: hardware, then software. */
   configs: VideoEncoderConfig[];
+  /** The configuration the running encoder took. */
+  active: VideoEncoderConfig | undefined;
+  /** ace's own rate control, while the encoder runs in `quantizer` mode. */
+  quantizer: QuantizerControl | undefined;
   description: string | undefined;
   /** Bumped per configuration: output from a replaced encoder is ignored. */
   generation: number;
@@ -42,8 +49,12 @@ interface Encoder {
 
 interface Capture {
   id: string;
-  track: MediaStreamTrack;
-  reader: FrameReader;
+  /** A tab capture's track and its frames; absent for a capture fed pushed pictures. */
+  track: MediaStreamTrack | undefined;
+  reader: FrameReader | undefined;
+  /** Pushed pictures: one decodes at a time, and only the newest waiting one is kept. */
+  decoding: boolean;
+  waiting: Uint8Array<ArrayBuffer> | undefined;
   last: VideoFrame | undefined;
   lastAt: number;
   encoders: Map<string, Encoder>;
@@ -56,6 +67,13 @@ const captures = new Map<string, Capture>();
 const now = () => performance.now();
 
 function emit(event: Record<string, unknown>, bytes?: Uint8Array): void {
+  // The desktop's encoder page (ADR 0088, embedded backend) takes the event and the chunk's
+  // bytes as they are, with no base64 step; the extension has only the CDP binding.
+  const direct: unknown = Reflect.get(globalThis, "aceVideoEmit");
+  if (typeof direct === "function") {
+    Reflect.apply(direct, globalThis, bytes ? [event, bytes] : [event]);
+    return;
+  }
   const send: unknown = Reflect.get(globalThis, "aceVideoEvent");
   if (typeof send !== "function") return;
   const line = JSON.stringify(event);
@@ -79,11 +97,32 @@ function configsFor(spec: EncodeSpec): VideoEncoderConfig[] {
     latencyMode: "realtime",
     bitrateMode: "variable",
     ...(spec.codec.startsWith("avc1.") ? { avc: { format: "avc" } } : {}),
+    ...(spec.codec.startsWith("hvc1.") ? { hevc: { format: "hevc" } } : {}),
   };
   return [
+    // Every frame at a quantizer ace picks (`QuantizerControl`): a hardware encoder given a bit
+    // rate skips frames to hold it.
+    ...(quantized(spec.codec)
+      ? [{ ...base, bitrateMode: "quantizer", hardwareAcceleration: "prefer-hardware" } as const]
+      : []),
     { ...base, hardwareAcceleration: "prefer-hardware" },
     { ...base, hardwareAcceleration: "prefer-software" },
   ];
+}
+
+/** Codecs whose frames take a quantizer each (`VideoEncoderEncodeOptions`). */
+function quantized(codec: string): boolean {
+  return codec.startsWith("avc1.") || codec.startsWith("hvc1.");
+}
+
+/** A frame's encode options: its keyframe flag, and its quantizer in `quantizer` mode. */
+function frameOptions(entry: Encoder, key: boolean): VideoEncoderEncodeOptions {
+  const control = entry.quantizer;
+  if (!control) return { keyFrame: key };
+  const quantizer = control.next(key);
+  return entry.spec.codec.startsWith("hvc1.")
+    ? ({ keyFrame: key, hevc: { quantizer } } as VideoEncoderEncodeOptions)
+    : { keyFrame: key, avc: { quantizer } };
 }
 
 /** The next configuration this encode can run with; none left reports it failed. */
@@ -109,6 +148,7 @@ async function configure(capture: Capture, entry: Encoder, reason: string): Prom
         const bytes = new Uint8Array(chunk.byteLength);
         chunk.copyTo(bytes);
         const key = chunk.type === "key";
+        entry.quantizer?.observe(bytes.length, key);
         emit(
           {
             t: "chunk",
@@ -131,6 +171,11 @@ async function configure(capture: Capture, entry: Encoder, reason: string): Prom
       },
     });
     encoder.configure(config);
+    entry.active = config;
+    entry.quantizer =
+      config.bitrateMode === "quantizer"
+        ? new QuantizerControl(entry.spec.bitrate, entry.spec.fps)
+        : undefined;
     entry.encoder = encoder;
     entry.watchdog = new EncoderWatchdog();
     entry.pacer.requestKeyframe();
@@ -139,13 +184,31 @@ async function configure(capture: Capture, entry: Encoder, reason: string): Prom
   emit({ t: "failed", capture: capture.id, encode: entry.spec.key, reason });
 }
 
+/** A running encode's new bit rate: the encoder reconfigures in place, keeping its stream. */
+function retune(entry: Encoder, bitrate: number): void {
+  if (entry.spec.bitrate === bitrate) return;
+  entry.spec = { ...entry.spec, bitrate };
+  // Configurations not tried yet take the new rate too.
+  entry.configs = entry.configs.map((config) => ({ ...config, bitrate }));
+  // In `quantizer` mode the rate is ace's own: frames aim for it from the next one.
+  entry.quantizer?.retarget(bitrate, entry.spec.fps);
+  const encoder = entry.encoder;
+  if (!encoder || encoder.state !== "configured" || !entry.active || entry.quantizer) return;
+  entry.active = { ...entry.active, bitrate };
+  try {
+    encoder.configure(entry.active);
+  } catch {
+    // An encoder that refuses a new rate keeps its old one.
+  }
+}
+
 function encode(entry: Encoder, frame: VideoFrame, key: boolean): void {
   const encoder = entry.encoder;
   if (!encoder || encoder.state !== "configured") return;
   // Our own clock: a still frame encoded again needs a later timestamp than last time.
   const stamped = new VideoFrame(frame, { timestamp: Math.round(now() * 1000) });
   try {
-    encoder.encode(stamped, { keyFrame: key });
+    encoder.encode(stamped, frameOptions(entry, key));
     entry.watchdog.submitted(now());
   } finally {
     stamped.close();
@@ -154,21 +217,28 @@ function encode(entry: Encoder, frame: VideoFrame, key: boolean): void {
 
 const busy = (entry: Encoder) => (entry.encoder?.encodeQueueSize ?? 0) > 2;
 
+/** A new captured frame: each encode takes it as its pacer says. The capture keeps it. */
+function feed(capture: Capture, frame: VideoFrame): void {
+  capture.last?.close();
+  capture.last = frame;
+  capture.lastAt = now();
+  for (const entry of capture.encoders.values()) {
+    const decision = entry.pacer.frame(capture.lastAt, busy(entry));
+    if (decision !== "skip") encode(entry, frame, decision === "key");
+  }
+}
+
 async function pump(capture: Capture): Promise<void> {
+  const reader = capture.reader;
+  if (!reader) return;
   for (;;) {
-    const { done, value } = await capture.reader.read();
+    const { done, value } = await reader.read();
     if (done || !value) break;
     if (capture.stopped) {
       value.close();
       break;
     }
-    capture.last?.close();
-    capture.last = value;
-    capture.lastAt = now();
-    for (const entry of capture.encoders.values()) {
-      const decision = entry.pacer.frame(capture.lastAt, busy(entry));
-      if (decision !== "skip") encode(entry, value, decision === "key");
-    }
+    feed(capture, value);
   }
   if (!capture.stopped) {
     stop(capture.id);
@@ -186,11 +256,35 @@ function stop(id: string): void {
     if (entry.encoder?.state !== "closed") entry.encoder?.close();
   }
   capture.encoders.clear();
-  void capture.reader.cancel().catch(() => {});
-  capture.track.stop();
+  void capture.reader?.cancel().catch(() => {});
+  capture.track?.stop();
+  capture.waiting = undefined;
   capture.audio?.stop();
   capture.last?.close();
   capture.last = undefined;
+}
+
+/** Decodes a pushed-picture capture's newest waiting picture until none waits. */
+async function decodePictures(capture: Capture): Promise<void> {
+  capture.decoding = true;
+  try {
+    for (let bytes = capture.waiting; bytes && !capture.stopped; bytes = capture.waiting) {
+      capture.waiting = undefined;
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/jpeg" })).catch(
+        () => undefined,
+      );
+      if (!bitmap) continue;
+      if (capture.stopped) {
+        bitmap.close();
+        break;
+      }
+      const frame = new VideoFrame(bitmap, { timestamp: Math.round(now() * 1000) });
+      bitmap.close();
+      feed(capture, frame);
+    }
+  } finally {
+    capture.decoding = false;
+  }
 }
 
 // Owed keyframes on a still page, and encoders that stopped answering.
@@ -213,7 +307,7 @@ Object.assign(globalThis, {
     async supported(codecs: readonly string[], width: number, height: number) {
       const supported: string[] = [];
       for (const codec of codecs) {
-        const configs = configsFor({ key: "", codec, width, height, fps: 30, bitrate: 2e6 });
+        const configs = configsFor({ key: "", codec, width, height, fps: 60, bitrate: 6e6 });
         for (const config of configs) {
           const result = await VideoEncoder.isConfigSupported(config).catch(() => undefined);
           if (result?.supported) {
@@ -224,8 +318,18 @@ Object.assign(globalThis, {
       }
       return supported;
     },
-    /** Opens the tab capture `streamId` at exactly this size, replacing capture `id`. */
-    async start(id: string, streamId: string, width: number, height: number): Promise<void> {
+    /**
+     * Opens the tab capture `streamId` at exactly this size, replacing capture `id`. `audio:
+     * false` leaves the tab's sound alone: capturing it takes it off the machine's speakers,
+     * which the desktop app's own views must keep.
+     */
+    async start(
+      id: string,
+      streamId: string,
+      width: number,
+      height: number,
+      options: { audio?: boolean } = {},
+    ): Promise<void> {
       stop(id);
       const video = {
         mandatory: {
@@ -235,7 +339,7 @@ Object.assign(globalThis, {
           maxWidth: width,
           minHeight: height,
           maxHeight: height,
-          maxFrameRate: 30,
+          maxFrameRate: 60,
         },
       };
       // The tab's sound rides the same capture (ADR 0088, Audio); a capture that can't take it
@@ -249,7 +353,9 @@ Object.assign(globalThis, {
             video,
           },
         ]);
-      const stream: unknown = await capture(true).catch(() => capture(false));
+      const stream: unknown = await (options.audio === false
+        ? capture(false)
+        : capture(true).catch(() => capture(false)));
       if (!(stream instanceof MediaStream)) throw new Error("No tab capture");
       const [track] = stream.getVideoTracks();
       if (!track) throw new Error("No tab capture");
@@ -258,6 +364,8 @@ Object.assign(globalThis, {
         id,
         track,
         reader: new MediaStreamTrackProcessor({ track }).readable.getReader(),
+        decoding: false,
+        waiting: undefined,
         last: undefined,
         lastAt: 0,
         encoders: new Map(),
@@ -273,7 +381,36 @@ Object.assign(globalThis, {
         emit({ t: "ended", capture: id, reason: String(error) });
       });
     },
-    /** The encodes capture `id` runs: new ones start (at a keyframe), missing ones stop. */
+    /**
+     * Opens capture `id` fed by pushed pictures (a page's JPEG screencast) instead of a tab
+     * capture: for tabs this extension can't capture, such as a private browser context.
+     */
+    startPictures(id: string): void {
+      stop(id);
+      captures.set(id, {
+        id,
+        track: undefined,
+        reader: undefined,
+        decoding: false,
+        waiting: undefined,
+        last: undefined,
+        lastAt: 0,
+        encoders: new Map(),
+        audio: undefined,
+        stopped: false,
+      });
+    },
+    /** One pushed picture (a base64 JPEG) for capture `id`. */
+    picture(id: string, jpeg: string): void {
+      const capture = captures.get(id);
+      if (!capture || capture.track) return;
+      capture.waiting = Uint8Array.from(atob(jpeg), (char) => char.charCodeAt(0));
+      if (!capture.decoding) void decodePictures(capture);
+    },
+    /**
+     * The encodes capture `id` runs: new ones start (at a keyframe), missing ones stop, and a
+     * running one given another bit rate takes it in place, without a keyframe.
+     */
     encodes(id: string, specs: readonly EncodeSpec[]): void {
       const capture = captures.get(id);
       if (!capture) return;
@@ -285,13 +422,19 @@ Object.assign(globalThis, {
           capture.encoders.delete(key);
         }
       for (const spec of specs) {
-        if (capture.encoders.has(spec.key)) continue;
+        const running = capture.encoders.get(spec.key);
+        if (running) {
+          retune(running, spec.bitrate);
+          continue;
+        }
         const entry: Encoder = {
           spec,
           encoder: undefined,
           pacer: new EncodePacer(spec.fps),
           watchdog: new EncoderWatchdog(),
           configs: configsFor(spec),
+          active: undefined,
+          quantizer: undefined,
           description: undefined,
           generation: 0,
         };

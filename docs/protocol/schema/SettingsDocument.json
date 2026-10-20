@@ -55,6 +55,9 @@
           ],
           "type": "string"
         },
+        "browser.profileScope": {
+          "$ref": "https://ace.local/protocol/v1/BrowserProfileScope.json"
+        },
         "browser.userChrome.storageReads": {
           "type": "boolean"
         },

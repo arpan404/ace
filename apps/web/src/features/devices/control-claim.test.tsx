@@ -8,7 +8,7 @@ function noop() {}
 
 let browser: ReturnType<typeof deviceBrowser>;
 beforeEach(() => {
-  browser = deviceBrowser("none");
+  browser = deviceBrowser("decodes");
 });
 afterEach(() => {
   browser.restore();

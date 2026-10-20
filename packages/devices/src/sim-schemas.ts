@@ -60,10 +60,11 @@ const SimActFields = z.strictObject({
       "volumeDown",
       "action",
       "side",
+      "keyboard",
     ])
     .optional()
     .describe(
-      "Hardware or navigation key. recents is Android's app overview; action is the iPhone Action button (iPhone 15 Pro and later); side is Apple Watch's side button (home presses its Digital Crown).",
+      "Hardware or navigation key. recents is Android's app overview; action is the iPhone Action button (iPhone 15 Pro and later); side is Apple Watch's side button (home presses its Digital Crown); keyboard brings back the on-screen keyboard (iOS: toggles it; Android: Gboard's show keyboard).",
     ),
   appId: z.string().min(1).max(256).optional().describe("Bundle id or Android package to launch."),
   url: z.string().min(1).max(4096).optional().describe("URL or deep link to open."),
