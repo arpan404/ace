@@ -183,7 +183,7 @@ export class LiveVideo {
     this.soundSinks.clear();
     this.viewers.clear();
   }
-  /** Samples load, re-plans the encodes and applies them. `page` is the page's CSS size now. */
+  /** Re-plans the encodes from each viewer's pane and link, and applies them. `page` is the page's CSS size now. */
   tick(page: { width: number; height: number }): void {
     const now = this.now();
     this.fanout.flush();
