@@ -1,7 +1,7 @@
 /*
- * What the live screen's subtitle says about its stream ("H.264 · 59 fps · 35 ms"), from the
- * frames it showed. Live views are H.264 only. Pure: callers pass each frame's capture time and
- * the time it was shown.
+ * What the live screen says about its stream: the subtitle ("H.264 · 59 fps · 35 ms") and, when
+ * asked for, a few numbers that show where pictures go missing (received vs drawn, bit rate,
+ * the longest stall, keyframes asked for). Live views are H.264 only. Pure: callers pass times.
  */
 
 export interface ShownFrame {
@@ -16,52 +16,118 @@ export interface StreamStats {
   fps: number | undefined;
   /** Capture to screen, when both clocks are the same machine's; undefined otherwise. */
   latencyMs: number | undefined;
+  /** Pictures that reached this page in the last second. */
+  receivedFps: number;
+  /** What those pictures weighed, in megabits. */
+  megabits: number;
+  /** The longest wait between two drawn frames in the last five seconds. */
+  longestGapMs: number;
+  /** Keyframes this view asked for in the last five seconds (a lost place, a decode error). */
+  keyframesAsked: number;
+  /**
+   * The screen is holding still: a Simulator re-sends its unchanged picture about five times a
+   * second, which would otherwise read as a stream that dropped to 5 fps.
+   */
+  still: boolean;
 }
 
 const windowMs = 1000;
+const historyMs = 5000;
+/** A drawn rate at or under this, of pictures this small, is a still screen's re-sends. */
+const stillFps = 6;
+const stillBytes = 2048;
 
-/** A rolling second of shown frames, for the subtitle. Memory stays bounded by the frame rate. */
+const trim = <T>(entries: T[], at: (entry: T) => number, cutoff: number) => {
+  while (entries.length && at(entries[0] as T) < cutoff) entries.shift();
+};
+
+/** A rolling window of the stream, for the subtitle and the stats. Memory stays bounded. */
 export class StreamMeter {
   private frames: ShownFrame[] = [];
+  private received: { at: number; bytes: number }[] = [];
+  private asked: number[] = [];
   private readonly sameClock: boolean;
   constructor(options: { sameClock: boolean }) {
     this.sameClock = options.sameClock;
   }
 
+  /** A frame was drawn. */
   add(frame: ShownFrame): void {
     this.frames.push(frame);
-    const cutoff = frame.shownAt - windowMs * 2;
-    while (this.frames.length && (this.frames[0]?.shownAt ?? 0) < cutoff) this.frames.shift();
+    trim(this.frames, (entry) => entry.shownAt, frame.shownAt - historyMs);
   }
 
-  /** The stats as of `now`; undefined before the first frame or after a quiet second. */
+  /** A picture reached the page, before decoding. */
+  receive(at: number, bytes: number): void {
+    this.received.push({ at, bytes });
+    trim(this.received, (entry) => entry.at, at - historyMs);
+  }
+
+  /** The view asked the daemon for a keyframe. */
+  keyframeAsked(at: number): void {
+    this.asked.push(at);
+    trim(this.asked, (entry) => entry, at - historyMs);
+  }
+
+  /** The stats as of `now`; undefined before the first frame. */
   read(now: number): StreamStats | undefined {
-    const recent = this.frames.filter((frame) => frame.shownAt > now - windowMs);
     const last = this.frames.at(-1);
     if (!last) return undefined;
+    const recent = this.frames.filter((frame) => frame.shownAt > now - windowMs);
+    const arrived = this.received.filter((entry) => entry.at > now - windowMs);
     const first = this.frames[0];
     const spanned = first !== undefined && now - first.shownAt >= windowMs;
     const latencies = recent.map((frame) => frame.shownAt - frame.capturedAt);
     const latency = latencies.length
       ? Math.round(latencies.reduce((sum, value) => sum + value, 0) / latencies.length)
       : undefined;
+    const bytes = arrived.reduce((sum, entry) => sum + entry.bytes, 0);
+    const shown = this.frames.filter((frame) => frame.shownAt > now - historyMs);
+    let longestGapMs = shown.length ? now - (shown.at(-1)?.shownAt ?? now) : 0;
+    for (let index = 1; index < shown.length; index++)
+      longestGapMs = Math.max(
+        longestGapMs,
+        (shown[index]?.shownAt ?? 0) - (shown[index - 1]?.shownAt ?? 0),
+      );
+    const fps = spanned ? recent.length : undefined;
     return {
-      fps: spanned ? recent.length : undefined,
+      fps,
       latencyMs:
         this.sameClock && latency !== undefined && latency >= 0 && latency < 10_000
           ? latency
           : undefined,
+      receivedFps: arrived.length,
+      megabits: Math.round((bytes * 8) / 1e4) / 100,
+      longestGapMs: Math.round(longestGapMs),
+      keyframesAsked: this.asked.filter((at) => at > now - historyMs).length,
+      still:
+        fps !== undefined &&
+        fps <= stillFps &&
+        arrived.length > 0 &&
+        bytes / arrived.length < stillBytes,
     };
   }
 }
 
-/** "H.264 · 59 fps · 35 ms", leaving out what isn't known. */
+/** "H.264 · 59 fps · 35 ms", or "H.264 · still" while the screen holds still. */
 export function streamSummary(stats: StreamStats | undefined): string[] {
   if (!stats) return [];
   return [
     "H.264",
-    // A still screen sends no frames; "0 fps" would read as a broken stream.
-    ...(stats.fps ? [`${stats.fps} fps`] : []),
+    // A still screen sends no new frames; "0 fps" or "5 fps" would read as a broken stream.
+    ...(stats.still ? ["still"] : stats.fps ? [`${stats.fps} fps`] : []),
     ...(stats.latencyMs === undefined ? [] : [`${stats.latencyMs} ms`]),
+  ];
+}
+
+/** The stats overlay's lines: what arrived, what was drawn, and the stalls between. */
+export function streamDetails(stats: StreamStats | undefined): string[] {
+  if (!stats) return ["Waiting for the first picture"];
+  return [
+    `Received ${stats.receivedFps}/s · drawn ${stats.fps ?? "–"}/s`,
+    `${stats.megabits.toFixed(1)} Mbit/s`,
+    `Longest stall ${stats.longestGapMs} ms (5 s)`,
+    `Keyframes asked ${stats.keyframesAsked} (5 s)`,
+    "Decoder: the browser's choice; it doesn't report hardware use",
   ];
 }

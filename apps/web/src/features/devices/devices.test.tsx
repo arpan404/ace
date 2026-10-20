@@ -522,3 +522,16 @@ test("boot takes this panel's own lease from another connection that holds the d
     other.disconnect();
   }
 });
+
+test("Stream stats from the device's ⋯ menu show what arrived and what was drawn over the live screen", async () => {
+  const { panel } = await openDevices();
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  const iphone = await openDevice(panel, "iPhone 16 Pro");
+  await shows(await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" }));
+  expect(within(iphone).queryByRole("list", { name: "Stream stats" })).toBeNull();
+
+  await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
+  await userEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Stream stats" }));
+  const stats = await within(iphone).findByRole("list", { name: "Stream stats" });
+  await waitFor(() => expect(stats.textContent).toMatch(/Received \d+\/s · drawn/));
+});

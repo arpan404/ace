@@ -57,6 +57,12 @@ const at = (event: PointerEvent<HTMLCanvasElement>, page: { x: number; y: number
 /** A mouse pinch's mirrored finger, apart from any real pointer id. */
 const partnerId = 1_000_000;
 
+/** Told of each picture that reaches the page and each keyframe the view asks for. */
+export interface StreamObserver {
+  receive(at: number, bytes: number): void;
+  keyframeAsked(at: number): void;
+}
+
 /**
  * The device's live screen on a canvas, with no React render per frame. Pictures come on the
  * shared media stream as H.264 at 60 fps, decoded with WebCodecs and acked as they decode; the newest is drawn at each refresh, and a
@@ -74,6 +80,8 @@ export function DeviceScreen(props: {
   onInput(input: DeviceInput): void | Promise<void>;
   /** Each picture as it is drawn. */
   onFrame?(shown: ShownScreen): void;
+  /** The stream's arrivals and keyframe requests, for its stats (`StreamMeter`). */
+  stream?: StreamObserver | undefined;
   /** Classes for the canvas, over its defaults (a drawn device frame clips the corners). */
   className?: string;
 }) {
@@ -81,10 +89,12 @@ export function DeviceScreen(props: {
   const image = useRef<HTMLCanvasElement>(null);
   const latestInput = useRef(props.onInput);
   const latestFrame = useRef(props.onFrame);
+  const latestStream = useRef(props.stream);
   useEffect(() => {
     latestInput.current = props.onInput;
     latestFrame.current = props.onFrame;
-  }, [props.onInput, props.onFrame]);
+    latestStream.current = props.stream;
+  }, [props.onInput, props.onFrame, props.stream]);
   const touch = useRef<Touch>("gestures");
   /** Why there is no picture: no H.264 decoder here, or the daemon refused the video. */
   const [unavailable, setUnavailable] = useState<DeviceProblem | undefined>();
@@ -199,7 +209,10 @@ export function DeviceScreen(props: {
       decoder: webCodecsDecoder(),
       nextFrame,
       show,
-      ack: (picture, keyframe) => session.client.ack(picture, keyframe),
+      ack: (picture, keyframe) => {
+        if (keyframe) latestStream.current?.keyframeAsked(Date.now());
+        session.client.ack(picture, keyframe);
+      },
       fallback: cannotDecode,
       pressure: () => {
         const now = performance.now();
@@ -211,6 +224,7 @@ export function DeviceScreen(props: {
       },
     });
     const release = session.client.watchPictures(deviceId, async (next) => {
+      latestStream.current?.receive(Date.now(), next.bytes.length);
       if (document.visibilityState === "hidden") {
         // Nothing draws it: hold the ack, so the daemon stops sending until the page shows.
         renderer.reset();
