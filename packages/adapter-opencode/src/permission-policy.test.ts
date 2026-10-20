@@ -2,15 +2,15 @@ import { expect, test } from "vitest";
 import { opencodeNative } from "@ace/provider-kit/access-modes";
 import { opencodePolicy, type OpenCodeRule } from "./permission-policy.ts";
 
+const matches = (pattern: string, value: string) =>
+  new RegExp(
+    `^${pattern
+      .split("*")
+      .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
+      .join(".*")}$`,
+  ).test(value);
 /** OpenCode's rule evaluation: the last rule whose action and resource wildcards match wins. */
 function decide(rules: readonly OpenCodeRule[], action: string, resource = "*") {
-  const matches = (pattern: string, value: string) =>
-    new RegExp(
-      `^${pattern
-        .split("*")
-        .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
-        .join(".*")}$`,
-    ).test(value);
   return rules.findLast((rule) => matches(rule.action, action) && matches(rule.resource, resource))
     ?.effect;
 }
