@@ -20,6 +20,7 @@ function clipValue(value: unknown, cap: number): unknown {
     );
   return value;
 }
+const size = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
 function longest(value: unknown): number {
   if (typeof value === "string") return value.length;
   if (Array.isArray(value))
@@ -35,7 +36,6 @@ function longest(value: unknown): number {
  * cut item no longer satisfies the item schema. Only for an item that alone exceeds a page.
  */
 export function clipItem(item: Item, maxBytes: number): Item | undefined {
-  const size = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
   let low = floor;
   let high = longest(item);
   if (high <= floor || size(clipValue(item, floor)) > maxBytes) return undefined;
