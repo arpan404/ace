@@ -6,8 +6,7 @@ import type { Store } from "../store.ts";
 export function threadOutcome(store: Store, thread: Thread, cancelled = false): DelegationOutcome {
   const page = store.readItemPage(thread.id, store.headSeq() + 1, 20, 48 * 1024);
   let message: Extract<Item, { type: "message" }> | undefined;
-  for (const item of page.items)
-    if (isAgentProse(item)) message = item;
+  for (const item of page.items) if (isAgentProse(item)) message = item;
   let remaining = 4096; // Schema bound in UTF-16 units; never split a surrogate pair.
   const parts: string[] = [];
   let truncated = page.itemsBefore !== null;

@@ -482,7 +482,8 @@ export class TurnWriter {
       JSON.stringify(contribution.counters),
       item.agentId ?? null,
     );
-    if (role === "user" || role === "assistant") this.preview(event, ordinal, role, preview, item.id);
+    if (role === "user" || role === "assistant")
+      this.preview(event, ordinal, role, preview, item.id);
     // A message that moved turns (bound to the run that took it) leaves its old turn's previews.
     if (old && Number(old.ordinal) !== ordinal) {
       const left = Number(old.ordinal);

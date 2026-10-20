@@ -52,7 +52,10 @@ test("a provider's own note in a woken run keeps no wake origin; the adapter's w
     (item) => item.type === "message" && item.role === "user" && item.synthetic,
   );
   const byText = (text: string) =>
-    messages.find((item) => item.type === "message" && item.parts[0]?.type === "text" && item.parts[0].text === text);
+    messages.find(
+      (item) =>
+        item.type === "message" && item.parts[0]?.type === "text" && item.parts[0].text === text,
+    );
   expect(byText(notification)).toMatchObject({ origin: { kind: "background_completion" } });
   expect(byText(imageNote)).toBeDefined();
   expect(byText(imageNote)).not.toHaveProperty("origin");
