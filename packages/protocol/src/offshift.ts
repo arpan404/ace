@@ -68,6 +68,58 @@ export const OffshiftCriteria = z
   )
   .meta({ "x-ace-constraint": "Criterion IDs must be unique." });
 export const OffshiftRevision = z.string().min(1).max(512);
+/** Built-in playbooks: a named list of steps for one kind of work. */
+export const OffshiftPlaybookId = z.enum([
+  "fix",
+  "feature",
+  "refactor",
+  "perf",
+  "investigate",
+  "ui",
+  "land",
+]);
+export type OffshiftPlaybookId = z.infer<typeof OffshiftPlaybookId>;
+export const OffshiftStepState = z.enum(["todo", "done", "skipped"]);
+export type OffshiftStepState = z.infer<typeof OffshiftStepState>;
+const stepTitle = z.string().min(1).max(160);
+const stepNote = z.string().min(1).max(1024);
+/** One step of a run's procedure, before it is tracked. */
+export const OffshiftStepInput = z.strictObject({
+  id: key.describe("A stable id for the step (letters, digits, _ . -)."),
+  title: stepTitle.describe("What to do, as a short imperative."),
+  phase: OffshiftPhase.describe("The phase the step belongs to."),
+});
+export type OffshiftStepInput = z.infer<typeof OffshiftStepInput>;
+/** A run holds at most 24 steps, each id once. */
+export const OffshiftStepsInput = z
+  .array(OffshiftStepInput)
+  .min(1)
+  .max(24)
+  .refine(
+    (items) => new Set(items.map((item) => item.id)).size === items.length,
+    "Step IDs must be unique",
+  )
+  .meta({ "x-ace-constraint": "Step IDs must be unique." });
+export const OffshiftStep = OffshiftStepInput.extend({
+  state: OffshiftStepState,
+  /** What was observed when done, or why it was skipped. */
+  note: stepNote.optional(),
+});
+export type OffshiftStep = z.infer<typeof OffshiftStep>;
+/** A playbook step: a step with the evidence kinds its criteria usually need. */
+export const OffshiftPlaybookStep = OffshiftStepInput.extend({
+  kinds: z.array(OffshiftEvidenceKind).min(1).max(5).optional(),
+});
+export type OffshiftPlaybookStep = z.infer<typeof OffshiftPlaybookStep>;
+export const OffshiftPlaybook = z.object({
+  id: OffshiftPlaybookId,
+  purpose: z.string().min(1).max(160),
+  steps: z.array(OffshiftPlaybookStep).min(1).max(8),
+});
+export type OffshiftPlaybook = z.infer<typeof OffshiftPlaybook>;
+/** What `playbooks` returns: every built-in playbook, to choose one at start. */
+export const OffshiftPlaybooks = z.object({ playbooks: z.array(OffshiftPlaybook).max(16) });
+export type OffshiftPlaybooks = z.infer<typeof OffshiftPlaybooks>;
 export const OffshiftEvidence = z.strictObject({
   criterionId: key.describe("The criterion this observation checks."),
   kind: OffshiftEvidenceKind.describe("Which required kind this observation satisfies."),
@@ -100,9 +152,13 @@ export const OffshiftRequest = z.discriminatedUnion("action", [
     endpoint: text,
     criteria: OffshiftCriteria,
     roles: OffshiftRoles.optional(),
+    /** The playbook's steps, then `steps`, ordered by phase. */
+    playbook: OffshiftPlaybookId.optional(),
+    steps: OffshiftStepsInput.optional(),
   }),
   z.strictObject({ action: z.literal("get"), runId: key }),
   z.strictObject({ action: z.literal("list") }),
+  z.strictObject({ action: z.literal("playbooks") }),
   z.strictObject({ action: z.literal("advance"), ...mutation, phase: OffshiftPhase, note: text }),
   z.strictObject({ action: z.literal("block"), ...mutation, note: text }),
   z.strictObject({ action: z.literal("resume"), ...mutation, note: text }),
@@ -116,6 +172,14 @@ export const OffshiftRequest = z.discriminatedUnion("action", [
   }),
   /** Replaces the run's roles. */
   z.strictObject({ action: z.literal("roles"), ...mutation, roles: OffshiftRoles }),
+  /** Marks a step done (note: what was observed) or skipped (note: why, required). */
+  z.strictObject({
+    action: z.literal("step"),
+    ...mutation,
+    stepId: key,
+    state: z.enum(["done", "skipped"]),
+    note: stepNote.optional(),
+  }),
 ]);
 export type OffshiftRequest = z.infer<typeof OffshiftRequest>;
 /** Replaces the project's default roles, used by runs that leave a role out. */
@@ -139,6 +203,9 @@ export const OffshiftRun = z.object({
   /** The owner's provider and model when the run started; independence is measured from it. */
   owner: OffshiftAuthor,
   roles: OffshiftRoles,
+  playbook: OffshiftPlaybookId.optional(),
+  /** The run's procedure in phase order; runs started without one have none. */
+  steps: z.array(OffshiftStep).max(24).default([]),
   phase: OffshiftPhase,
   version: z.number().int().nonnegative(),
   blocker: text.nullable(),
@@ -181,6 +248,7 @@ export const OffshiftResult = z.union([
   OffshiftView,
   z.array(OffshiftRunSummary).max(32),
   OffshiftProjectRoles,
+  OffshiftPlaybooks,
 ]);
 export type OffshiftResult = z.infer<typeof OffshiftResult>;
 
@@ -248,6 +316,18 @@ export const OffshiftRunCard = z.object({
       }),
     )
     .max(4),
+  /** The current phase's steps, in order; a skipped step's reason is clipped to 160 characters. */
+  steps: z
+    .array(
+      z.object({
+        id: key,
+        title: stepTitle,
+        state: OffshiftStepState,
+        reason: z.string().max(160).optional(),
+      }),
+    )
+    .max(24)
+    .default([]),
 });
 export type OffshiftRunCard = z.infer<typeof OffshiftRunCard>;
 /** A thread-log event: an Offshift run of this thread changed. */

@@ -16,3 +16,4 @@ export {
   type Context,
   type Observation,
 } from "./workflow.ts";
+export { playbook, playbookCatalogue } from "./playbooks.ts";
