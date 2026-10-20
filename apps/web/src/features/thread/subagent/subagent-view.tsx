@@ -53,7 +53,7 @@ const overlayOpen = () =>
 
 /**
  * A provider's own subagent as the whole chat: its transcript in the reading column, `parent /
- * name` in the header with the thread's details icon and card (where Lineage places it), and the
+ * name` in the header with the thread's details icon and card (where Agents places it), and the
  * thread's panel beside it. Nobody can message a provider's subagent (only the agent that
  * started it can), so a status bar stands where the composer would: Stop while it runs (where
  * the provider can stop one subagent), and once it failed or was stopped, a message asking its

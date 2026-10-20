@@ -6,17 +6,17 @@ import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { useCheckoutMove } from "./checkout-move.tsx";
 import { useGitFlow } from "./use-git-flow.tsx";
-import { EnvironmentGroup } from "./work-card-environment.tsx";
-import { GitGroup } from "./work-card-git.tsx";
-import { LineageSection } from "./work-card-lineage.tsx";
+import { WorkspaceGroup } from "./work-card-workspace.tsx";
+import { BranchGroup } from "./work-card-branch.tsx";
+import { AgentsSection } from "./work-card-agents.tsx";
 
 const CreateFile = lazy(() => loadCreateFile().then((module) => ({ default: module.CreateFile })));
 
 /**
- * The thread details card's sections: Environment, Git and Lineage (a child thread's parent), a
- * hairline between each. What runs (the agent tree, background commands, automations) has one
- * home, the Summary tab. Its forms (commit, PR, a guarded checkout move, a new script file)
- * outlive the card, which closes when one opens.
+ * The thread details card's sections: Workspace, Branch and Agents (a child thread's parent,
+ * else the main agent's subagents), a hairline between each. What runs in detail (the agent
+ * tree, background commands, automations) has one home, the Summary tab. Its forms (commit,
+ * PR, a guarded checkout move, a new script file) outlive the card, which closes when one opens.
  */
 export function WorkCard(props: { threadId: string; onClose(): void }) {
   const meta = useThreadMeta(props.threadId);
@@ -45,14 +45,14 @@ function WorkGroups(props: { thread: ThreadRef; onClose(): void }) {
   const [addingScript, setAddingScript] = useState(false);
   return (
     <>
-      <EnvironmentGroup
+      <WorkspaceGroup
         thread={props.thread}
         move={checkout.move}
         onClose={props.onClose}
         onAddScript={() => setAddingScript(true)}
       />
-      <GitGroup thread={props.thread} git={git} move={checkout.move} onClose={props.onClose} />
-      <LineageSection threadId={props.thread.id} onClose={props.onClose} />
+      <BranchGroup thread={props.thread} git={git} move={checkout.move} onClose={props.onClose} />
+      <AgentsSection threadId={props.thread.id} onClose={props.onClose} />
       {git.dialog}
       {checkout.dialog}
       {addingScript && (

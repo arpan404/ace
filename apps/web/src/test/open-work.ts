@@ -48,11 +48,11 @@ export async function openWorkCard() {
     await userEvent.click(await workButton());
     card = await screen.findByRole("dialog", { name: "Thread details" });
   }
-  await within(card).findByRole("region", { name: "Environment" });
+  await within(card).findByRole("region", { name: "Workspace" });
   return card;
 }
 
-/** The Environment section's machine row: "<machine>, <Connected|Offline…>". */
+/** The Workspace section's machine row: "<machine>, <Connected|Offline…>". */
 export const machineRow = /, (Connected|Connecting|Offline|Pair again)$/;
 
 /**

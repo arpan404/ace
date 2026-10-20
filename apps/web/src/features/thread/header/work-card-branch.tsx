@@ -30,7 +30,7 @@ type GitFlow = ReturnType<typeof useGitFlow>;
  * The changes row names its scope (Uncommitted) and opens Changes on that scope, so its count
  * and the Changes header's always describe the same thing.
  */
-export function GitGroup(props: {
+export function BranchGroup(props: {
   thread: ThreadRef;
   git: GitFlow;
   move(move: Move): void;
@@ -41,7 +41,7 @@ export function GitGroup(props: {
   const checkout = git.checkout;
   const note = checkout && checkoutNote(checkout);
   return (
-    <Section label="Git">
+    <Section label="Branch" title="Branch">
       <BranchRow thread={props.thread} git={git} move={props.move} />
       {checkout && (
         <>
