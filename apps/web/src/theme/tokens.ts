@@ -180,8 +180,8 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
     // stage it sits on, and the black glass around its screen. Hardware looks the same in
     // every theme, so the body is a fixed colour, just above the glass.
     "--device-stage": light
-      ? `color-mix(in srgb, ${p.sidebar}, ${p.t1} 4%)`
-      : `color-mix(in srgb, ${p.s1}, #fff 2.5%)`,
+      ? `color-mix(in srgb, ${p.sidebar}, ${p.t1} 1.5%)`
+      : `color-mix(in srgb, ${p.sidebar}, #000 20%)`,
     "--device-body": "#111113",
     "--device-rim": light
       ? "inset 0 0 0 1px rgb(255 255 255 / 0.14), 0 0 0 1px rgb(0 0 0 / 0.14)"
