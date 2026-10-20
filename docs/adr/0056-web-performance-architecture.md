@@ -52,7 +52,9 @@ Nothing grows with history. Every cache is an `LruCache` (`@ace/ui-core`, bounde
 | History window (each thread view)        | 2,000 items and about 8 Mi UTF-16 units of text (400 items for a subagent transcript, which is not virtualized); trimmed only at the end away from the reader |
 | Cached thread stores                     | 32, and 16 MiB estimated for those no view holds, least recently used released first; held stores pinned                                                      |
 | Released tab mirrors                     | 32 and 16 MiB estimated per tab, least recently used first; leased mirrors pinned; dropped when the worker is lost                                            |
-| Read snapshots (IndexedDB)               | 32 records and 16 MiB across every daemon and device, least recently used pruned in the writing transaction; one write per view per second                    |
+| Read snapshots (IndexedDB)               | 512 records and 64 MiB across every daemon and device, least recently used pruned in the writing transaction; one write per view per second                   |
+| Kept daemon lookups (IndexedDB)          | One record per connection beside its read snapshots, at most 200 queries; one write per second while connected                                                |
+| Finished turns' steps                    | Unretained turns: 2,000 steps and 100 turns in memory, oldest use first; on disk one record per read turn among the read snapshots (ADR 0062)                 |
 | Item text                                | 64 Ki UTF-16 units per item; overflow keeps the tail and marks truncation                                                                                     |
 | Agents, runs, interactions, tasks, usage | Soft target of 4,096 retained entities; settled entries are evicted, while active entries and required ancestors remain                                       |
 | Thread list order                        | Deleted threads leave it                                                                                                                                      |

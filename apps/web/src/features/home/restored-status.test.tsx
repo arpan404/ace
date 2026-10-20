@@ -1,11 +1,9 @@
-import { Client, type ReadSnapshotStorage, type TransportEvents } from "@ace/client";
 import type { Fact } from "@ace/core";
-import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
-import { DeviceId } from "@ace/protocol";
+import { FakeDaemon } from "@ace/fake-daemon";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import { expect, test } from "vitest";
-import { memoryStorage } from "@/boot/client.ts";
+import { gatedClient, memoryReadSnapshots, type Gate } from "@/test/gated-client.ts";
 import { harness } from "@/test/harness.tsx";
 
 /*
@@ -43,79 +41,8 @@ function turn(id: string, outcome?: "completed"): Fact[] {
   ];
 }
 
-function memory(): ReadSnapshotStorage {
-  const values = new Map<string, unknown>();
-  return {
-    get: async (key) => structuredClone(values.get(key)),
-    set: async (key, value) => {
-      values.set(key, structuredClone(value));
-    },
-  };
-}
-
-/**
- * A client over `daemon` that keeps read snapshots in `saved`. While `gate.held`, the daemon's
- * view snapshots (and what follows them on their subscription) wait in `gate.queue`.
- */
-function client(daemon: FakeDaemon, saved: ReadSnapshotStorage, gate?: Gate): Client {
-  let ids = 0;
-  return new Client({
-    deviceId: DeviceId.parse("test-device"),
-    transport: () => (gate ? holding(daemon, gate) : fakeTransport(daemon)),
-    credential: async () => daemon.token,
-    storage: memoryStorage(),
-    readSnapshots: saved,
-    scheduler: {
-      set(delayMs, callback) {
-        const timer = setTimeout(callback, delayMs);
-        return () => clearTimeout(timer);
-      },
-    },
-    random: () => 0.5,
-    id: () => `id-${++ids}`,
-    limits: { retryBaseMs: 2, retryCapMs: 10 },
-  });
-}
-
-interface Gate {
-  held: boolean;
-  queue: (() => void)[];
-}
-function holding(daemon: FakeDaemon, gate: Gate) {
-  const inner = fakeTransport(daemon);
-  const wires = new Set<string>();
-  return {
-    open(events: TransportEvents) {
-      inner.open({
-        open: () => events.open(),
-        close: (code, reason) => events.close(code, reason),
-        message(text) {
-          const frame: unknown = JSON.parse(text);
-          const wire =
-            typeof frame === "object" && frame !== null && "subscriptionId" in frame
-              ? frame.subscriptionId
-              : undefined;
-          const snapshot =
-            typeof frame === "object" &&
-            frame !== null &&
-            "type" in frame &&
-            frame.type === "snapshot";
-          if (gate.held && typeof wire === "string" && (snapshot || wires.has(wire))) {
-            wires.add(wire);
-            gate.queue.push(() => events.message(text));
-            return;
-          }
-          events.message(text);
-        },
-      });
-    },
-    send: (text: string) => inner.send(text),
-    close: () => inner.close(),
-  };
-}
-
 test("a restored thread that was done never shows as done before the daemon confirms it is working", async () => {
-  const saved = memory();
+  const saved = memoryReadSnapshots();
   let at = Date.now() + 60_000;
   const clock = () => (at = Math.max(at + 1, Date.now() + 60_000));
   const daemon = new FakeDaemon({ clock });
@@ -127,7 +54,7 @@ test("a restored thread that was done never shows as done before the daemon conf
     daemon,
     clock,
     history: createMemoryHistory({ initialEntries: [`/t/${threadId}`] }),
-    client: (shared) => client(shared, saved),
+    client: (shared) => gatedClient(shared, saved),
   });
   await before.open(`/t/${threadId}`);
   await within(await screen.findByRole("feed", { name: "Transcript" })).findByText("Go.");
@@ -150,7 +77,7 @@ test("a restored thread that was done never shows as done before the daemon conf
     daemon,
     clock,
     history: createMemoryHistory({ initialEntries: [`/t/${threadId}`] }),
-    client: (shared) => client(shared, saved, gate),
+    client: (shared) => gatedClient(shared, saved, gate),
   });
   await app.open(`/t/${threadId}`);
   const list = within(await screen.findByRole("navigation", { name: "Threads" }));

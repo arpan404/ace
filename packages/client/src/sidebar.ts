@@ -5,6 +5,7 @@ import type { SidebarKey, SidebarReader } from "./readers.ts";
 import { Notifications, type ChangeTap, type Selection } from "./observable.ts";
 import { parseSidebarRecord, sidebarRecord, type SidebarHalf } from "./read-records.ts";
 import { SnapshotBinding, contentChanges, type Persistence } from "./read-snapshots.ts";
+import { FilterMemory, type ProvisionalSource } from "./sidebar-memory.ts";
 import { ClientError, type Limits } from "./types.ts";
 
 export type { SidebarReader } from "./readers.ts";
@@ -53,7 +54,11 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
       persistence,
       `sidebar:${JSON.stringify([this.#filter.project ?? null, !!this.#filter.archived])}`,
       contentChanges((tap) => this.observe(tap)),
-      () => sidebarRecord(half, half === "archive" ? this.#archive : this.#home),
+      // A derived list is part of another filter's: it is never written as this filter's.
+      () =>
+        this.#provisional.get(half) === "derived"
+          ? undefined
+          : sidebarRecord(half, half === "archive" ? this.#archive : this.#home),
       (value) => this.#restore(value),
     );
   }
@@ -66,18 +71,24 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   }
   /**
    * Paint a half read back from disk until its subscription's snapshot arrives. A half is
-   * adopted only where none is held; one that does not parse or is over the entity limit is
-   * skipped without blocking the other.
+   * adopted only where none is held, or where the one held was derived from another filter's
+   * list; one that does not parse or is over the entity limit is skipped without blocking the
+   * other.
    */
   #restore(value: unknown): void {
     const record = parseSidebarRecord(value);
+    const open = (half: SidebarHalf) =>
+      !(half === "archive" ? this.#archive : this.#home) ||
+      this.#provisional.get(half) === "derived";
     const fits = (view: ThreadListView | undefined): view is ThreadListView =>
       view !== undefined && Object.keys(view.threads).length <= this.#limits.entities;
-    const home = !this.#home && fits(record.home) ? record.home : undefined;
-    const archive = !this.#archive && fits(record.archive) ? record.archive : undefined;
+    const home = open("home") && fits(record.home) ? record.home : undefined;
+    const archive = open("archive") && fits(record.archive) ? record.archive : undefined;
     if (!home && !archive) return;
     if (home) this.#home = home;
     if (archive) this.#archive = archive;
+    if (home) this.#provisional.delete("home");
+    if (archive) this.#provisional.delete("archive");
     this.#confirm(
       [...(home ? ["home" as const] : []), ...(archive ? ["archive" as const] : [])],
       true,
@@ -100,6 +111,9 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     this.#notifications.emit(["error", "sync"]);
   }
   #view: ThreadListView | undefined;
+  #memory = new FilterMemory();
+  /** Halves painted from memory until their subscription's snapshot lands. */
+  #provisional = new Map<SidebarHalf, ProvisionalSource>();
   #home: ThreadListView | undefined;
   #archive: ThreadListView | undefined;
   #archiveWire: string | undefined;
@@ -131,6 +145,8 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
       return;
     this.#retire();
     const projectChanged = input.project !== this.#filter.project;
+    this.#keep("archive");
+    if (projectChanged) this.#keep("home");
     this.#filter = { ...input };
     if (projectChanged) this.#pending.clear();
     else if (this.#archiveWire) this.#pending.delete(this.#archiveWire);
@@ -138,16 +154,35 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     this.#archiveWire = undefined;
     this.#archive = undefined;
     this.#confirm(["archive"], false);
+    if (input.archived) this.#adopt("archive");
     if (projectChanged) {
       if (this.#wire) this.#send({ type: "unsubscribe", subscriptionId: this.#wire });
       this.#wire = undefined;
       this.#home = undefined;
       this.#confirm(["home"], false);
+      this.#adopt("home");
       if (this.#refs && this.#ready()) this.#subscribe();
     } else if (input.archived && this.#refs && this.#ready()) this.#subscribeArchive();
+    if (this.#provisional.size && !this.#pending.size) this.#pending.add("provisional");
     this.#merge();
     this.#notifications.emitAll();
     this.#persist();
+  }
+  /** Remember a half the filter is leaving, unless it was only derived from another's list. */
+  #keep(half: SidebarHalf): void {
+    const view = half === "archive" ? this.#archive : this.#home;
+    if (view && this.#provisional.get(half) !== "derived")
+      this.#memory.remember(half, this.#filter.project, view);
+    this.#provisional.delete(half);
+  }
+  /** Paint a half from memory, unconfirmed, until its subscription's snapshot lands. */
+  #adopt(half: SidebarHalf): void {
+    const held = this.#memory.provisional(half, this.#filter.project);
+    if (!held) return;
+    if (half === "archive") this.#archive = held.view;
+    else this.#home = held.view;
+    this.#provisional.set(half, held.source);
+    this.#confirm([half], true);
   }
   pageRequest() {
     const wire = this.#filter.archived ? this.#archiveWire : this.#wire;
@@ -326,7 +361,8 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
       this.#failure = undefined;
       if (message.subscriptionId === this.#archiveWire) this.#archive = message.view;
       else this.#home = message.view;
-      this.#confirm([message.subscriptionId === this.#archiveWire ? "archive" : "home"], false);
+      this.#confirm([archived ? "archive" : "home"], false);
+      this.#provisional.delete(archived ? "archive" : "home");
       this.#pending.delete(message.subscriptionId);
       this.#merge();
       this.#notifications.emitAll();

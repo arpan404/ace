@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 import { createThreadView } from "@ace/projection";
-import { CoreClientMessage, DeviceId, Item, Thread, ThreadListView } from "@ace/protocol";
+import { CoreClientMessage, DeviceId, HostId, Item, Thread, ThreadListView } from "@ace/protocol";
 import { ClientCore, type ReadSnapshotStorage, type TransportEvents } from "./index.ts";
 
 export const thread = Thread.parse({
@@ -62,6 +62,10 @@ export const list = (title = "Cached") =>
     seq: 10,
     threads: { thread: { ...thread, title } },
   });
+/** The daemon every harness meets: its welcome names this host. */
+export const hostId = "30f6c4b7-ee27-4793-8c80-7613f816a314";
+/** Where a client files `key` for the harness's daemon. */
+export const stored = (key: string, host = hostId) => `${host}/${key}`;
 export function memory() {
   const values = new Map<string, unknown>();
   const storage: ReadSnapshotStorage = {
@@ -69,10 +73,21 @@ export function memory() {
     set: async (key, value) => {
       values.set(key, structuredClone(value));
     },
+    clear: async () => {
+      values.clear();
+    },
   };
   return { values, storage };
 }
-export function harness(storage: ReadSnapshotStorage, threads = 32) {
+/**
+ * A client of the harness's daemon. By default it already knows the daemon (as a reload does,
+ * from the binding an earlier session stored); `{ host: undefined }` meets it at the welcome.
+ */
+export function harness(
+  storage: ReadSnapshotStorage,
+  threads = 32,
+  options: { host?: string | undefined } = { host: hostId },
+) {
   let socket: TransportEvents | undefined;
   let nextId = 0;
   const sent: ReturnType<typeof CoreClientMessage.parse>[] = [];
@@ -85,6 +100,7 @@ export function harness(storage: ReadSnapshotStorage, threads = 32) {
     random: () => 0.5,
     id: () => `id-${++nextId}`,
     limits: { threads },
+    ...(options.host ? { expectedHostId: HostId.parse(options.host) } : {}),
     scheduler: {
       set(ms, callback) {
         const job = { ms, callback };
@@ -106,16 +122,18 @@ export function harness(storage: ReadSnapshotStorage, threads = 32) {
     }),
   });
   const deliver = (message: unknown) => socket?.message(JSON.stringify(message));
+  const closeSocket = (code: number) => socket?.close(code);
   return {
     client,
     sent,
     deliver,
+    closeSocket,
     async start() {
       await client.start();
       await expect.poll(() => sent.some((message) => message.type === "hello")).toBe(true);
       deliver({
         type: "welcome",
-        hostId: "30f6c4b7-ee27-4793-8c80-7613f816a314",
+        hostId,
         protocolVersion: 1,
         headSeq: 10,
       });
@@ -130,7 +148,7 @@ export function harness(storage: ReadSnapshotStorage, threads = 32) {
         .toBe(hellos + 1);
       deliver({
         type: "welcome",
-        hostId: "30f6c4b7-ee27-4793-8c80-7613f816a314",
+        hostId,
         protocolVersion: 1,
         headSeq,
       });

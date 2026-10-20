@@ -1,11 +1,12 @@
 import { authorizeDaemonUrl } from "./daemon-network.ts";
 import { machineSecrets } from "./machine-secrets.ts";
 import { ClientError, type Storage } from "@ace/client";
-import { MachineDirectory } from "@ace/client/machines";
+import { MachineDirectory, type MachineEntry } from "@ace/client/machines";
 import type { PortLike } from "@ace/client-worker";
 import { MachinePool } from "@ace/client-worker/machines";
 import type { KeyValueStorage } from "@ace/ui-core";
 import type { MachineTarget } from "./machine-target.ts";
+import { forgetReadSnapshots } from "./read-snapshots.ts";
 
 /*
  * The browser's and desktop renderer's machine pool (ADR 0059): the directory of the person's
@@ -96,6 +97,31 @@ function dedicatedWorker(name: string, url: string): SpawnedWorker {
   };
 }
 
+/** What a machine's worker is handed: the same connection its cached threads are filed under. */
+function machineConfig(entry: MachineEntry, url: string, token: string): MachineTarget {
+  return {
+    url: socketUrl(url),
+    token,
+    deviceId: entry.deviceId,
+    pairedDeviceId: entry.deviceId,
+    seed: null,
+    hostId: entry.hostId,
+  };
+}
+
+/** A directory that, removing a machine, also deletes the threads read from it. */
+class ForgettingDirectory extends MachineDirectory {
+  override async remove(hostId: string): Promise<void> {
+    const entry = (await this.load()).find((candidate) => candidate.hostId === hostId);
+    const token = entry && (await this.token(entry).catch(() => undefined));
+    await super.remove(hostId);
+    if (entry?.target.kind !== "direct" || !token) return;
+    await forgetReadSnapshots(machineConfig(entry, entry.target.url, token)).catch(
+      (error: unknown) => console.error("ace: couldn't delete a removed machine's threads", error),
+    );
+  }
+}
+
 /**
  * The pool over the directory in `storage`. Each machine gets its own worker whose client is
  * pinned to the machine's host id and authenticates with the machine's own stored token.
@@ -106,7 +132,7 @@ export function browserMachinePool(options: {
   session?: KeyValueStorage;
   spawnWorker?: (name: string) => SpawnedWorker;
 }): MachinePool {
-  const directory = new MachineDirectory(
+  const directory = new ForgettingDirectory(
     directoryStorage(options.storage),
     machineSecrets(options.storage, options.session ?? sessionStorage),
     (work) => (navigator.locks ? navigator.locks.request("ace-machine-directory", work) : work()),
@@ -120,14 +146,7 @@ export function browserMachinePool(options: {
       const worker = options.spawnWorker
         ? options.spawnWorker(`ace-machine-${entry.hostId}`)
         : dedicatedWorker(`ace-machine-${entry.hostId}`, entry.target.url);
-      const config: MachineTarget = {
-        url: socketUrl(entry.target.url),
-        token,
-        deviceId: entry.deviceId,
-        pairedDeviceId: entry.deviceId,
-        seed: null,
-        hostId: entry.hostId,
-      };
+      const config = machineConfig(entry, entry.target.url, token);
       return {
         port: worker.port,
         config,

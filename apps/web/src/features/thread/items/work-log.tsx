@@ -1,5 +1,6 @@
 import { Suspense, use, useEffect, useId, useMemo, useState } from "react";
 import { useTurnSummary } from "../long/turn-index.ts";
+import { useWarmTurnSteps } from "../lib/turn-steps.ts";
 import { blockItems, type Block } from "../transcript/blocks.ts";
 import { DeferredTurnWork } from "./deferred-steps.ts";
 import { JumpedItem } from "./jumped-item.ts";
@@ -48,6 +49,12 @@ function SettledLog(props: { threadId: string; block: WorkBlock; ordinal?: numbe
   const landed = jumped !== undefined && items.includes(jumped);
   const open = toggled ?? landed;
   const panel = useId();
+  // A finished turn starts reading as the pointer reaches it, so it opens on its steps.
+  const warm = useWarmTurnSteps(
+    props.threadId,
+    block.outcome === "completed" ? props.ordinal : undefined,
+    summary?.endSeq,
+  );
   // The opened log's code loads after first paint, ready before it is opened.
   useEffect(() => void DeferredTurnWork.preload(), []);
   if (!headline) return null;
@@ -69,6 +76,7 @@ function SettledLog(props: { threadId: string; block: WorkBlock; ordinal?: numbe
         open={open}
         panel={panel}
         onToggle={() => setOpen(!open)}
+        onIntent={open ? undefined : warm}
       />
       {open && (
         <div className="pt-1 pb-1">

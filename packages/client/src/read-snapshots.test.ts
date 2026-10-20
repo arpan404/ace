@@ -1,6 +1,15 @@
 import { expect, test } from "vitest";
 import { Event, ThreadId } from "@ace/protocol";
-import { harness, holding, list, memory, record, thread, view } from "./read-snapshots.fixture.ts";
+import {
+  harness,
+  holding,
+  list,
+  memory,
+  record,
+  stored,
+  thread,
+  view,
+} from "./read-snapshots.fixture.ts";
 
 const text = (store: { item(id: string): unknown }, id: string) => {
   const item = store.item(id);
@@ -11,7 +20,7 @@ const text = (store: { item(id: string): unknown }, id: string) => {
 
 test("reload paints persisted messages while syncing and always reconciles from a fresh wire", async () => {
   const m = memory();
-  m.values.set("thread:thread", record());
+  m.values.set(stored("thread:thread"), record());
   const f = harness(m.storage);
   const lease = f.client.thread("thread");
   await expect.poll(() => lease.store.thread?.title).toBe("Cached");
@@ -40,7 +49,7 @@ test("reload paints persisted messages while syncing and always reconciles from 
 test("a cached thread restores in creation order and merges with the live snapshot by sequence", async () => {
   const m = memory();
   m.values.set(
-    "thread:thread",
+    stored("thread:thread"),
     record(
       holding(
         [
@@ -82,7 +91,10 @@ test("a cached thread restores in creation order and merges with the live snapsh
 
 test("a cached view the live window does not reach is replaced, never joined across a hole", async () => {
   const m = memory();
-  m.values.set("thread:thread", record(holding([["old", 3, "Old"]], { seq: 10, itemsBefore: 3 })));
+  m.values.set(
+    stored("thread:thread"),
+    record(holding([["old", 3, "Old"]], { seq: 10, itemsBefore: 3 })),
+  );
   const f = harness(m.storage);
   const lease = f.client.thread("thread");
   await expect.poll(() => lease.store.order).toEqual(["old"]);
@@ -153,7 +165,7 @@ test.each([
   },
 ])("$name is ignored and the thread starts from the daemon", async ({ cached }) => {
   const m = memory();
-  m.values.set("thread:thread", cached);
+  m.values.set(stored("thread:thread"), cached);
   const f = harness(m.storage);
   const lease = f.client.thread("thread");
   await f.start();
@@ -196,7 +208,7 @@ test("streaming schedules one snapshot of the latest text", async () => {
   await expect.poll(() => lease.store.cursor).toBe(30);
   expect(m.values.size).toBe(0);
   f.flush();
-  await expect.poll(() => m.values.has("thread:thread")).toBe(true);
+  await expect.poll(() => m.values.has(stored("thread:thread"))).toBe(true);
   const reloaded = harness(m.storage);
   const restored = reloaded.client.thread("thread");
   await expect.poll(() => restored.store.cursor).toBe(30);
@@ -208,7 +220,7 @@ test("streaming schedules one snapshot of the latest text", async () => {
 
 test("cached sidebar paints before the network and reconciles removed rows", async () => {
   const m = memory();
-  m.values.set("sidebar:[null,false]", { version: 2, home: list() });
+  m.values.set(stored("sidebar:[null,false]"), { version: 2, home: list() });
   const f = harness(m.storage);
   const lease = f.client.threads();
   await expect.poll(() => lease.store.loaded).toBe(true);
@@ -230,7 +242,7 @@ test("cached sidebar paints before the network and reconciles removed rows", asy
 
 test("an older build's sidebar record is ignored", async () => {
   const m = memory();
-  m.values.set("sidebar:[null,false]", { version: 1, home: list() });
+  m.values.set(stored("sidebar:[null,false]"), { version: 1, home: list() });
   const f = harness(m.storage);
   const lease = f.client.threads();
   await f.start();
@@ -269,10 +281,10 @@ test("sidebar filter changes fence a late cached list from the previous project"
   const collection = f.client.threadsCollection();
   const lease = collection.threads();
   await collection.threadsWindow({ project: "selected" });
-  pending.get("sidebar:[null,false]")?.({ version: 2, home: list("Wrong project") });
+  pending.get(stored("sidebar:[null,false]"))?.({ version: 2, home: list("Wrong project") });
   await Promise.resolve();
   expect(lease.store.loaded).toBe(false);
-  pending.get('sidebar:["selected",false]')?.({ version: 2, home: list("Selected") });
+  pending.get(stored('sidebar:["selected",false]'))?.({ version: 2, home: list("Selected") });
   await expect.poll(() => lease.store.thread("thread")?.title).toBe("Selected");
   expect(lease.store.syncing).toBe(true);
   collection.close();
@@ -281,7 +293,7 @@ test("sidebar filter changes fence a late cached list from the previous project"
 
 test("an archived filter persists only its half and an archive-only record paints at once", async () => {
   const m = memory();
-  m.values.set("sidebar:[null,true]", { version: 2, archive: list("Archived") });
+  m.values.set(stored("sidebar:[null,true]"), { version: 2, archive: list("Archived") });
   const f = harness(m.storage);
   const collection = f.client.threadsCollection();
   const lease = collection.threads();
@@ -310,11 +322,11 @@ test("an archived filter persists only its half and an archive-only record paint
   });
   await expect.poll(() => lease.store.syncing).toBe(false);
   f.flush();
-  await expect.poll(() => m.values.has("sidebar:[null,true]")).toBe(true);
-  const stored = m.values.get("sidebar:[null,true]");
-  expect(stored).toMatchObject({ version: 2, archive: { seq: 6 } });
-  expect(stored).not.toHaveProperty("home");
-  expect(m.values.has("sidebar:[null,false]")).toBe(false);
+  await expect.poll(() => m.values.has(stored("sidebar:[null,true]"))).toBe(true);
+  const written = m.values.get(stored("sidebar:[null,true]"));
+  expect(written).toMatchObject({ version: 2, archive: { seq: 6 } });
+  expect(written).not.toHaveProperty("home");
+  expect(m.values.has(stored("sidebar:[null,false]"))).toBe(false);
   collection.close();
   await f.client.close();
 });
@@ -334,7 +346,7 @@ test("a late cached sidebar cannot replace a live window", async () => {
     view: list("Live"),
   });
   await expect.poll(() => lease.store.thread("thread")?.title).toBe("Live");
-  pending.get("sidebar:[null,false]")?.({ version: 2, home: list("Old") });
+  pending.get(stored("sidebar:[null,false]"))?.({ version: 2, home: list("Old") });
   await Promise.resolve();
   expect(lease.store.thread("thread")?.title).toBe("Live");
   expect(lease.store.syncing).toBe(false);
@@ -364,11 +376,79 @@ test("storage failures leave subscriptions usable and closing checkpoints dirty 
   expect(f.client.state).toBe("ready");
   await f.client.close();
   const m = memory();
-  m.values.set("thread:thread", record());
+  m.values.set(stored("thread:thread"), record());
   const closing = harness(m.storage);
   const restored = closing.client.thread("thread");
   await expect.poll(() => restored.store.cursor).toBe(10);
   m.values.clear();
   await closing.client.close();
-  expect(m.values.has("thread:thread")).toBe(true);
+  expect(m.values.has(stored("thread:thread"))).toBe(true);
+});
+
+test("a daemon started afresh at the same address never paints the threads its predecessor served", async () => {
+  const m = memory();
+  m.values.set(stored("thread:thread", "9d0f3f43-56a5-4c52-9a43-1d8a1b8f6f0e"), record());
+  const f = harness(m.storage, 32, { host: undefined });
+  const lease = f.client.thread("thread");
+  await f.start();
+  await Promise.resolve();
+  expect(lease.store.thread).toBeUndefined();
+  f.deliver({
+    type: "snapshot",
+    subscriptionId: f.wire("thread").subscriptionId,
+    seq: 10,
+    view: view("Live"),
+  });
+  await expect.poll(() => lease.store.thread?.title).toBe("Live");
+  await f.client.close();
+});
+
+test("a client meeting its daemon for the first time paints that daemon's record once it is named", async () => {
+  const m = memory();
+  m.values.set(stored("thread:thread"), record());
+  const f = harness(m.storage, 32, { host: undefined });
+  const lease = f.client.thread("thread");
+  await Promise.resolve();
+  expect(lease.store.thread).toBeUndefined();
+  await f.start();
+  await expect.poll(() => lease.store.thread?.title).toBe("Cached");
+  expect(lease.store.unconfirmed).toBe(true);
+  await f.client.close();
+});
+
+test("a revoked device forgets every record it kept and writes none afterwards", async () => {
+  const m = memory();
+  m.values.set(stored("thread:thread"), record());
+  m.values.set(stored("sidebar:[null,false]"), { version: 2, home: list() });
+  const f = harness(m.storage);
+  const lease = f.client.thread("thread");
+  await expect.poll(() => lease.store.thread?.title).toBe("Cached");
+  await f.start();
+  f.deliver({
+    type: "snapshot",
+    subscriptionId: f.wire("thread").subscriptionId,
+    seq: 12,
+    view: view("Live", 12),
+  });
+  await expect.poll(() => lease.store.thread?.title).toBe("Live");
+  f.closeSocket(4003);
+  await expect.poll(() => f.client.state).toBe("fatal");
+  expect(f.client.error?.code).toBe("auth");
+  await expect.poll(() => m.values.size).toBe(0);
+  // The live snapshot left the store unwritten: neither the timer nor closing writes it now.
+  f.flush();
+  await f.client.close();
+  expect(m.values.size).toBe(0);
+});
+
+test("a dropped connection keeps the records for the next one", async () => {
+  const m = memory();
+  m.values.set(stored("thread:thread"), record());
+  const f = harness(m.storage);
+  const lease = f.client.thread("thread");
+  await expect.poll(() => lease.store.thread?.title).toBe("Cached");
+  await f.start();
+  await f.reconnect(10);
+  expect(m.values.has(stored("thread:thread"))).toBe(true);
+  await f.client.close();
 });
