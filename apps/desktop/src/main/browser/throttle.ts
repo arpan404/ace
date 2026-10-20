@@ -10,6 +10,8 @@ export interface ViewActivity {
   agentControl: boolean;
   /** A CDP screencast is running (someone is watching through the daemon). */
   screencasting: boolean;
+  /** The app's encoder captures the view as video (someone watches it through the daemon). */
+  videoCapture?: boolean;
   /** When the agent last sent the view a command, navigation, key press or resize. */
   lastDrivenAt: number;
 }
@@ -37,7 +39,7 @@ export type ThrottleDecision = { presence: ViewPresence } & (
  * background throttling) instead of at full speed, and stops rendering. Anything that could
  * depend on page timing keeps it at full speed: being on screen (or under one of the app's
  * menus, drawn from its screencast meanwhile, so it renders parked), the person's control, a
- * screencast, or an agent command within `idleMs`; an agent command also keeps an unseen view
+ * screencast or video capture, or an agent command within `idleMs`; an agent command also keeps an unseen view
  * rendering (parked) while the agent holds the lease. Neither ever closes the view or loses page
  * state, so the daemon's session is untouched (ADR 0055, ADR 0069).
  */
@@ -48,7 +50,8 @@ export function throttleDecision(
 ): ThrottleDecision {
   if (activity.visible) return { presence: "placed", throttle: false };
   if (activity.covered) return { presence: "parked", throttle: false };
-  if (activity.screencasting) return { presence: "parked", throttle: false };
+  if (activity.screencasting || activity.videoCapture)
+    return { presence: "parked", throttle: false };
   const idleFor = now - activity.lastDrivenAt;
   if (idleFor < idleMs)
     return {

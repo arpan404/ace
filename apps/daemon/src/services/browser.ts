@@ -241,6 +241,8 @@ export function createBrowserSession(context: SocketContext): SocketService {
     },
   });
   return {
+    // The desktop's video encoder events (ADR 0088), once it registered as the backend.
+    binary: (frame) => backend?.binary(frame) ?? false,
     close() {
       stopRevocation?.();
       backend?.disconnect("Desktop app disconnected");
@@ -270,6 +272,7 @@ export function createBrowserSession(context: SocketContext): SocketService {
                 return true;
               },
               close: (reason) => socket.close(4009, reason.slice(0, 120)),
+              video: backendMessage.data.capabilities.video === true,
             });
             stopRevocation = options.store.devices.onRevoke((id) => {
               if (id === device) backend?.disconnect("Desktop credential revoked");

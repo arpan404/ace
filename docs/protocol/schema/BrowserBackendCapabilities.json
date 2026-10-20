@@ -21,6 +21,10 @@
     "targets": {
       "const": true,
       "type": "boolean"
+    },
+    "video": {
+      "const": true,
+      "type": "boolean"
     }
   },
   "required": [

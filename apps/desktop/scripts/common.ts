@@ -80,6 +80,7 @@ export function electronBundles(outdir: string, env: NodeJS.ProcessEnv): BuildOp
       entryPoints: {
         "browser-preload": join(desktop, "src/preload/browser.ts"),
         "browser-auth-preload": join(desktop, "src/preload/browser-auth.ts"),
+        "video-encoder-preload": join(desktop, "src/preload/video-encoder.ts"),
       },
       outdir,
       outExtension: { ".js": ".cjs" },

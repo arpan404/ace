@@ -14,6 +14,11 @@ export const BrowserBackendCapabilities = z.object({
   downloads: z.literal(true),
   /** The desktop reports the person's own input on its views (`ace.humanInput` events). */
   humanInput: z.literal(true),
+  /**
+   * The desktop encodes its views as video (ADR 0088): it answers `ace.video.*` commands on a
+   * tab's CDP and sends its encoder's events as binary messages on this socket.
+   */
+  video: z.literal(true).optional(),
 });
 export const BrowserBackendRegister = z.object({
   type: z.literal("browser.backend.register"),

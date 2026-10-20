@@ -4169,6 +4169,7 @@ Example:
 | permissions | yes | `true` |  |
 | downloads | yes | `true` |  |
 | humanInput | yes | `true` |  |
+| video | no | `true` |  |
 
 Example:
 
@@ -4207,7 +4208,7 @@ Example:
     "permissions": true,
     "targets": true
   },
-  "credential": "ef6ce07276ac6eb90c5ac866b8d79dff3d772c5603c6bcf961339e76e1355497",
+  "credential": "f6ce07276ac6eb90c5ac866b8d79dff3d772c5603c6bcf961339e76e13554974",
   "requestId": "example",
   "type": "browser.backend.register",
   "version": 1
@@ -4239,7 +4240,7 @@ Example:
 
 ```json
 {
-  "drawable": false,
+  "drawable": true,
   "type": "browser.backend.drawable"
 }
 ```
@@ -4260,7 +4261,6 @@ Example:
 ```json
 {
   "backendId": "example",
-  "error": "example",
   "id": "example",
   "sessionId": "example",
   "type": "browser.backend.response"
@@ -4340,7 +4340,7 @@ Type: ["embedded","headless","user"]. See JSON Schema for constraints.
 Example:
 
 ```json
-"headless"
+"user"
 ```
 
 ## BrowserBackendLossPolicy
@@ -4352,7 +4352,7 @@ Type: ["pause","headless"]. See JSON Schema for constraints.
 Example:
 
 ```json
-"headless"
+"pause"
 ```
 
 ## BrowserBackendLost
@@ -4376,7 +4376,7 @@ Example:
   "backend": "embedded",
   "pageStateLost": true,
   "reason": "example",
-  "recovery": "headless",
+  "recovery": "pause",
   "threadId": "example",
   "type": "browser.backend.lost",
   "url": "example"
@@ -4402,13 +4402,12 @@ Example:
 {
   "kind": "open",
   "options": {
-    "profile": "ephemeral",
     "threadId": "example",
     "workspaceId": "example"
   },
   "viewport": {
-    "height": 7,
-    "width": 9
+    "height": 9,
+    "width": 7
   }
 }
 ```
@@ -4426,7 +4425,8 @@ Example:
 ```json
 {
   "kind": "cdp",
-  "method": "example"
+  "method": "example",
+  "params": {}
 }
 ```
 
@@ -4443,7 +4443,7 @@ Example:
 ```json
 {
   "kind": "navigate",
-  "timeout": 1,
+  "timeout": 9,
   "url": "example"
 }
 ```
@@ -4476,9 +4476,9 @@ Example:
 
 ```json
 {
-  "height": 106,
+  "height": 101,
   "kind": "resize",
-  "width": 108
+  "width": 106
 }
 ```
 
@@ -4565,7 +4565,7 @@ Example:
     "permissions": true,
     "targets": true
   },
-  "credential": "ba4b7509cc3c7728bd71302aec3b31214388c21ceae9527908cd2dd9dcbd6c99",
+  "credential": "a4b7509cc3c7728bd71302aec3b31214388c21ceae9527908cd2dd9dcbd6c99e",
   "requestId": "example",
   "type": "browser.backend.register",
   "version": 1
@@ -4591,9 +4591,8 @@ Example:
   "backendId": "example",
   "id": "example",
   "operation": {
-    "kind": "navigate",
-    "timeout": 4,
-    "url": "example"
+    "key": "example",
+    "kind": "press"
   },
   "sessionId": "example",
   "type": "browser.backend.request"
@@ -4681,8 +4680,9 @@ Example:
   "backendId": "example",
   "id": "example",
   "operation": {
-    "active": false,
-    "kind": "agentUse"
+    "kind": "purge",
+    "threadId": "example",
+    "workspaceId": "example"
   },
   "sessionId": "example",
   "type": "browser.backend.request"
