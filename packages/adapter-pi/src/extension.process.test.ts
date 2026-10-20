@@ -238,7 +238,13 @@ test("Pi adds computer use when it turns on, its other tools once used, and with
   onTestFinished(host.shutdown);
   await host.start((pi) => registerAcePiExtension(pi, { ACE_PI_SESSION_FILE: config.path }));
   expect(host.errors).toEqual([]);
-  expect(host.active()).toEqual(["read", "bash", "ace_context", "ace_tools_find"]);
+  expect(host.active()).toEqual([
+    "read",
+    "bash",
+    "ace_context",
+    "ace_tools_find",
+    "ace_tools_call",
+  ]);
   const refresh = async (mutate: () => void) => {
     const next = Promise.withResolvers<void>();
     changed = next.resolve;
@@ -256,6 +262,7 @@ test("Pi adds computer use when it turns on, its other tools once used, and with
     "bash",
     "ace_context",
     "ace_tools_find",
+    "ace_tools_call",
     "ace_screen_open_app",
   ]);
   const open = host.tools.get("ace_screen_open_app");
@@ -270,13 +277,20 @@ test("Pi adds computer use when it turns on, its other tools once used, and with
     "bash",
     "ace_context",
     "ace_tools_find",
+    "ace_tools_call",
     "ace_screen_open_app",
     "ace_screen_input",
   ]);
   await refresh(() => {
     enabled = false;
   });
-  expect(host.active()).toEqual(["read", "bash", "ace_context", "ace_tools_find"]);
+  expect(host.active()).toEqual([
+    "read",
+    "bash",
+    "ace_context",
+    "ace_tools_find",
+    "ace_tools_call",
+  ]);
 });
 
 test("Pi still starts with ace's commands when ace's tool server is unreachable, reporting the failure at session start", async () => {

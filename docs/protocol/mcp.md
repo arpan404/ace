@@ -145,7 +145,7 @@ Required capability: agents. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| tasks | yes | array | {"minItems":1,"maxItems":64,"items":{"type":"object","properties":{"requestId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."},"task":{"type":"string","minLength":1,"maxLength":262144,"description":"The whole assignment: goal, files, constraints, project notes that apply, and how to verify. The child sees none of your conversation."},"role":{"$ref":"https://ace.local/protocol/v1/DelegationRole.json"},"runRole":{"description":"Run as a role from your Roles line.","$ref":"https://ace.local/protocol/v1/RunRole.json"},"provider":{"description":"Provider that runs the child. Default: yours, or the one whose catalog has `model`.","$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"model":{"description":"A model id from `models`. Default: the provider's default model. ace picks the account and instance that serve it.","type":"string","minLength":1,"maxLength":256},"effort":{"description":"Reasoning effort, such as low, medium, high or xhigh. Default inherit: yours on the same model, else the model's default.","type":"string","minLength":1,"maxLength":64},"access":{"description":"The child's access mode. Default inherit (yours); never broader than yours.","$ref":"https://ace.local/protocol/v1/AccessRequest.json"},"workspace":{"description":"Where the child works. Default: this project's checkout. new_worktree starts a Git worktree from base; existing_worktree reuses one by path.","$ref":"https://ace.local/protocol/v1/AgentWorkspace.json"},"machine":{"description":"Run on this paired machine (a name from `machines`). Requires project.","$ref":"https://ace.local/protocol/v1/MachineName.json"},"project":{"description":"The project on that machine, as `machines` lists it.","type":"string","minLength":1,"maxLength":256}},"required":["requestId","task","role"],"additionalProperties":false},"description":"One entry per child. Roles must be unique among your live children."} |
+| tasks | yes | array | {"minItems":1,"maxItems":64,"items":{"type":"object","properties":{"requestId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."},"task":{"type":"string","minLength":1,"maxLength":262144,"description":"The whole assignment: goal, files, constraints, project notes that apply, and how to verify. The child sees none of your conversation."},"role":{"$ref":"https://ace.local/protocol/v1/DelegationRole.json"},"runRole":{"description":"Run as a role from your Roles line.","$ref":"https://ace.local/protocol/v1/RunRole.json"},"provider":{"description":"Provider that runs the child. Default: yours, or the one whose catalog has `model`.","$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"model":{"description":"A model id from `models`. Default: the provider's default model. ace picks the account and instance that serve it.","type":"string","minLength":1,"maxLength":256},"effort":{"description":"Reasoning effort, such as low, medium, high or xhigh. Default inherit: yours on the same model, else the model's default.","type":"string","minLength":1,"maxLength":64},"access":{"description":"The child's access mode. Default inherit (yours); never broader than yours.","$ref":"https://ace.local/protocol/v1/AccessRequest.json"},"workspace":{"description":"Where the child works. Default: this project's checkout. new_worktree starts a Git worktree from base; existing_worktree reuses one by path.","$ref":"https://ace.local/protocol/v1/AgentWorkspace.json"},"machine":{"description":"Run on this paired machine (a name from `machines`). Requires project.","$ref":"https://ace.local/protocol/v1/MachineName.json"},"project":{"description":"The project on that machine, as `machines` lists it.","type":"string","minLength":1,"maxLength":256}},"required":["requestId","task","role"],"additionalProperties":false},"description":"One entry per child. Roles must be unique among your live children."} |
 | waitSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) | {"description":"Wait up to this many seconds for the children before returning, as `wait` does. Omit to return at once."} |
 | waitFor | no | [WaitMode.json](schema/WaitMode.json) | {"default":"all","description":"With waitSeconds: return when all children settle (default) or when any does."} |
 
@@ -190,7 +190,7 @@ Example:
 
 ## wait
 
-Block until threads settle, up to timeoutSeconds. Returns early with needs_you, naming each request, when a thread waits on the person: tell the person and treat it as unfinished. timeout or interrupted: the threads keep working; call wait again, never a polling loop.
+Wait for child agents or other threads to finish, up to timeoutSeconds. Returns early with needs_you, naming each request, when a thread waits on the person: tell the person and treat it as unfinished. timeout or interrupted: the threads keep working; call wait again, never a polling loop.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -292,7 +292,7 @@ Required capability: agents. Timeout: 630000 ms.
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | threadId | yes | string | {"minLength":1,"description":"A child's or owned thread's id; with full access, any of the person's threads."} |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
 | text | yes | string | {"minLength":1,"maxLength":262144,"description":"The message, standing on its own."} |
 | delivery | no | ["queue","steer","restart"] | {"default":"queue","description":"queue (default), steer, or restart."} |
 
@@ -338,7 +338,7 @@ Required capability: agents. Timeout: 630000 ms.
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | threadId | yes | string | {"minLength":1,"description":"A child's threadId, from delegate or agents_status."} |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
 
 Example:
 
@@ -550,7 +550,7 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 | --- | --- | --- | --- |
 | threadId | no | [ThreadId.json](schema/ThreadId.json) | {"description":"Default: this thread."} |
 | before | no | integer | {"description":"The previous page's itemsBefore.","exclusiveMinimum":0,"maximum":9007199254740991} |
-| limit | no | integer | {"default":20,"description":"Items per page, 1 to 50.","minimum":1,"maximum":50} |
+| limit | no | integer | {"default":10,"description":"Items per page, 1 to 50.","minimum":1,"maximum":50} |
 | streamId | no | string | {"description":"Read a truncated part's retained output instead of the transcript.","minLength":1,"maxLength":256} |
 | offset | no | integer | {"default":0,"description":"With streamId: byte offset, from nextOffset.","minimum":0,"maximum":9007199254740991} |
 | maxBytes | no | integer | {"default":8192,"description":"With streamId: bytes to read, up to 16384.","minimum":1,"maximum":16384} |
@@ -601,7 +601,7 @@ Required capability: thread_control. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
 | title | yes | string | {"minLength":1,"maxLength":256,"description":"The sidebar title."} |
 | text | yes | string | {"minLength":1,"maxLength":262144,"description":"The first message, standing on its own."} |
 | project | no | string | {"description":"Another project on this machine: its name, folder path or id from projects_find. Default: this project.","minLength":1,"maxLength":4096} |
@@ -657,7 +657,7 @@ Required capability: thread_control. Timeout: 630000 ms.
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | threadId | no | string | {"description":"The thread to fork. Default: this thread.","minLength":1} |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
 | text | yes | string | {"minLength":1,"maxLength":262144,"description":"The fork's first message: the other approach, standing on its own."} |
 | title | no | string | {"description":"Its sidebar title.","minLength":1,"maxLength":256} |
 | runId | no | string | {"description":"Fork after this finished run. Default: the latest finished one.","minLength":1,"maxLength":128} |
@@ -710,7 +710,7 @@ Required capability: thread_control. Timeout: 630000 ms.
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | threadId | yes | string | {"minLength":1,"description":"The fork, from thread_fork."} |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
 | summary | yes | string | {"minLength":1,"maxLength":262144,"description":"What the fork found or did, standing on its own for the other thread's agent."} |
 | itemIds | no | array | {"description":"Fork transcript items the summary rests on, from thread_read. Default: its latest answer.","minItems":1,"maxItems":100,"items":{"type":"string","minLength":1,"maxLength":256}} |
 
@@ -759,7 +759,7 @@ Semantic rule: edit needs entryId and text; cancel and steer need entryId; reord
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | threadId | yes | string | {"minLength":1,"description":"A thread you own: this one or one you started. With full access, also any of the person's threads."} |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
 | action | yes | ["edit","cancel","steer","reorder"] | {"description":"edit: entryId and text. cancel, steer: entryId. reorder: order."} |
 | entryId | no | string | {"description":"The queued entry.","minLength":1,"maxLength":128} |
 | text | no | [MessageText.json](schema/MessageText.json) | {"description":"edit: its new text."} |
@@ -809,7 +809,7 @@ Required capability: thread_control. Timeout: 630000 ms.
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | threadId | yes | string | {"minLength":1,"description":"A thread you own: this one or one you started. With full access, also any of the person's threads."} |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
 | interactionId | yes | string | {"minLength":1,"description":"The request's interactionId."} |
 | answers | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"type":"array","items":{"type":"string"}},"description":"Question id to the chosen option ids, or to free text when other is allowed."} |
 | dismissed | no | boolean | {"description":"Decline to answer; the agent continues without."} |
@@ -894,7 +894,7 @@ Example:
 
 ## thread_control
 
-Change a thread you own (this one or one you started; with full access, any of the person's threads): rename, configure its model, hand off to a new worktree, interrupt, settle (this thread too, when its work is finished) or unsettle, snooze, close a preview server, or rename this project. Each action's fields are named in action's description.
+Rename, configure, hand off, interrupt, settle, unsettle or snooze a thread you own, close its preview server, or rename this project. You own this thread and those you started; with full access, any of the person's threads. configure changes its model; handoff moves it to a new worktree; settle this thread too when its work is finished. Each action's fields are named in action's description.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -908,7 +908,7 @@ Semantic rule: configure needs requestId and model; interrupt needs requestId; h
 | --- | --- | --- | --- |
 | action | yes | ["rename","configure","handoff","interrupt","settle","unsettle","snooze","close_preview","rename_project"] | {"description":"rename: set title, or omit title to retitle from the first message. configure: model and effort. handoff: move it to a new Git worktree on branch. interrupt: stop its current turn and its children. settle: move it to Settled, as the person's Settle does; a thread still working (this one, mid-turn) settles when it is done, unless it fails or needs the person. unsettle: bring it back and cancel a pending settle. snooze: mute its notifications until a time. close_preview: stop a preview server. rename_project: rename this project."} |
 | threadId | no | [ThreadId.json](schema/ThreadId.json) | {"description":"A thread you own, or with full access any of the person's. Default: this thread."} |
-| requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
+| requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
 | title | no | string | {"description":"rename: the new title.","minLength":1,"maxLength":256} |
 | onlyIfProvisional | no | boolean | {"description":"rename: only replace a title ace generated, never one the person chose."} |
 | model | no | string | {"description":"configure: a model id from `models`.","minLength":1,"maxLength":256} |
@@ -950,7 +950,7 @@ Example:
 
 ## offshift
 
-Keep this thread's durable record of a multi-step coding outcome: criteria, steps (from a playbook or your own), phase (plan, implement, verify, review, delivery), blocker and evidence bound to the workspace's Git revision. It records work and never runs it. Changes take the last version. Every result's next says what to do now. Each action's fields are named in action's description.
+Track a multi-step coding outcome in this thread's durable record: criteria, steps, phase, blocker and evidence. Steps come from a playbook or your own; phases are plan, implement, verify, review and delivery; evidence binds to the workspace's Git revision. It records work and never runs it. Changes take the last version. Every result's next says what to do now. Each action's fields are named in action's description.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -1146,7 +1146,7 @@ Required capability: automations. Timeout: 630000 ms.
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | id | yes | string | {"minLength":1,"maxLength":256,"description":"The automation's id, as you named it in automation_put."} |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; repeating a call with it runs once."} |
 | variables | no | [TriggerVariables.json](schema/TriggerVariables.json) | {"default":{},"description":"Values for {{name}} placeholders in its prompt."} |
 
 Example:
@@ -1222,7 +1222,7 @@ Example:
 
 ## handoff_read
 
-Page the history cited by a handoff from another provider: items newest first (before = itemsBefore for earlier ones), or with streamId a bounded text or shell-output stream as base64 in the returned encoding, continued at nextOffset until eof.
+Read the history a handoff from another provider cites. Items come newest first (before = itemsBefore for earlier ones); with streamId, a bounded text or shell-output stream as base64 in the returned encoding, continued at nextOffset until eof.
 
 Required capability: none beyond session authentication. Timeout: 10000 ms.
 
@@ -1274,7 +1274,7 @@ Example:
 
 ## context
 
-What ace already knows, in one read; call it before working in an existing project. status: this thread, project, access mode and which ace tool groups are on. recent: recent threads with outcomes and PRs. changes: this worktree's branch, upstream and uncommitted paths. prs: linked PRs with CI. notes: project notes. diagnostics: this session's failed ace calls and what keeps the thread from settling.
+Recent threads, uncommitted changes, PRs, notes and session status in one read; call it first in an existing project. status: this thread, project, access mode and ace tool groups that are off. recent: the 5 latest threads with outcomes. changes: branch, upstream and uncommitted paths. prs: linked PRs with CI. notes: project notes. diagnostics: this session's failed ace calls and what keeps the thread from settling.
 
 Required capability: none beyond session authentication. Timeout: 30000 ms.
 
@@ -1298,7 +1298,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| recent | no | array | {"maxItems":10,"items":{"type":"object","properties":{"threadId":{"type":"string"},"title":{"type":"string","maxLength":256},"status":{"type":"string"},"updatedAt":{"type":"number"},"branch":{"type":"string","maxLength":256},"prs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"number":{"type":"number"},"state":{"type":"string"},"url":{"type":"string","maxLength":2048}},"required":["number","state","url"],"additionalProperties":false}},"outcome":{"type":"string","maxLength":400}},"required":["threadId","title","status","updatedAt"],"additionalProperties":false}} |
+| recent | no | array | {"maxItems":5,"items":{"type":"object","properties":{"threadId":{"type":"string"},"title":{"type":"string","maxLength":256},"status":{"type":"string"},"branch":{"type":"string","maxLength":256},"prs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"number":{"type":"number"},"state":{"type":"string"},"url":{"type":"string","maxLength":2048}},"required":["number","state","url"],"additionalProperties":false}},"outcome":{"type":"string","maxLength":160}},"required":["threadId","title","status"],"additionalProperties":false}} |
 | changes | no | union | {"anyOf":[{"type":"object","properties":{"branch":{"anyOf":[{"type":"string","maxLength":256},{"type":"null"}]},"upstream":{"anyOf":[{"type":"string","maxLength":256},{"type":"null"}]},"ahead":{"type":"number"},"behind":{"type":"number"},"staged":{"type":"number"},"unstaged":{"type":"number"},"untracked":{"type":"number"},"files":{"maxItems":50,"type":"array","items":{"type":"string","maxLength":1024}}},"required":["branch","upstream","ahead","behind","staged","unstaged","untracked","files"],"additionalProperties":false},{"type":"null"}]} |
 | prs | no | array | {"maxItems":20,"items":{"type":"object","properties":{"threadId":{"type":"string"},"number":{"type":"number"},"url":{"type":"string","maxLength":2048},"state":{"type":"string"},"title":{"type":"string","maxLength":256},"ci":{"type":"string","enum":["none","pending","success","failure","unknown"]}},"required":["threadId","number","url","state","ci"],"additionalProperties":false}} |
 | notes | no | array | {"maxItems":50,"items":{"type":"object","properties":{"id":{"type":"string"},"text":{"type":"string","maxLength":4096},"threadId":{"type":"string"}},"required":["id","text"],"additionalProperties":false}} |
@@ -1463,7 +1463,7 @@ Required capability: none beyond session authentication. Timeout: 10000 ms.
 | --- | --- | --- | --- |
 | query | yes | string | {"minLength":1,"maxLength":500,"description":"What you want to do, in plain words, e.g. \"click a button in Safari\"."} |
 | limit | no | integer | {"default":5,"description":"At most this many.","minimum":1,"maximum":10} |
-| family | no | ["ace-agents","ace-browser","visualize","ace-threads","ace-computer-use"] | {"description":"Only this family's tools."} |
+| family | no | ["ace-agents","ace-browser","visualize","ace-threads","ace-computer-use","offshift"] | {"description":"Only this family's tools."} |
 
 Example:
 
@@ -1480,7 +1480,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| matches | yes | array | {"maxItems":10,"items":{"type":"object","properties":{"name":{"type":"string"},"title":{"type":"string"},"purpose":{"type":"string"},"family":{"type":"string"},"effect":{"type":"string","enum":["read-only","changes","destructive"]},"inputSchema":{"type":"object","propertyNames":{"type":"string"},"additionalProperties":{}}},"required":["name","purpose","effect","inputSchema"],"additionalProperties":false}} |
+| matches | yes | array | {"maxItems":10,"items":{"type":"object","properties":{"name":{"type":"string"},"title":{"type":"string"},"purpose":{"type":"string"},"family":{"type":"string"},"effect":{"type":"string","enum":["read-only","changes","destructive"]},"inputSchema":{"type":"object","propertyNames":{"type":"string"},"additionalProperties":{}}},"required":["name","purpose","effect"],"additionalProperties":false}} |
 | how | no | string |  |
 | hint | no | string |  |
 

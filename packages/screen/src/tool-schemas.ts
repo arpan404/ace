@@ -234,6 +234,6 @@ export const screenToolMetadata: Record<
     riskClass: "external-effect",
     timeoutMs: 90_000,
     description:
-      "Measure frame timing while observing, or while performing one input action.\nReturns latency, settle time, FPS and hitch time per second (<5 ms smooth, 5–10 minor, >10 janky) plus a filmstrip.\nAt most 10 s per run and 20 s total.",
+      "Measure frame timing while observing, or while performing one input action. Returns latency, settle time, FPS and hitch time per second (<5 ms smooth, 5–10 minor, >10 janky) plus a filmstrip. At most 10 s per run and 20 s total.",
   },
 };

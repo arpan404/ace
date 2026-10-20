@@ -30,6 +30,7 @@ export {
   acpInjection,
   cursorSdkInjection,
   developerInstructions,
+  usualToolListing,
   type AceMcpConnection,
 } from "./injection.ts";
 export {
@@ -58,6 +59,7 @@ export {
   maxDelegateTasks,
   type AgentControlPort,
 } from "./agent-control.ts";
+export { readOnlyAceTools } from "./read-only-tools.ts";
 
 export { modelImage, ModelImageError, type ModelImage } from "./model-image.ts";
 
@@ -105,8 +107,11 @@ export {
   ContextResult,
 } from "./context-tool.ts";
 export { guideToolkit, type AceGuide } from "./guide-tools.ts";
+export { changesKey, resultReader, type ResultReader } from "./changes.ts";
 export { metaToolCatalog } from "./meta-tools.ts";
 export {
+  acpToolListing,
+  codexClientHeader,
   coreTools,
   coreToolsHeader,
   openedToolset,

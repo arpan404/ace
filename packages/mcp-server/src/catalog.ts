@@ -42,7 +42,7 @@ export const handoffToolCatalog = [
     toolset: "ace-threads",
     riskClass: "read-only",
     description:
-      "Page the history cited by a handoff from another provider: items newest first (before = itemsBefore for earlier ones), or with streamId a bounded text or shell-output stream as base64 in the returned encoding, continued at nextOffset until eof.",
+      "Read the history a handoff from another provider cites. Items come newest first (before = itemsBefore for earlier ones); with streamId, a bounded text or shell-output stream as base64 in the returned encoding, continued at nextOffset until eof.",
     input: HandoffReadInput,
     output: z.looseObject({
       threadId: z.string().optional(),

@@ -22,6 +22,7 @@ import type {
   InteractionResolution,
   ProviderKind,
   ThreadId,
+  AccessMode,
 } from "@ace/protocol";
 
 /** Direction from ace's point of view; notes include process exits and interrupts. */
@@ -124,8 +125,17 @@ export interface SessionContext {
     bearer: string;
     signal?: AbortSignal;
     end?(): void;
-    /** This session's brief and enabled ace groups, for the provider's native instructions. */
-    session?(): { brief?: string; groups?: readonly string[] };
+    /**
+     * This session's brief, enabled ace groups, roles line, callable ace tools and access mode,
+     * for the provider's native instructions.
+     */
+    session?(): {
+      brief?: string;
+      groups?: readonly string[];
+      roles?: string;
+      tools?: readonly string[];
+      access?: AccessMode;
+    };
     /** What changed since this session's last ace call; for native turn-start hooks. */
     changes?(): string | undefined;
   };
@@ -137,6 +147,11 @@ export interface SessionContext {
     httpServers: readonly unknown[];
     stdioServers?: readonly unknown[];
     secrets: readonly string[];
+    /**
+     * ace's guidance for this session, rendered once by the daemon, which knows the agent's tool
+     * listing (`acpToolListing`) and the session brief. Absent: the adapter renders its own.
+     */
+    instructions?: string;
     end(): void;
   };
   onCapabilities?(capabilities: Capabilities, support?: AcpSessionSupport): void;

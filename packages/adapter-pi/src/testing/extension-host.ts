@@ -16,10 +16,26 @@ const notInitialized =
 export function createPiExtensionHost(
   options: {
     activeTools?: readonly string[];
+    /**
+     * Pi's `--tools` allowlist (exact names or `*` patterns). As in Pi 1.3.0 it filters extension
+     * tools too: a tool outside it is never registered, so the model can't see or call it.
+     */
+    allowedTools?: readonly string[];
     appendEntry?: (customType: string, data: unknown) => void;
     onActiveToolsChange?: () => void;
   } = {},
 ) {
+  const patterns = options.allowedTools?.map(
+    (entry) =>
+      new RegExp(
+        `^${entry
+          .split("*")
+          .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
+          .join(".*")}$`,
+      ),
+  );
+  const allowed = (name: string) =>
+    !patterns || name.startsWith("mcp__") || patterns.some((pattern) => pattern.test(name));
   let phase: "loading" | "active" | "failed" = "loading";
   const native = new Set(options.activeTools ?? []);
   let active = [...native];
@@ -61,6 +77,7 @@ export function createPiExtensionHost(
     },
     registerTool(tool) {
       registration();
+      if (!allowed(tool.name)) return;
       tools.set(tool.name, tool);
       if (!active.includes(tool.name)) active = [...active, tool.name];
     },
@@ -94,6 +111,12 @@ export function createPiExtensionHost(
     errors,
     notices,
     active: () => [...active],
+    /** The "Available tools" lines Pi writes into its system prompt: active tools with a snippet. */
+    promptToolLines: () =>
+      active.flatMap((name) => {
+        const snippet = tools.get(name)?.promptSnippet?.replace(/\s+/g, " ").trim();
+        return snippet ? [`- ${name}: ${snippet}`] : [];
+      }),
     /** The handlers registered for an event, for peers that call them with their own context. */
     handlers: (event: string): readonly unknown[] => handlers.get(event) ?? [],
     emit,

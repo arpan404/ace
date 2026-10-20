@@ -8,6 +8,8 @@ export const guideTopics = [
   "ace-threads",
   "ace-computer-use",
 ] as const;
+/** Every family a tool can belong to: the guides above and offshift, loaded only on request. */
+export const toolFamilies = [...guideTopics, "offshift"] as const;
 
 export type StatusReader = (caller: McpAttribution) => {
   access: McpStatus["access"];

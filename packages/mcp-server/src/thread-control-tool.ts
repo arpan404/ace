@@ -116,7 +116,7 @@ export const threadControl = controlTool({
   riskClass: "thread-write",
   capability: "thread_control",
   description:
-    "Change a thread you own (this one or one you started; with full access, any of the person's threads): rename, configure its model, hand off to a new worktree, interrupt, settle (this thread too, when its work is finished) or unsettle, snooze, close a preview server, or rename this project. Each action's fields are named in action's description.",
+    "Rename, configure, hand off, interrupt, settle, unsettle or snooze a thread you own, close its preview server, or rename this project. You own this thread and those you started; with full access, any of the person's threads. configure changes its model; handoff moves it to a new worktree; settle this thread too when its work is finished. Each action's fields are named in action's description.",
   input: Input,
   output: controlResult(z.unknown()),
   async run(input, control) {

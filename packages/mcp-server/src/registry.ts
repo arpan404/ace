@@ -1,5 +1,5 @@
 import { inputTooLarge, parseToolArguments, toolFailure } from "./tool-failure.ts";
-import { PublicToolError } from "./public-error.ts";
+import { PublicToolError, type PublicToolCode } from "./public-error.ts";
 import { maxStructuredResultBytes } from "./result-budgets.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
 import { describeAceAction } from "./action-target.ts";
@@ -8,7 +8,7 @@ import { executeContent, type ContentToolDefinition } from "./content-tools.ts";
 import type { McpAttribution, McpCapability } from "@ace/protocol";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/server";
 import { withinJsonBudget, ResultBudgetExceeded } from "./json-budget.ts";
-import { advertisedInputSchema } from "./advertised-schema.ts";
+import { advertisedInputSchema, advertisedOutputSchema } from "./advertised-schema.ts";
 import type { Principal } from "./credentials.ts";
 import {
   bareToolName,
@@ -17,7 +17,7 @@ import {
   dispatchedAceCall,
   toolNamePattern,
 } from "./tool-names.ts";
-import type { ToolListing } from "./toolsets.ts";
+import type { AceClient, ToolListing } from "./toolsets.ts";
 
 /** A tool this session could call, with the guide topic of its family. */
 export interface CatalogTool {
@@ -32,7 +32,7 @@ export interface SessionTools {
   catalog(): readonly CatalogTool[];
   /**
    * Runs a tool exactly as this session calling it directly would. Present only where the
-   * client never reloads its list, the one place `tools_call` is offered.
+   * client does not list every tool, where `tools_call` is offered (`toolsets.ts`).
    */
   readonly dispatch?:
     | ((name: string, input: unknown, signal: AbortSignal) => Promise<CallToolResult>)
@@ -48,6 +48,8 @@ export interface ToolContext {
    * returns its family's schemas inline.
    */
   readonly listing?: ToolListing;
+  /** The client, where it reads tools differently from its listing (`toolsets.ts`). */
+  readonly client?: AceClient;
   /** Set by the server for the meta tools only. */
   readonly session?: SessionTools;
 }
@@ -89,11 +91,17 @@ export interface ToolDefinition<I extends z.ZodObject, O extends z.ZodObject> ex
   output: O;
   /**
    * The output schema clients see, when the validated one is too large to be worth its context.
-   * It must accept every value `output` accepts (use open objects).
+   * It must accept every value `output` accepts (use open objects). `null` advertises none:
+   * for a shape that would tell a model nothing it does not read in the result itself.
    */
-  advertisedOutput?: z.ZodObject;
+  advertisedOutput?: z.ZodObject | null;
   /** Trusted definition override; ordinary tools remain capped at 64 KiB. */
   maxInputBytes?: number;
+  /**
+   * Whether a result the tool returned (rather than threw) reports a failure, so the client
+   * shows the call as failed (`isError`) while the agent still reads its code and hint.
+   */
+  failed?: (result: z.output<O>) => boolean;
   run(input: z.output<I>, context: ToolContext): Promise<z.input<O>>;
 }
 export interface Scheduler {
@@ -109,17 +117,16 @@ export const nodeScheduler: Scheduler = {
 const JsonObjectSchema = z.object({ type: z.literal("object") }).passthrough();
 /**
  * Claude Code defers MCP tools behind tool search; these stay loaded because the instructions
- * name them as entry points: project context, the guides, delegation and its wait, a page in
- * ace's browser, a visual inline and the search for the rest. Every upfront tool costs context on every request, so keep
- * this short. Other clients ignore the key. Compared by bare name.
+ * name them as entry points: project context, the guides, delegation and its wait, and the
+ * search for the rest. browser_open and html_render are deferred: they are used in some sessions
+ * only, and Claude loads them by exact name (`session-guidance.ts`). Every upfront tool costs
+ * context on every request, so keep this short. Compared by bare name.
  */
 const alwaysLoadedTools: ReadonlySet<string> = new Set([
   "context",
   "guide",
   "delegate",
   "wait",
-  "browser_open",
-  "html_render",
   "tools_find",
 ]);
 function noop(): void {}
@@ -133,10 +140,8 @@ interface Entry {
   timeoutMs: number;
   execute(input: unknown, context: ToolContext): Promise<CallToolResult>;
 }
-const failure = (text: string): CallToolResult => ({
-  isError: true,
-  content: [{ type: "text", text }],
-});
+/** A failure the registry itself decides: a fixed public code with its next step. */
+const failure = (code: PublicToolCode): CallToolResult => toolFailure(new PublicToolError(code));
 
 export class ToolRegistry {
   private entries = new Map<string, Entry>();
@@ -174,7 +179,11 @@ export class ToolRegistry {
     const { name, description, input, output } = definition;
     this.add(
       definition,
-      this.descriptor(definition, input, definition.advertisedOutput ?? output),
+      this.descriptor(
+        definition,
+        input,
+        definition.advertisedOutput === null ? undefined : (definition.advertisedOutput ?? output),
+      ),
       {
         action(value) {
           const parsed = input.safeParse(value);
@@ -185,14 +194,18 @@ export class ToolRegistry {
         async execute(value, context) {
           const maxInput = definition.maxInputBytes ?? 64 * 1024;
           if (!withinJsonBudget(value, maxInput)) throw inputTooLarge(maxInput);
-          const args = parseToolArguments(input, value);
+          const args = parseToolArguments(input, value, bareToolName(name));
           context.signal.throwIfAborted();
           const result = await definition.run(args, context);
           if (!withinJsonBudget(result, maxStructuredResultBytes)) throw new ResultBudgetExceeded();
           const structuredContent = output.parse(result);
           const text = JSON.stringify(structuredContent);
           if (Buffer.byteLength(text) > maxStructuredResultBytes) throw new ResultBudgetExceeded();
-          return { content: [{ type: "text", text }], structuredContent };
+          return {
+            ...(definition.failed?.(structuredContent) ? { isError: true } : {}),
+            content: [{ type: "text", text }],
+            structuredContent,
+          };
         },
       },
     );
@@ -269,15 +282,21 @@ export class ToolRegistry {
       _meta: {
         "ace/timeoutMs": timeoutMs,
         "ace/riskClass": risk,
-        ...(alwaysLoadedTools.has(bareToolName(name)) ? { "anthropic/alwaysLoad": true } : {}),
+        // Antigravity (1.4.2, CLI and ACP server) loads tools carrying its own key in full and
+        // reaches the rest through its call_mcp_tool.
+        ...(alwaysLoadedTools.has(bareToolName(name))
+          ? { "anthropic/alwaysLoad": true, "antigravity/alwaysLoad": true }
+          : {}),
       },
       inputSchema,
       ...(output
         ? {
-            outputSchema: JsonObjectSchema.parse({
-              ...z.toJSONSchema(output, { io: "output" }),
-              type: "object",
-            }),
+            outputSchema: JsonObjectSchema.parse(
+              advertisedOutputSchema({
+                ...z.toJSONSchema(output, { io: "output" }),
+                type: "object",
+              }),
+            ),
           }
         : {}),
     };
@@ -368,9 +387,9 @@ export class ToolRegistry {
     input: unknown,
     principal: Principal,
     requestSignal: AbortSignal,
-    options: { listing?: ToolListing; session?: SessionTools } = {},
+    options: { listing?: ToolListing; client?: AceClient; session?: SessionTools } = {},
   ): Promise<CallToolResult> {
-    if (principal.signal.aborted) return failure("Session ended");
+    if (principal.signal.aborted) return failure("session_ended");
     const { sessionId, threadId, agentId } = principal.scope;
     const controller = new AbortController();
     const signal = AbortSignal.any([principal.signal, requestSignal, controller.signal]);
@@ -379,6 +398,7 @@ export class ToolRegistry {
       capabilities: principal.scope.capabilities,
       signal,
       ...(options.listing ? { listing: options.listing } : {}),
+      ...(options.client ? { client: options.client } : {}),
       ...(options.session ? { session: options.session } : {}),
     };
     const observe = this.observeCall?.(name, input, context);
@@ -398,8 +418,8 @@ export class ToolRegistry {
       this.active >= this.maxCalls ||
       (this.activeThreads.get(threadId) ?? 0) >= this.maxCallsPerThread
     )
-      return finish(failure("Tool capacity reached"));
-    if (signal.aborted) return finish(failure("Tool cancelled"));
+      return finish(failure("calls_limit"));
+    if (signal.aborted) return finish(failure("cancelled"));
     this.active++;
     this.activeThreads.set(threadId, (this.activeThreads.get(threadId) ?? 0) + 1);
     let executionSettled = false;
@@ -412,7 +432,7 @@ export class ToolRegistry {
         else this.activeThreads.delete(threadId);
       }
     };
-    let reason = "Tool cancelled";
+    let reason: PublicToolCode = "cancelled";
     let stopTimer: () => void = noop;
     let stopAbort: () => void = noop;
     const stopped = new Promise<CallToolResult>((resolve) => {
@@ -420,7 +440,7 @@ export class ToolRegistry {
       signal.addEventListener("abort", abort, { once: true });
       stopAbort = () => signal.removeEventListener("abort", abort);
       stopTimer = this.scheduler.after(entry.timeoutMs, () => {
-        reason = "Tool timed out";
+        reason = "tool_timeout";
         controller.abort();
       });
     });
@@ -428,7 +448,7 @@ export class ToolRegistry {
       .then(() => entry.execute(input, { ...context, signal }))
       .catch((error: unknown) =>
         error instanceof ResultBudgetExceeded
-          ? failure("Tool result too large")
+          ? failure("result_too_large")
           : toolFailure(error, this.report(entry.name, context.caller, error)),
       )
       .finally(() => {

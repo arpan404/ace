@@ -8,6 +8,7 @@ import { privateMcpConfig, AceMcpConnectionSchema } from "@ace/mcp-server";
 import { fileURLToPath } from "node:url";
 import { finished } from "node:stream/promises";
 import { piLaunchArgs } from "./launch-args.ts";
+import { piNative } from "@ace/provider-kit/access-modes";
 import type { ProviderSession, SessionContext, Frame } from "@ace/engine-api";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
@@ -90,6 +91,8 @@ export async function openPiSession(
       JSON.stringify({
         controlSecret,
         ...(lease ? { mcp: { url: lease.url, bearer: lease.bearer } } : {}),
+        // Read-only keeps `ace_*` in Pi's allowlist; the extension then offers only read tools.
+        ...(ctx.permissionMode === piNative.readOnly ? { readOnly: true } : {}),
       }),
       ctx.cwd,
     );

@@ -34,6 +34,21 @@ test("the brief states where the agent is and what its access allows", () => {
   expect(brief).toContain("claude (bypassPermissions)");
 });
 
+test("the brief is the same text whatever the live counts, so a cached prompt prefix holds", () => {
+  const busy = renderBrief({
+    ...facts,
+    liveSiblings: 7,
+    pendingRequests: 2,
+    lastFailure: "delegate model_unavailable",
+    children: [
+      { id: "c1".padEnd(36, "0"), label: "fix", state: "waiting_on_human" },
+      { id: "c2".padEnd(36, "0"), label: "test", state: "working" },
+    ],
+  });
+  expect(busy).toBe(renderBrief(facts));
+  expect(busy).not.toMatch(/model_unavailable|waiting on the person|request\(s\)|7/);
+});
+
 test("the brief stays within its caps however much there is to say", () => {
   const brief = renderBrief({
     ...facts,

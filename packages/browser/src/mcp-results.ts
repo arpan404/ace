@@ -110,7 +110,7 @@ export function snapshotText(raw: unknown, scoped: boolean): ToolResult {
   if (snapshot.hint && snapshot.hint !== truncatedHint) lines.push(`[${snapshot.hint}]`);
   else if (snapshot.truncated)
     lines.push(
-      `[truncated: ${snapshot.nodes.length} of ${snapshot.total} nodes shown. Narrow with ${scoped ? "a smaller container ref" : "ref=<a container's ref>"}, interactiveOnly:true or browser_find, or raise maxNodes.]`,
+      `[truncated: ${snapshot.nodes.length} of ${snapshot.total} nodes shown. Narrow with ${scoped ? "a smaller container ref" : "ref=<a container's ref>"}, interactiveOnly:true or browser_find, or pass a larger maxNodes.]`,
     );
   return text(lines.filter(Boolean).join("\n"));
 }
@@ -121,4 +121,15 @@ export function findText(raw: unknown): ToolResult {
   const lines = found.nodes.map((node) => snapshotLine(node, 0));
   if (found.truncated) lines.push(`[${found.nodes.length} of ${found.total} matches shown]`);
   return text(lines.join("\n"));
+}
+
+const LogsPage = z.looseObject({ entries: z.array(z.unknown()), more: z.number().optional() });
+/** A logs page; a cut one says how many older entries exist and how to read them. */
+export function logsText(raw: unknown): ToolResult {
+  const page = LogsPage.safeParse(raw);
+  if (!page.success || !page.data.more) return json(raw);
+  return json({
+    ...page.data,
+    truncated: `${page.data.more} older entries not shown; pass a larger limit (up to 200) or filter by kind, level, url or status.`,
+  });
 }

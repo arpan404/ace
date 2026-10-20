@@ -16,6 +16,7 @@ const environment = z
       );
     }),
     ACE_MCP_BRIDGE_BEARER: z.string().regex(/^[a-f0-9]{64}$/),
+    ACE_MCP_BRIDGE_TOOLS: z.enum(["all", "core", "static"]).catch("static"),
   })
   .parse(process.env);
 const lifetime = new AbortController();
@@ -27,6 +28,7 @@ try {
     input: process.stdin,
     output: process.stdout,
     signal: lifetime.signal,
+    listing: environment.ACE_MCP_BRIDGE_TOOLS,
   });
 } catch {
   process.exitCode = 1;
