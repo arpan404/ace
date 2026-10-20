@@ -112,7 +112,8 @@ Limits of this choice:
   context the extension can't see; they stay on JPEG.
 - The desktop's embedded backend (Electron views) has no extension; the desktop runs the same
   encoder itself (below, The desktop's encoder).
-- "Use my Chrome" (ADR 0084) is the person's own browser and keeps JPEG.
+- "Use my Chrome" (ADR 0084) is the person's own browser; the extension can't capture it
+  either (amended: see "Use my Chrome's encoder").
 
 ### Stream kinds
 
@@ -347,7 +348,8 @@ keyframe that followed overflowed again. The encoder's bit rate never followed t
   to 1920 px on the long side, decoded and encoded by the same offscreen document): the wire
   still carries only video, at 58–61 fps in the benchmark. The desktop's embedded views get an
   encoder of their own ("The desktop's encoder", below). "Use my
-  Chrome" has no encoder yet and shows no live picture remotely.
+  Chrome" tabs are encoded from their screencast too, by a Chrome of ace's that only encodes
+  ("Use my Chrome's encoder", below).
 
 ### Consequences
 
@@ -397,3 +399,55 @@ app. There is no JPEG-only backend left on the desktop.
 Measured with `apps/desktop/e2e/browser-video.e2e.ts` (Electron 44, Apple M-series, the page
 redrawing a canvas every frame, the view unseen): 60.0 fps at 1280 × 720 (2.8 Mbit/s) and
 60.2 fps at 2560 × 1440 (8.4 Mbit/s), hardware H.264 throughout.
+
+## Use my Chrome's encoder
+
+Amended 2026-10-20. Remote viewers of a tab in the person's own Chrome (ADR 0084) get video, at
+60 fps, without anything new in the person's browser.
+
+- **Pictures, not tab capture.** ace's video extension is not in the person's Chrome and must not
+  be (ADR 0084 forbids writing into their profile). The tab's own CDP screencast already reaches
+  the daemon through ace for Chrome (`chrome.debugger`, native messaging, the host's socket). The
+  live capture asks for it at the encode size, JPEG quality 80, at most 1920 px on the long side,
+  as for a private context, and hands every frame to the encoder.
+- **An encoder-only Chrome.** ace's browser service runs one more Chrome for Testing that only
+  encodes: its own profile (`<dataDir>/browser/encoder`), no tabs of ace's, the video extension's
+  offscreen document decoding and encoding the pictures (`ChromeVideo.openPictures`). It starts
+  when a viewer first watches such a tab (the codec probe or the capture) and stops 30 s after
+  its last capture ends; an agent working the person's tab with nobody watching starts nothing.
+  A crashed encoder ends its captures and the next capture starts another. The `user` backend
+  reaches it through an injected `videoEncoder` port, never through ace's Chrome backend.
+- **No sound.** The person's browser plays its own; viewers get no speaker button.
+
+- **Pictures too large to relay.** The native host drops a message over the daemon socket's
+  1 MiB, and Chrome stops screencasting while frames go unacknowledged: after a few dropped
+  frames the picture froze for good. ace for Chrome now acknowledges a screencast frame over
+  1 MiB − 16 KiB itself and leaves it out (`unrelayableFrame`), so the screencast goes on and the
+  next picture that fits reaches ace. Only noise-like content gets there: a 1920 × 1080 page of
+  random pixels at quality 80.
+
+Measured with `packages/browser-extension/src/my-chrome-video.process.test.ts` (the real
+extension and native host in a headless Chrome for Testing 153 as the person's browser, its
+window 2100 × 1400, Apple M-series):
+
+| Page, tab size              | Screencast frame (base64) | Relay frames/s | Video fps | Bit rate   |
+| --------------------------- | ------------------------- | -------------- | --------- | ---------- |
+| Scrolling text, 640 × 400   | —                         | 60             | 60        | 0.9 Mbit/s |
+| Scrolling text, 1280 × 800  | 62 KiB                    | 60             | 60        | 3.6 Mbit/s |
+| Scrolling text, 1920 × 1080 | 127 KiB                   | 60             | 59–60     | 5.3 Mbit/s |
+| Random noise, 1280 × 800    | 273 KiB                   | 60             | 60        | —          |
+| Random noise, 1920 × 1080   | over 1 MiB                | 0 (skipped)    | 0         | —          |
+
+The relay is not the limit up to the 1 MiB message size: about 16 MB/s of base64 crossed
+extension, native host and socket without a dropped frame. While encoding, the encoder Chrome
+ran 10 processes using 30–60 % of one core; it exits 30 s after the last viewer leaves.
+
+Limits:
+
+- The screencast is a picture of the tab's window. An agent tab sized larger than the ace window
+  it sits in comes out at the window's size, and the encoder scales it up (blurred). In an
+  800 × 600 headless window a 1280 × 800 tab gave 756 × 413 pictures.
+- An agent tab sits in an unfocused window of the person's; a Chrome that stops painting an
+  occluded or minimized window sends no screencast frames, and the viewer's picture holds still.
+- A page whose every picture is over 1 MiB (full-screen noise or video grain at 1920 px) shows
+  no live picture until its pictures fit again.
