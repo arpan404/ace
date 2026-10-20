@@ -56,5 +56,16 @@ export const RemoteAccessStatus = z.object({
   listenOverride: z.enum(["local", "lan", "tailscale"]).nullable(),
   relayOverride: z.boolean(),
   error: z.string().max(256).optional(),
+  /**
+   * While the relay runs: where a paired client opens channels through it (devices, files),
+   * the relay host key it pins, and the daemon identity the channel's welcome names.
+   */
+  relay: z
+    .object({
+      url: z.string().max(2048),
+      fingerprint: z.string().regex(/^[A-Z2-7]{52}$/),
+      hostId: z.string().min(1).max(256),
+    })
+    .optional(),
 });
 export type RemoteAccessStatus = z.infer<typeof RemoteAccessStatus>;

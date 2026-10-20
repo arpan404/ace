@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { framePacket } from "@ace/screen";
+import { encodeDeviceFrame } from "@ace/browser/stream";
 import { devicePoint } from "@ace/ui-core";
 import { ScreenFrameReader } from "@ace/screen/frames-client";
 import { DeviceClient, type DeviceTransport, type DeviceTransportEvents } from "./client.ts";
-import type { DeviceClientMessage, DeviceState } from "@ace/protocol/devices";
+import type { DeviceAck, DeviceClientMessage, DeviceState } from "@ace/protocol/devices";
 
 const deviceId = "android:Pixel_9";
 const device = { id: deviceId, platform: "android", name: "Pixel", state: "booted" } as const;
@@ -45,6 +46,7 @@ function setup() {
   let sequence = 0;
   const deadlines = new Set<() => void>();
   const sent: DeviceClientMessage[] = [];
+  const acks: DeviceAck[] = [];
   let events: DeviceTransportEvents | undefined;
   const transport: DeviceTransport = {
     open(next) {
@@ -52,7 +54,8 @@ function setup() {
       next.ready();
     },
     send(message) {
-      sent.push(message);
+      if (message.type === "devices.ack") acks.push(message);
+      else sent.push(message);
     },
     close() {},
   };
@@ -75,7 +78,7 @@ function setup() {
     if (!message) throw new Error("Request not sent");
     receive({ type: "devices.result", requestId: message.requestId, ok: true, data });
   };
-  return { client, transport, sent, receive, result, deadlines, events: () => events };
+  return { client, transport, sent, acks, receive, result, deadlines, events: () => events };
 }
 
 describe("portable device clients", () => {
@@ -381,9 +384,62 @@ it("a mounted viewer subscribes to replacement capture after the device moves to
     state: { ...state("stream_2"), threadId: "thread-1" },
   });
   expect(host.sent.map((message) => message.operation)).toEqual([
-    { op: "subscribe", deviceId },
-    { op: "subscribe", deviceId },
+    { op: "subscribe", deviceId, mediaStream: true },
+    { op: "subscribe", deviceId, mediaStream: true },
   ]);
   release();
+  host.client.disconnect();
+});
+
+it("pictures on the shared media stream reach the view in order, and its acks name their capture", async () => {
+  const host = setup();
+  host.receive({ type: "devices.state", state: state() });
+  const drawn: { sequence: number; codec: string; rotation: number; paced: boolean }[] = [];
+  const shown = deferred<void>();
+  host.client.watchPictures(deviceId, async (picture) => {
+    drawn.push(picture);
+    host.client.ack(picture);
+    if (drawn.length === 4) shown.resolve();
+  });
+  const picture = (sequence: number, key: boolean, size = 10) =>
+    encodeDeviceFrame(
+      sequence,
+      deviceId,
+      {
+        sequence,
+        timestamp: sequence,
+        width: 1080,
+        height: 2400,
+        scale: 0.5,
+        rotation: sequence === 3 ? 90 : 0,
+        codec: "avc1.640028",
+        key,
+        streamId: "stream_1",
+      },
+      new Uint8Array(size).fill(sequence),
+    );
+  // A keyframe bigger than one binary message, then deltas; then an older daemon's packet.
+  for (const piece of [...picture(1, true, 200_000), ...picture(2, false), ...picture(3, false)])
+    host.receive(piece);
+  host.receive(frame(4));
+  await shown.promise;
+  expect(
+    drawn.map(({ sequence, codec, rotation, paced }) => ({ sequence, codec, rotation, paced })),
+  ).toEqual([
+    { sequence: 1, codec: "avc1.640028", rotation: 0, paced: true },
+    { sequence: 2, codec: "avc1.640028", rotation: 0, paced: true },
+    { sequence: 3, codec: "avc1.640028", rotation: 90, paced: true },
+    { sequence: 4, codec: "jpeg", rotation: 0, paced: false },
+  ]);
+  // Packets are never acked: only a daemon that sent stream pictures hears an ack.
+  expect(host.acks).toEqual(
+    [1, 2, 3].map((sequence) => ({
+      type: "devices.ack",
+      deviceId,
+      streamId: "stream_1",
+      sequence,
+    })),
+  );
+  expect(host.client.getSnapshot().connected).toBe(true);
   host.client.disconnect();
 });

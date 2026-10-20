@@ -36,19 +36,23 @@ An already dispatched native command can finish; the next command must pass the
 new ownership checks. Disconnect and credential revocation release control.
 
 Local sockets use `devices.request`, `devices.result`, `devices.state` and
-`devices.logs`. Frame packets use the existing screen binary format. Relay
-clients open a dedicated channel with `hello.channel = "devices"`, then perform
-the existing paired-client authentication. Browser and screen have dedicated
+`devices.logs`. A view that subscribes with `mediaStream: true` gets its pictures as
+stream kind `deviceFrame` on the browser's stream envelope (`@ace/browser/stream`), paced
+by `devices.ack` with the browser video's window and keyframe rules (`media-viewer.ts`,
+ADR 0064 "Shared media stream"); other views and screenshots get the screen binary
+format. Relay clients open a dedicated channel with `hello.channel = "devices"`, then
+perform the existing paired-client authentication. Browser and screen have dedicated
 relay channels too. File downloads retain their existing channel and protocol.
-Frames are fragmented into at most 64 KiB relay records and serialized as whole
-packets so multiple streams cannot interleave. Reconnect requires fresh viewing requests;
+Packets are fragmented into at most 64 KiB relay records and every message is written
+whole, so multiple streams cannot interleave. Reconnect requires fresh viewing requests;
 it never replays input or grants control.
 
 The daemon composes browser, screen and devices toolkits before provider sessions
 start. Every adapter receives the same session-scoped MCP connection. Simulator
 tools are named `sim_*` so they cannot be confused with paired machines: `sim_list`,
 `sim_start`, `sim_stop`, `sim_ui` (tree or find), `sim_act` (ui, tap, long_press,
-swipe, type, key, open_app, open_url, install, record_start, record_stop),
+swipe, type, key, open_app, open_url, install, record_start, record_stop, clipboard_get,
+clipboard_set),
 `sim_screenshot` and `sim_logs`. Each takes a `simId`.
 Logs start on the first authorized `sim_logs` request and return a bounded
 tail. Tools take no thread or agent override.
@@ -90,7 +94,12 @@ without ffmpeg every viewer stays on H.264. Input goes over the control socket:
 multi-touch with pointer ids (`pointer.pointerId`), keys including back, home and
 recents, rotation, and text. Printable ASCII is injected as text; anything else
 (accents, emoji) is pasted through the device clipboard and the action completes
-when the device acknowledges it, so it replaces the emulator's clipboard. When the
+when the device acknowledges it, so it replaces the emulator's clipboard. The
+`clipboard.get`/`clipboard.set` operations (sim_act `clipboard_get`/`clipboard_set`) use
+the same socket: a read waits up to 1.5 s for the device's reply (no reply means an empty
+clipboard), a write waits for its acknowledgement. Without the scrcpy view the Android
+clipboard is refused as unsupported; on iOS they run `xcrun simctl pbpaste|pbcopy`.
+Reads return at most 4,096 characters with `truncated` set when cut. When the
 server cannot start, capture falls back to `adb exec-out screenrecord` into ffmpeg
 (JPEG, restarted at screenrecord's time limit, input through `adb shell input`).
 `ACE_ANDROID_SCRCPY=off` forces that fallback.
@@ -138,7 +147,7 @@ Settings hint. The screenrecord fallback's `adb shell input` text accepts printa
 ASCII and rejects Unicode and the special `%s` sequence rather than corrupting it,
 and accepts one finger only. Android semantic
 actions validate a fresh accessibility ref and disclose coordinate fallback.
-iOS back/power keys are unsupported; home, rotate and enter use Simulator keys.
+iOS back and recents keys are unsupported; home, rotate and enter use Simulator keys.
 
 Recording requires `ACE_WORKSPACE_ROOT` so the daemon has a file artifact
 registry, and ffmpeg for MP4 export. Raw recordings are capped at 512 MiB;

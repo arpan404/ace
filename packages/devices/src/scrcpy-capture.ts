@@ -20,6 +20,7 @@ import { ScrcpyVideoUnits, type VideoUnit } from "./scrcpy-video.ts";
 import { HeldPointers, scrcpyInputPlan } from "./scrcpy-input.ts";
 import { startScrcpyServer, type ScrcpyConnection } from "./scrcpy-server.ts";
 import { ScrcpyJpeg } from "./scrcpy-jpeg.ts";
+import { ScrcpyClipboard } from "./scrcpy-clipboard.ts";
 
 /** Control bytes queued in the socket before input is refused rather than delayed. */
 const controlBacklog = 256 * 1024;
@@ -30,7 +31,7 @@ type Link = {
   connection: ScrcpyConnection;
   units: ScrcpyVideoUnits;
   profile: ServerProfile;
-  acks: Map<bigint, () => void>;
+  clipboard: ScrcpyClipboard;
   /** The server crashes on a video reset before its first frame, which is a keyframe anyway. */
   streaming: boolean;
 };
@@ -83,7 +84,6 @@ export async function scrcpyCapture(options: {
   let stopped = false;
   let terminated = false;
   let sequence = 0;
-  let clipboardSequence = 0n;
   let keyframeAsked = -Infinity;
   let restarting: Promise<void> | undefined;
   let unwatch: (() => void) | undefined;
@@ -176,7 +176,10 @@ export async function scrcpyCapture(options: {
     const current: Link = {
       connection,
       profile,
-      acks: new Map(),
+      clipboard: new ScrcpyClipboard({
+        send: (message) => send(message, current),
+        after: runtime.after,
+      }),
       streaming: false,
       units: new ScrcpyVideoUnits(
         (unit) => {
@@ -191,12 +194,7 @@ export async function scrcpyCapture(options: {
       fail(error);
     };
     const reader = new VideoStreamReader((event) => current.units.push(event));
-    const messages = new DeviceMessageReader((message) => {
-      if (message.type === "clipboardAck") {
-        current.acks.get(message.sequence)?.();
-        current.acks.delete(message.sequence);
-      }
-    });
+    const messages = new DeviceMessageReader((message) => current.clipboard.received(message));
     const read = (target: { push(chunk: Buffer): void }) => (chunk: Buffer) => {
       try {
         target.push(chunk);
@@ -237,8 +235,7 @@ export async function scrcpyCapture(options: {
   };
   const disconnect = async (current: Link | undefined) => {
     if (!current) return;
-    for (const resolve of current.acks.values()) resolve();
-    current.acks.clear();
+    current.clipboard.close();
     await current.connection.close();
   };
   const setImages = async (images: boolean, fps: number) => {
@@ -356,35 +353,34 @@ export async function scrcpyCapture(options: {
       const video = current.units.size;
       if (!video.width || !video.height)
         throw new DeviceError("busy", "The Android screen has not started yet", "Retry shortly.");
-      const plan = scrcpyInputPlan(
-        input,
-        displayFor(video.width, video.height),
-        video,
-        () => ++clipboardSequence,
-      );
+      // The clipboard numbers its own writes; the plan's sequence is not used.
+      const plan = scrcpyInputPlan(input, displayFor(video.width, video.height), video, () => 0n);
       for (const step of plan) {
         await sleep(step.delayMs);
         guard();
         if (link !== current) throw new DeviceError("busy", "Android control restarted", "Retry.");
         const message = step.message;
-        if (message.type === "setClipboard") {
-          const acknowledged = new Promise<void>((resolve, reject) => {
-            const cancel = runtime.after(5000, () => {
-              current.acks.delete(message.sequence);
-              reject(
-                new DeviceError("command_failed", "Android paste timed out", "Retry the text."),
-              );
-            });
-            current.acks.set(message.sequence, () => {
-              cancel();
-              resolve();
-            });
-          });
-          send(message, current);
-          await acknowledged;
-        } else send(message, current);
+        if (message.type === "setClipboard")
+          await current.clipboard.write(message.text, message.paste);
+        else send(message, current);
       }
       held.apply(input);
+    },
+    clipboard: {
+      async read(guard) {
+        const current = link;
+        if (!current || stopped)
+          throw new DeviceError("busy", "Android control is reconnecting", "Retry the action.");
+        guard();
+        return current.clipboard.read();
+      },
+      async write(text, guard) {
+        const current = link;
+        if (!current || stopped)
+          throw new DeviceError("busy", "Android control is reconnecting", "Retry the action.");
+        guard();
+        await current.clipboard.write(text, false);
+      },
     },
   };
 }

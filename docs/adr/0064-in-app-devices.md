@@ -225,8 +225,13 @@ Revised 2026-10-19 (#1102):
 - **Input.** Touches keep the HID socket. A drag or swipe that begins within 2% of a
   screen edge carries serve-sim's edge flag, so swipe-up-from-bottom goes home; taps
   never do. Rotation toggles from the orientation serve-sim announces on the socket,
-  because its framebuffer stays portrait. Two-finger touch exists in serve-sim's socket
-  protocol but `DeviceInput` has no multi-touch kind yet, so it isn't exposed.
+  because its framebuffer stays portrait. Pictures and touch coordinates stay in that
+  portrait framebuffer when the device turns, so each frame carries `rotation` (degrees
+  clockwise to show it upright: `landscape_left` 90, `portrait_upside_down` 180,
+  `landscape_right` 270) and a turn republishes the latest picture. Pointer ids 0 and 1
+  map to serve-sim's two-finger touch: a second finger joins the held touch without
+  lifting it (a lift would be a tap), and the finger left after a two-finger touch only
+  touches again once it moves. Ids above 1 are refused as `not_supported`.
 - **Accessibility.** `ui.tree`, `ui.find` and `ui.act` on a serve-sim capture read its
   in-process accessibility bridge (`GET /ax`, a nested tree in points) and map it to
   ADR 0011 nodes in framebuffer pixels, with refs hashed from the element's path, type,
@@ -282,3 +287,59 @@ separate 50 MiB limit. Automatic stops and failed exports produce a visible noti
 consumed source files are deleted
 even after export failure. Logs filter iOS processes, batch updates and retain consumers
 independently. Congested sockets coalesce state pushes rather than closing the channel.
+
+## Shared media stream, 2026-10-19 (#1118)
+
+Device pictures leave the screen packet format and travel as stream kind 4 `deviceFrame` on
+the envelope the browser view already uses (`@ace/browser/stream`, ADR 0088). One header
+carries a JPEG or one H.264 access unit, with the sequence, capture time, size, `scale`
+(pixels per device point), `rotation`, a keyframe flag, the codec, the device id (the source
+id) and the capture's stream id. H.264 stays Annex B with parameter sets in front of every
+keyframe, as scrcpy and serve-sim hand it over, so the daemon still never decodes it.
+
+- **Why the browser's envelope and not a new package.** The envelope, assembler and the
+  video fanout are already portable and decoded natively by the iOS app. Moving them into a
+  `media-stream` package would rename every import of `@ace/browser/stream` for no change in
+  behaviour; the device kind is one more module beside the browser kinds, and
+  `VideoFanout` is exported as `@ace/browser/video-fanout` for the devices bridge.
+- **Pacing.** Each connection's view of a device is a `DeviceMediaViewer`: the browser
+  video's window (8 unacknowledged pictures, 2 MiB), its drop rule (a delta that doesn't fit
+  is dropped with every later delta until a keyframe, which is asked for at once) and
+  cumulative acks (`devices.ack`, fire and forget, naming the stream id). A JPEG is always a
+  keyframe, so a slow JPEG viewer gets the newest picture when its window opens. Forced
+  keyframes are at most 500 ms apart per viewer. The viewer takes every captured frame in
+  order (`subscribeEvery`), not the hub's newest-only delivery, so no delta is lost before
+  the window decides. A viewer also stops while its transport holds more than 128 KiB, the
+  screen packets' limit, so control replies on the same channel never queue behind pictures.
+- **Compatibility: one release both ways.** A client asks with `subscribe { mediaStream:
+true }`; a daemon without it ignores the flag and keeps sending packets, which the client
+  still reads (and never acks). Screenshots stay screen packets, so the client reads a
+  binary message as a stream piece only between packets. The next release can drop the
+  packet path from live views.
+- **Renderer.** The web app decodes device H.264 with the browser view's `VideoStream`
+  (moved to `apps/web/src/lib/video/`), so both views share one WebCodecs path. A
+  `NotSupportedError` falls back to JPEG at once; other decode errors ask for a keyframe and
+  give up on video after three in a row. A hidden page holds its newest ack, so the daemon
+  stops sending, and acks it with a keyframe request when the page shows again.
+- **Rotation.** `rotation` is the turn that shows the picture upright. The canvas draws it
+  turned; input maps back through the inverse turn into the picture's own coordinates,
+  which is where serve-sim's touches land. scrcpy re-sizes its stream on rotation, so
+  Android sends 0.
+- **Touch.** Device state carries `touch`: `multi` (scrcpy, serve-sim), `pointer` (one
+  finger streamed live) or `gestures` (the adb fallback). The panel reads touches through the
+  browser's `TouchGestures` (moved to `apps/web/src/lib/touch-gestures.ts`) and sends each
+  finger as `pointer` input with its `pointerId`; Option-drag with a mouse adds a mirrored
+  second finger for pinch, as Simulator does.
+- **Relay.** Remote status (`/v1/status`, administrators) names the relay's address, the
+  host key a client pins and the daemon's identity while the relay runs. The web app's
+  devices channel tries the daemon's own address first and, when that closes before the
+  welcome, the remembered relay route with fresh keys and the paired token, then sizes
+  the stream with the relay profile.
+- **Bit rate.** scrcpy's size, frame rate and bit rate follow the most constrained viewer
+  (`commonDeviceStream`); one emulator has one encoder, so viewers don't get separate
+  encodes. serve-sim's H.264 passes through at serve-sim's own rate, whatever the profile
+  asks: on an iPhone 16 simulator through a local relay (`apps/daemon/bench/device-relay.ts`),
+  0.1–0.3 Mbit/s idle and 0.1–0.8 Mbit/s paging the home screen. None of its deltas were
+  disposable (`nal_ref_idc` 0 in none of 2,125), so frame-rate decimation without a
+  transcode isn't possible; a slow viewer relies on the window's drop rule, and a viewer
+  asking for JPEG gets the resized, budgeted JPEG path.

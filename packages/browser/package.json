@@ -9,6 +9,7 @@
     "./policy-events": "./src/policy-events.ts",
     "./zoom": "./src/zoom.ts",
     "./stream": "./src/stream.ts",
+    "./video-fanout": "./src/video-fanout.ts",
     "./history": "./src/page-history.ts",
     "./testing": "./src/backend-test-support.ts",
     "./conformance": "./src/conformance/index.ts"

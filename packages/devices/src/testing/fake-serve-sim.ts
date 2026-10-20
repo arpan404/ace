@@ -119,5 +119,15 @@ export async function fakeServeSim(home: string, version: string, udid: string) 
     opened: () => avccOpened,
     mjpegOpen: () => mjpegOpen,
     delta: (byte: number) => avcc.at(-1)?.write(record(3, unit([0x21, byte]))),
+    /** Announces a new screen orientation, as serve-sim does after a rotate request. */
+    orient: (orientation: string) => {
+      for (const socket of ws.clients)
+        socket.send(
+          Buffer.concat([
+            Buffer.from([130]),
+            Buffer.from(JSON.stringify({ width: 1206, height: 2622, orientation })),
+          ]),
+        );
+    },
   };
 }

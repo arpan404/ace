@@ -8,6 +8,7 @@ import {
 import { decodeBrowserVideo, type BrowserVideoChunk } from "./stream-video.ts";
 import { decodeBrowserAudio, type BrowserAudioChunk } from "./stream-audio.ts";
 import { decodeDownloadChunk, type DownloadChunkMessage } from "./stream-download.ts";
+import { decodeDeviceFrame, type DeviceFrameChunk } from "./stream-device.ts";
 export { downloadBusy, encodeDownloadChunk, type DownloadChunkMessage } from "./stream-download.ts";
 
 /*
@@ -34,6 +35,12 @@ export {
 } from "./stream-envelope.ts";
 export { encodeBrowserVideo, type BrowserVideoChunk } from "./stream-video.ts";
 export { encodeBrowserAudio, type BrowserAudioChunk } from "./stream-audio.ts";
+export {
+  encodeDeviceFrame,
+  deviceRotations,
+  type DeviceFrameChunk,
+  type DeviceRotation,
+} from "./stream-device.ts";
 
 // Made per call (they are cheap): importing this module needs no text codecs.
 const utf8 = (value: string) => new TextEncoder().encode(value);
@@ -41,11 +48,15 @@ const text = (bytes: Uint8Array) => new TextDecoder("utf-8", { fatal: true }).de
 
 /** A frame as it arrives in binary: `BrowserFrame` with the JPEG's bytes instead of base64. */
 export type BrowserFrameBytes = Omit<BrowserFrame, "data"> & { bytes: Uint8Array };
-/** A decoded stream message: a JPEG frame, an encoded video or audio chunk, or a download chunk. */
+/**
+ * A decoded stream message: a browser JPEG frame, an encoded video or audio chunk, a download
+ * chunk, or a device's picture (its source id names the device).
+ */
 export type StreamMessage =
   | { kind: "browser.frame"; threadId: ThreadId; frame: BrowserFrameBytes }
   | { kind: "browser.video"; threadId: ThreadId; chunk: BrowserVideoChunk }
   | { kind: "browser.audio"; threadId: ThreadId; chunk: BrowserAudioChunk }
+  | { kind: "device.frame"; sourceId: string; frame: DeviceFrameChunk }
   | DownloadChunkMessage;
 
 const FrameHeader = BrowserFrame.omit({ data: true });
@@ -106,6 +117,8 @@ export function decodeStreamMessage(envelope: StreamEnvelope): StreamMessage | u
     return { kind: "browser.video", ...decodeBrowserVideo(envelope.meta, envelope.payload) };
   if (envelope.kind === streamKinds.browserAudio)
     return { kind: "browser.audio", ...decodeBrowserAudio(envelope.meta, envelope.payload) };
+  if (envelope.kind === streamKinds.deviceFrame)
+    return { kind: "device.frame", ...decodeDeviceFrame(envelope.meta, envelope.payload) };
   if (envelope.kind === streamKinds.browserDownload)
     return decodeDownloadChunk(envelope.meta, envelope.payload);
   return undefined;

@@ -1,6 +1,12 @@
 import { DeviceSubscriptions } from "./subscriptions.ts";
 import { DeviceFrameWriter } from "./frame-writer.ts";
-import { DeviceClientMessage, DeviceState, type DeviceServerMessage } from "@ace/protocol/devices";
+import {
+  DeviceAck,
+  DeviceClientMessage,
+  DeviceState,
+  type DeviceServerMessage,
+} from "@ace/protocol/devices";
+import { DeviceMediaViewer } from "./media-viewer.ts";
 import type { Frame } from "@ace/screen";
 import { DevicesService, deviceFailure } from "./service.ts";
 import type { Actor } from "./lease.ts";
@@ -13,13 +19,71 @@ export interface DevicePeer {
   frame(packet: Buffer): Promise<void>;
   /** Reliable screenshot: resolve only after bytes are sent, or reject explicitly. */
   image(packet: Buffer): Promise<void>;
+  /**
+   * The shared media stream (`@ace/browser/stream`): writes one binary message (a stream piece)
+   * and reports the transport's backlog. Absent: this peer only gets screen packets.
+   */
+  media?: {
+    write(piece: Uint8Array): Promise<void>;
+    bufferedBytes(): number;
+  };
+  /** Clock for keyframe pacing; defaults to the wall clock and timers. */
+  now?(): number;
+  after?(ms: number, run: () => void): () => void;
 }
+/**
+ * A media viewer stops taking pictures while the transport holds more than this, as screen
+ * packets do: control messages on the same channel must never find it backed up (the relay
+ * closes a channel whose control replies can't get out).
+ */
+const mediaBacklogBytes = 128 * 1024;
 /** A transport owner supplies authenticated identity and revocation checks. */
 export function connectDevices(service: DevicesService, owner: string, peer: DevicePeer) {
   const frames = new DeviceFrameWriter(peer.frame);
   const actor: Actor = { kind: "human", owner, guard: () => access() };
   const streams = new DeviceSubscriptions();
   const logs = new DeviceSubscriptions();
+  /** Devices this connection watches on the shared media stream, by device id. */
+  const viewers = new Map<string, DeviceMediaViewer>();
+  let messageIds = 0;
+  let retry: (() => void) | undefined;
+  const after =
+    peer.after ??
+    ((ms: number, run: () => void) => {
+      const timer = setTimeout(run, ms);
+      return () => clearTimeout(timer);
+    });
+  const flushViewers = () => {
+    for (const viewer of viewers.values()) viewer.flush();
+  };
+  const mediaViewer = (deviceId: string, guard: () => void) => {
+    const media = peer.media;
+    if (!media) throw new Error("This connection has no media stream");
+    return new DeviceMediaViewer(deviceId, {
+      messageId: () => (messageIds = (messageIds + 1) >>> 0),
+      now: peer.now ?? (() => performance.now()),
+      after,
+      keyframe: () =>
+        void service.request({ op: "stream.keyframe", deviceId }, actor).catch(() => {}),
+      write: (pieces) => {
+        if (frames.pending >= 4 || media.bufferedBytes() > mediaBacklogBytes) {
+          // The socket drains on its own; look again shortly unless a write will report it.
+          if (!frames.pending && !retry && !closed)
+            retry = after(50, () => {
+              retry = undefined;
+              flushViewers();
+            });
+          return false;
+        }
+        void frames
+          .run(async () => {
+            for (const piece of pieces) await media.write(piece);
+          }, guard)
+          .then(flushViewers, close);
+        return true;
+      },
+    });
+  };
   let closed = false;
   let pending = 0;
   const access = () => {
@@ -56,6 +120,9 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
     if (closed) return;
     closed = true;
     frames.close();
+    retry?.();
+    for (const viewer of viewers.values()) viewer.close();
+    viewers.clear();
     unwatch();
     unwatchInventory();
     unwatchEnabled();
@@ -67,6 +134,12 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
   }
   return {
     close,
+    /** A viewer's `devices.ack`: frees its window, or asks for a keyframe. Never answered. */
+    ack(raw: unknown): void {
+      const message = DeviceAck.parse(raw);
+      access();
+      viewers.get(message.deviceId)?.ack(message.streamId, message.sequence, message.keyframe);
+    },
     async request(raw: unknown): Promise<void> {
       const message = DeviceClientMessage.parse(raw);
       try {
@@ -100,12 +173,36 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
                 deviceAccess(operation.deviceId);
                 if (!slot.active()) throw new Error("Device subscription superseded");
               };
-              slot.attach(
-                await service.subscribe(operation.deviceId, actor, async (frame) => {
-                  guard();
-                  await frames.send(frame.packet, guard);
-                }),
-              );
+              if (operation.mediaStream && peer.media) {
+                const viewer = mediaViewer(operation.deviceId, guard);
+                viewers.get(operation.deviceId)?.close();
+                viewers.set(operation.deviceId, viewer);
+                const release = () => {
+                  viewer.close();
+                  if (viewers.get(operation.deviceId) === viewer)
+                    viewers.delete(operation.deviceId);
+                };
+                try {
+                  // Every frame, unhurried: the viewer's window paces the pictures, not the hub.
+                  const stop = await service.subscribeEvery(operation.deviceId, actor, (frame) => {
+                    guard();
+                    viewer.push(frame);
+                  });
+                  slot.attach(() => {
+                    stop();
+                    release();
+                  });
+                } catch (error) {
+                  release();
+                  throw error;
+                }
+              } else
+                slot.attach(
+                  await service.subscribe(operation.deviceId, actor, async (frame) => {
+                    guard();
+                    await frames.send(frame.packet, guard);
+                  }),
+                );
             } catch (error) {
               slot.cancel();
               throw error;

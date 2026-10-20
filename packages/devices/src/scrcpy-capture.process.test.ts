@@ -229,6 +229,47 @@ it("Unicode text is pasted and the action finishes only when the device acknowle
   expect(finished).toBe(true);
 });
 
+it("the emulator clipboard is read from the device's reply and set without pasting", async () => {
+  const { capture, device, frames } = await fixture();
+  await until(() => (frames.length ? true : undefined));
+  const reading = capture.clipboard?.read(() => {});
+  // A read asks without pressing copy first, then takes the device's clipboard message.
+  await until(() => (device.control().length >= 2 ? true : undefined));
+  expect(device.control()).toEqual(Buffer.from([8, 0]));
+  const text = Buffer.from("née 👋");
+  const reply = Buffer.alloc(5);
+  reply.writeUInt32BE(text.length, 1);
+  device.write(Buffer.concat([reply, text]));
+  expect(await reading).toBe("née 👋");
+
+  let finished = false;
+  const writing = capture.clipboard
+    ?.write("copied", () => {})
+    .then(() => {
+      finished = true;
+    });
+  const bytes = await until(() =>
+    device.control().length >= 2 + 14 + 6 ? device.control().subarray(2) : undefined,
+  );
+  expect(bytes.readUInt8(0)).toBe(9);
+  expect(bytes.readUInt8(9)).toBe(0);
+  expect(bytes.subarray(14).toString("utf8")).toBe("copied");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(finished).toBe(false);
+  const ack = Buffer.alloc(9);
+  ack.writeUInt8(1, 0);
+  ack.writeBigUInt64BE(bytes.readBigUInt64BE(1), 1);
+  device.write(ack);
+  await writing;
+  expect(finished).toBe(true);
+});
+
+it("an empty emulator clipboard, which the device never answers, reads as empty", async () => {
+  const { capture, frames } = await fixture();
+  await until(() => (frames.length ? true : undefined));
+  expect(await capture.clipboard?.read(() => {})).toBe("");
+});
+
 it("a viewer's keyframe request resets the device encoder once the stream is running", async () => {
   const { capture, device, frames } = await fixture();
   await until(() => (frames.length ? true : undefined));

@@ -34,6 +34,8 @@ export const streamKinds = {
   browserVideo: 2,
   /** One encoded audio chunk of a thread's browser (`stream-audio.ts`, ADR 0088 Audio). */
   browserAudio: 3,
+  /** One picture of a simulator's or emulator's screen (`stream-device.ts`, ADR 0064). */
+  deviceFrame: 4,
   /** A chunk of a thread's browser download, fetched to the person's device (`stream-download.ts`). */
   browserDownload: 8,
 } as const;

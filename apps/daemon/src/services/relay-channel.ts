@@ -103,9 +103,17 @@ export function attachRelayService(
             throw error;
           }),
       }),
+      media: {
+        bufferedBytes: () => channel.bufferedBytes,
+        write: async (piece) => {
+          if (!authorize("admin")) throw new Error("Device stream access revoked");
+          await channel.sendBinary(piece);
+        },
+      },
     });
     return {
       accept(message: ClientMessage) {
+        if (message.type === "devices.ack") return endpoint.ack(message);
         if (message.type !== "devices.request") throw new Error("Unexpected devices relay request");
         return endpoint.request(message);
       },

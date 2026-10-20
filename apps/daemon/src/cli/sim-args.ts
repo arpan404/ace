@@ -14,8 +14,9 @@ Every command takes --thread THREAD_ID: your own thread (the context tool's stat
   ace sim act SIM type @e3 TEXT        focus the element, then type (without a ref: the focused field)
   ace sim act SIM press|focus|setValue|scroll|select|expand @e3 [--value V]
   ace sim act SIM long_press @e3|X Y [--duration MS]
-  ace sim act SIM tap X Y | swipe X Y TOX TOY [--duration MS] | key home|back|enter|rotate|power
+  ace sim act SIM tap X Y | swipe X Y TOX TOY [--duration MS] | key home|back|enter|rotate|power|recents
   ace sim act SIM open_app ID | open_url URL | install PATH | record_start | record_stop
+  ace sim act SIM clipboard_get | clipboard_set TEXT   read the clipboard, or set it without pasting
   ace sim screenshot SIM [--out FILE]  JPEG of the screen, with or without the live view
   ace sim logs SIM [--limit N]
   ace sim stop SIM                     release it when you finish
@@ -108,8 +109,11 @@ function actArgs(simId: string, action: string, words: string[], args: Args) {
       return single("url");
     case "install":
       return single("path");
+    case "clipboard_set":
+      return single("text");
     case "record_start":
     case "record_stop":
+    case "clipboard_get":
       if (words.length) throw new CliFailure("refused", `${action} takes no arguments.`);
       return { simId, action };
     default:

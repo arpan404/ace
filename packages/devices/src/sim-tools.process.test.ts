@@ -189,3 +189,40 @@ it("sim_screenshot reads the live view while it runs, and takes a one-off frame 
   expect(still.content[1]).toMatchObject({ text: expect.stringContaining("300x600") });
   expect(h.platform.shots).toEqual([ios]);
 });
+
+it("the clipboard round-trips through sim_act and is refused while a person holds the device", async () => {
+  const h = await setup();
+  await h.call("sim_start", { simId: ios });
+  const set = await h.call("sim_act", { simId: ios, action: "clipboard_set", text: "héllo 👋" });
+  expect(set.isError).toBe(false);
+  expect((await h.call("sim_act", { simId: ios, action: "clipboard_get" })).json).toEqual({
+    text: "héllo 👋",
+    truncated: false,
+  });
+  // A clipboard longer than the budget comes back cut, and says so.
+  h.platform.clipboards.set(ios, "x".repeat(5000));
+  expect((await h.call("sim_act", { simId: ios, action: "clipboard_get" })).json).toEqual({
+    text: "x".repeat(4096),
+    truncated: true,
+  });
+  const missing = await h.call("sim_act", { simId: ios, action: "clipboard_set" });
+  expect(missing.isError).toBe(true);
+  const person = { kind: "human" as const, owner: "person" };
+  await h.service.request({ op: "controller", deviceId: ios, controller: "human" }, person);
+  const held = await h.call("sim_act", { simId: ios, action: "clipboard_get" });
+  expect(held.json).toMatchObject({ code: "lease_required" });
+  expect(h.platform.effects).toEqual([`${ios} clipboard "héllo 👋"`]);
+});
+
+it("recents reaches an Android emulator and is refused on iOS with a way forward", async () => {
+  const h = await setup();
+  await h.call("sim_start", { simId: android });
+  await h.call("sim_act", { simId: android, action: "key", key: "recents" });
+  await h.call("sim_start", { simId: ios });
+  const refused = await h.call("sim_act", { simId: ios, action: "key", key: "recents" });
+  expect(refused.json).toMatchObject({
+    code: "not_supported",
+    detail: expect.stringContaining("no Recents key"),
+  });
+  expect(h.platform.effects).toEqual([`${android} input {"kind":"key","key":"recents"}`]);
+});

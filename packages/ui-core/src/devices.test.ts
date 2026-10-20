@@ -5,6 +5,7 @@ import {
   deviceControls,
   deviceGesture,
   devicePoint,
+  shownFrameSize,
   deviceRows,
   leaseLeft,
 } from "./devices.ts";
@@ -127,4 +128,22 @@ test("device tool failures offer a fix without exposing internal errors", () => 
     message: "Screen Recording is needed",
     hint: "Open macOS privacy settings",
   });
+});
+
+test("a turned picture maps the pointer back into the device's own orientation", () => {
+  // A portrait 390 x 844 point screen shown a quarter turn clockwise: 844 wide, 422 tall at half size.
+  const frame = { width: 1170, height: 2532, scale: 3, rotation: 90 };
+  const shown = { left: 0, top: 0, width: 422, height: 195 };
+  // The shown top left corner is the picture's bottom left.
+  expect(devicePoint(frame, shown, { x: 0, y: 0 })).toEqual({ x: 0, y: 843 });
+  // The shown top right corner is the picture's top left.
+  expect(devicePoint(frame, shown, { x: 422, y: 0 })).toEqual({ x: 0, y: 0 });
+  expect(devicePoint({ ...frame, rotation: 270 }, shown, { x: 0, y: 0 })).toEqual({ x: 389, y: 0 });
+  expect(
+    devicePoint({ ...frame, rotation: 180 }, { ...shown, width: 195, height: 422 }, { x: 0, y: 0 }),
+  ).toEqual({
+    x: 389,
+    y: 843,
+  });
+  expect(shownFrameSize(frame)).toEqual({ width: 2532, height: 1170 });
 });

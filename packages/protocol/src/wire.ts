@@ -143,7 +143,7 @@ import {
 } from "./usage.ts";
 import { CursorAuthRequest, CursorAuthEvent } from "./cursor-auth.ts";
 import { AccountsRequest, AccountsResponse } from "./accounts.ts";
-import { DeviceClientMessage, DeviceServerMessage } from "./devices.ts";
+import { DeviceAck, DeviceClientMessage, DeviceServerMessage } from "./devices.ts";
 import { ScreenClientMessage, ScreenServerMessage } from "./screen.ts";
 import {
   ModelsListRequest,
@@ -248,6 +248,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   SearchStatusRequest,
   ScreenClientMessage,
   DeviceClientMessage,
+  DeviceAck,
   ...BrowserClientMessage.options,
   BrowserBrowsingWatch,
   ComputerUsingWatch,

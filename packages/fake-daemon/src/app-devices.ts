@@ -1,6 +1,7 @@
 import type { DeviceTransport } from "@ace/client/devices";
 import {
   AppDevice,
+  DeviceAck,
   DeviceClientMessage,
   type DeviceFailure,
   type DeviceInput,
@@ -10,7 +11,7 @@ import {
   type DeviceServerMessage,
   DeviceState,
 } from "@ace/protocol/devices";
-import { fakeScreenFrame } from "./screen-frame.ts";
+import { fakeDeviceFrame, fakeScreenFrame } from "./screen-frame.ts";
 
 const leaseMs = 5 * 60_000;
 
@@ -40,6 +41,8 @@ type DeviceTransportEvents = Parameters<DeviceTransport["open"]>[0];
 interface Channel {
   events: DeviceTransportEvents;
   streams: Set<string>;
+  /** Devices it watches on the shared media stream (`mediaStream`), not screen packets. */
+  media: Set<string>;
 }
 
 class Refusal extends Error {
@@ -100,6 +103,9 @@ export class FakeAppDevices {
    * stand-in bytes for the encoder's NAL units, which only a test's decoder accepts.
    */
   videoEncoding = false;
+  /** Every `devices.ack` a media-stream viewer sent, in order. */
+  readonly acks: DeviceAck[] = [];
+  private messageIds = 0;
   /** Every live-view setting a viewer asked for, in order. */
   readonly streamRequests: { deviceId: string; settings: StreamSettings }[] = [];
   constructor(clock: () => number) {
@@ -150,7 +156,7 @@ export class FakeAppDevices {
     let channel: Channel | undefined;
     return {
       open: (events) => {
-        const opened: Channel = { events, streams: new Set<string>() };
+        const opened: Channel = { events, streams: new Set<string>(), media: new Set<string>() };
         channel = opened;
         this.channels.add(opened);
         queueMicrotask(() => {
@@ -160,6 +166,18 @@ export class FakeAppDevices {
       send: (raw) => {
         const current = channel;
         if (!current) throw new Error("Device channel is not authenticated");
+        if (raw.type === "devices.ack") {
+          const ack = DeviceAck.parse(raw);
+          this.acks.push(ack);
+          // A decoder that lost its place gets a fresh picture, as the daemon's window sends.
+          const session = this.sessions.get(ack.deviceId);
+          if (ack.keyframe && session)
+            queueMicrotask(() => {
+              session.keyframe = true;
+              this.paint(session);
+            });
+          return;
+        }
         const message = DeviceClientMessage.parse(raw);
         queueMicrotask(() => this.receive(current, message));
       },
@@ -189,6 +207,11 @@ export class FakeAppDevices {
       lifecycle: session.lifecycle,
       recording: session.recording === true,
       ...(session.streamId ? { streamId: session.streamId } : {}),
+      // The emulator's live view takes several fingers, as scrcpy's does; the Simulator's says
+      // nothing, as an older daemon's doesn't.
+      ...(session.lifecycle === "live" && session.device.platform === "android"
+        ? { touch: "multi" as const }
+        : {}),
       controller: session.controller,
       ownedHere:
         session.controller === "human" &&
@@ -221,12 +244,32 @@ export class FakeAppDevices {
     return packet;
   }
 
+  /** One picture to `viewers`: stream pieces to media-stream viewers, a packet to the rest. */
+  private show(session: Session, viewers: readonly Channel[]): void {
+    const options = {
+      sessionId: session.streamId ?? "idle",
+      sequence: ++this.sequence,
+      timestamp: this.clock(),
+      screen: session.screen,
+      codec: session.codec,
+      keyframe: session.keyframe,
+    };
+    session.keyframe = false;
+    const packet = fakeScreenFrame(options);
+    const pieces = fakeDeviceFrame({
+      ...options,
+      deviceId: session.device.id,
+      id: (this.messageIds = (this.messageIds + 1) >>> 0),
+    });
+    for (const channel of viewers)
+      if (!channel.media.has(session.device.id)) channel.events.message(packet);
+      else for (const piece of pieces) channel.events.message(piece);
+  }
+
   private paint(session: Session): void {
     if (session.lifecycle !== "live") return;
     const viewers = [...this.channels].filter((channel) => channel.streams.has(session.device.id));
-    if (!viewers.length) return;
-    const packet = this.frame(session);
-    for (const channel of viewers) channel.events.message(packet);
+    if (viewers.length) this.show(session, viewers);
   }
 
   private log(session: Session, line: string, channel?: Channel): void {
@@ -373,9 +416,11 @@ export class FakeAppDevices {
         return this.state(session, channel);
       case "subscribe":
         channel.streams.add(session.device.id);
+        if (operation.mediaStream) channel.media.add(session.device.id);
+        else channel.media.delete(session.device.id);
         // A new viewer starts from a self-contained frame.
         session.keyframe = true;
-        if (session.lifecycle === "live") channel.events.message(this.frame(session));
+        if (session.lifecycle === "live") this.show(session, [channel]);
         return this.state(session, channel);
       case "stream.configure": {
         this.streamRequests.push({ deviceId: session.device.id, settings: operation.settings });
@@ -393,6 +438,7 @@ export class FakeAppDevices {
         return { completed: true };
       case "unsubscribe":
         channel.streams.delete(session.device.id);
+        channel.media.delete(session.device.id);
         return this.state(session, channel);
       case "input":
         this.controlled(session, channel);

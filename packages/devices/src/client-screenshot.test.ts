@@ -23,7 +23,7 @@ function setup() {
       next.ready();
     },
     send(message) {
-      sent.push(message);
+      if (message.type === "devices.request") sent.push(message);
     },
     close() {},
   });

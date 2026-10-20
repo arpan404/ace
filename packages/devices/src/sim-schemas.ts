@@ -26,9 +26,11 @@ const SimActFields = z.strictObject({
       "install",
       "record_start",
       "record_stop",
+      "clipboard_get",
+      "clipboard_set",
     ])
     .describe(
-      "ui: accessibility action on ref. tap/long_press: ref (preferred) or x,y. type: text, into ref when given, else the focused field. swipe: x,y to toX,toY. key: key. open_app: appId. open_url: url. install: path. record_start/record_stop: screen recording attached to the thread.",
+      "ui: accessibility action on ref. tap/long_press: ref (preferred) or x,y. type: text, into ref when given, else the focused field. swipe: x,y to toX,toY. key: key. open_app: appId. open_url: url. install: path. record_start/record_stop: screen recording attached to the thread. clipboard_get: read the device clipboard. clipboard_set: text onto the clipboard, without pasting.",
     ),
   ref: SimRef.optional().describe(
     "Element ref from sim_ui, e.g. @e3: required for ui; for tap, long_press and type, instead of x,y.",
@@ -45,11 +47,11 @@ const SimActFields = z.strictObject({
   toX: point.optional().describe("Swipe end point."),
   toY: point.optional().describe("Swipe end point."),
   durationMs: z.number().int().min(1).max(10_000).optional().describe("Gesture length in ms."),
-  text: z.string().max(4096).optional().describe("Text to type."),
+  text: z.string().max(4096).optional().describe("Text to type, or to put on the clipboard."),
   key: z
-    .enum(["home", "back", "rotate", "enter", "power"])
+    .enum(["home", "back", "rotate", "enter", "power", "recents"])
     .optional()
-    .describe("Hardware or navigation key."),
+    .describe("Hardware or navigation key. recents is Android's app overview."),
   appId: z.string().min(1).max(256).optional().describe("Bundle id or Android package to launch."),
   url: z.string().min(1).max(4096).optional().describe("URL or deep link to open."),
   path: z
@@ -79,6 +81,8 @@ export const SimActArgs = SimActFields.superRefine(
     install: { required: ["path"], allowed: [...base, "path"] },
     record_start: none,
     record_stop: none,
+    clipboard_get: none,
+    clipboard_set: { required: ["text"], allowed: [...base, "text"] },
   }),
 ).superRefine((value, context) => {
   if (!pointed.has(value.action)) return;
@@ -150,7 +154,7 @@ export const simToolMetadata: Record<
     // Typing paces each character; installs copy whole app bundles.
     timeoutMs: deviceInstallTimeoutMs + 30_000,
     description:
-      "Act on the simulator: tap, long_press or type on a sim_ui ref (preferred) or a point, ui accessibility actions on a ref, swipe, key, open_app, open_url, install, or start/stop a recording. A ref whose element has gone fails with stale_ref.",
+      "Act on the simulator: tap, long_press or type on a sim_ui ref (preferred) or a point, ui accessibility actions on a ref, swipe, key, open_app, open_url, install, start/stop a recording, or read/set the clipboard. A ref whose element has gone fails with stale_ref.",
   },
   sim_screenshot: {
     title: "Screenshot simulator",
