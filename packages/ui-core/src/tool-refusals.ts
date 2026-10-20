@@ -1,6 +1,6 @@
 import type { Item } from "@ace/protocol";
 import { toolProblem } from "./ace-tool-problems.ts";
-import { aceToolWords } from "./ace-tools.ts";
+import { aceCallOf, aceToolWords } from "./ace-tools.ts";
 import { repeatCount } from "./repeated-events.ts";
 
 /*
@@ -72,6 +72,28 @@ export function toolRefusal(item: Item | undefined): ToolRefusal | undefined {
     reason: label ? problem.title : problem.hint,
     key: `${item.agentId}\u0000${code}\u0000${operation ?? ""}`,
   };
+}
+
+/**
+ * Whether a failure report is about `call`: one of ace's own calls by the same agent to the tool
+ * the report's operation names (`thread.read` → `thread_read`). The report carries no call id,
+ * so its step is the latest such call before it.
+ */
+export function reportsOn(report: Item | undefined, call: Item | undefined): boolean {
+  if (!isRefusal(report) || call?.agentId !== report.agentId) return false;
+  const operation = operationOf(report);
+  const ace = aceCallOf(call);
+  return !!operation && !!ace && ace.tool === operation.replaceAll(".", "_");
+}
+
+/** Whether one of ace's own calls answered as failed, by its status or its typed MCP result. */
+export function aceCallFailed(item: Item | undefined): boolean {
+  const call = aceCallOf(item);
+  if (!call) return false;
+  const result: unknown = call.result;
+  const isError =
+    typeof result === "object" && result !== null && "isError" in result && result.isError;
+  return call.status === "failed" || isError === true;
 }
 
 /**

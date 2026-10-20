@@ -4,7 +4,7 @@ import { carriesOnStretch, type InlineQuestion } from "./thread-ledger.ts";
 import { isBareErrorCode } from "./error-display.ts";
 import { isThreadStartCall } from "./started-thread.ts";
 import { mergesWith, type GroupEntry } from "./transcript-groups.ts";
-import { toolRefusal } from "./tool-refusals.ts";
+import { reportsOn, toolRefusal } from "./tool-refusals.ts";
 
 export { isInlineInteraction } from "./thread-ledger.ts";
 
@@ -553,6 +553,21 @@ export function buildBlocks(source: BlockSource): Block[] {
     placed(blocks.length - 1, message);
   };
   const reviewsPlaced = new Map<string, number>();
+  // Calls a failure report already joined, so two reports never claim one step.
+  const reported = new Set<string>();
+  /** The logged ace call a failure report at `at` is about: the latest one, a few items back. */
+  const reportedStep = (at: number): string | undefined => {
+    const report = source.item(order[at] ?? "");
+    if (!toolRefusal(report)) return undefined;
+    for (let back = at - 1; back >= Math.max(0, at - 64); back--) {
+      const id = order[back];
+      if (id === undefined || reported.has(id) || !groupOf.has(id)) continue;
+      if (!reportsOn(report, source.item(id))) continue;
+      reported.add(id);
+      return id;
+    }
+    return undefined;
+  };
   for (const [index, id] of order.entries()) {
     const item = source.item(id);
     if (!item) continue;
@@ -679,8 +694,9 @@ export function buildBlocks(source: BlockSource): Block[] {
             group("work", id);
             break;
           }
-          // Output of a step joins that step's log, right after the step.
-          const callId = item.toolCallId;
+          // Output of a step joins that step's log, right after the step; so does ace's report
+          // of a step that failed, which the step itself shows (one failure, one row).
+          const callId = item.toolCallId ?? reportedStep(index);
           const host = callId ? groupOf.get(callId) : undefined;
           if (callId && host) {
             const after = (reviewsPlaced.get(callId) ?? 0) + 1;
