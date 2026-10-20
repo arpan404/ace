@@ -1,4 +1,5 @@
 import {
+  ScreenAck,
   ScreenClientMessage,
   ScreenOperation,
   ScreenServerMessage,
@@ -6,18 +7,14 @@ import {
   ScreenStatus,
   type ServerMessage,
 } from "@ace/protocol";
-import {
-  LatestFrameHub,
-  ScreenFrameReader,
-  SharedStreams,
-  type PortableFrame,
-} from "@ace/screen/frames-client";
+import { decodeStreamMessage, isStreamPiece, StreamAssembler } from "@ace/browser/stream";
+import { PictureQueue, SharedStreams, type SourcePicture } from "@ace/browser/live-view";
 import { authenticatedChannel, type AuthenticatedChannelOptions } from "./device-transport.ts";
 import { ScreenClientError } from "./screen.ts";
 
 export { ScreenClientError } from "./screen.ts";
 export type { AuthenticatedChannelOptions } from "./device-transport.ts";
-export type { PortableFrame } from "@ace/screen/frames-client";
+export type { SourcePicture } from "@ace/browser/live-view";
 export { browserDeviceSocket as browserScreenSocket } from "./device-transport.ts";
 
 export interface ScreenTransport {
@@ -27,7 +24,7 @@ export interface ScreenTransport {
     close(): void;
     limited?(error: Error): void;
   }): void;
-  send(message: ReturnType<typeof ScreenClientMessage.parse>): void | Promise<void>;
+  send(message: ReturnType<typeof ScreenClientMessage.parse> | ScreenAck): void | Promise<void>;
   close(): void;
 }
 /** Authenticated local or encrypted relay socket with hello.channel = screen. */
@@ -59,8 +56,9 @@ function failure(errorCode: "internal" | "busy" | "timeout", error: string): Scr
   });
 }
 
-/** Dedicated live-view connection. Disconnect rejects pending requests and discards frames;
- * reconnect never replays an input, controller claim or subscription. Import this lazy subpath
+/** Dedicated live-view connection. Disconnect rejects pending requests and discards pictures;
+ * reconnect never replays an input, controller claim or subscription. A session's pictures
+ * arrive as stream kind `screenFrame` and are acked as shown (`ack`). Import this lazy subpath
  * when mounting the computer-use UI, independently of the main client worker. */
 export class ScreenStreamClient {
   private readonly options: ScreenStreamClientOptions;
@@ -70,16 +68,11 @@ export class ScreenStreamClient {
   private readonly listeners = new Set<(snapshot: ScreenStreamSnapshot) => void>();
   private readonly states = new Map<string, ScreenState>();
   private readonly pending = new Map<string, Pending>();
-  private readonly frames = new Map<string, LatestFrameHub<PortableFrame>>();
-  private readonly reader: ScreenFrameReader;
-  private readonly frameEpochs = new WeakMap<PortableFrame, number>();
+  /** Stream kind messages (`@ace/browser/stream`) being put back together. */
+  private readonly assembler = new StreamAssembler();
+  private readonly pictures = new PictureQueue(8);
   constructor(options: ScreenStreamClientOptions) {
     this.options = options;
-    this.reader = new ScreenFrameReader((frame) => {
-      this.frameEpochs.set(frame, this.epoch);
-      if (this.states.get(frame.header.sessionId)?.lifecycle === "live")
-        this.frames.get(frame.header.sessionId)?.publish(frame);
-    });
   }
   getSnapshot(): ScreenStreamSnapshot {
     return this.snapshot;
@@ -123,10 +116,10 @@ export class ScreenStreamClient {
     const transport = this.transport;
     this.transport = undefined;
     transport?.close();
-    this.reader.reset();
+    this.assembler.reset();
     this.states.clear();
     this.streams.reset();
-    for (const hub of this.frames.values()) hub.discardPending();
+    this.pictures.discard();
     for (const request of this.pending.values()) {
       request.cancel();
       request.reject(error);
@@ -186,41 +179,43 @@ export class ScreenStreamClient {
       }
     });
   }
-  watchFrames(
+  /**
+   * A session's live pictures, in order, while it is live. Ack each with `ack` once shown (or
+   * at once when it can't be): the daemon sends a window's worth ahead of the acks and no more.
+   */
+  watchPictures(
     sessionId: string,
-    listener: (frame: PortableFrame) => void | Promise<void>,
+    draw: (picture: SourcePicture) => void | Promise<void>,
   ): () => void {
-    let hub = this.frames.get(sessionId);
-    if (!hub) {
-      if (this.frames.size >= 8) throw failure("busy", "Screen frame subscription limit");
-      hub = new LatestFrameHub<PortableFrame>();
-      this.frames.set(sessionId, hub);
+    try {
+      return this.pictures.watch(sessionId, async (picture) => {
+        if (this.snapshot.connected && this.states.get(sessionId)?.lifecycle === "live")
+          await draw(picture);
+      });
+    } catch {
+      throw failure("busy", "Screen frame subscription limit");
     }
-    const stop = hub.subscribe(async (frame) => {
-      if (
-        this.frameEpochs.get(frame) === this.epoch &&
-        this.states.get(sessionId)?.lifecycle === "live"
-      )
-        await listener(frame);
-    });
-    // A hub may have other subscribers; retain it until all consumers leave.
-    const slot = hub;
-    const count = (this.frameCounts.get(sessionId) ?? 0) + 1;
-    this.frameCounts.set(sessionId, count);
-    let active = true;
-    return () => {
-      if (!active) return;
-      active = false;
-      stop();
-      const remaining = (this.frameCounts.get(sessionId) ?? 1) - 1;
-      if (remaining === 0) {
-        slot.clear();
-        this.frames.delete(sessionId);
-        this.frameCounts.delete(sessionId);
-      } else this.frameCounts.set(sessionId, remaining);
-    };
   }
-  private readonly frameCounts = new Map<string, number>();
+  /**
+   * The view showed `picture` (and every one before it); `keyframe`: its decoder lost its place.
+   * Never answered and never retried: a lost ack only holds the stream until the next one.
+   */
+  ack(picture: SourcePicture, keyframe = false): void {
+    const transport = this.transport;
+    if (picture.still || !transport || !this.snapshot.connected) return;
+    const message: ScreenAck = {
+      type: "screen.ack",
+      sessionId: picture.sourceId,
+      streamId: picture.streamId,
+      sequence: picture.sequence,
+      ...(keyframe ? { keyframe: true as const } : {}),
+    };
+    try {
+      void Promise.resolve(transport.send(message)).catch(() => {});
+    } catch {
+      /* The channel is closing; its close resets the view. */
+    }
+  }
   private readonly streams = new SharedStreams();
   /**
    * Keep `sessionId`'s live stream open for one view. Views of the same session share one
@@ -235,7 +230,12 @@ export class ScreenStreamClient {
   }
   private receive(message: ServerMessage | Uint8Array): void {
     if (message instanceof Uint8Array) {
-      this.reader.push(message);
+      if (!isStreamPiece(message)) throw failure("internal", "Invalid screen frame");
+      const envelope = this.assembler.push(message);
+      // Kinds this client doesn't draw are skipped, never fatal.
+      const decoded = envelope && decodeStreamMessage(envelope);
+      if (decoded?.kind === "screen.frame" && this.states.get(decoded.sourceId)?.lifecycle === "live")
+        this.pictures.publish({ ...decoded.frame, sourceId: decoded.sourceId });
       return;
     }
     const decoded = ScreenServerMessage.safeParse(message);
@@ -273,7 +273,7 @@ export class ScreenStreamClient {
   private putState(state: ScreenState): void {
     if (state.lifecycle === "stopped" || state.lifecycle === "failed") {
       this.states.delete(state.sessionId);
-      this.frames.get(state.sessionId)?.discardPending();
+      this.pictures.discardSource(state.sessionId);
     } else {
       if (!this.states.has(state.sessionId) && this.states.size >= 8)
         throw failure("busy", "Screen state limit");

@@ -790,6 +790,7 @@
     "packages/screen": {
       "name": "@ace/screen",
       "dependencies": {
+        "@ace/browser": "workspace:*",
         "@ace/interaction": "workspace:*",
         "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",

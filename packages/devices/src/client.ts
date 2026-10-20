@@ -2,7 +2,7 @@ import { deviceInputTimeout } from "./input-budget.ts";
 import { z } from "zod";
 import { PendingScreenshots } from "./client-screenshots.ts";
 import { decodeStreamMessage, isStreamPiece, StreamAssembler } from "@ace/browser/stream";
-import { DevicePictures, packetPicture, type DevicePicture } from "./client-pictures.ts";
+import { PictureQueue, SharedStreams, type SourcePicture } from "@ace/browser/live-view";
 import {
   type AppDevice as Device,
   type DeviceAck,
@@ -13,12 +13,9 @@ import {
   DeviceFailure,
   DeviceInventory,
 } from "@ace/protocol/devices";
-import {
-  LatestFrameHub,
-  ScreenFrameReader,
-  SharedStreams,
-  type PortableFrame,
-} from "@ace/screen/frames-client";
+
+/** One live picture of a device's screen (its source id is the device id). */
+export type DevicePicture = SourcePicture;
 
 export interface DeviceTransportEvents {
   /** Only call after the host authenticates the dedicated devices channel. */
@@ -74,6 +71,9 @@ const statesResult = z.object({
   enabled: z.boolean().optional(),
 });
 const enableResult = z.object({ enabled: z.boolean() });
+/** A screenshot request resolves with its picture (`PendingScreenshots`), never wire data. */
+const isPicture = (value: unknown): value is DevicePicture =>
+  typeof value === "object" && value !== null && "bytes" in value && value.bytes instanceof Uint8Array;
 
 /** No credentials, automatic reapproval or replayed input. The host owns reconnect. */
 export class DeviceClient {
@@ -81,14 +81,6 @@ export class DeviceClient {
   private readonly pending = new Map<string, Pending>();
   private readonly screenshots = new PendingScreenshots();
   private readonly states = new Map<string, DeviceState>();
-  private readonly streams = new Map<string, string>();
-  private readonly frameHubs = new Map<
-    string,
-    {
-      hub: LatestFrameHub<{ frame: PortableFrame; epoch: number; direct?: boolean }>;
-      consumers: number;
-    }
-  >();
   private readonly listeners = new Set<(snapshot: DeviceClientSnapshot) => void>();
   private readonly logListeners = new Map<string, Set<(batch: DeviceLogBatch) => void>>();
   private devices: Device[] = [];
@@ -99,23 +91,11 @@ export class DeviceClient {
   private transport: DeviceTransport | undefined;
   private error: DeviceClientError | undefined;
   private epoch = 0;
-  private reader: ScreenFrameReader;
   /** Stream kind messages (`@ace/browser/stream`) being put back together. */
   private readonly assembler = new StreamAssembler();
-  private readonly pictures = new DevicePictures();
+  private readonly pictures = new PictureQueue(4);
   constructor(options: DeviceClientOptions) {
     this.options = options;
-    this.reader = this.createReader();
-  }
-  private createReader(): ScreenFrameReader {
-    return new ScreenFrameReader((frame) => {
-      const id = this.streams.get(frame.header.sessionId);
-      if (id) {
-        this.frameHubs.get(id)?.hub.publish({ frame, epoch: this.epoch });
-        this.pictures.publish(packetPicture(id, frame));
-      }
-      this.screenshots.retain(frame);
-    });
   }
   private acceptInventory(devices: Device[]): void {
     this.devices = devices;
@@ -193,18 +173,15 @@ export class DeviceClient {
     const transport = this.transport;
     this.transport = undefined;
     this.connected = false;
-    this.streams.clear();
     this.liveStreams.reset();
     this.states.clear();
     this.devices = [];
     this.inventoryLoaded = false;
     this.issues = [];
     this.enabled = undefined;
-    this.reader.reset();
     this.assembler.reset();
     this.pictures.discard();
     this.screenshots.clear();
-    for (const entry of this.frameHubs.values()) entry.hub.discardPending();
     for (const pending of this.pending.values()) {
       pending.cancel();
       pending.reject(
@@ -276,37 +253,20 @@ export class DeviceClient {
       }
     });
   }
-  watchFrames(deviceId: string, render: (frame: PortableFrame) => Promise<void>): () => void {
-    let entry = this.frameHubs.get(deviceId);
-    if (!entry) {
-      if (this.frameHubs.size >= 4) throw new DeviceClientError("limit", "Device frame view limit");
-      entry = { hub: new LatestFrameHub(), consumers: 0 };
-      this.frameHubs.set(deviceId, entry);
-    }
-    const selected = entry;
-    const release = selected.hub.subscribe(async ({ frame, epoch, direct }) => {
-      if (
-        this.epoch === epoch &&
-        this.connected &&
-        (direct || this.streams.get(frame.header.sessionId) === deviceId)
-      )
-        await render(frame);
-    });
-    selected.consumers++;
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      release();
-      selected.consumers--;
-      if (selected.consumers === 0) this.frameHubs.delete(deviceId);
-    };
+  /**
+   * A still of the device's screen as a JPEG: the daemon sends it on the media stream just
+   * before the result that names it.
+   */
+  async screenshot(deviceId: string): Promise<DevicePicture> {
+    const picture = await this.request({ op: "screenshot", deviceId });
+    if (!isPicture(picture))
+      throw new DeviceClientError("invalid", "Screenshot pixels missing or mismatched");
+    return picture;
   }
 
   /**
-   * A device's pictures for its live view, in order, whichever way they come: stream kind
-   * `deviceFrame` (ack each with `ack` once shown) or an older daemon's screen packets.
-   * Screenshots arrive here too, unpaced.
+   * A device's live pictures (stream kind `deviceFrame`), in order. Ack each with `ack` once
+   * shown, or at once when it can't be: the daemon sends a window's worth ahead and no more.
    */
   watchPictures(deviceId: string, draw: (picture: DevicePicture) => Promise<void>): () => void {
     try {
@@ -320,15 +280,14 @@ export class DeviceClient {
 
   /**
    * The view showed `picture` (and every one before it); `keyframe`: its decoder lost its place.
-   * Pictures from screen packets need none. Never answered and never retried: a lost ack only
-   * holds the stream until the next one.
+   * Never answered and never retried: a lost ack only holds the stream until the next one.
    */
   ack(picture: DevicePicture, keyframe = false): void {
     const transport = this.transport;
-    if (!picture.paced || !transport || !this.connected) return;
+    if (picture.still || !transport || !this.connected) return;
     const message: DeviceAck = {
       type: "devices.ack",
-      deviceId: picture.deviceId,
+      deviceId: picture.sourceId,
       streamId: picture.streamId,
       sequence: picture.sequence,
       ...(keyframe ? { keyframe: true as const } : {}),
@@ -348,7 +307,7 @@ export class DeviceClient {
   retainStream(deviceId: string): () => void {
     return this.liveStreams.retain(
       deviceId,
-      () => void this.request({ op: "subscribe", deviceId, mediaStream: true }).catch(() => {}),
+      () => void this.request({ op: "subscribe", deviceId }).catch(() => {}),
       () => void this.request({ op: "unsubscribe", deviceId }).catch(() => {}),
     );
   }
@@ -387,10 +346,9 @@ export class DeviceClient {
       if (!this.connected)
         throw new DeviceClientError("disconnected", "Unauthenticated device message");
       if (data instanceof Uint8Array) {
-        // A screen packet's later fragments may start with anything: only between packets can
-        // a binary message be a stream piece.
-        if (this.reader.idle && isStreamPiece(data)) this.receivePiece(data);
-        else this.reader.push(data);
+        if (!isStreamPiece(data))
+          throw new DeviceClientError("invalid_data", "Device binary message is not a stream piece");
+        this.receivePiece(data);
         return;
       }
       if (typeof data === "string") {
@@ -433,17 +391,14 @@ export class DeviceClient {
         }
         try {
           if (pending.operation.op === "screenshot") {
+            // A screenshot resolves with its picture, not the result that names it.
             const image = this.screenshots.complete(message.requestId, message.data);
-            if (!image) {
+            if (image) pending.resolve(image);
+            else
               pending.reject(
                 new DeviceClientError("invalid", "Screenshot pixels missing or mismatched"),
               );
-              return;
-            }
-            this.frameHubs
-              .get(image.deviceId)
-              ?.hub.publish({ frame: image.frame, epoch: this.epoch, direct: true });
-            this.pictures.publish(packetPicture(image.deviceId, image.frame));
+            return;
           }
           if (pending.operation.op === "list") {
             const found = inventory.parse(message.data);
@@ -463,7 +418,6 @@ export class DeviceClient {
             const result = statesResult.parse(message.data);
             if (result.enabled !== undefined) this.enabled = result.enabled;
             this.states.clear();
-            this.streams.clear();
             for (const state of result.states) this.putState(state);
             this.notify();
           }
@@ -482,27 +436,25 @@ export class DeviceClient {
     // Kinds this client doesn't draw are skipped, never fatal.
     const message = envelope && decodeStreamMessage(envelope);
     if (message?.kind !== "device.frame") return;
-    this.pictures.publish({ ...message.frame, deviceId: message.sourceId, paced: true });
+    const picture = { ...message.frame, sourceId: message.sourceId };
+    if (picture.still) this.screenshots.retain(picture);
+    else this.pictures.publish(picture);
   }
   private putState(state: DeviceState): void {
     const previous = this.states.get(state.device.id);
     if (!previous && this.states.size >= 32)
       throw new DeviceClientError("limit", "Device state limit");
-    if (previous?.streamId) this.streams.delete(previous.streamId);
     this.states.set(state.device.id, state);
-    if (state.streamId && state.lifecycle === "live") {
-      this.streams.set(state.streamId, state.device.id);
-      if (state.streamId !== previous?.streamId || previous?.lifecycle !== "live")
-        this.liveStreams.refresh(
-          state.device.id,
-          () =>
-            void this.request({
-              op: "subscribe",
-              deviceId: state.device.id,
-              mediaStream: true,
-            }).catch(() => {}),
-        );
-    }
+    // A new capture needs a subscription even if its view stayed mounted.
+    if (
+      state.streamId &&
+      state.lifecycle === "live" &&
+      (state.streamId !== previous?.streamId || previous?.lifecycle !== "live")
+    )
+      this.liveStreams.refresh(
+        state.device.id,
+        () => void this.request({ op: "subscribe", deviceId: state.device.id }).catch(() => {}),
+      );
   }
   private failure(error: DeviceFailure | undefined): DeviceClientError {
     return error
@@ -531,4 +483,3 @@ export class DeviceClient {
   }
 }
 
-export type { DevicePicture } from "./client-pictures.ts";
