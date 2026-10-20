@@ -62,6 +62,7 @@ function Command<Item>(props: {
   filter?: null;
   value?: string;
   onValueChange?(value: string): void;
+  onItemHighlighted?(item: Item | undefined): void;
   children: React.ReactNode;
 }) {
   return (
@@ -74,6 +75,7 @@ function Command<Item>(props: {
       keepHighlight
       {...(props.filter === null ? { filter: null } : {})}
       {...(props.value === undefined ? {} : { value: props.value })}
+      {...(props.onItemHighlighted ? { onItemHighlighted: props.onItemHighlighted } : {})}
       // Picking an item runs it; it never becomes the query.
       {...(props.onValueChange
         ? {
