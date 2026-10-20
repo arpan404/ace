@@ -68,7 +68,9 @@ test("Stop in the waiting strip ends every background command it can, whatever i
     { task: "sync", kind: "other", title: "provider sync", stoppable: false },
   ]);
   const strip = await screen.findByRole("status", { name: "Waiting for 3 background commands" });
-  await userEvent.click(within(strip).getByRole("button", { name: "Stop the background commands" }));
+  await userEvent.click(
+    within(strip).getByRole("button", { name: "Stop the background commands" }),
+  );
 
   await waitFor(() => expect(stops()).toHaveLength(2));
   // What can't be stopped keeps running, and the strip now waits on it alone, with no Stop.
