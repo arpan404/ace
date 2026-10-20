@@ -4,6 +4,7 @@ import type { WorkspaceRuntime } from "./workspace-runtime.ts";
 import { organizerSchedule, type OrganizerSchedule } from "./thread-organizer.ts";
 import { HeadWatch, headStamp } from "./workspace-head-watch.ts";
 import { deadlineOf, type Deadline } from "./workspace-refresh-deadline.ts";
+import { followsLivePullRequest, followsPullRequest } from "./pull-request-follow.ts";
 
 /** Quiet threads nobody is viewing still notice outside edits and commits, at a slow cadence. */
 const settledCadenceMs = 600_000;
@@ -19,15 +20,14 @@ const quietStates = new Set<Thread["status"]["state"]>(["done", "new", "failed",
 
 /**
  * Whether a thread's checkout is read only at the settled cadence after a refresh: nothing in it
- * is running, no client is viewing it and it has no pull request to follow. Any thread event
- * still makes it due at once, so agent edits are never left for the slow cadence.
+ * is running, no client is viewing it and no open or draft pull request can change. Any thread
+ * event still makes it due at once, so agent edits are never left for the slow cadence.
  */
 function settled(thread: Thread, viewed: readonly ThreadId[]): boolean {
   return (
     quietStates.has(thread.status.state) &&
     !viewed.includes(thread.id) &&
-    !thread.details?.linkedPrs?.length &&
-    !thread.details?.linkedPr
+    !followsLivePullRequest(thread.details)
   );
 }
 
@@ -145,9 +145,7 @@ export class WorkspaceRefresh {
         if (
           !thread ||
           thread.deletedAt !== undefined ||
-          (thread.archivedAt !== undefined &&
-            !thread.details?.linkedPrs?.length &&
-            !thread.details?.linkedPr)
+          (thread.archivedAt !== undefined && !followsPullRequest(thread.details))
         ) {
           await privateStore.write((db) =>
             db.prepare("DELETE FROM workspace_refresh WHERE thread_id=?").run(id),
@@ -156,8 +154,7 @@ export class WorkspaceRefresh {
         }
         try {
           if (!(await readDetails(id))) continue;
-          if (thread.details?.linkedPrs?.length || thread.details?.linkedPr)
-            refresh.push({ id, cwd: runtime.root(id) });
+          if (followsPullRequest(thread.details)) refresh.push({ id, cwd: runtime.root(id) });
           const current = privateStore.getThread(id);
           if (current && settled(current, privateStore.viewedThreads()))
             await privateStore.write((db) =>
