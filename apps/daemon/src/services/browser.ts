@@ -286,6 +286,10 @@ export function createBrowserSession(context: SocketContext): SocketService {
             // The desktop's computer woke: check every engine, ace's Chrome included (#947).
             if (!backend) throw new Error("Desktop backend not registered");
             options.browser?.wake();
+          } else if (backendMessage.data.type === "browser.backend.drawable") {
+            // The desktop's screen locked or unlocked: while it can't draw, its pages move.
+            if (!backend) throw new Error("Desktop backend not registered");
+            options.browser?.desktopDrawable(backendMessage.data.drawable);
           } else {
             if (!backend) throw new Error("Desktop backend not registered");
             backend.handle(backendMessage.data);
