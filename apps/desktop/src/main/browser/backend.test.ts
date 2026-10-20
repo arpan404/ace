@@ -130,6 +130,15 @@ describe("embedded browser backend", () => {
     });
   });
 
+  it("refuses a new view while the screen can't draw, and opens one once it can", async () => {
+    let drawable = false;
+    const t = setup({ drawable: () => drawable });
+    expect(await t.open("s-1")).toMatchObject({ error: expect.stringContaining("locked") });
+    expect(t.views.pages.size).toBe(0);
+    drawable = true;
+    expect(await t.open("s-2")).toMatchObject({ result: { url: "about:blank" } });
+  });
+
   it("answers requests for a session it does not have with an error", async () => {
     const t = setup();
     const id = t.request("missing", { kind: "cdp", method: "Page.reload" });
