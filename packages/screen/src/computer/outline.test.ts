@@ -131,6 +131,12 @@ describe("header and footer", () => {
     expect(header).toContain('Windows: 1 "A" (shown), 2 "B" (minimized). Pass window to switch.');
   });
 
+  it("say when a launch took the front and the person's app was put back", () => {
+    const front = "Calculator brought itself to the front; Notes was put back in front";
+    expect(stateHeader(state(calculator, { launched: true, front }))).toContain(`${front}.`);
+    expect(stateHeader(state(calculator, { launched: true }))).not.toContain("put back");
+  });
+
   it("point an app without windows at its menu bar", () => {
     expect(stateHeader(state([], { window: undefined, windows: [] }))).toContain(
       'No open windows. Open one through the menu bar, e.g. menu ["File", "New"].',

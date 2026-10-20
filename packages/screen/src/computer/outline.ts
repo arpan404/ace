@@ -121,6 +121,7 @@ export function stateHeader(state: ComputerState): string {
   const lines = [
     `${app.name} (${app.bundleId})${app.active ? ", frontmost" : ", in the background"}${state.launched ? ", just opened" : ""}`,
   ];
+  if (state.front) lines.push(`${state.front}.`);
   if (!window) {
     lines.push(
       windows.length

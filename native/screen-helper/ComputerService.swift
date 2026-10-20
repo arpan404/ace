@@ -124,14 +124,18 @@ import ApplicationServices
 
     private func state(_ request: CUObject, id: String) async throws -> CUObject {
         let started = cuNow()
+        // Launching happens in the background: the person's frontmost app stays in front.
+        let front = CUFrontGuard(system: .live)
         let (session, launched) = try await session(for: request.string("app") ?? "", launch: true)
         session.beginRequest()
         let check = checkpoint(id: id, session: session, acting: false)
+        var frontNote: String?
         if launched {
             // A fresh launch shows its first window shortly after it finishes launching.
             _ = await session.settler.waitForWindow(timeoutMs: 5_000) { ((cuAttribute(session.element, "AXWindows") as? [AXUIElement]) ?? []).isEmpty == false }
             try check.check()
             await session.settler.settle(minimumMs: 150, quietMs: 200, maximumMs: 1_500)
+            frontNote = front.check(target: session.pid, app: session.name)
         }
         try check.check()
         let resolved = cuNow()
@@ -141,6 +145,7 @@ import ApplicationServices
                                                marks: request.bool("marks") ?? true, deadline: cuNow() + 4_000_000_000)
         try check.check()
         if launched { result["launched"] = true }
+        if let frontNote { result["front"] = frontNote }
         if cuTimingsEnabled, var timings = result["timings"] as? CUObject {
             timings["sessionMs"] = cuMs(resolved - started)
             timings["windowsMs"] = cuMs(chosen - resolved)
@@ -171,22 +176,38 @@ import ApplicationServices
         awake.hold()
         defer { awake.release() }
         let actions = request.objects("actions")
+        // Every step but `activate` must leave the person's frontmost app in front. A step is
+        // checked once the app has reacted to it: after the settle that follows it.
+        var front: CUFrontGuard?
+        func checkFront() {
+            guard let note = front?.check(target: session.pid, app: session.name) else { return }
+            front = nil
+            if failure != nil, let message = failure?["message"] as? String { failure?["message"] = "\(message) (\(note))" }
+            else if let last = done.indices.last { done[last] += " (\(note))" }
+        }
         for (index, action) in actions.enumerated() {
+            front = action.string("type") == "activate" ? nil : CUFrontGuard(system: .live)
             do {
                 try check.check()
                 done.append(try await actor.run(action))
             } catch {
                 let fault = error as? CUError ?? CUError("internal", String(describing: error))
                 failure = ["index": index, "code": fault.code, "message": fault.message]
+                checkFront()
                 break
             }
-            if index < actions.count - 1 { await session.settler.settle(minimumMs: 40, quietMs: 100, respondedQuietMs: 40, maximumMs: 1_200) }
+            if index < actions.count - 1 {
+                await session.settler.settle(minimumMs: 40, quietMs: 100, respondedQuietMs: 40, maximumMs: 1_200)
+                checkFront()
+            }
         }
+        let cancelled = cancellations.isCancelled(id)
+        let observe = request.bool("observe") ?? true
+        if observe, !cancelled, !session.notResponding { await session.settler.settle(minimumMs: 60, quietMs: 150, respondedQuietMs: 60, maximumMs: 2_000) }
+        checkFront()
         var result: CUObject = ["done": done]
         if let failure { result["error"] = failure }
-        let cancelled = cancellations.isCancelled(id)
-        if request.bool("observe") ?? true, !cancelled {
-            if !session.notResponding { await session.settler.settle(minimumMs: 60, quietMs: 150, respondedQuietMs: 60, maximumMs: 2_000) }
+        if observe, !cancelled {
             // Follow a window or dialog the actions opened.
             let focusedAfter = session.notResponding ? nil : cuElementAttribute(session.element, "AXFocusedWindow")
             if let focusedAfter, focusedBefore.map({ !CFEqual($0, focusedAfter) }) ?? true {
