@@ -66,14 +66,24 @@ function completionRelevance(
     const status = statusOf(key);
     if (isSettled(status)) return false;
     if (record.externalStatus) return true;
+    // A subagent whose turn ended on a usage limit runs nothing until someone sends to it
+    // again; it keeps its own limited status, but only work it still owns keeps it live.
+    const limitedAtRest =
+      key !== state.rootKey &&
+      record.limited !== undefined &&
+      !record.activeRun &&
+      !record.retry &&
+      record.disconnectedAt === undefined &&
+      !waitingOwners.has(record.agent.id);
     if (
-      key === state.rootKey ||
-      status.state !== "unresponsive" ||
-      record.disconnectedAt !== undefined ||
-      record.activeRun ||
-      record.lastRun ||
-      record.retry ||
-      waitingOwners.has(record.agent.id)
+      !limitedAtRest &&
+      (key === state.rootKey ||
+        status.state !== "unresponsive" ||
+        record.disconnectedAt !== undefined ||
+        record.activeRun ||
+        record.lastRun ||
+        record.retry ||
+        waitingOwners.has(record.agent.id))
     )
       return true;
     if (visiting.has(key)) return true;

@@ -153,3 +153,34 @@ for (const deliberate of [false, true])
     h.send({ type: "process.exited", deliberate });
     expect(deriveThreadStatus(h.state)).toEqual({ state: "waiting", on: "queue" });
   });
+
+it("a subagent stopped by its usage limit no longer holds its parent, yet the thread still reads limited", () => {
+  const h = endedRoot();
+  h.see("child", "root", true);
+  h.start("child");
+  h.send({
+    type: "turn.ended",
+    agent: "child",
+    outcome: "failed",
+    error: { kind: "quota", message: "Usage limit reached" },
+  });
+  expect(h.state.agents.root?.agent.status.state).toBe("idle");
+  expect(deriveThreadStatus(h.state)).toEqual({ state: "limited" });
+});
+
+it("a usage-limited subagent with a command still running keeps its parent waiting on it", () => {
+  const h = endedRoot();
+  h.see("child", "root", true);
+  h.start("child");
+  h.background("child-task", "child-shell", "child");
+  h.send({
+    type: "turn.ended",
+    agent: "child",
+    outcome: "failed",
+    error: { kind: "quota", message: "Usage limit reached" },
+  });
+  expect(h.state.agents.root?.agent.status).toMatchObject({
+    state: "blocked",
+    on: "background_task",
+  });
+});
