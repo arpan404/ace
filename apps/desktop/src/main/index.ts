@@ -22,6 +22,8 @@ import { DaemonRuntime, desktopTarget } from "./daemon/runtime.ts";
 import type { DaemonTarget } from "./daemon/target.ts";
 import { createDesktopLog, type Log } from "./log/desktop-log.ts";
 import { createFileLog } from "./log/file-log.ts";
+import { rendererReports } from "./diagnostics/renderer-reports.ts";
+import { startLocalCrashReporter, watchProcessDeaths } from "./diagnostics/watch.ts";
 import { linksFromArgv, parseDeepLink, protocolScheme } from "./deep-link.ts";
 import { appearance, createHandlers } from "./handlers.ts";
 import { emit, registerHandlers } from "./ipc.ts";
@@ -71,6 +73,8 @@ if (unsafe) {
   app.exit(1);
 } else {
   app.setPath("userData", userData);
+  // Local crash dumps only (never uploaded), started before any helper process launches.
+  const crashDumps = startLocalCrashReporter(userData);
   // Before anything starts Chromium's network service: never the older ace app's keychain item.
   claimKeychainName(app, process.platform);
   // Blink's DNS hints never reach a session's network layer (visualization-isolation.ts).
@@ -86,6 +90,7 @@ if (unsafe) {
         daemonEntry: paths.daemonEntry,
         platform: process.platform,
       }),
+      crashDumps,
     );
 }
 
@@ -128,7 +133,7 @@ function openLogs(): (component: string) => Log {
   });
 }
 
-function main(target: DaemonTarget): void {
+function main(target: DaemonTarget, crashDumps: string): void {
   const logger = openLogs();
   const log = logger("desktop");
   const daemonLog = logger("daemon");
@@ -168,6 +173,16 @@ function main(target: DaemonTarget): void {
   let route = "/";
   const pending: DeepLink[] = [];
   const contents = (): WebContents | undefined => window?.webContents;
+  watchProcessDeaths({
+    log: logger("process"),
+    dumps: crashDumps,
+    windowOf: (renderer) =>
+      renderer === window?.webContents
+        ? "main"
+        : renderer.getType() === "window"
+          ? "secondary"
+          : "browser",
+  });
 
   const background = new Background({
     userData: app.getPath("userData"),
@@ -371,6 +386,7 @@ function main(target: DaemonTarget): void {
       authorizeDaemon: (url) => network.authorize(url),
       quit: () => app.quit(),
       showLogs,
+      reportDiagnostic: rendererReports({ log: logger("renderer"), now: Date.now }),
       desktopChecks: () => {
         const check = cliShim && cliShimCheck(cliShim);
         return check ? [check] : [];
