@@ -30,6 +30,11 @@ export function deviceBrowser(webCodecs: "none" | "decodes" | "fails") {
 
   class FakeVideoFrame implements Owned {
     closed = false;
+    /** The chunk's timestamp, as a decoded VideoFrame carries it. */
+    readonly timestamp: number;
+    constructor(timestamp = 0) {
+      this.timestamp = timestamp;
+    }
     close() {
       this.closed = true;
     }
@@ -49,7 +54,7 @@ export function deviceBrowser(webCodecs: "none" | "decodes" | "fails") {
     configure() {
       this.state = "configured";
     }
-    decode() {
+    decode(chunk: { init?: { timestamp?: number } }) {
       if (this.state !== "configured")
         throw new DOMException("Not configured", "InvalidStateError");
       // A decoder's output arrives after decode() returns.
@@ -62,7 +67,7 @@ export function deviceBrowser(webCodecs: "none" | "decodes" | "fails") {
           this.init.error(new DOMException("Unsupported stream", "NotSupportedError"));
           return;
         }
-        const frame = new FakeVideoFrame();
+        const frame = new FakeVideoFrame(chunk.init?.timestamp);
         videoFrames.push(frame);
         this.init.output(frame);
       });
@@ -96,6 +101,11 @@ export function deviceBrowser(webCodecs: "none" | "decodes" | "fails") {
     );
   }
   const context = (canvas: HTMLCanvasElement) => ({
+    // A landscape picture is turned upright around the canvas's middle.
+    save() {},
+    restore() {},
+    translate() {},
+    rotate() {},
     drawImage(image: Owned) {
       // Drawing a closed image would show nothing: only open images count as drawn.
       if (image.closed) return;

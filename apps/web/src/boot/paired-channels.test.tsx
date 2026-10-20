@@ -13,7 +13,9 @@ afterEach(() => vi.unstubAllGlobals());
 test("a paired browser opens devices and computer use with independent one-use tickets", async () => {
   const tickets = new Set<string>();
   let sequence = 0;
-  vi.stubGlobal("fetch", async () => {
+  vi.stubGlobal("fetch", async (input: string) => {
+    // Only tickets are served here; a devices channel's relay lookup finds no route.
+    if (!input.endsWith("/v1/tickets")) return new Response(null, { status: 404 });
     const ticket = (++sequence).toString(16).padStart(64, "0");
     tickets.add(ticket);
     return Response.json(SocketTicket.parse({ ticket, expiresAt: 100000 }));
