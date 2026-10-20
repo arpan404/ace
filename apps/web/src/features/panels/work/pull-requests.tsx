@@ -3,9 +3,8 @@ import { formatCount } from "@ace/ui-core";
 import { CaretDownIcon } from "@phosphor-icons/react";
 import { capsule } from "../agents/task-capsule.tsx";
 import { PrDot } from "../agents/pr-chip.tsx";
-import { pullRequestTab } from "../pull-request-tab.ts";
 import { cn } from "@/lib/cn.ts";
-import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { pullRequestTab, useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
 
 /** Rows shown before the rest fold into "N more". */
 const shown = 4;

@@ -2,6 +2,7 @@ import { useMemo, type ReactNode } from "react";
 import { GithubLogoIcon } from "@phosphor-icons/react";
 import { Prose } from "@/components/markdown/prose.tsx";
 import type { MarkdownLinks } from "@/components/markdown/link-options.ts";
+import { PullRequestLink, pullRequestAt } from "@/components/pull-request-link.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 
 type Props = {
@@ -72,13 +73,18 @@ function forgeLinks(props: Props): MarkdownLinks {
             {children}
           </button>
         );
+      const className = "inline-flex items-center gap-1 text-link hover:underline focus-ring";
+      // Another pull request opens in a tab beside this one; a comment's anchor stays on GitHub.
+      const pr = url.hash ? undefined : pullRequestAt(url.href);
+      if (pr)
+        return (
+          <PullRequestLink href={url.href} pr={pr} className={className}>
+            <GithubLogoIcon aria-hidden size={14} />
+            {children}
+          </PullRequestLink>
+        );
       return (
-        <a
-          href={url.href}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="inline-flex items-center gap-1 text-link hover:underline focus-ring"
-        >
+        <a href={url.href} target="_blank" rel="noreferrer noopener" className={className}>
           <GithubLogoIcon aria-hidden size={14} />
           {children}
         </a>
