@@ -4,10 +4,10 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { deviceBrowser, openDevice, openDevices, unusable } from "@/test/device-browser.ts";
 
 function noop() {}
-// jsdom has no WebCodecs: every screen here is JPEG, as in a browser without it.
+// jsdom has no WebCodecs: a stand-in decoder shows every H.264 picture, as a browser would.
 let browser: ReturnType<typeof deviceBrowser>;
 beforeEach(() => {
-  browser = deviceBrowser("none");
+  browser = deviceBrowser("decodes");
 });
 afterEach(() => {
   browser.restore();
@@ -232,18 +232,18 @@ test("while the window is hidden the device screen decodes nothing, and shows th
   try {
     visibility("hidden");
     const drawn = browser.draws(screenImage);
-    const decoded = browser.bitmaps.length;
+    const decoded = browser.videoFrames.length;
     // Each key press repaints the device's screen; the daemon has both once it records them.
     await userEvent.click(within(pixel).getByRole("button", { name: "Back" }));
     await userEvent.click(within(pixel).getByRole("button", { name: "Back" }));
     await waitFor(() => expect(app.daemon.appDevices.inputs).toHaveLength(2));
-    expect(browser.bitmaps).toHaveLength(decoded);
+    expect(browser.videoFrames).toHaveLength(decoded);
     expect(browser.draws(screenImage)).toBe(drawn);
 
     // Shown again, the screen asks for the newest frame and decodes only that one.
     act(() => visibility("visible"));
     await waitFor(() => expect(browser.draws(screenImage)).toBe(drawn + 1));
-    expect(browser.bitmaps).toHaveLength(decoded + 1);
+    expect(browser.videoFrames).toHaveLength(decoded + 1);
   } finally {
     visibility("visible");
   }

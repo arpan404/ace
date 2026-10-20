@@ -24,7 +24,7 @@ interface Session {
   threadId?: string;
   lifecycle: DeviceState["lifecycle"];
   streamId?: string;
-  /** What the live stream sends: JPEG until a viewer negotiates H.264 the helper can encode. */
+  /** What the capture makes: JPEG for agents until a viewer arrives, then H.264. */
   codec: "jpeg" | "h264";
   /** The next H.264 frame is a keyframe: after a (re)configure, a new stream or a request. */
   keyframe: boolean;
@@ -78,6 +78,14 @@ const permissionNames: Record<DevicePermission, string> = {
   screenRecording: "Screen Recording",
   accessibility: "Accessibility",
 };
+/** The daemon's refusal of a live view whose capture can only make JPEG. */
+function noVideo(): Refusal {
+  return new Refusal(
+    "tool_missing",
+    "This Mac's screen helper can't stream video for the Simulator live view",
+    "Install serve-sim 0.1.48 for the live view: npm install -g serve-sim@0.1.48",
+  );
+}
 /** The daemon's refusal when its screen helper lacks a macOS permission. */
 function denied(permission: DevicePermission): Refusal {
   const name = permissionNames[permission];
@@ -92,8 +100,8 @@ function denied(permission: DevicePermission): Refusal {
 /**
  * In-app devices as the daemon's `@ace/devices` service presents them, in memory: an iOS
  * Simulator and an Android emulator, enable, approval for a thread, boot and shutdown, a live
- * stream of pictures on the shared media stream (JPEG, or H.264 when negotiated and
- * `videoEncoding` is on), an expiring human control lease, input, and logs. Each `transport()`
+ * view on the shared media stream (H.264 only, refused when `videoEncoding` is off; JPEG only for
+ * screenshots), an expiring human control lease, input, and logs. Each `transport()`
  * is one dedicated, already authenticated devices channel.
  * UI trees are a fixed Settings screen; UI find and act answer `not_supported`.
  */
@@ -114,11 +122,11 @@ export class FakeAppDevices {
   /** Each permission a person asked macOS for, in order. */
   readonly requested: DevicePermission[] = [];
   /**
-   * Whether the screen helper can encode H.264. Off, every stream stays JPEG whatever a viewer
-   * asks for, as on a Mac without a hardware encoder. On, frames asked for as H.264 carry
-   * stand-in bytes for the encoder's NAL units, which only a test's decoder accepts.
+   * Whether the capture can stream H.264, as serve-sim always does. On, viewers get a real IDR
+   * of the screen for every picture. Off, a live view is refused with the daemon's serve-sim
+   * hint, as on a Mac whose screen helper can only make JPEG.
    */
-  videoEncoding = false;
+  videoEncoding = true;
   /** Every `devices.ack` a viewer sent, in order. */
   readonly acks: DeviceAck[] = [];
   private messageIds = 0;
@@ -299,8 +307,9 @@ export class FakeAppDevices {
     for (const channel of viewers) for (const piece of pieces) channel.events.message(piece);
   }
 
+  /** A new picture for the device's viewers; live views only ever get video. */
   private paint(session: Session): void {
-    if (session.lifecycle !== "live") return;
+    if (session.lifecycle !== "live" || session.codec !== "h264") return;
     const viewers = [...this.channels].filter((channel) => channel.streams.has(session.device.id));
     if (viewers.length) this.show(session, viewers);
   }
@@ -448,20 +457,29 @@ export class FakeAppDevices {
         this.publish(session);
         return this.state(session, channel);
       case "subscribe":
+        // A viewer's arrival switches the capture to video; one that can't make it is refused.
+        if (session.lifecycle === "live" && !this.videoEncoding) throw noVideo();
         channel.streams.add(session.device.id);
+        session.codec = "h264";
         // A new viewer starts from a self-contained frame.
         session.keyframe = true;
         if (session.lifecycle === "live") this.show(session, [channel]);
         return this.state(session, channel);
       case "stream.configure": {
         this.streamRequests.push({ deviceId: session.device.id, settings: operation.settings });
-        const codec = this.videoEncoding ? operation.settings.codec : "jpeg";
-        if (codec !== session.codec) {
-          session.codec = codec;
+        if (operation.settings.codec !== "h264")
+          throw new Refusal(
+            "not_supported",
+            "Device live views are H.264 video only",
+            "Update ace on this device; live views no longer stream JPEG.",
+          );
+        if (!this.videoEncoding) throw noVideo();
+        if (session.codec !== "h264") {
+          session.codec = "h264";
           session.keyframe = true;
           this.paint(session);
         }
-        return { codec };
+        return { codec: "h264" };
       }
       case "stream.keyframe":
         session.keyframe = true;

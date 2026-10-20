@@ -8,12 +8,12 @@ const iphoneId = "ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b";
 let current: ReturnType<typeof deviceBrowser> | undefined;
 afterEach(() => current?.restore());
 
-/** The iPhone's tab and live screen, on a daemon whose screen helper can encode H.264. */
-async function liveIphone(webCodecs: Parameters<typeof deviceBrowser>[0]) {
+/** The iPhone's tab and live screen; `video: false` is a Mac whose capture can only make JPEG. */
+async function liveIphone(webCodecs: Parameters<typeof deviceBrowser>[0], video = true) {
   const browser = deviceBrowser(webCodecs);
   current = browser;
   const { app, panel } = await openDevices();
-  app.daemon.appDevices.videoEncoding = true;
+  app.daemon.appDevices.videoEncoding = video;
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const iphone = await openDevice(panel, "iPhone 16 Pro");
   const screenImage = await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
@@ -31,26 +31,35 @@ function codecs(app: Awaited<ReturnType<typeof openDevices>>["app"]) {
 const after = (events: readonly string[], event: string) =>
   events.includes(event) ? events.slice(events.lastIndexOf(event) + 1) : [];
 
-test("without WebCodecs the simulator's screen asks for JPEG and still shows the device", async () => {
-  const { app, screenImage, browser } = await liveIphone("none");
+test("without WebCodecs the simulator's screen says this browser can't decode H.264 and draws nothing", async () => {
+  const { app, iphone, screenImage, browser } = await liveIphone("none");
 
-  await waitFor(() => expect(browser.draws(screenImage)).toBeGreaterThan(0));
-  await waitFor(() => expect(codecs(app)).toEqual(["jpeg"]));
-  expect(browser.decoders).toEqual([]);
-  expect(new Set(browser.events)).toEqual(new Set(["drew jpeg"]));
-  // Each decoded JPEG is released once it is on the canvas.
-  expect(browser.bitmaps.every((bitmap) => bitmap.closed)).toBe(true);
+  await within(iphone).findByText("This browser can't decode H.264 video");
+  expect(codecs(app)).toEqual([]);
+  expect(browser.draws(screenImage)).toBe(0);
+  expect(browser.events).toEqual([]);
 });
 
-test("with WebCodecs the screen streams H.264, and a failing decoder falls back to JPEG", async () => {
-  const { app, screenImage, browser } = await liveIphone("fails");
+test("a decoder the platform refuses says so instead of falling back to JPEG", async () => {
+  const { app, iphone, screenImage, browser } = await liveIphone("fails");
 
   await waitFor(() => expect(browser.events).toContain("decoder failed"));
-  await waitFor(() => expect(after(browser.events, "decoder failed")).toContain("drew jpeg"));
-  expect(codecs(app).slice(-2)).toEqual(["h264", "jpeg"]);
-  expect(browser.events).not.toContain("drew h264");
+  await within(iphone).findByText("This browser can't decode H.264 video");
+  expect(codecs(app)).toEqual(["h264"]);
+  expect(browser.events).not.toContain("drew jpeg");
   expect(browser.decoders.every((decoder) => decoder.state === "closed")).toBe(true);
-  expect(browser.draws(screenImage)).toBeGreaterThan(0);
+  expect(browser.draws(screenImage)).toBe(0);
+});
+
+test("a device that can't stream video shows the daemon's reason and how to fix it", async () => {
+  const { iphone, screenImage, browser } = await liveIphone("decodes", false);
+
+  const alert = await within(iphone).findByRole("alert");
+  expect(alert.textContent).toContain(
+    "This Mac's screen helper can't stream video for the Simulator live view",
+  );
+  expect(alert.textContent).toContain("npm install -g serve-sim@0.1.48");
+  expect(browser.draws(screenImage)).toBe(0);
 });
 
 test("stopping the live view closes the H.264 decoder and every decoded frame", async () => {
@@ -140,7 +149,7 @@ test("a DPR-three device viewer requests every physical pixel and follows monito
         fps: 60,
       }),
     );
-    expect(codecs(app)).toEqual(["jpeg", "h264"]);
+    expect(codecs(app)).toEqual(["h264"]);
     Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 2 });
     act(() => window.dispatchEvent(new Event("resize")));
     await waitFor(() =>
@@ -156,7 +165,7 @@ test("a DPR-three device viewer requests every physical pixel and follows monito
 });
 
 test("on an emulator that takes several fingers, an Option-drag pinches with two mirrored fingers", async () => {
-  const browser = deviceBrowser("none");
+  const browser = deviceBrowser("decodes");
   current = browser;
   const { app, panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
