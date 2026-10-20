@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { keyOwner, type KeyLike } from "./keys.ts";
+import { keyOwner, lineEditBytes, type KeyLike } from "./keys.ts";
 
 const press = (keys: string): KeyLike => {
   const parts = keys.split("+");
@@ -46,4 +46,19 @@ test("Ctrl+` always leaves the terminal, so focus is never trapped", () => {
     expect(keyOwner(press("ctrl+`"), apple)).toBe("app");
     expect(keyOwner(press("ctrl+shift+`"), apple)).toBe("app");
   }
+});
+
+test("on a Mac, ⌘⌫, ⌘⌦, ⌘← and ⌘→ edit the shell line as macOS terminals do", () => {
+  expect(lineEditBytes(press("cmd+Backspace"), true)).toBe("\x15");
+  expect(lineEditBytes(press("cmd+Delete"), true)).toBe("\x0b");
+  expect(lineEditBytes(press("cmd+ArrowLeft"), true)).toBe("\x01");
+  expect(lineEditBytes(press("cmd+ArrowRight"), true)).toBe("\x05");
+});
+
+test("line-editing keys are Mac-only and need ⌘ alone", () => {
+  expect(lineEditBytes(press("Backspace"), true)).toBeUndefined();
+  expect(lineEditBytes(press("cmd+shift+ArrowLeft"), true)).toBeUndefined();
+  expect(lineEditBytes(press("cmd+alt+ArrowRight"), true)).toBeUndefined();
+  expect(lineEditBytes(press("cmd+k"), true)).toBeUndefined();
+  expect(lineEditBytes(press("cmd+Backspace"), false)).toBeUndefined();
 });
