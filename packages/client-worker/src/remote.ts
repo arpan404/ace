@@ -23,6 +23,7 @@ import {
   type ThreadMarkReadInput,
   type ClientApi,
   type ConnectionState,
+  type DiagnosticEvent,
   type Intent,
   type Lease,
   type OneWayMessage,
@@ -53,7 +54,13 @@ import type {
   ServerMessage,
   TextSource,
 } from "@ace/protocol";
-import { WorkerLiveness, replyTimeout } from "./worker-liveness.ts";
+import { replyTimeout } from "./worker-liveness.ts";
+import {
+  WorkerLink,
+  type WorkerFailure,
+  type WorkerHandle,
+  type WorkerLoss,
+} from "./worker-link.ts";
 import { IntentCache } from "./intent-cache.ts";
 import { SendCache } from "./send-cache.ts";
 import { MirrorSidebar, MirrorThread } from "./mirror.ts";
@@ -96,7 +103,17 @@ export interface RemoteOptions {
   /** Attachment and visible-page worker reply bound. */
   workerTimeoutMs?: number;
   /** The owning Worker/SharedWorker handle reports load/runtime errors here. */
-  workerFailure?: { watch(lost: () => void): () => void; close?(): void };
+  workerFailure?: WorkerFailure | undefined;
+  /**
+   * A fresh worker once the current one stops answering or fails (`worker-link.ts`). With it the
+   * client recovers on its own, re-attaching and re-sending its durable commands under their
+   * ids; without it a lost worker leaves the client fatal.
+   */
+  respawn?(loss: { cause: WorkerLoss; attempt: number }): WorkerHandle | undefined;
+  /** Where worker losses, recoveries and the worker's connection drops are reported. */
+  report?(event: DiagnosticEvent): void;
+  /** Wall-clock milliseconds, for how long a recovery took. */
+  now?(): number;
   /**
    * Where the browser has it, a lock the worker watches instead of pings: throttled or frozen
    * hidden tabs keep their leases, and a closed tab's are released at once.
@@ -110,10 +127,20 @@ interface Pending {
   resolve(value: unknown): void;
   reject(error: ClientError): void;
   record?: (id: string) => Promise<void>;
+  /**
+   * A durable command call (enqueue, command, submitNew), re-sent to a fresh worker under the
+   * same command id when the worker it went to is lost. Every other call fails as offline.
+   */
+  durable?: { method: CallMethod; args: unknown[] };
+  /** The command id a worker allocated for a submitNew, once the tab recorded it (or failed to). */
+  allocated?: { id: string; recorded: Promise<boolean> };
+  /** The worker generation this call last went to. */
+  sentTo?: number;
 }
 interface Mirrored {
   refs: number;
   lease: number;
+  scope: Scope;
   mirror: MirrorThread | MirrorSidebar;
 }
 
@@ -131,7 +158,7 @@ const isState = (state: string): state is ConnectionState => states.has(state);
 
 export class RemoteClient implements ClientApi {
   readonly projects = deferredProjectsApi(this, () => import("@ace/client/project-calls"));
-  private port: PortLike;
+  private link: WorkerLink;
   private config: unknown;
   private options: RemoteOptions;
   private notifications: Notifications;
@@ -153,16 +180,16 @@ export class RemoteClient implements ClientApi {
   private sequence = 0;
   private attached: Promise<void>;
   private settle: Pending | undefined;
-  private monitor: WorkerLiveness;
-  private stopFailure: (() => void) | undefined;
   private workerLost = false;
   private started = false;
   private releaseLock: (() => void) | undefined;
+  private lockName: string | undefined;
+  /** The sidebar window and network state last asked for, for a fresh worker. */
+  private window: { project?: string | undefined; archived?: boolean | undefined } | undefined;
+  private online: boolean | undefined;
   private unwatch: (() => void) | undefined;
   private closed = false;
-  private listener = (event: { data: unknown }) => this.receive(event.data);
   constructor(port: PortLike, config: unknown, options: RemoteOptions) {
-    this.port = port;
     this.config = config;
     this.options = options;
     this.intents = new IntentCache(options.unwatchedIntents ?? 64, defaultLimits.outboxBytes);
@@ -175,17 +202,21 @@ export class RemoteClient implements ClientApi {
     this.attached = new Promise<void>((resolve, reject) => {
       this.settle = { resolve: () => resolve(), reject };
     });
-    this.monitor = new WorkerLiveness(
-      options.scheduler,
-      () => this.post({ t: "ping" }),
-      () => this.loseWorker(),
-      options.pingMs ?? 5_000,
-      options.workerTimeoutMs ?? 15_000,
-    );
     void this.attached.catch(() => {});
-    this.stopFailure = options.workerFailure?.watch(() => this.loseWorker());
-    port.addEventListener("message", this.listener);
-    port.start?.();
+    this.link = new WorkerLink(
+      { port, failure: options.workerFailure },
+      {
+        scheduler: options.scheduler,
+        pingMs: options.pingMs ?? 5_000,
+        timeoutMs: options.workerTimeoutMs ?? 15_000,
+        ...(options.respawn ? { respawn: options.respawn } : {}),
+        ...(options.report ? { report: options.report } : {}),
+        ...(options.now ? { now: options.now } : {}),
+        receive: (data) => this.receive(data),
+        lost: (cause) => this.loseWorker(cause),
+        replaced: () => this.greet(),
+      },
+    );
   }
   get state(): ConnectionState {
     return this.current;
@@ -277,7 +308,7 @@ export class RemoteClient implements ClientApi {
     if (this.closed || this.workerLost) return Promise.reject(new ClientError("offline"));
     if (this.started) return this.attached;
     this.started = true;
-    this.monitor.start();
+    this.link.start();
     this.post({ t: "connect", config: this.config });
     // Keep eviction/removal updates alive even without a mounted UI subscriber.
     this.post({ t: "watchPendingSends" });
@@ -291,6 +322,7 @@ export class RemoteClient implements ClientApi {
       (held) => {
         if (this.closed || this.workerLost) return held.release();
         this.releaseLock = held.release;
+        this.lockName = held.name;
         this.post({ t: "alive", lock: held.name });
       },
       () => {
@@ -302,15 +334,10 @@ export class RemoteClient implements ClientApi {
   /** Leave the worker. Its client keeps running while other tabs use it. */
   async close(): Promise<void> {
     if (this.closed) return;
-    this.closed = true;
-    this.monitor.close();
-    this.stopFailure?.();
     this.unwatch?.();
-    this.post({ t: "bye" });
+    this.link.close();
+    this.closed = true;
     this.releaseLock?.();
-    this.port.removeEventListener("message", this.listener);
-    this.port.close?.();
-    this.options.workerFailure?.close?.();
     for (const pending of this.pending.values()) pending.reject(new ClientError("offline"));
     this.pending.clear();
     this.messageListeners.clear();
@@ -322,13 +349,14 @@ export class RemoteClient implements ClientApi {
   }
   /** Hidden tabs receive nothing; on return they get everything that changed meanwhile. */
   private visible(visible: boolean): void {
-    this.monitor.visible(visible);
+    this.link.visible(visible);
     this.post({ t: "visible", visible });
   }
   reconnectNow(): void {
     void this.call("reconnectNow", []).catch(() => {});
   }
   networkOnline(online: boolean): void {
+    this.online = online;
     void this.call("networkOnline", [online]).catch(() => {});
   }
   thread(id: string): Lease<ThreadSource> {
@@ -353,6 +381,7 @@ export class RemoteClient implements ClientApi {
     project?: string | undefined;
     archived?: boolean | undefined;
   }): Promise<void> {
+    this.window = input;
     return this.invoke<void>("threadsWindow", [input]);
   }
   threadsMore(options: RequestOptions = {}): Promise<void> {
@@ -609,16 +638,57 @@ export class RemoteClient implements ClientApi {
   private get listeners() {
     return this.options.listeners ?? defaultLimits.listeners;
   }
-  private post(message: TabMessage): void {
-    // A MessagePort has no target origin: it reaches exactly the other end.
-    if ((!this.closed && !this.workerLost) || message.t === "bye") {
-      try {
-        // oxlint-disable-next-line unicorn/require-post-message-target-origin
-        this.port.postMessage(message);
-      } catch {
-        this.loseWorker();
-      }
+  private post(message: TabMessage): boolean {
+    if (this.closed || this.workerLost) return false;
+    return this.link.post(message);
+  }
+  /**
+   * A fresh worker replaced a lost one: attach to its client and tell it everything this tab
+   * holds, as the first worker heard it over time. Durable commands go again under their ids;
+   * the worker's outbox and the daemon's receipts make that idempotent.
+   */
+  private greet(): void {
+    if (this.closed || this.workerLost || !this.started) return;
+    this.post({ t: "connect", config: this.config });
+    this.post({ t: "watchPendingSends" });
+    const visibility = this.options.visibility;
+    if (visibility && !visibility.visible()) this.visible(false);
+    if (this.lockName) this.post({ t: "alive", lock: this.lockName });
+    if (this.messageListeners.size) this.post({ t: "watchMessages" });
+    if (this.streamListeners.size) this.post({ t: "watchStreams" });
+    for (const [id, record] of this.intents.entries())
+      if (record.watchers > 0) this.post({ t: "watchIntent", id });
+    for (const held of this.mirrors.values())
+      this.post({ t: "lease", lease: held.lease, scope: held.scope });
+    if (this.window) void this.call("threadsWindow", [this.window]).catch(noop);
+    if (this.online === false) void this.call("networkOnline", [false]).catch(noop);
+    for (const [call, pending] of this.pending) this.resend(call, pending);
+  }
+  /** Send a durable call to the current worker, unless it already went there. */
+  private resend(call: number, pending: Pending): void {
+    const durable = pending.durable;
+    const generation = this.link.generation;
+    if (!durable || pending.sentTo === generation) return;
+    const allocated = pending.allocated;
+    if (!allocated) {
+      if (this.post({ t: "call", call, method: durable.method, args: durable.args }))
+        pending.sentTo = generation;
+      return;
     }
+    // The lost worker allocated this submitNew's id and the tab recorded it: whatever that
+    // worker saved or sent went under this id, so it goes again as a command with it.
+    void allocated.recorded.then((ok) => {
+      if (this.pending.get(call) !== pending || generation !== this.link.generation) return;
+      if (pending.sentTo === generation) return;
+      if (!ok) {
+        this.pending.delete(call);
+        pending.reject(new ClientError("storage"));
+        return;
+      }
+      const [payload, options] = durable.args;
+      if (this.post({ t: "call", call, method: "command", args: [payload, options, allocated.id] }))
+        pending.sentTo = generation;
+    });
   }
   private hold<T extends MirrorThread | MirrorSidebar>(
     key: string,
@@ -629,7 +699,12 @@ export class RemoteClient implements ClientApi {
     let held = this.mirrors.get(key);
     if (!held) {
       // A released mirror paints until the worker's copy replaces it.
-      held = { refs: 0, lease: ++this.sequence, mirror: this.released.take(key) ?? create() };
+      held = {
+        refs: 0,
+        lease: ++this.sequence,
+        scope,
+        mirror: this.released.take(key) ?? create(),
+      };
       this.mirrors.set(key, held);
       this.byLease.set(held.lease, held);
       this.post({ t: "lease", lease: held.lease, scope });
@@ -665,6 +740,9 @@ export class RemoteClient implements ClientApi {
     if (!Number.isSafeInteger(wait) || wait <= 0) return Promise.reject(new ClientError("limit"));
     if (this.pending.size >= defaultLimits.requests)
       return Promise.reject(commandAdmissionError(method === "submitNew" ? "fresh" : "unknown"));
+    const durable = method === "command" || method === "enqueue" || method === "submitNew";
+    // Between workers only durable commands wait; a read fails at once, retryable.
+    if (!durable && !this.link.connected) return Promise.reject(workerRestarting());
     const call = ++this.sequence;
     return new Promise((resolve, reject) => {
       let cancel = noop;
@@ -674,8 +752,9 @@ export class RemoteClient implements ClientApi {
         this.pending.delete(call);
       };
       signal?.addEventListener("abort", abort, { once: true });
-      this.pending.set(call, {
+      const pending: Pending = {
         ...(record ? { record } : {}),
+        ...(durable ? { durable: { method, args } } : {}),
         resolve: (value) => {
           cancel();
           signal?.removeEventListener("abort", abort);
@@ -686,14 +765,15 @@ export class RemoteClient implements ClientApi {
           signal?.removeEventListener("abort", abort);
           reject(error);
         },
-      });
-      if (method !== "command" && method !== "enqueue" && method !== "submitNew")
+      };
+      this.pending.set(call, pending);
+      if (!durable)
         cancel = this.options.scheduler.set(wait, () => {
           this.post({ t: "abort", call });
           this.pending.get(call)?.reject(new ClientError("timeout"));
           this.pending.delete(call);
         });
-      this.post({ t: "call", call, method, args });
+      if (this.post({ t: "call", call, method, args })) pending.sentTo = this.link.generation;
     });
   }
   private async *stream<T>(
@@ -703,6 +783,7 @@ export class RemoteClient implements ClientApi {
   ): AsyncGenerator<T> {
     if (signal?.aborted) throw new ClientError("aborted");
     if (this.closed || this.workerLost) throw new ClientError("offline");
+    if (!this.link.connected) throw workerRestarting();
     const wait = replyTimeout(args, defaultLimits.requestMs);
     if (!Number.isSafeInteger(wait) || wait <= 0) throw new ClientError("limit");
     if (this.pending.size >= defaultLimits.requests) throw new ClientError("limit");
@@ -755,11 +836,28 @@ export class RemoteClient implements ClientApi {
       if (!done) this.post({ t: "return", call });
     }
   }
-  private loseWorker(): void {
+  private loseWorker(cause: WorkerLoss): void {
     this.released.clear();
     if (this.closed || this.workerLost) return;
+    if (this.link.recovers) {
+      // A fresh worker is on its way. Durable commands wait for it and go again under their ids;
+      // anything else in flight fails as offline, which callers may retry.
+      this.current = "reconnecting";
+      this.failure = new ClientError(
+        "offline",
+        cause === "timeout"
+          ? "The client worker stopped answering; restarting it."
+          : "The client worker failed; restarting it.",
+      );
+      for (const [call, pending] of this.pending)
+        if (!pending.durable) {
+          this.pending.delete(call);
+          pending.reject(workerRestarting());
+        }
+      this.notifications.emit(["connection"]);
+      return;
+    }
     this.workerLost = true;
-    this.monitor.close();
     this.current = "fatal";
     const error = new ClientError(
       "offline",
@@ -776,7 +874,7 @@ export class RemoteClient implements ClientApi {
     const parsed = WorkerMessage.safeParse(data);
     if (!parsed.success) return;
     const message = parsed.data;
-    this.monitor.received();
+    this.link.received();
     switch (message.t) {
       case "command.admission":
         return;
@@ -785,24 +883,31 @@ export class RemoteClient implements ClientApi {
         if (!pending?.record) return;
         const record = pending.record;
         delete pending.record;
-        void Promise.resolve()
+        const generation = this.link.generation;
+        const recorded = Promise.resolve()
           .then(() => record(message.commandId))
           .then(
-            () => {
-              if (this.pending.get(message.call) === pending)
-                this.post({ t: "command.recorded", call: message.call, ok: true });
-            },
-            () => {
-              if (this.pending.get(message.call) === pending)
-                this.post({ t: "command.recorded", call: message.call, ok: false });
-            },
+            () => true,
+            () => false,
           );
+        pending.allocated = { id: message.commandId, recorded };
+        void recorded.then((ok) => {
+          // A worker lost meanwhile never hears it; its successor gets the command instead.
+          if (this.pending.get(message.call) === pending && generation === this.link.generation)
+            this.post({ t: "command.recorded", call: message.call, ok });
+        });
         return;
       }
+      case "diagnostic":
+        this.options.report?.({
+          event: message.event,
+          ...(message.data ? { data: message.data } : {}),
+        });
+        return;
       case "pong":
         return;
       case "attached":
-        this.monitor.attached();
+        this.link.attached();
         this.idPrefix = message.idPrefix;
         if (message.error) this.settle?.reject(toError(message.error));
         else {
@@ -924,6 +1029,10 @@ export class RemoteClient implements ClientApi {
     }
   }
 }
+
+/** A call that can't complete because the worker it went to was lost; retrying can succeed. */
+const workerRestarting = () =>
+  new ClientError("offline", "The client worker restarted before replying; try again.");
 
 const timeout = (options: RequestOptions) => ({
   ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),

@@ -100,8 +100,11 @@ export function authenticatedChannel(
       cancelDeadline?.();
       events?.ready();
       heartbeat();
-    } else if (!(frame instanceof Uint8Array) && frame.type === "pong") awaitingPong = false;
-    else await events?.message(frame);
+      return;
+    }
+    // Any frame proves the socket alive; a pong queued behind a busy stream arrives late.
+    awaitingPong = false;
+    if (frame instanceof Uint8Array || frame.type !== "pong") await events?.message(frame);
   };
   const channel: AuthenticatedChannel = {
     open(next) {

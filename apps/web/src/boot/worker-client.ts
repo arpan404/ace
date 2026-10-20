@@ -1,13 +1,15 @@
 import type { ClientApi } from "@ace/client";
-import { RemoteClient, type PortLike } from "@ace/client-worker";
+import { RemoteClient, type PortLike, type WorkerHandle } from "@ace/client-worker";
 import type { DaemonTarget } from "./connection-settings.ts";
+import { diagnosticsReporter } from "./diagnostics.ts";
 import { tabLiveness } from "./web-locks.ts";
 import { outboxKey, type WorkerTarget } from "./worker-target.ts";
 
 /**
  * A client whose connection, decoding, projection and outbox run in a worker (ADR 0056):
  * shared by all tabs through a SharedWorker, else one dedicated Worker per tab. Undefined
- * where neither exists, and the caller runs the client in the page.
+ * where neither exists, and the caller runs the client in the page. A worker that dies or stops
+ * answering is replaced by a fresh one (`respawn`), so the page never has to be reloaded.
  */
 export function createWorkerClient(target: DaemonTarget, deviceId: string): ClientApi | undefined {
   const worker = workerPort();
@@ -17,6 +19,14 @@ export function createWorkerClient(target: DaemonTarget, deviceId: string): Clie
   const liveness = tabLiveness();
   return new RemoteClient(worker.port, config, {
     workerFailure: worker.failure,
+    respawn({ cause, attempt }) {
+      // A SharedWorker that stopped answering may still hold its name, and asking for it again
+      // reaches the same frozen worker: one fresh try, then a dedicated worker for this tab.
+      if (cause === "timeout" && attempt >= 1) sharedFailed = true;
+      return workerPort();
+    },
+    report: diagnosticsReporter(),
+    now: () => Date.now(),
     ...(liveness ? { liveness } : {}),
     scheduler: {
       set(delayMs, callback) {
@@ -43,9 +53,7 @@ export function createWorkerClient(target: DaemonTarget, deviceId: string): Clie
 }
 
 let sharedFailed = false;
-function workerPort():
-  | { port: PortLike; failure: { watch(lost: () => void): () => void; close(): void } }
-  | undefined {
+function workerPort(): (WorkerHandle & { port: PortLike }) | undefined {
   // Vite bundles each worker from these literal constructor calls.
   if (!sharedFailed && typeof SharedWorker === "function") {
     try {
@@ -54,6 +62,7 @@ function workerPort():
         name: "ace-client",
       });
       return {
+        kind: "shared",
         port: worker.port,
         failure: {
           watch(lost) {
@@ -81,6 +90,7 @@ function workerPort():
       name: "ace-client",
     });
     return {
+      kind: "dedicated",
       port: worker,
       failure: {
         watch(lost) {
