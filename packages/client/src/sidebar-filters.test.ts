@@ -138,6 +138,23 @@ test("the filter's disk record replaces a derived list, and the daemon's snapsho
   await f.client.close();
 });
 
+test("a derived list left before its snapshot is not remembered as that project's own", async () => {
+  const disk = slowDisk();
+  const { f, collection, store, snapshot } = await sidebar(disk.storage);
+  snapshot(listOf(all));
+  await collection.threadsWindow({ project: "relay" });
+  await collection.threadsWindow({});
+  await collection.threadsWindow({ project: "relay" });
+  // Still only derived, so the project's own record from disk takes its place.
+  disk.pending.get(stored('sidebar:["relay",false]'))?.({
+    version: 2,
+    home: listOf([row("relay-9", "relay")]),
+  });
+  await expect.poll(() => store.ids).toEqual(["relay-9"]);
+  collection.close();
+  await f.client.close();
+});
+
 test("a list remembered this session is never replaced by the filter's older disk record", async () => {
   const disk = slowDisk();
   const { f, collection, store, snapshot } = await sidebar(disk.storage);
