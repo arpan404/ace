@@ -20,7 +20,12 @@ const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
 computerToolkit(client).register(registry);
 const credentials = new CredentialRegistry(() => "a".repeat(64));
 const lease = credentials.issue(
-  McpScope.parse({ sessionId: "bench", threadId: "bench", agentId: "root", capabilities: ["screen"] }),
+  McpScope.parse({
+    sessionId: "bench",
+    threadId: "bench",
+    agentId: "root",
+    capabilities: ["screen"],
+  }),
   new AbortController().signal,
 );
 
@@ -50,15 +55,25 @@ try {
     const seven = idOf(calc, /^(\d+) button 7$/);
     await call("type expression", round, "screen_act", {
       app: "Calculator",
-      actions: [{ type: "key", key: "Escape" }, { type: "type", text: "12+34=" }],
+      actions: [
+        { type: "key", key: "Escape" },
+        { type: "type", text: "12+34=" },
+      ],
     });
-    await call("click by id", round, "screen_act", { app: "Calculator", actions: [{ type: "click", id: seven }] });
+    await call("click by id", round, "screen_act", {
+      app: "Calculator",
+      actions: [{ type: "click", id: seven }],
+    });
     await call("click by id, no observe", round, "screen_act", {
       app: "Calculator",
       actions: [{ type: "click", id: seven }],
       observe: false,
     });
-    await call("screenshot only", round, "screen_state", { app: "Calculator", outline: false, screenshot: true });
+    await call("screenshot only", round, "screen_state", {
+      app: "Calculator",
+      outline: false,
+      screenshot: true,
+    });
     await call("look + screenshot", round, "screen_state", { app: "Calculator", screenshot: true });
     await call("repeat look", round, "screen_state", { app: "Calculator" });
     await call("act + screenshot", round, "screen_act", {
@@ -74,13 +89,30 @@ try {
 
 const percentile = (values: number[], p: number) => {
   const sorted = values.toSorted((a, b) => a - b);
-  return Math.round(sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))] ?? 0);
+  return Math.round(
+    sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))] ?? 0,
+  );
 };
 const steps = Object.fromEntries(
   [...samples].map(([label, values]) => [
     label,
-    { coldMs: Math.round(cold.get(label) ?? 0), p50Ms: percentile(values, 50), p95Ms: percentile(values, 95) },
+    {
+      coldMs: Math.round(cold.get(label) ?? 0),
+      p50Ms: percentile(values, 50),
+      p95Ms: percentile(values, 95),
+    },
   ]),
 );
 const total = [...samples.values()].reduce((sum, values) => sum + percentile(values, 50), 0);
-console.log(JSON.stringify({ rounds, load: execFileSync("sysctl", ["-n", "vm.loadavg"]).toString().trim(), sequenceP50Ms: total, steps }, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      rounds,
+      load: execFileSync("sysctl", ["-n", "vm.loadavg"]).toString().trim(),
+      sequenceP50Ms: total,
+      steps,
+    },
+    null,
+    2,
+  ),
+);

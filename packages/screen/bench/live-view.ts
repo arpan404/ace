@@ -32,7 +32,9 @@ const server = createServer((socket: Socket) => {
     while (buffer.length >= 4) {
       const headerLength = buffer.readUInt32BE(0);
       if (buffer.length < 4 + headerLength) break;
-      const header = JSON.parse(buffer.subarray(4, 4 + headerLength).toString()) as Frame["header"] & { bytes: number };
+      const header = JSON.parse(
+        buffer.subarray(4, 4 + headerLength).toString(),
+      ) as Frame["header"] & { bytes: number };
       const total = 4 + headerLength + header.bytes;
       if (buffer.length < total) break;
       frames.push({ at: performance.now(), bytes: total, header });
@@ -44,10 +46,18 @@ rmSync(socketPath, { force: true });
 await new Promise<void>((resolve) => server.listen(socketPath, resolve));
 
 function lines(child: ChildProcessWithoutNullStreams) {
-  const waiting = new Map<string, (reply: { ok: boolean; result?: unknown; error?: unknown }) => void>();
+  const waiting = new Map<
+    string,
+    (reply: { ok: boolean; result?: unknown; error?: unknown }) => void
+  >();
   createInterface({ input: child.stdout }).on("line", (line) => {
     // The session helper answers with `data`, the computer engine with `result`.
-    const reply = JSON.parse(line) as { id?: string; ok: boolean; result?: unknown; data?: unknown };
+    const reply = JSON.parse(line) as {
+      id?: string;
+      ok: boolean;
+      result?: unknown;
+      data?: unknown;
+    };
     if (reply.id) waiting.get(reply.id)?.({ ...reply, result: reply.result ?? reply.data });
   });
   let next = 0;
@@ -64,19 +74,26 @@ if (process.env["ACE_BENCH_DEBUG"]) session.stderr.pipe(process.stderr);
 const send = lines(session);
 const act = lines(computer);
 const cpu = (pid: number) => {
-  const [minutes, seconds] = execFileSync("ps", ["-o", "time=", "-p", String(pid)]).toString().trim().split(":");
+  const [minutes, seconds] = execFileSync("ps", ["-o", "time=", "-p", String(pid)])
+    .toString()
+    .trim()
+    .split(":");
   return Number(minutes) * 60 + Number(seconds);
 };
 const percentile = (values: number[], p: number) => {
   const sorted = values.toSorted((a, b) => a - b);
-  return Math.round(sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))] ?? 0);
+  return Math.round(
+    sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))] ?? 0,
+  );
 };
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 try {
   const targets = (await send({ version: 2, op: "targets" })).result as {
     windows: { windowId: number; bundleId: string; bounds: { width: number; height: number } }[];
   };
-  const window = targets.windows.find((entry) => entry.bundleId === bundleId && entry.bounds.width > 100);
+  const window = targets.windows.find(
+    (entry) => entry.bundleId === bundleId && entry.bounds.width > 100,
+  );
   if (!window) throw new Error("Calculator has no window");
   const started = await send({
     version: 2,
@@ -94,7 +111,9 @@ try {
   const look = (await act({ op: "state", app: bundleId })).result as {
     nodes: { id: number; role: string; name?: string }[];
   };
-  const digits = look.nodes.filter((node) => /^[0-9]$/.test(node.name ?? "")).map((node) => node.id);
+  const digits = look.nodes
+    .filter((node) => /^[0-9]$/.test(node.name ?? ""))
+    .map((node) => node.id);
   await sleep(1500);
   const cpuBefore = cpu(session.pid ?? 0);
   const runStart = performance.now();
@@ -127,13 +146,24 @@ try {
     JSON.stringify(
       {
         presses,
-        startFrames: frames.slice(0, 8).map((f) => `${f.header.codec}${f.header.keyframe ? " key" : ""} ${f.header.width}x${f.header.height} ${Math.round(f.bytes / 1024)} KB`),
+        startFrames: frames
+          .slice(0, 8)
+          .map(
+            (f) =>
+              `${f.header.codec}${f.header.keyframe ? " key" : ""} ${f.header.width}x${f.header.height} ${Math.round(f.bytes / 1024)} KB`,
+          ),
         load: execFileSync("sysctl", ["-n", "vm.loadavg"]).toString().trim(),
         window: `${window.bounds.width}x${window.bounds.height} pt`,
         frame: last ? `${last.width}x${last.height} px ${last.codec} scale ${last.scale}` : "none",
-        inputToFrameMs: { p50: percentile(latencies, 50), p95: percentile(latencies, 95), samples: latencies.length },
+        inputToFrameMs: {
+          p50: percentile(latencies, 50),
+          p95: percentile(latencies, 95),
+          samples: latencies.length,
+        },
         framesPerSecond: Math.round((run.length / seconds) * 10) / 10,
-        wireKbps: Math.round((run.reduce((sum, frame) => sum + frame.bytes, 0) * 8) / seconds / 1000),
+        wireKbps: Math.round(
+          (run.reduce((sum, frame) => sum + frame.bytes, 0) * 8) / seconds / 1000,
+        ),
         stillRefines: stills,
         stillRefineKb: stills ? Math.round(stillBytes / stills / 1024) : 0,
         helperCpuPercent: Math.round(((cpu(session.pid ?? 0) - cpuBefore) / seconds) * 1000) / 10,
