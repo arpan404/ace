@@ -43,8 +43,11 @@ export function failureReason(message: string): string {
 export function retainedFailure(
   message: string,
   unavailable: boolean,
-  details: { code: string } | undefined,
+  details: { code: string; detail?: string | undefined } | undefined,
 ): { code: string; title: string } {
+  // The installed CLI is a version ace refuses: say which, never "check your connection".
+  if ((details?.code === "cli_unsupported" || details?.code === "cli_too_old") && details.detail)
+    return { code: details.code, title: failureReason(details.detail) };
   if (details?.code === "resume_unavailable")
     return {
       code: "resume_unavailable",

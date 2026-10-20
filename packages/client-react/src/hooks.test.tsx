@@ -324,6 +324,7 @@ test("an answered question remains attached to its loaded item", async () => {
             text: "Which material?",
             multiSelect: false,
             allowOther: false,
+            secret: false,
             options: [{ id: "steel", label: "Steel" }],
           },
         ],

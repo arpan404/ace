@@ -40,6 +40,7 @@ export function questions(value: unknown, async: boolean): Question[] {
       options: list(q["options"]).map(option),
       multiSelect: q["multiSelect"] === true,
       allowOther: async || q["isOther"] === true,
+      secret: q["isSecret"] === true,
     };
     if (typeof q["header"] === "string") question.header = q["header"];
     result.push(question);

@@ -100,6 +100,7 @@ test("Needs you lists a pending question, Show takes it to the composer, and it 
               text: "Which cases?",
               multiSelect: false,
               allowOther: true,
+              secret: false,
               options: [],
             },
           ],

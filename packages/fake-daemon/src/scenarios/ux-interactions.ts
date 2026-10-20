@@ -31,6 +31,7 @@ export function question(answered: boolean): Scenario {
               text: "Tabs or Spaces?",
               multiSelect: false,
               allowOther: true,
+              secret: false,
               options: [
                 { id: "tabs", label: "Tabs" },
                 { id: "spaces", label: "Spaces" },
@@ -97,6 +98,7 @@ const formatQuestion = (id: string, text: string, labels: readonly [string, stri
   text,
   multiSelect: false,
   allowOther: true,
+  secret: false,
   options: labels.map((label) => ({ id: label.toLowerCase().replace(/\W+/g, "-"), label })),
 });
 

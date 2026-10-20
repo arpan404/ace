@@ -16,10 +16,12 @@ import { PauseCircleIcon } from "@phosphor-icons/react";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { useDescendantRequest } from "../composer/descendant-request.ts";
 import { SystemRow } from "./system-row.tsx";
+import { underline } from "./work-log-view.tsx";
 
 /*
  * The live turn's one status line, at the top of its flow under its ask (DESIGN.md §8): one
- * muted `Working for 3m 6s` row, where the turn's "Worked for" stands once it settles.
+ * muted `Working for 3m 6s` row over the same hairline, where the turn's "Worked for" stands once
+ * it settles.
  * While the agent only waits on its subagents or its background commands the line steps aside:
  * the composer's strip says `Waiting for 3 subagents · 3m 6s`, with a Stop.
  * It reads the same `turnActivity` as every other surface, counting the whole tree. The timer
@@ -41,14 +43,21 @@ export function LiveHead(props: { threadId: string }) {
   const progress = plans[0] ? livePlanStep(plans[0].progress) : undefined;
   const subagents = useWorkingSubagents(props.threadId, activity?.subagents);
   // A pause is the turn's own row; a lost connection is the header's to say; what the agent
-  // only waits on is the composer's strip, with its Stop.
-  if (!activity || activity.tone === "paused" || live.staleLabel || activity.waitingOn) return null;
+  // only waits on is the composer's strip, with its Stop; a question the agent asked is its own
+  // "is asking" line, which is the waiting state.
+  if (
+    !activity ||
+    activity.tone === "paused" ||
+    live.staleLabel ||
+    activity.waitingOn ||
+    (activity.askedInline && activity === turn)
+  )
+    return null;
   // The status line stays a live region of its own; its text can be selected.
   return (
-    <div role="group" aria-label="Turn in progress" className="flex min-w-0 items-center gap-1">
-      <div className="min-w-0 flex-1">
-        <ActivityLine activity={activity} progress={progress} subagents={subagents} />
-      </div>
+    <div role="group" aria-label="Turn in progress" className="min-w-0">
+      <ActivityLine activity={activity} progress={progress} subagents={subagents} />
+      <div aria-hidden className={underline} />
     </div>
   );
 }

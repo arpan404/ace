@@ -37,6 +37,10 @@
       },
       "type": "array"
     },
+    "secret": {
+      "default": false,
+      "type": "boolean"
+    },
     "text": {
       "type": "string"
     }

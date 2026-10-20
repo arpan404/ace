@@ -1,8 +1,11 @@
 import { sectionRule } from "@/components/ui/rules.ts";
 import { StaticRow, TranscriptRow } from "./transcript-row.tsx";
 
-/** A hairline under the "Worked for" line, parting the turn's work from its answer. */
-const underline = `mt-1.5 ${sectionRule}`;
+/**
+ * A hairline under the "Worked for" line, parting the turn's work from its answer. The live
+ * "Working for" line takes the same one, so the head doesn't shift when the turn settles.
+ */
+export const underline = `mt-1.5 ${sectionRule}`;
 
 /*
  * A settled work log's header; `work-log.tsx` binds it to the thread. Its steps load when it

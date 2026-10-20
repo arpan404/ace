@@ -33,6 +33,8 @@ export function RequestStack(props: {
   /** Messages the person queued, which wait for the asking child (`DescendantNote`). */
   queued?: number | undefined;
   target?: string | undefined;
+  /** The request the transcript asked for last (`at` counts the asks): shown, focused. */
+  focus?: { id: string; at: number } | undefined;
   /** Put the caret back in the message. */
   onLeave(): void;
   /** The strip's other items, beside the pager. */
@@ -66,6 +68,15 @@ export function RequestStack(props: {
   useEffect(() => {
     if (targeted && picked === targeted) frame.current?.focus();
   }, [targeted, picked]);
+  const asked = props.focus;
+  const [seenAsk, setSeenAsk] = useState<number>();
+  if (asked && asked.at !== seenAsk) {
+    setSeenAsk(asked.at);
+    if (ids.includes(asked.id)) setPicked(asked.id);
+  }
+  useEffect(() => {
+    if (asked?.at !== undefined && frame.current) firstControl(frame.current)?.focus();
+  }, [asked?.at]);
   const count = ids.length;
   // Stay on the request the person moved to while it is open; else the oldest.
   const at = Math.max(0, picked === undefined ? 0 : ids.indexOf(picked));
@@ -86,6 +97,8 @@ export function RequestStack(props: {
   };
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
+      // A field that answers Escape itself (a skip note going back to its question) keeps it.
+      if (event.target instanceof Element && event.target.closest("[data-own-escape]")) return;
       event.preventDefault();
       event.stopPropagation();
       props.onLeave();
@@ -160,6 +173,18 @@ export function RequestStack(props: {
         {content}
       </div>
     </div>
+  );
+}
+
+/** The card's first answer: an option, else a field, else its first button past the header. */
+function firstControl(frame: HTMLElement): HTMLElement | null {
+  const card = frame.querySelector<HTMLElement>("article form") ?? frame;
+  return (
+    card.querySelector<HTMLElement>('[role="radio"], [role="checkbox"]') ??
+    card.querySelector<HTMLElement>(
+      'input:not([type="hidden"]):not([aria-hidden="true"]), textarea',
+    ) ??
+    card.querySelector<HTMLElement>("button:not(:disabled)")
   );
 }
 

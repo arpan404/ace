@@ -14,6 +14,7 @@ export function dialogRequest(dialog: Dialog): InteractionRequest {
           ],
           multiSelect: false,
           allowOther: false,
+          secret: false,
         },
       ],
     };
@@ -26,6 +27,7 @@ export function dialogRequest(dialog: Dialog): InteractionRequest {
         options: (dialog.options ?? []).map((label, index) => ({ id: String(index), label })),
         multiSelect: false,
         allowOther: dialog.method !== "select",
+        secret: false,
       },
     ],
   };

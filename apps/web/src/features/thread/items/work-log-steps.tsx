@@ -6,6 +6,7 @@ import { Suspense, useId } from "react";
 import { cn } from "@/lib/cn.ts";
 import { useShowBrowserPanel } from "@/features/panels/index.ts";
 import { DeferredMeasurementStep } from "./deferred-measurement.ts";
+import { DeferredQuestionStep } from "../interactions/deferred-card.ts";
 import { MessageAttachments } from "@/components/attachment-message.tsx";
 import { StepDetail } from "./step-detail.tsx";
 import { StepImages } from "./ace-steps.tsx";
@@ -61,6 +62,17 @@ export function ToolStepContent(props: {
       surface={props.surface}
     />
   );
+  // A question the agent asked reads as the question beside its answer.
+  if (item?.type === "tool_call" && item.call.detail.kind === "ask_user")
+    return (
+      <Suspense fallback={line}>
+        <DeferredQuestionStep.Component
+          threadId={props.threadId}
+          itemId={props.itemId}
+          fallback={line}
+        />
+      </Suspense>
+    );
   if (
     data &&
     ((item?.type === "tool_call" && (item.measurement || isMeasurementCall(item.call))) ||

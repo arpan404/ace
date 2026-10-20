@@ -1,4 +1,4 @@
-import type { Question } from "@ace/protocol";
+import type { InteractionResolution, Question } from "@ace/protocol";
 import { contentHash } from "./content-hash.ts";
 import { questionOptions, type QuestionOption } from "./questions.ts";
 
@@ -9,6 +9,9 @@ import { questionOptions, type QuestionOption } from "./questions.ts";
 
 const recommendedSuffix = /\s*\(recommended\)\s*$/i;
 
+/** What a secret answer reads as anywhere it is shown back. */
+export const secretMask = "••••••••";
+
 /** One question with the answer given, as the answered card shows it (IR-1). */
 export interface AnsweredQuestion {
   id: string;
@@ -16,8 +19,10 @@ export interface AnsweredQuestion {
   text: string;
   /** The options picked, in the question's order. */
   chosen: QuestionOption[];
-  /** Free text typed instead of (or beside) an option. */
+  /** Free text typed instead of (or beside) an option; a secret answer reads as `secretMask`. */
   typed: string[];
+  /** The answer is secret: never shown back. */
+  secret: boolean;
   /** Options not picked, behind "Show all N options". */
   others: QuestionOption[];
 }
@@ -44,17 +49,36 @@ export function answeredQuestions(
             value.replace(recommendedSuffix, "").trim().toLowerCase(),
         );
       if (option) picked.add(option.id);
-      else if (value.trim()) typed.push(value.trim());
+      else if (value.trim()) typed.push(question.secret ? secretMask : value.trim());
     }
     return {
       id: question.id,
       header: question.header,
       text: question.text,
       chosen: options.filter((option) => picked.has(option.id)),
-      typed,
+      typed: question.secret ? [...new Set(typed)] : typed,
+      secret: question.secret,
       others: options.filter((option) => !picked.has(option.id)),
     };
   });
+}
+
+/**
+ * A question resolution with every secret answer replaced by `secretMask`: what may be kept
+ * on this device or shown, once the real answer is on its way. Returns `resolution` itself when
+ * nothing is secret. Pure.
+ */
+export function withoutSecrets(
+  questions: readonly Question[],
+  resolution: InteractionResolution,
+): InteractionResolution {
+  if (resolution.kind !== "question") return resolution;
+  const { answers } = resolution;
+  const secret = questions.filter((question) => question.secret && answers[question.id]?.length);
+  if (!secret.length) return resolution;
+  const masked = { ...answers };
+  for (const question of secret) masked[question.id] = [secretMask];
+  return { ...resolution, answers: masked };
 }
 
 /** The interaction parts a question's outcome reads. */

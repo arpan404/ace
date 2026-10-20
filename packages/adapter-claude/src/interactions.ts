@@ -17,6 +17,7 @@ export function requestFor(name: string, input: Data, options: Data): Interactio
           text: string(q["question"]),
           multiSelect: q["multiSelect"] === true,
           allowOther: true,
+          secret: false,
           options: list(q["options"]).map((option) => {
             const o = object(option);
             const result: Question["options"][number] = {

@@ -16,6 +16,7 @@ import { thoughtLabel, thoughtMs } from "./thought-time.ts";
 import type { AceToolContext } from "@ace/ui-core/ace-tools";
 import {
   BrainIcon,
+  ChatTeardropTextIcon,
   FileTextIcon,
   FolderSimpleIcon,
   GlobeIcon,
@@ -203,6 +204,7 @@ const groupIcons: Record<GroupIcon, PhosphorIcon> = {
   plan: ListChecksIcon,
   spawn: RobotIcon,
   agent: RobotIcon,
+  question: ChatTeardropTextIcon,
   tool: PlugIcon,
   think: BrainIcon,
 };

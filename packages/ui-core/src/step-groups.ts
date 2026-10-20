@@ -26,6 +26,7 @@ export type StepKind =
   | "plan"
   | "agent"
   | "spawn"
+  | "question"
   | "tool"
   | "think";
 
@@ -138,6 +139,8 @@ export function stepFact(item: Item, retried?: ReadonlySet<string>): StepFact | 
       return { ...fact, kind: "agent" };
     case "agent.spawn":
       return { ...fact, kind: "spawn" };
+    case "ask_user":
+      return { ...fact, kind: "question" };
     case "image":
       return { ...fact, kind: "tool", alone: !!detail.attachment };
     default:
@@ -201,6 +204,7 @@ function phrases(facts: readonly StepFact[]): { kind: StepKind; text: string; st
   add("plan", () => "updated the task list");
   add("spawn", (steps) => `started ${plural(steps, "subagent")}`);
   add("agent", (steps) => `messaged ${plural(steps, "subagent")}`);
+  add("question", (steps) => `asked ${plural(steps, "question")}`);
   add("tool", (steps) => `used ${plural(steps, "tool")}`);
   // A thought rides along with the steps around it: named after them.
   add("think", (steps) => `thought ${steps === 1 ? "once" : `${steps} times`}`);
@@ -300,6 +304,7 @@ export type StepFamily =
   | "computer"
   | "plan"
   | "agents"
+  | "question"
   | "tool";
 
 const families: Record<Exclude<StepKind, "think">, StepFamily> = {
@@ -315,6 +320,7 @@ const families: Record<Exclude<StepKind, "think">, StepFamily> = {
   plan: "plan",
   spawn: "agents",
   agent: "agents",
+  question: "question",
   tool: "tool",
 };
 
@@ -333,6 +339,8 @@ export function stepFamily(kind: StepKind): StepFamily | undefined {
 function joins(facts: readonly StepFact[], fact: StepFact): boolean {
   const last = facts.at(-1);
   if (!last || last.alone || fact.alone || last.agentId !== fact.agentId) return false;
+  // A question reads as its own row, with its answer: only another question joins it.
+  if ((last.kind === "question") !== (fact.kind === "question")) return false;
   if (facts.length === 1 && last.kind === "think") return false;
   const joining = stepFamily(fact.kind);
   if (!joining) return true;

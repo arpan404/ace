@@ -170,6 +170,7 @@ test("a question answer is admitted only when it fits what was asked, and closes
             text: "Include the archived posts?",
             multiSelect: false,
             allowOther: true,
+            secret: false,
             options: [
               { id: "yes", label: "Include them (Recommended)" },
               { id: "no", label: "Skip the archive" },

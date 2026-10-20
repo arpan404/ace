@@ -48,6 +48,7 @@ export function request(
         }),
         multiSelect: v.multiple === true,
         allowOther: v.custom !== false,
+        secret: false,
       };
     }),
   };

@@ -1,6 +1,12 @@
 import { Question } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { answeredQuestions, questionOutcome, requestIdentity } from "./answered-questions.ts";
+import {
+  answeredQuestions,
+  questionOutcome,
+  requestIdentity,
+  secretMask,
+  withoutSecrets,
+} from "./answered-questions.ts";
 import { questionOptions } from "./questions.ts";
 
 test("the suggested answer loses its (Recommended) suffix and is flagged instead", () => {
@@ -99,4 +105,34 @@ test("the same wording from another item, or with no item, is never the same req
     requestIdentity({ toolCallId: "call-2", request }),
   );
   expect(requestIdentity({ request })).toBeUndefined();
+});
+
+const token = Question.parse({
+  id: "token",
+  text: "Paste the npm token",
+  options: [],
+  allowOther: true,
+  secret: true,
+});
+const name = Question.parse({ id: "name", text: "Package name?", options: [], allowOther: true });
+
+test("a secret answer never reads back, while a plain one beside it does", () => {
+  const answers = { token: ["npm_live_abc123"], name: ["relay"] };
+  const [hidden, plain] = answeredQuestions([token, name], answers);
+  expect(hidden?.typed).toEqual([secretMask]);
+  expect(plain?.typed).toEqual(["relay"]);
+  expect(JSON.stringify(answeredQuestions([token], answers))).not.toContain("npm_live_abc123");
+});
+
+test("an answer kept on this device has its secret masked and the rest as given", () => {
+  const sent = {
+    kind: "question" as const,
+    answers: { token: ["npm_live_abc123"], name: ["relay"] },
+  };
+  expect(withoutSecrets([token, name], sent)).toEqual({
+    kind: "question",
+    answers: { token: [secretMask], name: ["relay"] },
+  });
+  const plain = { kind: "question" as const, answers: { name: ["relay"] } };
+  expect(withoutSecrets([token, name], plain)).toBe(plain);
 });
