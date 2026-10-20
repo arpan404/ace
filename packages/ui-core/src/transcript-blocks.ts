@@ -279,6 +279,9 @@ const isLaunch = (item: Item) =>
 function continues(source: BlockSource, previous: string, next: string): boolean {
   const run = source.run?.(next);
   if (carriesOnStretch(run?.trigger)) return true;
+  // A run resumed after a usage limit shares its turn number, but the person waited through the
+  // pause: it reads after where the limit stopped the turn, and `markOf` marks the pause there.
+  if (run?.trigger === "limit_resume") return false;
   return run?.turn !== undefined && run.turn === source.run?.(previous)?.turn;
 }
 

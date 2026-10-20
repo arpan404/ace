@@ -393,8 +393,6 @@ test("title regeneration uses the oldest person message beyond the recent item w
 test("a new person input after Stop restores MCP delegation on the root thread", async () => {
   const f = await daemonFixture();
   try {
-    const connection = f.h.contexts.get(f.caller.threadId)?.aceMcp;
-    if (!connection) throw new Error("Missing scoped MCP connection");
     expect(
       f.controls.delegations.command("stop-root", {
         type: "thread.interrupt",
@@ -412,6 +410,9 @@ test("a new person input after Stop restores MCP delegation on the root thread",
       }).ok,
     ).toBe(true);
     await f.daemon.engine?.flush();
+    // Stop may close the provider session (#1005); the new input runs in the session it opens.
+    const connection = f.h.contexts.get(f.caller.threadId)?.aceMcp;
+    if (!connection) throw new Error("Missing scoped MCP connection");
     expect(
       await mcpCall(connection, "delegate", {
         tasks: [

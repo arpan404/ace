@@ -123,11 +123,14 @@ it("only the entry points and tools_find load upfront, whatever the client", asy
   expect(fixed.tools.length).toBeLessThanOrEqual(12);
   // A client that never reloads lists what a reloading one starts with, plus tools_call.
   expect(bareNames(fixed.tools)).toEqual([...bareNames(core.tools), "tools_call"].toSorted());
-  // ace's own agents, threads, knowledge and automations families stay small.
+  // ace's own agents, threads, knowledge and automations families stay small. Raised from 28 to
+  // 30 for image_show (#991), projects_find (#994) and thread_fork (#1001), each a capability
+  // with no existing tool to fold into. A deferring client pays only for their names, which
+  // the per-request budget above counts; a core or static client never lists them upfront.
   const own = full.tools.filter(
     (tool) => !/^(?:browser|screen|sim)_/.test(bareToolName(tool.name)),
   );
-  expect(own.length).toBeLessThanOrEqual(28);
+  expect(own.length).toBeLessThanOrEqual(30);
 });
 
 it("a core-mode session gains a family's tools by reading its guide or using its entry point", async () => {

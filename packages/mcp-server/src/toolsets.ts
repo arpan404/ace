@@ -23,8 +23,9 @@ export function toolListing(header: string | null | undefined): ToolListing {
 }
 
 /**
- * What a core-mode session lists before it opens a family: the tools the instructions name as
- * entry points. Compared by bare name, so a toolkit's spelling never matters.
+ * What a core-mode session lists before it opens a family: the entry points the instructions
+ * name, within the per-request budget (mcp-agent-budget.process.test.ts). Compared by bare name,
+ * so a toolkit's spelling never matters.
  */
 export const coreTools: ReadonlySet<string> = new Set([
   "context",
@@ -34,10 +35,9 @@ export const coreTools: ReadonlySet<string> = new Set([
   "ask",
   "note_add",
   "thread_link_pr",
-  "thread_start",
-  "thread_control",
-  "projects_find",
-  "agent_message",
+  // thread_start, thread_control, projects_find and agent_message cost about 1,500 tokens on
+  // every request of a client that loads tools upfront: they stay in the ace-threads and
+  // ace-agents families, opened by their guides, tools_find, or reached through tools_call.
   "browser_open",
   "html_render",
   // macOS lists the background engine's screen_state; other platforms keep screen_open_app.

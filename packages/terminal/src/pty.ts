@@ -76,12 +76,16 @@ export function createPosixBackendFactory(
   const read = createProcessTable();
   return (options, shell, context) => {
     if (process.platform === "win32") throw new Error("Terminal service currently requires POSIX");
-    const environment = {
+    const environment: Record<string, string | undefined> = {
       ...process.env,
       ...options.env,
       TERM: "xterm-256color",
       COLORTERM: "truecolor",
     };
+    // A daemon started outside a terminal (launchd, a desktop app) inherits no locale, and a
+    // shell in the C locale mangles typed UTF-8. Terminal apps set one; so does ace, when unset.
+    if (!environment.LC_ALL && !environment.LC_CTYPE && !environment.LANG)
+      environment.LC_CTYPE = "C.UTF-8";
     // node-pty stringifies undefined as "undefined". Preserve explicit environment masks.
     const env: Record<string, string> = {};
     for (const [key, value] of Object.entries(environment))

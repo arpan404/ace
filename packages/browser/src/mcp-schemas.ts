@@ -32,7 +32,7 @@ export const browserOpenShape = {
     .enum(["domcontentloaded", "load", "networkidle"])
     .optional()
     .describe(
-      "With url: when to return (default domcontentloaded). networkidle: no request for 500 ms; sockets, event streams and requests open over 5 s (a dev server's reload channel, long polls) don't count.",
+      "With url: when to return (default domcontentloaded). networkidle ignores sockets, event streams and requests open over 5 s.",
     ),
 };
 

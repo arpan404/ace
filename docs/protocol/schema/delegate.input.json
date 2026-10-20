@@ -77,7 +77,7 @@
     },
     "waitSeconds": {
       "$ref": "https://ace.local/protocol/v1/WaitTimeoutSeconds.json",
-      "description": "Wait up to this many seconds (max 600) for the children before returning, as `wait` does. Omit to return at once."
+      "description": "Wait up to this many seconds for the children before returning, as `wait` does. Omit to return at once."
     }
   },
   "required": [
