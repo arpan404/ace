@@ -33,7 +33,6 @@ function card(overrides: Partial<OffshiftRunCard>): OffshiftRunCard {
     criteriaCount: 1,
     pending: [],
     pendingCount: 0,
-    roles: [],
     steps: [],
     ...overrides,
   };
@@ -116,7 +115,7 @@ test("a run that lacks evidence lists each missing check, and its criteria open 
   expect(within(section).getByText("The login page shows a helpful error")).toBeTruthy();
 });
 
-test("an independent criterion shows who checked it, and the run's roles open with the criteria", async () => {
+test("an independent criterion shows who checked it", async () => {
   const section = await openRun(
     card({
       phase: "verify",
@@ -137,7 +136,6 @@ test("an independent criterion shows who checked it, and the run's roles open wi
       ],
       pending: [{ criterionId: "error", kind: "manual", needs: "independent" }],
       pendingCount: 1,
-      roles: [{ role: "verify", source: "run", provider: "codex", effort: "high" }],
     }),
   );
   const missing = within(section).getByRole("list", { name: "Missing evidence" });
@@ -150,8 +148,6 @@ test("an independent criterion shows who checked it, and the run's roles open wi
   expect(within(criteria).getByText(/^Manual check ·/).textContent).toBe(
     "Manual check · Not independent · Claude Code",
   );
-  const roles = within(section).getByRole("list", { name: "Roles" });
-  expect(within(roles).getByRole("listitem").textContent).toBe("VerifyCodex · high");
 });
 
 test("the current phase's steps show their state, and a skipped step shows its reason", async () => {

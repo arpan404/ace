@@ -6,7 +6,6 @@ import {
   OffshiftRequest,
   OffshiftRun,
   type OffshiftResult,
-  type OffshiftRoles,
   type OffshiftView,
 } from "@ace/protocol/offshift";
 import { playbookCatalogue } from "./playbooks.ts";
@@ -41,29 +40,6 @@ export class OffshiftJournal {
         FOREIGN KEY(thread_id,run_id) REFERENCES offshift_runs(thread_id,id) ON DELETE CASCADE);
     `),
     );
-  }
-  /**
-   * The roles of the thread's most recently updated run not yet in delivery: the run a
-   * delegation by role works for. Undefined when the thread has none.
-   */
-  activeRoles(threadId: string): OffshiftRoles | undefined {
-    return this.transactions.atomic((db) => {
-      const row = db
-        .prepare(
-          "SELECT body FROM offshift_runs WHERE thread_id=? AND json_extract(body,'$.phase')<>'delivery' ORDER BY json_extract(body,'$.updatedAt') DESC, id LIMIT 1",
-        )
-        .get(threadId);
-      return row ? OffshiftRun.parse(JSON.parse(stored.parse(row).body)).roles : undefined;
-    });
-  }
-  /** One stored run of a thread, without a view; for republishing its card. */
-  run(threadId: string, runId: string): OffshiftRun | undefined {
-    return this.transactions.atomic((db) => {
-      const row = db
-        .prepare("SELECT body FROM offshift_runs WHERE thread_id=? AND id=?")
-        .get(threadId, runId);
-      return row ? OffshiftRun.parse(JSON.parse(stored.parse(row).body)) : undefined;
-    });
   }
   execute(input: unknown, context: Context): Executed {
     const request = OffshiftRequest.parse(input);

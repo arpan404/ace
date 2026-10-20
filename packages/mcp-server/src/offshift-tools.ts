@@ -7,9 +7,8 @@ import {
   OffshiftPhase,
   OffshiftPlaybookId,
   OffshiftResult,
-  OffshiftRoles,
   OffshiftStepsInput,
-  type OffshiftCall,
+  type OffshiftRequest,
 } from "@ace/protocol/offshift";
 import { controlResult, controlTool, controlToolTimeoutMs, fields } from "./control-tool.ts";
 
@@ -25,7 +24,6 @@ const needs = {
   resume: [...mutation, "note"],
   evidence: [...mutation, "evidence"],
   revise: [...mutation, "criterion", "note"],
-  roles: ["roles"],
   step: [...mutation, "stepId", "state"],
 } as const;
 type Action = keyof typeof needs;
@@ -37,7 +35,7 @@ const Input = z
     action: z
       .enum(actions)
       .describe(
-        "start: open a run with its outcome, endpoint, criteria, and optional playbook, steps and roles. get: the run, revision, pending evidence and next. list: this thread's runs. playbooks: the built-in playbooks and their steps. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record one check's result. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked. roles: replace the run's roles (runId, version), or the project default with scope project. step: mark stepId done or skipped (note: what you saw, or why).",
+        "start: open a run with its outcome, endpoint, criteria, and optional playbook and steps. get: the run, revision, pending evidence and next. list: this thread's runs. playbooks: the built-in playbooks and their steps. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record one check's result. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked. step: mark stepId done or skipped (note: what you saw, or why).",
       ),
     runId: z
       .string()
@@ -88,23 +86,12 @@ const Input = z
     evidence: OffshiftEvidenceInput.optional().describe(
       "evidence: one check, at the revision get returned before it ran.",
     ),
-    roles: OffshiftRoles.optional().describe(
-      "start and roles: who does build, judgment, review and verify work ({provider, model, effort} each).",
-    ),
-    scope: z
-      .enum(["run", "project"])
-      .optional()
-      .describe("roles: run (default) or project, the default for runs without that role."),
     runOwner: ThreadId.optional().describe(
       "get and evidence only: the ancestor thread whose run you check, as its brief named it.",
     ),
   })
   .superRefine((input, context) => {
-    const required: readonly (keyof Input)[] =
-      input.action === "roles" && input.scope !== "project"
-        ? [...needs.roles, ...mutation]
-        : needs[input.action];
-    for (const field of required)
+    for (const field of needs[input.action])
       if (input[field] === undefined)
         context.addIssue({
           code: "custom",
@@ -114,12 +101,12 @@ const Input = z
   })
   .meta({
     "x-ace-constraint":
-      "start needs runId, outcome, endpoint and criteria; get needs runId; advance needs runId, version, phase and note; block and resume need runId, version and note; evidence needs runId, version and evidence; revise needs runId, version, criterion and note; step needs runId, version, stepId and state; roles needs roles, plus runId and version unless scope is project.",
+      "start needs runId, outcome, endpoint and criteria; get needs runId; advance needs runId, version, phase and note; block and resume need runId, version and note; evidence needs runId, version and evidence; revise needs runId, version, criterion and note; step needs runId, version, stepId and state.",
   });
 type Input = z.output<typeof Input>;
 
 /** The one request an action stands for. Required fields were checked by the schema. */
-function request(input: Input): OffshiftCall {
+function request(input: Input): OffshiftRequest {
   const runId = input.runId ?? "";
   const change = {
     runId,
@@ -136,7 +123,6 @@ function request(input: Input): OffshiftCall {
         outcome: input.outcome ?? "",
         endpoint: input.endpoint ?? "",
         criteria: input.criteria ?? [],
-        ...(input.roles ? { roles: input.roles } : {}),
         ...(input.playbook ? { playbook: input.playbook } : {}),
         ...(input.steps ? { steps: input.steps } : {}),
       };
@@ -168,12 +154,6 @@ function request(input: Input): OffshiftCall {
         state: input.state ?? "done",
         ...(input.note === undefined ? {} : { note: input.note }),
       };
-    case "roles": {
-      const roles = input.roles ?? {};
-      return input.scope === "project"
-        ? { action: "roles", scope: "project", roles }
-        : { action: "roles", ...change, roles };
-    }
   }
 }
 
@@ -189,7 +169,7 @@ export const offshift = controlTool({
   riskClass: "thread-write",
   capability: "thread_control",
   description:
-    "Keep this thread's durable record of a multi-step coding outcome: criteria, steps (from a playbook or your own), phase (plan, implement, verify, review, delivery), blocker, roles and evidence bound to the workspace's Git revision. It records work and never runs it. Changes take the last version. Every result's next says what to do now. Each action's fields are named in action's description.",
+    "Keep this thread's durable record of a multi-step coding outcome: criteria, steps (from a playbook or your own), phase (plan, implement, verify, review, delivery), blocker and evidence bound to the workspace's Git revision. It records work and never runs it. Changes take the last version. Every result's next says what to do now. Each action's fields are named in action's description.",
   input: Input,
   output: controlResult(OffshiftResult),
   run: (input, control) =>

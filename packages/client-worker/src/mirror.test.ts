@@ -287,7 +287,6 @@ test("a tab sees an Offshift run change live and a later tab starts from it", ()
       criteriaCount: 1,
       pending: [],
       pendingCount: 0,
-      roles: [],
       steps: [],
     },
   });

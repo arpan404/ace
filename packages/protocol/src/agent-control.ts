@@ -1,4 +1,4 @@
-import { OffshiftCall } from "./offshift.ts";
+import { OffshiftRequest } from "./offshift.ts";
 import { ForgePrWorktree } from "./forge-worktree.ts";
 import { AccessRequest } from "./permissions.ts";
 import { z } from "zod";
@@ -413,7 +413,7 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("automation.manage"), request: AgentAutomationRequest }),
   z.strictObject({
     op: z.literal("offshift"),
-    request: OffshiftCall,
+    request: OffshiftRequest,
     /**
      * An ancestor's thread, whose run a delegated descendant reads or records evidence on.
      * Omitted: the caller's own runs. The daemon checks the ancestry.

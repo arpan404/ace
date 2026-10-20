@@ -23,7 +23,6 @@ function run(overrides: Partial<OffshiftRun> = {}): OffshiftRun {
       { id: "restore", description: "Restore persists", requiredKinds: ["automated", "ui"] },
     ],
     owner,
-    roles: {},
     phase: "verify",
     version: 3,
     blocker: null,

@@ -12,30 +12,6 @@ export const OffshiftEvidenceKind = z.enum(["automated", "source", "ui", "human"
 export type OffshiftEvidenceKind = z.infer<typeof OffshiftEvidenceKind>;
 export const OffshiftPhase = z.enum(["plan", "implement", "verify", "review", "delivery"]);
 export type OffshiftPhase = z.infer<typeof OffshiftPhase>;
-/** Kinds of work a run assigns: writing code, planning and design, review, verification. */
-export const OffshiftRole = z.enum(["build", "judgment", "review", "verify"]);
-export type OffshiftRole = z.infer<typeof OffshiftRole>;
-/** Who does one kind of work. Bounds match `delegate`'s provider, model and effort. */
-export const OffshiftRoleSelection = z
-  .strictObject({
-    provider: ProviderKind.optional(),
-    model: z.string().min(1).max(256).optional(),
-    effort: z.string().min(1).max(64).optional(),
-  })
-  .refine(
-    (selection) => Object.values(selection).some((value) => value !== undefined),
-    "A role names at least a provider, model or effort",
-  )
-  .meta({ "x-ace-constraint": "A role names at least a provider, model or effort." });
-export type OffshiftRoleSelection = z.infer<typeof OffshiftRoleSelection>;
-/** Who does which kind of work; a role left out falls back to the project default. */
-export const OffshiftRoles = z.strictObject({
-  build: OffshiftRoleSelection.optional(),
-  judgment: OffshiftRoleSelection.optional(),
-  review: OffshiftRoleSelection.optional(),
-  verify: OffshiftRoleSelection.optional(),
-});
-export type OffshiftRoles = z.infer<typeof OffshiftRoles>;
 /** The thread that recorded something, from its authenticated lease and thread record. */
 export const OffshiftAuthor = z.object({
   threadId: ThreadId,
@@ -152,7 +128,6 @@ export const OffshiftRequest = z.discriminatedUnion("action", [
     outcome: text,
     endpoint: text,
     criteria: OffshiftCriteria,
-    roles: OffshiftRoles.optional(),
     /** The playbook's steps, then `steps`, ordered by phase. */
     playbook: OffshiftPlaybookId.optional(),
     steps: OffshiftStepsInput.optional(),
@@ -171,8 +146,6 @@ export const OffshiftRequest = z.discriminatedUnion("action", [
     criterion: OffshiftCriterion,
     note: text,
   }),
-  /** Replaces the run's roles. */
-  z.strictObject({ action: z.literal("roles"), ...mutation, roles: OffshiftRoles }),
   /** Marks a step done (note: what was observed) or skipped (note: why, required). */
   z.strictObject({
     action: z.literal("step"),
@@ -183,18 +156,7 @@ export const OffshiftRequest = z.discriminatedUnion("action", [
   }),
 ]);
 export type OffshiftRequest = z.infer<typeof OffshiftRequest>;
-/** Replaces the project's default roles, used by runs that leave a role out. */
-export const OffshiftProjectRolesRequest = z.strictObject({
-  action: z.literal("roles"),
-  scope: z.literal("project"),
-  roles: OffshiftRoles,
-});
-export type OffshiftProjectRolesRequest = z.infer<typeof OffshiftProjectRolesRequest>;
-/** What the `offshift` operation carries: a run request, or the project's default roles. */
-export const OffshiftCall = z.union([OffshiftRequest, OffshiftProjectRolesRequest]);
-export type OffshiftCall = z.infer<typeof OffshiftCall>;
-export const OffshiftProjectRoles = z.object({ scope: z.literal("project"), roles: OffshiftRoles });
-export type OffshiftProjectRoles = z.infer<typeof OffshiftProjectRoles>;
+/** Not strict: a `roles` field written by earlier builds is dropped on read. */
 export const OffshiftRun = z.object({
   id: key,
   threadId: ThreadId,
@@ -204,7 +166,6 @@ export const OffshiftRun = z.object({
   /** The owner's provider and model when the run started; independence is measured from it. */
   /** Null for runs started before the owner was kept: nothing then counts as independent. */
   owner: OffshiftAuthor.nullable().default(null),
-  roles: OffshiftRoles,
   playbook: OffshiftPlaybookId.optional(),
   /** The run's procedure in phase order; runs started without one have none. */
   steps: z.array(OffshiftStep).max(24).default([]),
@@ -249,7 +210,6 @@ export type OffshiftRunSummary = z.infer<typeof OffshiftRunSummary>;
 export const OffshiftResult = z.union([
   OffshiftView,
   z.array(OffshiftRunSummary).max(32),
-  OffshiftProjectRoles,
   OffshiftPlaybooks,
 ]);
 export type OffshiftResult = z.infer<typeof OffshiftResult>;
@@ -291,7 +251,7 @@ export type OffshiftCardCriterion = z.infer<typeof OffshiftCardCriterion>;
 /**
  * A bounded client card of one run, as observed at the write that produced it. Notes, actions
  * and artifacts stay in the record. Strings are clipped and lists capped (with their full
- * counts) so a card stays a few KB whatever the run holds.
+ * counts) so a card stays a few KB whatever the run holds. Older cards' `roles` are dropped.
  */
 export const OffshiftRunCard = z.object({
   id: key,
@@ -309,19 +269,6 @@ export const OffshiftRunCard = z.object({
   /** Required kinds without a current pass, in run order; `pendingCount` is the full number. */
   pending: z.array(OffshiftPending).max(16),
   pendingCount: z.number().int().nonnegative().max(320),
-  /** Each role the run uses, from the run itself or the project default at this write. */
-  roles: z
-    .array(
-      z.object({
-        role: OffshiftRole,
-        source: z.enum(["run", "project"]),
-        provider: ProviderKind.optional(),
-        model: z.string().max(64).optional(),
-        effort: z.string().max(64).optional(),
-      }),
-    )
-    .max(4)
-    .default([]),
   /** The current phase's steps, in order; a skipped step's reason is clipped to 160 characters. */
   steps: z
     .array(

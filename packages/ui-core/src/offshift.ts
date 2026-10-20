@@ -4,7 +4,6 @@ import type {
   OffshiftEvidenceKind,
   OffshiftEvidenceState,
   OffshiftPhase,
-  OffshiftRole,
   OffshiftRunCard,
   OffshiftStepState,
 } from "@ace/protocol/offshift";
@@ -55,11 +54,6 @@ export interface OffshiftStepRow {
   state: "Done" | "Skipped" | "To do";
   reason: string | undefined;
 }
-/** "Verify", "Claude Code · Opus 4.5 · high". */
-export interface OffshiftRoleRow {
-  role: string;
-  selection: string;
-}
 export interface OffshiftSummary {
   word: OffshiftWord;
   tone: Tone;
@@ -74,8 +68,6 @@ export interface OffshiftSummary {
   criteria: OffshiftCriterionRow[];
   /** Criteria beyond the card's list. */
   moreCriteria: number;
-  /** Who does which kind of work, from the run or the project default. */
-  roles: OffshiftRoleRow[];
   /** The current phase's steps, in order. */
   steps: OffshiftStepRow[];
   done: boolean;
@@ -108,12 +100,6 @@ const stepStateNames: Record<OffshiftStepState, OffshiftStepRow["state"]> = {
   todo: "To do",
   done: "Done",
   skipped: "Skipped",
-};
-const roleNames: Record<OffshiftRole, string> = {
-  build: "Build",
-  judgment: "Judgment",
-  review: "Review",
-  verify: "Verify",
 };
 /** A provider and model in words, no ids: "Claude Code · Opus 4.5". */
 function who(provider: ProviderKind | undefined, model: string | null | undefined): string {
@@ -185,10 +171,6 @@ export function offshiftSummary(card: OffshiftRunCard, tree: OffshiftTree): Offs
       })),
     })),
     moreCriteria: card.criteriaCount - card.criteria.length,
-    roles: card.roles.map((item) => ({
-      role: roleNames[item.role],
-      selection: [who(item.provider, item.model), item.effort].filter(Boolean).join(" · "),
-    })),
     steps: card.steps.map((step) => ({
       id: step.id,
       title: step.title,

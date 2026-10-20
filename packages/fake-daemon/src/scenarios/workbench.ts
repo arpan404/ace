@@ -310,10 +310,6 @@ function installPage(): Scenario {
           criteriaCount: 2,
           pending: [{ criterionId: "commands", kind: "manual" }],
           pendingCount: 1,
-          roles: [
-            { role: "build", source: "run", provider: "opencode" },
-            { role: "verify", source: "project", provider: "claude", effort: "high" },
-          ],
           steps: [
             {
               id: "real-surface",

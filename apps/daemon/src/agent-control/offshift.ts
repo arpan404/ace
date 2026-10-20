@@ -1,19 +1,10 @@
 import { createHash } from "node:crypto";
-import {
-  OffshiftError,
-  OffshiftJournal,
-  OffshiftProjectRoles,
-  playbookCatalogue,
-  resolveRole,
-  runCard,
-  type ResolvedRole,
-} from "@ace/offshift";
-import type { OffshiftAuthor, OffshiftRole, OffshiftView } from "@ace/protocol/offshift";
+import { OffshiftError, OffshiftJournal, playbookCatalogue, runCard } from "@ace/offshift";
+import type { OffshiftAuthor, OffshiftView } from "@ace/protocol/offshift";
 import type { AgentControlResult, McpAttribution, ThreadId } from "@ace/protocol";
 import type { ThreadStatus } from "@ace/protocol/thread-status";
 import type { ServiceContext } from "../services/types.ts";
 import type { DelegationService } from "./delegations.ts";
-import { republishProjectRoles } from "./offshift-freshness.ts";
 import type { ExtensionOperation } from "./tools.ts";
 
 type Offshift = Extract<ExtensionOperation, { op: "offshift" }>;
@@ -45,7 +36,6 @@ function treeState(
 export function createOffshifts(context: ServiceContext, delegations: DelegationService) {
   const { store, services, now } = context;
   const journal = new OffshiftJournal(store);
-  const projectRoles = new OffshiftProjectRoles(store);
   /** The thread's provider and model from its record; the model of a child as delegated. */
   const author = (threadId: ThreadId): OffshiftAuthor | undefined => {
     const thread = store.getThread(threadId);
@@ -54,20 +44,7 @@ export function createOffshifts(context: ServiceContext, delegations: Delegation
       thread.execution?.model ?? delegations.journal.get(threadId)?.resolvedModel ?? null;
     return { threadId, provider: thread.provider, model };
   };
-  const workspaceOf = (threadId: ThreadId) => store.getThread(threadId)?.workspaceId;
   return {
-    /**
-     * The selection a delegation by `role` takes for `caller`: its active run's role, else the
-     * project default; undefined when neither names it.
-     */
-    roleFor(caller: McpAttribution, role: OffshiftRole): ResolvedRole | undefined {
-      const workspace = workspaceOf(caller.threadId);
-      return resolveRole(
-        role,
-        journal.activeRoles(caller.threadId),
-        workspace ? projectRoles.get(workspace) : undefined,
-      );
-    },
     async execute(
       caller: McpAttribution,
       operation: Offshift,
@@ -91,20 +68,6 @@ export function createOffshifts(context: ServiceContext, delegations: Delegation
           delegations.journal.fenced(caller.threadId)
         )
           return { ok: false, code: "forbidden", hint: notDescendant };
-      }
-      if ("scope" in request) {
-        await store.writable();
-        signal.throwIfAborted();
-        const workspace = workspaceOf(caller.threadId);
-        if (!workspace || !store.getMcpAgent(caller.threadId, caller.agentId))
-          return { ok: false, code: "forbidden" };
-        // The defaults and the cards they change commit together.
-        const roles = store.atomic(() => {
-          const set = projectRoles.set(workspace, request.roles);
-          republishProjectRoles(store, journal, workspace, set, now());
-          return set;
-        });
-        return { ok: true, data: { scope: "project", roles } };
       }
       const workspace = services.workspaceActions;
       if (!workspace) return { ok: false, code: "unavailable", hint: noRevision };
@@ -152,12 +115,7 @@ export function createOffshifts(context: ServiceContext, delegations: Delegation
               [
                 {
                   type: "offshift.updated",
-                  card: runCard(
-                    changed.run,
-                    changed.revision,
-                    projectRoles.get(owner.workspaceId),
-                    changed.next,
-                  ),
+                  card: runCard(changed.run, changed.revision, changed.next),
                 },
               ],
               at,

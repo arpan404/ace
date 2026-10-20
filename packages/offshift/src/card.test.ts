@@ -27,7 +27,6 @@ function run(overrides: Partial<OffshiftRun> = {}): OffshiftRun {
       { id: "audit", description: "Restores are logged", requiredKinds: ["source", "human"] },
     ],
     owner,
-    roles: {},
     phase: "verify",
     version: 4,
     blocker: null,
@@ -158,16 +157,14 @@ test("an independent criterion's own-model pass reads not independent until anot
   expect(checked.pendingCount).toBe(0);
 });
 
-test("the card names each role from the run, falling back to the project default", () => {
-  const card = runCard(run({ roles: { build: { provider: "codex", model: "gpt-5" } } }), "r1", {
-    build: { provider: "cursor" },
-    verify: { provider: "claude", effort: "high" },
-  });
-  expect(card.roles).toEqual([
-    { role: "build", source: "run", provider: "codex", model: "gpt-5" },
-    { role: "verify", source: "project", provider: "claude", effort: "high" },
-  ]);
-  expect(runCard(run(), "r1").roles).toEqual([]);
+test("a card stored with roles by an earlier build still reads, without them", () => {
+  const older = {
+    ...runCard(run(), "r"),
+    roles: [{ role: "verify", source: "run", provider: "claude" }],
+  };
+  const read = OffshiftRunCard.parse(older);
+  expect(read).toMatchObject({ id: "feature", phase: "verify" });
+  expect(read).not.toHaveProperty("roles");
 });
 
 test("the card names the playbook the run started from, and a card stored before it still reads", () => {
@@ -178,5 +175,5 @@ test("the card names the playbook the run started from, and a card stored before
 });
 
 test("the card carries the run's next step as worded at the write", () => {
-  expect(runCard(run(), "r", undefined, "Advance to review.").next).toBe("Advance to review.");
+  expect(runCard(run(), "r", "Advance to review.").next).toBe("Advance to review.");
 });

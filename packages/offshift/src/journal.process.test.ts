@@ -6,7 +6,7 @@ import { afterEach, expect, test } from "vitest";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { ThreadId } from "@ace/protocol";
 import { OffshiftView, type OffshiftCriterion, type OffshiftRequest } from "@ace/protocol/offshift";
-import { OffshiftJournal, OffshiftProjectRoles, resolveRole, type Context } from "./index.ts";
+import { OffshiftJournal, type Context } from "./index.ts";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -99,15 +99,17 @@ function fixture() {
       db = new DatabaseSync(path);
       journal = open();
     },
-    /** The project-roles store over the same database, as the daemon owner builds it. */
-    projectRoles() {
-      db.exec("CREATE TABLE IF NOT EXISTS workspaces(id TEXT PRIMARY KEY)");
-      db.prepare("INSERT OR IGNORE INTO workspaces(id) VALUES ('shop')").run();
-      return new OffshiftProjectRoles({
-        atomic(work) {
-          return work(db);
-        },
-      });
+    /** Rewrite stored runs as a build that kept per-run roles wrote them. */
+    addLegacyRoles() {
+      for (const row of db.prepare("SELECT thread_id, id, body FROM offshift_runs").all()) {
+        const body = JSON.parse(String(row["body"]));
+        body.roles = { verify: { provider: "claude", effort: "high" } };
+        db.prepare("UPDATE offshift_runs SET body=? WHERE thread_id=? AND id=?").run(
+          JSON.stringify(body),
+          String(row["thread_id"]),
+          String(row["id"]),
+        );
+      }
     },
     deleteThread() {
       db.prepare("DELETE FROM threads WHERE id=?").run(context.threadId);
@@ -360,60 +362,22 @@ test("a request without a requestId applies once, even when retried after a reop
   expect(f.get().run.version).toBe(2);
 });
 
-test("roles start with the run, are replaced whole, and fall back to the project default", () => {
+test("a run stored with roles by an earlier build still loads and takes changes", () => {
   const f = fixture();
-  f.call({ ...f.start, roles: { build: { provider: "codex", model: "gpt-5" } } });
-  expect(f.journal().activeRoles(f.context.threadId)).toEqual({
-    build: { provider: "codex", model: "gpt-5" },
-  });
-  f.call({
-    action: "roles",
-    runId: "feature",
-    version: 0,
-    roles: { verify: { provider: "claude", effort: "high" } },
-  });
+  f.call(f.start);
+  f.addLegacyRoles();
   f.reopen();
-  const roles = f.journal().activeRoles(f.context.threadId);
-  expect(roles).toEqual({ verify: { provider: "claude", effort: "high" } });
-  const project = f.projectRoles();
-  project.set("shop", { build: { provider: "cursor" }, verify: { provider: "opencode" } });
-  const stored = project.get("shop");
-  expect(resolveRole("build", roles, stored)).toEqual({
-    selection: { provider: "cursor" },
-    source: "project",
-  });
-  expect(resolveRole("verify", roles, stored)?.source).toBe("run");
-  expect(resolveRole("review", roles, stored)).toBeUndefined();
-  project.set("shop", {});
-  expect(project.get("shop")).toBeUndefined();
+  expect(f.get().run).not.toHaveProperty("roles");
+  expect(f.advance("implement").run).toMatchObject({ phase: "implement", version: 1 });
 });
 
-test("a delivered run no longer supplies roles to delegation", () => {
+test("roles are no longer part of a run: start with roles and a roles action are refused", () => {
   const f = fixture();
-  f.call({
-    ...f.start,
-    criteria: [{ id: "restore", description: "x", requiredKinds: ["source"] }],
-    roles: { build: { provider: "claude" } },
-  });
-  f.advance("implement");
-  f.advance("verify");
-  f.call({
-    action: "evidence",
-    runId: "feature",
-    version: f.get().run.version,
-    evidence: {
-      criterionId: "restore",
-      kind: "source",
-      result: "pass",
-      revision: f.context.revision,
-      action: "Read the diff",
-      artifact: "diff",
-      note: "Matches",
-    },
-  });
-  f.advance("review");
-  f.advance("delivery");
-  expect(f.journal().activeRoles(f.context.threadId)).toBeUndefined();
+  const execute = (input: unknown) => f.journal().execute(input, f.context);
+  expect(() => execute({ ...f.start, roles: { build: { provider: "codex" } } })).toThrow();
+  f.call(f.start);
+  const roles = { build: { provider: "codex" } };
+  expect(() => execute({ action: "roles", runId: "feature", version: 0, roles })).toThrow();
 });
 
 test("an independent criterion stays pending on the owner's own pass until another provider or model passes it", () => {

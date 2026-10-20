@@ -138,7 +138,6 @@ export function transition(
       endpoint: request.endpoint,
       criteria: request.criteria,
       owner: context.caller,
-      roles: request.roles ?? {},
       ...(request.playbook ? { playbook: request.playbook } : {}),
       steps: startSteps(request),
       phase: "plan",
@@ -159,8 +158,6 @@ export function transition(
   const next = { ...current, version: current.version + 1, updatedAt: context.now };
   if (request.action === "block") return { ...next, blocker: request.note, note: request.note };
   if (request.action === "resume") return { ...next, blocker: null, note: request.note };
-  if (request.action === "roles")
-    return OffshiftRun.parse({ ...next, roles: request.roles, note: "Roles changed" });
   if (current.blocker)
     throw new OffshiftError(
       `Resolve the recorded blocker first: call resume with runId "${current.id}", version ${current.version} and the decision in note`,

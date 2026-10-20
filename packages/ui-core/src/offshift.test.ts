@@ -26,7 +26,6 @@ function card(overrides: Partial<OffshiftRunCard> = {}): OffshiftRunCard {
     criteriaCount: 1,
     pending: [],
     pendingCount: 0,
-    roles: [],
     steps: [],
     ...overrides,
   };
@@ -173,22 +172,6 @@ test("an independent criterion with only the owner's pass reads not independent 
     evidence: [{ state: "Not independent", tone: undefined, by: "Codex · GPT-5" }],
   });
   expect(summary.missing.map((item) => item.kind)).toEqual(["Independent UI check"]);
-});
-
-test("roles read as the kind of work and who does it, in words", () => {
-  const summary = offshiftSummary(
-    card({
-      roles: [
-        { role: "build", source: "run", provider: "codex", model: "gpt-5" },
-        { role: "verify", source: "project", provider: "claude", effort: "high" },
-      ],
-    }),
-    settled,
-  );
-  expect(summary.roles).toEqual([
-    { role: "Build", selection: "Codex · GPT-5" },
-    { role: "Verify", selection: "Claude Code · high" },
-  ]);
 });
 
 test("the current phase's steps read Done, Skipped with its reason, or To do", () => {

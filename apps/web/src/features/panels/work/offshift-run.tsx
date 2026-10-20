@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn.ts";
 
 /**
  * The thread's Offshift run: its state and phase, what blocks it, the evidence it still needs,
- * the current phase's steps, and its outcome, criteria and roles behind a disclosure.
+ * the current phase's steps, and its outcome and criteria behind a disclosure.
  */
 export function OffshiftRun(props: { run: OffshiftSummary }) {
   const { run } = props;
@@ -100,18 +100,6 @@ export function OffshiftRun(props: { run: OffshiftSummary }) {
               </li>
             )}
           </ul>
-          {run.roles.length > 0 && (
-            <ul aria-label="Roles" className="flex min-w-0 flex-col">
-              {run.roles.map((role) => (
-                <li key={role.role} className="flex h-7 min-w-0 items-center gap-2">
-                  <span className="shrink-0">{role.role}</span>
-                  <span className="min-w-0 truncate text-xs text-muted-foreground">
-                    {role.selection}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
       </Disclosure>
     </div>

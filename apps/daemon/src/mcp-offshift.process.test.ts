@@ -233,32 +233,18 @@ it("a thread that did not descend from the run's owner cannot read or record on 
   expect(after.run.evidence).toEqual([]);
 });
 
-it("delegate with runRole runs the child as the run's role or the project default, and task fields win", async () => {
+it("delegate with runRole runs the child as the person's role from Settings, and task fields win", async () => {
   world = await evalWorld({ browser: false });
   const { agent, threadId } = await world.agent({});
   expect(world.store.getThread(threadId)?.provider).toBe("codex");
-  await agent.call("offshift", {
-    ...restore,
-    roles: { verify: { provider: "claude", effort: "high" } },
-  });
-  const project = await agent.call("offshift", {
-    action: "roles",
-    scope: "project",
-    roles: { review: { provider: "claude" } },
-  });
-  expect(Control.parse(project.data)).toMatchObject({
-    ok: true,
-    data: { scope: "project", roles: { review: { provider: "claude" } } },
-  });
+  const global = { kind: "global" } as const;
+  await world.daemon.settings.set("providers.verifier.provider", "claude", global);
+  await world.daemon.settings.set("providers.verifier.reasoningEffort", "high", global);
+  await world.daemon.settings.set("providers.reviewer.provider", "claude", global);
   const started = await agent.call("delegate", {
     tasks: [
-      { requestId: "by-role", task: "Verify restore", role: "verify-restore", runRole: "verify" },
-      {
-        requestId: "by-project",
-        task: "Review restore",
-        role: "review-restore",
-        runRole: "review",
-      },
+      { requestId: "verify", task: "Verify restore", role: "verify-restore", runRole: "verify" },
+      { requestId: "review", task: "Review restore", role: "review-restore", runRole: "review" },
       {
         requestId: "explicit",
         task: "Verify restore on codex",
@@ -275,14 +261,14 @@ it("delegate with runRole runs the child as the run's role or the project defaul
     "claude",
     "codex",
   ]);
-  // A role set nowhere is refused with the call that sets it, never run on another provider.
+  // A role the person has not set is refused with where they set it, never run elsewhere.
   const unset = await agent.call("delegate", {
     tasks: [
       { requestId: "unset", task: "Plan restore", role: "plan-restore", runRole: "judgment" },
     ],
   });
   expect(unset.failed).toBe(true);
-  expect(unset.text).toContain("is not set on your active Offshift run");
+  expect(unset.text).toContain("Settings → Roles");
 });
 
 it("an agent picks a playbook from the catalogue, starts from it, and marks steps before leaving a phase", async () => {
@@ -360,37 +346,4 @@ it("an agent picks a playbook from the catalogue, starts from it, and marks step
   );
   expect(advanced.run.phase).toBe("implement");
   expect(advanced.next).toContain("Step `failing-test`");
-});
-
-it("changing the project's default roles republishes an open run's card with the roles it now uses", async () => {
-  world = await evalWorld({ browser: false });
-  const { agent, threadId } = await world.agent({});
-  const cards: OffshiftRunCard[] = [];
-  world.store.subscribe((events) => {
-    for (const event of events)
-      if (event.threadId === threadId && event.payload.type === "offshift.updated")
-        cards.push(event.payload.card);
-  });
-  await agent.call("offshift", { ...start, roles: { build: { provider: "codex" } } });
-  expect(cards.at(-1)?.roles).toEqual([{ role: "build", source: "run", provider: "codex" }]);
-  await agent.call("offshift", {
-    action: "roles",
-    scope: "project",
-    roles: { review: { provider: "claude", effort: "high" } },
-  });
-  expect(cards).toHaveLength(2);
-  const fresh = cards[1];
-  expect(fresh).toMatchObject({ id: "login", version: cards[0]?.version });
-  expect(fresh?.roles).toEqual([
-    { role: "build", source: "run", provider: "codex" },
-    { role: "review", source: "project", provider: "claude", effort: "high" },
-  ]);
-  expect(world.store.snapshotThread(threadId).offshift).toEqual(fresh);
-  // The same defaults again change no card, so nothing is published.
-  await agent.call("offshift", {
-    action: "roles",
-    scope: "project",
-    roles: { review: { provider: "claude", effort: "high" } },
-  });
-  expect(cards).toHaveLength(2);
 });

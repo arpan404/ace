@@ -21,7 +21,6 @@ function card(overrides: Partial<OffshiftRunCard>): OffshiftRunCard {
     criteriaCount: 1,
     pending: [{ criterionId: "error", kind: "ui" }],
     pendingCount: 1,
-    roles: [],
     steps: [],
     ...overrides,
   };
