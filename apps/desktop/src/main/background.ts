@@ -209,6 +209,10 @@ export class Background {
       log,
     });
     this.browser = { connection, views };
+    // While the screen is locked the daemon moves these pages to ace's own Chromium.
+    connection.setDrawable(powerMonitor.getSystemIdleState(1) !== "locked");
+    powerMonitor.on("lock-screen", () => connection.setDrawable(false));
+    powerMonitor.on("unlock-screen", () => connection.setDrawable(true));
     connection.onState((state) => log(`Embedded browser backend: ${state}`));
     runtime.onStatus((status) => {
       if (status.state === "running") connection.wake();
