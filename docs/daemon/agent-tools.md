@@ -282,7 +282,12 @@ Execution failures return MCP `isError: true` and text containing bounded JSON
 `{code, message, hint?}`. Origin failures also contain `blocked: {origin, reason}`.
 Only ace-authored public failure types expose fixed messages and remedies. Arbitrary
 backend messages, hints, stacks, strings and code-shaped objects become a fixed
-`execution_failed` response. Schema errors expose no private issue literals.
+`execution_failed` response. Schema errors expose no private issue literals. The daemon
+logs every such private cause (tool, thread, error name, message and stack frames) under a
+fresh `errorId`, and the agent's response carries that `errorId` so a person can find
+the log line. Expected conditions have their own codes: `thread_not_found`,
+`thread_busy`, `request_conflict`, `handoff_unavailable` and `limit` (also for
+arguments over the input budget).
 Examples include `stale_ref`, `human_active`, `covered`, `not_hittable`,
 `unsaved_changes`, `page_unreachable` (with `detail` naming the network error),
 `browser_restarted`, `delegation_required`, `lease_required`, `denied`, and
