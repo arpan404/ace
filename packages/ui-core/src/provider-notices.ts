@@ -18,7 +18,7 @@ const agentMessage = /^<agent-message from="[^"\n]*">\n?([\s\S]*?)\n?<\/agent-me
 function nativeSource(item: Extract<Item, { type: "message" }>): unknown {
   // Clients may hold an item without its raw payloads; the text shape decides then.
   const first = Array.isArray(item.raw) ? item.raw[0] : undefined;
-  if (first?.type !== "projected.message") return undefined;
+  if (first?.type !== "projected.message" || !("data" in first)) return undefined;
   const data: unknown = first.data;
   if (typeof data !== "object" || data === null || !("metadata" in data)) return undefined;
   const metadata: unknown = data.metadata;
