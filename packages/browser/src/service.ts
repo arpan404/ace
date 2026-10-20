@@ -57,6 +57,8 @@ export class BrowserService {
   /** The person's accent, from the viewer that reported it last; every tab's cursor uses it. */
   private cursorStyle: CursorStyle = defaultCursorStyle;
   private generations = new WeakMap<BrowserSession, number>();
+  /** Each open session's project, for closing them when the project is removed. */
+  private workspaces = new WeakMap<BrowserSession, string>();
   private sequence = 0;
   private opening = new Map<string, Promise<BrowserSession>>();
   private profiles: BrowserProfiles;
@@ -202,8 +204,16 @@ export class BrowserService {
       kind === "embedded" && embedded ? embedded : this.headless,
     );
     let backend = candidates[0] ?? this.headless;
+    // A private page is a throwaway context in the shared profile's Chrome: no extra browser.
+    const profileScope =
+      options.profile === "persistent"
+        ? ((await this.options.profileScope?.(options)) ?? "global")
+        : "global";
     signal.throwIfAborted();
-    const profileLease = await this.profiles.acquire(options.threadId);
+    const profileLease = await this.profiles.acquire(options.threadId, {
+      scope: profileScope,
+      workspaceId: options.workspaceId,
+    });
     const { profile, dir, downloadDir } = profileLease;
     const store = this.options.tabStore;
     const restoredTabs = this.restoredTabs(options.threadId);
@@ -334,8 +344,9 @@ export class BrowserService {
       const move = async () => {
         const restoreTabs = owned.restoreEntries();
         // The person stays signed in: the partition's cookies go into the context the thread's
-        // profile opens in ace's Chrome (the shared persistent profile, or a throwaway one for a
-        // private session) before any tab loads.
+        // profile opens in ace's Chrome (the kept profile its scope names, global, project or
+        // thread, as the desktop's partition did; or a throwaway one for a private session)
+        // before any tab loads.
         const cookies = await owned.signIns();
         const generation = ++recoveryGeneration;
         await recoverHeadless({
@@ -393,6 +404,7 @@ export class BrowserService {
         artifact: (artifact) => this.options.onArtifact?.(options.threadId, artifact),
         options,
         profileDir: profile,
+        profileScope,
         signal,
         allowed: policies.allowed,
         popup: (url, target) =>
@@ -556,6 +568,7 @@ export class BrowserService {
       }
       if (!session) throw new Error("No browser backend opened");
       this.sessions.set(options.threadId, session);
+      this.workspaces.set(session, options.workspaceId);
       this.generations.set(session, ++this.sequence);
       this.subscriptions.replace(options.threadId, session.live);
       this.emit(session.state);
@@ -653,17 +666,35 @@ export class BrowserService {
   }
   /**
    * The thread was deleted: close its browser and, when a desktop is registered, drop its native
-   * partition. ace's own browser profile is shared by every thread and stays (ADR 0083).
-   * `desktop` says whether the desktop purged.
+   * partition. Its own profile in ace's Chrome goes; a shared one (global or its project's)
+   * stays (ADR 0083). `desktop` says whether the desktop purged.
    */
   async forgetThread(threadId: string, workspaceId: string): Promise<{ desktop: boolean }> {
     await this.closeThread(threadId);
     this.options.tabStore?.clear(threadId);
+    await this.headless.retireProfile?.(this.profiles.threadProfile(threadId));
     // Its downloads and logs in ace's data go too; what the person saved elsewhere stays.
     await this.profiles.forget(threadId);
     const embedded = this.embedded;
     if (!embedded) return { desktop: false };
     await embedded.purge(threadId, workspaceId);
+    return { desktop: true };
+  }
+  /**
+   * The project was removed: its threads' open browsers close, and its own profile goes, in
+   * ace's Chrome and (when a desktop is registered) the desktop's partition. `desktop` says
+   * whether the desktop purged.
+   */
+  async forgetProject(workspaceId: string): Promise<{ desktop: boolean }> {
+    const threads = [...this.sessions].flatMap(([threadId, session]) =>
+      this.workspaces.get(session) === workspaceId ? [threadId] : [],
+    );
+    await Promise.all(threads.map((threadId) => this.closeThread(threadId)));
+    await this.headless.retireProfile?.(this.profiles.projectProfile(workspaceId));
+    await this.profiles.forgetProject(workspaceId);
+    const embedded = this.embedded;
+    if (!embedded) return { desktop: false };
+    await embedded.purgeProject(workspaceId);
     return { desktop: true };
   }
   /**

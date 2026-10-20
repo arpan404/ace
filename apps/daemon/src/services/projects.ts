@@ -26,6 +26,13 @@ export function startProjects({ store, services, options, now, resources }: Serv
   });
   services.projects = projects;
   resources.own(() => projects.close());
+  // A removed project's own browser profile goes with it; one added back keeps its new one.
+  resources.own(
+    projects.subscribe((change) => {
+      if (change.change === "removed") void services.browserProjects?.removed(change.workspaceId);
+      if (change.change === "added") services.browserProjects?.restored(change.workspaceId);
+    }),
+  );
 }
 export function createProjectsSession(context: SocketContext): SocketService {
   const { options, authorize, connected, device, send, tasks } = context;

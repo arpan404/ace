@@ -125,6 +125,11 @@ export interface BackendOpen {
   downloadAllowed?(url: string): Promise<boolean>;
   artifact?(artifact: import("@ace/protocol").BrowserArtifact): void | Promise<void>;
   profileDir: string;
+  /**
+   * Which kept profile `profileDir` is (`browser.profileScope`). The desktop picks the matching
+   * partition; ace's Chrome needs only `profileDir`.
+   */
+  profileScope?: import("@ace/protocol").BrowserProfileScope;
   signal: AbortSignal;
   allowed(url: string, context?: { navigation?: boolean; human?: boolean }): Promise<boolean>;
   /** A page event submits navigation through the session owner before asking for approval. */
@@ -318,4 +323,9 @@ export interface BrowserBackend {
   /** `user`: the person's own browser through the ace extension (ADR 0084). */
   readonly kind: "embedded" | "headless" | "user";
   open(request: BackendOpen): Promise<BrowserBackendSession>;
+  /**
+   * The profile at `profileDir` is about to be deleted: stop the browser running in it, if
+   * any. Sessions using it were closed first.
+   */
+  retireProfile?(profileDir: string): Promise<void>;
 }

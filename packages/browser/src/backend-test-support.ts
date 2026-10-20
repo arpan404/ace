@@ -253,7 +253,12 @@ export async function backendFixture(
     let result: unknown = {};
     // A failed open is closed by the daemon; there is no view left to close.
     const settled = op.kind === "close" && !pages.has(message.sessionId);
-    if (op.kind === "purge" || settled || (op.kind === "open" && openError)) {
+    if (
+      op.kind === "purge" ||
+      op.kind === "purgeProject" ||
+      settled ||
+      (op.kind === "open" && openError)
+    ) {
       desktop.send(
         JSON.stringify({
           type: "browser.backend.response",

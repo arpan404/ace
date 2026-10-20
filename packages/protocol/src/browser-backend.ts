@@ -7,6 +7,13 @@ export const browserSessionLimit = 32;
 export const BrowserBackendKind = z.enum(["embedded", "headless", "user"]);
 export const BrowserBackendPreference = z.enum(["auto", "embedded", "headless"]);
 export const BrowserBackendLossPolicy = z.enum(["pause", "headless"]);
+/**
+ * Which kept browser profile a thread's persistent browser opens in: one shared by every
+ * project (`global`), one per project, or one per thread. The desktop's partition and ace's
+ * Chrome profile follow the same choice, so a thread keeps its sign-ins on either backend.
+ */
+export const BrowserProfileScope = z.enum(["global", "project", "thread"]);
+export type BrowserProfileScope = z.infer<typeof BrowserProfileScope>;
 export const BrowserBackendCapabilities = z.object({
   cdp: z.literal(true),
   targets: z.literal(true),
@@ -31,6 +38,11 @@ export const BrowserBackendOperation = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("open"),
     options: BrowserOpen,
+    /**
+     * The kept profile a persistent page opens in. Omitted (an older daemon): the thread's own
+     * partition, as before profile scopes existed.
+     */
+    profileScope: BrowserProfileScope.optional(),
     downloadDir: z.string().min(1).max(8192).optional(),
     viewport: z.object({ width: z.number().int(), height: z.number().int() }),
   }),
@@ -61,6 +73,11 @@ export const BrowserBackendOperation = z.discriminatedUnion("kind", [
    * to an open session; `sessionId` is a fresh id for this request alone.
    */
   z.object({ kind: z.literal("purge"), threadId: ThreadId, workspaceId: WorkspaceId }),
+  /**
+   * The project was removed: drop its project-scoped partition, closing views in it first. Not
+   * tied to an open session, like `purge`.
+   */
+  z.object({ kind: z.literal("purgeProject"), workspaceId: WorkspaceId }),
 ]);
 export type BrowserBackendOperation = z.infer<typeof BrowserBackendOperation>;
 const session = z.object({ backendId: id, sessionId: id });

@@ -194,7 +194,7 @@ export class EmbeddedBackend implements BrowserBackend {
     if (this.closed) return Promise.reject(new Error("Desktop browser backend lost"));
     const session = this.sessions.get(sessionId);
     if (session?.lost) return Promise.reject(new Error("Desktop browser session lost"));
-    if (!session && operation.kind !== "purge")
+    if (!session && operation.kind !== "purge" && operation.kind !== "purgeProject")
       return Promise.reject(new Error("Desktop browser session closed"));
     const id = String(++this.sequence);
     const message: BrowserBackendRequest = {
@@ -431,6 +431,14 @@ export class EmbeddedBackend implements BrowserBackend {
       BrowserBackendOperation.parse(operation),
     );
   }
+  /** Ask the desktop to drop a removed project's partition (and any view in it). */
+  async purgeProject(workspaceId: string): Promise<void> {
+    const operation = { kind: "purgeProject" as const, workspaceId };
+    await this.call(
+      `${this.id}-purge-${++this.sequence}`,
+      BrowserBackendOperation.parse(operation),
+    );
+  }
   disconnect(reason: string): void {
     if (this.closed) return;
     this.closed = true;
@@ -544,6 +552,7 @@ export class EmbeddedBackend implements BrowserBackend {
           await call({
             kind: "open",
             options: request.options,
+            ...(request.profileScope ? { profileScope: request.profileScope } : {}),
             ...(request.downloadDir ? { downloadDir: request.downloadDir } : {}),
             viewport,
           }),
