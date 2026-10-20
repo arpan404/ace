@@ -2,13 +2,21 @@ import { describe, expect, it } from "vitest";
 import {
   decodeStreamMessage,
   encodeBrowserVideo,
-  encodeDeviceFrame,
+  encodePicture,
   StreamAssembler,
   StreamEnvelopeError,
   streamPieceBytes,
+  type PictureChunk,
   type StreamMessage,
 } from "./stream.ts";
 import { encodeStream, streamKinds } from "./stream-envelope.ts";
+
+const encodeDeviceFrame = (
+  id: number,
+  source: string,
+  chunk: Omit<PictureChunk, "bytes">,
+  payload: Uint8Array,
+) => encodePicture(streamKinds.deviceFrame, id, source, chunk, payload);
 
 const device = "android:emulator-5554";
 const header = {
@@ -33,7 +41,7 @@ function receive(pieces: readonly Uint8Array[]): StreamMessage[] {
   });
 }
 
-describe("device pictures on the shared stream", () => {
+describe("pictures on the shared stream", () => {
   it("an H.264 keyframe larger than a socket message arrives whole, naming its device", () => {
     const payload = bytes(300_000);
     const pieces = encodeDeviceFrame(7, device, header, payload);
@@ -105,5 +113,26 @@ describe("device pictures on the shared stream", () => {
     expect(() => decode(odd)).toThrow(StreamEnvelopeError);
     const short = encodeStream(streamKinds.deviceFrame, 4, new Uint8Array(12), bytes(10));
     expect(() => decode(short)).toThrow(StreamEnvelopeError);
+  });
+
+  it("a computer-use picture names its screen session, a different kind from a device's", () => {
+    const pieces = encodePicture(streamKinds.screenFrame, 9, "session-1", header, bytes(4096));
+    const [message] = receive(pieces);
+    expect(message?.kind).toBe("screen.frame");
+    if (message?.kind !== "screen.frame") return;
+    expect(message.sourceId).toBe("session-1");
+    expect(message.frame.codec).toBe("avc1.640028");
+    // A screen session id is not a device id, so the device kind refuses it.
+    expect(() => receive(encodeDeviceFrame(10, "session-1", header, bytes(10)))).toThrow(
+      StreamEnvelopeError,
+    );
+  });
+
+  it("a screenshot travels as a still picture, so no viewer acks it", () => {
+    const shot = { ...header, codec: "jpeg", still: true as const };
+    const [still] = receive(encodeDeviceFrame(11, device, shot, bytes(512)));
+    const [live] = receive(encodeDeviceFrame(12, device, { ...header, codec: "jpeg" }, bytes(512)));
+    expect(still?.kind === "device.frame" && still.frame.still).toBe(true);
+    expect(live?.kind === "device.frame" && live.frame.still).toBeUndefined();
   });
 });
