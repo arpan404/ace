@@ -105,8 +105,8 @@ Limits of this choice:
 
 - Tabs in a thread's private throwaway context (`profile: "ephemeral"`) are in another browser
   context the extension can't see; they stay on JPEG.
-- The desktop's embedded backend (Electron views) has no extension; its remote viewers stay on
-  JPEG until Electron's capture APIs feed the same encoder path.
+- The desktop's embedded backend (Electron views) has no extension; the desktop runs the same
+  encoder itself (below, The desktop's encoder).
 - "Use my Chrome" (ADR 0084) is the person's own browser and keeps JPEG.
 
 ### Stream kinds
@@ -206,7 +206,8 @@ Resolution stays; frame rate drops first. The bit rate is a variable-rate ceilin
   video. It is ace's own and holds no data.
 - Phone and web clients need a canvas path next to the `<img>` path; input coordinates still map
   through the picture's rendered box, in CSS pixels.
-- Open: the desktop's embedded backend and ephemeral contexts stay on JPEG, and so without sound.
+- Open: ephemeral contexts stay on JPEG, and so without sound. The desktop's embedded backend
+  streams video without sound (The desktop's encoder).
 
 ## Audio
 
@@ -276,8 +277,50 @@ and without a viewer.
 
 ### Limits
 
-- Sound comes only with video: JPEG viewers, ephemeral contexts, the desktop's embedded backend
-  (which plays through the desktop itself) and "Use my Chrome" have none.
+- Sound comes only with video: JPEG viewers, ephemeral contexts and "Use my Chrome" have none.
+  The desktop's embedded backend sends video without sound: its views play through the desktop
+  itself, and capturing their sound would take it off the desktop's speakers (below).
 - Clients without WebCodecs `AudioDecoder` for Opus (older Safari) get no speaker button.
 - The jitter buffer is fixed at 60 ms over the quickest arrival; a link with larger jitter
   restarts the schedule more often rather than buffering more.
+
+## The desktop's encoder
+
+Amended 2026-10-20. Remote viewers of a page the desktop's embedded backend hosts (an Electron
+view, ADR 0085) get video too, from the same encoder code as ace's Chrome, run by the desktop
+app. There is no JPEG-only backend left on the desktop.
+
+- **Capture.** The desktop keeps one hidden encoder page while anyone watches a view as video: a
+  `WebContentsView` in no window (it never counts as an app window), in an in-memory partition of
+  its own, at `app://video-encoder/` (the app scheme is a secure context, which `getUserMedia`
+  needs). A view is captured with `webContents.getMediaSourceId(encoderPage)` and
+  `getUserMedia({ chromeMediaSource: "tab" })`: Chromium's own tab capture, with no user gesture,
+  no picker and no macOS screen-recording permission. Electron asks the captured view's session
+  for that `media` permission, from the encoder's origin; the views' sessions, which refuse every
+  permission, allow exactly that one. The page goes 30 s after its last capture.
+- **Encoder.** The page loads `video-extension/offscreen.ts` (`@ace/browser/video-encoder`), so
+  configurations, pacing, the watchdog and keyframes are the extension's. It reports through a
+  preload function (`aceVideoEmit`) with each chunk's bytes as they are, not base64.
+- **Commands.** The daemon drives a capture with `ace.video.*` (`supported`, `start`, `encodes`,
+  `keyframe`, `audio`, `stop`) on the tab's own relayed CDP, so each reaches the view it names,
+  shown or not. The desktop offers this as the optional `video` capability in
+  `browser.backend.register`; a desktop without it keeps its viewers on JPEG.
+- **Transport.** Encoder events reach the daemon as binary WebSocket messages on the backend
+  socket: `aceV`, a header length, the event as JSON (the extension's event, parsed with the same
+  schema as ace's Chrome), then the chunk's bytes. The daemon's browser socket service takes
+  binary messages before the files channel. Chunks never close or queue on the socket: while it
+  holds more than 1 MiB, a chunk is dropped, the encode's later deltas are dropped until a
+  keyframe gets through, and the encoder is asked for one (`video-gate.ts`). A capture's end or
+  failure always goes.
+- **Rendering.** A captured view renders unthrottled, parked when nobody shows it, as for a
+  screencast (`throttle.ts`).
+- **No sound.** The capture takes the picture only. Capturing a view's sound diverts it from the
+  desktop's speakers: with a tone playing, macOS's speaker assertion for the page ended as the
+  capture with audio started and stayed without it. The person at the desktop hears the page;
+  remote viewers of desktop views get no speaker button until a capture can duplicate the sound
+  instead.
+
+Measured with `apps/desktop/e2e/browser-video.e2e.ts` (Electron 44, Apple M-series, the page
+redrawing a canvas every frame, the view unseen): 30.0 fps at the 30 fps tier (1.5 Mbit/s at
+1280 × 720); with the capture and top tier at 60 fps, 60.0 fps at 1280 × 720 (2.8 Mbit/s) and
+60.2 fps at 2560 × 1440 (8.4 Mbit/s), hardware H.264 throughout.

@@ -253,7 +253,8 @@ export interface BrowserBackendPage {
   captureScale?(): number;
   /**
    * The engine's video encoder for this page's tab (ADR 0088). Absent, or undefined: remote
-   * viewers take JPEG frames (the desktop's views, the person's Chrome, private contexts).
+   * viewers take JPEG frames (the person's Chrome, private contexts, a desktop without the
+   * `video` capability).
    */
   video?(): VideoHost | undefined;
   viewport(): { width: number; height: number };

@@ -233,8 +233,18 @@ Object.assign(globalThis, {
       }
       return supported;
     },
-    /** Opens the tab capture `streamId` at exactly this size, replacing capture `id`. */
-    async start(id: string, streamId: string, width: number, height: number): Promise<void> {
+    /**
+     * Opens the tab capture `streamId` at exactly this size, replacing capture `id`. `audio:
+     * false` leaves the tab's sound alone: capturing it takes it off the machine's speakers,
+     * which the desktop app's own views must keep.
+     */
+    async start(
+      id: string,
+      streamId: string,
+      width: number,
+      height: number,
+      options: { audio?: boolean } = {},
+    ): Promise<void> {
       stop(id);
       const video = {
         mandatory: {
@@ -258,7 +268,9 @@ Object.assign(globalThis, {
             video,
           },
         ]);
-      const stream: unknown = await capture(true).catch(() => capture(false));
+      const stream: unknown = await (options.audio === false
+        ? capture(false)
+        : capture(true).catch(() => capture(false)));
       if (!(stream instanceof MediaStream)) throw new Error("No tab capture");
       const [track] = stream.getVideoTracks();
       if (!track) throw new Error("No tab capture");

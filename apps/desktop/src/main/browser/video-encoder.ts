@@ -13,7 +13,8 @@ import { encoderOrigin, type EncodeSpec, type PageVideoHost } from "./page-video
  * with their bytes) arrive over IPC from its preload and go to `onEvent`.
  *
  * The page is a WebContentsView in no window, so it never counts as an app window, in its own
- * in-memory partition that grants it the media permission and nothing else. Its address is
+ * in-memory partition that grants it the media permission and nothing else (Electron asks the
+ * captured view's session too: `encoderCapture` in `page-video.ts`). Its address is
  * `app://video-encoder/`: the app scheme is a secure context, which `getUserMedia` needs.
  */
 
@@ -92,7 +93,9 @@ export class VideoEncoderHost implements PageVideoHost<WebContents> {
       if (!this.captures.has(capture)) throw new Error("The video capture was stopped");
       // Valid for a few seconds, and only for the encoder page that asked for it.
       const streamId = source.getMediaSourceId(contents);
-      await call(contents, "aceVideo.start", [capture, streamId, width, height]);
+      // Picture only: capturing a view's sound takes it off this computer's speakers, where the
+      // person hears the page (measured: the speaker's audio assertion ends with the capture).
+      await call(contents, "aceVideo.start", [capture, streamId, width, height, { audio: false }]);
     } catch (error) {
       this.options.log(`Video capture did not start: ${String(error)}`);
       this.end(capture);
@@ -206,7 +209,7 @@ export class VideoEncoderHost implements PageVideoHost<WebContents> {
     return contents;
   }
 
-  /** The encoder's partition: serves its page and grants it the camera-less media capture. */
+  /** The encoder's partition: serves its page, loads nothing else, grants it only `media`. */
   private configure(): void {
     if (this.configured) return;
     this.configured = true;
