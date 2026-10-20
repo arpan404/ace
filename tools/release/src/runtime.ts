@@ -27,7 +27,6 @@ import {
   withInstallLock,
   durableJson,
   renderLauncher,
-  installableVersion,
   prepareDaemonHome,
 } from "@ace/service";
 import { fileURLToPath } from "node:url";
@@ -170,7 +169,6 @@ export async function installArtifact(
   const manifest = InstalledRelease.parse(
     JSON.parse(await readFile(join(artifact, "release.json"), "utf8")),
   );
-  installableVersion(manifest.version);
   if (manifest.target !== `${process.platform}-${process.arch}`)
     throw new Error("Artifact target mismatch");
   const root = dataDir();

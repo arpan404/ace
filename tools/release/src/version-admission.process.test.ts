@@ -9,7 +9,7 @@ import { installArtifact } from "./runtime.ts";
 
 afterEach(() => vi.unstubAllEnvs());
 
-test("a legacy build refuses before output changes or public-key reads", async () => {
+test("a malformed version refuses before output changes or public-key reads", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ace-release-build-version-"));
   try {
     const release = join(directory, "tools/release");
@@ -21,11 +21,11 @@ test("a legacy build refuses before output changes or public-key reads", async (
     await expect(
       promisify(execFile)(process.execPath, [
         join(release, "src/build.ts"),
-        "0.1.0",
+        "1.0",
         `${process.platform}-${process.arch}`,
         join(directory, "missing-key"),
       ]),
-    ).rejects.toMatchObject({ stderr: expect.stringContaining("Legacy ace 0.x") });
+    ).rejects.toMatchObject({ stderr: expect.stringContaining("pattern") });
     expect(await readdir(join(release, "dist"))).toEqual(["keep"]);
     expect(await readFile(join(release, "dist/keep"), "utf8")).toBe("prior output");
   } finally {
@@ -33,7 +33,7 @@ test("a legacy build refuses before output changes or public-key reads", async (
   }
 });
 
-test("a refused legacy artifact leaves an empty home usable for a compatible install", async () => {
+test("a refused malformed artifact leaves the home empty, and a 0.0.1 release installs", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ace-release-version-"));
   try {
     const home = join(directory, "home"),
@@ -42,7 +42,7 @@ test("a refused legacy artifact leaves an empty home usable for a compatible ins
     await mkdir(artifact);
     vi.stubEnv("ACE_HOME", home);
     const manifest = {
-      version: "0.1.0",
+      version: "1.0",
       target: `${process.platform}-${process.arch}`,
       channel: "stable",
     };
@@ -51,7 +51,7 @@ test("a refused legacy artifact leaves an empty home usable for a compatible ins
     expect(await readdir(home)).toEqual([]);
     await writeFile(
       join(artifact, "release.json"),
-      JSON.stringify({ ...manifest, version: "1.0.0" }),
+      JSON.stringify({ ...manifest, version: "0.0.1" }),
     );
     await writeFile(join(artifact, "ace.mjs"), "compatible artifact");
     const installed = join(directory, "service-installed");
@@ -59,7 +59,7 @@ test("a refused legacy artifact leaves an empty home usable for a compatible ins
       await writeFile(installed, root);
     });
     expect(await readFile(installed, "utf8")).toBe(home);
-    expect(installedVersion(home)).toBe("1.0.0");
+    expect(installedVersion(home)).toBe("0.0.1");
     expect(await readFile(join(home, "current/ace.mjs"), "utf8")).toBe("compatible artifact");
   } finally {
     await rm(directory, { recursive: true, force: true });

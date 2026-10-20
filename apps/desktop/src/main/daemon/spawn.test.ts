@@ -34,10 +34,10 @@ describe("the program that runs the daemon", () => {
   });
 
   it("labels its daemon with a version the app's own health check adopts", () => {
-    // A local build's 0.1.0 would read as the legacy 0.x app and never be adopted.
-    expect(reported("0.1.0")).toBe("development");
+    expect(reported("0.0.1")).toBe("0.0.1");
     expect(reported("1.4.2")).toBe("1.4.2");
-    for (const version of ["0.1.0", "1.4.2"])
+    expect(reported("1.0.0+local")).toBe("development");
+    for (const version of ["0.0.1", "1.4.2", "1.0.0+local"])
       expect(
         DaemonHealth.safeParse({ running: true, version: reported(version), ready: true }).success,
       ).toBe(true);

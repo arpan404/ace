@@ -130,7 +130,7 @@
     },
     "apps/desktop": {
       "name": "@ace/desktop",
-      "version": "0.1.0",
+      "version": "0.0.1",
       "dependencies": {
         "@ace/browser": "workspace:*",
         "@ace/client": "workspace:*",
@@ -160,6 +160,7 @@
       "dependencies": {
         "@ace/client": "workspace:*",
         "@ace/design-tokens": "workspace:*",
+        "@ace/html": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/ui-core": "workspace:*",
