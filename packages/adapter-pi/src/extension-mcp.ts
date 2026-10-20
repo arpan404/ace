@@ -4,6 +4,7 @@ import {
   developerInstructions,
   maxToolTimeoutMs,
   type AceMcpConnection,
+  type SessionGuidance,
 } from "@ace/mcp-server";
 import { bareToolName } from "@ace/provider-kit/ace-tool-names";
 import { obj, str } from "./native.ts";
@@ -40,6 +41,7 @@ const Tools = z.object({
 });
 const SessionResource = z.object({
   brief: z.string().max(4096).optional(),
+  roles: z.string().max(1024).nullable().optional(),
   facts: z.object({ groups: z.array(z.string().max(64)).max(32) }),
 });
 const Result = z.object({
@@ -131,7 +133,7 @@ type McpClient = InstanceType<(typeof import("@modelcontextprotocol/client"))["C
 export function registerAceMcpTools(pi: PiExtensionApi, connection: AceMcpConnection): void {
   // Pi's turn-start hook is synchronous, so the session brief is read from ace://session in the
   // background and the latest copy goes into each turn's system prompt.
-  let guidance: { brief?: string; groups?: string[] } = {};
+  let guidance: SessionGuidance = {};
   let client: McpClient | undefined;
   let started: Promise<void> | undefined;
   let closed = false;
@@ -144,6 +146,7 @@ export function registerAceMcpTools(pi: PiExtensionApi, connection: AceMcpConnec
       if (parsed.success)
         guidance = {
           ...(parsed.data.brief ? { brief: parsed.data.brief } : {}),
+          ...(parsed.data.roles ? { roles: parsed.data.roles } : {}),
           groups: parsed.data.facts.groups,
         };
     } catch {

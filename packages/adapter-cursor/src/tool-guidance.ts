@@ -5,14 +5,14 @@ import { developerInstructions } from "@ace/mcp-server";
 
 /** A private additional workspace carries an always-applied native Cursor rule.
  * Keep the project and Cursor's built-in system prompt intact; never write credentials. */
-export async function cursorToolGuidance() {
+export async function cursorToolGuidance(instructions = developerInstructions("cursor")) {
   const directory = await mkdtemp(join(tmpdir(), "ace-cursor-guidance-"));
   try {
     const rules = join(directory, ".cursor", "rules");
     await mkdir(rules, { recursive: true, mode: 0o700 });
     await writeFile(
       join(rules, "ace.mdc"),
-      `---\ndescription: ace tool routing for this thread\nalwaysApply: true\n---\n${developerInstructions("cursor")}\n`,
+      `---\ndescription: ace tool routing for this thread\nalwaysApply: true\n---\n${instructions}\n`,
       { mode: 0o600 },
     );
     return { directory, close: () => rm(directory, { recursive: true, force: true }) };

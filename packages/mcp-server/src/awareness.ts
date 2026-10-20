@@ -1,6 +1,7 @@
 import type { McpAttribution } from "@ace/protocol";
 import type { Principal } from "./credentials.ts";
 import { renderBrief, renderDigest, type SessionFacts } from "./brief.ts";
+import { renderRoles, type SessionRoles } from "./roles.ts";
 
 /** The daemon's canonical facts for one caller. Groups and failures are known to the server. */
 export interface AwarenessPort {
@@ -9,6 +10,8 @@ export interface AwarenessPort {
   ): Omit<SessionFacts, "groups" | "delegates" | "lastFailure"> | undefined;
   /** Only read for the brief: it may page a model catalog. */
   delegates(caller: McpAttribution): SessionFacts["delegates"];
+  /** The person's roles from Settings, read once per session. */
+  roles?(): SessionRoles;
 }
 
 /**
@@ -18,6 +21,8 @@ export interface AwarenessPort {
 export class SessionAwareness {
   private readonly seen = new WeakMap<Principal, SessionFacts>();
   private readonly failures = new WeakMap<Principal, string>();
+  /** Each session's roles line as first read; a later settings change never alters it. */
+  private readonly roles = new WeakMap<Principal, string | null>();
   /** Recent failed calls per session id, newest last; bounded in sessions and entries. */
   private readonly failureLog = new Map<string, { tool: string; code: string; count: number }[]>();
   private readonly port: AwarenessPort;
@@ -40,12 +45,25 @@ export class SessionAwareness {
   facts(principal: Principal): SessionFacts | undefined {
     return this.current(principal, true);
   }
-  /** The brief and enabled groups. The first read also marks what this session has seen. */
-  guidance(principal: Principal): { brief?: string; groups?: string[] } {
+  /**
+   * The brief, enabled groups and roles line. The first read also marks what this session has
+   * seen and fixes its roles line for the rest of the session.
+   */
+  guidance(principal: Principal): { brief?: string; groups?: string[]; roles?: string } {
     const facts = this.current(principal, true);
     if (!facts) return {};
     if (!this.seen.has(principal)) this.seen.set(principal, facts);
-    return { brief: renderBrief(facts), groups: [...facts.groups] };
+    const roles = this.rolesLine(principal);
+    return { brief: renderBrief(facts), groups: [...facts.groups], ...(roles ? { roles } : {}) };
+  }
+  /** This session's roles line, rendered on its first read and kept as it was. */
+  rolesLine(principal: Principal): string | undefined {
+    let line = this.roles.get(principal);
+    if (line === undefined) {
+      line = renderRoles(this.port.roles?.() ?? {}) ?? null;
+      this.roles.set(principal, line);
+    }
+    return line ?? undefined;
   }
   brief(principal: Principal): string | undefined {
     return this.guidance(principal).brief;

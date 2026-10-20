@@ -31,6 +31,8 @@ export interface SessionGuidance {
   brief?: string | undefined;
   /** Enabled ace groups. Omitted: guidance for every group. */
   groups?: readonly string[] | undefined;
+  /** The person's roles at session start, rendered by `renderRoles`; absent when none is set. */
+  roles?: string | undefined;
 }
 /** Where the provider natively lists ace's shipped skills; the rest read them via `guide`. */
 const skills = "The ace guides except offshift are also installed as skills.";
@@ -57,6 +59,7 @@ export function developerInstructions(
   return [
     readsServerInstructions.has(provider) ? undefined : aceGuidance(session.groups),
     prefix[provider],
+    session.roles,
     session.brief,
   ]
     .filter(Boolean)

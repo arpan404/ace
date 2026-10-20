@@ -6,7 +6,9 @@ import {
   acpInjection,
   cursorSdkInjection,
   developerInstructions,
+  aceInstructions,
 } from "./index.ts";
+import { ProviderKind } from "@ace/protocol";
 const connection = { url: "http://127.0.0.1:12345/mcp", bearer: "a".repeat(64) };
 it("delivers Codex authority only in native thread configuration", () => {
   const result = codexInjection(connection);
@@ -119,6 +121,14 @@ it("the session brief and enabled groups shape the injected guidance", () => {
   expect(injected.developerInstructions).toContain('Project "shop"');
   expect(injected.developerInstructions).not.toContain("screen_state");
   expect(injected.developerInstructions).not.toContain("delegate (instead");
+});
+
+it("a session's roles line reaches every provider's own channel, never the shared server text", () => {
+  const roles = "Roles: review claude opus-5.5. Delegate with runRole.";
+  for (const provider of ProviderKind.options)
+    expect(developerInstructions(provider, { roles }), provider).toContain(roles);
+  expect(aceInstructions).not.toContain("Roles:");
+  expect(developerInstructions("codex")).not.toContain("Roles:");
 });
 
 it("each client asks for the tool listing its tool-list refresh supports", () => {

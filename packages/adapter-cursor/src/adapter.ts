@@ -31,9 +31,13 @@ export interface CursorAdapterOptions extends Omit<HostOptions, "env"> {
    */
   userHome?: string;
   /** The owner issues a thread/instance-scoped lease; no shared static token. */
-  mcp?: (
-    context: SessionContext & { instanceId: string },
-  ) => Promise<{ connection: AceMcpConnection; signal?: AbortSignal; end(): void }>;
+  mcp?: (context: SessionContext & { instanceId: string }) => Promise<{
+    connection: AceMcpConnection;
+    /** This session's ace guidance for Cursor's always-applied rule, rendered once at open. */
+    instructions?: string;
+    signal?: AbortSignal;
+    end(): void;
+  }>;
 }
 export function createCursorAdapter(
   options: CursorAdapterOptions = {},
@@ -154,6 +158,7 @@ export function createCursorAdapter(
             limits: sessionLimits,
             ...(recoverySnapshot ? { recoverySnapshot } : {}),
             ...(lease ? { mcp: lease.connection } : {}),
+            ...(lease?.instructions ? { instructions: lease.instructions } : {}),
           },
         );
         session = {
