@@ -9,6 +9,7 @@ import {
   type OffshiftRoles,
   type OffshiftView,
 } from "@ace/protocol/offshift";
+import { playbookCatalogue } from "./playbooks.ts";
 import { OffshiftError, transition, view, type Context } from "./workflow.ts";
 
 const stored = z.object({ body: z.string() });
@@ -57,6 +58,7 @@ export class OffshiftJournal {
   }
   execute(input: unknown, context: Context): Executed {
     const request = OffshiftRequest.parse(input);
+    if (request.action === "playbooks") return { result: playbookCatalogue() };
     return this.transactions.atomic((db): Executed => {
       if (request.action === "list") {
         if (context.caller.threadId !== context.threadId)

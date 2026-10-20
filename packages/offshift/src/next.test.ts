@@ -123,3 +123,33 @@ test("a delivered run waits on its tree, then reports", () => {
   expect(next(delivered, "failed")).toContain("agents_status");
   expect(next(delivered, "done")).toBe("Done. Report the outcome and the checks behind it.");
 });
+
+test("in order: a blocker, a failed check, the phase's next step, other pending checks, then advancing", () => {
+  const steps = [
+    {
+      id: "same-surface",
+      title: "Confirm on the same surface.",
+      phase: "verify" as const,
+      state: "todo" as const,
+    },
+  ];
+  const step =
+    "Step `same-surface`: Confirm on the same surface. Then call step: done with what you observed, or skipped with the reason.";
+  const failing = run({ steps, evidence: [pass("automated", { result: "fail" })] });
+  expect(next(run({ ...failing, blocker: "Need a device" }))).toContain("Resolve the blocker");
+  expect(next(failing)).toBe(
+    "Fix `restore`: its automated check failed. Then repeat the check and record the result (1 more check pending).",
+  );
+  expect(next(run({ steps }))).toBe(step);
+  // A stale pass is pending, not failing: the step still comes first.
+  expect(next(run({ steps, evidence: [pass("automated", { revision: "r0" }), pass("ui")] }))).toBe(
+    step,
+  );
+  const marked = steps.map((item) => ({ ...item, state: "done" as const, note: "Seen" }));
+  expect(next(run({ steps: marked }))).toBe(
+    "Record automated evidence for `restore` at revision r1 (1 more check pending).",
+  );
+  expect(next(run({ steps: marked, evidence: [pass("automated"), pass("ui")] }))).toBe(
+    "Advance to review.",
+  );
+});

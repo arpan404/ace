@@ -76,6 +76,15 @@ export function runCard(
     pending: pending.slice(0, 16),
     pendingCount: pending.length,
     roles: cardRoles(run.roles, project),
+    // The current phase only: what the person checks now, bounded by the run's 24 steps.
+    steps: run.steps
+      .filter((step) => step.phase === run.phase)
+      .map((step) => ({
+        id: step.id,
+        title: step.title,
+        state: step.state,
+        ...(step.state === "skipped" && step.note ? { reason: clip(step.note, 160) } : {}),
+      })),
   });
 }
 

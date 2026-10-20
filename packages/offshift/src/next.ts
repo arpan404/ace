@@ -3,33 +3,62 @@ import type { OffshiftView } from "@ace/protocol/offshift";
 const plural = (count: number, one: string, many = `${one}s`) =>
   `${count} ${count === 1 ? one : many}`;
 
+/** The current phase's first step to do, as the sentence that names it. */
+function stepToDo(run: OffshiftView["run"]): string | undefined {
+  const open = run.steps.filter((step) => step.phase === run.phase && step.state === "todo");
+  const [first] = open;
+  if (!first) return undefined;
+  const more = open.length > 1 ? ` (${plural(open.length - 1, "more step")} in ${run.phase})` : "";
+  return `Step \`${first.id}\`: ${first.title.replace(/[.\s]+$/, "")}. Then call step: done with what you observed, or skipped with the reason${more}.`;
+}
+
 /**
  * The one step an agent takes now, as a short imperative sentence, worked out from the view
  * alone. `children` is how many delegated descendants still work or wait, when known: with
  * none, a working tree is the caller's own turn, which ends by reporting.
+ *
+ * Order: a blocker; then, from verify on, a failed check; the current phase's next step to do;
+ * other pending evidence; advancing; and finally the tree.
  */
 export function nextStep(view: Omit<OffshiftView, "next">, children?: number): string {
   const { run, pending, revision } = view;
   if (run.blocker)
     return `Resolve the blocker: ${run.blocker}. Ask the person if needed, then resume with the decision in note.`;
-  if (run.phase === "plan") return "Plan the work, then advance to implement.";
-  if (run.phase === "implement") return "Make the change, then advance to verify.";
+  const step = stepToDo(run);
+  // A run with steps names its work in them, so a phase without steps left just advances.
+  const stepped = run.steps.length > 0;
+  if (run.phase === "plan")
+    return (
+      step ?? (stepped ? "Advance to implement." : "Plan the work, then advance to implement.")
+    );
+  if (run.phase === "implement")
+    return step ?? (stepped ? "Advance to verify." : "Make the change, then advance to verify.");
+  const latest = (item: OffshiftView["pending"][number]) =>
+    run.evidence.find(
+      (found) => found.criterionId === item.criterionId && found.kind === item.kind,
+    );
+  const more = (count: number) =>
+    count > 1 ? ` (${plural(count - 1, "more check")} pending)` : "";
+  // A check that failed at this revision is a known defect: it comes before any step.
+  const failing = pending.find((item) => {
+    const found = latest(item);
+    return found?.result === "fail" && found.revision === revision;
+  });
+  if (failing)
+    return `Fix \`${failing.criterionId}\`: its ${failing.kind} check failed. Then repeat the check and record the result${more(pending.length)}.`;
+  if (step) return step;
   // The agent's own checks come first; asking another model to verify follows them.
   const first = pending.find((item) => !item.needs) ?? pending[0];
   if (first) {
-    const more = pending.length > 1 ? ` (${plural(pending.length - 1, "more check")} pending)` : "";
-    const found = run.evidence.find(
-      (item) => item.criterionId === first.criterionId && item.kind === first.kind,
-    );
+    const found = latest(first);
     if (first.needs === "independent")
-      return `Ask a different provider or model to verify \`${first.criterionId}\` (${first.kind}): delegate with runRole "verify" and tell the child runOwner "${run.threadId}"${more}.`;
+      return `Ask a different provider or model to verify \`${first.criterionId}\` (${first.kind}): delegate with runRole "verify" and tell the child runOwner "${run.threadId}"${more(pending.length)}.`;
     if (found && found.revision !== revision)
-      return `Repeat the ${first.kind} check for \`${first.criterionId}\`: the source changed since it was recorded${more}.`;
-    if (found?.result === "fail")
-      return `Fix \`${first.criterionId}\`: its ${first.kind} check failed. Then repeat the check and record the result${more}.`;
-    return `Record ${first.kind} evidence for \`${first.criterionId}\` at revision ${revision}${more}.`;
+      return `Repeat the ${first.kind} check for \`${first.criterionId}\`: the source changed since it was recorded${more(pending.length)}.`;
+    return `Record ${first.kind} evidence for \`${first.criterionId}\` at revision ${revision}${more(pending.length)}.`;
   }
-  if (run.phase === "review") return "Review the change, then advance to delivery.";
+  if (run.phase === "review")
+    return stepped ? "Advance to delivery." : "Review the change, then advance to delivery.";
   if (run.phase === "verify") return "Advance to review.";
   switch (view.treeState) {
     case "done":

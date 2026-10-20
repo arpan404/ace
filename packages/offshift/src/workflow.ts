@@ -5,8 +5,10 @@ import {
   type OffshiftCriterion,
   type OffshiftEvidence,
   type OffshiftRequest,
+  type OffshiftStep,
 } from "@ace/protocol/offshift";
 import { nextStep } from "./next.ts";
+import { playbook } from "./playbooks.ts";
 
 export class OffshiftError extends Error {
   constructor(message: string) {
@@ -65,9 +67,10 @@ export function view(run: OffshiftRun, observation: Observation): OffshiftView {
       else if (state !== "pass") pending.push({ criterionId: criterion.id, kind });
     }
   }
+  // Delivery steps still to do (the report itself) keep the run active.
   const state: OffshiftView["state"] = run.blocker
     ? "blocked"
-    : run.phase !== "delivery"
+    : run.phase !== "delivery" || todo(run, "delivery").length
       ? "active"
       : pending.length
         ? "needs_evidence"
@@ -81,13 +84,41 @@ export function view(run: OffshiftRun, observation: Observation): OffshiftView {
 
 const phases = ["plan", "implement", "verify", "review", "delivery"] as const;
 
+/** The steps of `phase` still to do, in order. */
+export function todo(run: OffshiftRun, phase: OffshiftRun["phase"]): OffshiftStep[] {
+  return run.steps.filter((step) => step.phase === phase && step.state === "todo");
+}
+
+/** A playbook's steps, then the custom ones, in phase order (stable within a phase). */
+function startSteps(request: Extract<OffshiftRequest, { action: "start" }>): OffshiftStep[] {
+  const listed = [
+    ...(request.playbook ? playbook(request.playbook).steps : []),
+    ...(request.steps ?? []),
+  ];
+  const ids = new Set<string>();
+  for (const step of listed) {
+    if (ids.has(step.id))
+      throw new OffshiftError(
+        `Step id ${step.id} is used twice${request.playbook ? ` (the ${request.playbook} playbook already has it)` : ""}; give your step another id`,
+      );
+    ids.add(step.id);
+  }
+  if (listed.length > 24)
+    throw new OffshiftError(
+      `A run holds at most 24 steps; this start lists ${listed.length}. Drop or merge steps`,
+    );
+  return listed
+    .map(({ id, title, phase }) => ({ id, title, phase, state: "todo" as const }))
+    .sort((a, b) => phases.indexOf(a.phase) - phases.indexOf(b.phase));
+}
+
 /** Pure transition; the caller supplies canonical tree status and a host-owned source revision. */
 export function transition(
   current: OffshiftRun | undefined,
   request: OffshiftRequest,
   context: Context,
 ): OffshiftRun {
-  if (request.action === "get" || request.action === "list")
+  if (request.action === "get" || request.action === "list" || request.action === "playbooks")
     throw new OffshiftError("Read is not a transition");
   // A descendant reaches an ancestor's run only to record evidence.
   if (context.caller.threadId !== context.threadId && request.action !== "evidence")
@@ -107,6 +138,8 @@ export function transition(
       criteria: request.criteria,
       owner: context.caller,
       roles: request.roles ?? {},
+      ...(request.playbook ? { playbook: request.playbook } : {}),
+      steps: startSteps(request),
       phase: "plan",
       version: 0,
       blocker: null,
@@ -132,6 +165,7 @@ export function transition(
       `Resolve the recorded blocker first: call resume with runId "${current.id}", version ${current.version} and the decision in note`,
     );
   if (request.action === "revise") return revise(current, next, request.criterion, request.note);
+  if (request.action === "step") return markStep(current, next, request);
   if (request.action === "evidence") {
     const evidence = request.evidence;
     const criterion = current.criteria.find((item) => item.id === evidence.criterionId);
@@ -162,6 +196,11 @@ export function transition(
         ? `Advance one phase at a time: the next is ${phases[from + 1]}; or return to an earlier phase`
         : "The run is in delivery; return to an earlier phase to repair",
     );
+  const open = to > from ? todo(current, current.phase) : [];
+  if (open.length)
+    throw new OffshiftError(
+      `Finish ${current.phase} first: ${open.length} step${open.length === 1 ? "" : "s"} to do (${open.map((step) => step.id).join(", ")}). Call step for each: done with what you observed, or skipped with the reason`,
+    );
   if (request.phase === "delivery") {
     const pending = view(current, context).pending;
     const first = pending[0];
@@ -171,6 +210,42 @@ export function transition(
       );
   }
   return OffshiftRun.parse({ ...next, phase: request.phase, note: request.note });
+}
+
+/**
+ * Marks one step. Skipping needs its reason. A step of a later phase waits for that phase, so
+ * the run's phase stays the honest place in the procedure.
+ */
+function markStep(
+  current: OffshiftRun,
+  next: OffshiftRun,
+  request: Extract<OffshiftRequest, { action: "step" }>,
+): OffshiftRun {
+  const step = current.steps.find((item) => item.id === request.stepId);
+  if (!step)
+    throw new OffshiftError(
+      current.steps.length
+        ? `No step ${request.stepId} in this run; its steps are ${current.steps.map((item) => item.id).join(", ")}`
+        : "This run has no steps; start a run with a playbook or steps to track them",
+    );
+  if (phases.indexOf(step.phase) > phases.indexOf(current.phase))
+    throw new OffshiftError(
+      `Step ${step.id} belongs to ${step.phase}; advance there first (the run is in ${current.phase})`,
+    );
+  if (request.state === "skipped" && !request.note)
+    throw new OffshiftError(`Skipping ${step.id} needs a note with the reason`);
+  const marked: OffshiftStep = {
+    id: step.id,
+    title: step.title,
+    phase: step.phase,
+    state: request.state,
+    ...(request.note ? { note: request.note } : {}),
+  };
+  return OffshiftRun.parse({
+    ...next,
+    steps: current.steps.map((item) => (item.id === step.id ? marked : item)),
+    note: `Step ${step.id} ${request.state}`,
+  });
 }
 
 /**
