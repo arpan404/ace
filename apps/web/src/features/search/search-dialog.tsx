@@ -13,6 +13,7 @@ import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
+import { warmThread } from "@/lib/thread-warmer.ts";
 import { focusComposerSoon } from "@/lib/focus-composer.ts";
 import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
 import { searchSettleMs, useDebouncedValue } from "@/lib/debounced.ts";
@@ -139,6 +140,10 @@ function SearchBody(props: { initial: string; onClose(): void }) {
     setActive(0);
   };
   const hits = query ? (results.hits ?? []) : [];
+  const activeThreadId = hits[active]?.threadId;
+  useEffect(() => {
+    if (activeThreadId) warmThread(client, activeThreadId);
+  }, [client, activeThreadId]);
 
   // The active result stays in view as the arrows move it.
   useEffect(() => {
