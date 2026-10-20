@@ -142,13 +142,16 @@ export function registerAceMcpTools(
   connection: AceMcpConnection,
   offered: AceToolFilter = anyAceTool,
 ): void {
-  // Pi's turn-start hook is synchronous, so the session brief is read from ace://session in the
-  // background and the latest copy goes into each turn's system prompt.
+  // The brief and roles are read from ace://session once, while Pi awaits session_start, so the
+  // first turn already has them. The text is then fixed for the session: Pi resends the system
+  // prompt every turn, and any change would bill the whole conversation uncached. What changes
+  // later reaches the agent through each ace result's change note and the context tool.
   let guidance: SessionGuidance = {};
+  let instructions: string | undefined;
   let client: McpClient | undefined;
   let started: Promise<void> | undefined;
   let closed = false;
-  const refreshGuidance = async () => {
+  const readGuidance = async () => {
     try {
       if (!client) return;
       const read = await client.readResource({ uri: "ace://session" });
@@ -165,9 +168,8 @@ export function registerAceMcpTools(
     }
   };
   pi.on("before_agent_start", (event) => {
-    const systemPrompt = `${event.systemPrompt}\n\n${developerInstructions("pi", guidance)}`;
-    void refreshGuidance();
-    return { systemPrompt };
+    instructions ??= developerInstructions("pi", guidance);
+    return { systemPrompt: `${event.systemPrompt}\n\n${instructions}` };
   });
   pi.on("tool_result", (event) => {
     if (!event.toolName.startsWith("ace_")) return;
@@ -199,7 +201,7 @@ export function registerAceMcpTools(
           fetch: boundedFetch,
         }),
       );
-      await refreshGuidance();
+      await readGuidance();
       await listen(pi, mcp, offered);
     } catch (error) {
       await mcp.close();
