@@ -1,10 +1,19 @@
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { aceGuidance } from "./status.ts";
-import { coreToolsHeader, staticToolsHeader } from "./toolsets.ts";
+import {
+  codexClientHeader,
+  coreToolsHeader,
+  staticToolsHeader,
+  toolListingHeader,
+  type ToolListing,
+} from "./toolsets.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
 import { destructiveAceTools } from "./agent-control.ts";
-import type { ProviderKind } from "@ace/protocol";
+import {
+  developerInstructions,
+  usualToolListing,
+  type SessionGuidance,
+} from "./session-guidance.ts";
 
 export const AceMcpConnectionSchema = z.strictObject({
   url: z.url().refine((value) => {
@@ -23,45 +32,11 @@ export const AceMcpConnectionSchema = z.strictObject({
   bearer: z.string().regex(/^[a-f0-9]{64}$/),
 });
 export type AceMcpConnection = z.infer<typeof AceMcpConnectionSchema>;
-/** Providers whose CLI shows MCP server instructions to the model; the rest opt out. */
-const readsServerInstructions = new Set<ProviderKind>(["claude", "opencode", "acp", "antigravity"]);
-/** What the daemon knows about this session when it injects guidance. */
-export interface SessionGuidance {
-  /** The session brief (facts), rendered by `renderBrief`. */
-  brief?: string | undefined;
-  /** Enabled ace groups. Omitted: guidance for every group. */
-  groups?: readonly string[] | undefined;
-}
-/** Where the provider natively lists ace's shipped skills; the rest read them via `guide`. */
-const skills = "The ace guides are also installed as skills of the same names.";
-/** How each provider spells ace's bare tool names (its MCP namespace for server `ace`). */
-const prefix: Record<ProviderKind, string> = {
-  codex: `ace tools come from the ace MCP server (mcp__ace__<tool>) and may be deferred: search for ace when a task matches. ${skills}`,
-  claude: `ace tools are named mcp__ace__<tool>, for example mcp__ace__delegate, and may be deferred: search for ace when a task matches. ${skills}`,
-  opencode: `OpenCode names ace tools ace_<tool>: guide is ace_guide and delegate is ace_delegate. ${skills} Load them with your skill tool.`,
-  cursor: `ace tools come from the ace MCP server. ${skills}`,
-  antigravity: "ace tools come from the ace MCP server.",
-  acp: "ace tools come from the ace MCP server.",
-  pi: `ace tools are your ace_<tool> extension tools: guide is ace_guide and delegate is ace_delegate. ${skills}`,
-};
-
-/**
- * Guidance for the provider's own system/developer channel. Each provider receives ace's
- * always-on guidance once: through MCP server instructions where the CLI shows them, and
- * through this channel otherwise. Everything task-specific is in the guides it points to.
- */
-export function developerInstructions(
-  provider: ProviderKind,
-  session: SessionGuidance = {},
-): string {
-  return [
-    readsServerInstructions.has(provider) ? undefined : aceGuidance(session.groups),
-    prefix[provider],
-    session.brief,
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
+export {
+  developerInstructions,
+  usualToolListing,
+  type SessionGuidance,
+} from "./session-guidance.ts";
 /** A lease plus, when the daemon has one, this session's guidance (read once at injection). */
 type Injected = AceMcpConnection & { session?: (() => SessionGuidance) | undefined };
 export function codexInjection(input: Injected) {
@@ -74,6 +49,9 @@ export function codexInjection(input: Injected) {
           Authorization: `Bearer ${bearer}`,
           "X-Ace-Instructions": "native",
           "X-Ace-Notifications": "stream",
+          // Codex lists every tool, but its code-mode models never see a schema: guide and
+          // tools_find return schemas and the exec call form to it.
+          [codexClientHeader.name]: codexClientHeader.value,
         },
         tool_timeout_sec: maxToolTimeoutMs / 1000,
         // Codex otherwise gates every ace tool it can't prove read-only and never remembers
@@ -125,24 +103,32 @@ export function openCodeInjection(input: Injected) {
     developerInstructions: developerInstructions("opencode", input.session?.()),
   };
 }
-export function acpInjection(input: Injected, provider: "cursor" | "antigravity" | "acp" = "acp") {
+/** An ACP lease, with the listing its agent's tool refresh supports (`acpToolListing`). */
+type AcpInjected = Injected & { listing?: ToolListing | undefined };
+export function acpInjection(
+  input: AcpInjected,
+  provider: "cursor" | "antigravity" | "acp" = "acp",
+) {
   const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
+  // ACP leaves tools/list_changed to each agent. Without a known agent the provider's usual
+  // listing applies: Antigravity defers like Claude; the rest keep the core tools, tools_find
+  // and tools_call, the one listing every agent can use.
+  const listing = input.listing ?? usualToolListing(provider);
+  const header = toolListingHeader(listing);
   return {
     mcpServers: [
       {
         type: "http" as const,
         name: "ace",
         url,
-        // ACP leaves tools/list_changed to each agent and most never refresh, so the list stays
-        // the core tools plus tools_find, and every other tool is reached through tools_call.
         headers: [
           { name: "Authorization", value: `Bearer ${bearer}` },
           { name: "X-Ace-Notifications", value: "stream" },
-          staticToolsHeader,
+          ...(header ? [header] : []),
         ],
       },
     ],
-    developerInstructions: developerInstructions(provider, input.session?.()),
+    developerInstructions: developerInstructions(provider, { ...input.session?.(), listing }),
   };
 }
 
@@ -175,7 +161,7 @@ export function redactMcpCredential(encoded: string, input?: AceMcpConnection): 
 }
 /** The provider starts this child inside its supervised process group. Lease travels in env. */
 export function acpStdioInjection(
-  input: AceMcpConnection,
+  input: AceMcpConnection & { listing?: ToolListing | undefined },
   runtime: { command: string; entrypoint: string } = {
     command: process.execPath,
     entrypoint: fileURLToPath(new URL("./stdio-entry.ts", import.meta.url)),
@@ -191,6 +177,7 @@ export function acpStdioInjection(
         env: [
           { name: "ACE_MCP_BRIDGE_URL", value: url },
           { name: "ACE_MCP_BRIDGE_BEARER", value: bearer },
+          { name: "ACE_MCP_BRIDGE_TOOLS", value: input.listing ?? "static" },
         ],
       },
     ],

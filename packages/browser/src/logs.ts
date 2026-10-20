@@ -21,20 +21,22 @@ export class SessionLogs {
     tabId?: string | undefined;
     limit: number;
   }) {
+    const matched = this.retained.filter(
+      (entry) =>
+        (!filter.kind || entry.kind === filter.kind) &&
+        (!filter.level ||
+          entry.type === filter.level ||
+          (filter.level === "error" && entry.type === "pageerror")) &&
+        (!filter.url || entry.url?.includes(filter.url)) &&
+        (filter.status === undefined || entry.status === filter.status) &&
+        (!filter.tabId || !entry.tabId || entry.tabId === filter.tabId),
+    );
+    const more = Math.max(0, matched.length - filter.limit);
+    // `more`: older matching entries left out, so a reader never takes the page for all of them.
     return {
-      entries: this.retained
-        .filter(
-          (entry) =>
-            (!filter.kind || entry.kind === filter.kind) &&
-            (!filter.level ||
-              entry.type === filter.level ||
-              (filter.level === "error" && entry.type === "pageerror")) &&
-            (!filter.url || entry.url?.includes(filter.url)) &&
-            (filter.status === undefined || entry.status === filter.status) &&
-            (!filter.tabId || !entry.tabId || entry.tabId === filter.tabId),
-        )
-        .slice(-filter.limit),
+      entries: matched.slice(-filter.limit),
       limit: filter.limit,
+      ...(more ? { more } : {}),
     };
   }
   constructor(dir: string, privateLimit = 16 * 1024 * 1024) {

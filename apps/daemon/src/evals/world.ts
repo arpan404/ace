@@ -3,7 +3,12 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
 import { detectChromium, type BrowserBackend } from "@ace/browser";
-import { claudeInjection, codexInjection, type AceMcpConnection } from "@ace/mcp-server";
+import {
+  claudeInjection,
+  codexInjection,
+  type AceMcpConnection,
+  type SessionGuidance,
+} from "@ace/mcp-server";
 import { ScreenManager } from "@ace/screen";
 import type { Fact } from "@ace/core";
 import { Command, type AccessMode, type ThreadId, type ProviderKind } from "@ace/protocol";
@@ -12,6 +17,9 @@ import { setup } from "../agent-control/test-support.ts";
 import { end, start } from "../engine/test-support.ts";
 import { scriptedModelInstance, seedScriptedModels } from "../testing/models.ts";
 import { EvalAgent } from "./agent.ts";
+
+/** A lease as the provider session receives it, with the guidance the daemon read for it. */
+type Lease = AceMcpConnection & { session?: (() => SessionGuidance) | undefined };
 
 /** Which native instruction channel the scripted model reads, as the real adapter injects it. */
 export type Delivery = "claude" | "codex";
@@ -135,7 +143,7 @@ export async function evalWorld(options: {
       access?: AccessMode;
       prompt?: string;
       delivery?: Delivery;
-    }): Promise<{ agent: EvalAgent; threadId: ThreadId; connection: AceMcpConnection }> {
+    }): Promise<{ agent: EvalAgent; threadId: ThreadId; connection: Lease }> {
       const thread = await createThread(
         "codex",
         input.access ?? "full-access",
@@ -147,7 +155,7 @@ export async function evalWorld(options: {
     async attach(
       threadId: ThreadId,
       delivery: Delivery = "claude",
-    ): Promise<{ agent: EvalAgent; threadId: ThreadId; connection: AceMcpConnection }> {
+    ): Promise<{ agent: EvalAgent; threadId: ThreadId; connection: Lease }> {
       for (let attempt = 0; attempt < 200 && !h.contexts.get(threadId)?.aceMcp; attempt++) {
         await engine.flush();
         await new Promise((resolve) => setImmediate(resolve));

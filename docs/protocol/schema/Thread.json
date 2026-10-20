@@ -153,6 +153,9 @@
     "rootAgentId": {
       "$ref": "https://ace.local/protocol/v1/AgentId.json"
     },
+    "run": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftRunMark.json"
+    },
     "settleWhenDone": {
       "const": true,
       "type": "boolean"

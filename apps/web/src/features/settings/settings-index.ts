@@ -116,6 +116,30 @@ const entries = [
     keywords: ["utility model", "thread title", "commit message", "pull request", "haiku", "luna"],
   },
   {
+    id: "roles.build",
+    page: "/settings/general",
+    title: "Build",
+    keywords: ["roles", "runRole", "delegate", "coder", "implement"],
+  },
+  {
+    id: "roles.judgment",
+    page: "/settings/general",
+    title: "Judgment",
+    keywords: ["roles", "runRole", "delegate", "planner", "design"],
+  },
+  {
+    id: "roles.review",
+    page: "/settings/general",
+    title: "Review",
+    keywords: ["roles", "runRole", "delegate", "reviewer"],
+  },
+  {
+    id: "roles.verify",
+    page: "/settings/general",
+    title: "Verify",
+    keywords: ["roles", "runRole", "delegate", "verifier", "check"],
+  },
+  {
     id: "generation.autoDraftCommits",
     page: "/settings/general",
     title: "Auto-draft commit messages",

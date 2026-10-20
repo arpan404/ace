@@ -222,8 +222,9 @@ it.each(cases)(
           ? [httpReply.data.body.mcpProof]
           : [];
     });
-    // ACP agents never reload their list: the browser's other tools are reached by tools_call.
-    const fixedList = provider === "acp" || provider === "antigravity";
+    // Generic ACP agents never reload their list: the browser's other tools are reached by
+    // tools_call. Antigravity lists every tool and loads the deferred ones on demand.
+    const fixedList = provider === "acp";
     expect(observed).toContainEqual(
       expect.objectContaining({
         tools: fixedList

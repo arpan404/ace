@@ -15,6 +15,7 @@ import {
   fields,
   type Control,
 } from "./control-tool.ts";
+import { agentThreadPage } from "./thread-view.ts";
 
 const threads = { toolset: "ace-threads", timeoutMs: controlToolTimeoutMs } as const;
 const ownedThread = ThreadId.describe(
@@ -110,7 +111,7 @@ const threadRead = controlTool({
   input: z.strictObject({
     threadId: ThreadId.optional().describe("Default: this thread."),
     before: z.number().int().positive().optional().describe("The previous page's itemsBefore."),
-    limit: z.number().int().min(1).max(50).default(20).describe("Items per page, 1 to 50."),
+    limit: z.number().int().min(1).max(50).default(10).describe("Items per page, 1 to 50."),
     streamId: z
       .string()
       .min(1)
@@ -161,9 +162,12 @@ const threadRead = controlTool({
   },
 });
 
-/** A thread's identifying fields; the full record carries client state an agent never reads. */
+/**
+ * A thread's identifying fields and lean items; the full records carry client state and native
+ * payloads an agent never reads.
+ */
 function compactPage(data: unknown): Record<string, unknown> {
-  const page = z.record(z.string(), z.unknown()).safeParse(data).data ?? {};
+  const page = agentThreadPage(z.record(z.string(), z.unknown()).safeParse(data).data ?? {});
   const thread = z.record(z.string(), z.unknown()).safeParse(page["thread"]).data;
   if (!thread) return page;
   const keep = ["id", "title", "titleSource", "provider", "workspaceId", "status", "permission"];

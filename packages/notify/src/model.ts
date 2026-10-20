@@ -3,7 +3,9 @@ import { ThreadStatus } from "@ace/protocol/thread-status";
 import { InteractionId } from "@ace/protocol/ids";
 import { Notification } from "@ace/protocol/notifications";
 import type { Event, Interaction } from "@ace/protocol";
+import { runNotice } from "@ace/projection/offshift-mark";
 import type { MetadataEvent } from "./metadata.ts";
+import { RunSignal } from "./run-signal.ts";
 import { alertStatus } from "./policy.ts";
 
 export const InteractionLink = z.object({
@@ -16,6 +18,10 @@ export const CompactThread = z.object({
   generation: z.number().int().nonnegative().default(0),
   title: z.string().max(200),
   status: ThreadStatus,
+  /** The thread's latest Offshift run, from its last `offshift.updated`. */
+  run: RunSignal.optional(),
+  /** The run write whose delivery was last announced, so it is announced once. */
+  announced: z.string().max(200).optional(),
 });
 export type CompactThread = z.infer<typeof CompactThread>;
 export const Pending = z.object({
@@ -53,6 +59,7 @@ export function advance(
   const p = event.payload;
   let changed = false;
   let background = 0;
+  if (p.type === "offshift.updated") state.run = p.run;
   if (p.type === "thread.client.updated" && p.deletedAt !== undefined)
     state.deleted = p.deletedAt !== null;
   if (p.type === "thread.updated") {
@@ -97,5 +104,26 @@ export function content(
     ...(interaction ? { interactionId: interaction.id } : {}),
     backgroundCount: pending.backgroundCount,
     actions: interaction?.actions ?? [],
+    ...(status === "done" ? runPart(state) : {}),
   });
+}
+
+/**
+ * What a finished notice says about the thread's latest run, folded into it rather than sent
+ * beside it: a run left open or blocked is named on every settle, since the tree is done but
+ * the work is not, and a delivered run once per run write.
+ */
+function runPart(state: CompactThread): Pick<Notification, "run" | "message"> {
+  const run = state.run;
+  const notice = run && runNotice(run.mark, state.status.state);
+  if (!run || !notice) return {};
+  if (notice.outcome === "delivered" && state.announced === run.key) return {};
+  const message =
+    notice.outcome === "delivered" || !run.detail
+      ? notice.headline
+      : `${notice.headline}: ${run.detail}`;
+  return {
+    run: { outcome: notice.outcome, phase: notice.phase },
+    message: message.length > 300 ? `${message.slice(0, 299)}…` : message,
+  };
 }

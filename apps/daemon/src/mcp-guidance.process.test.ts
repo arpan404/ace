@@ -6,6 +6,7 @@ import {
   ToolRegistry,
   aceInstructions,
   bareToolName,
+  codexInjection,
   developerInstructions,
   guideTopics,
   nodeScheduler,
@@ -112,6 +113,19 @@ it("every tool the instructions name is served, in every provider's guidance", a
   // Each family the instructions point to is a guide topic the guide tool accepts.
   const guides = new Set((await builtinGuides()).map((guide) => guide.name));
   for (const topic of guideTopics) expect(guides.has(topic), topic).toBe(true);
+});
+
+it("a read-only thread's guidance names ace tools the server serves as read-only", async () => {
+  world = await evalWorld({ browser: false });
+  const { agent, connection } = await world.agent({ access: "read-only" });
+  const text = codexInjection(connection).developerInstructions;
+  const named = /ace's read tools \(([^)]+)\) still work/.exec(text)?.[1]?.split(", ") ?? [];
+  expect(named).toEqual(expect.arrayContaining(["context", "thread_read", "wait"]));
+  for (const name of named)
+    expect(
+      agent.tools.find((tool) => bareToolName(tool.name) === name)?.annotations,
+      name,
+    ).toMatchObject({ readOnlyHint: true });
 });
 
 it("the agents and threads guides quote only served tools, their fields and values", async () => {

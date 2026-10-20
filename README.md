@@ -24,6 +24,7 @@ Each agent CLI owns its credentials. ace can start its login or hand a pasted AP
 | `apps/desktop`            | Electron shell: daemon supervision, notifications, in-app browser       |
 | `packages/projection`     | Pure shared event folds for thread and sidebar views                    |
 | `packages/git`            | Local Git worktrees, checkpoints, diffs and safe restore                |
+| `packages/offshift`       | Durable coding workflow records with revision-bound evidence            |
 | `packages/orchestrator`   | Multi-provider fan-out, races, pipelines and coordinator lanes          |
 | `packages/review`         | Local diff comments, persistent anchors and structured agent fixes      |
 | `packages/protocol`       | Canonical protocol: Zod schemas and types, no runtime logic             |
@@ -46,6 +47,8 @@ and cancellation.
 The [headless CLI](docs/daemon/cli.md) exposes thread and delegated-task control.
 
 Agents can publish [HTML visualizations](docs/daemon/html-visualizations.md) through dedicated MCP tools. Pages replay with the thread and run in an offline sandbox. Claude Code and Codex sessions receive the bundled `visualize` skill.
+
+Agents can load Offshift on request (`guide` topic `offshift`) to keep a durable record of a coding outcome through verification and delivery. See [the native workflow contract](packages/offshift/README.md).
 
 The generated [protocol reference](docs/protocol/README.md) covers WebSocket messages, canonical events and built-in MCP tools. Regenerate it with `bun run docs:protocol`.
 

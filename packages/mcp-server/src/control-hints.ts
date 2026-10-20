@@ -33,6 +33,11 @@ const byOp: Partial<Record<Op, Partial<Record<Code, string>>>> = {
   "question.answer": {
     not_ready: "That question is no longer pending. Call agents_status for current requests.",
   },
+  offshift: {
+    not_ready: "This thread's workspace moved during the call. Call offshift again.",
+    invalid:
+      "Call offshift with action get for the current version and pending evidence, then retry.",
+  },
   "thread.configure": {
     invalid: "That model is not available to this thread. Call models and pick a listed id.",
   },

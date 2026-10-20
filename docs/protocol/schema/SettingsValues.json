@@ -109,7 +109,14 @@
       "type": "string"
     },
     "providers.coder.provider": {
-      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "providers.coder.reasoningEffort": {
       "enum": [
@@ -146,7 +153,14 @@
       "type": "string"
     },
     "providers.planner.provider": {
-      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "providers.planner.reasoningEffort": {
       "enum": [
@@ -177,7 +191,14 @@
       "type": "string"
     },
     "providers.reviewer.provider": {
-      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "providers.reviewer.reasoningEffort": {
       "enum": [
@@ -193,6 +214,44 @@
       "type": "string"
     },
     "providers.reviewer.tier": {
+      "enum": [
+        "default",
+        "standard",
+        "fast",
+        "flex",
+        "priority"
+      ],
+      "type": "string"
+    },
+    "providers.verifier.model": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "providers.verifier.provider": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "providers.verifier.reasoningEffort": {
+      "enum": [
+        "default",
+        "none",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "type": "string"
+    },
+    "providers.verifier.tier": {
       "enum": [
         "default",
         "standard",
@@ -328,6 +387,10 @@
     "providers.planner.model",
     "providers.planner.tier",
     "providers.planner.reasoningEffort",
+    "providers.verifier.provider",
+    "providers.verifier.model",
+    "providers.verifier.tier",
+    "providers.verifier.reasoningEffort",
     "browser.backend",
     "browser.backendLoss",
     "browser.profile",

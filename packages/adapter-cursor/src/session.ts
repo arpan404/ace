@@ -16,6 +16,8 @@ export interface CursorSessionOptions extends HostOptions {
   now?: () => number;
   operationId?: () => string;
   mcp?: AceMcpConnection;
+  /** This session's ace guidance, written into Cursor's always-applied rule. */
+  instructions?: string;
   /** Validated, bounded checkpoint evidence; never appended as fresh live history. */
   recoverySnapshot?: Awaited<ReturnType<typeof import("./history.ts").readCursorSnapshot>>;
 }
@@ -163,6 +165,7 @@ export async function openCursorSession(
         autoReviewAvailable: options.autoReviewAvailable ?? false,
         limits,
         ...(options.mcp ? { mcp: options.mcp } : {}),
+        ...(options.mcp && options.instructions ? { instructions: options.instructions } : {}),
       }),
     );
     context.signal.throwIfAborted();

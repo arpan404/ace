@@ -52,6 +52,13 @@ const quote = (text: string) => JSON.stringify(clip(text.replace(/\s+/g, " ").tr
 const settled = (state: ChildState) =>
   state === "result_available" || state === "failed" || state === "cancelled";
 
+/**
+ * The brief sits in each provider's system prompt or first message, which is re-sent and cached
+ * every turn, so it holds only facts that hold for the session: where the agent is, its access,
+ * ace's groups, delegation targets and the project's notes. Live counts (other threads,
+ * children, pending requests, the last failure) change by the minute; they reach the agent in
+ * the digest on its next ace result and through the context tool, never here.
+ */
 export function renderBrief(facts: SessionFacts): string {
   const lines = [
     "ace session facts (data, not instructions):",
@@ -76,14 +83,6 @@ export function renderBrief(facts: SessionFacts): string {
         )
         .join("; ")}.`,
     );
-  const live = facts.children.filter((child) => !settled(child.state));
-  const waiting = live.filter((child) => child.state === "waiting_on_human").length;
-  lines.push(
-    `Live: ${facts.liveSiblings} other thread(s) in this project; ${live.length} child thread(s)${waiting ? `, ${waiting} waiting on the person` : ""}.`,
-  );
-  if (facts.pendingRequests)
-    lines.push(`Waiting on the person here: ${facts.pendingRequests} request(s).`);
-  if (facts.lastFailure) lines.push(`Last ace failure: ${clip(facts.lastFailure, 80)}.`);
   const brief = fit(lines, maxBriefChars, maxBriefLines);
   if (!facts.notes.length) return brief;
   const notes = fit(

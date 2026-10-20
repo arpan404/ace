@@ -1,8 +1,11 @@
-import { acpInjection, acpStdioInjection } from "@ace/mcp-server";
+import { acpInjection, acpStdioInjection, usualToolListing } from "@ace/mcp-server";
 import type { ProviderAdapter, ProviderSession, SessionContext } from "@ace/engine-api";
 import type { McpCapability } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import type { startDaemonMcp } from "../mcp.ts";
+
+/** Providers whose ace server goes in ACP's session definitions. */
+const acpProviders = ["acp", "cursor", "antigravity"] as const;
 
 export async function bindMcpSession(
   adapter: ProviderAdapter,
@@ -58,11 +61,14 @@ export async function bindMcpSession(
           changes: lease.changes,
         }
       : undefined);
+  const acpProvider = acpProviders.find((provider) => provider === adapter.provider);
+  // Each provider lists what it supports: Antigravity defers like Claude, the others stay fixed.
+  const listing = acpProvider ? usualToolListing(acpProvider) : undefined;
   const nativeMcp =
-    connection && ["acp", "cursor", "antigravity"].includes(adapter.provider)
+    connection && acpProvider
       ? {
-          httpServers: acpInjection(connection).mcpServers,
-          stdioServers: acpStdioInjection(connection).mcpServers,
+          httpServers: acpInjection({ ...connection, listing }, acpProvider).mcpServers,
+          stdioServers: acpStdioInjection({ ...connection, listing }).mcpServers,
           secrets: [connection.bearer],
           end,
         }

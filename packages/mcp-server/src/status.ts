@@ -8,6 +8,8 @@ export const guideTopics = [
   "ace-threads",
   "ace-computer-use",
 ] as const;
+/** Every family a tool can belong to: the guides above and offshift, loaded only on request. */
+export const toolFamilies = [...guideTopics, "offshift"] as const;
 
 export type StatusReader = (caller: McpAttribution) => {
   access: McpStatus["access"];
@@ -19,7 +21,7 @@ export type StatusReader = (caller: McpAttribution) => {
 };
 
 /**
- * MCP server instructions: the always-on part of ace's guidance, kept under about 300 tokens.
+ * MCP server instructions: the always-on part of ace's guidance, kept under about 315 tokens.
  * Claude Code and Codex defer ace tools behind tool search, so this says when to reach for them
  * by naming the situation and the tool; the detail lives in the guides (`guide`, and native
  * skills where ace ships them). Tool names are bare: providers add the `ace` namespace.
@@ -42,7 +44,7 @@ export function aceGuidance(groups?: readonly string[]): string {
       : "",
     has("screen", "devices") ? "- the person names a native app or simulator: screen_state;" : "",
     "Not sure which ace tool fits? tools_find with what you want to do.",
-    `Each family's how-to and other tools: guide with topic ${guideTopics.join(", ")}.`,
+    `Each family's how-to and other tools: guide with topic ${guideTopics.join(", ")}; offshift loads Offshift, to own a coding outcome end to end.`,
     "If an ace tool says its group is off, tell the person. Agents never answer approvals.",
   ]
     .filter(Boolean)

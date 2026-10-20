@@ -332,6 +332,14 @@ export class NotificationDatabase {
         const state = this.thread(threadId);
         const link = this.tracking.first(threadId);
         const notification = content(threadId, state, value, link);
+        // A delivered run is announced once per run write; later settles say only Finished.
+        if (notification.run?.outcome === "delivered" && state.run) {
+          state.announced = state.run.key;
+          this.statement("UPDATE threads SET body=? WHERE id=?").run(
+            JSON.stringify(CompactThread.parse(state)),
+            threadId,
+          );
+        }
         const serialized = JSON.stringify(notification);
         for (const device of devices) {
           this.statement(

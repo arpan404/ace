@@ -275,6 +275,51 @@ function installPage(): Scenario {
         ],
       },
       {
+        kind: "offshift",
+        card: {
+          id: "install-page",
+          outcome: "The install page walks a new user from download to a running daemon",
+          outcomeTruncated: false,
+          endpoint: "Verified local change",
+          phase: "verify",
+          blocker: null,
+          version: 6,
+          updatedAt: 0,
+          revision: "install-page-r3",
+          criteria: [
+            {
+              id: "commands",
+              description: "Every command on the page runs on a clean machine",
+              independent: true,
+              evidence: [{ kind: "manual", state: "missing", recordedAt: null, by: null }],
+            },
+            {
+              id: "service",
+              description: "The service install section matches ace start --help",
+              independent: false,
+              evidence: [
+                {
+                  kind: "source",
+                  state: "pass",
+                  recordedAt: 0,
+                  by: { provider: "opencode", model: null },
+                },
+              ],
+            },
+          ],
+          criteriaCount: 2,
+          pending: [{ criterionId: "commands", kind: "manual" }],
+          pendingCount: 1,
+          steps: [
+            {
+              id: "real-surface",
+              title: "Use the feature where people will use it, not through a proxy",
+              state: "todo",
+            },
+          ],
+        },
+      },
+      {
         kind: "facts",
         facts: [
           message(

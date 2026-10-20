@@ -10,14 +10,13 @@ const RecentThread = z.object({
   threadId: z.string(),
   title: clipped(256),
   status: z.string(),
-  updatedAt: z.number(),
   branch: clipped(256).optional(),
   prs: z
     .array(z.object({ number: z.number(), state: z.string(), url: clipped(2048) }))
     .max(8)
     .optional(),
-  /** The thread's last answer, one line. */
-  outcome: clipped(400).optional(),
+  /** The thread's last answer, one line of at most 160 characters. */
+  outcome: clipped(160).optional(),
 });
 const Changes = z.object({
   branch: clipped(256).nullable(),
@@ -50,7 +49,7 @@ const Diagnostics = z.object({
   blocking: z.array(clipped(240)).max(16),
 });
 export const KnowledgeResult = z.object({
-  recent: z.array(RecentThread).max(10).optional(),
+  recent: z.array(RecentThread).max(5).optional(),
   changes: Changes.nullable().optional(),
   prs: z.array(Pr).max(20).optional(),
   notes: z.array(Note).max(50).optional(),

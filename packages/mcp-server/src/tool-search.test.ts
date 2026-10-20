@@ -160,6 +160,12 @@ it("naming a tool outright ranks it first", () => {
   expect(names("browser_open")[0]).toBe("browser_open");
 });
 
+it("naming a tool in any provider's spelling finds exactly what its bare name finds", () => {
+  for (const spelled of ["mcp__ace__browser_open", "ace_browser_open", " MCP__ACE__browser_open "])
+    expect(names(spelled), spelled).toEqual(names("browser_open"));
+  expect(names("browser_open")).toEqual(["browser_open"]);
+});
+
 it("a query that shares no meaningful word with any tool finds nothing", () => {
   expect(names("zzz qqq")).toEqual([]);
   expect(names("the and of")).toEqual([]);

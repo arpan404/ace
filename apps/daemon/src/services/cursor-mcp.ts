@@ -1,4 +1,5 @@
 import type { CursorAdapterOptions } from "@ace/adapter-cursor";
+import { developerInstructions } from "@ace/mcp-server";
 import type { ServiceContext } from "./types.ts";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import { releaseMcpControllers } from "./provider-mcp.ts";
@@ -26,6 +27,8 @@ export async function openCursorMcp(
   return {
     signal: lease.principal.signal,
     connection: { url: mcp.url, bearer: lease.bearer },
+    // Rendered once here: the rule file is the session's instructions and never changes.
+    instructions: developerInstructions("cursor", lease.session()),
     end: lease.end,
   };
 }

@@ -338,3 +338,28 @@ test("one agent can hold twenty waits at once and each still returns its child's
     await f.daemon.close();
   }
 });
+
+test("compact tree displays retain the state of remote children beyond the display limit", async () => {
+  const f = await daemonFixture();
+  try {
+    const children = Array.from({ length: 65 }, (_, index) => ({
+      id: ThreadId.parse(`remote-${index}`),
+      role: "Remote check",
+      state: index === 64 ? ("needs_you" as const) : ("done" as const),
+      elapsedSeconds: 0,
+    }));
+    f.controls.delegations.monitor.attachRemote({
+      owns: () => true,
+      watched: () => undefined,
+      children: () => children,
+      delivered: () => {},
+      subscribe: () => () => {},
+    });
+    const snapshot = MonitorSnapshot.parse((await f.call({ op: "agents.status" })).data);
+    expect(snapshot.children).toHaveLength(64);
+    expect(snapshot.counts.needs_you).toBe(1);
+    expect(snapshot.counts.done).toBe(64);
+  } finally {
+    await f.daemon.close();
+  }
+});

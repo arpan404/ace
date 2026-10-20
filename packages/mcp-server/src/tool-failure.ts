@@ -1,10 +1,17 @@
 import { z } from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { PublicToolError } from "./public-error.ts";
-import { argumentIssues } from "./argument-issues.ts";
+import { argumentIssues, shapeIssue } from "./argument-issues.ts";
 
-/** Intentionally public failures carry fixed messages. Code-shaped backend objects are untrusted. */
-export function parseToolArguments<T extends z.ZodType>(schema: T, value: unknown): z.output<T> {
+/**
+ * Intentionally public failures carry fixed messages. Code-shaped backend objects are untrusted.
+ * A call shaped wrong (a field or variant that does not exist) also learns where the schema is.
+ */
+export function parseToolArguments<T extends z.ZodType>(
+  schema: T,
+  value: unknown,
+  tool?: string,
+): z.output<T> {
   const parsed = schema.safeParse(value);
   if (!parsed.success)
     throw new PublicToolError(
@@ -12,8 +19,8 @@ export function parseToolArguments<T extends z.ZodType>(schema: T, value: unknow
       undefined,
       undefined,
       undefined,
-      undefined,
-      argumentIssues(parsed.error),
+      tool && shapeIssue(parsed.error) ? `tools_find ${tool} returns its schema.` : undefined,
+      argumentIssues(parsed.error, schema),
     );
   return parsed.data;
 }

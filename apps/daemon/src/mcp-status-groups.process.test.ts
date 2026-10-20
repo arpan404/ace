@@ -95,24 +95,18 @@ async function threadConnection() {
   return { daemon, client, status };
 }
 
-it("a new thread's context status lists only groups ace serves, with every served group enabled", async () => {
+it("a new thread's context status names only the groups that are off, each with why", async () => {
   const { daemon, status } = await threadConnection();
   const reported = await status();
   const names = reported.groups.map((group) => group.name);
   // ace has no terminal, forge or file tools; listing them as disabled told agents they could not edit files.
   for (const missing of ["terminal", "forge", "preview", "files"])
     expect(names).not.toContain(missing);
-  for (const name of [
-    "thread",
-    "browser",
-    "notify",
-    "agents",
-    "thread_control",
-    "automations",
-    "projects",
-  ])
-    expect(reported.groups).toContainEqual({ name, enabled: true });
-  for (const group of reported.groups.filter((entry) => !entry.enabled)) {
+  // Served groups are on, so they cost no words.
+  for (const name of ["thread", "browser", "notify", "agents", "thread_control", "automations"])
+    expect(names).not.toContain(name);
+  for (const group of reported.groups) {
+    expect(group.enabled).toBe(false);
     expect(["screen", "devices"]).toContain(group.name);
     expect(group.reason).not.toMatch(/backend|configure/i);
   }

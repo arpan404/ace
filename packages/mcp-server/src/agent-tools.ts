@@ -8,6 +8,7 @@ import {
   MessageText,
   MonitorSnapshot,
   ProviderKind,
+  RunRole,
   ThreadId,
   WaitMode,
   WaitResult,
@@ -38,6 +39,7 @@ const DelegateTask = z.strictObject({
     "The whole assignment: goal, files, constraints, project notes that apply, and how to verify. The child sees none of your conversation.",
   ),
   role: DelegationRole,
+  runRole: RunRole.optional().describe("Run as a role from your Roles line."),
   provider: ProviderKind.optional().describe(
     "Provider that runs the child. Default: yours, or the one whose catalog has `model`.",
   ),
@@ -116,7 +118,7 @@ const wait = controlTool({
   riskClass: "read-only",
   capability: null,
   description:
-    "Block until threads settle, up to timeoutSeconds. Returns early with needs_you, naming each request, when a thread waits on the person: tell the person and treat it as unfinished. timeout or interrupted: the threads keep working; call wait again, never a polling loop.",
+    "Wait for child agents or other threads to finish, up to timeoutSeconds. Returns early with needs_you, naming each request, when a thread waits on the person: tell the person and treat it as unfinished. timeout or interrupted: the threads keep working; call wait again, never a polling loop.",
   input: z.strictObject({
     threadIds: z
       .array(ThreadId)

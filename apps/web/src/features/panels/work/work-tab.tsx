@@ -4,7 +4,9 @@ import { useAgentTree, useThread, useThreadMeta, type AgentTreeNode } from "@ace
 import type { Interaction } from "@ace/protocol";
 import {
   changesByAgent,
+  isRunning,
   latestChecks,
+  offshiftSummary,
   needsYou,
   queuedInputLine,
   subagentBranchStates,
@@ -32,6 +34,7 @@ import { AgentChanges } from "./agent-changes.tsx";
 import { CatchUp, useShownCatchUp } from "./catch-up.tsx";
 import { Checks } from "./checks.tsx";
 import { NeedsYouList } from "./needs-you.tsx";
+import { OffshiftRun } from "./offshift-run.tsx";
 import { PullRequests } from "./pull-requests.tsx";
 import { FoldedSection, Section } from "./summary-section.tsx";
 import { summarySections } from "./summary-sections.ts";
@@ -40,6 +43,7 @@ import { ThisTurn } from "./this-turn.tsx";
 import { WorkPlans } from "./work-plans.tsx";
 
 const queueOf = (reader: ThreadReader) => reader.queue;
+const offshiftOf = (reader: ThreadReader) => reader.offshift;
 const noNodes: readonly AgentTreeNode[] = [];
 
 /**
@@ -57,6 +61,7 @@ export default function WorkTab(props: TabViewProps) {
   const tree = useAgentTree(props.scope) ?? noNodes;
   const page = useServerQueue(props.scope).page;
   const hold = useThread(props.scope, ["queue"], queueOf) ?? page;
+  const card = useThread(props.scope, ["offshift"], offshiftOf);
   const plans = useShownPlans(props.scope).length;
   const turn = useLatestTurn(props.scope);
   const catchUp = useShownCatchUp(props.scope);
@@ -69,6 +74,19 @@ export default function WorkTab(props: TabViewProps) {
     [facts.agents, facts.interactions],
   );
   const subagents = useMemo(() => subagentCounts(tree), [tree]);
+  const status = thread?.status;
+  const live = thread?.live;
+  // The run is shown against the whole tree, so it never reads Done while anything still runs.
+  const run = useMemo(() => {
+    if (!card || !status) return undefined;
+    const request = facts.interactions[0]?.request.kind;
+    return offshiftSummary(card, {
+      status,
+      live,
+      runningAgents: facts.agents.filter(isRunning).length,
+      request: request === undefined ? undefined : request === "approval" ? "approval" : "question",
+    });
+  }, [card, status, live, facts.agents, facts.interactions]);
   const layout = useMemo(
     () =>
       summaryAgents(
@@ -142,6 +160,7 @@ export default function WorkTab(props: TabViewProps) {
   const background = tasks.length > 0 || queued !== undefined;
   const shown = summarySections({
     needsYou: needs.length,
+    offshift: run !== undefined && !run.done,
     turn: turn !== undefined,
     plans,
     working: layout.working.length,
@@ -172,6 +191,11 @@ export default function WorkTab(props: TabViewProps) {
       {shown.needsYou && (
         <Section name="Needs you" labelled={shown.labelled}>
           <NeedsYouList threadId={props.scope} items={needs} subagents={subagents} />
+        </Section>
+      )}
+      {shown.offshift && run && (
+        <Section name="Offshift" labelled={shown.labelled}>
+          <OffshiftRun run={run} />
         </Section>
       )}
       <TreeWorkContext value={facts.work}>

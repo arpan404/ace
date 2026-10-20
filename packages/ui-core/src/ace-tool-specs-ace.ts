@@ -169,6 +169,38 @@ const contextTopics: Record<string, string> = {
   diagnostics: " this session's diagnostics",
 };
 
+/** `offshift` reads by its action: "Recorded a passing check", "Moved the run to review". */
+const offshiftWords: Record<string, (args: Args) => ToolWords> = {
+  start: (args) =>
+    say(
+      ["Started an Offshift run", "Starting an Offshift run", "Start an Offshift run"],
+      "",
+      named(args, ["outcome", "runId"]),
+    ),
+  get: (args) => say(verbs.checked, " an Offshift run", named(args, ["runId"])),
+  list: () => say(verbs.listed, " Offshift runs"),
+  playbooks: () => say(verbs.listed, " Offshift playbooks"),
+  step: (args) =>
+    str(args, "state") === "skipped"
+      ? say(["Skipped", "Skipping", "Skip"], " a step", named(args, ["stepId"]))
+      : say(["Finished", "Finishing", "Finish"], " a step", named(args, ["stepId"])),
+  advance: (args) => {
+    const phase = named(args, ["phase"]);
+    return say(["Moved", "Moving", "Move"], ` an Offshift run${phase ? ` to ${phase}` : ""}`);
+  },
+  block: (args) => say(["Recorded", "Recording", "Record"], " a blocker", named(args, ["note"])),
+  resume: (args) => say(["Cleared", "Clearing", "Clear"], " a blocker", named(args, ["note"])),
+  evidence: (args) => {
+    const evidence = record(args.evidence);
+    const result = str(evidence, "result");
+    const check =
+      result === "fail" ? " a failing check" : result === "pass" ? " a passing check" : " a check";
+    return say(["Recorded", "Recording", "Record"], check, named(evidence, ["criterionId"]));
+  },
+  revise: (args) =>
+    say(["Revised", "Revising", "Revise"], " a criterion", named(record(args.criterion), ["id"])),
+};
+
 const projectSpecs: Record<string, AceToolSpec> = {
   context: spec("ace", ({ args }) => {
     const topics = Array.isArray(args.topics) ? args.topics : [];
@@ -208,6 +240,10 @@ const projectSpecs: Record<string, AceToolSpec> = {
       ["Saved a project note", "Saving a project note", "Save a project note"],
       text ? `: ${quote(text, 80)}` : "",
     );
+  }),
+  offshift: spec("ace", ({ args }) => {
+    const words = offshiftWords[str(args, "action") ?? ""];
+    return words ? words(args) : say(["Updated", "Updating", "Update"], " an Offshift run");
   }),
   note_retire: fixed("ace", say(["Retired", "Retiring", "Retire"], " a project note")),
   ask: spec("ace", ({ args }) => {

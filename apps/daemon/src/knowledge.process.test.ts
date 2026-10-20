@@ -63,6 +63,33 @@ it("context reads recent outcomes, uncommitted files and linked PRs in one call"
   });
 });
 
+it("context shows five recent threads, each outcome one short line, and PRs from a wider set", async () => {
+  world = await evalWorld({ browser: false });
+  for (let index = 1; index <= 7; index++) {
+    const thread = await world.finishedThread(
+      `Task ${index}`,
+      `Finished task ${index}. ${"Detail. ".repeat(60)}`,
+    );
+    world.linkPr(thread, index);
+  }
+  const { agent } = await world.agent({});
+  const result = await agent.call("context", { topics: ["recent", "prs"] });
+  const read = z
+    .object({
+      recent: z.array(z.record(z.string(), z.unknown())),
+      prs: z.array(z.object({ number: z.number() })),
+    })
+    .parse(result.data);
+  expect(read.recent).toHaveLength(5);
+  for (const thread of read.recent) {
+    expect(String(thread["outcome"])).toMatch(/^Finished task \d\. Detail/);
+    expect(String(thread["outcome"]).length).toBeLessThanOrEqual(160);
+    expect(thread["updatedAt"]).toBeUndefined();
+  }
+  // Threads past the five listed still contribute their PRs.
+  expect(read.prs.map((pr) => pr.number).toSorted()).toEqual([1, 2, 3, 4, 5, 6, 7]);
+});
+
 it("diagnostics count identical failures and name a child that waits on the person", async () => {
   world = await evalWorld({ browser: false });
   const { agent } = await world.agent({});

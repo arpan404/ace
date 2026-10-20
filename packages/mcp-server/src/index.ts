@@ -30,6 +30,7 @@ export {
   acpInjection,
   cursorSdkInjection,
   developerInstructions,
+  usualToolListing,
   type AceMcpConnection,
 } from "./injection.ts";
 export {
@@ -58,6 +59,7 @@ export {
   maxDelegateTasks,
   type AgentControlPort,
 } from "./agent-control.ts";
+export { readOnlyAceTools } from "./read-only-tools.ts";
 
 export { modelImage, ModelImageError, type ModelImage } from "./model-image.ts";
 
@@ -88,6 +90,7 @@ export {
 export { SessionAwareness, type AwarenessPort } from "./awareness.ts";
 export { aceInstructions, guideTopics } from "./status.ts";
 export type { SessionGuidance } from "./injection.ts";
+export { renderRoles, type SessionRole, type SessionRoles } from "./roles.ts";
 export {
   knowledgeToolkit,
   knowledgeToolCatalog,
@@ -104,8 +107,11 @@ export {
   ContextResult,
 } from "./context-tool.ts";
 export { guideToolkit, type AceGuide } from "./guide-tools.ts";
+export { changesKey, resultReader, type ResultReader } from "./changes.ts";
 export { metaToolCatalog } from "./meta-tools.ts";
 export {
+  acpToolListing,
+  codexClientHeader,
   coreTools,
   coreToolsHeader,
   openedToolset,

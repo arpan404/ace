@@ -118,6 +118,9 @@
       "const": "thread",
       "type": "string"
     },
+    "offshift": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftRunCard.json"
+    },
     "queue": {
       "$ref": "https://ace.local/protocol/v1/QueueState.json"
     },

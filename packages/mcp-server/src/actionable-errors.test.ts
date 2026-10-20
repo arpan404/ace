@@ -14,6 +14,7 @@ const errorPayload = (result: { content: unknown[] }) =>
       code: z.string(),
       hint: z.string(),
       issues: z.array(z.object({ path: z.string(), expected: z.string() })).optional(),
+      detail: z.string().optional(),
     })
     .parse(JSON.parse(z.object({ text: z.string() }).parse(result.content[0]).text));
 
@@ -89,6 +90,8 @@ it("an agent-control failure names the agent's own next call, not the person", a
     code: "not_ready",
     hint: expect.stringContaining("Call wait"),
   });
+  // The client shows the refusal as a failed call, so a transcript never records it as done.
+  expect(notReady.isError).toBe(true);
   const forbidden = await registry.call(
     "thread_control",
     { action: "settle", threadId: "other" },
@@ -99,6 +102,53 @@ it("an agent-control failure names the agent's own next call, not the person", a
     code: "forbidden",
     hint: expect.stringContaining("threads_find"),
   });
+});
+
+it("a wrongly shaped call lists the fields and variants the schema has, never the values sent", async () => {
+  const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
+  agentControlToolkit({ execute: async () => ({ ok: true, data: { threadIds: [] } }) }).register(
+    registry,
+  );
+  const principal = lease().principal;
+  const wrongField = errorPayload(
+    await registry.call(
+      "thread_link_pr",
+      { pr: "secret-pr-value" },
+      principal,
+      new AbortController().signal,
+    ),
+  );
+  expect(wrongField.issues).toContainEqual({
+    path: "pr",
+    expected: "no such field; fields here: url, number, repo, unlink, all",
+  });
+  const wrongVariant = await registry.call(
+    "delegate",
+    {
+      tasks: [
+        {
+          requestId: "a",
+          task: "Do it",
+          role: "do-it-now",
+          workspace: { kind: "secret-kind-value" },
+        },
+      ],
+    },
+    principal,
+    new AbortController().signal,
+  );
+  const payload = z
+    .object({
+      detail: z.string(),
+      issues: z.array(z.object({ path: z.string(), expected: z.string() })),
+    })
+    .parse(errorPayload(wrongVariant));
+  expect(payload.issues).toContainEqual({
+    path: "tasks[0].workspace.kind",
+    expected: 'one of "project", "new_worktree", "existing_worktree"',
+  });
+  expect(payload.detail).toBe("tools_find delegate returns its schema.");
+  expect(JSON.stringify([wrongField, wrongVariant])).not.toMatch(/secret-/);
 });
 
 it("an action's missing field is named before anything reaches the daemon", async () => {
