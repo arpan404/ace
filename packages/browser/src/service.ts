@@ -326,19 +326,28 @@ export class BrowserService {
       const owned = session;
       if (!owned || owned.state.closed || !opening || backendLost) return Promise.resolve();
       if (owned.state.backend !== "embedded" || this.desktopCanDraw) return Promise.resolve();
-      // A page the person keeps agents out of stays where they left it (`agentResumes`).
-      if (owned.viewedPrivate) return Promise.resolve();
+      // A tab the person keeps agents out of moves too, still private: they keep a live picture
+      // and agents stay out. (Desktop-loss recovery keeps `agentResumes`.)
       const running = this.recoveries.get(options.threadId);
       if (running) return running;
       const opened = opening;
       const move = async () => {
         const restoreTabs = owned.restoreEntries();
+        // The person stays signed in: the partition's cookies go into the context the thread's
+        // profile opens in ace's Chrome (the shared persistent profile, or a throwaway one for a
+        // private session) before any tab loads.
+        const cookies = await owned.signIns();
         const generation = ++recoveryGeneration;
         await recoverHeadless({
-          request: restoreTabs.length ? { ...opened, restoreTabs } : opened,
+          request: {
+            ...opened,
+            ...(restoreTabs.length ? { restoreTabs } : {}),
+            ...(cookies.length ? { cookies } : {}),
+          },
           backend: this.headless,
           session: owned,
           url: owned.state.url,
+          profile: options.profile,
           lost: (reason) => {
             if (signal.aborted || owned.state.closed || recoveryGeneration !== generation) return;
             owned.suspend(reason);

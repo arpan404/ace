@@ -109,6 +109,12 @@ export interface BackendOpen {
    * ids (the desktop's views) ignores it; the thread browser then keeps what the backend reports.
    */
   restoreTabs?: readonly BackendRestoreTab[];
+  /**
+   * Sign-ins brought from another backend (the desktop's partition, when its screen locked):
+   * set in the page's browser context before any tab loads. A backend that has no context of
+   * its own to set them in (the desktop's views) ignores it.
+   */
+  cookies?: readonly import("./cookie-carry.ts").CarriedCookie[];
   /** Most tabs one thread may hold in this backend, popups included. */
   maxTabs?: number;
   changed?(): void;
