@@ -97,6 +97,21 @@ describe("Android input over the scrcpy control socket", () => {
     expect(() => plan({ kind: "tap", x: 1080, y: 10 })).toThrow("outside the device screen");
   });
 
+  it("a swipe from the bottom edge lands when the rounded picture is taller than the display", () => {
+    // 1080 × 2340 encoded as 584 × 1280: one factor makes the picture 2367 points tall.
+    const steps = scrcpyInputPlan(
+      { kind: "pointer", phase: "down", x: 540, y: 2360 },
+      { width: 1080, height: 2340 },
+      { width: 584, height: 1280 },
+      () => 0n,
+    );
+    expect(steps[0]?.message).toMatchObject({ type: "touch", action: "down" });
+    const touch = steps[0]?.message;
+    if (touch?.type !== "touch") throw new Error("expected a touch");
+    expect(touch.y).toBeGreaterThan(1270);
+    expect(touch.y).toBeLessThan(1280);
+  });
+
   it("fingers still held when control moves on are lifted where they were last seen", () => {
     const held = new HeldPointers();
     held.apply({ kind: "pointer", phase: "down", x: 1, y: 2 });
