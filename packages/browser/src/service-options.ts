@@ -96,6 +96,12 @@ export interface BrowserServiceOptions {
    */
   desktopReadoptionGraceMs?: number;
   /**
+   * How long a backend that has another one behind it (the desktop, under `auto`) may take to
+   * draw a new session's first picture before the next backend takes the session. A desktop
+   * that can't draw (its screen locked or asleep) never answers. Default 10 s.
+   */
+  firstPictureMs?: number;
+  /**
    * The profile for an open that names none; the library default is `persistent`, ace's one
    * shared browser profile. `ephemeral` is a private throwaway context inside it.
    */
