@@ -118,6 +118,12 @@ Limits of this choice:
 | 1 `browserFrame` | one JPEG screencast frame                                 | viewers without video, and every viewer until its first keyframe |
 | 2 `browserVideo` | one encoded video chunk (H.264 in AVC format, VP8 or VP9) | viewers that asked for video and got a keyframe                  |
 | 3 `browserAudio` | one Opus packet of the tab's sound (below, Audio)         | video viewers that unmuted the page                              |
+| 4 `deviceFrame`  | one picture of a simulator or emulator (ADR 0064)         | device live views, paced by `devices.ack`                        |
+| 5 `screenFrame`  | one picture of a computer-use session (ADR 0011)          | computer-use live views, paced by `screen.ack`                   |
+
+Kinds 4 and 5 share one header (`stream-picture.ts`) and one paced viewer
+(`@ace/browser/picture-channel`), with this ADR's window, drop and keyframe rules. Since #1129
+this envelope is the only binary format any live view receives: there is one media pipeline.
 
 A video chunk's header carries the sequence, timestamp, the page's CSS size (input coordinates
 stay CSS pixels, as with JPEG), the coded size, the codec string, a keyframe flag, the thread and

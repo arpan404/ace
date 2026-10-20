@@ -216,7 +216,7 @@ process.stdin.on("end",()=>process.exit(process.env.MODE==="endfailure"?7:0));`,
   };
 }
 
-it("fragmented Android JPEGs retain guest scale and the shared binary screen packet", async () => {
+it("fragmented Android JPEGs retain guest scale and the frame recordings keep", async () => {
   const f = await fixture();
   f.send(1);
   await f.prefix.promise;

@@ -22,7 +22,7 @@ Session operations include permission inspection, target discovery, start/stop, 
 
 Add schema-only `screen.ts` exports to `@ace/protocol`. Screen messages have their own discriminated union and request ids, separate from durable agent events. The authenticated daemon connection accepts additive `screen.request` messages and sends `screen.result` and `screen.state`. Approval changes are human connection operations; scoped MCP tools cannot approve an app or enable the feature. Frames are binary WebSocket messages, never base64 in the event log.
 
-A binary packet is a four-byte big-endian JSON-header length, a UTF-8 header, then exactly `header.bytes` payload bytes. Headers contain session id, sequence, timestamp, dimensions and codec. Header length is at most 4096 bytes; payload is at most 8 MiB. Unknown helper replies are retained as bounded raw data for diagnostics. Unsupported protocol versions fail explicitly. Clients inspect the same schema and framing as the helper connection.
+Superseded for clients by "One media pipeline" below: a binary packet is a four-byte big-endian JSON-header length, a UTF-8 header, then exactly `header.bytes` payload bytes. Headers contain session id, sequence, timestamp, dimensions and codec. Header length is at most 4096 bytes; payload is at most 8 MiB. Unknown helper replies are retained as bounded raw data for diagnostics. Unsupported protocol versions fail explicitly. Clients inspect the same schema and framing as the helper connection.
 
 The capture indicator turns on before dispatching native capture, and startup cancellation publishes its final off state before removing the session. Client state includes a `stopping` lifecycle while helper termination is pending. The capture indicator remains on until native capture stop is acknowledged, or process/socket cleanup is confirmed on failure and disable. Capture termination precedes artifact publication, so a stalled publisher cannot keep capturing. Client state includes lifecycle, target, permissions, controller and a visible capture indicator. Every subscription starts with current state. Frame streams are ephemeral, with no replay. Disconnect removes subscriptions and relinquishes human control. Session discovery supports reconnects; all admin connections receive indicator changes. A human can delegate control to a specific scoped agent id. Agent actions require current agent ownership; human takeover invalidates queued agent actions. Screenshots use the latest JPEG only while the session is live and approved.
 
@@ -110,3 +110,35 @@ so a version directory exists only complete and concurrent starts share the winn
 deletes a completed version. Bundles are bounded (256 MiB, 4,096 files).
 This replaces "a mismatched installed version requires an explicit upgrade", which made every
 new app build fail to open its helper.
+
+## One media pipeline, 2026-10-19 (#1129)
+
+Browser, device and computer-use live views now share one media pipeline, and the screen packet
+format is gone from every client wire. There is no compatibility path and no version
+negotiation: daemon, web, desktop and iOS change together.
+
+- **Wire.** Every binary message a viewer receives is a piece of the stream envelope
+  (`@ace/browser/stream`, ADR 0088). A computer-use session's pictures are stream kind 5
+  `screenFrame`, with the same header as a device's kind 4 `deviceFrame`
+  (`stream-picture.ts`): sequence, capture time, size, `scale`, rotation, keyframe flag, codec
+  (`jpeg` or the helper's VideoToolbox H.264 as a WebCodecs string) and stream id. The source id
+  is the session id; the stream id is the session id with the capture generation when the helper
+  restarted the capture, because a new capture starts its sequence over. A flag bit marks a
+  still picture: a one-shot screenshot outside the ack window.
+- **Pacing.** Each connection's view of a session is a `PictureViewer` in a `PictureChannel`
+  (`@ace/browser/picture-channel`), the same code that paces device pictures: the browser
+  video's window (8 pictures, 2 MiB), cumulative fire-and-forget acks (`screen.ack`), deltas
+  dropped up to the next keyframe, keyframes asked of the helper (`stream.keyframe`) at most
+  every 500 ms, and nothing written while the socket holds more than 128 KiB. Pictures of two
+  sources never interleave on one connection.
+- **Renderer.** The web app draws device and computer-use pictures through one
+  `pictureRenderer` (`apps/web/src/lib/video/`) over the browser view's `VideoStream`. The old
+  canvas renderer and the portable screen-packet reader are removed.
+- **Screenshots.** Agents' `screen_*` and `sim_*` screenshots never crossed a client wire and
+  are unchanged. A person's device screenshot is a still picture on the stream followed by the
+  `devices.result` that names it (`DeviceScreenshot`).
+- **What stays.** The native helpers still write `u32 header length | JSON header | payload`
+  on their pipe, and recordings keep that framing on disk. Both are daemon-internal
+  (`FrameDecoder`); their header schemas live with the helper messages in the protocol package.
+  This replaces the "Protocol and wire additions" paragraph that described the packet as the
+  client wire format and said clients inspect the helper's framing.

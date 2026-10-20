@@ -112,7 +112,7 @@ The simulator performance harness remains outside the default gate. Remote throt
 ## UI follow-up for the Claude web agent
 
 - Fix `device-tab.tsx:184` and its `use-devices.ts` input callback to always return void or Promise<void>, forwarding the actual acknowledgement from `DeviceClient.request({ op: "input", ... })` from `@ace/client/devices`. Re-run full static typecheck after that UI change.
-- Keep canvas decoding through `deviceCanvasRenderer`, profiles through `deviceStreamProfile`, ordered latest moves through `coalescedPointerMoves` (discard pending motion before up/cancel), and lifecycle cleanup through renderer `close()`, frame-watch release and `DeviceClient.disconnect()`.
+- Keep canvas decoding through the web app's `pictureRenderer` (`apps/web/src/lib/video`, one renderer for every live view), profiles through `deviceStreamProfile`, ordered latest moves through `coalescedPointerMoves` (discard pending motion before up/cancel), and lifecycle cleanup through renderer `close()`, frame-watch release and `DeviceClient.disconnect()`.
 - Replace the 50 ms renderer-test sleep and no-op bitmap/draw stubs with observable decode/draw/close completion. Assert cursor/input ordering and reconnect/resize behavior at the actual renderer boundary. Those UI tests need run at merge.
 - Optional connection/codec diagnostics may follow later. Wire relay connection budgets through the same public client APIs without introducing provider prompts.
 

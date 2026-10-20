@@ -41,7 +41,7 @@ export interface RelayServices {
   /** Warn-level daemon log for refused requests. */
   warn?: ((message: string, fields: object) => void) | undefined;
 }
-/** A dedicated authenticated relay channel never mixes file packets and screen packets. */
+/** A dedicated authenticated relay channel never mixes file packets and media stream pieces. */
 export function attachRelayService(
   options: RelayServices,
   connection: {

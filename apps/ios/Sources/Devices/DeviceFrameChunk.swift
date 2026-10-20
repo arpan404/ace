@@ -1,7 +1,7 @@
 import Foundation
 
 /// One picture of a simulator's or emulator's screen (stream kind 4, `@ace/browser`'s
-/// `stream-device.ts`): a JPEG, or one H.264 access unit in Annex B with its parameter sets in
+/// `stream-picture.ts`): a JPEG, or one H.264 access unit in Annex B with its parameter sets in
 /// front of every keyframe. Header, big-endian:
 ///
 ///     0  f64  sequence (per capture, acked cumulatively)

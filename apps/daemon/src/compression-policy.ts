@@ -14,7 +14,7 @@
  *   results (git remote URLs can embed tokens, beside command output or env), device state and
  *   inventory, and every browser message (a tab's URL can carry a token in its query string,
  *   next to page-controlled titles and text);
- * - frames, screen packets and file bytes are already compressed and go as they are.
+ * - frames, stream pieces (pictures and video) and file bytes are already compressed and go as they are.
  *
  * An allowlist, so a new message type stays uncompressed until someone decides it is safe.
  */

@@ -36,14 +36,15 @@ An already dispatched native command can finish; the next command must pass the
 new ownership checks. Disconnect and credential revocation release control.
 
 Local sockets use `devices.request`, `devices.result`, `devices.state` and
-`devices.logs`. A view that subscribes with `mediaStream: true` gets its pictures as
-stream kind `deviceFrame` on the browser's stream envelope (`@ace/browser/stream`), paced
-by `devices.ack` with the browser video's window and keyframe rules (`media-viewer.ts`,
-ADR 0064 "Shared media stream"); other views and screenshots get the screen binary
-format. Relay clients open a dedicated channel with `hello.channel = "devices"`, then
+`devices.logs`. A subscribed view gets its pictures as stream kind `deviceFrame` on the
+browser's stream envelope (`@ace/browser/stream`), paced by `devices.ack` with the browser
+video's window and keyframe rules (`@ace/browser/picture-channel`, ADR 0064 "Shared media
+stream"). A screenshot is a still picture on the same stream, sent just before the
+`devices.result` that names it (`DeviceScreenshot`); `DeviceClient.screenshot` resolves with
+its bytes. There is no other binary format. Relay clients open a dedicated channel with `hello.channel = "devices"`, then
 perform the existing paired-client authentication. Browser and screen have dedicated
 relay channels too. File downloads retain their existing channel and protocol.
-Packets are fragmented into at most 64 KiB relay records and every message is written
+Pictures are cut into stream pieces of at most 64 KiB and every picture is written
 whole, so multiple streams cannot interleave. Reconnect requires fresh viewing requests;
 it never replays input or grants control.
 
