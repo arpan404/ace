@@ -321,7 +321,7 @@ async function createHandler(
         const { name } = request.params;
         const args = request.params.arguments ?? {};
         const stopBeats = progressHeartbeat(
-          context.mcpReq._meta?.progressToken,
+          context.mcpReq["_meta"]?.progressToken,
           (notification) => context.mcpReq.notify(notification),
           options.scheduler ?? nodeScheduler,
         );

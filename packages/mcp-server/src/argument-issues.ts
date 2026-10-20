@@ -83,14 +83,14 @@ function fieldNames(schema: z.ZodType | undefined, path: readonly PropertyKey[])
   let node = unwrap(schema);
   for (const segment of path) {
     if (!node) return [];
-    const def = node._zod.def;
+    const def = node.def;
     if (typeof segment === "number" && def.type === "array" && "element" in def)
       node = unwrap(def.element as z.ZodType);
     else if (typeof segment === "string" && def.type === "object" && "shape" in def)
       node = unwrap((def.shape as Record<string, z.ZodType>)[segment]);
     else return [];
   }
-  const def = node?._zod.def;
+  const def = node?.def;
   return def?.type === "object" && "shape" in def
     ? Object.keys(def.shape as Record<string, unknown>).slice(0, 40)
     : [];
@@ -100,7 +100,7 @@ function fieldNames(schema: z.ZodType | undefined, path: readonly PropertyKey[])
 function unwrap(schema: z.ZodType | undefined): z.ZodType | undefined {
   let node = schema;
   for (let depth = 0; node && depth < 8; depth++) {
-    const def = node._zod.def;
+    const def = node.def;
     if ("innerType" in def) node = def.innerType as z.ZodType;
     else if (def.type === "pipe" && "in" in def) node = def.in as z.ZodType;
     else return node;
