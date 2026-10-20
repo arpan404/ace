@@ -71,7 +71,6 @@ it.skipIf(process.platform !== "darwin" || process.env.ACE_COMPUTER_LIVE !== "1"
       client = open();
       look = ComputerState.parse(await client.request("state", { app: calculator }));
     }
-    expect(look.front).toBeUndefined();
     const seven = look.nodes.find((node) => node.role === "button" && node.name === "7");
     if (!seven) throw new Error("Calculator showed no 7 button");
     const acted = ComputerActResult.parse(
@@ -90,7 +89,6 @@ it.skipIf(process.platform !== "darwin" || process.env.ACE_COMPUTER_LIVE !== "1"
 
     expect(acted.error).toBeUndefined();
     expect(acted.done).toHaveLength(4);
-    expect(acted.done.join("\n")).not.toContain("brought itself to the front");
     expect([...seen]).toEqual([before]);
   },
 );

@@ -58,8 +58,6 @@ export const ComputerState = z.looseObject({
     })
     .optional(),
   launched: z.boolean().optional(),
-  /** The launch brought the app to the front and the helper put the person's app back. */
-  front: z.string().optional(),
   screenshot: z
     .looseObject({ jpeg: z.string(), width: z.number().int(), height: z.number().int() })
     .optional(),
