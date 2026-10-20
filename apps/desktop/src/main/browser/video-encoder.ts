@@ -1,7 +1,7 @@
 import { session as sessions, WebContentsView, type WebContents } from "electron";
 import { z } from "zod";
 import { videoEncoderScript } from "@ace/browser/video-encoder";
-import type { EncodeSpec, PageVideoHost } from "./page-video.ts";
+import { encoderOrigin, type EncodeSpec, type PageVideoHost } from "./page-video.ts";
 
 /*
  * The desktop's video encoder (ADR 0088, embedded backend): one hidden page, made while anyone
@@ -18,7 +18,6 @@ import type { EncodeSpec, PageVideoHost } from "./page-video.ts";
  */
 
 const partition = "ace-video-encoder";
-const host = "video-encoder";
 const channel = "ace:video.event";
 const page = `<!doctype html>\n<meta charset="utf-8">\n<title>ace video encoder</title>\n<script src="encoder.js"></script>\n`;
 const policy = "default-src 'none'; script-src 'self'";
@@ -95,6 +94,7 @@ export class VideoEncoderHost implements PageVideoHost<WebContents> {
       const streamId = source.getMediaSourceId(contents);
       await call(contents, "aceVideo.start", [capture, streamId, width, height]);
     } catch (error) {
+      this.options.log(`Video capture did not start: ${String(error)}`);
       this.end(capture);
       throw error;
     }
@@ -202,7 +202,7 @@ export class VideoEncoderHost implements PageVideoHost<WebContents> {
     // Nothing navigates the encoder page and it opens nothing.
     contents.on("will-navigate", (event) => event.preventDefault());
     contents.setWindowOpenHandler(() => ({ action: "deny" }));
-    await contents.loadURL(`app://${host}/`);
+    await contents.loadURL(`${encoderOrigin}/`);
     return contents;
   }
 
@@ -220,12 +220,13 @@ export class VideoEncoderHost implements PageVideoHost<WebContents> {
       (contents, permission) => permission === "media" && own(contents),
     );
     encoder.webRequest.onBeforeRequest((details, callback) =>
-      callback({ cancel: !details.url.startsWith(`app://${host}/`) }),
+      callback({ cancel: !details.url.startsWith(`${encoderOrigin}/`) }),
     );
     encoder.protocol.handle("app", (request) => {
       const url = new URL(request.url);
       const headers = { "content-security-policy": policy, "x-content-type-options": "nosniff" };
-      if (url.host !== host) return new Response("Not found", { status: 404, headers });
+      if (`${url.protocol}//${url.host}` !== encoderOrigin)
+        return new Response("Not found", { status: 404, headers });
       if (url.pathname === "/")
         return new Response(page, {
           headers: { ...headers, "content-type": "text/html; charset=utf-8" },
@@ -250,7 +251,22 @@ export class VideoEncoderHost implements PageVideoHost<WebContents> {
   }
 }
 
-/** Calls `name(...args)` in the encoder page; resolves with its (awaited) value. */
-function call(contents: WebContents, name: string, args: unknown[]): Promise<unknown> {
-  return contents.executeJavaScript(`${name}(...${JSON.stringify(args)})`);
+const Called = z.union([
+  z.object({ value: z.unknown() }),
+  z.object({ error: z.string().max(2048) }),
+]);
+
+/**
+ * Calls `name(...args)` in the encoder page; resolves with its (awaited) value, or throws what
+ * it threw. A page's own errors (a `DOMException` from `getUserMedia`) don't survive
+ * `executeJavaScript`, so the page reports them as text.
+ */
+async function call(contents: WebContents, name: string, args: unknown[]): Promise<unknown> {
+  const called = Called.parse(
+    await contents.executeJavaScript(
+      `Promise.resolve().then(() => ${name}(...${JSON.stringify(args)})).then((value) => ({ value }), (error) => ({ error: String(error?.name ?? "Error") + ": " + String(error?.message ?? error).slice(0, 1024) }))`,
+    ),
+  );
+  if ("error" in called) throw new Error(called.error);
+  return called.value;
 }

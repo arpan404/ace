@@ -26,7 +26,7 @@ import type { ViewHost, ViewPage } from "./backend.ts";
 import { PartitionPool } from "./partition-pool.ts";
 import { PlacementBook, toWindowBounds } from "./placement.ts";
 import { EmbeddedPage } from "./page.ts";
-import type { PageVideoHost } from "./page-video.ts";
+import { encoderCapture, type PageVideoHost } from "./page-video.ts";
 import { EmbeddedPageGroup } from "./page-group.ts";
 import { CertificateExceptions } from "./certificates.ts";
 import { clearPartition } from "./partition-cleanup.ts";
@@ -506,10 +506,16 @@ export class EmbeddedViews implements ViewHost {
       return false;
     };
     partitionSession.setPermissionRequestHandler((contents, permission, callback, details) =>
-      callback(permit(contents, permission, details.requestingUrl || contents.getURL())),
+      callback(
+        encoderCapture(
+          permission,
+          "securityOrigin" in details ? details.securityOrigin : undefined,
+        ) || permit(contents, permission, details.requestingUrl || contents.getURL()),
+      ),
     );
-    partitionSession.setPermissionCheckHandler((contents, permission, origin) =>
-      permit(contents, permission, origin),
+    partitionSession.setPermissionCheckHandler(
+      (contents, permission, origin) =>
+        encoderCapture(permission, origin) || permit(contents, permission, origin),
     );
     partitionSession.setDevicePermissionHandler(() => false);
     partitionSession.on("will-download", (event, item, contents) => {

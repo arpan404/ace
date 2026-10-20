@@ -7,6 +7,19 @@ import { z } from "zod";
  * keeps it rendering at full rate while nobody sees it (`throttle.ts`).
  */
 
+/** Where the app's hidden encoder page lives (`video-encoder.ts`); no web page has it. */
+export const encoderOrigin = "app://video-encoder";
+
+/**
+ * The encoder capturing a view. Electron asks the captured view's own session for this
+ * permission (as `media`, from the encoder's origin), not the encoder's: the views' sessions,
+ * which refuse every permission, let this one through.
+ */
+export function encoderCapture(permission: string, origin: string | undefined): boolean {
+  if (permission !== "media" || !origin) return false;
+  return origin === encoderOrigin || origin === `${encoderOrigin}/`;
+}
+
 /** The app's video encoder, as one view uses it. `Source` is the view's page to capture. */
 export interface PageVideoHost<Source> {
   supported(codecs: readonly string[], width: number, height: number): Promise<string[]>;
