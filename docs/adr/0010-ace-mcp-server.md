@@ -143,7 +143,7 @@ Capabilities on a lease are an immutable ceiling. Runtime enablement, read-only 
 
 Deliver guidance through each provider's native instruction mechanism. Codex opts out of MCP discovery instructions with `X-Ace-Instructions: native` because it otherwise prefixes every tool description. Cursor loads an always-applied rule from a private temporary additional workspace rather than replacing its system prompt. ACP has no portable system-instruction field, so its native prompt carries labeled guidance context.
 
-Advertise `tools.listChanged`. Current clients subscribe through the SDK notification API. Native legacy clients opt in with `X-Ace-Notifications: stream`, retaining at most 128 temporary HTTP transport sessions, tied to the authenticated lease identity and closed on revocation/shutdown. Other legacy traffic remains stateless. This extends the original no-permanent-session-map contract with a bounded in-memory stream lifetime; there is still no replay buffer or persisted transport state. The ACP stdio bridge forwards notifications and Pi refreshes its active extension catalogue while preserving native tools.
+Advertise `tools.listChanged`. Current clients subscribe through the SDK notification API. Native legacy clients opt in with `X-Ace-Notifications: stream`, retaining a bounded set of temporary HTTP transport sessions (see notification stream limits below), tied to the authenticated lease identity and closed on revocation/shutdown. Other legacy traffic remains stateless. This extends the original no-permanent-session-map contract with a bounded in-memory stream lifetime; there is still no replay buffer or persisted transport state. The ACP stdio bridge forwards notifications and Pi refreshes its active extension catalogue while preserving native tools.
 
 ## Native Sources and user controls
 
@@ -204,3 +204,20 @@ returns its family's schemas inline. Claude Code always loads `context`,
 `guide`, `delegate`, `wait`, `browser_open` and `html_render`; it defers the
 rest behind its tool search. Codex prompts only for the destructive ace tools,
 `thread_merge` and `automation_remove`.
+
+## Amendment: notification stream limits (2026-10-20)
+
+`subscriptions/listen` streams were capped at sixteen server-wide. With twenty or
+more live sessions, the seventeenth was refused its stream and never heard its
+tool list grow after `guide` or `tools_find`. Streams are now bounded per lease:
+a lease holds at most two, and a new stream from the same lease closes its
+oldest, so a client that reconnects without closing is never refused. A stream
+also closes when its lease ends or its HTTP connection closes. The SDK's
+server-wide cap stays only as a guard, at 512. A lease with no stream of its own
+that meets it gets the SDK's in-band `-32603` "Subscription limit reached" and
+keeps working through direct calls and `tools_call`.
+
+Legacy transport sessions keep four per lease and share the 512 guard, replacing
+the cap of 128. At the guard a new legacy client is served statelessly, without
+notifications, instead of being refused with 503. The listener's connection limit
+leaves room for both stream pools plus call traffic.

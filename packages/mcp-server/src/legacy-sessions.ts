@@ -14,11 +14,17 @@ type Session = {
   watch(signal: AbortSignal): void;
 };
 
+/** Legacy transport sessions one lease keeps; reinitializing supersedes its oldest. */
+export const legacySessionsPerLease = 4;
+
 /** Opted-in legacy clients keep a bounded stream for list changes, owned by their lease.
- * Other legacy clients retain stateless serving. There is no history replay buffer. */
+ * Other legacy clients retain stateless serving. There is no history replay buffer.
+ * At the server-wide cap a new client is served statelessly by `overflow`: it works without
+ * list-change notifications rather than failing to connect. */
 export async function legacySessions(
   factory: McpServerFactory,
   authenticate: (request: Request) => Principal | undefined,
+  limits: { total: number; overflow: (request: Request) => Promise<Response> },
 ) {
   const { WebStandardStreamableHTTPServerTransport } = await import("@modelcontextprotocol/server");
   const sessions = new Map<string, Session>();
@@ -62,20 +68,22 @@ export async function legacySessions(
         return new Response(body, { status: response.status, headers: response.headers });
       }
       if (request.method !== "POST") return new Response(null, { status: 400 });
+      // Only initialize creates a session. A client served statelessly at the cap carries no
+      // session id, so its later calls are served statelessly too.
+      if (!(await initializes(request))) return limits.overflow(request);
       const owned = [...sessions.values()].filter((session) => session.principal === principal);
       // Reinitializing a native client supersedes its oldest transport, without
       // revoking the provider's lease or interrupting the agent turn.
       const initializing =
         [...pending].filter((session) => session.principal === principal).length +
         (openingPrincipals.get(principal) ?? 0);
-      if (initializing >= 4) return new Response(null, { status: 503 });
-      while (owned.length + initializing >= 4)
+      if (initializing >= legacySessionsPerLease) return new Response(null, { status: 503 });
+      while (owned.length + initializing >= legacySessionsPerLease)
         void owned
           .shift()
           ?.close()
           .catch(() => {});
-      if (sessions.size + pending.size + opening >= 128) return new Response(null, { status: 503 });
-      // Only initialize creates a session; malformed or uninitialized calls cannot retain one.
+      if (sessions.size + pending.size + opening >= limits.total) return limits.overflow(request);
       opening++;
       openingPrincipals.set(principal, (openingPrincipals.get(principal) ?? 0) + 1);
       let product: Awaited<ReturnType<McpServerFactory>>;
@@ -157,4 +165,13 @@ export async function legacySessions(
       await Promise.all([...stops, ...stopping]);
     },
   };
+}
+
+/** Whether a legacy POST is an `initialize` request; anything unreadable is not. */
+async function initializes(request: Request): Promise<boolean> {
+  const body: unknown = await request
+    .clone()
+    .json()
+    .catch(() => undefined);
+  return typeof body === "object" && body !== null && Reflect.get(body, "method") === "initialize";
 }
