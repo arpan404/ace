@@ -98,6 +98,8 @@ export const PublicIssue = z.strictObject({
 });
 export type PublicIssue = z.infer<typeof PublicIssue>;
 const issueList = z.array(PublicIssue).max(16);
+/** A log correlation id: opaque, short and never derived from the failure's text. */
+export const ErrorId = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 const dispatchPhase = z.enum(["rejected-before-dispatch", "dispatched", "partial"]);
 const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   screen_disabled: {
@@ -222,7 +224,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   execution_failed: {
     message: "Tool execution failed",
-    hint: "The tool failed without a public reason. Do not send the identical call again: check the target's current state, change the request, or tell the person.",
+    hint: "The tool failed without a public reason. Do not send the identical call again: check the target's current state, change the request, or tell the person. errorId, when present, names the cause's entry in ace's log; give it to the person.",
   },
   stale_ref: {
     message: "Stale or unknown element ref",
@@ -437,6 +439,8 @@ export class PublicToolError extends Error {
   readonly phase: z.infer<typeof dispatchPhase> | undefined;
   readonly candidates: z.infer<typeof candidateIds> | undefined;
   readonly issues: PublicIssue[] | undefined;
+  /** Names the daemon log entry holding the private cause, for a person to look up. */
+  readonly errorId: string | undefined;
   constructor(
     code: PublicToolCode,
     permission?: DeviceFailure["permission"],
@@ -444,10 +448,12 @@ export class PublicToolError extends Error {
     candidates?: unknown,
     detail?: string,
     issues?: unknown,
+    errorId?: string,
   ) {
     const entry = catalog[code];
     super(entry.message);
     this.code = code;
+    this.errorId = ErrorId.safeParse(errorId).success ? errorId : undefined;
     this.detail = detail
       ?.split("")
       .map((char) => (char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127 ? " " : char))

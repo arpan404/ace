@@ -33,7 +33,11 @@ function publicOrigin(raw: string): string {
     return "invalid origin";
   }
 }
-export function toolFailure(error: unknown): CallToolResult {
+/**
+ * The agent-facing result for a failure. A non-public error becomes a fixed code; `errorId`
+ * names the log entry its private cause went to, so a person can find it.
+ */
+export function toolFailure(error: unknown, errorId?: string): CallToolResult {
   const trusted = error instanceof PublicToolError;
   const failure = trusted
     ? new PublicToolError(
@@ -43,8 +47,17 @@ export function toolFailure(error: unknown): CallToolResult {
         error.candidates,
         error.detail,
         error.issues,
+        error.errorId,
       )
-    : new PublicToolError(error instanceof z.ZodError ? "invalid_data" : "execution_failed");
+    : new PublicToolError(
+        error instanceof z.ZodError ? "invalid_data" : "execution_failed",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        errorId,
+      );
   const origin = trusted ? Origin.safeParse(error) : undefined;
   return {
     isError: true,
@@ -60,6 +73,7 @@ export function toolFailure(error: unknown): CallToolResult {
           ...(failure.phase ? { phase: failure.phase } : {}),
           ...(failure.candidates ? { candidates: failure.candidates } : {}),
           ...(failure.permission ? { permission: failure.permission } : {}),
+          ...(failure.errorId ? { errorId: failure.errorId } : {}),
           ...(origin?.success
             ? {
                 blocked: {
