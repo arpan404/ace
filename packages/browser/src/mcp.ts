@@ -175,7 +175,7 @@ const tabTools: Tool[] = [
     name: "browser_open",
     title: "Open browser page",
     description:
-      "Open or join this thread's ace browser: a real Chromium the person watches in ace and can take over. Pass url to load it in your tab; omit it to report where you are. Prefer it to web fetch when you need to verify UI, test a dev server, show the person a page, or read console and network. Next: browser_snapshot. How-to: guide ace-browser.",
+      "Navigate to a URL or report the current page in this thread's ace browser, a real Chromium the person watches and can take over. Pass url to load it in your tab; omit it to report where you are. Prefer it to web fetch to verify UI, test a dev server, show the person a page, or read console and network. Next: browser_snapshot. How-to: guide ace-browser.",
     riskClass: "external-effect",
     input: browserOpenShape,
     timeoutMs: 300_000,
@@ -290,7 +290,7 @@ const pageTools: Tool[] = [
     name: "browser_wait_for",
     title: "Wait for page",
     description:
-      "Wait until the page reaches url (exact, or a glob with *; loaded through DOMContentLoaded), shows text, or ref reaches state visible/hidden; until no request is in flight for 500 ms (networkIdle); for a fixed timeMs; or, with downloads, until the tab's downloads finish. Pass exactly one of url, text, ref, networkIdle, timeMs or downloads. Safe to call after the change already happened.",
+      "Wait for a page condition: url, text, an element state, network idle, a fixed time or downloads. url is exact or a glob with * (through DOMContentLoaded); ref takes state visible or hidden; networkIdle means no request in flight for 500 ms; downloads waits for the tab's downloads. Pass exactly one of url, text, ref, networkIdle, timeMs or downloads. Safe to call after the change already happened.",
     riskClass: "read-only",
     input: browserWaitShape,
     refine: checkWait,
@@ -421,7 +421,7 @@ const pageTools: Tool[] = [
     name: "browser_history",
     title: "Page history",
     description:
-      "Without direction, list the tab's recent history entries and whether back/forward work. With direction, go back, forward, reload or stop loading.",
+      "Go back, forward, reload or stop loading a tab (direction). Without direction, list its recent history entries and whether back/forward work.",
     riskClass: "external-effect",
     input: browserHistoryShape,
     timeoutMs: waitTimeoutMs,
@@ -436,7 +436,7 @@ const pageTools: Tool[] = [
     name: "browser_settings",
     title: "Browser settings",
     description:
-      "Resize a tab's viewport, emulate a device (scale, mobile, touch, colour scheme, user agent), record one tab (yours, or tabId) to a thread artifact with record_start and record_stop, list installed extensions, or close the whole browser.",
+      "Resize a tab, emulate a device, record a tab, list extensions or close the browser. emulate sets scale, mobile, touch, colour scheme and user agent; record_start and record_stop record one tab (yours, or tabId) to a thread artifact.",
     riskClass: "external-effect",
     input: browserSettingsShape,
     refine: checkSettings,
@@ -459,7 +459,7 @@ const pageTools: Tool[] = [
     name: "browser_measure",
     title: "Measure page smoothness",
     description:
-      "Measure frame timing while observing, or while performing one browser_act-style interaction.\nLatency is input to next visual update; settle needs 250 ms of stillness.\nHitch time per second: below 5 ms smooth, 5-10 minor, above 10 janky.\nLow confidence means few frames, host load or capture overhead; read notes.\nRepeat returns median/worst metrics plus one timestamped filmstrip.",
+      "Measure page smoothness: frame timing while observing, or while performing one browser_act-style interaction. Latency is input to next visual update; settle needs 250 ms of stillness. Hitch time per second: below 5 ms smooth, 5-10 minor, above 10 janky. Low confidence means few frames, host load or capture overhead; read notes. Repeat returns median/worst metrics plus one timestamped filmstrip.",
     riskClass: "external-effect",
     input: browserMeasureShape,
     timeoutMs: waitTimeoutMs,
