@@ -107,11 +107,15 @@ export function transition(mode: ScrollMode, event: ScrollEvent): Transition {
   }
 }
 
-/** Where the row the view holds still was, by its measured top. */
+/**
+ * The row the view holds still, and how far its top sat below the view's top when last seen.
+ * Relative to the view, not the list: a resize the virtualizer already answered by moving the
+ * view leaves it unchanged, so no change is ever counted twice.
+ */
 export interface Held {
   key: string;
   itemId: string | undefined;
-  start: number;
+  top: number;
 }
 
 export type Correction =
@@ -123,31 +127,40 @@ export type Correction =
 
 /**
  * How the view corrects after rows were added, removed or replaced. Following keeps the end in
- * view. Otherwise the held row's measured top moved by exactly the change above it, so the view
- * moves by that much (whatever sat at its index before), and a jump still landing aims again at
- * its row's new index rather than at whatever row now has the old one.
+ * view. Otherwise the view moves by however far the held row drifted from where the reader saw
+ * it (`now.top`: its top below the view's top now, by its measured position), so it sits there
+ * again (whatever sat at its index before), and a jump still landing aims again at its row's new
+ * index rather than at whatever row now has the old one.
  */
 export function correction(
   mode: ScrollMode,
   held: Held | undefined,
-  now: { index: number; start: number } | undefined,
+  now: { index: number; top: number } | undefined,
   at: number,
 ): Correction {
   if (mode.kind === "following") return { kind: "end" };
   if (!held || !now) return { kind: "none" };
   if (mode.kind === "anchoring" && aiming(mode, at))
     return { kind: "aim", index: now.index, align: mode.align };
-  const by = now.start - held.start;
+  const by = now.top - held.top;
   return by === 0 ? { kind: "none" } : { kind: "shift", by };
 }
 
-/** The row the view holds still: the anchored one, else the first row in view. */
+/**
+ * The row the view holds still: the anchored one, else the first row in view. Rows that just
+ * landed above the held row measure over the next frames, and one not measured yet (or about to
+ * shrink) can reach into view for a frame and pass for the first row in view; so while they
+ * settle, the row already held (`settling`, given while it is still in view) stays held until
+ * the reader moves the view.
+ */
 export function heldKey(
   mode: ScrollMode,
   top: { key: string; itemId: string | undefined } | undefined,
+  settling?: { key: string; itemId: string | undefined } | undefined,
 ): { key: string; itemId: string | undefined } | undefined {
   if (mode.kind === "anchoring") return { key: mode.key, itemId: mode.itemId };
-  return mode.kind === "free" ? top : undefined;
+  if (mode.kind !== "free") return undefined;
+  return settling ? { key: settling.key, itemId: settling.itemId } : top;
 }
 
 /** Where the held row is now, and whether older items just joined it at its top. */
