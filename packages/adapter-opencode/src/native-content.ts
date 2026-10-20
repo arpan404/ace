@@ -212,8 +212,9 @@ export function projected(state: NativeState, session: string, value: unknown): 
   }
   if (p.type === "system") return [];
   if (p.type === "user" || p.type === "synthetic") {
-    // A synthetic message is input OpenCode wrote for the model (a finished shell, a child's
-    // result), never the agent's prose: it is the session's input, marked with what it reports.
+    // A finished shell or child's result is input OpenCode wrote for the model, never the
+    // agent's prose: the session's input, marked with what it reports. A synthetic message from
+    // a source ace doesn't know keeps its old shape, so it can't open a turn of its own.
     const kind = p.type === "synthetic" ? syntheticKind(object(p.metadata)) : undefined;
     return [
       ...(p.type === "synthetic"
@@ -226,7 +227,7 @@ export function projected(state: NativeState, session: string, value: unknown): 
         draft: {
           type: "message",
           ...(message && message.length <= 256 ? { nativeId: message } : {}),
-          role: "user",
+          role: p.type === "user" || kind ? "user" : "assistant",
           synthetic: p.type === "synthetic",
           ...(kind ? { origin: { kind } } : {}),
           parts: [{ type: "text", text: string(p.text) }],

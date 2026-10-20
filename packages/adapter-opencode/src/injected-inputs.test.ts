@@ -75,7 +75,7 @@ it("a child's result OpenCode injects is a subagent-result input", () => {
   ]);
 });
 
-it("a synthetic message from a source ace doesn't know stays unclassified input", () => {
+it("a synthetic message from a source ace doesn't know stays unclassified", () => {
   const [item] = replay({
     id: "msg_instructions",
     type: "synthetic",
@@ -83,6 +83,6 @@ it("a synthetic message from a source ace doesn't know stays unclassified input"
     time: { created: 1 },
     text: "Instructions from AGENTS.md",
   });
-  expect(item).toMatchObject({ role: "user", synthetic: true });
+  expect(item).toMatchObject({ synthetic: true });
   expect(item).not.toHaveProperty("origin");
 });
