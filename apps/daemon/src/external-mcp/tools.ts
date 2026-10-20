@@ -10,6 +10,7 @@ import { ToolRegistry, nodeScheduler } from "@ace/mcp-server";
 import type { Enrollments, Enrollment } from "./enrollments.ts";
 import type { ServiceContext } from "../services/types.ts";
 import { cliControl } from "../services/cli-control.ts";
+import { toolFailureReporter } from "../tool-failure-log.ts";
 const output = z.object({
   ok: z.boolean(),
   data: z.unknown().optional(),
@@ -20,7 +21,11 @@ export function externalTools(
   enrollments: Enrollments,
   admits: () => boolean,
 ) {
-  const registry = new ToolRegistry({ scheduler: nodeScheduler, maxTools: 16 });
+  const registry = new ToolRegistry({
+    scheduler: nodeScheduler,
+    maxTools: 16,
+    reportFailure: toolFailureReporter(context.log, context.id),
+  });
   const thread = (entry: Enrollment, id: string) => {
     const value = context.store.getThread(ThreadId.parse(id));
     if (!value || (entry.project && value.workspaceId !== entry.project))
@@ -65,7 +70,7 @@ export function externalTools(
         ok: true,
         data: {
           thread: value,
-          ...context.store.readItemPage(
+          ...context.store.readBoundedItemPage(
             value.id,
             input.before ?? context.store.headSeq() + 1,
             input.limit,

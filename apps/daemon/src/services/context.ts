@@ -68,7 +68,7 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
       return summarizeThreadReference(
         reference,
         target,
-        store.readItemPage(target.id, store.headSeq() + 1, 20, 32768),
+        store.readBoundedItemPage(target.id, store.headSeq() + 1, 20, 32768),
       );
     },
     threadWorkspaceRoot: async (thread) => {

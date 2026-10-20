@@ -5,6 +5,7 @@ import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { Event, Item, ItemId, ThreadId, type TextSource, type ItemsPage } from "@ace/protocol";
 import { outputStreamId, summarizeOutput, utf8Tail } from "@ace/projection";
 import { ItemTextStore } from "./item-text-store.ts";
+import { ItemPageCapacityExceeded } from "./item-page-capacity.ts";
 import { appendTextSource, hasTextPreview, textPreview } from "./text-preview.ts";
 
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
@@ -371,6 +372,28 @@ export class HistoryIndex {
     }
     return undefined;
   }
+  /** The newest item created before `before` as of `through`, as a page shows it. */
+  newestBefore(
+    threadId: ThreadId,
+    through: number,
+    before: number,
+  ): { item: Item; seq: number } | undefined {
+    const row = this.statement(
+      "SELECT id,created_seq FROM history_items WHERE thread_id=? AND created_seq<=? AND created_seq<? ORDER BY created_seq DESC LIMIT 1",
+    ).get(threadId, through, before);
+    if (!row) return undefined;
+    const head = z.object({ id: ItemId, created_seq: count }).parse(row);
+    const value = this.itemAt(head.id, through);
+    if (!value) throw new Error("Historical revision is unavailable");
+    return { item: this.preview(threadId, value, through), seq: head.created_seq };
+  }
+  hasItemBefore(threadId: ThreadId, through: number, before: number): boolean {
+    return (
+      this.statement(
+        "SELECT 1 FROM history_items WHERE thread_id=? AND created_seq<=? AND created_seq<? LIMIT 1",
+      ).get(threadId, through, before) !== undefined
+    );
+  }
   page(
     threadId: ThreadId,
     through: number,
@@ -404,7 +427,8 @@ export class HistoryIndex {
       const size =
         Buffer.byteLength(JSON.stringify(item)) + Buffer.byteLength(JSON.stringify(row.id)) + 64;
       if (bytes + size > byteLimit) {
-        if (!items.length) throw new Error("Historical item exceeds page capacity");
+        if (!items.length)
+          throw new ItemPageCapacityExceeded("Historical item exceeds page capacity");
         break;
       }
       bytes += size;

@@ -17,6 +17,16 @@ export function parseToolArguments<T extends z.ZodType>(schema: T, value: unknow
     );
   return parsed.data;
 }
+/** Arguments too large to read: the agent can send less, so the reason is public. */
+export function inputTooLarge(maxBytes: number): PublicToolError {
+  return new PublicToolError(
+    "limit",
+    undefined,
+    undefined,
+    undefined,
+    `The arguments exceed ${Math.floor(maxBytes / 1024)} KiB as JSON. Send less in one call.`,
+  );
+}
 const Origin = z.object({
   blocked: z.object({
     origin: z.string().max(8192),
@@ -33,7 +43,11 @@ function publicOrigin(raw: string): string {
     return "invalid origin";
   }
 }
-export function toolFailure(error: unknown): CallToolResult {
+/**
+ * The agent-facing result for a failure. A non-public error becomes a fixed code; `errorId`
+ * names the log entry its private cause went to, so a person can find it.
+ */
+export function toolFailure(error: unknown, errorId?: string): CallToolResult {
   const trusted = error instanceof PublicToolError;
   const failure = trusted
     ? new PublicToolError(
@@ -43,8 +57,17 @@ export function toolFailure(error: unknown): CallToolResult {
         error.candidates,
         error.detail,
         error.issues,
+        error.errorId,
       )
-    : new PublicToolError(error instanceof z.ZodError ? "invalid_data" : "execution_failed");
+    : new PublicToolError(
+        error instanceof z.ZodError ? "invalid_data" : "execution_failed",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        errorId,
+      );
   const origin = trusted ? Origin.safeParse(error) : undefined;
   return {
     isError: true,
@@ -60,6 +83,7 @@ export function toolFailure(error: unknown): CallToolResult {
           ...(failure.phase ? { phase: failure.phase } : {}),
           ...(failure.candidates ? { candidates: failure.candidates } : {}),
           ...(failure.permission ? { permission: failure.permission } : {}),
+          ...(failure.errorId ? { errorId: failure.errorId } : {}),
           ...(origin?.success
             ? {
                 blocked: {

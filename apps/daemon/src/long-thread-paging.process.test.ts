@@ -1,10 +1,9 @@
 import { expect, test } from "vitest";
 import { agentMessage, root, storeFixture, tool, window } from "./long-thread-test-support.ts";
 
-// Mutations: ignoring the byte allowance, skipping a rejected neighbor, dropping
-// the jump target, or returning a partial oversized tool body.
-// Not executed (tests run at merge).
-test("windows and pages stop at oversized tool details without skipping the blocked interval", () => {
+// Mutations: ignoring the byte allowance, dropping the jump target, stalling at an item larger
+// than any window, or sending it whole. Not executed (tests run at merge).
+test("windows page past a tool call larger than any window, sending it reduced", async () => {
   const f = storeFixture();
   // UTF-8 and JSON escapes both matter: character count is not the wire byte count.
   const command = "é\u0000\ud800".repeat(100_000);
@@ -26,16 +25,20 @@ test("windows and pages stop at oversized tool details without skipping the bloc
   );
   if (!oversized || !target) throw new Error("Missing item events");
   const jumped = window(f.store, f.thread, { aroundSeq: target.seq }, 2, 1);
-  expect(jumped.items.map((item) => item.id)).toEqual(["target"]);
-  expect(jumped.targetSeq).toBe(target.seq);
-  expect(jumped.itemsBefore).toBe(target.seq);
-  expect(jumped.itemsAfter).toBe(target.seq);
-  const tail = f.store.readItemPage(f.thread.id, f.store.headSeq() + 1, 200);
-  expect(tail.items.map((item) => item.id)).toEqual(["target", "newer"]);
-  expect(tail.itemsBefore).toBe(target.seq);
-  expect(() => window(f.store, f.thread, { aroundSeq: oversized.seq })).toThrow(
-    "Item detail exceeds page capacity",
-  );
+  expect(jumped.items.map((item) => item.id)).toEqual(["older", "oversized", "target", "newer"]);
+  expect(Buffer.byteLength(JSON.stringify(jumped))).toBeLessThanOrEqual(1024 * 1024);
+  const reduced = jumped.items[1];
+  if (reduced?.type !== "tool_call" || reduced.call.detail.kind !== "shell")
+    throw new Error("Expected the reduced shell call");
+  expect(reduced.call.detail.command).toMatch(/more characters not shown\]$/);
+  expect(jumped.omitted).toEqual([
+    expect.objectContaining({ itemId: "oversized", seq: oversized.seq, dropped: "text" }),
+  ]);
+  // Jumping to it directly shows it reduced too.
+  const direct = window(f.store, f.thread, { aroundSeq: oversized.seq });
+  expect(direct.targetSeq).toBe(oversized.seq);
+  expect(direct.items.map((item) => item.id)).toContain("oversized");
+  // The store's own page still refuses to start with it; reduced pages are the readers' choice.
   expect(() => f.store.readItemPage(f.thread.id, target.seq, 1)).toThrow(
     "Item detail exceeds page capacity",
   );

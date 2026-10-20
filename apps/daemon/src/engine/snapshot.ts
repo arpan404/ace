@@ -108,6 +108,8 @@ const snapshot = z.object({
   taskHistory: records(BackgroundTask),
   indexes: z.object({
     liveTools: keys,
+    // Absent from snapshots written before the index existed; persistence starts it empty.
+    openText: keys.optional(),
     pendingInteractions: keys,
     runningTasks: keys,
     agentKeysById: records(z.string()),

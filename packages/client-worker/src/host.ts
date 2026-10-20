@@ -4,6 +4,7 @@ import {
   defaultLimits,
   loadServiceWire,
   type ClientCore as Client,
+  type DiagnosticEvent,
   type PendingSend,
   type Scheduler,
   type SidebarExport,
@@ -31,8 +32,14 @@ import { TabMessage, type LeaseChanges, type PortLike, type Scope } from "./wire
  */
 
 export interface HostOptions {
-  /** Parse a tab's target and name the client for it; tabs naming the same key share it. */
-  target(config: unknown): { key: string; create(): Client };
+  /**
+   * Parse a tab's target and name the client for it; tabs naming the same key share it. `report`
+   * passes the client's diagnostics to a tab, whose page owns the log.
+   */
+  target(config: unknown): {
+    key: string;
+    create(report: (event: DiagnosticEvent) => void): Client;
+  };
   scheduler: Scheduler;
   now(): number;
   /** Coalescing window for forwarded changes. One display frame by default. */
@@ -160,12 +167,16 @@ export class ClientHost {
       entry = undefined;
     }
     if (!entry) {
-      const client = target.create();
+      const tabs = new Set<Tab>();
+      // One tab reports, so the log holds each fact once however many tabs share the client.
+      const client = target.create((event) => {
+        for (const member of tabs) if (member.diagnostic(event)) return;
+      });
       const created: Entry = {
         key: target.key,
         generation: 0,
         client,
-        tabs: new Set(),
+        tabs,
         started: client.start(),
         unwatch: () => {},
         linger: undefined,
@@ -266,6 +277,16 @@ class Tab {
   silentSince(now: number, silence: number, hiddenSilence: number): boolean {
     if (this.#stopLock) return false;
     return this.lastSeen < now - (this.#visible ? silence : hiddenSilence);
+  }
+  /** Pass a diagnostic to this tab's page; false if this tab can't take it. */
+  diagnostic(event: DiagnosticEvent): boolean {
+    if (this.#dropped) return false;
+    this.#post({
+      t: "diagnostic",
+      event: event.event,
+      ...(event.data ? { data: event.data } : {}),
+    });
+    return !this.#dropped;
   }
   connection(): void {
     const client = this.#entry?.client;

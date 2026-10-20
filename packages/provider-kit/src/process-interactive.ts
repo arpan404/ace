@@ -23,6 +23,7 @@ export function spawnInteractive(options: {
   let failed = false;
   let closed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let killAt: number | undefined;
   const release = () => {
     if (timer) clearTimeout(timer);
     if (pid !== undefined) {
@@ -50,9 +51,13 @@ export function spawnInteractive(options: {
     exited,
     stop({ graceMs = 500 } = {}) {
       if (!Number.isFinite(graceMs) || graceMs < 0) throw new RangeError("Invalid graceMs");
-      if (!closed && !stopped && pid !== undefined) {
+      const at = performance.now() + graceMs;
+      // A later, shorter stop brings the SIGKILL forward; it never pushes one back.
+      if (!closed && pid !== undefined && (!stopped || (killAt !== undefined && at < killAt))) {
+        if (!stopped) killGroup(pid, "SIGTERM");
         stopped = true;
-        killGroup(pid, "SIGTERM");
+        killAt = at;
+        if (timer) clearTimeout(timer);
         timer = setTimeout(() => killGroup(pid, "SIGKILL"), graceMs);
       }
       return exited;

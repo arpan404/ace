@@ -283,4 +283,56 @@ describe("page hooks", () => {
     main.emit(eventChannel("system.resumed"), undefined);
     expect(target.events).toEqual(["online"]);
   });
+
+  it("sends a page diagnostic to the main process without making the page wait", async () => {
+    const main = fakeIpc();
+    const ace = createBridge(main.ipc, info);
+    expect(ace.diagnostics.report({ event: "worker.restarted", data: { attempt: 2 } })).toBe(
+      undefined,
+    );
+    await expect
+      .poll(() => main.sent)
+      .toEqual([
+        {
+          channel: requestChannel("diagnostics.report"),
+          payload: { event: "worker.restarted", data: { attempt: 2 } },
+        },
+      ]);
+  });
+
+  it("drops an oversized diagnostic in the page, without throwing or sending it", async () => {
+    const main = fakeIpc();
+    const ace = createBridge(main.ipc, info);
+    const unhandled: unknown[] = [];
+    const record = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", record);
+    try {
+      expect(() =>
+        ace.diagnostics.report({ event: "big", data: { detail: "x".repeat(10_000) } }),
+      ).not.toThrow();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    } finally {
+      process.off("unhandledRejection", record);
+    }
+    expect(main.sent).toEqual([]);
+    expect(unhandled).toEqual([]);
+  });
+
+  it("swallows a refused diagnostic from the main process", async () => {
+    const main = fakeIpc();
+    const ace = createBridge(
+      { ...main.ipc, invoke: () => Promise.reject(new Error("Untrusted sender")) },
+      info,
+    );
+    const unhandled: unknown[] = [];
+    const record = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", record);
+    try {
+      ace.diagnostics.report({ event: "worker.restarted" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    } finally {
+      process.off("unhandledRejection", record);
+    }
+    expect(unhandled).toEqual([]);
+  });
 });

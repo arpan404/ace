@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AgentId, ItemId, ThreadId, Timestamp } from "./ids.ts";
 import { Item } from "./items.ts";
+import { OmittedItem } from "./omitted-items.ts";
 import { ThreadStatus } from "./thread.ts";
 import { ToolKind } from "./tools.ts";
 import { SearchSnippet } from "./search.ts";
@@ -135,6 +136,8 @@ export const ItemsWindowResponse = z
     itemSeqs: z.record(z.string(), count.positive()),
     itemsBefore: count.positive().nullable(),
     itemsAfter: count.positive().nullable(),
+    /** Items larger than a window, shown reduced; the window still pages past them. */
+    omitted: z.array(OmittedItem).max(200).optional(),
   })
   .refine((reply) => reply.items.every((item) => Object.hasOwn(reply.itemSeqs, item.id)), {
     message: "Every window item needs its creation sequence",

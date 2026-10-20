@@ -21,7 +21,7 @@ export function handoffToolkit(store: Store): Toolkit {
             return { ...chunk, bytes: chunk.bytes.toString("base64") };
           }
           const through = access.boundary(caller.threadId, input.sourceThreadId);
-          return store.readHistoricalItemPage(
+          return store.readBoundedHistoricalItemPage(
             input.sourceThreadId,
             through,
             Math.min(input.before ?? through + 1, through + 1),

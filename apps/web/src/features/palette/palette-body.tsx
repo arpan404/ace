@@ -8,8 +8,9 @@ import {
   PaletteIcon,
 } from "@phosphor-icons/react";
 import { useParams } from "@tanstack/react-router";
+import { useClient } from "@ace/client-react";
 import { matchRanges } from "@ace/ui-core/command-rank";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Command,
   CommandCollection,
@@ -24,6 +25,8 @@ import {
 import { closeHint, KeyHints, navigateHint, selectHint } from "@/components/ui/key-hints.tsx";
 import { usePhone } from "@/lib/breakpoints.ts";
 import { cn } from "@/lib/cn.ts";
+import { searchSettleMs } from "@/lib/debounced.ts";
+import { warmThread } from "@/lib/thread-warmer.ts";
 import { resolveKeys, useResolvedKeymap } from "@/lib/keybindings.ts";
 import { describeKeys } from "@/lib/keymap.ts";
 import { useLayout, type PalettePage } from "@/lib/layout.tsx";
@@ -100,6 +103,19 @@ export default function PaletteBody(props: { close(): void; push(page: PalettePa
   );
   const { text } = readQuery(query);
   const ranked = query.trim() !== "";
+  const client = useClient();
+  const warmTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(warmTimer.current), []);
+  // Typing moves the highlight on every key; only the row it settles on is followed.
+  const warm = useCallback(
+    (item: Row | undefined) => {
+      clearTimeout(warmTimer.current);
+      const threadId = item?.threadId;
+      if (threadId)
+        warmTimer.current = setTimeout(() => warmThread(client, threadId), searchSettleMs);
+    },
+    [client],
+  );
   const run = (item: Row) => {
     if (item.kind === undefined) rememberCommand(storage, item.id, wallClock());
     item.run();
@@ -111,6 +127,7 @@ export default function PaletteBody(props: { close(): void; push(page: PalettePa
       filter={null}
       value={query}
       onValueChange={setQuery}
+      onItemHighlighted={warm}
     >
       <CommandInput
         aria-label="Search commands"

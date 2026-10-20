@@ -49,6 +49,7 @@ export const handoffToolCatalog = [
       // The full item union is ~57 KB of schema; agents read type, id and text parts.
       items: z.array(z.looseObject({ type: z.string(), id: z.string().optional() })).optional(),
       itemsBefore: z.number().int().positive().nullable().optional(),
+      omitted: z.array(z.looseObject({ itemId: z.string(), dropped: z.string() })).optional(),
       bytes: z.string().optional(),
       encoding: z.enum(["utf-16le", "utf-8"]).optional(),
       nextOffset: z.number().int().nonnegative().optional(),

@@ -12,8 +12,10 @@ import type {
  * so math is never parsed inside code.
  *
  * `$` keeps currency alone: an opening `$` followed by whitespace never opens,
- * and a closing `$` preceded by whitespace or followed by a digit never closes,
- * so `$5 and $10` stays text. An opener with no closer stays text too, which is
+ * and a closing `$` preceded by whitespace or followed by a letter or digit
+ * never closes, so `$5 and $10` and `$HOME/$USER` stay text. `\$` is marked's
+ * escape (no branch here starts with a backslash and a dollar), so it stays
+ * a dollar. An opener with no closer stays text too, which is
  * what a streamed message shows until its formula arrives.
  */
 
@@ -64,6 +66,8 @@ function inlineDollar(source: string): MathToken | undefined {
   while (at < source.length) {
     const char = source[at];
     if (char === "\\") {
+      // A dollar the agent escaped is prose (`echo $PATH, pay \$5`), never inside math.
+      if (source[at + 1] === "$") return undefined;
       at += 2;
       continue;
     }
@@ -72,7 +76,8 @@ function inlineDollar(source: string): MathToken | undefined {
       const last = tex[tex.length - 1];
       if (last === undefined || /\s/.test(last)) return undefined;
       const after = source[at + 1];
-      if (after !== undefined && /\d/.test(after)) return undefined;
+      // `$5/$10`, `$HOME/$USER`: a closer glued to a word or number is not one.
+      if (after !== undefined && /[\p{L}\p{N}_]/u.test(after)) return undefined;
       return { type: "math", raw: source.slice(0, at + 1), tex, display: false };
     }
     at += 1;

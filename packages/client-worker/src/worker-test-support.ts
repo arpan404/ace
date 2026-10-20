@@ -72,8 +72,9 @@ export function world(
       const { daemon: key } = z.object({ daemon: z.string() }).parse(config);
       return {
         key,
-        create: () =>
+        create: (report) =>
           new ClientCore({
+            report,
             deviceId: DeviceId.parse("worker-device"),
             transport: () => {
               const inner = fakeTransport(daemon);
@@ -173,8 +174,33 @@ export function world(
     };
     return Object.assign(remote, { show, left: left.promise, traffic });
   };
+  /** A tab's end of a fresh port to the current host; `freeze` silences the worker's replies. */
+  const port = () => {
+    const { port1, port2 } = new MessageChannel();
+    let frozen = false;
+    host.attach({
+      postMessage: (value) => {
+        if (!frozen) port1.postMessage(value);
+      },
+      start: () => port1.start(),
+      close: () => port1.close(),
+      addEventListener: (type, listener) => port1.addEventListener(type, listener),
+      removeEventListener: (type, listener) => port1.removeEventListener(type, listener),
+    });
+    cleanups.push(() => {
+      port1.close();
+      port2.close();
+    });
+    return {
+      port: port2,
+      freeze() {
+        frozen = true;
+      },
+    };
+  };
   cleanups.push(() => advance(1000));
   return {
+    port,
     daemon,
     get host() {
       return host;

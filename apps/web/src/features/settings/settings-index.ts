@@ -128,6 +128,12 @@ const entries = [
     keywords: ["block", "deny", "computer use", "screen", "apps", "privacy"],
   },
   {
+    id: "devices.emulatorWindow",
+    page: "/settings/computer-use",
+    title: "Show emulator window",
+    keywords: ["android", "emulator", "window", "headless", "sensors", "fingerprint", "camera"],
+  },
+  {
     id: "browser.userChrome.storageReads",
     page: "/settings/computer-use",
     title: "Let agents read cookies and site storage",

@@ -22,16 +22,13 @@ Example:
 
 ```json
 {
-  "at": 0,
+  "at": 8,
   "id": "example",
   "payload": {
-    "paused": false,
-    "reason": null,
-    "resumeAt": null,
-    "revision": 0,
-    "type": "queue.updated"
+    "itemId": "example",
+    "type": "item.deleted"
   },
-  "seq": 2,
+  "seq": 0,
   "threadId": "example"
 }
 ```
@@ -52,9 +49,8 @@ Example:
 ```json
 {
   "changes": {
-    "activityAt": 2,
-    "autoSettleAt": null,
-    "deletedAt": 4,
+    "activitySeq": 7,
+    "autoSettle": false,
     "details": {
       "baseBranch": "example",
       "behind": 3,
@@ -76,8 +72,8 @@ Example:
         "ref": {
           "number": 9,
           "repository": {
-            "forge": "github",
-            "host": "F",
+            "forge": "gitlab",
+            "host": "lufeF",
             "name": "iGryWI8r9uO",
             "owner": "slp0oilKBah/5Fjpnm/vA5X/k/479eJ/Yb9/l38X"
           }
@@ -91,8 +87,9 @@ Example:
       },
       "worktree": "example"
     },
+    "pinned": false,
     "settleWhenDone": true,
-    "unread": true
+    "snoozedUntil": 3
   },
   "type": "thread.client.updated"
 }

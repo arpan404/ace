@@ -30,9 +30,8 @@ test("one turn's work reads as one Worked line and one subagent card, though sub
   const second = await within(feed).findByText(/Send coldStart with the ack/);
   await within(feed).findByRole("button", { name: "2 subagents" });
 
-  expect(screen.getByRole("group", { name: "Turn in progress" }).textContent).toContain(
-    "subagents",
-  );
+  // The main agent waits on them: the composer's strip says so, not a live line.
+  expect(await screen.findByRole("status", { name: /^Waiting for \d subagents?$/ })).toBeTruthy();
   expect(within(feed).getAllByRole("button", { name: /^\d subagents?$/ })).toHaveLength(1);
   expect(within(feed).queryByRole("button", { name: "1 subagent" })).toBeNull();
   expect(second).toBeTruthy();

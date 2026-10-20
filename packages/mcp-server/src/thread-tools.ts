@@ -82,7 +82,17 @@ const threadsFind = controlTool({
 const ThreadPage = z.looseObject({
   thread: z.looseObject({ id: z.string(), title: z.string() }).optional(),
   items: z.array(z.looseObject({ type: z.string(), id: z.string().optional() })).optional(),
-  itemsBefore: z.number().nullable().optional(),
+  itemsBefore: z
+    .number()
+    .nullable()
+    .optional()
+    .describe("Pass as before for the previous page; null when nothing is earlier."),
+  omitted: z
+    .array(z.looseObject({ itemId: z.string(), dropped: z.string() }))
+    .optional()
+    .describe(
+      "Items too large for a page: shown without raw payloads (dropped raw) or only summarized (dropped item).",
+    ),
   linkedPrs: z.array(z.unknown()).optional(),
   previews: z.array(z.unknown()).optional(),
   bytes: z.string().optional().describe("Base64 output bytes, when reading a stream"),
@@ -96,7 +106,7 @@ const threadRead = controlTool({
   riskClass: "read-only",
   capability: null,
   description:
-    "Read a thread: title, status, branch, linked PRs, preview servers, queued messages (with entryIds for queue_edit) and a page of its transcript, newest first. Omit threadId for this thread. Page back with before = itemsBefore. A truncated part with source.streamId continues with streamId and offset (base64 bytes, then nextOffset).",
+    "Read a thread: title, status, branch, linked PRs, preview servers, queued messages (with entryIds for queue_edit) and a page of its latest transcript items, oldest first. Omit threadId for this thread. Page back with before = itemsBefore until it is null; an item too large for a page is listed in omitted. A truncated part with source.streamId continues with streamId and offset (base64 bytes, then nextOffset).",
   input: z.strictObject({
     threadId: ThreadId.optional().describe("Default: this thread."),
     before: z.number().int().positive().optional().describe("The previous page's itemsBefore."),

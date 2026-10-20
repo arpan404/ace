@@ -65,6 +65,9 @@
       "maxItems": 200,
       "type": "array"
     },
+    "devices.emulatorWindow": {
+      "type": "boolean"
+    },
     "generation.autoDraftCommits": {
       "type": "boolean"
     },
@@ -329,6 +332,7 @@
     "browser.downloadDefault",
     "browser.userChrome.storageReads",
     "computer.blockedApps",
+    "devices.emulatorWindow",
     "access.defaultMode",
     "access.nativeModes",
     "threads.useWorktree",

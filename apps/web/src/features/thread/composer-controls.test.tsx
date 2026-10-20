@@ -1,5 +1,5 @@
 import { openEffortControl, chooseEffort } from "@/test/model-control.ts";
-import { longHistory, replayCursor } from "@ace/fake-daemon";
+import { facts, longHistory, replayCursor } from "@ace/fake-daemon";
 import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
 import { configure, act, screen, waitFor, within } from "@testing-library/react";
 
@@ -19,7 +19,11 @@ async function open(
   const app = harness();
   setup(app);
   if (scenario === "idle") app.play(longHistory(2)).runUntilBlocked();
-  else app.play(replayCursor()).runThrough("finding");
+  else {
+    app.play(replayCursor()).runThrough("finding");
+    // The main agent is back at its own work, not only waiting on its subagents: follow-ups queue.
+    app.daemon.apply("thread-replay-cursor", [facts.toolDone("root", "spawn-test")]);
+  }
   await app.open(scenario === "idle" ? "/t/thread-router" : "/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
   const message = await screen.findByRole("combobox", { name: "Message" });

@@ -1,5 +1,6 @@
-import { observeProcessGroups } from "@ace/provider-kit/process";
 import { ProcessInventory } from "@ace/provider-kit/process-inventory";
+import { observeProcessGroups, stopOwnedGroups } from "@ace/provider-kit/process";
+import { forceStopAfterPoliteWindow } from "./shutdown-processes.ts";
 import { cliControl } from "./services/cli-control.ts";
 export { StorageService } from "./storage/service.ts";
 export { planStorageItem, type StorageCandidate } from "./storage/planner.ts";
@@ -35,6 +36,7 @@ import { logHomeBackup } from "./home-backup-log.ts";
 import { sqliteFailureDetails, systemDiskSpace } from "./sqlite-failure.ts";
 import { createLoopMonitor, systemLoopClock } from "./loop-monitor.ts";
 import { DaemonStop, type StopReason } from "./stop-reason.ts";
+import { stopRecorder, type Stopping } from "./stop-record.ts";
 import { beginRun, previousRunRecord, type DaemonRun } from "./run-marker.ts";
 import { readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
@@ -131,10 +133,10 @@ export async function startDaemon(options: DaemonOptions = {}) {
     throw error;
   }
   const resources = new Resources();
-  resources.own(() => log.close());
+  resources.own(() => log.close(), "daemon log");
   if (prepared.state === "fresh") {
     const followUp = new AbortController();
-    resources.own(() => followUp.abort());
+    resources.own(() => followUp.abort(), "home backup log");
     void logHomeBackup(prepared, log, new Date(now()), followUp.signal);
   }
   // Under the lock: the last run's ending tells an expected restart from a crash.
@@ -152,25 +154,12 @@ export async function startDaemon(options: DaemonOptions = {}) {
     ),
   );
   resources.own(installRejectionGuard(process, log, isStoreRetry));
-  let stopping: { reason: StopReason; at: number } | undefined;
+  let stopping: Stopping | undefined;
+  const stopRecord = stopRecorder({ run: () => run, log, now, pid: process.pid });
   // Disposers run in reverse: this record is the last line before the log closes.
   resources.own(() => {
-    if (!stopping) return;
-    try {
-      run?.stopped(stopping.reason);
-    } catch (error) {
-      log.log("warn", "Daemon run marker could not be written", logError(error));
-    }
-    log.log(
-      "info",
-      "Daemon stopped",
-      logFields([
-        ["source", stopping.reason.source],
-        ["durationMs", Math.max(0, Math.round(now() - stopping.at))],
-        ["pid", process.pid],
-      ]),
-    );
-  });
+    if (stopping) stopRecord.stopped(stopping);
+  }, "stop record");
   const loop = createLoopMonitor({
     clock: options.loopClock ?? systemLoopClock,
     onStall: ({ delayMs, suppressed }) =>
@@ -183,7 +172,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
         ]),
       ),
   });
-  resources.own(() => loop.close());
+  resources.own(() => loop.close(), "event loop monitor");
   const inventory = new ProcessInventory(join(config.dataDir, "processes.sqlite"));
   try {
     inventory.recover();
@@ -198,7 +187,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
   resources.own(() => {
     stopInventory();
     inventory.close();
-  });
+  }, "process inventory");
   const lifetime = new AbortController();
   resources.onShutdown(() => lifetime.abort());
   let initialized = false;
@@ -221,6 +210,10 @@ export async function startDaemon(options: DaemonOptions = {}) {
     if (endpointPath) unlinkSync(endpointPath);
   };
   let closing: Promise<void> | undefined;
+  const pendingShutdown = () => [
+    ...(server?.pendingShutdown() ?? []).map((stage) => `server ${stage}`),
+    ...resources.pending(),
+  ];
   const closeResources = (reason: StopReason = { source: "close" }) => {
     if (!stopping) {
       stopping = { reason, at: now() };
@@ -244,6 +237,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
   const disposeResources = async () => {
     resources.beginShutdown();
     const runtime = { ...systemStartup, ...options.startup };
+    let disposed = false;
     const disposing = (async () => {
       // Service aborts and cleanup start before socket task drain. Shared store/log
       // disposal follows both, so in-flight work can still record its termination.
@@ -265,11 +259,18 @@ export async function startDaemon(options: DaemonOptions = {}) {
       );
       if (errors.length) throw new AggregateError(errors, "Daemon shutdown failed");
     })().finally(() => {
+      disposed = true;
       try {
         retireEndpoint();
       } finally {
         unlock();
       }
+    });
+    const cancelForcedStop = forceStopAfterPoliteWindow({
+      schedule: runtime.schedule,
+      stop: options.stopProcesses ?? stopOwnedGroups,
+      log,
+      pending: pendingShutdown,
     });
     try {
       await shutdownDeadline(
@@ -278,7 +279,15 @@ export async function startDaemon(options: DaemonOptions = {}) {
         (expire, milliseconds) => runtime.schedule("shutdown", expire, milliseconds),
         7_000,
       );
+    } catch (error) {
+      // Name what is still closing while the log can still say so; the process exits next.
+      if (stopping && !disposed) {
+        stopRecord.overran(stopping, pendingShutdown());
+        log.flushSync();
+      }
+      throw error;
     } finally {
+      cancelForcedStop();
       retireEndpoint();
     }
   };
@@ -306,7 +315,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       ),
     };
     const store = serviceContext.store;
-    resources.own(() => store.close());
+    resources.own(() => store.close(), "event store");
     const health = createHealthMonitor({
       database: join(config.dataDir, "events.sqlite"),
       now,
@@ -325,7 +334,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       logs: () => ({ ...log.stats(), directory: logDirectory }),
       streaming: () => store.streamingMetrics(),
     });
-    resources.own(() => health.close());
+    resources.own(() => health.close(), "health monitor");
     const startup = new ServiceStartup(serviceContext, { ...systemStartup, ...options.startup });
     await startup.start(serviceFactories);
     const services = serviceContext.services;
@@ -395,6 +404,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       store,
       cliControl: cliControl(serviceContext),
       log,
+      pendingShutdown,
       close: (reason?: StopReason) => closeResources(reason),
     });
   } catch (error) {

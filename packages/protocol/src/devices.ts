@@ -32,7 +32,18 @@ export const DeviceInput = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("type"), text: z.string().max(4096) }),
   z.object({
     kind: z.literal("key"),
-    key: z.enum(["home", "back", "rotate", "enter", "power", "recents"]),
+    key: z.enum([
+      "home",
+      "back",
+      "rotate",
+      "enter",
+      "power",
+      "recents",
+      "volumeUp",
+      "volumeDown",
+      "action",
+      "side",
+    ]),
   }),
 ]);
 export type DeviceInput = z.infer<typeof DeviceInput>;

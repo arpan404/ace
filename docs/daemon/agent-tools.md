@@ -246,7 +246,8 @@ simulator with its `simId`, for example `"android:Pixel"` or `"ios:UUID"`.
 agent holds it (`lease_required` / `busy`). Read with `sim_ui({simId})`, or pass `role`,
 `name` or `text` to find. `sim_act({simId, action: "ui", ref, uiAction})` acts through
 accessibility; `tap`, `long_press`, `swipe`, `type` and `key` (`home`, `back`, `rotate`,
-`enter`, `power`, and Android's `recents`) are the coordinate and key fallbacks, in target
+`enter`, `power`, `volumeUp`, `volumeDown`, Android's `recents`, the iPhone's `action` and Apple Watch's `side`)
+are the coordinate and key fallbacks, in target
 points. `open_app`, `open_url`, `install`, `record_start` and `record_stop` cover apps and
 recordings; `clipboard_get` reads the clipboard (`{text, truncated}`, at most 4,096
 characters) and `clipboard_set` puts `text` on it without pasting;
@@ -282,7 +283,12 @@ Execution failures return MCP `isError: true` and text containing bounded JSON
 `{code, message, hint?}`. Origin failures also contain `blocked: {origin, reason}`.
 Only ace-authored public failure types expose fixed messages and remedies. Arbitrary
 backend messages, hints, stacks, strings and code-shaped objects become a fixed
-`execution_failed` response. Schema errors expose no private issue literals.
+`execution_failed` response. Schema errors expose no private issue literals. The daemon
+logs every such private cause (tool, thread, error name, message and stack frames) under a
+fresh `errorId`, and the agent's response carries that `errorId` so a person can find
+the log line. Expected conditions have their own codes: `thread_not_found`,
+`thread_busy`, `request_conflict`, `handoff_unavailable` and `limit` (also for
+arguments over the input budget).
 Examples include `stale_ref`, `human_active`, `covered`, `not_hittable`,
 `unsaved_changes`, `page_unreachable` (with `detail` naming the network error),
 `browser_restarted`, `delegation_required`, `lease_required`, `denied`, and

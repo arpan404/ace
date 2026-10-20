@@ -392,6 +392,7 @@ test("a turn that left a command running reads as running in background, never W
     code: "dev",
     tone: "held",
     elapsedFrom: undefined,
+    waitingOn: { kind: "background", count: 1, title: "dev" },
   });
 
   thread.background("tunnel");
@@ -399,6 +400,7 @@ test("a turn that left a command running reads as running in background, never W
   expect(turnActivity(thread.reader, "root")).toMatchObject({
     label: "Running 2 commands in background",
     tone: "held",
+    waitingOn: { kind: "background", count: 2, title: undefined },
   });
 });
 
@@ -452,12 +454,19 @@ test("a root waiting on its subagents says so instead of Working, keeping its ti
     label: "Waiting for 2 subagents",
     tone: "working",
     waitingOnSubagents: true,
+    waitingOn: { kind: "subagents", count: 2, turnOver: false },
     elapsedFrom: 0,
+  });
+  // A Stop on its way still knows what the root waits on, so its Stop stays where it was.
+  expect(turnActivity(thread.reader, "root", { stopping: true })).toMatchObject({
+    label: "Stopping…",
+    waitingOn: { kind: "subagents", count: 2, turnOver: false },
   });
   // Back at its own work, it reads Working again.
   thread.status(working);
   expect(turnActivity(thread.reader, "root")).toMatchObject({ label: "Working" });
   expect(turnActivity(thread.reader, "root")?.waitingOnSubagents).toBeUndefined();
+  expect(turnActivity(thread.reader, "root")?.waitingOn).toBeUndefined();
 });
 
 test("a turn that ended with background subagents still running waits for them", () => {
@@ -468,6 +477,7 @@ test("a turn that ended with background subagents still running waits for them",
   expect(turnActivity(thread.reader, "root")).toMatchObject({
     label: "Waiting for 1 subagent",
     waitingOnSubagents: true,
+    waitingOn: { kind: "subagents", count: 1, turnOver: true },
   });
 });
 
@@ -475,6 +485,7 @@ test("a held or stopped root whose subagent works still reads Working, not waiti
   const limited = world({ state: "blocked", on: "rate_limit", refs: [], until: undefined }, []);
   limited.subagent("web", working);
   expect(turnActivity(limited.reader, "root")?.label).toBe("Working");
+  expect(turnActivity(limited.reader, "root")?.waitingOn).toBeUndefined();
   const stopped = world({ state: "interrupted" }, [said("ask", "user", 0)]);
   stopped.subagent("web", working);
   expect(turnActivity(stopped.reader, "root")?.label).toBe("Working");
