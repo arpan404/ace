@@ -456,11 +456,18 @@ export function ConnectionGate(props: {
     ],
   );
 
-  if (failure) throw failure.error;
   // The verified host once it has identified itself; before that, a host this target verified
   // as before: the app opens on what this device kept for it while the daemon answers. Any
   // refusal still returns to the connection screen, since it ends the request.
   const opened = client?.progress.kind === "ready" ? client.progress.hostId : client?.known;
+  const target = client?.request.target;
+  // One object per target and host, so what reads it re-renders only when either changes.
+  const appConnection = useMemo<GateConnection | undefined>(
+    () => (target && opened ? { target, hostId: opened } : undefined),
+    [target, opened],
+  );
+
+  if (failure) throw failure.error;
   // Connecting behind the startup screen: nothing of the gate's own until the daemon answers or
   // doesn't. The desktop's own daemon reconnecting at boot stays there too ("Reconnecting…"),
   // with Connect manually once it stalls, rather than dropping to the address form. A daemon of
@@ -475,10 +482,10 @@ export function ConnectionGate(props: {
   const manually = props.desktop ? edit : undefined;
   return (
     <DaemonConnectionContext.Provider value={connection}>
-      {client && opened ? (
+      {client && appConnection ? (
         // Opened for a host it then turns out isn't there: reopened for the one that is.
-        <Fragment key={`${client.key}:${opened}`}>
-          {props.children(client.client, { target: client.request.target, hostId: opened })}
+        <Fragment key={`${client.key}:${appConnection.hostId}`}>
+          {props.children(client.client, appConnection)}
         </Fragment>
       ) : status.kind === "starting" ? (
         <StartupPending state="starting" onConnectManually={manually} />
