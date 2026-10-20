@@ -117,17 +117,16 @@ export const nodeScheduler: Scheduler = {
 const JsonObjectSchema = z.object({ type: z.literal("object") }).passthrough();
 /**
  * Claude Code defers MCP tools behind tool search; these stay loaded because the instructions
- * name them as entry points: project context, the guides, delegation and its wait, a page in
- * ace's browser, a visual inline and the search for the rest. Every upfront tool costs context on every request, so keep
- * this short. Other clients ignore the key. Compared by bare name.
+ * name them as entry points: project context, the guides, delegation and its wait, and the
+ * search for the rest. browser_open and html_render are deferred: they are used in some sessions
+ * only, and Claude loads them by exact name (`session-guidance.ts`). Every upfront tool costs
+ * context on every request, so keep this short. Compared by bare name.
  */
 const alwaysLoadedTools: ReadonlySet<string> = new Set([
   "context",
   "guide",
   "delegate",
   "wait",
-  "browser_open",
-  "html_render",
   "tools_find",
 ]);
 function noop(): void {}

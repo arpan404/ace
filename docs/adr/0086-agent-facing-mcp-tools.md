@@ -99,7 +99,11 @@ catalogue (45 tools with the browser and computer use on, 12 of them browser too
 choosing among 45 tools picks worse than one choosing among a dozen.
 
 **`tools_find {query, limit?, family?}`** is listed to every client and loads upfront in Claude
-Code. It ranks only the tools this session could call (capabilities, groups that are off and
+Code. Claude's always-loaded set is `context`, `guide`, `delegate`, `wait` and `tools_find`
+(2026-10-20): `browser_open` and `html_render` are deferred, since many sessions never use them,
+and Claude's guidance line tells it to load them by exact name (`select:mcp__ace__browser_open`)
+before calling. Core and static clients keep both in their core list: they have no tool search,
+and reaching them through `guide` or `tools_call` would add a step to the most common UI check. It ranks only the tools this session could call (capabilities, groups that are off and
 `ask` availability already applied) against the query: stemmed words from each tool's name,
 title, description, family and field descriptions, a small synonym table ("Safari" → app,
 "tap" → click) and rarer words weighted higher. The ranking is pure and deterministic

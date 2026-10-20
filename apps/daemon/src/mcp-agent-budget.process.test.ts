@@ -41,7 +41,7 @@ const reloading = new Set<ProviderKind>(["opencode", "pi"]);
  * deferred names and the skill listing. Codex pays its developer text only.
  */
 const budgets: Record<ProviderKind, number> = {
-  claude: 3_250,
+  claude: 2_650,
   codex: 1_150,
   opencode: 3_800,
   cursor: 3_800,
@@ -147,17 +147,13 @@ it("each provider's per-request ace context stays within its budget", async () =
 it("only the entry points and tools_find load upfront, whatever the client", async () => {
   const agents = await session();
   const { full, core, fixed } = agents;
+  // browser_open and html_render are deferred for Claude; it loads them by exact name.
   expect(bareNames(upfront("claude", agents))).toEqual(
-    [
-      "browser_open",
-      "context",
-      "delegate",
-      "guide",
-      "html_render",
-      "tools_find",
-      "wait",
-    ].toSorted(),
+    ["context", "delegate", "guide", "tools_find", "wait"].toSorted(),
   );
+  // Clients that load their list upfront keep them: they have no tool search to load them by.
+  expect(core.has("browser_open")).toBe(true);
+  expect(core.has("html_render")).toBe(true);
   // Raised from 11 to 12: core lists tools_call too, for a found tool its reload hasn't listed.
   expect(core.tools.length).toBeLessThanOrEqual(12);
   expect(core.has("tools_find")).toBe(true);

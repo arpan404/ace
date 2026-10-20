@@ -50,7 +50,7 @@ const naming: Record<ProviderKind, string> = {
  * (thread_start and thread_control live in the ace-threads family).
  */
 const reach: Record<ToolListing, string> = {
-  all: "ace tools are mcp__ace__<tool>, mostly deferred: load one by exact name with your tool search, e.g. select:mcp__ace__thread_start.",
+  all: "ace tools are mcp__ace__<tool>, mostly deferred (browser_open and html_render too): load one by exact name with your tool search before calling it, e.g. select:mcp__ace__thread_start.",
   core: "Your ace list starts small: guide or tools_find adds a family (thread_start and thread_control come with ace-threads); call one not listed yet with tools_call {name, arguments}.",
   static:
     "Your ace list is fixed: call other ace tools, such as thread_start or thread_control, with tools_call {name, arguments}; tools_find or guide gives the schema.",
