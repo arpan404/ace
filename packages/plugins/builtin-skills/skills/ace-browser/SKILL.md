@@ -18,7 +18,7 @@ Each thread has a real Chromium browser with tabs inside ace, shared by you and 
    - textbox "Email" [ref=e2-31]: ada@example.com
    - button "Continue" [disabled] [ref=e2-40]
    ```
-   At the default 120 lines it costs fewer tokens than a screenshot and, unlike one, gives exact text and refs. On a large page it stops at `maxNodes` and says so; a very large page lists only its landmarks and headings. To narrow it, pass `ref` (a container's ref, for just that part), `depth`, `interactiveOnly:true`, or use `browser_find {role, name}`.
+   At the default 80 lines it costs fewer tokens than a screenshot and, unlike one, gives exact text and refs. On a large page it stops at `maxNodes` and says so; a very large page lists only its landmarks and headings. To narrow it, pass `ref` (a container's ref, for just that part), `depth`, `interactiveOnly:true`, or use `browser_find {role, name}`.
 3. `browser_act {action, ref, ...}` performs `click` (a ref, or `x`, `y` for a point), `type` (replaces the field's text), `fill_form` (several `{ref, value}` fields at once), `press` (`Enter`, `Control+a`), `hover`, `select`, `check`, `uncheck`, `drag`, `focus`, `upload`, `scroll`, or `dialog` (answers a pending alert or prompt).
 4. After an action that navigates, call `browser_wait_for` with exactly one of `url` (exact, or a glob such as `http://localhost:3000/orders/*`), `text`, `ref` plus `state`, `networkIdle: true` (after a save or other requests) or `timeMs`. Then take a fresh snapshot.
 

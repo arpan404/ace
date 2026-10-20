@@ -35,6 +35,7 @@ import type { AgentScreenshot } from "./session-images.ts";
 import {
   findText,
   json,
+  logsText,
   pageSummary,
   pendingDialog,
   snapshotText,
@@ -404,7 +405,7 @@ const pageTools: Tool[] = [
           operation: "list",
           tabId: args["tabId"],
         });
-      return run(port, caller, signal, "logs", args);
+      return run(port, caller, signal, "logs", args, logsText);
     },
   },
   {
