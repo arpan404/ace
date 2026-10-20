@@ -706,6 +706,7 @@
       "name": "@ace/notify",
       "dependencies": {
         "@ace/core": "workspace:*",
+        "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "zod": "^4.1.12",

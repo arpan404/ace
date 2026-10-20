@@ -22,12 +22,14 @@ function clip(text: string, max: number): string {
 /**
  * The bounded client card of a run as observed at `revision`. A pass recorded at another
  * revision is stale; evidence state is computed here because only the host knows the revision.
- * `project` holds the project's default roles at this write, for roles the run leaves out.
+ * `project` holds the project's default roles at this write, for roles the run leaves out;
+ * `next` is the view's next step at this write.
  */
 export function runCard(
   run: OffshiftRun,
   revision: string,
   project?: OffshiftRoles,
+  next?: string,
 ): OffshiftRunCard {
   const pending: OffshiftRunCard["pending"] = [];
   const criteria: OffshiftCardCriterion[] = [];
@@ -85,6 +87,7 @@ export function runCard(
         state: step.state,
         reason: step.state === "skipped" && step.note ? clip(step.note, 160) : undefined,
       })),
+    ...(next ? { next: clip(next, 512) } : {}),
   });
 }
 

@@ -19,6 +19,7 @@ export { withoutPortableHandoff } from "./portable-input.ts";
 export { agentMessageBody, isAgentProse, providerNotice } from "./provider-notices.ts";
 export type { ProviderNoticeKind } from "./provider-notices.ts";
 import { usageSnapshotKey } from "./usage.ts";
+import { runMark } from "./offshift-mark.ts";
 export {
   emptyTurnDigest,
   itemMessagePreview,
@@ -30,6 +31,13 @@ export {
 } from "./long-thread.ts";
 export type { DigestContribution } from "./long-thread.ts";
 export { usageSnapshotKey } from "./usage.ts";
+export {
+  runMark,
+  runNotice,
+  offshiftPhaseNames,
+  offshiftPlaybookNames,
+  type RunNotice,
+} from "./offshift-mark.ts";
 import { applyDelta } from "./delta.ts";
 export {
   acceptsDelta,
@@ -197,10 +205,13 @@ export function updateThread(thread: Thread, event: Event): void {
   }
   if (payload.type === "agent.created" && payload.agent.origin === "root")
     thread.rootAgentId = payload.agent.id;
-  if (isSidebarEvent(event)) thread.updatedAt = event.at;
+  // The row carries where the latest run stands; a run write is not thread activity.
+  if (payload.type === "offshift.updated") thread.run = runMark(payload.card);
+  else if (isSidebarEvent(event)) thread.updatedAt = event.at;
 }
 export function isSidebarEvent(event: Event): boolean {
-  if (event.payload.type === "queue.updated") return true;
+  if (event.payload.type === "queue.updated" || event.payload.type === "offshift.updated")
+    return true;
   return (
     event.payload.type === "thread.created" ||
     event.payload.type === "thread.updated" ||

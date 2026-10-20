@@ -148,7 +148,12 @@ export function createOffshifts(context: ServiceContext, delegations: Delegation
               [
                 {
                   type: "offshift.updated",
-                  card: runCard(changed.run, changed.revision, projectRoles.get(owner.workspaceId)),
+                  card: runCard(
+                    changed.run,
+                    changed.revision,
+                    projectRoles.get(owner.workspaceId),
+                    changed.next,
+                  ),
                 },
               ],
               at,

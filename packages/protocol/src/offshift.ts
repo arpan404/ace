@@ -334,8 +334,24 @@ export const OffshiftRunCard = z.object({
     )
     .max(24)
     .default([]),
+  /** The playbook the run started from; absent on runs without one and on older cards. */
+  playbook: OffshiftPlaybookId.optional(),
+  /** The run's next step as worded at this write, clipped; absent on older cards. */
+  next: z.string().max(512).optional(),
 });
 export type OffshiftRunCard = z.infer<typeof OffshiftRunCard>;
+/**
+ * Where a thread's latest run stands, for its list row: `open` (not delivered, steps or
+ * evidence left), `blocked` (a blocker is recorded) or `delivered` (in delivery with nothing
+ * pending). Derived from the card; never means done on its own, since the tree may still work.
+ */
+export const OffshiftRunMark = z.object({
+  phase: OffshiftPhase,
+  state: z.enum(["open", "blocked", "delivered"]),
+  pendingCount: z.number().int().nonnegative().max(320),
+  playbook: OffshiftPlaybookId.optional(),
+});
+export type OffshiftRunMark = z.infer<typeof OffshiftRunMark>;
 /** A thread-log event: an Offshift run of this thread changed. */
 export const OffshiftUpdated = z.object({
   type: z.literal("offshift.updated"),

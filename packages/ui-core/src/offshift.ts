@@ -8,6 +8,7 @@ import type {
   OffshiftRunCard,
   OffshiftStepState,
 } from "@ace/protocol/offshift";
+import { offshiftPhaseNames, runMark } from "@ace/projection/offshift-mark";
 import { listTreeFacts, treeWorking } from "./live-status.ts";
 import { providerNames } from "./providers.ts";
 import type { Tone } from "./status.ts";
@@ -81,13 +82,6 @@ export interface OffshiftSummary {
 }
 
 const phases: readonly OffshiftPhase[] = ["plan", "implement", "verify", "review", "delivery"];
-const phaseNames: Record<OffshiftPhase, string> = {
-  plan: "Plan",
-  implement: "Implement",
-  verify: "Verify",
-  review: "Review",
-  delivery: "Delivery",
-};
 const kindNames: Record<OffshiftEvidenceKind, string> = {
   automated: "Automated check",
   source: "Source review",
@@ -148,10 +142,7 @@ function treeState(tree: OffshiftTree): { word: OffshiftWord; tone: Tone } | und
 export function offshiftSummary(card: OffshiftRunCard, tree: OffshiftTree): OffshiftSummary {
   const live = treeState(tree);
   // In delivery the card's steps are delivery's: one still to do (the report) is unfinished.
-  const unfinished =
-    card.phase !== "delivery" ||
-    card.pendingCount > 0 ||
-    card.steps.some((step) => step.state === "todo");
+  const unfinished = runMark(card).state !== "delivered";
   // A request to the person or a failure speaks first, blocker or not: that is what they act
   // on. Otherwise a blocker holds the run; then a live tree speaks for itself; a settled tree
   // with an unfinished run waits on whoever picks it up.
@@ -167,7 +158,7 @@ export function offshiftSummary(card: OffshiftRunCard, tree: OffshiftTree): Offs
   const descriptions = new Map(card.criteria.map((item) => [item.id, item.description]));
   return {
     ...state,
-    phase: `${phaseNames[card.phase]} · ${phases.indexOf(card.phase) + 1} of ${phases.length}`,
+    phase: `${offshiftPhaseNames[card.phase]} · ${phases.indexOf(card.phase) + 1} of ${phases.length}`,
     blocker: card.blocker ?? undefined,
     missing: card.pending.map((item) => ({
       key: `${item.criterionId}:${item.kind}`,

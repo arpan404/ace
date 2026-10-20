@@ -1,4 +1,5 @@
 import type { SQLOutputValue } from "node:sqlite";
+import { OffshiftRunMark } from "@ace/protocol/offshift";
 import {
   ProviderGoal,
   Thread,
@@ -42,6 +43,7 @@ export function decodeThreadRow(row: Record<string, SQLOutputValue>): Thread {
           queue: true,
         }).parse(JSON.parse(String(row.provider_metadata)))),
     ...storedGoal(row.provider_metadata),
+    ...storedRun(row.provider_metadata),
     ...(row.acp == null ? {} : ThreadProviderMetadata.parse(JSON.parse(String(row.acp)))),
     status: JSON.parse(String(row.status)),
     createdAt: row.created_at,
@@ -60,4 +62,14 @@ function storedGoal(metadata: SQLOutputValue | undefined): { goal?: ProviderGoal
     typeof value === "object" && value !== null && "goal" in value ? value.goal : undefined,
   );
   return goal.success ? { goal: goal.data } : {};
+}
+
+/** A stored run mark the current schema can't read is dropped: the run's next write restores it. */
+function storedRun(metadata: SQLOutputValue | undefined): { run?: OffshiftRunMark } {
+  if (metadata == null) return {};
+  const value: unknown = JSON.parse(String(metadata));
+  const run = OffshiftRunMark.safeParse(
+    typeof value === "object" && value !== null && "run" in value ? value.run : undefined,
+  );
+  return run.success ? { run: run.data } : {};
 }

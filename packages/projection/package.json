@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./activity-reads": "./src/activity-reads.ts"
+    "./activity-reads": "./src/activity-reads.ts",
+    "./offshift-mark": "./src/offshift-mark.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
