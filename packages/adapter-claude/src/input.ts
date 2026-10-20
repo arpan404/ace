@@ -101,8 +101,16 @@ export function permissionResult(
   suggestions: PermissionUpdate[],
 ): PermissionResult {
   if (resolution.kind === "question") {
-    if (resolution.dismissed)
-      return { behavior: "deny", message: "The user dismissed the question." };
+    if (resolution.dismissed) {
+      // A note the person left when skipping reaches the agent with the skip.
+      const note = resolution.feedback?.trim();
+      return {
+        behavior: "deny",
+        message: note
+          ? `The user skipped the question and said: ${note}`
+          : "The user dismissed the question.",
+      };
+    }
     return {
       behavior: "allow",
       updatedInput: {

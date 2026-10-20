@@ -97,6 +97,8 @@ export function RequestStack(props: {
   };
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
+      // A field that answers Escape itself (a skip note going back to its question) keeps it.
+      if (event.target instanceof Element && event.target.closest("[data-own-escape]")) return;
       event.preventDefault();
       event.stopPropagation();
       props.onLeave();

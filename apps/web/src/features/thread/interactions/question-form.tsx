@@ -1,9 +1,10 @@
 import type { Question } from "@ace/protocol";
 import { questionOptions } from "@ace/ui-core";
 import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
-import type { KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
+import { Input } from "@/components/ui/input.tsx";
 import type { Answer } from "./answer.ts";
 import { draftAnswers, isAnswered, otherAnswer, type QuestionDraft } from "./question-draft.ts";
 import { questionDrafts, useQuestionDraft } from "./question-drafts.ts";
@@ -12,12 +13,15 @@ import { QuestionField } from "./question-field.tsx";
 /**
  * An agent's questions, one at a time (`QuestionField`). The footer has "‹ 1/3 ›" on the left
  * to move between the questions, and Skip and Continue on the right: Continue goes to the next
- * question, and on the last sends every answer. 1–9 pick an option and Enter continues, unless
- * a text field has the keys. What is picked and typed lives in the card's draft, which a reply
- * from the composer reads too.
+ * question, and on the last sends every answer. Skip asks for an optional note to the agent in
+ * the footer's place, Escape going back. 1–9 pick an option and Enter continues, unless a text
+ * field has the keys. What is picked and typed lives in the card's draft, which a reply from
+ * the composer reads too.
  */
 export function QuestionForm(props: {
   interactionId: string;
+  /** Who asks, for the note's placeholder. */
+  asker: string;
   questions: readonly Question[];
   disabled: boolean;
   onAnswer: Answer;
@@ -79,6 +83,8 @@ export function QuestionForm(props: {
     event.preventDefault();
     toggle(current, id);
   };
+  const [skipping, setSkipping] = useState(false);
+  const skip = useRef<HTMLButtonElement>(null);
   if (!current) return null;
   return (
     <form
@@ -98,51 +104,112 @@ export function QuestionForm(props: {
         onToggle={(id) => toggle(current, id)}
         onText={(text) => type(current, text)}
       />
-      <div className="flex items-center gap-2">
-        {count > 1 && (
-          <span className="flex items-center gap-0.5 text-xs text-subtle-foreground tabular-nums">
-            <IconButton
-              size="sm"
-              icon={CaretLeftIcon}
-              label="Previous question"
-              disabled={index === 0}
-              onClick={() => go(index - 1)}
-            />
-            <span aria-label={`Question ${index + 1} of ${count}`}>
-              {index + 1}/{count}
+      {skipping ? (
+        <SkipNote
+          asker={props.asker}
+          disabled={props.disabled}
+          onSkip={(note) =>
+            props.onAnswer({
+              kind: "question",
+              answers: {},
+              dismissed: true,
+              ...(note ? { feedback: note } : {}),
+            })
+          }
+          onCancel={() => {
+            setSkipping(false);
+            // Back where the person was: the Skip that opened the note.
+            requestAnimationFrame(() => skip.current?.focus());
+          }}
+        />
+      ) : (
+        <div className="flex items-center gap-2">
+          {count > 1 && (
+            <span className="flex items-center gap-0.5 text-xs text-subtle-foreground tabular-nums">
+              <IconButton
+                size="sm"
+                icon={CaretLeftIcon}
+                label="Previous question"
+                disabled={index === 0}
+                onClick={() => go(index - 1)}
+              />
+              <span aria-label={`Question ${index + 1} of ${count}`}>
+                {index + 1}/{count}
+              </span>
+              <IconButton
+                size="sm"
+                icon={CaretRightIcon}
+                label="Next question"
+                disabled={last || !answered(current)}
+                onClick={() => go(index + 1)}
+              />
             </span>
-            <IconButton
+          )}
+          <span className="ml-auto flex items-center gap-1.5">
+            <Button
+              ref={skip}
+              type="button"
               size="sm"
-              icon={CaretRightIcon}
-              label="Next question"
-              disabled={last || !answered(current)}
-              onClick={() => go(index + 1)}
-            />
+              variant="ghost"
+              disabled={props.disabled}
+              onClick={() => setSkipping(true)}
+            >
+              Skip
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              variant="primary"
+              disabled={!ready}
+              title={
+                ready ? undefined : last && !complete ? "Answer every question" : "Pick an answer"
+              }
+            >
+              Continue
+            </Button>
           </span>
-        )}
-        <span className="ml-auto flex items-center gap-1.5">
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            disabled={props.disabled}
-            onClick={() => props.onAnswer({ kind: "question", answers: {}, dismissed: true })}
-          >
-            Skip
-          </Button>
-          <Button
-            type="submit"
-            size="sm"
-            variant="primary"
-            disabled={!ready}
-            title={
-              ready ? undefined : last && !complete ? "Answer every question" : "Pick an answer"
-            }
-          >
-            Continue
-          </Button>
-        </span>
-      </div>
+        </div>
+      )}
     </form>
+  );
+}
+
+/**
+ * Skipping, in the footer's place: an optional note to the agent and the Skip that sends it.
+ * Enter skips; Escape goes back to the question (the strip leaves it to this field).
+ */
+function SkipNote(props: {
+  asker: string;
+  disabled: boolean;
+  onSkip(note: string | undefined): void;
+  onCancel(): void;
+}) {
+  const [note, setNote] = useState("");
+  const field = useRef<HTMLInputElement>(null);
+  useEffect(() => field.current?.focus(), []);
+  const send = () => props.onSkip(note.trim() || undefined);
+  return (
+    <div data-own-escape="" className="flex items-center gap-2">
+      <Input
+        ref={field}
+        aria-label={`Note for ${props.asker}`}
+        placeholder={`Note for ${props.asker} (optional)`}
+        value={note}
+        maxLength={8192}
+        disabled={props.disabled}
+        onChange={(event) => setNote(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== "Escape") return;
+          event.preventDefault();
+          event.stopPropagation();
+          if (event.key === "Enter") send();
+          else props.onCancel();
+        }}
+        className="flex-1"
+      />
+      <Button type="button" size="sm" variant="primary" disabled={props.disabled} onClick={send}>
+        Skip
+      </Button>
+    </div>
   );
 }

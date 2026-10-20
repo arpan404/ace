@@ -260,8 +260,11 @@ export function createSessionCommands(
       const question = asyncQuestions.get(key);
       if (question && resolution.kind === "question") {
         asyncQuestions.delete(key);
+        const note = resolution.feedback?.trim();
         const text = resolution.dismissed
-          ? "Continue without answers."
+          ? note
+            ? `Continue without answers. ${note}`
+            : "Continue without answers."
           : Object.entries(resolution.answers)
               .map(([id, answers]) =>
                 answers

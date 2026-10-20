@@ -295,6 +295,7 @@ function OpenRequest(props: {
       {request.kind === "question" && (
         <QuestionForm
           interactionId={interaction.id}
+          asker={props.asker}
           questions={request.questions}
           disabled={sending}
           onAnswer={answer}

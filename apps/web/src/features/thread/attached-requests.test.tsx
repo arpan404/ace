@@ -315,6 +315,8 @@ test("Skip on the question card declines it, without a message", async () => {
   await app.open("/t/thread-two");
   const region = await stack();
   await userEvent.click(await within(region).findByRole("button", { name: "Skip" }));
+  // With no note, the skip goes as it is.
+  await userEvent.click(within(region).getByRole("button", { name: "Skip" }));
   await waitFor(() =>
     expect(app.daemon.resolution("thread-two", "store")).toEqual({
       kind: "question",
@@ -551,6 +553,9 @@ test("skipping a question keeps keyboard focus in its sending card and returns i
   await app.open("/t/thread-two");
   const region = await stack();
   within(region).getByRole("button", { name: "Skip" }).focus();
+  // Enter on Skip opens its note; Enter there skips.
+  await userEvent.keyboard("{Enter}");
+  expect(document.activeElement).toBe(within(region).getByRole("textbox", { name: /^Note for/ }));
   hold = true;
   try {
     await userEvent.keyboard("{Enter}");
@@ -605,6 +610,8 @@ test("reopening a remembered question keeps its new form reachable by keyboard",
   )
     await userEvent.tab();
   expect(document.activeElement).toBe(within(region).getByRole("button", { name: "Skip" }));
+  // Enter opens the skip note, and Enter there skips.
+  await userEvent.keyboard("{Enter}");
   await userEvent.keyboard("{Enter}");
   await waitFor(() => expect(screen.queryByRole("region", { name: "Waiting for you" })).toBeNull());
   expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Message" }));

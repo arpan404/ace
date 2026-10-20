@@ -158,14 +158,32 @@ test("tabbing through Something else keeps the picked option, and typing there p
   expect(within(card).getByRole("radio", { name: "Something else", checked: true })).toBeTruthy();
 });
 
-test("Skip on the question card declines it", async () => {
+test("Skip takes an optional note for the agent and declines the question with it", async () => {
   const { app, card } = await openQuestion();
   await userEvent.click(within(card).getByRole("button", { name: "Skip" }));
+  const note = within(card).getByRole("textbox", { name: "Note for Codex" });
+  expect(document.activeElement).toBe(note);
+  await userEvent.type(note, "Use the formatter's default{Enter}");
   await waitFor(() =>
     expect(app.daemon.resolution(threadId, "indent")).toEqual({
       kind: "question",
       answers: {},
       dismissed: true,
+      feedback: "Use the formatter's default",
     }),
   );
+});
+
+test("Escape on the skip note goes back to the options, still unanswered", async () => {
+  const { app, card } = await openQuestion();
+  await userEvent.click(within(card).getByRole("radio", { name: "Spaces" }));
+  await userEvent.click(within(card).getByRole("button", { name: "Skip" }));
+  await userEvent.keyboard("Never mind{Escape}");
+  expect(within(card).queryByRole("textbox", { name: "Note for Codex" })).toBeNull();
+  // The question is still open, with what was picked, and focus stays on the card.
+  expect(within(card).getByRole("radio", { name: "Spaces", checked: true })).toBeTruthy();
+  await waitFor(() =>
+    expect(document.activeElement).toBe(within(card).getByRole("button", { name: "Skip" })),
+  );
+  expect(app.daemon.isPending(threadId, "indent")).toBe(true);
 });
