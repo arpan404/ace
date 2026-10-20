@@ -1,18 +1,20 @@
 import { z } from "zod";
+import { ThreadId } from "@ace/protocol";
 import {
   OffshiftCriteria,
   OffshiftCriterion,
   OffshiftEvidenceInput,
   OffshiftPhase,
   OffshiftResult,
-  type OffshiftRequest,
+  OffshiftRoles,
+  type OffshiftCall,
 } from "@ace/protocol/offshift";
 import { controlResult, controlTool, controlToolTimeoutMs, fields } from "./control-tool.ts";
 
 /** Each action's required fields, named in its description and checked before anything runs. */
-const mutation = ["runId", "requestId", "version"] as const;
+const mutation = ["runId", "version"] as const;
 const needs = {
-  start: ["runId", "requestId", "outcome", "endpoint", "criteria"],
+  start: ["runId", "outcome", "endpoint", "criteria"],
   get: ["runId"],
   list: [],
   advance: [...mutation, "phase", "note"],
@@ -20,6 +22,7 @@ const needs = {
   resume: [...mutation, "note"],
   evidence: [...mutation, "evidence"],
   revise: [...mutation, "criterion", "note"],
+  roles: ["roles"],
 } as const;
 type Action = keyof typeof needs;
 const actions = Object.keys(needs) as [Action, ...Action[]];
@@ -30,7 +33,7 @@ const Input = z
     action: z
       .enum(actions)
       .describe(
-        "start: open a run with its outcome, endpoint and criteria. get: the run, the current revision and pending evidence. list: this thread's runs. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record one check's result. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked.",
+        "start: open a run with its outcome, endpoint, criteria and optional roles. get: the run, revision, pending evidence and next. list: this thread's runs. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record one check's result. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked. roles: replace the run's roles (runId, version), or the project default with scope project.",
       ),
     runId: z
       .string()
@@ -39,7 +42,9 @@ const Input = z
       .regex(/^[a-zA-Z0-9_.-]+$/)
       .optional()
       .describe("Every action but list: the run's id, chosen at start (letters, digits, _ . -)."),
-    requestId: fields.requestId.optional(),
+    requestId: fields.requestId
+      .optional()
+      .describe("Optional on changes; omitted, an identical retry still applies once."),
     version: z
       .number()
       .int()
@@ -65,9 +70,23 @@ const Input = z
     evidence: OffshiftEvidenceInput.optional().describe(
       "evidence: one check, at the revision get returned before it ran.",
     ),
+    roles: OffshiftRoles.optional().describe(
+      "start and roles: who does build, judgment, review and verify work ({provider, model, effort} each).",
+    ),
+    scope: z
+      .enum(["run", "project"])
+      .optional()
+      .describe("roles: run (default) or project, the default for runs without that role."),
+    runOwner: ThreadId.optional().describe(
+      "get and evidence only: the ancestor thread whose run you check, as its brief named it.",
+    ),
   })
   .superRefine((input, context) => {
-    for (const field of needs[input.action])
+    const fields: readonly string[] =
+      input.action === "roles" && input.scope !== "project"
+        ? [...needs.roles, ...mutation]
+        : needs[input.action];
+    for (const field of fields as (keyof Input)[])
       if (input[field] === undefined)
         context.addIssue({
           code: "custom",
@@ -77,24 +96,29 @@ const Input = z
   })
   .meta({
     "x-ace-constraint":
-      "start needs runId, requestId, outcome, endpoint and criteria; get needs runId; advance needs runId, requestId, version, phase and note; block and resume need runId, requestId, version and note; evidence needs runId, requestId, version and evidence; revise needs runId, requestId, version, criterion and note.",
+      "start needs runId, outcome, endpoint and criteria; get needs runId; advance needs runId, version, phase and note; block and resume need runId, version and note; evidence needs runId, version and evidence; revise needs runId, version, criterion and note; roles needs roles, plus runId and version unless scope is project.",
   });
 type Input = z.output<typeof Input>;
 
 /** The one request an action stands for. Required fields were checked by the schema. */
-function request(input: Input): OffshiftRequest {
+function request(input: Input): OffshiftCall {
   const runId = input.runId ?? "";
-  const change = { runId, requestId: input.requestId ?? "", version: input.version ?? 0 };
+  const change = {
+    runId,
+    ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
+    version: input.version ?? 0,
+  };
   const note = input.note ?? "";
   switch (input.action) {
     case "start":
       return {
         action: "start",
         runId,
-        requestId: change.requestId,
+        ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
         outcome: input.outcome ?? "",
         endpoint: input.endpoint ?? "",
         criteria: input.criteria ?? [],
+        ...(input.roles ? { roles: input.roles } : {}),
       };
     case "get":
       return { action: "get", runId };
@@ -115,6 +139,12 @@ function request(input: Input): OffshiftRequest {
       if (!criterion) throw new Error("revise needs criterion.");
       return { action: "revise", ...change, criterion, note };
     }
+    case "roles": {
+      const roles = input.roles ?? {};
+      return input.scope === "project"
+        ? { action: "roles", scope: "project", roles }
+        : { action: "roles", ...change, roles };
+    }
   }
 }
 
@@ -130,8 +160,13 @@ export const offshift = controlTool({
   riskClass: "thread-write",
   capability: "thread_control",
   description:
-    "Keep this thread's durable record of a multi-step coding outcome: criteria, phase (plan, implement, verify, review, delivery), blocker and evidence bound to the workspace's Git revision. It records work and never runs it. Changes take a requestId and the last version. Each action's fields are named in action's description.",
+    "Keep this thread's durable record of a multi-step coding outcome: criteria, phase (plan, implement, verify, review, delivery), blocker, roles and evidence bound to the workspace's Git revision. It records work and never runs it. Changes take the last version. Every result's next says what to do now. Each action's fields are named in action's description.",
   input: Input,
   output: controlResult(OffshiftResult),
-  run: (input, control) => control.run({ op: "offshift", request: request(input) }),
+  run: (input, control) =>
+    control.run({
+      op: "offshift",
+      request: request(input),
+      ...(input.runOwner ? { runOwner: input.runOwner } : {}),
+    }),
 });

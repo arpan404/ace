@@ -8,6 +8,9 @@ import {
   type ThreadId,
 } from "@ace/protocol";
 import type { AgentControlPort } from "@ace/mcp-server";
+import type { OffshiftRole } from "@ace/protocol/offshift";
+import type { ResolvedRole } from "@ace/offshift";
+import { roleTask, withRoleContext } from "./run-roles.ts";
 import type { Store } from "../store.ts";
 import type { DelegationService } from "./delegations.ts";
 import { controlCommandId } from "./delegations.ts";
@@ -108,6 +111,8 @@ export interface AgentControlExtensions {
   snooze?(thread: ThreadId, until: number | null): Promise<void>;
   /** Other paired machines (ADR 0078); their children join wait and agents_status. */
   machines?: MachinePort;
+  /** Who does a kind of work for the caller's Offshift run, for `delegate` tasks with runRole. */
+  runRole?(caller: McpAttribution, role: OffshiftRole): ResolvedRole | undefined;
 }
 export interface MachinePort {
   list(caller: McpAttribution): Promise<AgentControlResult>;
@@ -266,13 +271,20 @@ export function createAgentControlPort(
           }
           // Checked first, then admitted in order. Children past the parent's free slots queue.
           // Stable per-task requestIds make a retried batch create nothing new.
-          const requests = tasks.map((task) => DelegationRequest.parse(resolved(task)));
+          // A runRole fills provider, model and effort before the usual resolution; a role's
+          // choice that cannot run is refused with the role named, never swapped silently.
+          const filled = tasks.map((task) => roleTask(task, caller, extensions.runRole));
+          const requests = filled.map(({ task }) => DelegationRequest.parse(resolved(task)));
           checkNames(requests);
           const configured: (string | undefined)[] = [];
-          for (const request of requests) configured.push(await check(request));
+          for (const [index, request] of requests.entries())
+            configured.push(await withRoleContext(filled[index]?.role, () => check(request)));
           const threadIds: ThreadId[] = [];
           for (const [index, request] of requests.entries())
-            threadIds.push((await create(request, configured[index])).childId);
+            threadIds.push(
+              (await withRoleContext(filled[index]?.role, () => create(request, configured[index])))
+                .childId,
+            );
           if (!mode || mode === "none") return { ok: true, data: { threadIds } };
           const waited = await service.monitor.wait(
             caller,

@@ -14,6 +14,7 @@ import {
   WaitTimeoutSeconds,
   maxWaitThreads,
 } from "@ace/protocol";
+import { OffshiftRole } from "@ace/protocol/offshift";
 import {
   NoData,
   controlResult,
@@ -38,6 +39,9 @@ const DelegateTask = z.strictObject({
     "The whole assignment: goal, files, constraints, project notes that apply, and how to verify. The child sees none of your conversation.",
   ),
   role: DelegationRole,
+  runRole: OffshiftRole.optional().describe(
+    "Take provider, model and effort from your Offshift run's role; task fields win.",
+  ),
   provider: ProviderKind.optional().describe(
     "Provider that runs the child. Default: yours, or the one whose catalog has `model`.",
   ),

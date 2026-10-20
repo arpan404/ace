@@ -4,6 +4,7 @@ import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
 import type { OffshiftRunCard } from "@ace/protocol/offshift";
 import { OffshiftView } from "@ace/protocol/offshift";
+import type { ThreadId } from "@ace/protocol";
 import { evalWorld, type EvalWorld } from "./evals/world.ts";
 import { Store } from "./store.ts";
 
@@ -116,7 +117,7 @@ it("a change missing its required fields is refused before anything is recorded"
   const { agent } = await world.agent({});
   const refused = await agent.call("offshift", { action: "advance", runId: "login" });
   expect(refused.failed).toBe(true);
-  expect(refused.text).toContain("requestId");
+  expect(refused.text).toContain("advance needs version");
   const listed = await agent.call("offshift", { action: "list" });
   expect(Control.parse(listed.data).data).toEqual([]);
 });
@@ -131,4 +132,155 @@ it("a workspace that is not a Git repository answers unavailable with a next ste
   const control = Control.parse(result.data);
   expect(control).toMatchObject({ ok: false, code: "unavailable" });
   expect(control.hint).toContain("not a readable Git repository");
+});
+
+const childIds = (value: unknown) =>
+  z.object({ threadIds: z.array(z.string()) }).parse(value).threadIds;
+const view = (value: unknown) => OffshiftView.parse(Control.parse(value).data);
+const restore = {
+  action: "start",
+  runId: "restore",
+  outcome: "A deleted item can be restored",
+  endpoint: "Verified local changes",
+  criteria: [
+    {
+      id: "restore",
+      description: "Restore brings the item back",
+      requiredKinds: ["source"],
+      independent: true,
+    },
+  ],
+};
+const sourceCheck = (revision: string) => ({
+  criterionId: "restore",
+  kind: "source",
+  result: "pass",
+  revision,
+  action: "Read the restore diff",
+  artifact: "review://restore",
+  note: "The handler reinserts the row",
+});
+
+it("a delegated child on another provider records the independent check on its parent's run, and only that pass counts", async () => {
+  world = await evalWorld({ browser: false });
+  const { agent: owner, threadId: ownerId } = await world.agent({});
+  const started = view((await owner.call("offshift", restore)).data);
+  const own = await owner.call("offshift", {
+    action: "evidence",
+    runId: "restore",
+    version: started.run.version,
+    evidence: sourceCheck(started.revision),
+  });
+  const mine = view(own.data);
+  // The owner's own pass stays pending, and next says how to get an independent one.
+  expect(mine.pending).toEqual([{ criterionId: "restore", kind: "source", needs: "independent" }]);
+
+  const delegated = await owner.call("delegate", {
+    tasks: [
+      { requestId: "verify", task: "Review restore", role: "review-restore", provider: "claude" },
+    ],
+  });
+  expect(delegated.failed, delegated.text).toBe(false);
+  const [childId] = childIds(Control.parse(delegated.data).data ?? delegated.data);
+  if (!childId) throw new Error("No child started");
+  const { agent: child } = await world.attach(childId as ThreadId);
+  const read = view(
+    (await child.call("offshift", { action: "get", runId: "restore", runOwner: ownerId })).data,
+  );
+  const recorded = await child.call("offshift", {
+    action: "evidence",
+    runId: "restore",
+    runOwner: ownerId,
+    version: read.run.version,
+    evidence: sourceCheck(read.revision),
+  });
+  expect(recorded.failed, recorded.text).toBe(false);
+  const after = view((await owner.call("offshift", { action: "get", runId: "restore" })).data);
+  expect(after.pending).toEqual([]);
+  expect(after.run.evidence).toMatchObject([{ by: { threadId: childId, provider: "claude" } }]);
+  // A descendant only records evidence; it cannot move the owner's run.
+  const advance = await child.call("offshift", {
+    action: "advance",
+    runId: "restore",
+    runOwner: ownerId,
+    version: after.run.version,
+    phase: "implement",
+    note: "Not mine to move",
+  });
+  expect(Control.parse(advance.data)).toMatchObject({ ok: false, code: "invalid" });
+});
+
+it("a thread that did not descend from the run's owner cannot read or record on its run", async () => {
+  world = await evalWorld({ browser: false });
+  const { agent: owner, threadId: ownerId } = await world.agent({});
+  const started = view((await owner.call("offshift", restore)).data);
+  const { agent: stranger } = await world.agent({ prompt: "an unrelated task" });
+  const read = await stranger.call("offshift", {
+    action: "get",
+    runId: "restore",
+    runOwner: ownerId,
+  });
+  expect(Control.parse(read.data)).toMatchObject({ ok: false, code: "forbidden" });
+  const record = await stranger.call("offshift", {
+    action: "evidence",
+    runId: "restore",
+    runOwner: ownerId,
+    version: started.run.version,
+    evidence: sourceCheck(started.revision),
+  });
+  expect(Control.parse(record.data)).toMatchObject({ ok: false, code: "forbidden" });
+  const after = view((await owner.call("offshift", { action: "get", runId: "restore" })).data);
+  expect(after.run.evidence).toEqual([]);
+});
+
+it("delegate with runRole runs the child as the run's role or the project default, and task fields win", async () => {
+  world = await evalWorld({ browser: false });
+  const { agent, threadId } = await world.agent({});
+  expect(world.store.getThread(threadId)?.provider).toBe("codex");
+  await agent.call("offshift", {
+    ...restore,
+    roles: { verify: { provider: "claude", effort: "high" } },
+  });
+  const project = await agent.call("offshift", {
+    action: "roles",
+    scope: "project",
+    roles: { review: { provider: "claude" } },
+  });
+  expect(Control.parse(project.data)).toMatchObject({
+    ok: true,
+    data: { scope: "project", roles: { review: { provider: "claude" } } },
+  });
+  const started = await agent.call("delegate", {
+    tasks: [
+      { requestId: "by-role", task: "Verify restore", role: "verify-restore", runRole: "verify" },
+      {
+        requestId: "by-project",
+        task: "Review restore",
+        role: "review-restore",
+        runRole: "review",
+      },
+      {
+        requestId: "explicit",
+        task: "Verify restore on codex",
+        role: "verify-restore-codex",
+        runRole: "verify",
+        provider: "codex",
+      },
+    ],
+  });
+  expect(started.failed, started.text).toBe(false);
+  const ids = childIds(Control.parse(started.data).data ?? started.data);
+  expect(ids.map((id) => world?.store.getThread(id as ThreadId)?.provider)).toEqual([
+    "claude",
+    "claude",
+    "codex",
+  ]);
+  // A role set nowhere is refused with the call that sets it, never run on another provider.
+  const unset = await agent.call("delegate", {
+    tasks: [
+      { requestId: "unset", task: "Plan restore", role: "plan-restore", runRole: "judgment" },
+    ],
+  });
+  expect(unset.failed).toBe(true);
+  expect(unset.text).toContain("is not set on your active Offshift run");
 });
