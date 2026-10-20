@@ -92,9 +92,10 @@ export type Block =
    */
   | { kind: "started"; key: string; itemId: string }
   /**
-   * A question the agent asked the person, where it was asked: pending or answered, never
-   * folded into a work log. `itemId` is the tool call it was asked from (its `ask_user` step,
-   * which the block replaces), when that call is loaded; `anchorId` the item it sits after.
+   * A request the agent asked the person, where it was asked. A question stands in for the tool
+   * call it was asked from (its `ask_user` step, `itemId`) only while it waits on the person;
+   * once closed its step reads in the work log like any other. `anchorId` is the item it sits
+   * after. A closed question with no step in view folds with its turn's work.
    */
   | {
       kind: "question";
@@ -150,6 +151,8 @@ export interface BlockSource {
   background: ReadonlyMap<string, string>;
   /** Interactions that render inline (questions), oldest first. */
   questions?: readonly InlineQuestion[];
+  /** Whether a question still waits on the person; one that doesn't say is taken as waiting. */
+  questionOpen?(interactionId: string): boolean;
   /** What a decided approval's own line says; undefined while open, withdrawn or timed out. */
   approvalRecord?(interactionId: string): string | undefined;
   task?(id: string): BackgroundTask | undefined;
@@ -325,7 +328,7 @@ function joinsWork(item: Item, source: BlockSource): boolean {
 function lastWorkOf(
   order: readonly string[],
   source: BlockSource,
-  anchors: ReadonlyMap<string, readonly string[]>,
+  standsIn: (id: string, item: Item) => boolean,
 ): { stretchAt: Int32Array; lastWork: Map<number, number>; lastStretch: number } {
   const stretchAt = new Int32Array(order.length);
   const lastWork = new Map<number, number>();
@@ -349,14 +352,13 @@ function lastWorkOf(
     // Look ahead only within the work segment on this side of a launch card.
     if (isLaunch(item)) stretch++;
     stretchAt[index] = stretch;
-    const question =
-      anchors.has(id) && item.type === "tool_call" && item.call.detail.kind === "ask_user";
-    if (!question && joinsWork(item, source)) lastWork.set(stretch, index);
+    if (!standsIn(id, item) && joinsWork(item, source)) lastWork.set(stretch, index);
   }
   return { stretchAt, lastWork, lastStretch: stretch };
 }
 
 const isPseudoTurn = (id: string) => id === "" || id.startsWith("ask:");
+const isAsk = (item: Item) => item.type === "tool_call" && item.call.detail.kind === "ask_user";
 
 /**
  * Whether a turn is still working, decided before its blocks are placed. It never says a turn
@@ -402,9 +404,20 @@ export function buildBlocks(source: BlockSource): Block[] {
   for (const request of source.questions ?? [])
     if (request.kind === "approval" && request.toolCallId)
       callApproval.set(request.toolCallId, request.id);
+  // A question no longer waiting reads as its step in the work log, not as a row of its own.
+  const closedQuestion = (id: string) =>
+    requests.get(id)?.kind === "question" && source.questionOpen?.(id) === false;
+  const askedHere = (id: string, item: Item) =>
+    anchors
+      .get(id)
+      ?.filter(
+        (interactionId) =>
+          !onCall(interactionId) && !(isAsk(item) && closedQuestion(interactionId)),
+      );
+  const standsIn = (id: string, item: Item) => isAsk(item) && !!askedHere(id, item)?.length;
   let lastAnswer: string | undefined;
   const order = visibleHistoryOrder(source.order, source.item);
-  const { stretchAt, lastWork, lastStretch } = lastWorkOf(order, source, anchors);
+  const { stretchAt, lastWork, lastStretch } = lastWorkOf(order, source, standsIn);
   const turns = new Map<string, TurnMark>();
   const ordered: TurnMark[] = [];
   let stretch: { work?: { block: WorkBlock; at: number } } = {};
@@ -606,12 +619,9 @@ export function buildBlocks(source: BlockSource): Block[] {
       }
       if (item.runId) mark?.runs.add(item.runId);
     }
-    const asked = anchors.get(id)?.filter((interactionId) => !onCall(interactionId));
-    // A question's own step: the question block stands in for it.
-    const replaced =
-      !!asked?.length && item.type === "tool_call" && item.call.detail.kind === "ask_user"
-        ? id
-        : undefined;
+    const asked = askedHere(id, item);
+    // A waiting question's own step: the question block stands in for it.
+    const replaced = standsIn(id, item) ? id : undefined;
     if (!replaced)
       switch (item.type) {
         case "message":
@@ -879,7 +889,7 @@ export function buildBlocks(source: BlockSource): Block[] {
             continue;
           }
           if (index === headAt) folded.push({ kind: "work", key: head.key, itemIds: firstIds });
-          else if (foldable(block)) {
+          else if (foldable(block, closedQuestion)) {
             folded.push(block);
             absorbed.add(index);
           }
@@ -958,11 +968,12 @@ export function buildBlocks(source: BlockSource): Block[] {
 
 /**
  * Whether a settled turn's block folds behind its "Worked for": its steps, what it said between
- * them and its background commands. Never a notice, an ending, a request it asked (with its
- * answer), a record such as a saved file, or the subagents it started: those stay where they
- * happened, since the steps read back on opening are the turn's work alone.
+ * them, its background commands and the questions it asked once closed. Never a notice, an
+ * ending, a question still waiting, an approval, a record such as a saved file, or the
+ * subagents it started: those stay where they happened.
  */
-function foldable(block: Block): boolean {
+function foldable(block: Block, closedQuestion: (interactionId: string) => boolean): boolean {
+  if (block.kind === "question") return closedQuestion(block.interactionId);
   return block.kind === "work" || block.kind === "message" || block.kind === "background";
 }
 

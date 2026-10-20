@@ -5,9 +5,9 @@ import { DeferredQuestionRecord, DeferredApprovalRecord } from "../interactions/
 const QuestionRecord = DeferredQuestionRecord.Component;
 
 /**
- * A question where the agent asked it (IR-1): one line saying it is being asked (the card to
- * answer it is on the composer), then the question with its answer. Never a user bubble, never
- * folded into a work log.
+ * A request where the agent asked it (IR-1). A question waiting on the person is one line saying
+ * it is being asked (its card is on the composer), never folded; once answered its step reads in
+ * the turn's work log instead. Never a user bubble.
  */
 export function QuestionBlock(props: { threadId: string; interactionId: string }) {
   const interaction = useInteraction(props.threadId, props.interactionId);

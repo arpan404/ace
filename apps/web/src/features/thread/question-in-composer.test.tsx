@@ -10,8 +10,8 @@ afterEach(() => answerStore.forgetAll());
 
 const threadId = "thread-indent";
 
-/** A Codex thread whose agent asks one question that takes a typed answer, and waits. */
-function asksIndentation(): Scenario {
+/** A Codex thread whose agent asks one question (taking a typed answer unless told), and waits. */
+function asksIndentation(allowOther = true): Scenario {
   return {
     thread: { id: threadId, workspaceId: "relay", title: "Indentation", provider: "codex" },
     steps: [
@@ -40,7 +40,8 @@ function asksIndentation(): Scenario {
                   header: "Indentation",
                   text: "Tabs or Spaces?",
                   multiSelect: false,
-                  allowOther: true,
+                  allowOther,
+                  secret: false,
                   options: [
                     { id: "tabs", label: "Tabs" },
                     { id: "spaces", label: "Spaces" },
@@ -56,9 +57,9 @@ function asksIndentation(): Scenario {
   };
 }
 
-async function openQuestion() {
+async function openQuestion(allowOther = true) {
   const app = harness();
-  app.play(asksIndentation()).runUntilBlocked();
+  app.play(asksIndentation(allowOther)).runUntilBlocked();
   await app.open(`/t/${threadId}`);
   const region = await screen.findByRole("region", { name: "Waiting for you" });
   const card = await within(region).findByRole("article", { name: "Tabs or Spaces?" });
@@ -102,8 +103,23 @@ test("Enter in the Something else field continues", async () => {
   );
 });
 
-test("the message stays a message while a question is open, and Stop waits", async () => {
+test("a message sent while the agent waits on its question answers it", async () => {
   const { app, message } = await openQuestion();
+  expect(message.getAttribute("aria-placeholder")).toBe("Reply to Codex…");
+  await userEvent.type(message, "Use whatever the repo already does{Enter}");
+  await waitFor(() =>
+    expect(app.daemon.resolution(threadId, "indent")).toEqual({
+      kind: "question",
+      answers: { style: ["Use whatever the repo already does"] },
+    }),
+  );
+  // It went as the answer, not as a message: the composer is empty and nothing queued.
+  await waitFor(() => expect(message.textContent).toBe(""));
+  expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
+});
+
+test("a message to a question that takes no free text stays a message, and Stop waits", async () => {
+  const { app, message } = await openQuestion(false);
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
   await userEvent.type(message, "Use whatever the repo already does{Enter}");
   // The question keeps the strip; the queue shows as its indicator beside it.
@@ -142,14 +158,32 @@ test("tabbing through Something else keeps the picked option, and typing there p
   expect(within(card).getByRole("radio", { name: "Something else", checked: true })).toBeTruthy();
 });
 
-test("Skip on the question card declines it", async () => {
+test("Skip takes an optional note for the agent and declines the question with it", async () => {
   const { app, card } = await openQuestion();
   await userEvent.click(within(card).getByRole("button", { name: "Skip" }));
+  const note = within(card).getByRole("textbox", { name: "Note for Codex" });
+  expect(document.activeElement).toBe(note);
+  await userEvent.type(note, "Use the formatter's default{Enter}");
   await waitFor(() =>
     expect(app.daemon.resolution(threadId, "indent")).toEqual({
       kind: "question",
       answers: {},
       dismissed: true,
+      feedback: "Use the formatter's default",
     }),
   );
+});
+
+test("Escape on the skip note goes back to the options, still unanswered", async () => {
+  const { app, card } = await openQuestion();
+  await userEvent.click(within(card).getByRole("radio", { name: "Spaces" }));
+  await userEvent.click(within(card).getByRole("button", { name: "Skip" }));
+  await userEvent.keyboard("Never mind{Escape}");
+  expect(within(card).queryByRole("textbox", { name: "Note for Codex" })).toBeNull();
+  // The question is still open, with what was picked, and focus stays on the card.
+  expect(within(card).getByRole("radio", { name: "Spaces", checked: true })).toBeTruthy();
+  await waitFor(() =>
+    expect(document.activeElement).toBe(within(card).getByRole("button", { name: "Skip" })),
+  );
+  expect(app.daemon.isPending(threadId, "indent")).toBe(true);
 });

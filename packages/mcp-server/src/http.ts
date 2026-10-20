@@ -16,7 +16,7 @@ import {
 import { aceToolDispatch, aceToolSearch, bareToolName, dispatchedAceCall } from "./tool-names.ts";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { createMetaRegistry, foundFamilies } from "./meta-tools.ts";
-import { PrincipalEventBus } from "./principal-bus.ts";
+import { PrincipalEventBus, listenStreamsPerLease } from "./principal-bus.ts";
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import { CredentialRegistry, type Principal } from "./credentials.ts";
@@ -41,7 +41,22 @@ export interface McpServerOptions {
   maxBodyBytes?: number;
   /** Timers for progress beats on long calls (`progress-heartbeat.ts`); tests pass their own. */
   scheduler?: Scheduler;
+  /** Bounds on list-change notification streams; tests pass small ones. */
+  notificationStreams?: Partial<NotificationStreamLimits>;
 }
+/**
+ * Notification streams are bounded per lease, so every concurrent session can hold one; `total`
+ * is only a server-wide guard, applied separately to modern listen streams and to legacy
+ * transport sessions.
+ */
+export interface NotificationStreamLimits {
+  perLease: number;
+  total: number;
+}
+const defaultStreamLimits: NotificationStreamLimits = {
+  perLease: listenStreamsPerLease,
+  total: 512,
+};
 export async function startMcpServer(options: McpServerOptions) {
   // A provider's own permission mode, read-only included, decides each call; ace only hides a
   // group that is off or that this daemon is not running.
@@ -79,7 +94,8 @@ export async function startMcpServer(options: McpServerOptions) {
   const credentials =
     options.credentials ?? new CredentialRegistry(() => randomBytes(32).toString("hex"));
   let runtime: Promise<Awaited<ReturnType<typeof createHandler>>> | undefined;
-  const load = () => (runtime ??= createHandler(options, credentials, status, awareness));
+  const streams = { ...defaultStreamLimits, ...options.notificationStreams };
+  const load = () => (runtime ??= createHandler(options, streams, credentials, status, awareness));
   let active = 0;
   let closing = false;
   const http = createServer(
@@ -127,7 +143,8 @@ export async function startMcpServer(options: McpServerOptions) {
         });
     },
   );
-  http.maxConnections = 256;
+  // Every open notification stream holds a socket; calls keep their own headroom beside them.
+  http.maxConnections = 2 * streams.total + 256;
   try {
     await new Promise<void>((resolve, reject) => {
       http.once("error", reject);
@@ -181,6 +198,7 @@ function bearer(header: IncomingMessage["headers"]["authorization"]): string {
 
 async function createHandler(
   options: McpServerOptions,
+  streams: NotificationStreamLimits,
   credentials: CredentialRegistry,
   status: ToolRegistry,
   awareness: SessionAwareness | undefined,
@@ -372,16 +390,21 @@ async function createHandler(
     });
     return product;
   };
-  const bus = new PrincipalEventBus();
+  const bus = new PrincipalEventBus({ perLease: streams.perLease });
+  // The SDK cap is server-wide; per-lease replacement happens in `bus.listening` first, so only
+  // a lease with no stream of its own meets this refusal (-32603 "Subscription limit reached").
   const handler = createMcpHandler(factory, {
     legacy: "stateless",
     maxRequestBodySize: options.maxBodyBytes ?? 64 * 1024,
-    maxSubscriptions: 16,
+    maxSubscriptions: streams.total,
     bus,
   });
   const authenticate = (request: Request) =>
     credentials.authenticate(bearer(request.headers.get("authorization") ?? undefined));
-  const legacy = await legacySessions(factory, authenticate);
+  const legacy = await legacySessions(factory, authenticate, {
+    total: streams.total,
+    overflow: (request) => handler.fetch(request),
+  });
   const nodeHandler = toNodeHandler(
     {
       fetch: async (request: Request) => {
@@ -391,7 +414,15 @@ async function createHandler(
         )
           return legacy.fetch(request);
         // A listen stream opened by this request belongs to its lease (`principal-bus.ts`).
-        return bus.serving(authenticate(request), () => handler.fetch(request));
+        const principal = authenticate(request);
+        // The SDK refuses a listen whose Mcp-Method header disagrees with its body.
+        if (principal && request.headers.get("mcp-method") === "subscriptions/listen")
+          return bus.listening(principal, (signal) =>
+            handler.fetch(
+              new Request(request, { signal: AbortSignal.any([request.signal, signal]) }),
+            ),
+          );
+        return bus.serving(principal, () => handler.fetch(request));
       },
     },
     {

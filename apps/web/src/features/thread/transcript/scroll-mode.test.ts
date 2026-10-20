@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import {
   compensation,
   correction,
+  heldKey,
   joinedAtTop,
   transition,
   type ScrollEvent,
@@ -39,8 +40,8 @@ test("the reader's gesture cancels a jump still re-aiming at its row", () => {
   expect(after.cancelled).toBe(true);
   expect(after.mode.kind).toBe("free");
   // Rows still arriving after the gesture leave the view where the reader took it.
-  const held = { key: "turn-3", itemId: "ask-3", start: 400 };
-  expect(correction(after.mode, held, { index: 9, start: 400 }, 200)).toEqual({ kind: "none" });
+  const held = { key: "turn-3", itemId: "ask-3", top: 400 };
+  expect(correction(after.mode, held, { index: 9, top: 400 }, 200)).toEqual({ kind: "none" });
 });
 
 test("a press on the view stops a landing jump's aim but keeps its row held", () => {
@@ -51,14 +52,14 @@ test("a press on the view stops a landing jump's aim but keeps its row held", ()
 
 test("a jump still landing aims again at its row's new index when rows arrive above it", () => {
   const { mode } = run(following, jump);
-  const held = { key: "turn-3", itemId: "ask-3", start: 400 };
-  expect(correction(mode, held, { index: 14, start: 1200 }, 1_000)).toEqual({
+  const held = { key: "turn-3", itemId: "ask-3", top: 400 };
+  expect(correction(mode, held, { index: 14, top: 1200 }, 1_000)).toEqual({
     kind: "aim",
     index: 14,
     align: "start",
   });
   // Once it has landed, it holds its row by how far that row moved.
-  expect(correction(mode, held, { index: 14, start: 1200 }, 10_000)).toEqual({
+  expect(correction(mode, held, { index: 14, top: 1200 }, 10_000)).toEqual({
     kind: "shift",
     by: 800,
   });
@@ -67,9 +68,9 @@ test("a jump still landing aims again at its row's new index when rows arrive ab
 test("opening a disclosure while following holds its row instead of scrolling past it", () => {
   const toggled = run(following, { type: "toggle", key: "work:ask", itemId: "grep" });
   expect(toggled.mode).toMatchObject({ kind: "anchoring", key: "work:ask" });
-  const held = { key: "work:ask", itemId: "grep", start: 900 };
+  const held = { key: "work:ask", itemId: "grep", top: 900 };
   // The group grew below its header: nothing above it moved, so neither does the view.
-  expect(correction(toggled.mode, held, { index: 4, start: 900 }, 0)).toEqual({ kind: "none" });
+  expect(correction(toggled.mode, held, { index: 4, top: 900 }, 0)).toEqual({ kind: "none" });
   // Code scrolling (a correction landing at the end) does not resume following ...
   expect(transition(toggled.mode, scrolled(true)).mode.kind).toBe("anchoring");
   // ... the reader returning to the end does.
@@ -98,9 +99,10 @@ test("a reader inside a long answer keeps their place while it grows below them"
 
 test("loading older turns keeps the reader's first visible row in place", () => {
   const { mode } = run(following, wheel(true));
-  // The first row in view was the turn's log at 2,000; three older rows arrived above it.
-  const held = { key: "work:turn-40", itemId: "step-12", start: 2_000 };
-  expect(correction(mode, held, { index: 3, start: 2_288 }, 0)).toEqual({ kind: "shift", by: 288 });
+  // The first row in view was the turn's log, 24px under the view's top; three older rows
+  // arrived above it, pushing it 288px down the view.
+  const held = { key: "work:turn-40", itemId: "step-12", top: 24 };
+  expect(correction(mode, held, { index: 3, top: 312 }, 0)).toEqual({ kind: "shift", by: 288 });
   // As those rows measure, they move the view with them, and the held row does not.
   const rule = compensation(mode, { index: 3 });
   expect([0, 1, 2].every((index) => rule?.({ index }))).toBe(true);
@@ -112,6 +114,32 @@ test("loading older turns keeps the reader's first visible row in place", () => 
   );
   expect(joinedAtTop(["step-12", "step-13"], ["step-12", "step-13", "step-14"])).toBe(false);
   expect(compensation(mode, { index: 3, grewAtTop: true })?.({ index: 3 })).toBe(true);
+});
+
+test("older rows that already moved the view as they measured are not counted again", () => {
+  const { mode } = run(following, wheel(true));
+  // The reader sat at the very top, the first row 24px down. A page of older rows (2,016px by
+  // their measured sizes) landed above it, and some of them measuring had already moved the view
+  // 144px with them: only what is left of the drift is corrected.
+  const held = { key: "message:answer-7", itemId: "answer-7", top: 24 };
+  expect(correction(mode, held, { index: 42, top: 24 + 2_016 - 144 }, 0)).toEqual({
+    kind: "shift",
+    by: 1_872,
+  });
+});
+
+test("the row the reader sees stays held while older rows settle above it", () => {
+  const { mode } = run(following, wheel(true));
+  const seen = { key: "message:answer-7", itemId: "answer-7" };
+  // An older row not measured yet reaches into view by its estimated size.
+  const above = { key: "work:turn-6", itemId: "step-3" };
+  expect(heldKey(mode, above, seen)).toEqual(seen);
+  // Once the reader moves the view again, the first row in view is held.
+  expect(heldKey(mode, above, undefined)).toEqual(above);
+  // A jump's row stays held either way.
+  expect(heldKey(run(following, jump).mode, above, seen)).toMatchObject({ key: "turn-3" });
+  // Following holds nothing.
+  expect(heldKey(following, above, seen)).toBeUndefined();
 });
 
 test("following stays at the end through growth and resizes", () => {
@@ -126,15 +154,15 @@ test("following stays at the end through growth and resizes", () => {
 
 test("free mode keeps the row in view steady when rows above it grow or are replaced", () => {
   const { mode } = run(following, wheel(true));
-  const held = { key: "message:answer-7", itemId: "answer-7", start: 2_000 };
+  const held = { key: "message:answer-7", itemId: "answer-7", top: 2_000 };
   // Older history paged in above: the held row moved down by the new rows' height.
-  expect(correction(mode, held, { index: 30, start: 5_200 }, 0)).toEqual({
+  expect(correction(mode, held, { index: 30, top: 5_200 }, 0)).toEqual({
     kind: "shift",
     by: 3_200,
   });
   // A row above was replaced at the same index by a shorter one: the held row's index is the
   // same, but it moved, and the view moves with it.
-  expect(correction(mode, held, { index: 12, start: 1_940 }, 0)).toEqual({
+  expect(correction(mode, held, { index: 12, top: 1_940 }, 0)).toEqual({
     kind: "shift",
     by: -60,
   });

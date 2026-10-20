@@ -157,6 +157,7 @@ export async function stageInformativeSidebar(page: Page, theme: string) {
                               text: "Which retry policy?",
                               multiSelect: false,
                               allowOther: true,
+                              secret: false,
                               options: [],
                             },
                           ],

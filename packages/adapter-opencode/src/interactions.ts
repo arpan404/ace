@@ -27,6 +27,7 @@ export function formRequest(form: Data): InteractionRequest {
         }),
         multiSelect: f.type === "multiselect",
         allowOther: f.custom === true,
+        secret: false,
       })),
     };
   const schema = elicitationSchema(form);

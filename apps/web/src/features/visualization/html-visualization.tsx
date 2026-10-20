@@ -13,16 +13,16 @@ import { useLiveFrame } from "./live-frames.ts";
 import { useHtmlTheme, usePageHtml } from "./page-source.ts";
 import { visualizationTab } from "./visualization-tab.ts";
 
-/** An outlined action, dimmed until hovered, focused or pressed. */
+/** An action, dimmed until hovered, focused or pressed. */
 const action =
-  "shadow-[inset_0_0_0_1px_var(--border)] opacity-60 transition-[background-color,color,transform,opacity] hover:opacity-100 focus-visible:opacity-100 active:opacity-100 motion-reduce:transition-none";
+  "rounded-md opacity-60 transition-[background-color,color,transform,opacity] hover:opacity-100 focus-visible:opacity-100 active:opacity-100 motion-reduce:transition-none";
 
 /**
  * A published HTML page, inline in the agent's reply at the message column's full width: no
  * card, no title bar, so it reads as part of the conversation. It shows its whole content height,
  * follows the app theme live, and runs its own scripts in a sandbox that cannot reach the app or
- * the network. Full screen, copy and download sit in a row above it, always shown but dimmed
- * until hovered, focused or pressed; Full
+ * the network. Full screen, copy and download sit in one outlined group in a row above
+ * it, always shown but dimmed until hovered, focused or pressed; Full
  * screen opens it at the side panel's full size, whose strip adds open in window.
  */
 export function HtmlVisualizationView(props: {
@@ -58,29 +58,31 @@ export function HtmlVisualizationView(props: {
         <div
           role="toolbar"
           aria-label={`${title} actions`}
-          className="flex h-6 items-center justify-end gap-2"
+          className="flex h-7 items-center justify-end"
         >
-          <IconButton
-            size="sm"
-            icon={CornersOutIcon}
-            label="Full screen"
-            className={action}
-            onClick={() => panel.open(visualizationTab(visualization))}
-          />
-          <IconButton
-            size="sm"
-            icon={actions.copied ? CheckIcon : CopyIcon}
-            label={actions.copied ? "Copied" : "Copy source"}
-            className={action}
-            onClick={actions.copy}
-          />
-          <IconButton
-            size="sm"
-            icon={DownloadSimpleIcon}
-            label="Download"
-            className={action}
-            onClick={actions.save}
-          />
+          <div className="inline-flex items-center rounded-lg p-0.5 shadow-[inset_0_0_0_1px_var(--border)]">
+            <IconButton
+              size="sm"
+              icon={CornersOutIcon}
+              label="Full screen"
+              className={action}
+              onClick={() => panel.open(visualizationTab(visualization))}
+            />
+            <IconButton
+              size="sm"
+              icon={actions.copied ? CheckIcon : CopyIcon}
+              label={actions.copied ? "Copied" : "Copy source"}
+              className={action}
+              onClick={actions.copy}
+            />
+            <IconButton
+              size="sm"
+              icon={DownloadSimpleIcon}
+              label="Download"
+              className={action}
+              onClick={actions.save}
+            />
+          </div>
         </div>
       )}
       <div className="w-full min-w-0">

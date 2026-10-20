@@ -2,6 +2,7 @@ import type { Scenario } from "../scenario.ts";
 import { endTurn, message, tool, toolDone, turn } from "./facts.ts";
 import { cwd, input, scenario, command } from "./ux-facts.ts";
 import { question, delegation, formattingQuestions } from "./ux-interactions.ts";
+import { questionKinds } from "./ux-question-kinds.ts";
 const root = "root";
 /** Recorded provider shapes, exercised without starting any provider or reading host files. */
 export function uxAudit(): Scenario[] {
@@ -94,6 +95,7 @@ export function uxAudit(): Scenario[] {
     question(false),
     question(true),
     formattingQuestions(),
+    ...questionKinds(),
     scenario(
       "wrapped-commands",
       "Codex wraps a command in a login shell",

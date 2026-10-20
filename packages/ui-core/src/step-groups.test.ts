@@ -32,6 +32,7 @@ const shell = (id: string, command: string, status?: "succeeded" | "failed" | "r
   call(id, { kind: "shell", command }, { status });
 const edit = (id: string, path: string) =>
   call(id, { kind: "file.edit", changes: [{ path, kind: "update", diff: "@@ -1 +1 @@\n-a\n+b" }] });
+const ask = (id: string) => call(id, { kind: "ask_user" });
 const prose = (id: string) =>
   Item.parse({
     id,
@@ -277,4 +278,12 @@ it("only shell searches failing reads as a quiet group", () => {
   );
   expect(groups[0]?.failed).toBe(0);
   expect(groups[0]?.summary).toBe("Explored 1 search and 1 folder");
+});
+
+it("a question the agent asked is its own row, and questions asked back to back count as such", () => {
+  const { groups } = groupSteps(
+    facts([read("a"), ask("q1"), thought("t", "Now the quotes"), ask("q2"), ask("q3"), read("b")]),
+  );
+  expect(groups.map((group) => group.ids)).toEqual([["a"], ["q1"], ["t"], ["q2", "q3"], ["b"]]);
+  expect(groups[3]?.summary).toBe("Asked 2 questions");
 });

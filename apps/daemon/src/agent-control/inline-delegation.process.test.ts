@@ -52,7 +52,14 @@ test("a prepared delegation is visible before launch and its stable card follows
     request: {
       kind: "question",
       questions: [
-        { id: "q", text: "Which greeting?", options: [], multiSelect: false, allowOther: true },
+        {
+          id: "q",
+          text: "Which greeting?",
+          options: [],
+          multiSelect: false,
+          allowOther: true,
+          secret: false,
+        },
       ],
     },
   });

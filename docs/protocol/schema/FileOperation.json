@@ -70,6 +70,36 @@
     },
     {
       "properties": {
+        "itemId": {
+          "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "offset": {
+          "default": 0,
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "op": {
+          "const": "link.download",
+          "type": "string"
+        },
+        "reference": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "validator": {
+          "$ref": "https://ace.local/protocol/v1/FileVersion.json"
+        }
+      },
+      "required": [
+        "op",
+        "itemId",
+        "reference"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "artifactId": {
           "maxLength": 128,
           "minLength": 1,

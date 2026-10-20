@@ -1,16 +1,7 @@
 import { cardEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
-import { refusalMessage } from "@/lib/daemon-command.ts";
 import { useState, type KeyboardEvent, type ReactNode } from "react";
-import type { ClientApi } from "@ace/client";
-import {
-  useAgent,
-  useClient,
-  useInteraction,
-  useIntentSender,
-  useItem,
-  useThreadMeta,
-} from "@ace/client-react";
+import { useAgent, useInteraction, useItem, useThreadMeta } from "@ace/client-react";
 import type { Interaction } from "@ace/protocol";
 import {
   agentName,
@@ -28,20 +19,14 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { AnsweredQuestionCard, closedMeta } from "./answered-question.tsx";
-import { answerStore, pendingAnswers, useLocalAnswer, type LocalAnswer } from "./answers.ts";
+import { answerStore, useLocalAnswer, type LocalAnswer } from "./answers.ts";
+import { useAnswerSender } from "./answer-sender.ts";
 import { QuestionForm } from "./question-form.tsx";
 import { Elicitation } from "./elicitation.tsx";
 import { PlanReview } from "./plan-review.tsx";
 import { BrowserHelp } from "./browser-help.tsx";
 import type { Answer } from "./answer.ts";
 import { useEarlierAnswer } from "./use-earlier-answer.ts";
-
-const failures: Record<string, string> = {
-  already_resolved: "Already answered on another device.",
-  not_found: "This request no longer exists.",
-  permission_mode_requires_one_shot: "This mode allows approving one action at a time only.",
-  read_only_mutation_denied: "Read only mode can't approve a change.",
-};
 
 /** Typing a digit in these goes into the field, not to an option. */
 const typing = (target: EventTarget) =>
@@ -50,61 +35,6 @@ const typing = (target: EventTarget) =>
     target.tagName === "TEXTAREA" ||
     (target.tagName === "INPUT" &&
       !["radio", "checkbox"].includes((target as HTMLInputElement).type)));
-
-/**
- * Follow an answer's receipt to the end, whether or not its card is still on screen (the deck
- * drops a card as soon as its request closes, which can be before the receipt): remembered
- * once the daemon accepts it, offered again once it refuses it.
- */
-function settleAnswer(
-  client: ClientApi,
-  commandId: string,
-  interactionId: string,
-  identity: string | undefined,
-) {
-  const receipt = client.intent(commandId);
-  const settled = () => {
-    const state = receipt.getSnapshot()?.state;
-    if (state !== "acked" && state !== "failed") return false;
-    const pick = pendingAnswers.get(interactionId);
-    if (state === "acked" && pick) answerStore.remember(interactionId, pick, identity);
-    pendingAnswers.clear(interactionId);
-    return true;
-  };
-  const stop = receipt.subscribe(() => {
-    if (settled()) stop();
-  });
-  if (settled()) stop();
-}
-
-/**
- * Send one answer as a durable intent. The pick shows at once (IR-2, SY-9); it is remembered
- * once the daemon accepts it, and offered again if the daemon refuses it.
- */
-function useAnswerSender(interactionId: string, identity: string | undefined) {
-  const client = useClient();
-  const { send, intent, error } = useIntentSender();
-  const state = intent?.state;
-  const answer: Answer = (resolution) => {
-    if (pendingAnswers.get(interactionId)) return;
-    pendingAnswers.set(interactionId, resolution);
-    void send({
-      type: "interaction.resolve",
-      interactionId: interactionId as Interaction["id"],
-      resolution,
-    }).then(
-      (commandId) => settleAnswer(client, commandId, interactionId, identity),
-      () => pendingAnswers.clear(interactionId),
-    );
-  };
-  const failed =
-    state === "failed"
-      ? (failures[intent?.error ?? ""] ?? refusalMessage(intent?.error ?? "unknown"))
-      : error
-        ? "Couldn't send the answer. Check the connection and try again."
-        : undefined;
-  return { answer, failed };
-}
 
 /** How the card is drawn: a bordered card of its own, or inside a surface that frames it. */
 const frames = {
@@ -140,7 +70,11 @@ export function InteractionCard(props: {
   const local = useLocalAnswer(props.interactionId, identity);
   const earlier = useEarlierAnswer(props.threadId, interaction);
   const [reopened, setReopened] = useState(false);
-  const sender = useAnswerSender(props.interactionId, identity);
+  const sender = useAnswerSender({
+    interactionId: props.interactionId,
+    identity,
+    questions: interaction?.request.kind === "question" ? interaction.request.questions : [],
+  });
   const { failed } = sender;
   const answer: Answer = (resolution) => {
     props.onControlsChange?.();
@@ -293,7 +227,7 @@ function OpenRequest(props: {
   };
   return (
     <article tabIndex={-1} aria-label={title} onKeyDown={onKeyDown} className={props.className}>
-      {request.kind !== "approval" && (
+      {request.kind !== "approval" && request.kind !== "question" && (
         <p className="flex min-h-6 items-center gap-[7px] text-xs text-subtle-foreground">
           <Dot tone="needs-you" />
           {props.asker} · {kind}
@@ -354,7 +288,18 @@ function OpenRequest(props: {
         </>
       )}
       {request.kind === "question" && (
-        <QuestionForm questions={request.questions} disabled={sending} onAnswer={answer} />
+        // Who asks is said aloud only; the strip shows the question.
+        <span className="sr-only">{props.asker} is asking</span>
+      )}
+      {request.kind === "question" && (
+        <QuestionForm
+          interactionId={interaction.id}
+          asker={props.asker}
+          aside={props.aside && <span className="flex items-center gap-3">{props.aside}</span>}
+          questions={request.questions}
+          disabled={sending}
+          onAnswer={answer}
+        />
       )}
       {request.kind === "plan_review" && (
         <PlanReview disabled={sending} onAnswer={answer}>

@@ -370,6 +370,8 @@ export interface WorkSummary {
   searched: number;
   ran: number;
   edited: number;
+  /** Questions the agent asked the person. */
+  asked: number;
   other: number;
   /** The step in flight, for the live line. */
   current: string | undefined;
@@ -391,6 +393,7 @@ export function summarizeWork(items: readonly (Item | undefined)[]): WorkSummary
     searched: 0,
     ran: 0,
     edited: 0,
+    asked: 0,
     other: 0,
     current: undefined,
   };
@@ -423,6 +426,7 @@ export function summarizeWork(items: readonly (Item | undefined)[]): WorkSummary
     else if (detail.kind === "search" && isToolSearch(call)) summary.other++;
     else if (detail.kind === "search" || detail.kind === "web.search") summary.searched++;
     else if (detail.kind === "shell") summary.ran++;
+    else if (detail.kind === "ask_user") summary.asked++;
     else if ("changes" in detail) for (const change of detail.changes) edits.add(change.path);
     else summary.other++;
   }
@@ -476,6 +480,7 @@ export function workCounts(summary: WorkSummary): string {
   if (summary.searched) parts.push(plural(summary.searched, "search", "searches"));
   if (summary.ran) parts.push(`Ran ${plural(summary.ran, "command", "commands")}`);
   if (summary.edited) parts.push(`Edited ${plural(summary.edited, "file", "files")}`);
+  if (summary.asked) parts.push(`Asked ${plural(summary.asked, "question", "questions")}`);
   if (summary.other) parts.push(`Used ${plural(summary.other, "tool", "tools")}`);
   const failures = failureCounts(summary);
   if (failures) parts.push(failures);
