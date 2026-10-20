@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, expect, test } from "vitest";
 import { spawnGitProcess } from "@ace/git";
-import { Thread, ThreadId, type ThreadStatus } from "@ace/protocol";
+import { Thread, ThreadId, type ThreadDetails, type ThreadStatus } from "@ace/protocol";
 import { migrateEngine } from "./engine/migrations.ts";
 import { Store } from "./store.ts";
 import { VirtualSchedule } from "./virtual-schedule-test-support.ts";
@@ -43,7 +43,15 @@ async function repository(root: string) {
  * Threads on real checkouts refreshed by the production loop on virtual time. Git status in a
  * checkout named in `hangs` never returns, as a stuck Git or forge read would.
  */
-async function threads(names: string[], status: ThreadStatus, hangs: string[] = []) {
+async function threads(
+  names: string[],
+  status: ThreadStatus,
+  {
+    hangs = [],
+    viewed = true,
+    details: initial,
+  }: { hangs?: string[]; viewed?: boolean; details?: ThreadDetails } = {},
+) {
   const home = await realpath(await mkdtemp(join(tmpdir(), "ace-refresh-liveness-")));
   const store = new Store(join(home, "events.sqlite"));
   store.atomic((db) => migrateEngine(db));
@@ -62,7 +70,11 @@ async function threads(names: string[], status: ThreadStatus, hangs: string[] = 
       updatedAt: 1,
     });
     store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
-    store.acquireThread(thread.id);
+    if (initial)
+      store.appendEvents(thread.id, [
+        { type: "thread.client.updated", changes: { details: initial } },
+      ]);
+    if (viewed) store.acquireThread(thread.id);
   }
   const stuck = new Set(hangs.map((name) => roots.get(name)));
   const time = new VirtualSchedule();
@@ -95,14 +107,14 @@ async function threads(names: string[], status: ThreadStatus, hangs: string[] = 
   });
   await time.armedAtLeast(2);
   const details = (name: string) => store.getThread(ThreadId.parse(name))?.details;
-  return { roots, time, failures, details };
+  return { store, roots, time, failures, details };
 }
 
 test("a read that never returns does not stop the refresh; other threads keep updating", async () => {
   const { roots, time, failures, details } = await threads(
     ["stuck", "healthy"],
     { state: "done" },
-    ["stuck"],
+    { hangs: ["stuck"] },
   );
   expect(failures).toEqual([expect.any(RefreshTimeout)]);
   expect(details("healthy")?.diff?.files).toBe(0);
@@ -122,4 +134,28 @@ test("an agent's branch switch shows within seconds while it works, before any s
   await git("git", ["-C", roots.get("agent") ?? "", "checkout", "-q", "-b", "ace/feature"]);
   await time.advance(5 * second);
   expect(details("agent")?.branch).toBe("ace/feature");
+});
+
+test("a thread whose read changed its details waits behind threads not yet read", async () => {
+  // A pull request link change makes a thread due, and every details change carries the links.
+  const names = Array.from({ length: 10 }, (_, index) => `thread-${index}`);
+  const { time, details } = await threads(
+    names,
+    { state: "done" },
+    { viewed: false, details: { linkedPrs: [] } },
+  );
+  await time.advance(minute);
+  for (const name of names) expect(details(name)?.branch).toBe("main");
+});
+
+test("an unchanged checkout records no details change on later sweeps", async () => {
+  const { store, time, details } = await threads(["quiet"], { state: "done" });
+  expect(details("quiet")?.branch).toBe("main");
+  let changes = 0;
+  const stop = store.subscribe((events) => {
+    changes += events.filter((event) => event.payload.type === "thread.client.updated").length;
+  });
+  await time.advance(3 * minute);
+  stop();
+  expect(changes).toBe(0);
 });

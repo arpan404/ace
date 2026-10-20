@@ -6,6 +6,7 @@ import {
   type LinkedPullRequest,
 } from "@ace/protocol";
 import type { Store } from "./store.ts";
+import { sameJson } from "./canonical-json.ts";
 
 /** Owns durable associations and the client projection that every link entry point publishes. */
 export class WorkspacePrLinks {
@@ -39,8 +40,8 @@ export class WorkspacePrLinks {
         }
       : null;
     if (
-      JSON.stringify(thread.details?.linkedPrs) === JSON.stringify(linkedPrs) &&
-      JSON.stringify(thread.details?.linkedPr) === JSON.stringify(linkedPr)
+      sameJson(thread.details?.linkedPrs, linkedPrs) &&
+      sameJson(thread.details?.linkedPr, linkedPr)
     )
       return;
     this.store.appendEvents(

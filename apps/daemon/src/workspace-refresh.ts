@@ -65,13 +65,16 @@ export class WorkspaceRefresh {
       CREATE INDEX IF NOT EXISTS workspace_refresh_due ON workspace_refresh(due);
       INSERT OR IGNORE INTO workspace_refresh SELECT id,0 FROM threads WHERE json_extract(client,'$.deletedAt') IS NULL AND (archived_at IS NULL OR id IN (SELECT thread_id FROM forge_links));`),
     );
+    // A changed thread is due now, behind every thread that was due before it. A sweep takes
+    // the oldest due first, so threads that keep changing cannot hold the front of the queue
+    // and starve the rest.
     const dirty = (id: string) =>
       privateStore.atomic((db) =>
         db
           .prepare(
-            "INSERT INTO workspace_refresh VALUES (?,0) ON CONFLICT(thread_id) DO UPDATE SET due=0",
+            "INSERT INTO workspace_refresh VALUES (?,?) ON CONFLICT(thread_id) DO UPDATE SET due=MIN(due,excluded.due)",
           )
-          .run(id),
+          .run(id, now()),
       );
     this.stop = privateStore.subscribe((events) => {
       for (const event of events) {
@@ -133,11 +136,10 @@ export class WorkspaceRefresh {
       const refresh: { id: ThreadId; cwd: string }[] = [];
       for (const id of ids) {
         if (this.closed) return;
-        // Advance before I/O. An event during the refresh resets due to zero.
+        // Advance before I/O. An event during the refresh makes the thread due again.
+        const advanced = now() + 60_000;
         await privateStore.write((db) =>
-          db
-            .prepare("UPDATE workspace_refresh SET due=? WHERE thread_id=?")
-            .run(now() + 60_000, id),
+          db.prepare("UPDATE workspace_refresh SET due=? WHERE thread_id=?").run(advanced, id),
         );
         const thread = privateStore.getThread(id);
         if (
@@ -160,8 +162,8 @@ export class WorkspaceRefresh {
           if (current && settled(current, privateStore.viewedThreads()))
             await privateStore.write((db) =>
               db
-                .prepare("UPDATE workspace_refresh SET due=? WHERE thread_id=? AND due>0")
-                .run(now() + settledCadenceMs, id),
+                .prepare("UPDATE workspace_refresh SET due=? WHERE thread_id=? AND due=?")
+                .run(now() + settledCadenceMs, id, advanced),
             );
         } catch (error) {
           report(error);
