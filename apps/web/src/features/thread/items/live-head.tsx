@@ -41,8 +41,16 @@ export function LiveHead(props: { threadId: string }) {
   const progress = plans[0] ? livePlanStep(plans[0].progress) : undefined;
   const subagents = useWorkingSubagents(props.threadId, activity?.subagents);
   // A pause is the turn's own row; a lost connection is the header's to say; what the agent
-  // only waits on is the composer's strip, with its Stop.
-  if (!activity || activity.tone === "paused" || live.staleLabel || activity.waitingOn) return null;
+  // only waits on is the composer's strip, with its Stop; a question the agent asked is its own
+  // "is asking" line, which is the waiting state.
+  if (
+    !activity ||
+    activity.tone === "paused" ||
+    live.staleLabel ||
+    activity.waitingOn ||
+    (activity.askedInline && activity === turn)
+  )
+    return null;
   // The status line stays a live region of its own; its text can be selected.
   return (
     <div role="group" aria-label="Turn in progress" className="flex min-w-0 items-center gap-1">

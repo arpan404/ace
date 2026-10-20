@@ -117,19 +117,20 @@ test("an approval is explained once in its inline request", async () => {
   expect(screen.queryByRole("region", { name: "Agents" })).toBeNull();
 });
 
-test("a pending question has one inline prompt and no repeated transcript request", async () => {
+test("a pending question is answered in the strip and waits as one line in the transcript", async () => {
   await open("/t/thread-sheet-rotate");
   const request = await screen.findByRole("region", { name: "Waiting for you" });
   expect(within(request).getAllByRole("radio").length).toBeGreaterThan(1);
   const feed = screen.getByRole("feed", { name: "Transcript" });
-  expect(within(feed).queryByText("How should the sheet recover after rotate?")).toBeNull();
+  expect(within(feed).queryByRole("radio")).toBeNull();
   expect(within(feed).queryByText(/Answer below/)).toBeNull();
-  // The live head names the wait once; nothing else in the transcript repeats it.
+  // One line names the wait: the question's own, with no live head repeating it.
   expect(
-    within(feed)
-      .queryAllByText(/Waiting for your answer/)
-      .filter((mention) => !inLiveHead(mention)),
-  ).toHaveLength(0);
+    within(feed).getAllByRole("button", {
+      name: /is asking · How should the sheet recover after rotate\?/,
+    }),
+  ).toHaveLength(1);
+  expect(within(feed).queryAllByText(/Waiting for your answer/)).toHaveLength(0);
 });
 
 const inLiveHead = (element: Element) =>
