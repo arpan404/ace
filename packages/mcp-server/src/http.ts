@@ -9,6 +9,7 @@ import {
   aceClient,
   codexClientHeader,
   coreToolsHeader,
+  dispatches,
   toolListing,
 } from "./toolsets.ts";
 import { aceToolDispatch, aceToolSearch, bareToolName, dispatchedAceCall } from "./tool-names.ts";
@@ -213,7 +214,7 @@ async function createHandler(
     const session: SessionTools = {
       listing,
       catalog,
-      ...(listing === "static" ? { dispatch: direct } : {}),
+      ...(dispatches(listing) ? { dispatch: direct } : {}),
     };
     // The HTTP SDK validates mirrored parameters only for McpServer products. Reuse
     // our prepared schema by name instead of registering/scanning every tool per call.
@@ -297,11 +298,16 @@ async function createHandler(
         ],
       };
     });
-    /** Whether a successful call adds families to a core-mode session's list. */
-    const opens = (name: string, args: unknown, result: CallToolResult): boolean =>
-      bareToolName(name) === aceToolSearch
+    /**
+     * Whether a successful call adds families to a core-mode session's list. A dispatched call
+     * opens what calling its tool directly would.
+     */
+    const opens = (name: string, args: unknown, result: CallToolResult): boolean => {
+      const call = dispatchedAceCall(name, args);
+      return bareToolName(call.name) === aceToolSearch
         ? listing === "core" && toolsets.add(principal, foundFamilies(result.structuredContent))
-        : toolsets.opened(principal, name, args);
+        : toolsets.opened(principal, call.name, call.input);
+    };
     server.setRequestHandler("tools/list", async () => ({
       tools: [
         ...status.list(principal),

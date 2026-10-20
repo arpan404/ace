@@ -32,7 +32,7 @@ export interface SessionTools {
   catalog(): readonly CatalogTool[];
   /**
    * Runs a tool exactly as this session calling it directly would. Present only where the
-   * client never reloads its list, the one place `tools_call` is offered.
+   * client does not list every tool, where `tools_call` is offered (`toolsets.ts`).
    */
   readonly dispatch?:
     | ((name: string, input: unknown, signal: AbortSignal) => Promise<CallToolResult>)

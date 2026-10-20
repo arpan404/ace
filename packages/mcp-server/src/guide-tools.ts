@@ -24,7 +24,7 @@ const GuideResult = z.strictObject({
   guide: z.string().min(1).max(65_536),
   /** The topic's tools beyond the core ones, by the names to call. */
   tools: z.array(z.string().min(1).max(128)).max(128),
-  /** Clients that do not list every tool: their schemas, so the next call needs no lookup. */
+  /** Where the model would otherwise never see them: their schemas (`tool-delivery.ts`). */
   schemas: z.array(InlineTool).max(128).optional(),
   /** How to call them, where that is not by name. */
   how: z.string().max(256).optional(),
@@ -34,8 +34,8 @@ const GuideResult = z.strictObject({
  * `guide` serves the shipped skills to every provider, including those ace can't give native
  * skills (OpenCode, Cursor, Pi, ACP). Claude Code and Codex also receive them as native skills;
  * this tool returns the same text, so the always-on guidance stays short everywhere. Reading a
- * guide also adds its family's tools to a core-mode session's list, and returns their schemas
- * inline there, so the agent can call them in the same turn its client reloads the list.
+ * guide also adds its family's tools to a core-mode session's list, whose reload brings their
+ * schemas; clients whose list never grows, and Codex, get the schemas inline instead.
  */
 export function guideToolkit(guides: readonly AceGuide[]): Toolkit {
   return {

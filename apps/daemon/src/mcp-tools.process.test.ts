@@ -1,6 +1,6 @@
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
-import { coreToolsHeader } from "@ace/mcp-server";
+import { coreToolsHeader, staticToolsHeader } from "@ace/mcp-server";
 import type { ThreadId } from "@ace/protocol";
 import { EvalAgent } from "./evals/agent.ts";
 import { evalWorld, type EvalWorld } from "./evals/world.ts";
@@ -113,18 +113,22 @@ it("automations round-trip through list, save and remove; only remove is destruc
   expect(await ids()).toEqual([]);
 });
 
-it("guide returns its family's schemas inline only to a client that lists core tools", async () => {
+it("guide returns its family's schemas inline only to a client whose list never grows", async () => {
   world = await evalWorld({ browser: false });
   const { agent: full, connection } = await world.agent({});
-  const core = await EvalAgent.connect({
-    url: connection.url,
-    bearer: connection.bearer,
-    nativeInstructions: "",
-    serverInstructions: true,
-    headers: { [coreToolsHeader.name]: coreToolsHeader.value },
-  });
+  const connect = (header: { name: string; value: string }) =>
+    EvalAgent.connect({
+      url: connection.url,
+      bearer: connection.bearer,
+      nativeInstructions: "",
+      serverInstructions: true,
+      headers: { [header.name]: header.value },
+    });
+  const core = await connect(coreToolsHeader);
+  const fixed = await connect(staticToolsHeader);
   const Guide = z.object({
     tools: z.array(z.string()),
+    how: z.string().optional(),
     schemas: z
       .array(z.object({ name: z.string(), inputSchema: z.object({ type: z.literal("object") }) }))
       .optional(),
@@ -132,10 +136,19 @@ it("guide returns its family's schemas inline only to a client that lists core t
   const deferred = Guide.parse((await full.call("guide", { topic: "ace-agents" })).data);
   expect(deferred.tools).toContain("agents_status");
   expect(deferred.schemas).toBeUndefined();
-  const inline = Guide.parse((await core.call("guide", { topic: "ace-agents" })).data);
+  // A core client's reload brings the schemas, so the guide doesn't pay for them twice.
+  const reloading = Guide.parse((await core.call("guide", { topic: "ace-agents" })).data);
+  expect(reloading.tools).toContain("agents_status");
+  expect(reloading.schemas).toBeUndefined();
+  expect(reloading.how).toContain("tools_call");
+  // Before its client reloads, the agent reaches the new tool through tools_call.
+  const early = await core.call("tools_call", { name: "agents_status", arguments: {} });
+  expect(early.failed, early.text).toBe(false);
+  const inline = Guide.parse((await fixed.call("guide", { topic: "ace-agents" })).data);
   expect(inline.schemas?.map((schema) => schema.name)).toEqual(inline.tools);
   // The inline schema is the one the server validates against: calling with it works.
-  const status = await core.call("agents_status", {});
+  const status = await fixed.call("tools_call", { name: "agents_status", arguments: {} });
   expect(status.failed, status.text).toBe(false);
   await core.close();
+  await fixed.close();
 });

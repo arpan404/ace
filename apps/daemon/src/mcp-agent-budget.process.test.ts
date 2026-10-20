@@ -6,6 +6,7 @@ import {
   ToolRegistry,
   aceInstructions,
   bareToolName,
+  codexInjection,
   coreToolsHeader,
   developerInstructions,
   nodeScheduler,
@@ -24,8 +25,13 @@ import { evalWorld, type EvalWorld } from "./evals/world.ts";
 const tokens = (text: string) => Math.ceil(text.length / 4);
 const descriptor = ({ name, description, inputSchema }: ListedTool) =>
   JSON.stringify({ name, description, inputSchema });
-/** Claude Code and Codex defer ace tools behind their own tool search. */
-const deferring = new Set<ProviderKind>(["claude", "codex"]);
+/** Claude Code defers ace tools behind its own tool search, listing their names. */
+const deferring = new Set<ProviderKind>(["claude"]);
+/**
+ * Codex defers every ace tool and its code-mode models see no MCP schema or name: it pays only
+ * for its developer instructions, which carry the names this session can call.
+ */
+const instructionsOnly = new Set<ProviderKind>(["codex"]);
 /** These load every listed tool upfront and reload on tools/list_changed: core mode. */
 const reloading = new Set<ProviderKind>(["opencode", "pi"]);
 /** The rest never reload: a fixed core list, with tools_call for everything else. */
@@ -66,11 +72,18 @@ async function session() {
       ...computer.names(),
     ].map(bareToolName),
   );
-  return { full, core, fixed, registered };
+  return {
+    full,
+    core,
+    fixed,
+    registered,
+    codexInstructions: codexInjection(connection).developerInstructions,
+  };
 }
 type Agents = Pick<Awaited<ReturnType<typeof session>>, "full" | "core" | "fixed">;
 /** The tools a provider's model has in context on every request. */
 function upfront(provider: ProviderKind, { full, core, fixed }: Agents): ListedTool[] {
+  if (instructionsOnly.has(provider)) return [];
   if (deferring.has(provider))
     return full.tools.filter((tool) => tool["_meta"]?.["anthropic/alwaysLoad"] === true);
   return reloading.has(provider) ? core.tools : fixed.tools;
@@ -85,8 +98,11 @@ function guidance(provider: ProviderKind): string {
 it("ace's always-on guidance stays under 315 tokens for every provider", () => {
   // Raised from 300 for one clause naming offshift (#899): it loads only on request, so the
   // instructions are the one place an agent learns it exists.
-  for (const provider of ProviderKind.options)
+  // Codex's developer prefix carries its exec recipe instead of any tool schema or name listing;
+  // mcp-codex-discovery.process.test.ts holds its whole developer text under 900 tokens.
+  for (const provider of ProviderKind.options.filter((kind) => kind !== "codex"))
     expect(tokens(guidance(provider)), provider).toBeLessThanOrEqual(315);
+  expect(tokens(aceInstructions)).toBeLessThanOrEqual(315);
 });
 
 it("each provider's per-request ace context stays within its budget", async () => {
@@ -95,15 +111,16 @@ it("each provider's per-request ace context stays within its budget", async () =
     // A deferring client also lists every deferred tool's name.
     const names = deferring.has(provider) ? agents.full.tools.map((tool) => tool.name) : [];
     const always = [
-      guidance(provider),
+      instructionsOnly.has(provider) ? agents.codexInstructions : guidance(provider),
       ...upfront(provider, agents).map(descriptor),
       names.join(" "),
     ].join("\n");
-    // Every client starts small: deferred names, or the core list with tools_find (and, where the
-    // list never reloads, tools_call). Deferring raised from 2,600 to 2,625 for offshift (#899):
-    // its deferred name, its guide topic and its clause in the instructions. Then to 2,655 for
-    // delegate's runRole field (Offshift roles), which the always-loaded delegate schema carries.
-    const budget = deferring.has(provider) ? 2_655 : reloading.has(provider) ? 3_200 : 3_300;
+    // Every client starts small: deferred names, or the core list with tools_find and tools_call.
+    // Deferring raised from 2,600 to 2,625 for offshift (#899): its deferred name, its guide topic
+    // and its clause in the instructions. Then to 2,655 for delegate's runRole field (Offshift
+    // roles), which the always-loaded delegate schema carries. Codex pays its instructions only.
+    // Core raised from 3,200 to the static 3,300: it lists tools_call too, so the two lists match.
+    const budget = instructionsOnly.has(provider) ? 900 : deferring.has(provider) ? 2_655 : 3_300;
     expect(tokens(always), provider).toBeLessThanOrEqual(budget);
   }
 });
@@ -122,11 +139,13 @@ it("only the entry points and tools_find load upfront, whatever the client", asy
       "wait",
     ].toSorted(),
   );
-  expect(core.tools.length).toBeLessThanOrEqual(11);
+  // Raised from 11 to 12: core lists tools_call too, for a found tool its reload hasn't listed.
+  expect(core.tools.length).toBeLessThanOrEqual(12);
   expect(core.has("tools_find")).toBe(true);
+  expect(core.has("tools_call")).toBe(true);
   expect(fixed.tools.length).toBeLessThanOrEqual(12);
-  // A client that never reloads lists what a reloading one starts with, plus tools_call.
-  expect(bareNames(fixed.tools)).toEqual([...bareNames(core.tools), "tools_call"].toSorted());
+  // A client that never reloads lists what a reloading one starts with.
+  expect(bareNames(fixed.tools)).toEqual(bareNames(core.tools));
   // ace's own agents, threads, knowledge and automations families stay small. Raised from 28 to
   // 30 for image_show (#991), projects_find (#994) and thread_fork (#1001), each a capability
   // with no existing tool to fold into. A deferring client pays only for their names, which
@@ -143,11 +162,11 @@ it("a core-mode session gains a family's tools by reading its guide or using its
   expect(core.has("threads_find")).toBe(false);
   const read = await core.call("guide", { topic: "ace-threads" });
   const family = z
-    .object({ tools: z.array(z.string()), schemas: z.array(z.object({ name: z.string() })) })
+    .object({ tools: z.array(z.string()), schemas: z.unknown().optional() })
     .parse(read.data);
   expect(family.tools).toContain("threads_find");
-  // The guide's inline schemas let the agent call a family tool before its client reloads.
-  expect(family.schemas.map((schema) => schema.name)).toEqual(family.tools);
+  // The reload brings the family's schemas; the guide doesn't send them a second time.
+  expect(family.schemas).toBeUndefined();
   await core.refreshTools();
   expect(core.has("threads_find")).toBe(true);
   expect(core.has("agents_status")).toBe(false);

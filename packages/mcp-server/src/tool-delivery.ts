@@ -15,24 +15,24 @@ export interface ToolDelivery {
 /** Codex's code-mode models reach MCP tools only from inside `exec`. */
 export const codexCallForm = "Inside exec, call these as await tools.mcp__ace__<name>(args).";
 const viaToolsCall = "Call these with tools_call {name, arguments}.";
+/**
+ * A core client reloads its list on `tools/list_changed` and gets every schema from it, so a
+ * schema returned here too would be paid twice. The reload can land a model step late (OpenCode
+ * debounces it), so until a tool is listed the agent reaches it through `tools_call`.
+ */
+const untilReloaded =
+  "These join your tool list when it reloads; call one by name once listed, or with tools_call {name, arguments} before.";
 
 /** What a guide returns about its family's tools. */
 export function guideDelivery(listing: ToolListing = "all", client?: AceClient): ToolDelivery {
   if (client === "codex") return { schemas: true, how: codexCallForm };
   if (listing === "static") return { schemas: true, how: viaToolsCall };
-  // A core client reloads its list, but the reload may land a step late: the schemas let the
-  // agent call a family tool in the same turn.
-  return { schemas: listing === "core" };
+  return listing === "core" ? { schemas: false, how: untilReloaded } : { schemas: false };
 }
 
 /** What `tools_find` returns about its matches. */
 export function findDelivery(listing: ToolListing = "all", client?: AceClient): ToolDelivery {
   if (client === "codex") return { schemas: true, how: codexCallForm };
   if (listing === "static") return { schemas: true, how: viaToolsCall };
-  if (listing === "core")
-    return {
-      schemas: true,
-      how: "These are now in your tool list; call them by name with these schemas.",
-    };
-  return { schemas: true };
+  return listing === "core" ? { schemas: false, how: untilReloaded } : { schemas: true };
 }

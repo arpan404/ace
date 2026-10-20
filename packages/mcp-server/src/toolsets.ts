@@ -6,11 +6,12 @@ import { aceToolDispatch, aceToolSearch, bareToolName } from "./tool-names.ts";
  * - `all` (no header): Claude Code and Codex defer MCP tools behind their own tool search, so
  *   every tool is listed and `tools_find` loads upfront.
  * - `core`: clients that load every listed tool upfront and reload on `tools/list_changed`
- *   (OpenCode 2.0.22 debounces a reload; Pi's extension re-registers). They start with the core
- *   tools and `tools_find`; a guide, an entry point or a search adds a family.
- * - `static`: clients that never reload (Cursor's SDK caches its list per connection; most ACP
- *   agents and Antigravity never refresh). They keep the core tools and `tools_find`, and reach
- *   every other tool through `tools_call`.
+ *   (OpenCode 2.0.32 debounces a reload; Pi's extension re-registers; Gemini CLI reloads). They
+ *   start with the core tools, `tools_find` and `tools_call`; a guide, an entry point or a search
+ *   adds a family, and `tools_call` reaches a found tool before the reload lands.
+ * - `static`: clients that never reload (Cursor's SDK caches its list per connection; ACP agents
+ *   not known to refresh, Antigravity included). They keep the core tools and `tools_find`, and
+ *   reach every other tool through `tools_call`.
  */
 export type ToolListing = "all" | "core" | "static";
 export const coreToolsHeader = { name: "X-Ace-Tools", value: "core" } as const;
@@ -92,8 +93,8 @@ export class OpenToolsets {
     return set.size > before;
   }
   /**
-   * Whether this session lists a tool now. `tools_call` is listed only where the client never
-   * reloads; in core mode a tool without a family is always listed.
+   * Whether this session lists a tool now. `tools_call` is listed wherever the list is not
+   * complete; in core mode a tool without a family is always listed.
    */
   lists(
     principal: Principal,
@@ -102,11 +103,20 @@ export class OpenToolsets {
     toolset: string | undefined,
   ): boolean {
     const bare = bareToolName(tool);
-    if (bare === aceToolDispatch) return listing === "static";
+    if (bare === aceToolDispatch) return dispatches(listing);
     if (listing === "all" || bare === aceToolSearch || coreTools.has(bare)) return true;
     if (listing === "static") return false;
     return toolset === undefined || (this.open.get(principal)?.has(toolset) ?? false);
   }
+}
+
+/**
+ * Whether a session is offered `tools_call`: wherever its list lacks tools. A core client's list
+ * grows, but a found tool may be listed a model step late; a client listing every tool calls
+ * each one directly.
+ */
+export function dispatches(listing: ToolListing): boolean {
+  return listing !== "all";
 }
 
 function guideTopic(args: unknown): string | undefined {
