@@ -1,8 +1,9 @@
 /*
  * Why one of ace's own tools failed, in a person's words with what to do next: "Safari didn't
  * accept that key in the background". The raw code stays with the step for its Details. Codes
- * are the screen helper's and ace's public MCP catalog's; one ace has no sentence for reads as
- * the catalog's message, else as "Couldn't …" what the step tried. Pure.
+ * are the screen helper's and ace's public MCP catalog's, whose own message and hint are written
+ * for the agent and never shown: a code ace has no sentence for reads as "Couldn't …" what the
+ * step tried. Pure.
  */
 
 export type AceToolFamily = "screen" | "browser" | "device" | "agents" | "threads" | "ace";
@@ -28,7 +29,7 @@ export interface ProblemSituation {
   mode?: "background" | "foreground" | undefined;
   /** What the step tried, imperative: "press ⌘L in Safari". */
   attempt: string;
-  /** ace's catalog message for the code, when the tool answered with one. */
+  /** A failure with no public code: the first line of what the tool said. */
   message?: string | undefined;
 }
 
@@ -120,6 +121,20 @@ const screen: Record<string, Wording> = {
     title: `${possessive(app)} window changed before the action`,
     hint: readAgain("window"),
   }),
+  window_ambiguous: (app) => ({
+    title: `${app} has more than one window like that`,
+    hint: "The agent should pick one of its windows.",
+  }),
+  key_unsupported: () => ({ title: "That key isn't one ace can press" }),
+  modifier_unsupported: () => ({ title: "That modifier key isn't one ace can press" }),
+  no_key_window: (app) => ({
+    title: `${app} has no field ready for typing`,
+    hint: "The agent can pick a field first.",
+  }),
+  delivery_unconfirmed: (app) => ({
+    title: `Couldn't confirm the input reached ${app}`,
+    hint: `The agent should check ${app} before trying again.`,
+  }),
 };
 
 const browser: Record<string, Wording> = {
@@ -168,6 +183,36 @@ const browser: Record<string, Wording> = {
   recording_active: () => ({ title: "The browser is already recording" }),
   recording_inactive: () => ({ title: "The browser wasn't recording" }),
   recording_failed: () => ({ title: "The recording couldn't be saved" }),
+  needs_person: (site) => ({
+    title: `${site} needs you`,
+    hint: "It shows a warning only you can get past, in the Browser panel.",
+  }),
+  tab_not_found: () => ({ title: "That tab is closed" }),
+  tab_limit: () => ({
+    title: "Too many tabs are open",
+    hint: "Close the ones you no longer need.",
+  }),
+  tab_crashed: () => ({ title: "The page crashed", hint: "Reload it to bring it back." }),
+  not_hittable: () => ({
+    title: "That element couldn't take the click",
+    hint: "It was out of view or kept moving.",
+  }),
+  covered: () => ({
+    title: "Something covers that element",
+    hint: "A banner, dialog or header sits over it.",
+  }),
+  viewport_mismatch: () => ({
+    title: "The tab kept its own size",
+    hint: "The Browser panel may be holding it at its size.",
+  }),
+  unsaved_changes: (site) => ({
+    title: `You have unsaved changes on ${site}`,
+    hint: "Leaving would discard them.",
+  }),
+  storage_restricted: () => ({
+    title: "Agents can't read cookies or site storage in your Chrome",
+    hint: "Allow it in Settings › Computer use › Use my Chrome.",
+  }),
 };
 
 const device: Record<string, Wording> = {
@@ -221,13 +266,42 @@ const agents: Record<string, Wording> = {
     hint: "Agents nest only a few levels deep, and ace runs a bounded number at once.",
   }),
   delegation_denied: () => ({ title: "The new agent would have more access than this thread" }),
+  access_escalation_denied: () => ({
+    title: "The new agent would have more access than this thread",
+  }),
+  access_unavailable: () => ({ title: "That provider doesn't offer that access mode" }),
+  effort_unavailable: () => ({ title: "That model doesn't offer that effort level" }),
   workspace_unavailable: () => ({ title: "The project isn't available" }),
+  thread_not_found: () => ({ title: "That thread wasn't found" }),
+  thread_busy: () => ({ title: "That thread is busy", hint: "Try again once it settles." }),
+  request_conflict: () => ({ title: "That request was already sent with different details" }),
+  handoff_unavailable: () => ({ title: "That thread can't be handed off right now" }),
 };
 
+/** Failures any of ace's tools can report, whichever family it is. */
 const shared: Record<string, Wording> = {
   invalid_arguments: () => ({ title: "The agent's request was malformed" }),
   invalid_data: () => ({ title: "The tool answered with something unexpected" }),
   timeout: () => ({ title: "No answer in time", hint: "Nothing changed. Try again." }),
+  invalid_html: () => ({ title: "That page has content ace can't show" }),
+  invalid_image: () => ({ title: "That file isn't an image ace can show" }),
+  image_unavailable: () => ({ title: "Couldn't read that image file" }),
+  tool_unavailable: () => ({ title: "That ace tool isn't available in this thread" }),
+  limit: () => ({ title: "That's more than ace takes at once" }),
+  machine_offline: () => ({ title: "That machine is offline" }),
+  machine_unavailable: () => ({ title: "That machine isn't available to agents" }),
+  machine_forbidden: () => ({
+    title: "Agents can't do that on that machine",
+    hint: "Its agent access or pairing is read-only.",
+  }),
+  machine_disconnected: () => ({
+    title: "Lost the connection to that machine",
+    hint: "The action may or may not have run there.",
+  }),
+  user_browser_unavailable: () => ({
+    title: "Your Chrome isn't connected to ace",
+    hint: "Turn on Use my Chrome in Settings › Computer use and keep Chrome open.",
+  }),
 };
 
 const tables: Record<AceToolFamily, Record<string, Wording>> = {
@@ -265,10 +339,11 @@ export function toolProblem(situation: ProblemSituation): ToolProblem {
     const { title, hint } = wording(subject, situation);
     return { title: capital(title), hint, code: situation.code };
   }
-  // The catalog's generic failure says less than what the step tried.
-  const generic = situation.code === "execution_failed";
+  // A code ace has no sentence for yet (a newer daemon's), or the catalog's generic failure,
+  // reads as what the step tried: the catalog's own words are written for the agent. A failure
+  // with no code at all reads as the tool's own first line.
   return {
-    title: (!generic && situation.message) || `Couldn't ${situation.attempt}`,
+    title: (situation.code === "failed" && situation.message) || `Couldn't ${situation.attempt}`,
     code: situation.code,
   };
 }

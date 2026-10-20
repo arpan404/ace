@@ -32,6 +32,8 @@ const scenario = (events = initial()): Scenario => ({
   steps: [{ kind: "facts", facts: events }],
 });
 const live = () => screen.getByRole("group", { name: "Turn in progress" });
+/** What the main agent waits on, in the strip above the composer. */
+const waitStrip = () => screen.getByRole("status", { name: /^Waiting for/ });
 
 async function running(events = initial(), throughWorker = false) {
   let now = 1_000;
@@ -143,7 +145,7 @@ const child = () => [
   facts.toolDone("root", "spawn"),
 ];
 
-test("a parent answer stays working until its subagent finishes and its line opens Agents", async () => {
+test("a parent answer waits until its subagent finishes, saying so in the composer strip", async () => {
   const { app } = await running([
     ...initial(),
     ...child(),
@@ -160,7 +162,7 @@ test("a parent answer stays working until its subagent finishes and its line ope
       facts.endTurn("root"),
     ]),
   );
-  await waitFor(() => expect(live().textContent).toContain("1 subagent"));
+  await waitFor(() => expect(waitStrip().textContent).toContain("1 subagent"));
   act(() =>
     app.daemon.apply(id, [
       facts.tool("audit", "audit-check", {
@@ -170,7 +172,7 @@ test("a parent answer stays working until its subagent finishes and its line ope
       }),
     ]),
   );
-  expect(live().textContent).toContain("1 subagent");
+  expect(waitStrip().textContent).toContain("1 subagent");
   expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /Open agent tree/ }));
@@ -180,7 +182,7 @@ test("a parent answer stays working until its subagent finishes and its line ope
   expect(screen.queryByRole("group", { name: "Turn in progress" })).toBeNull();
 });
 
-test("a turn that leaves a background shell running reads as running in background, with no timer, until the shell ends", async () => {
+test("a turn that leaves a background shell running waits on it in the composer strip, with no timer, until the shell ends", async () => {
   const { app } = await running([
     ...initial(),
     {
@@ -194,7 +196,9 @@ test("a turn that leaves a background shell running reads as running in backgrou
     },
   ]);
   act(() => app.daemon.apply(id, [facts.endTurn("root")]));
-  await waitFor(() => expect(live().textContent).toBe("Running in background bun run build"));
+  const strip = await screen.findByRole("status", { name: "Waiting for bun run build" });
+  expect(within(strip).getByRole("button", { name: "Stop the background command" })).toBeTruthy();
+  expect(screen.queryByRole("group", { name: "Turn in progress" })).toBeNull();
   expect(screen.queryByRole("status", { name: /^Working/ })).toBeNull();
   expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
   act(() =>
@@ -205,6 +209,27 @@ test("a turn that leaves a background shell running reads as running in backgrou
   );
   expect(await screen.findByRole("button", { name: /^Worked for 1m 14s/ })).toBeTruthy();
   expect(screen.queryByRole("group", { name: "Turn in progress" })).toBeNull();
+});
+
+test("Stop in the strip ends the background command a finished turn waits on", async () => {
+  const { app } = await running([
+    ...initial(),
+    {
+      type: "background.started",
+      agent: "root",
+      task: "build",
+      kind: "shell",
+      title: "bun run build",
+      item: "build",
+      stoppable: true,
+    },
+  ]);
+  act(() => app.daemon.apply(id, [facts.endTurn("root")]));
+  const strip = await screen.findByRole("status", { name: "Waiting for bun run build" });
+  await userEvent.click(within(strip).getByRole("button", { name: "Stop the background command" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("status", { name: "Waiting for bun run build" })).toBeNull(),
+  );
 });
 
 test("approval inside a subagent holds the parent in a needs-you state naming the subagent, with no timer", async () => {

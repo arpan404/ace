@@ -106,6 +106,7 @@ export {
 } from "./devices.ts";
 export * from "./thread-transitions.ts";
 export * from "./handoff-read.ts";
+export * from "./omitted-items.ts";
 export * from "./pi.ts";
 export * from "./permissions.ts";
 export * from "./permission-client.ts";
@@ -121,6 +122,7 @@ export * from "./project-commands.ts";
 export * from "./project-requests.ts";
 export * from "./long-thread.ts";
 export * from "./turn-steps.ts";
+export * from "./avatars.ts";
 
 export * from "./cli-version.ts";
 export * from "./provider-status.ts";

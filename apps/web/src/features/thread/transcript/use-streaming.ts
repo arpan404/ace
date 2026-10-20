@@ -5,18 +5,22 @@ import type { Item } from "@ace/protocol";
 import { useCallback, useMemo } from "react";
 
 /**
- * Whether an item is still streaming: incomplete, and its run still going. Ending a run (Stop,
- * a failure) leaves its partial text incomplete, but nothing more will arrive.
+ * Whether an incomplete item's run is over. The daemon closes open text when its turn ends, but
+ * items stored before it did stay incomplete; nothing more will arrive into them.
  */
-export function useStreaming(threadId: string, item: Item | undefined): boolean {
-  const live = useThreadLiveState(threadId);
-  const incomplete = !!item && !item.complete;
-  const runId = incomplete ? item.runId : undefined;
+export function useRunEnded(threadId: string, item: Item | undefined): boolean {
+  const runId = item && !item.complete ? item.runId : undefined;
   const keys = useMemo(() => (runId ? ([`run:${runId}`] as const) : ([] as const)), [runId]);
   const read = useCallback(
     (reader: ThreadReader) => (runId ? reader.run(runId)?.state !== "active" : false),
     [runId],
   );
-  const ended = useThread(threadId, keys, read) ?? false;
-  return incomplete && !ended && live.fresh && !live.paused;
+  return useThread(threadId, keys, read) ?? false;
+}
+
+/** Whether an item is still streaming: incomplete, and its run still going. */
+export function useStreaming(threadId: string, item: Item | undefined): boolean {
+  const live = useThreadLiveState(threadId);
+  const ended = useRunEnded(threadId, item);
+  return !!item && !item.complete && !ended && live.fresh && !live.paused;
 }

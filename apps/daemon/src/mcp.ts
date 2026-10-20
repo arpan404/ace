@@ -9,6 +9,7 @@ import {
   startMcpServer,
   type Toolkit,
   type CallObserver,
+  type ToolFailureReporter,
   type AwarenessPort,
   type KnowledgePort,
   aceToolAction,
@@ -25,12 +26,14 @@ export async function startDaemonMcp(
   status?: StatusReader,
   awareness?: AwarenessPort,
   knowledge?: Pick<KnowledgePort, "context">,
+  reportFailure?: ToolFailureReporter,
 ) {
   // Intents and notices are database keys: time-ordered, they stay together in each index.
   const nextId = timeOrderedIds();
   const registry = new ToolRegistry({
     scheduler: nodeScheduler,
     ...(observations ? { observeCall: observations.observeCall } : {}),
+    ...(reportFailure ? { reportFailure } : {}),
   });
   registerBuiltins(registry, {
     async notify(intent, signal) {

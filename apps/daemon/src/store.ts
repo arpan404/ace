@@ -1056,6 +1056,10 @@ export class Store {
   readItemPage(threadId: ThreadId, before: number, limit: number, byteLimit = 1024 * 1024) {
     return this.threadReads.readItemPage(threadId, before, limit, byteLimit);
   }
+  /** A page that shows an item too large for it without raw payloads, or summarized. */
+  readBoundedItemPage(threadId: ThreadId, before: number, limit: number, byteLimit: number) {
+    return this.threadReads.readBoundedItemPage(threadId, before, limit, byteLimit);
+  }
   appendRawChunk(threadId: ThreadId, chunk: unknown): void {
     this.payloads.streamed.append(threadId, chunk);
   }
@@ -1079,6 +1083,21 @@ export class Store {
     byteLimit = 1024 * 1024,
   ) {
     return this.threadReads.readHistoricalItemPage(threadId, through, before, limit, byteLimit);
+  }
+  readBoundedHistoricalItemPage(
+    threadId: ThreadId,
+    through: number,
+    before: number,
+    limit: number,
+    byteLimit: number,
+  ) {
+    return this.threadReads.readBoundedHistoricalItemPage(
+      threadId,
+      through,
+      before,
+      limit,
+      byteLimit,
+    );
   }
   readHistoricalStream(
     threadId: ThreadId,

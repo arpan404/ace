@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import { parseToolArguments } from "./tool-failure.ts";
+import { inputTooLarge, parseToolArguments } from "./tool-failure.ts";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { withinJsonBudget, ResultBudgetExceeded } from "./json-budget.ts";
 import type { ToolContext, ToolMetadata } from "./registry.ts";
@@ -18,8 +18,8 @@ export async function executeContent<I extends z.ZodType>(
   input: unknown,
   context: ToolContext,
 ): Promise<CallToolResult> {
-  if (!withinJsonBudget(input, definition.maxInputBytes ?? 64 * 1024))
-    throw new Error("Input budget exceeded");
+  const maxInput = definition.maxInputBytes ?? 64 * 1024;
+  if (!withinJsonBudget(input, maxInput)) throw inputTooLarge(maxInput);
   const args = parseToolArguments(definition.input, input);
   context.signal.throwIfAborted();
   const result = await definition.run(args, context);

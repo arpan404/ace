@@ -4,6 +4,7 @@ import { AndroidUiHelpers } from "./android-ui-helper.ts";
 import { AppDevice as DeviceSchema, type AppDevice as Device } from "@ace/protocol/devices";
 import { probeOutput, spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
 import { DeviceError, resolveAndroidSDK, type SDKOptions } from "./sdk.ts";
+import { emulatorBootArgs } from "./emulator-args.ts";
 import {
   adbDevices,
   avdNames,
@@ -20,8 +21,16 @@ export type DeviceCommand = (
   signal?: AbortSignal,
   authorize?: () => void,
 ) => Promise<{ stdout: string; stderr: string; code: number | null }>;
+export type AndroidOptions = SDKOptions & {
+  toolsDirectory?: string;
+  /**
+   * Whether an emulator ace boots opens its own window. Read at each boot; omitted or failing,
+   * the emulator runs without one.
+   */
+  emulatorWindow?: () => boolean | Promise<boolean>;
+};
 export class AndroidPlatform {
-  private readonly options: SDKOptions & { toolsDirectory?: string };
+  private readonly options: AndroidOptions;
   private readonly run: DeviceCommand;
   private readonly spawn: typeof spawnSupervised;
   private readonly emulators = new Map<string, SupervisedProcess>();
@@ -52,11 +61,7 @@ export class AndroidPlatform {
   private readonly openingInputs = new Map<string, Promise<AndroidInputShell>>();
   /** ace's own UiAutomation reader; only where ace manages device tools (the daemon). */
   private readonly uiHelpers: AndroidUiHelpers | undefined;
-  constructor(
-    options: SDKOptions & { toolsDirectory?: string },
-    run: DeviceCommand,
-    spawn = spawnSupervised,
-  ) {
+  constructor(options: AndroidOptions, run: DeviceCommand, spawn = spawnSupervised) {
     this.options = options;
     this.run = run;
     this.spawn = spawn;
@@ -247,6 +252,13 @@ export class AndroidPlatform {
       "Refresh the device list and start capture again.",
     );
   }
+  private async emulatorWindow(): Promise<boolean> {
+    try {
+      return (await this.options.emulatorWindow?.()) === true;
+    } catch {
+      return false;
+    }
+  }
   private async emulatorName(adb: string, serial: string): Promise<string | undefined> {
     for (const args of [
       ["shell", "getprop", "ro.boot.qemu.avd_name"],
@@ -390,6 +402,7 @@ export class AndroidPlatform {
     this.pendingBoots.add(device.id);
     try {
       const { adb, emulator } = await this.resolve();
+      const window = await this.emulatorWindow();
       const used = new Set(
         adbDevices((await this.run(adb, ["devices", "-l"], 128 * 1024)).stdout).map(
           ({ serial }) => serial,
@@ -415,7 +428,12 @@ export class AndroidPlatform {
         authorize?.();
         proc = this.spawn({
           command: emulator,
-          args: ["-avd", nativeId(device), "-port", String(port)],
+          args: emulatorBootArgs({
+            avd: nativeId(device),
+            port,
+            window,
+            platform: this.options.platform,
+          }),
           env: this.options.env,
           name: "device-emulator",
           maxLineBytes: 16 * 1024,

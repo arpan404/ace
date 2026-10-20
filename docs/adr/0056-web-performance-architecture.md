@@ -217,3 +217,13 @@ The bound is reached only by reading far: the window trims at the end away from 
 on screen, and a full window that the live tail would trim past leaves the tail behind a gap
 instead of dropping rows. The live store's own 200-item bound is unchanged. DOM stays bounded
 by the virtualizer; block building over a window is linear in its items, as it was over 200.
+
+## Amendment (2026-10-19): a lost client worker is replaced, never fatal
+
+A client worker died at the same second Electron's network service restarted. The tab's pings went unanswered, `RemoteClient` turned fatal ("durable delivery may be uncertain") and stayed so; Retry asked for the SharedWorker by name again and reached the same frozen worker, so only quitting the app helped.
+
+- A tab whose worker stops answering (the 15 s reply deadline) or reports an error tears down that port and asks the page for a fresh worker (`RemoteOptions.respawn`, `worker-link.ts`): none to wait for the first time, then 0.5 s doubling to 30 s, starting over once a worker stays attached for 30 s. While it waits the client is `reconnecting`. The page tries a fresh SharedWorker once after a timeout, then a dedicated Worker, because a frozen SharedWorker keeps its name.
+- On a fresh worker the tab sends what the first heard over time: `connect`, its leases (each mirror is reset by the new copy), watched intents and pending sends, message and stream listeners, visibility, its lock, the sidebar window and an offline network.
+- Durable delivery: the outbox is in IndexedDB, so intents the dead worker saved are loaded and sent by the new one. A durable call (`enqueue`, `command`, `submitNew`) the dead worker never answered is sent again under its command id: the client's outbox reuses a saved record with that id, and the daemon's command receipts answer a command it already applied with its first result, so the input exists once. A `submitNew` whose id the dead worker had allocated goes again as `command` with that id once the tab has recorded it; one with no id yet allocated had nothing saved or sent, and is submitted afresh. Reads, service requests and streams in flight fail as `offline`, which callers may retry. Only a client given no `respawn` (machine-pool workers) still turns fatal on a lost worker.
+- The worker's client reports socket closes (code, reason, missed heartbeat, attempt, retry delay) and recoveries (attempts, time down), forwarded to one attached tab; the tab adds worker losses, respawns and recoveries. The page passes them to the desktop log (`window.ace.diagnostics.report`) or the console.
+- The connection heartbeat counts any frame from the daemon as proof of life, not only the pong, which the daemon queues behind its other traffic.

@@ -10,6 +10,7 @@ import { cn } from "@/lib/cn.ts";
 import { useEdgeFade } from "@/lib/edge-fade.ts";
 import type { MarkdownBlock } from "./blocks.ts";
 import type { MarkdownLinks } from "./link-options.ts";
+import { copyTexSource } from "./math-copy.ts";
 import { isMathToken } from "./math-extension.ts";
 import { Formula } from "./math.tsx";
 import { CodeBlock } from "./code-block.tsx";
@@ -388,7 +389,7 @@ export const Markdown = memo(function Markdown(props: {
   return (
     <Links value={props.links}>
       <ThreadReferenceScope value={props.thread}>
-        <div className={cn(blockRhythm, props.className)}>
+        <div className={cn(blockRhythm, props.className)} onCopy={copyTexSource}>
           {doc.blocks.length === 0 && props.tail}
           {doc.blocks.map((block, index) => (
             // A block's place is its identity: the open block keeps it when it settles.

@@ -89,6 +89,9 @@ export function createBlockReader(
       status?.state === "blocked" &&
       status.on === "rate_limit" &&
       limitHoldShown(reader.thread?.status, reader.queue);
+    // The queue holds for a restart that cut the newest turn short (nothing has run since).
+    const restarted =
+      agentId === undefined && reader.queue?.paused === true && reader.queue.reason === "restart";
     const newest = limited ? newestTurn(reader) : undefined;
     const heldTurn = newest ? tree.turnId(newest) : undefined;
     if (heldTurn) paused.add(heldTurn);
@@ -116,6 +119,7 @@ export function createBlockReader(
       status,
       unsettledTail,
       limited,
+      restarted,
       heldTurn,
     ];
     const next = [...fixed, ...lastWatch.map((key) => watchedEntity(reader, key))];
@@ -201,6 +205,7 @@ export function createBlockReader(
         return interaction && approvalRecordLabel(interaction);
       },
       heldTurn,
+      restartedTail: restarted,
       pausedTurns: paused,
       stoppedTail:
         status?.state === "failed" || status?.state === "interrupted"

@@ -146,3 +146,32 @@ it("ambiguous windows expose candidate IDs without arbitrary helper text", async
     credentials.close();
   }
 });
+
+it("arguments over the input budget tell the agent to send less instead of failing without a reason", async () => {
+  const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
+  const lease = new CredentialRegistry(() => "d".repeat(64)).issue(
+    scope("root"),
+    new AbortController().signal,
+  );
+  registry.register({
+    name: "note_add",
+    description: "Add a note",
+    capability: null,
+    timeoutMs: 1000,
+    input: z.strictObject({ text: z.string() }),
+    output: z.object({}),
+    run: async () => ({}),
+  });
+  const result = await registry.call(
+    "note_add",
+    { text: "x".repeat(70 * 1024) },
+    lease.principal,
+    new AbortController().signal,
+  );
+  const first = result.content[0];
+  expect(JSON.parse(first?.type === "text" ? first.text : "null")).toMatchObject({
+    code: "limit",
+    detail: expect.stringContaining("64 KiB"),
+  });
+  lease.end();
+});

@@ -20,6 +20,8 @@ import { GoalStrip } from "./goal-strip.tsx";
 import { pickStrip, stripSlot, type StripFacts } from "./strip-slot.ts";
 import { StripSurface } from "./strip-surface.tsx";
 import { ConfirmStopStrip, StoppedStrip, useStoppedCommands } from "./stop-strips.tsx";
+import { WaitingStrip } from "./waiting-strip.tsx";
+import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { registerQueueEditSaver, useQueueEdit } from "./queue-edit.ts";
 import { useQueue } from "./use-queue.ts";
 
@@ -28,16 +30,22 @@ const noRequests: readonly string[] = [];
 /**
  * The one strip above the thread's composer (`stripSlot` decides what it shows): a Stop waiting
  * for its second Esc, the agent's open requests, the person's messages on their way (or that
- * didn't go: the transcript only ever shows the daemon's items), trouble with the connection, background
- * commands a stopped turn left running, the queue, the goal the agent is pursuing, or the main
- * agent's task list, with the others as
- * indicators inside it. Loads after the thread has painted, unless the thread opens on a request.
+ * didn't go: the transcript only ever shows the daemon's items), trouble with the connection,
+ * background commands a stopped turn left running, the queue, what the main agent waits on
+ * (with its Stop), the goal the agent is pursuing, or the main agent's task list, with the
+ * others as indicators inside it. Loads after the thread has painted, unless the thread opens on a request.
  */
 export function ComposerStrip(props: {
   threadId: string;
   status: ThreadStatus | undefined;
   /** One Esc was pressed while the agent works: how many subagents a second one stops too. */
   confirmStop?: { subagents: number } | undefined;
+  /** Stop the agent tree, while it can be stopped. */
+  onStop?: (() => void) | undefined;
+  /** A Stop is on its way. */
+  stopping: boolean;
+  /** Whether the strip now shows what the agent waits on, with its Stop. */
+  onWaitingShown?: ((shown: boolean) => void) | undefined;
   /** A request to open on (a notification's target). */
   requestTarget?: string | undefined;
   /** Put the caret back in the message. */
@@ -76,6 +84,9 @@ export function ComposerStrip(props: {
   // fatal error) is the header's.
   useClaimConnectionNotice(offline || connection === "reconnecting");
   const stopped = useStoppedCommands(props.threadId);
+  // The agent does nothing itself while what it started runs: the strip says so, with a Stop.
+  const activity = useTurnActivity(props.threadId);
+  const wait = activity?.waitingOn;
   // A queued message edited in the composer keeps the queue in the slot, with its Cancel.
   const editing = useQueueEdit(props.threadId);
   // The composer saves an edit through these controls, so the pill shows it at once.
@@ -95,12 +106,19 @@ export function ComposerStrip(props: {
     sending: sending.length > 0,
     connection: offline || connection === "reconnecting",
     stopped: stopped.length > 0,
+    waiting: wait !== undefined,
     queue: queued > 0 || queue.failed || !!held || !!editing,
     goal: !!goal,
     plan: !!plan,
   };
   const [pick, setPick] = useState<ReturnType<typeof pickStrip>>();
   const slot = stripSlot(facts, pick);
+  const waitingShown = slot.shown === "waiting";
+  const reportWaiting = useEffectEvent((shown: boolean) => props.onWaitingShown?.(shown));
+  useEffect(() => {
+    reportWaiting(waitingShown);
+    return () => reportWaiting(false);
+  }, [waitingShown]);
   if (!slot.shown) return null;
   const counts: StripCounts = {
     requests: requests.length,
@@ -123,6 +141,15 @@ export function ComposerStrip(props: {
         <ConfirmStopStrip subagents={props.confirmStop?.subagents ?? 0} />
       ) : slot.shown === "stopped" ? (
         <StoppedStrip commands={stopped} indicators={indicators} />
+      ) : slot.shown === "waiting" && wait ? (
+        <WaitingStrip
+          threadId={props.threadId}
+          wait={wait}
+          since={activity?.elapsedFrom}
+          onStop={props.onStop}
+          stopping={props.stopping}
+          indicators={indicators}
+        />
       ) : slot.shown === "request" ? (
         <Suspense fallback={null}>
           <RequestStack

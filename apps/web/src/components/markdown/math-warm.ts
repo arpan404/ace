@@ -1,5 +1,6 @@
 import { scheduleIdleWork, type IdleScheduler } from "@/lib/idle.ts";
 import amsRegular from "katex/dist/fonts/KaTeX_AMS-Regular.woff2?url";
+import { loadMath } from "./math-load.ts";
 import mainRegular from "katex/dist/fonts/KaTeX_Main-Regular.woff2?url";
 import mathItalic from "katex/dist/fonts/KaTeX_Math-Italic.woff2?url";
 import size1Regular from "katex/dist/fonts/KaTeX_Size1-Regular.woff2?url";
@@ -135,7 +136,7 @@ export interface ScheduledWarmEnvironment extends WarmEnvironment {
 const defaultEnvironment = (): ScheduledWarmEnvironment => ({
   scheduler: realScheduler(),
   hints: readWarmHints(),
-  importMath: () => import("./math-katex.ts"),
+  importMath: loadMath,
   document: globalThis.document,
   fonts: mathFontUrls,
 });

@@ -26,7 +26,9 @@ import {
   listTreeFacts,
   liveStatusText,
   threadLiveFact,
+  treeWaiting,
   treeWorking,
+  waitingOnSubagentsLabel,
   type LiveStatus,
   type LiveFact,
 } from "./live-status.ts";
@@ -215,16 +217,29 @@ function workingLabel(fact: LiveFact | undefined): string {
   return "Working";
 }
 
+/**
+ * A listed thread's agent tree as every surface words it: Working while an agent does a turn,
+ * Waiting while the root only waits on its subagents (`treeWaiting`), with how many still run.
+ * Undefined when the tree isn't working at all.
+ */
+function treeState(
+  entry: ThreadListEntry,
+): { kind: "working" | "waiting"; subagents: number } | undefined {
+  const facts = listTreeFacts(entry);
+  if (!treeWorking(facts)) return undefined;
+  return { kind: treeWaiting(facts) ? "waiting" : "working", subagents: facts.subagents };
+}
+
 /** Short row wording; the full status remains in the row name and tooltip. */
 function compactStatus(
   entry: ThreadListEntry,
   fact: LiveFact | undefined,
-  working: boolean,
+  tree: ReturnType<typeof treeState>,
   now: number,
   locale?: string,
 ): string {
   // The transcript's live line reads the same rule, so the two never disagree.
-  if (working) return "Working";
+  if (tree) return tree.kind === "waiting" ? "Waiting" : "Working";
   if (fact?.kind === "watching") return `Background · ${fact.count}`;
   if (fact?.kind === "child-asking") return childAskingLabel(fact.agent);
   if (fact?.kind === "asking") {
@@ -244,13 +259,7 @@ function compactStatus(
  * never disagree. Pure.
  */
 export function threadRowStatus(entry: ThreadListEntry, now: number, locale?: string): string {
-  return compactStatus(
-    entry,
-    threadLiveFact(entry),
-    treeWorking(listTreeFacts(entry)),
-    now,
-    locale,
-  );
+  return compactStatus(entry, threadLiveFact(entry), treeState(entry), now, locale);
 }
 
 /** The view model of one thread in the Home list. Pure: the caller passes the clock. */
@@ -297,20 +306,26 @@ function currentCard(input: ThreadCardInput): ThreadCard {
   // What it is doing, when the daemon's live hints say more than its state.
   const fact = threadLiveFact(entry);
   const described = fact && describeLive(fact, now, input.locale);
-  // A tree still running reads as Working on every surface, whatever its root waits on.
-  const working = treeWorking(listTreeFacts(entry));
+  // A tree still running reads as Working on every surface, or as Waiting while its root only
+  // waits on its subagents.
+  const tree = treeState(entry);
+  const working = tree !== undefined;
   const since = entry.live?.workingSince ?? activityOf(entry);
-  // Every surface's word for a working tree is Working, spoken label and hover card included;
-  // what it waits on or runs only follows it.
+  // Every surface's word for a running tree is Working or Waiting, spoken label and hover card
+  // included; what it waits on or runs only follows it.
   const live = working ? undefined : described;
+  const treeStatus =
+    tree?.kind === "waiting"
+      ? { label: waitingOnSubagentsLabel(tree.subagents), tone: "waiting" as const }
+      : tree && { label: workingLabel(fact), tone: "working" as const };
   const { label, tone } =
     recovery ??
-    (working
-      ? { label: workingLabel(fact), tone: "working" as const }
+    (treeStatus
+      ? treeStatus
       : live
         ? { label: liveStatusText(live), tone: live.tone }
         : threadStatusLabel(entry.status));
-  const compact = recovery?.label ?? compactStatus(entry, fact, working, now, input.locale);
+  const compact = recovery?.label ?? compactStatus(entry, fact, tree, now, input.locale);
   return {
     id: entry.id,
     title: entry.title,
@@ -329,14 +344,16 @@ function currentCard(input: ThreadCardInput): ThreadCard {
       ? undefined
       : recovery
         ? { ...recovery, icon: recovery.tone === "failed" ? "failed" : "waiting" }
-        : working
-          ? { label: "Working", tone: "working", icon: "working", since }
-          : live
-            ? livePill(live)
-            : taskPill(entry.status, {
-                unread,
-                since: entry.live?.workingSince ?? activityOf(entry),
-              }),
+        : tree?.kind === "waiting"
+          ? { label: "Waiting", tone: "waiting", icon: "waiting", since }
+          : working
+            ? { label: "Working", tone: "working", icon: "working", since }
+            : live
+              ? livePill(live)
+              : taskPill(entry.status, {
+                  unread,
+                  since: entry.live?.workingSince ?? activityOf(entry),
+                }),
     diff:
       details?.diff && (details.diff.added > 0 || details.diff.removed > 0)
         ? details.diff

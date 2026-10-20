@@ -19,9 +19,10 @@ const host = new ClientHost({
     return {
       // Tabs reaching the same daemon as the same device share one client and one socket.
       key: `${outboxKey(target)}\u0000${target.token}`,
-      create: () =>
+      create: (report) =>
         new ClientCore(
           browserClientOptions({
+            report,
             deviceId: target.deviceId,
             transport: () => webSocketTransport(() => new WebSocket(target.url)),
             credential: browserCredential(target),

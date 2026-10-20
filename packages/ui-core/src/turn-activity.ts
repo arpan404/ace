@@ -53,7 +53,22 @@ export interface TurnActivity {
    * "Waiting for 2 subagents", not "Working", with the same timer.
    */
   waitingOnSubagents?: boolean | undefined;
+  /**
+   * What the root waits on while it does nothing itself, also while a Stop is on its way: its
+   * subagents, or (its turn over) background commands it started. The composer's strip shows it
+   * with a Stop.
+   */
+  waitingOn?: TurnWait | undefined;
 }
+
+/**
+ * What a root that does nothing itself waits on. On subagents, `turnOver` says its own turn has
+ * ended while they carry on, rather than it waiting on them inside the turn. `title` names a
+ * single background command.
+ */
+export type TurnWait =
+  | { kind: "subagents"; count: number; turnOver: boolean }
+  | { kind: "background"; count: number; title: string | undefined };
 
 export type ActivityReader = Pick<
   ThreadReader,
@@ -222,6 +237,15 @@ export function readTurnActivity(
     (status?.state === "interrupted" || run?.state === "interrupted") && !subagents && !needsYou;
   const working = !stopped && treeWorking({ needsYou, root, subagents, backgroundCommands });
   const waitingOnSubagents = working && rootWaitsOnSubagents(status, subagents);
+  const waitingOn: TurnWait | undefined = waitingOnSubagents
+    ? {
+        kind: "subagents",
+        count: subagents,
+        turnOver: !(status?.state === "blocked" && status.on === "subagents"),
+      }
+    : !working && !needsYou && status?.state === "blocked" && status.on === "background_task"
+      ? backgroundWait(reader, status.refs)
+      : undefined;
   const shown = stopped
     ? undefined
     : working
@@ -249,9 +273,27 @@ export function readTurnActivity(
             tree.currentCommand(),
           subagents,
           backgroundCommands,
+          waitingOn,
         }
-      : activity;
+      : activity && waitingOn
+        ? { ...activity, waitingOn }
+        : activity;
   return { activity: shown, watch: [...new Set(watch)] };
+}
+
+/** The background commands a finished turn waits on: how many, and the name of a single one. */
+function backgroundWait(reader: ActivityReader, refs: readonly string[]): TurnWait | undefined {
+  const titles: string[] = [];
+  for (const id of refs) {
+    const task = reader.task(id);
+    if (task && !task.ambient) titles.push(task.title);
+  }
+  if (!titles.length) return undefined;
+  return {
+    kind: "background",
+    count: titles.length,
+    title: titles.length === 1 ? titles[0] : undefined,
+  };
 }
 
 /**
@@ -375,9 +417,11 @@ function readActivity(
         const provider = reader.thread ? providerNames[reader.thread.provider] : undefined;
         return line(pauseLabel(provider, { until: status.until ?? limited }), "paused");
       }
+      if (status.on === "network" && status.until === undefined)
+        return line(reconnectingLabel(status), "held");
       const reason = {
         rate_limit: "Rate limited",
-        network: "Network trouble",
+        network: "Reconnecting to the model",
         upstream: "Provider unavailable",
       }[status.on];
       return line(
@@ -393,6 +437,20 @@ function readActivity(
       // The turn is over; a question it left behind still waits on the person.
       return pending.length ? waitingOnYou(reader, rootId, pending) : undefined;
   }
+}
+
+/**
+ * A provider reconnecting by itself, as the live line says it while it lasts: "Reconnecting to
+ * the model… 2/5" with the provider's own count ("Reconnecting... 2/5"), else its attempt.
+ */
+function reconnectingLabel(status: Extract<AgentStatus, { state: "blocked" }>): string {
+  const count = /\b(\d+)\s*\/\s*(\d+)\b/.exec(status.message ?? "");
+  const progress = count
+    ? ` ${count[1]}/${count[2]}`
+    : status.attempt
+      ? ` attempt ${status.attempt}`
+      : "";
+  return `Reconnecting to the model…${progress}`;
 }
 
 /** Name a tree's current step the same way while the root works or waits on children. */
@@ -421,6 +479,14 @@ export function sameActivity(a: TurnActivity | undefined, b: TurnActivity | unde
       a.subagents === b.subagents &&
       a.backgroundCommands === b.backgroundCommands &&
       a.asker === b.asker &&
-      a.waitingOnSubagents === b.waitingOnSubagents)
+      a.waitingOnSubagents === b.waitingOnSubagents &&
+      sameWait(a.waitingOn, b.waitingOn))
   );
+}
+
+function sameWait(a: TurnWait | undefined, b: TurnWait | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.kind !== b.kind || a.count !== b.count) return false;
+  if (a.kind === "subagents") return b.kind === "subagents" && a.turnOver === b.turnOver;
+  return b.kind === "background" && a.title === b.title;
 }

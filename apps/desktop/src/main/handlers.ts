@@ -17,6 +17,7 @@ import type {
   VisualizationWindow,
   WindowBackground,
 } from "../shared/contract.ts";
+import type { DiagnosticReport } from "../shared/diagnostics.ts";
 import type { DoctorReport } from "../shared/onboarding.ts";
 import type { Background } from "./background.ts";
 import type { DaemonRuntime } from "./daemon/runtime.ts";
@@ -54,6 +55,8 @@ export function createHandlers(options: {
   updateKeymap?(bindings: Record<string, string>): void;
   /** Opens the daemon's and the app's log folders; false when there is nothing to show. */
   showLogs(): Promise<boolean>;
+  /** A page diagnostic for the desktop log; rate-limited, never throws. */
+  reportDiagnostic(report: DiagnosticReport): void;
   /** Problems the app found itself (the `ace` command), listed after the doctor's checks. */
   desktopChecks(): DoctorReport["checks"];
   /** The page's theme colours, for the window behind it (now and from the next launch). */
@@ -198,6 +201,10 @@ export function createHandlers(options: {
     "browser.page": (request) => background.browserPage(request),
     "browser.focus-app": (_request, sender) => {
       if (sender) background.focusApp(sender.id);
+      return undefined;
+    },
+    "diagnostics.report": (report) => {
+      options.reportDiagnostic(report);
       return undefined;
     },
     // The release feed check pulls in @ace/service and tar; load them only when asked.

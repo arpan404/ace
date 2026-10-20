@@ -1,3 +1,4 @@
+import { logFields } from "@ace/diagnostics";
 import type { DaemonOptions } from "./services/options.ts";
 import { DaemonStop } from "./stop-reason.ts";
 
@@ -34,9 +35,10 @@ export async function runDaemonProcess(
   const stop = (signal: Signal) => {
     cancelExit ??= shutdown.after(() => {
       const message = `Daemon shutdown exceeded ${SHUTDOWN_LIMIT_MS}ms; pending resources did not exit`;
-      console.error(message);
+      const pending = daemon?.pendingShutdown() ?? [];
+      console.error(pending.length ? `${message}: ${pending.join(", ")}` : message);
       // The file log outlives the console of an app-launched daemon.
-      daemon?.log.log("error", message);
+      daemon?.log.log("error", message, logFields([["pending", pending.slice(0, 24)]]));
       daemon?.log.flushSync();
       shutdown.exit(1);
     }, SHUTDOWN_LIMIT_MS);

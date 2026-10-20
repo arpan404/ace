@@ -174,7 +174,8 @@ export function readCore(message: SocketMessage, reader: CoreReader): boolean {
         send({
           type: "items.page",
           requestId: message.requestId,
-          ...options.store.readItemPage(
+          // An item larger than the page arrives reduced or summarized, never as a failed page.
+          ...options.store.readBoundedItemPage(
             message.threadId,
             message.before,
             message.limit,

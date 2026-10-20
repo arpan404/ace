@@ -456,7 +456,16 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       });
     } else if (method === "error") {
       const error = turnError(p["error"]);
-      facts.push(note(agent.key, method, frame.data, error?.message));
+      const notice = note(agent.key, method, frame.data, error?.message);
+      // A retry Codex makes by itself is live status, kept as raw history only (projection's
+      // `provider.retry`); one that gives up arrives as `willRetry: false` and stays a row.
+      if (
+        p["willRetry"] === true &&
+        notice.type === "item.upsert" &&
+        notice.draft.type === "notice"
+      )
+        notice.draft.code = "provider.retry";
+      facts.push(notice);
       if (p["willRetry"] === true || error.kind === "quota")
         facts.push({
           type: "retry",

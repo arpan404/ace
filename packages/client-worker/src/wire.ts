@@ -130,6 +130,14 @@ export const WorkerMessage = z.discriminatedUnion("t", [
   /** A binary stream message (a browser frame's bytes) the worker's client already decoded. */
   z.object({ t: z.literal("stream"), message: z.unknown() }),
   z.object({ t: z.literal("changes"), leases: z.array(LeaseChanges) }),
+  /** A fact for the page's diagnostics log (the worker's connection dropping, recovering). */
+  z.object({
+    t: z.literal("diagnostic"),
+    event: z.string().check(z.minLength(1), z.maxLength(128)),
+    data: z.optional(
+      z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])),
+    ),
+  }),
   z.object({ t: z.literal("reply"), call: id, value: z.optional(z.unknown()) }),
   z.object({ t: z.literal("failed"), call: id, error: ErrorShape }),
   z.object({

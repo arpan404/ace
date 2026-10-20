@@ -41,6 +41,7 @@ function SettledLog(props: { threadId: string; block: WorkBlock; ordinal?: numbe
     idle: block.idle,
     startedAt: block.startedAt,
     outcome: block.outcome,
+    restarted: block.restarted,
     summary: summary?.endedAt === undefined ? undefined : summary,
   });
   const [toggled, setOpen] = useState<boolean>();

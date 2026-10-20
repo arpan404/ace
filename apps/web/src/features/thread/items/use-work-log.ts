@@ -1,7 +1,7 @@
 import type { ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
 import type { TurnSummary } from "@ace/protocol";
-import { formatElapsed, ledgerOf, summarizeWork } from "@ace/ui-core";
+import { ledgerOf, summarizeWork, turnHeadLabel, type TurnOutcome } from "@ace/ui-core";
 import { useCallback } from "react";
 import { flatEqual, useItemsSelect } from "../lib/use-items.ts";
 
@@ -26,7 +26,9 @@ export function useWorkLog(
     until?: number | undefined;
     idle?: number | undefined;
     startedAt?: number | undefined;
-    outcome?: "completed" | "interrupted" | "failed" | "paused" | undefined;
+    outcome?: TurnOutcome | undefined;
+    /** A restart, not the person, cut the turn short. */
+    restarted?: boolean | undefined;
     summary?: TurnSummary | undefined;
   },
 ): { label: string; endedAt: number | undefined } | undefined {
@@ -37,17 +39,8 @@ export function useWorkLog(
   const to = turn?.endedAt ?? until ?? loaded?.endedAt ?? 0;
   const waited = useWaited(threadId, from, to);
   if (!loaded && !turn && options.outcome === undefined) return undefined;
-  const verb =
-    options.outcome === "interrupted"
-      ? "Stopped after"
-      : options.outcome === "failed"
-        ? "Failed after"
-        : "Worked for";
   return {
-    label:
-      options.outcome === "paused"
-        ? "Paused · Usage limit"
-        : `${verb} ${formatElapsed(Math.max(1000, to - from - waited - idle))}`,
+    label: turnHeadLabel(options.outcome, options.restarted === true, to - from - waited - idle),
     endedAt: to || undefined,
   };
 }

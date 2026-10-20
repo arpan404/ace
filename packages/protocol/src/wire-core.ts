@@ -14,6 +14,7 @@ import { ForgePrRef, ForgePrStatus } from "./forge.ts";
 import { CommandId, DeviceId, HostId, ThreadId } from "./ids.ts";
 import { Interaction } from "./interactions.ts";
 import { Item } from "./items.ts";
+import { OmittedItem } from "./omitted-items.ts";
 import { QueueState } from "./queue.ts";
 import { OffshiftRunCard } from "./offshift.ts";
 import { ReviewData } from "./review.ts";
@@ -126,6 +127,8 @@ export const ItemsPage = z.object({
   items: z.array(Item).max(200),
   itemSeqs: records(seq.positive()).optional(),
   itemsBefore: seq.positive().nullable(),
+  /** Items too large for one page, shown reduced or only summarized; paging continues past them. */
+  omitted: z.array(OmittedItem).max(200).optional(),
 });
 export type ItemsPage = z.infer<typeof ItemsPage>;
 export const EntitiesPage = z

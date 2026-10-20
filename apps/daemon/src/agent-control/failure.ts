@@ -71,6 +71,22 @@ export function controlAdmissionError(reason: string): AgentControlError {
     access_escalation_denied: "access_escalation_denied",
     access_unavailable: "access_unavailable",
     access_mode_unavailable: "access_unavailable",
+    provider_options_unsupported: "not_supported",
+    unsupported_child_control: "not_supported",
+    not_implemented: "not_supported",
+    cursor_cli_retired: "provider_unavailable",
+    thread_not_found: "thread_not_found",
+    source_thread_not_found: "thread_not_found",
+    task_not_found: "thread_not_found",
+    thread_busy: "thread_busy",
+    thread_transition_in_progress: "thread_busy",
+    thread_creation_in_progress: "thread_busy",
+    recovery_in_progress: "thread_busy",
+    message_too_large: "limit",
+    provider_input_budget_exceeded: "limit",
+    queue_capacity_exceeded: "limit",
+    provider_input_queue_full: "limit",
+    merge_queue_capacity_exceeded: "limit",
   };
   return new AgentControlError(codes[reason] ?? "execution_failed", reason);
 }

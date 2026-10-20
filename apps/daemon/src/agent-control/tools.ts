@@ -336,7 +336,7 @@ export function createAgentControlPort(
               thread: store.getThread(operation.threadId),
               metadata: service.journal.readMetadata(operation.threadId),
               linkedPrs: store.getThread(operation.threadId)?.details?.linkedPrs ?? [],
-              ...store.readItemPage(
+              ...store.readBoundedItemPage(
                 operation.threadId,
                 operation.before ?? store.headSeq() + 1,
                 operation.limit,

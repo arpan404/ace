@@ -7,6 +7,7 @@ import type { StatusStore } from "./status-store.ts";
 import type { ThreadReadCache } from "./thread-read-cache.ts";
 import { loadThreadSnapshot } from "./thread-snapshot.ts";
 import { readHistoryBlob } from "./history-storage.ts";
+import { boundedItemPage } from "./bounded-item-page.ts";
 
 interface ThreadReadSource {
   db: DatabaseSync;
@@ -134,6 +135,29 @@ export class ThreadReads {
       }),
     );
   }
+  /** `readItemPage` for agents and previews: one oversized item never fails the page. */
+  readBoundedItemPage(threadId: ThreadId, before: number, limit: number, byteLimit: number) {
+    this.source.flush();
+    if (!this.source.getThread(threadId)) throw new Error("Unknown thread");
+    const payloads = this.source.payloads;
+    return this.source.cache.read(
+      JSON.stringify(["boundedItems", threadId, before, limit, byteLimit]),
+      () => ({
+        ...boundedItemPage(
+          {
+            page: (from, count, bytes) => payloads.wirePage(threadId, from, count, bytes),
+            newestBefore: (from) => payloads.newestBefore(threadId, from),
+            hasItemBefore: (from) => payloads.hasItemBefore(threadId, from),
+          },
+          threadId,
+          before,
+          limit,
+          byteLimit,
+        ),
+        seq: this.source.headSeq(),
+      }),
+    );
+  }
   readRawChunk(blobRef: string, offset: number, limit: number): Uint8Array {
     return this.source.payloads.streamed.read(blobRef, offset, limit);
   }
@@ -159,6 +183,29 @@ export class ThreadReads {
     this.source.flush();
     if (!this.source.getThread(threadId)) throw new Error("Unknown thread");
     return this.source.history.page(threadId, through, before, limit, byteLimit);
+  }
+  /** `readHistoricalItemPage` for agents: one oversized item never fails the page. */
+  readBoundedHistoricalItemPage(
+    threadId: ThreadId,
+    through: number,
+    before: number,
+    limit: number,
+    byteLimit: number,
+  ) {
+    this.source.flush();
+    if (!this.source.getThread(threadId)) throw new Error("Unknown thread");
+    const history = this.source.history;
+    return boundedItemPage(
+      {
+        page: (from, count, bytes) => history.page(threadId, through, from, count, bytes),
+        newestBefore: (from) => history.newestBefore(threadId, through, from),
+        hasItemBefore: (from) => history.hasItemBefore(threadId, through, from),
+      },
+      threadId,
+      before,
+      limit,
+      byteLimit,
+    );
   }
   readHistoricalStream(
     threadId: ThreadId,

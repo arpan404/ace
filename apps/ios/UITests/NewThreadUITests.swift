@@ -52,6 +52,40 @@ import XCTest
         screenshot("newthread-started")
     }
 
+    func testAProfileCreatedFromTheDraftIsOfferedOnReturnAndSuppliesItsInstructions() {
+        let app = launch()
+        XCTAssertTrue(app.buttons["inbox.compose"].waitForExistence(timeout: 25))
+        app.buttons["inbox.compose"].tap()
+        XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
+        let manage = app.buttons["newThread.profiles"]
+        for _ in 0..<8 where !manage.isHittable { app.swipeUp() }
+        manage.tap()
+        let create = app.buttons["New profile"]
+        XCTAssertTrue(create.waitForExistence(timeout: 5))
+        create.tap()
+        let name = "Reviewer \(UUID().uuidString.prefix(6))"
+        let instructions = "Check replay after a lost receipt."
+        let field = app.textFields["Profile name"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText(name)
+        app.textViews["Profile instructions"].tap()
+        app.textViews["Profile instructions"].typeText(instructions)
+        app.buttons["Save profile"].tap()
+        // Back from Profiles to the same draft: the picker reads the new profile at once.
+        XCTAssertTrue(app.staticTexts[name].waitForExistence(timeout: 5))
+        app.navigationBars["Profiles"].buttons.firstMatch.tap()
+        let picker = element(app, "newThread.profile")
+        XCTAssertTrue(picker.waitForExistence(timeout: 5))
+        for _ in 0..<8 where !picker.isHittable { app.swipeUp() }
+        picker.tap()
+        let choice = app.buttons[name]
+        XCTAssertTrue(choice.waitForExistence(timeout: 5))
+        choice.tap()
+        XCTAssertEqual(element(app, "newThread.instructions").value as? String, instructions)
+        screenshot("newthread-profile")
+    }
+
     func testTheFirstMessageOffersSpeedAccessAndFilesAndLongModelListsCollapse() {
         let app = launch()
         XCTAssertTrue(app.buttons["inbox.compose"].waitForExistence(timeout: 25))

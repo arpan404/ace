@@ -384,12 +384,16 @@ it("input is refused without control and reaches the simulator with it", async (
   // Hardware keys press the Simulator window's own buttons.
   await client.request({ op: "input", deviceId, input: { kind: "key", key: "home" } });
   await client.request({ op: "input", deviceId, input: { kind: "key", key: "power" } });
+  await client.request({ op: "input", deviceId, input: { kind: "key", key: "volumeUp" } });
+  await client.request({ op: "input", deviceId, input: { kind: "key", key: "action" } });
 
   expect(await f.helperJournal()).toEqual([
     { input: { kind: "pointer.click", x: 10, y: 20, button: "left" } },
     { input: { kind: "text.type", text: "Hi" } },
     { button: "Home" },
     { button: "Sleep/Wake" },
+    { button: "Volume Up" },
+    { button: "Action" },
   ]);
   await waitFor(() => expect(shown).toContain("simulator:after-text.type"));
 });

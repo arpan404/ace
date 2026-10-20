@@ -11,10 +11,13 @@ export {
   historyMessageIdentity,
   visibleHistoryOrder,
 } from "./history-visibility.ts";
+export { isProviderRetryNotice } from "./retry-notice.ts";
 export { threadAttention } from "./thread-attention.ts";
 export { startsTurn, startedRunTurn, runTurn } from "./turn-boundary.ts";
 export { siteOrigin, toolSurface, toolSurfaces } from "./tool-surface.ts";
 export { withoutPortableHandoff } from "./portable-input.ts";
+export { agentMessageBody, isAgentProse, providerNotice } from "./provider-notices.ts";
+export type { ProviderNoticeKind } from "./provider-notices.ts";
 import { usageSnapshotKey } from "./usage.ts";
 export {
   emptyTurnDigest,

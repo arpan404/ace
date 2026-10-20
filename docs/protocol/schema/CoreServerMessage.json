@@ -529,6 +529,13 @@
             }
           ]
         },
+        "omitted": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/OmittedItem.json"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
         "requestId": {
           "type": "string"
         },

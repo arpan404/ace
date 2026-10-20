@@ -136,6 +136,15 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
   let closed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let retainedStop: Promise<ProcessExit> | undefined;
+  let retainedKill: ReturnType<typeof setTimeout> | undefined;
+  /** When the current stop escalates to SIGKILL; a shorter later stop moves it earlier. */
+  let killAt: number | undefined;
+  const shortens = (graceMs: number) => {
+    const at = performance.now() + graceMs;
+    if (killAt !== undefined && killAt <= at) return false;
+    killAt = at;
+    return true;
+  };
   // Pipe errors are surfaced to writers through write callbacks, never unhandled events.
   child.stdin.on("error", () => {});
   const release = () => {
@@ -186,13 +195,24 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
       if (options.killGroupOnExit === false && pid !== undefined && !failed) {
         if (!retainedStop) {
           stopped = true;
-          retainedStop = stopRetainedGroup(pid, graceMs).then(() => exited);
+          killAt = performance.now() + graceMs;
+          const stopping = stopRetainedGroup(pid, graceMs);
+          retainedStop = stopping.then(() => exited);
+          void stopping.finally(() => clearTimeout(retainedKill));
+        } else if (shortens(graceMs)) {
+          // The group can outlive its leader, so this deadline survives the leader's exit.
+          clearTimeout(retainedKill);
+          retainedKill = setTimeout(() => killGroup(pid, "SIGKILL"), graceMs);
         }
         return retainedStop;
       }
-      if (!closed && !stopped && pid !== undefined) {
+      if (!closed && pid !== undefined && (!stopped || shortens(graceMs))) {
+        // A later stop with a shorter grace (a daemon shutdown overtaking a polite close)
+        // brings the SIGKILL forward; it never pushes one back.
+        if (!stopped) killGroup(pid, "SIGTERM");
         stopped = true;
-        killGroup(pid, "SIGTERM");
+        killAt ??= performance.now() + graceMs;
+        if (timer) clearTimeout(timer);
         timer = setTimeout(() => killGroup(pid, "SIGKILL"), graceMs);
       }
       return exited;

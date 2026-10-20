@@ -3,6 +3,7 @@ import { browserCredential } from "./remote-credential.ts";
 import { webSocketTransport, type ClientApi } from "@ace/client";
 import { createBrowserClient, localOutbox } from "./client.ts";
 import type { DaemonTarget } from "./connection-settings.ts";
+import { diagnosticsReporter } from "./diagnostics.ts";
 
 /**
  * The client in the page, for browsers with neither SharedWorker nor Worker (ADR 0056). Loaded on
@@ -13,6 +14,7 @@ export function createPageClient(
   device: { deviceId: string; outboxKey: string },
 ): ClientApi {
   return createBrowserClient({
+    report: diagnosticsReporter(),
     deviceId: device.deviceId,
     transport: () => webSocketTransport(() => new WebSocket(target.url)),
     credential: browserCredential(target),

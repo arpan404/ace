@@ -1,4 +1,4 @@
-import { longHistory, replayCursor } from "@ace/fake-daemon";
+import { facts, longHistory, replayCursor } from "@ace/fake-daemon";
 import { CommandId } from "@ace/protocol";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -25,7 +25,11 @@ beforeEach(() => {
 async function open(scenario: "idle" | "busy", options: Parameters<typeof harness>[0] = {}) {
   const app = harness(options);
   if (scenario === "idle") app.play(longHistory(2)).runUntilBlocked();
-  else app.play(replayCursor()).runThrough("finding");
+  else {
+    app.play(replayCursor()).runThrough("finding");
+    // The main agent is back at its own work, not only waiting on its subagents: follow-ups queue.
+    app.daemon.apply("thread-replay-cursor", [facts.toolDone("root", "spawn-test")]);
+  }
   await app.open(scenario === "idle" ? "/t/thread-router" : "/t/thread-replay-cursor");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const message = await screen.findByRole("combobox", { name: "Message" });

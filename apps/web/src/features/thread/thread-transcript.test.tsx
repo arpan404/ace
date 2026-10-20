@@ -150,7 +150,7 @@ test("a network retry holds still: no spinner, no shimmer", async () => {
     { type: "background.ended", task: "relay", status: "stopped" },
     { type: "retry", agent: "root", on: "network", message: "connection reset" },
   ]);
-  const line = await screen.findByRole("status", { name: "Network trouble" });
+  const line = await screen.findByRole("status", { name: "Reconnecting to the model…" });
   expect(line.querySelector('[data-slot="spinner"]')).toBeNull();
   expect(line.querySelector(".shimmer")).toBeNull();
 });

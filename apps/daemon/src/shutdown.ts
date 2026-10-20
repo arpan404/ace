@@ -19,6 +19,17 @@ export async function shutdownDeadline<T>(
   }
 }
 
+/** Adds `name` to `pending` until `task` settles, so a stalled shutdown can name the stage. */
+export function trackStage<T>(
+  pending: Set<string>,
+  name: string,
+  task: Promise<T> | undefined,
+): Promise<T | undefined> {
+  if (!task) return Promise.resolve(undefined);
+  pending.add(name);
+  return task.finally(() => pending.delete(name));
+}
+
 export function shutdownStage(
   name: string,
   close: () => void | Promise<void>,

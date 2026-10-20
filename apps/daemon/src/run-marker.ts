@@ -23,12 +23,21 @@ const Stopped = z.object({
   stoppedAt: z.number(),
   source: z.string(),
   signal: z.string().optional(),
+  /** Resources still closing when the shutdown deadline hit; absent for a complete stop. */
+  overran: z.array(z.string()).optional(),
 });
 const Marker = z.discriminatedUnion("state", [Running, Stopped]);
 
 export type PreviousRun =
   | { kind: "none" }
-  | { kind: "stopped"; pid: number; stoppedAt: number; source: string; signal?: string }
+  | {
+      kind: "stopped";
+      pid: number;
+      stoppedAt: number;
+      source: string;
+      signal?: string;
+      overran?: string[];
+    }
   | { kind: "crashed"; pid: number; startedAt: number }
   | { kind: "unreadable" };
 
@@ -58,6 +67,7 @@ function readMarker(home: string): PreviousRun {
     stoppedAt: value.stoppedAt,
     source: value.source,
     ...(value.signal ? { signal: value.signal } : {}),
+    ...(value.overran ? { overran: value.overran } : {}),
   };
 }
 
@@ -71,8 +81,11 @@ function writeMarker(home: string, marker: z.infer<typeof Marker>): void {
 export interface DaemonRun {
   /** How the run before this one ended. */
   readonly previous: PreviousRun;
-  /** Record an orderly stop. Call it last, while still holding the daemon lock. */
-  stopped(reason: StopReason): void;
+  /**
+   * Record an orderly stop. Call it last, while still holding the daemon lock. `overran`
+   * names what was still closing when the shutdown deadline hit.
+   */
+  stopped(reason: StopReason, overran?: readonly string[]): void;
 }
 
 /** Call while holding the daemon lock: reads the last run's ending, then marks this one live. */
@@ -82,7 +95,7 @@ export function beginRun(home: string, pid: number, now: () => number): DaemonRu
   writeMarker(home, { state: "running", pid, startedAt });
   return {
     previous,
-    stopped(reason) {
+    stopped(reason, overran) {
       writeMarker(home, {
         state: "stopped",
         pid,
@@ -90,6 +103,7 @@ export function beginRun(home: string, pid: number, now: () => number): DaemonRu
         stoppedAt: now(),
         source: reason.source,
         ...(reason.signal ? { signal: reason.signal } : {}),
+        ...(overran ? { overran: [...overran] } : {}),
       });
     },
   };
@@ -106,13 +120,18 @@ export function previousRunRecord(previous: PreviousRun): {
       return { level: "info", message: "No previous daemon run recorded", fields: [] };
     case "stopped":
       return {
-        level: "info",
-        message: "Previous daemon run stopped in order",
+        level: previous.overran ? "warn" : "info",
+        message: previous.overran
+          ? "Previous daemon run stopped after its shutdown deadline; some resources had not closed"
+          : "Previous daemon run stopped in order",
         fields: [
           ["previousPid", previous.pid],
           ["previousSource", previous.source],
           ...(previous.signal ? [["previousSignal", previous.signal] as [string, string]] : []),
           ["previousStoppedAt", new Date(previous.stoppedAt).toISOString()],
+          ...(previous.overran
+            ? [["previousPending", previous.overran.join(", ").slice(0, 1000)] as [string, string]]
+            : []),
         ],
       };
     case "crashed":

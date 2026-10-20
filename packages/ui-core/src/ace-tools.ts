@@ -264,14 +264,12 @@ function viewOf(spec: AceToolSpec, call: AceToolCall, context: AceToolContext): 
       mode: context.app?.mode,
       attempt: lowerFirst(words.target ? `${words.awaiting} ${words.target}` : words.awaiting),
       message:
-        failure?.code === code
-          ? failure.message
-          : code === "failed"
-            ? call.error
-                ?.split("\n")
-                .find((line) => line.trim())
-                ?.trim()
-            : undefined,
+        code === "failed"
+          ? call.error
+              ?.split("\n")
+              .find((line) => line.trim())
+              ?.trim()
+          : undefined,
     });
   }
   return {

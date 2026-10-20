@@ -142,3 +142,19 @@ it("coloured CLI stderr stays readable while its credential is redacted", () => 
     expect(safe).not.toContain("OPAQUE_STDERR_CREDENTIAL");
   }
 });
+
+it("Node warnings with bracketed tags stay readable while a credential beside them is hidden", () => {
+  const redact = createDiagnosticRedactor({ home: "/Users/someone", env: {} });
+  const warnings = [
+    "(node:1877) [DEP0040] DeprecationWarning: The `punycode` module is deprecated.",
+    "(node:1877) MaxListenersExceededWarning: 11 abort listeners added to [AbortSignal]. MaxListeners is 10.",
+  ];
+  for (const warning of warnings) {
+    expect(redact(warning)).toBe(warning);
+    expect(redact(JSON.stringify({ message: warning }))).toBe(JSON.stringify({ message: warning }));
+  }
+  const leaky = redact("(node:1) [DEP0005] Warning: Bearer abcdefghijklmnopqrstuvwxyz");
+  expect(leaky).toContain("[DEP0005]");
+  expect(leaky).not.toContain("abcdefghijklmnopqrstuvwxyz");
+  expect(redact('(node:1) [DEP0005] {"password":"opaque-value"')).not.toContain("opaque-value");
+});

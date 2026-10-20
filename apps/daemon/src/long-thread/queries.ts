@@ -135,6 +135,7 @@ export class LongThreadQueries {
       items: { id: string }[];
       itemSeqs: Record<string, number>;
       itemsBefore: number | null;
+      omitted?: { seq: number }[];
     },
   >(window: W): W {
     const first = window.items[0];
@@ -179,6 +180,7 @@ export class LongThreadQueries {
       items,
       itemSeqs: Object.fromEntries(items.map((item) => [item.id, window.itemSeqs[item.id] ?? 0])),
       itemsBefore: kept ? (window.itemSeqs[kept.id] ?? start) : start,
+      ...(window.omitted ? { omitted: window.omitted.filter((entry) => entry.seq >= start) } : {}),
     };
   }
   threadSearch(
