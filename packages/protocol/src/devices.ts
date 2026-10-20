@@ -83,6 +83,24 @@ export const DevicePermissions = z.object({
   accessibility: z.boolean(),
 });
 export type DevicePermissions = z.infer<typeof DevicePermissions>;
+/** The last thing an agent did on a device, so a viewer can show it as it happens. */
+export const DeviceActivity = z.object({
+  /** Grows with each agent action on this device; a viewer shows each sequence once. */
+  sequence: z.number().int().nonnegative(),
+  /** "tap", "longPress", "swipe", "type", "key", or a UI action such as "press" or "setValue". */
+  action: z.string().min(1).max(32),
+  /** Where it landed, in device points. */
+  point: z.object({ x: z.number().finite(), y: z.number().finite() }).optional(),
+  /** A swipe's end, in device points. */
+  to: z.object({ x: z.number().finite(), y: z.number().finite() }).optional(),
+  /** The element ref it acted on, without the "@" ("e7"). */
+  ref: z.string().max(64).optional(),
+  /** That element's accessible name. Never typed text. */
+  label: z.string().max(128).optional(),
+  /** The key, for a key press. */
+  key: z.string().max(16).optional(),
+});
+export type DeviceActivity = z.infer<typeof DeviceActivity>;
 export const DeviceState = z.object({
   device: AppDevice,
   enabled: z.boolean(),
@@ -100,6 +118,8 @@ export const DeviceState = z.object({
   holder: z.object({ threadId: ThreadId, agentId: AgentId }).optional(),
   leaseExpiresAt: z.number().nonnegative().optional(),
   error: DeviceFailure.optional(),
+  /** The last thing an agent did on this device. */
+  activity: DeviceActivity.optional(),
 });
 export type DeviceState = z.infer<typeof DeviceState>;
 const target = { deviceId: AppDeviceId };

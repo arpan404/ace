@@ -1,153 +1,74 @@
-import type { ReactNode } from "react";
-import type { DeviceInput } from "@ace/protocol";
-import { StatusLabel } from "@/components/status-label.tsx";
-import { leaseLeft } from "@ace/ui-core";
-import {
-  AndroidLogoIcon,
-  AppleLogoIcon,
-  ArrowClockwiseIcon,
-  ArrowUUpLeftIcon,
-  DeviceMobileIcon,
-  HouseSimpleIcon,
-} from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
-import { useSidebarThread } from "@ace/client-react";
-import { DelegateMenu, useAgentLabel } from "@/components/agent-picker.tsx";
-import { ControlToggle } from "@/components/control-toggle.tsx";
-import { Icon } from "@/components/icon.tsx";
+import type { ScreenFrameHeader } from "@ace/protocol";
+import { CaretLeftIcon } from "@phosphor-icons/react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { Input } from "@/components/ui/input.tsx";
+import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { toolbarEdge } from "@/components/ui/rules.ts";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
+import { cn } from "@/lib/cn.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { DeviceLogs } from "./device-logs.tsx";
-import { DeviceScreen } from "./device-screen.tsx";
-import { DevicesMenu } from "./devices-menu.tsx";
+import { ActivityCaption, useFreshActivity } from "./activity-overlay.tsx";
+import { ControlRail } from "./control-rail.tsx";
+import { controllerOf } from "./controller-label.tsx";
+import { DeviceDrawer } from "./device-drawer.tsx";
+import { DeviceHeader } from "./device-header.tsx";
 import { needsPermission, PermissionGuide } from "./device-permission.tsx";
+import { noteDeviceUse, takeBootRequest, useScreenOnly } from "./device-prefs.ts";
+import { Problem } from "./device-problem.tsx";
+import { DeviceStage, type Bounds } from "./device-stage.tsx";
+import { DevicesMenu } from "./devices-menu.tsx";
+import { KeyboardField } from "./keyboard-field.tsx";
+import { StreamMeter, streamSummary, type StreamStats } from "./stream-stats.ts";
 import { useDevices, type DeviceProblem } from "./use-devices.ts";
-
-export function Problem(props: { problem: DeviceProblem }) {
-  return (
-    <p role="alert" className="text-sm text-muted-foreground">
-      <span className="text-foreground">{props.problem.message}</span>
-      {props.problem.hint && ` ${props.problem.hint}`}
-    </p>
-  );
-}
-
-function TypeText(props: { disabled: boolean; onInput(input: DeviceInput): void }) {
-  const [text, setText] = useState("");
-  return (
-    <form
-      className="flex gap-1.5"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (!text) return;
-        props.onInput({ kind: "type", text });
-        setText("");
-      }}
-    >
-      <Input
-        aria-label="Type on the device"
-        placeholder={props.disabled ? "Take control to type on the device" : "Type on the device"}
-        value={text}
-        disabled={props.disabled}
-        onChange={(event) => setText(event.currentTarget.value)}
-      />
-      <Button type="submit" size="sm" variant="secondary" disabled={props.disabled || !text}>
-        Send
-      </Button>
-    </form>
-  );
-}
 
 type Devices = ReturnType<typeof useDevices>;
 
-/** Home, Back (Android) and Rotate, then a line to type on the device. */
-function DeviceKeys(props: {
-  devices: Devices;
-  android: boolean;
-  controlled: boolean;
-  /** Take control / Hand back, in the same row as the keys. */
-  control: ReactNode;
-}) {
-  const { devices, controlled } = props;
+/** The stream's subtitle numbers, read once a second from the frames the screen drew. */
+function useStreamStats(sameClock: boolean, live: boolean) {
+  const meter = useMemo(() => new StreamMeter({ sameClock }), [sameClock]);
+  const [stats, setStats] = useState<StreamStats>();
+  useEffect(() => {
+    if (!live) return;
+    const timer = setInterval(() => setStats(meter.read(Date.now())), 1000);
+    return () => clearInterval(timer);
+  }, [meter, live]);
+  const onFrame = (header: ScreenFrameHeader) =>
+    meter.add({
+      codec: header.codec,
+      capturedAt: header.version === 1 ? header.timestamp : header.ts,
+      shownAt: Date.now(),
+    });
+  return { stats: live ? stats : undefined, onFrame };
+}
+
+/** Over the dimmed frame when the screen isn't streaming: what the device is doing, and the next step. */
+function IdleCard(props: { children: ReactNode }) {
   return (
-    <div className="flex shrink-0 flex-col gap-2">
-      <div className="flex items-center justify-center gap-1">
-        <IconButton
-          icon={HouseSimpleIcon}
-          label="Home"
-          disabled={!controlled}
-          onClick={() => devices.input({ kind: "key", key: "home" })}
-        />
-        {props.android && (
-          <IconButton
-            icon={ArrowUUpLeftIcon}
-            label="Back"
-            disabled={!controlled}
-            onClick={() => devices.input({ kind: "key", key: "back" })}
-          />
-        )}
-        <IconButton
-          icon={ArrowClockwiseIcon}
-          label="Rotate"
-          disabled={!controlled}
-          onClick={() => devices.input({ kind: "key", key: "rotate" })}
-        />
-        <span className="ml-2">{props.control}</span>
-      </div>
-      <TypeText disabled={!controlled} onInput={devices.input} />
+    <div className="ace-floating-solid flex max-w-72 flex-col items-center gap-3 rounded-lg px-5 py-4 text-center text-ui text-muted-foreground">
+      {props.children}
     </div>
   );
 }
 
-/**
- * Who holds the device for this thread: an agent (named, with its thread when it is another
- * one), you, or nobody. Delegate hands it to one of this thread's agents; Take back ends the
- * agent's hold. The daemon decides whether that agent may have it.
- */
-function Holder(props: { devices: Devices; threadId: string; controlled: boolean }) {
-  const { devices } = props;
-  const holder = devices.view.holder;
-  const name = useAgentLabel(holder?.threadId, holder?.agentId);
-  const thread = useSidebarThread(holder?.threadId ?? "");
-  const pending = devices.view.pending;
-  return (
-    <div className="flex shrink-0 items-center gap-3 text-ui">
-      <span className="min-w-0 flex-1 truncate">
-        {holder
-          ? `${name} is using it${holder.threadId !== props.threadId && thread ? ` · ${thread.title}` : ""}`
-          : props.controlled
-            ? "You're using it"
-            : "No agent is using it"}
-      </span>
-      {holder ? (
-        <Button size="sm" variant="ghost" disabled={pending} onClick={devices.takeControl}>
-          Take back
-        </Button>
-      ) : (
-        <DelegateMenu
-          threadId={props.threadId}
-          label="Delegate to an agent"
-          disabled={pending}
-          onDelegate={(agentId) => devices.delegate(agentId)}
-        />
-      )}
-    </div>
-  );
-}
-
-/** The device: who can use it, its live screen with the control bar, its keys and logs. */
+/** The device: header, the stage with its live screen and rail, and the drawer. */
 function SelectedDevice(props: { devices: Devices }) {
   const { devices } = props;
   const { view } = devices;
   const { selected, controls, session } = view;
+  const actions = useWorkspaceActions(devices.threadId);
+  const scope = useRef<HTMLElement>(null);
+  const stage = useRef<HTMLDivElement>(null);
+  const [keyboard, setKeyboard] = useState(false);
+  const [highlight, setHighlight] = useState<Bounds>();
+  const bare = useScreenOnly();
   const controlled = controls?.inControl === true;
   const live = controls?.live === true;
+  const { stats, onFrame } = useStreamStats(session?.connection === "local", live);
+  const shown = useFreshActivity(view.activity);
   // A missing macOS permission gets its own guidance instead of a one-line error.
   const permission = [view.problem, controls?.error].find(needsPermission);
   const toggle = () => {
@@ -157,113 +78,147 @@ function SelectedDevice(props: { devices: Devices }) {
   };
   useHotkey(keymap.takeControl.keys, toggle, { enabled: live });
   if (!selected || !controls || !session) return null;
+  const state = view.controllers.get(selected.id);
+  const controller = controllerOf(state ?? { controller: "none" });
+  const problems = [view.problem, controls.error].filter(
+    (problem): problem is DeviceProblem => problem !== undefined && !needsPermission(problem),
+  );
+  const idle = controls.busy ? (
+    <IdleCard>
+      <Spinner />
+      <p>{controls.where}</p>
+    </IdleCard>
+  ) : controls.cleanupRequired ? (
+    <IdleCard>
+      <p>The live view didn't stop cleanly.</p>
+      <Button size="sm" variant="secondary" disabled={view.pending} onClick={devices.stop}>
+        Retry cleanup
+      </Button>
+    </IdleCard>
+  ) : controls.running ? (
+    <IdleCard>
+      <p>The live view is off.</p>
+      <Button size="sm" variant="secondary" disabled={view.pending} onClick={devices.start}>
+        Start live view
+      </Button>
+    </IdleCard>
+  ) : (
+    <IdleCard>
+      <p>{selected.name} is off.</p>
+      <Button size="sm" variant="primary" disabled={view.pending} onClick={devices.boot}>
+        Boot
+      </Button>
+    </IdleCard>
+  );
   return (
-    <section aria-label={selected.name} className="flex h-full min-h-0 flex-col">
-      <div className="flex h-10 shrink-0 items-center gap-2 border-b pr-1.5 pl-3">
-        <Icon
-          icon={selected.platform === "ios" ? AppleLogoIcon : AndroidLogoIcon}
-          size={14}
-          className="text-muted-foreground"
-        />
-        <p className="min-w-0 flex-1 truncate text-sm text-subtle-foreground">
-          <span className="font-medium text-foreground">{selected.name}</span>
-          {" · "}
-          <StatusLabel
-            tone={controls.busy ? "working" : controls.error ? "failed" : "idle"}
-            label={controls.status}
-            mark={controls.busy ? <Spinner /> : undefined}
-          />
-        </p>
-        {controlled && (
-          <span className="text-xs text-subtle-foreground tabular-nums">
-            {leaseLeft(controls.leaseLeftMs)} left
-          </span>
-        )}
-        <DevicesMenu devices={devices} />
-      </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-2.5 px-3 py-2.5">
-        {controls.running && (
-          <Holder devices={devices} threadId={devices.threadId} controlled={controlled} />
-        )}
-        {view.problem && !needsPermission(view.problem) && <Problem problem={view.problem} />}
-        {controls.error && !needsPermission(controls.error) && <Problem problem={controls.error} />}
-        {permission && live && (
-          <PermissionGuide problem={permission} devices={devices} pending={view.pending} compact />
-        )}
-        {permission && !live ? (
-          <PermissionGuide problem={permission} devices={devices} pending={view.pending} />
-        ) : live ? (
-          <>
-            {/* The screen takes what the tab has left, so the whole device shows at once. */}
-            <div className="relative min-h-40 flex-1">
-              <div className="absolute inset-0 flex items-center justify-center">
-                <DeviceScreen
-                  session={session}
-                  deviceId={selected.id}
-                  name={selected.name}
-                  interactive={controlled}
-                  onInput={devices.input}
-                />
-              </div>
-            </div>
-            {/* Under the screen, in flow, so it never covers what the device shows. */}
-            <DeviceKeys
-              devices={devices}
+    <section ref={scope} aria-label={selected.name} className="flex h-full min-h-0 flex-col">
+      <DeviceHeader
+        name={selected.name}
+        subtitle={[
+          ...(selected.runtime ? [selected.runtime] : []),
+          controls.where,
+          ...(live ? streamSummary(stats) : []),
+        ]}
+        busy={controls.busy}
+        onBack={() => actions.open({ kind: "devices" })}
+        control={{
+          running: controls.running,
+          controller,
+          leaseLeftMs: controls.leaseLeftMs,
+          threadId: devices.threadId,
+          disabled: view.pending,
+          onTake: devices.takeControl,
+          onRelease: devices.release,
+          onDelegate: (agentId) => devices.delegate(agentId),
+        }}
+        menu={<DevicesMenu devices={devices} />}
+      />
+      {problems.length > 0 && (
+        <div className={cn("flex shrink-0 flex-col gap-1 px-3 py-2", toolbarEdge)}>
+          {problems.map((problem) => (
+            <Problem key={problem.message} problem={problem} />
+          ))}
+        </div>
+      )}
+      {permission && live && (
+        <PermissionGuide problem={permission} devices={devices} pending={view.pending} compact />
+      )}
+      {permission && !live ? (
+        <PermissionGuide problem={permission} devices={devices} pending={view.pending} />
+      ) : (
+        <DeviceStage
+          ref={stage}
+          row={selected}
+          session={session}
+          live={live}
+          interactive={controlled}
+          bare={bare}
+          onInput={devices.input}
+          onFrame={onFrame}
+          activity={shown}
+          highlight={highlight}
+          idle={idle}
+          rail={
+            <ControlRail
+              scope={scope}
               android={selected.platform === "android"}
               controlled={controlled}
-              control={
-                <ControlToggle
-                  inControl={controlled}
-                  disabled={view.pending || !controls.running}
-                  onToggle={toggle}
-                />
-              }
+              live={live}
+              pending={view.pending}
+              recording={devices.recording}
+              keyboardOpen={keyboard && controlled}
+              onKey={(key) => void devices.input({ kind: "key", key })}
+              onKeyboard={() => setKeyboard((open) => !open)}
+              onScreenshot={devices.screenshot}
+              onRecord={devices.record}
             />
-          </>
-        ) : (
-          <div className="grid min-h-40 flex-1 place-items-center">
-            <div className="flex flex-col items-center gap-2 text-center">
-              <p className="text-sm text-muted-foreground">
-                {controls.busy
-                  ? controls.status
-                  : controls.running
-                    ? "The live view is off."
-                    : `${selected.name} is off.`}
-              </p>
-              {controls.cleanupRequired || controls.running ? (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={view.pending || controls.busy}
-                  onClick={controls.cleanupRequired ? devices.stop : devices.start}
-                >
-                  {controls.busy && <Spinner />}
-                  {controls.cleanupRequired ? "Retry cleanup" : "Start live view"}
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={view.pending}
-                  onClick={devices.boot}
-                >
-                  Boot
-                </Button>
+          }
+          footer={
+            <>
+              {keyboard && controlled && live && (
+                <KeyboardField
+                  onInput={(input) => void devices.input(input)}
+                  onClose={() => {
+                    setKeyboard(false);
+                    stage.current?.focus();
+                  }}
+                />
               )}
-            </div>
-          </div>
-        )}
-      </div>
-      <div className="shrink-0">
-        <DeviceLogs key={selected.id} session={session} deviceId={selected.id} />
-      </div>
+              <ActivityCaption shown={shown} holder={view.holder} />
+            </>
+          }
+        />
+      )}
+      <DeviceDrawer
+        devices={devices}
+        session={session}
+        deviceId={selected.id}
+        live={live}
+        onHighlight={setHighlight}
+      />
     </section>
   );
 }
 
+/** The device tab's shape while it connects or loads: header and stage, values as skeletons. */
+function DeviceSkeleton(props: { name: string; onBack(): void }) {
+  return (
+    <LoadingRegion label={props.name} className="flex h-full min-h-0 flex-col">
+      <div className={cn("flex h-11 shrink-0 items-center gap-1.5 pr-1.5 pl-1", toolbarEdge)}>
+        <IconButton icon={CaretLeftIcon} label="All devices" onClick={props.onBack} />
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className="truncate text-ui font-medium text-foreground">{props.name}</span>
+          <Skeleton className="h-2.5 w-32" />
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 bg-(--device-stage)" />
+    </LoadingRegion>
+  );
+}
+
 /**
- * One simulator or emulator as a workspace tab: approve it for the thread, boot it, watch it
- * live, take control, and read its logs. The device keeps its own identity when the channel
+ * One simulator or emulator as a workspace tab: boot it, watch it live, drive it or hand it to
+ * an agent, and read its logs and UI tree. The device keeps its own identity when the channel
  * drops or devices are off, so the tab says which device it is waiting for.
  */
 export function DeviceTab(props: {
@@ -282,43 +237,40 @@ export function DeviceTab(props: {
   useEffect(() => {
     if (known && known !== props.name) actions.update(props.tabKey, { title: known });
   }, [known, props.name, props.tabKey, actions]);
-  const backToDevices = (
-    <Button size="sm" variant="secondary" onClick={() => actions.open({ kind: "devices" })}>
-      All devices
-    </Button>
-  );
+  useEffect(() => noteDeviceUse(props.deviceId, Date.now()), [props.deviceId]);
+  // Boot asked for from the list's Recent row: done here, once the device is known to be off.
+  const off =
+    view.connected && view.enabled && view.selected !== undefined && !view.selected.running;
+  const { boot } = devices;
+  useEffect(() => {
+    if (off && takeBootRequest(props.deviceId)) boot();
+  }, [off, props.deviceId, boot]);
+  const back = () => actions.open({ kind: "devices" });
   if (!view.connected)
     return view.failure ? (
       <EmptyState
-        icon={DeviceMobileIcon}
         title={`${name} is out of reach`}
         description={`${view.failure.message} ${view.failure.hint}`.trim()}
         action={<Button onClick={devices.reconnect}>Reconnect</Button>}
       />
     ) : (
-      <div className="grid h-full place-items-center">
-        <Spinner label={`Connecting to ${name}`} />
-      </div>
+      <DeviceSkeleton name={name} onBack={back} />
     );
   if (view.loading)
     return view.problem ? (
       <EmptyState
-        icon={DeviceMobileIcon}
         title={`Couldn't load ${name}`}
         description={`${view.problem.message} ${view.problem.hint}`.trim()}
         action={<Button onClick={devices.reconnect}>Try again</Button>}
       />
     ) : (
-      <div className="grid h-full place-items-center">
-        <Spinner label={`Loading ${name}`} />
-      </div>
+      <DeviceSkeleton name={name} onBack={back} />
     );
   if (!view.enabled)
     return (
       <EmptyState
-        icon={DeviceMobileIcon}
         title="Devices are off on this machine"
-        description={`Turn devices on to see ${name} and let agents in this thread use it once you approve it.`}
+        description={`Turn devices on to see ${name} and let agents in this thread use it.`}
         action={
           <div className="flex flex-col items-center gap-3">
             <Button variant="primary" disabled={view.pending} onClick={() => devices.enable(true)}>
@@ -332,14 +284,17 @@ export function DeviceTab(props: {
   if (!view.selected)
     return (
       <EmptyState
-        icon={DeviceMobileIcon}
         title={view.problem ? `Couldn't load ${name}` : `${name} isn't on this machine any more`}
         description={
           view.problem
             ? `${view.problem.message} ${view.problem.hint}`.trim()
             : "The simulator or emulator was deleted, or its SDK went away. Close this tab, or pick another device."
         }
-        action={backToDevices}
+        action={
+          <Button size="sm" variant="secondary" onClick={back}>
+            All devices
+          </Button>
+        }
       />
     );
   return <SelectedDevice devices={devices} />;

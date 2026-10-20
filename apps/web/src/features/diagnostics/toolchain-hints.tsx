@@ -2,11 +2,16 @@ import { StatusLabel } from "@/components/status-label.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 
-const names = { git: "Git", xcode: "iOS Simulator", android: "Android emulators" };
+const names = {
+  git: "Git",
+  xcode: "iOS Simulator",
+  "serve-sim": "Simulator streaming",
+  android: "Android emulators",
+};
 
-/** Uses the connected computer's tools, including when this app runs in a browser. */
-export function ToolchainHints({ devices = false }: { devices?: boolean }) {
-  const tools = useDaemonQuery({
+/** The connected computer's tools (Git, Xcode, serve-sim, the Android SDK), read once. */
+export function useToolchains() {
+  return useDaemonQuery({
     queryKey: ["diagnostics", "toolchains"],
     read: async (client, signal) => {
       const reply = await client.request(
@@ -18,6 +23,11 @@ export function ToolchainHints({ devices = false }: { devices?: boolean }) {
       return reply.toolchains;
     },
   });
+}
+
+/** Uses the connected computer's tools, including when this app runs in a browser. */
+export function ToolchainHints({ devices = false }: { devices?: boolean }) {
+  const tools = useToolchains();
   return (
     <section aria-label="Computer tools" className="text-left">
       <h3 className="text-sm font-medium text-muted-foreground">

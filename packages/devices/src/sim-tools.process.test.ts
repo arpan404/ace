@@ -189,3 +189,30 @@ it("sim_screenshot reads the live view while it runs, and takes a one-off frame 
   expect(still.content[1]).toMatchObject({ text: expect.stringContaining("300x600") });
   expect(h.platform.shots).toEqual([ios]);
 });
+
+it("viewers see where an agent tapped and which element, but never the text it typed", async () => {
+  const h = await setup();
+  const field = fakeNode("f1", "TextField", "Password", { x: 20, y: 300, w: 200, h: 40 }, [
+    "press",
+  ]);
+  h.platform.screens.set(ios, [welcome(), continueButton(), field]);
+  await h.call("sim_start", { simId: ios });
+  await h.call("sim_ui", { simId: ios });
+  const published: unknown[] = [];
+  onTestFinished(h.service.watch((state) => published.push(state)));
+  await h.call("sim_act", { simId: ios, action: "tap", ref: "@e1" });
+  const current = () => h.service.states().find((state) => state.device.id === ios)?.activity;
+  expect(current()).toEqual({
+    sequence: 1,
+    action: "tap",
+    ref: "e1",
+    label: "Continue",
+    point: { x: 150, y: 520 },
+  });
+  expect(published.at(-1)).toMatchObject({ activity: { sequence: 1, ref: "e1" } });
+  await h.call("sim_act", { simId: ios, action: "type", ref: "@e2", text: "hunter2-secret" });
+  expect(current()).toMatchObject({ sequence: 2, action: "type", ref: "e2", label: "Password" });
+  await h.call("sim_act", { simId: ios, action: "type", text: "hunter2-secret" });
+  expect(current()).toEqual({ sequence: 3, action: "type" });
+  expect(JSON.stringify(published)).not.toContain("hunter2-secret");
+});

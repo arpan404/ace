@@ -1,4 +1,8 @@
+import { findExecutable } from "@ace/provider-kit/discovery";
 import type { DeviceRuntime } from "./runtime.ts";
+
+/** What a version probe needs from the runtime. */
+type ProbeRuntime = Pick<DeviceRuntime, "spawn" | "after">;
 
 /**
  * serve-sim drives private CoreSimulator interfaces that change between Xcode releases, and its
@@ -15,7 +19,7 @@ export function serveSimSupported(version: string | undefined): boolean {
 /** The version a serve-sim executable reports, or undefined when it doesn't answer sanely. */
 export async function serveSimVersion(
   command: string,
-  runtime: DeviceRuntime,
+  runtime: ProbeRuntime,
   env: NodeJS.ProcessEnv,
 ): Promise<string | undefined> {
   const child = runtime.spawn({
@@ -40,4 +44,26 @@ export async function serveSimVersion(
     cancel();
     await child.stop({ graceMs: 0 }).catch(() => {});
   }
+}
+
+/** The serve-sim this machine would use: where it is, its version, and whether ace runs it. */
+export interface ServeSimStatus {
+  command?: string;
+  version?: string;
+  supported: boolean;
+}
+
+/** Find serve-sim (`ACE_SERVE_SIM`, else on PATH) and read its version. */
+export async function serveSimStatus(
+  env: NodeJS.ProcessEnv,
+  runtime: ProbeRuntime,
+): Promise<ServeSimStatus> {
+  const command = await findExecutable(env["ACE_SERVE_SIM"] ?? "serve-sim", env);
+  if (!command) return { supported: false };
+  const version = await serveSimVersion(command, runtime, env);
+  return {
+    command,
+    ...(version !== undefined ? { version } : {}),
+    supported: serveSimSupported(version),
+  };
 }

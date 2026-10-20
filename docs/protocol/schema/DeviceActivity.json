@@ -1,0 +1,63 @@
+{
+  "$id": "https://ace.local/protocol/v1/DeviceActivity.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "action": {
+      "maxLength": 32,
+      "minLength": 1,
+      "type": "string"
+    },
+    "key": {
+      "maxLength": 16,
+      "type": "string"
+    },
+    "label": {
+      "maxLength": 128,
+      "type": "string"
+    },
+    "point": {
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "ref": {
+      "maxLength": 64,
+      "type": "string"
+    },
+    "sequence": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "to": {
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "sequence",
+    "action"
+  ],
+  "type": "object"
+}

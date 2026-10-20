@@ -4,7 +4,7 @@ import {
   deviceVideoSupported,
   deviceStreamProfile,
 } from "@ace/client/devices";
-import type { DeviceInput } from "@ace/protocol";
+import type { DeviceInput, ScreenFrameHeader } from "@ace/protocol";
 import { deviceGesture, devicePoint, type FrameSize } from "@ace/ui-core";
 import { useEffect, useRef, type PointerEvent } from "react";
 import { cn } from "@/lib/cn.ts";
@@ -22,13 +22,19 @@ export function DeviceScreen(props: {
   name: string;
   interactive: boolean;
   onInput(input: DeviceInput): void | Promise<void>;
+  /** Each frame as it is drawn: its size, codec and capture time (for a frame and stats). */
+  onFrame?(header: ScreenFrameHeader): void;
+  /** Classes for the canvas, over its defaults (a drawn device frame clips the corners). */
+  className?: string;
 }) {
   const cursor = useRef<HTMLSpanElement>(null);
   const image = useRef<HTMLCanvasElement>(null);
   const latestInput = useRef(props.onInput);
+  const latestFrame = useRef(props.onFrame);
   useEffect(() => {
     latestInput.current = props.onInput;
-  }, [props.onInput]);
+    latestFrame.current = props.onFrame;
+  }, [props.onInput, props.onFrame]);
   const pointerStream = useRef<
     | {
         moves: ReturnType<typeof coalescedPointerMoves<{ x: number; y: number }>>;
@@ -109,6 +115,7 @@ export function DeviceScreen(props: {
           if (cursor.current) cursor.current.style.display = "none";
         }
         frame.current = header;
+        latestFrame.current?.(header);
       },
     });
     const release = session.client.watchFrames(deviceId, async (next) => {
@@ -221,6 +228,7 @@ export function DeviceScreen(props: {
         className={cn(
           "block h-auto max-h-full w-auto max-w-full touch-none rounded-[22px] bg-black object-contain select-none shadow-[0_0_0_1px_var(--border)]",
           props.interactive ? "cursor-pointer" : "cursor-default",
+          props.className,
         )}
         onPointerDown={(event) => {
           if (!props.interactive || press.current) return;

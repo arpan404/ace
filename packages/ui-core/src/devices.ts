@@ -7,6 +7,8 @@ export interface DeviceRow {
   platform: AppDevice["platform"];
   /** "iOS 18.4 · Running", "Android 15 · Off". */
   detail: string;
+  /** "iOS 18.4", "Android 15", when the platform reports it. */
+  runtime: string | undefined;
   running: boolean;
   /** Its screen is streaming. */
   live: boolean;
@@ -39,6 +41,7 @@ export function deviceRows(
         detail: [device.runtime, state?.booting ? "Booting…" : stateWords[device.state]]
           .filter(Boolean)
           .join(" · "),
+        runtime: device.runtime,
         running: device.state === "booted",
         live: state?.lifecycle === "live",
       };
@@ -65,6 +68,8 @@ export interface DeviceControls {
   leaseLeftMs: number;
   /** One line: "Live · You're in control", "Off", "Live · The agent is in control". */
   status: string;
+  /** Where the device is, without who controls it: "Live", "Booting…", "Off". */
+  where: string;
   error: DeviceProblem | undefined;
 }
 
@@ -143,6 +148,7 @@ export function deviceControls(
     inControl,
     leaseLeftMs,
     status: who ? `${where} · ${who}` : where,
+    where,
     error: state?.error && deviceProblem(state.error),
   };
 }

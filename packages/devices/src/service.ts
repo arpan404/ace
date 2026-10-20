@@ -3,7 +3,12 @@ import { watchDeviceLease } from "./lease-expiry.ts";
 import { deviceStreamSnapshot } from "./snapshot.ts";
 import { DeviceStreamControl, deviceImageStream } from "./stream-control.ts";
 import { type Frame, type FrameSink } from "@ace/screen";
-import { AppDevice as Device, DeviceOperation, DeviceState } from "@ace/protocol/devices";
+import {
+  AppDevice as Device,
+  DeviceOperation,
+  DeviceState,
+  type DeviceActivity,
+} from "@ace/protocol/devices";
 import { deviceFailure } from "./failure.ts";
 import { DeviceError } from "./sdk.ts";
 import {
@@ -156,7 +161,19 @@ export class DevicesService {
       streamId: session.streamId,
       ...session.lease.status(),
       error: session.error,
+      activity: session.activity,
     });
+  }
+  /**
+   * An agent acted on a device: viewers are told what it did and where, numbered so each action
+   * shows once. A device with no session (never opened here) has no viewers to tell.
+   */
+  noteAgentActivity(deviceId: string, activity: Omit<DeviceActivity, "sequence">): void {
+    const session = this.sessions.get(deviceId);
+    if (!session) return;
+    session.activitySequence++;
+    session.activity = { ...activity, sequence: session.activitySequence };
+    this.emit(session);
   }
   /** Devices are on for this machine; a client with no device sessions yet needs this too. */
   isEnabled(): boolean {

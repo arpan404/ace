@@ -74,10 +74,12 @@ export const DiagnosticReport = z.object({
 });
 export type DiagnosticReport = z.infer<typeof DiagnosticReport>;
 export const Toolchain = z.object({
-  id: z.enum(["git", "xcode", "android"]),
+  id: z.enum(["git", "xcode", "android", "serve-sim"]),
   available: z.boolean(),
   detail: z.string().max(2048),
   hint: z.string().max(2048),
+  /** The tool's version, when it could be read ("26.0"). */
+  version: z.string().max(64).optional(),
 });
 export type Toolchain = z.infer<typeof Toolchain>;
 export const DiagnosticsRequest = z.object({
@@ -89,6 +91,6 @@ export const DiagnosticsResult = z.object({
   type: z.literal("diagnostics.result"),
   requestId: z.string().min(1).max(128),
   report: DiagnosticReport.optional(),
-  toolchains: z.array(Toolchain).max(3).optional(),
+  toolchains: z.array(Toolchain).max(4).optional(),
   error: z.string().max(256).optional(),
 });

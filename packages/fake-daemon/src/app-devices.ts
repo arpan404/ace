@@ -1,6 +1,7 @@
 import type { DeviceTransport } from "@ace/client/devices";
 import {
   AppDevice,
+  type DeviceActivity,
   DeviceClientMessage,
   type DeviceFailure,
   type DeviceInput,
@@ -11,6 +12,7 @@ import {
   DeviceState,
 } from "@ace/protocol/devices";
 import { fakeScreenFrame } from "./screen-frame.ts";
+import { fakeDeviceUITree } from "./device-ui-tree.ts";
 
 const leaseMs = 5 * 60_000;
 
@@ -32,6 +34,22 @@ interface Session {
   screen: "home" | "app";
   logs: string[];
   recording?: boolean;
+  /** The last thing an agent did here, numbered from `activitySequence`. */
+  activity?: DeviceActivity;
+  activitySequence: number;
+}
+
+function idleSession(device: AppDevice): Session {
+  return {
+    device,
+    lifecycle: "idle",
+    controller: "none",
+    screen: "home",
+    logs: [],
+    codec: "jpeg",
+    keyframe: true,
+    activitySequence: 0,
+  };
 }
 
 type DeviceTransportEvents = Parameters<DeviceTransport["open"]>[0];
@@ -76,7 +94,7 @@ function denied(permission: DevicePermission): Refusal {
  * stream of screen frames in the screen binary format (JPEG, or H.264 when negotiated and
  * `videoEncoding` is on), an expiring human control lease, input, and logs. Each `transport()`
  * is one dedicated, already authenticated devices channel.
- * Recording, screenshots and UI trees answer `not_supported`.
+ * UI trees are a fixed Settings screen; UI find and act answer `not_supported`.
  */
 export class FakeAppDevices {
   onRecording?: (threadId: string, artifactId: string) => void;
@@ -120,15 +138,7 @@ export class FakeAppDevices {
         runtime: "Android 15",
       }),
     ])
-      this.sessions.set(device.id, {
-        device,
-        lifecycle: "idle",
-        controller: "none",
-        screen: "home",
-        logs: [],
-        codec: "jpeg",
-        keyframe: true,
-      });
+      this.sessions.set(device.id, idleSession(device));
   }
 
   /** Close every devices channel, as a daemon restart or a revoked token would. */
@@ -143,6 +153,44 @@ export class FakeAppDevices {
   /** The thread whose agent or person took a device last. */
   boundThread(deviceId: string): string | undefined {
     return this.sessions.get(deviceId)?.threadId;
+  }
+
+  /** Another device joins the inventory, idle and uncontrolled, and open channels hear of it. */
+  addDevice(device: AppDevice): void {
+    const parsed = AppDevice.parse(device);
+    if (this.sessions.has(parsed.id)) throw new Error(`Device ${parsed.id} already exists`);
+    this.sessions.set(parsed.id, idleSession(parsed));
+    const devices = [...this.sessions.values()].map((session) => session.device);
+    for (const channel of this.channels)
+      this.send(channel, { type: "devices.inventory", devices, issues: [] });
+  }
+
+  /** A thread's agent takes a device, as the daemon's claim for an agent does. */
+  agentTakes(deviceId: string, threadId: string, agentId: string): void {
+    const session = this.known(deviceId);
+    session.threadId = threadId;
+    session.controller = "agent";
+    delete session.humanOwner;
+    session.holder = DeviceState.shape.holder.unwrap().parse({ threadId, agentId });
+    delete session.leaseExpiresAt;
+    this.publish(session);
+  }
+
+  /** The agent holding a device acted on it: viewers see the action, numbered, and a new frame. */
+  agentActs(deviceId: string, activity: Omit<DeviceActivity, "sequence">): void {
+    const session = this.known(deviceId);
+    session.activitySequence++;
+    session.activity = { ...activity, sequence: session.activitySequence };
+    if (activity.action === "key" && activity.key === "home") session.screen = "home";
+    else if (activity.point) session.screen = "app";
+    this.publish(session);
+    this.paint(session);
+  }
+
+  private known(deviceId: string): Session {
+    const session = this.sessions.get(deviceId);
+    if (!session) throw new Error(`Unknown device ${deviceId}`);
+    return session;
   }
 
   /** One authenticated devices channel, as `deviceTransport()` opens against a real daemon. */
@@ -196,6 +244,7 @@ export class FakeAppDevices {
         (session.leaseExpiresAt ?? 0) > this.clock(),
       holder: session.holder,
       ...(session.leaseExpiresAt ? { leaseExpiresAt: session.leaseExpiresAt } : {}),
+      ...(session.activity ? { activity: session.activity } : {}),
     });
   }
 
@@ -454,6 +503,8 @@ export class FakeAppDevices {
         return { stopped: true };
       case "logs":
         return { lines: session.logs.slice(-operation.limit), dropped: 0 };
+      case "ui.tree":
+        return fakeDeviceUITree;
       default:
         throw new Refusal(
           "not_supported",

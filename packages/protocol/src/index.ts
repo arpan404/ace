@@ -90,6 +90,7 @@ export * from "./context-meter.ts";
 export {
   AppDevice,
   AppDeviceId,
+  DeviceActivity,
   DeviceInput,
   DeviceSettings,
   DeviceFailure,

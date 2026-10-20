@@ -4,6 +4,7 @@ import { ScreenUITreeResult, type ScreenUINode } from "@ace/protocol";
 import type { DevicesService } from "./service.ts";
 import { DeviceError } from "./sdk.ts";
 import type { SimAgentState } from "./sim-state.ts";
+import { simActivity } from "./sim-activity.ts";
 import type { SimElement } from "./sim-refs.ts";
 import type { simSchemas } from "./sim-schemas.ts";
 
@@ -78,7 +79,15 @@ export async function simAct(
   actor: Actor,
 ): Promise<unknown> {
   const request = (operation: unknown) => service.request(DeviceOperation.parse(operation), actor);
-  if (args.ref === undefined) return request(directOperation(args));
+  const noteActivity = (element?: SimElement) => {
+    const activity = simActivity(args, element);
+    if (activity) service.noteAgentActivity(args.simId, activity);
+  };
+  if (args.ref === undefined) {
+    const result = await request(directOperation(args));
+    noteActivity();
+    return result;
+  }
   const deviceId = args.simId;
   const known = state.refs.element(actor.owner, deviceId, args.ref);
   if (!known)
@@ -142,5 +151,6 @@ export async function simAct(
         "Pass coordinates or the action's own fields.",
       );
   }
+  noteActivity(element);
   return { ref: `@${args.ref.replace(/^@/, "")}`, role: element.role, name: element.name, result };
 }

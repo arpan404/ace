@@ -59,35 +59,57 @@ for (const entry of [
     );
     expect(screen.queryByRole("dialog")).toBeNull();
   });
-test("device settings apply appearance, locale and location", async () => {
+test("appearance, location and language each apply to the device from its menu", async () => {
   const { app, device } = await live();
-  await action(device, "Device settings…");
-  const dialog = await screen.findByRole("dialog");
-  await userEvent.click(within(dialog).getByRole("combobox", { name: "Appearance" }));
-  await userEvent.click(await screen.findByRole("option", { name: "Dark" }));
-  await userEvent.type(within(dialog).getByRole("textbox", { name: "Locale" }), "fr-FR");
-  await userEvent.type(within(dialog).getByRole("spinbutton", { name: "Latitude" }), "48.85");
-  await userEvent.type(within(dialog).getByRole("spinbutton", { name: "Longitude" }), "2.35");
-  await userEvent.click(within(dialog).getByRole("button", { name: "Save changes" }));
+  await userEvent.click(within(device).getByRole("button", { name: "Device actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Appearance" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Dark" }));
+
+  await action(device, "Location…");
+  const location = await screen.findByRole("dialog");
+  await userEvent.type(within(location).getByRole("spinbutton", { name: "Latitude" }), "48.85");
+  await userEvent.type(within(location).getByRole("spinbutton", { name: "Longitude" }), "2.35");
+  await userEvent.click(within(location).getByRole("button", { name: "Set location" }));
+
+  await action(device, "Language and region…");
+  const language = await screen.findByRole("dialog");
+  await userEvent.type(within(language).getByRole("textbox", { name: "Locale" }), "fr-FR");
+  await userEvent.click(within(language).getByRole("button", { name: "Set language" }));
   await waitFor(() =>
     expect(app.daemon.appDevices.actions).toEqual([
+      expect.objectContaining({ op: "configure", settings: { appearance: "dark" } }),
       expect.objectContaining({
         op: "configure",
-        settings: {
-          appearance: "dark",
-          locale: "fr-FR",
-          location: { latitude: 48.85, longitude: 2.35 },
-        },
+        settings: { location: { latitude: 48.85, longitude: 2.35 } },
       }),
+      expect.objectContaining({ op: "configure", settings: { locale: "fr-FR" } }),
+    ]),
+  );
+});
+test("the App drawer installs, launches and opens a link on the device", async () => {
+  const { app, device } = await live();
+  await userEvent.click(within(device).getByRole("button", { name: "App" }));
+  const drawer = within(device).getByRole("region", { name: "Device details" });
+  await userEvent.type(within(drawer).getByRole("textbox", { name: "Install" }), "/tmp/My.app");
+  await userEvent.click(within(drawer).getByRole("button", { name: "Install" }));
+  await userEvent.type(within(drawer).getByRole("textbox", { name: "Launch" }), "dev.example");
+  await userEvent.click(within(drawer).getByRole("button", { name: "Launch" }));
+  await userEvent.type(within(drawer).getByRole("textbox", { name: "Open URL" }), "not a url");
+  await userEvent.click(within(drawer).getByRole("button", { name: "Open" }));
+  expect((await within(drawer).findByRole("alert")).textContent).toContain("complete URL");
+  await waitFor(() =>
+    expect(app.daemon.appDevices.actions).toEqual([
+      expect.objectContaining({ op: "install", path: "/tmp/My.app" }),
+      expect.objectContaining({ op: "open_app", appId: "dev.example" }),
     ]),
   );
 });
 test("invalid location stays in the form with a fix", async () => {
   const { app, device } = await live();
-  await action(device, "Device settings…");
+  await action(device, "Location…");
   const dialog = await screen.findByRole("dialog");
   await userEvent.type(within(dialog).getByRole("spinbutton", { name: "Latitude" }), "95");
-  await userEvent.click(within(dialog).getByRole("button", { name: "Save changes" }));
+  await userEvent.click(within(dialog).getByRole("button", { name: "Set location" }));
   expect((await within(dialog).findByRole("alert")).textContent).toContain(
     "Enter both latitude and longitude",
   );
@@ -115,8 +137,10 @@ test("stopping recording posts a playable video to the thread", async () => {
   const { device } = await live();
   URL.createObjectURL = () => "blob:test/recording";
   URL.revokeObjectURL = () => {};
-  await action(device, "Record");
-  await action(device, "Stop recording");
+  // The rail's Record shows how long it has run, and stops it again.
+  await userEvent.click(within(device).getByRole("button", { name: "Record" }));
+  expect(await within(device).findByRole("timer", { name: "Recording time" })).toBeTruthy();
+  await userEvent.click(within(device).getByRole("button", { name: "Stop recording" }));
   await userEvent.click(await screen.findByRole("button", { name: "Play recording" }));
   const dialog = await screen.findByRole("dialog", { name: "Device recording.mp4" });
   await waitFor(() =>
@@ -140,7 +164,7 @@ test("Screenshot saves a fresh JPEG from the selected device", async () => {
   ) {
     downloads.push(this.download);
   });
-  await action(device, "Screenshot");
+  await userEvent.click(within(device).getByRole("button", { name: "Screenshot" }));
   await waitFor(() => expect(downloads).toEqual(["iPhone 16 Pro.jpg"]));
   expect(blobs[0]?.type).toBe("image/jpeg");
   expect(blobs[0]?.size).toBeGreaterThan(0);

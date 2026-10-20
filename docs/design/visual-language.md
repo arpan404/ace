@@ -116,6 +116,7 @@ existing components need no edits.
 | Sidebar, right panel      | `--sidebar`, `--panel`                                                           |
 | Hover and selected washes | `--fill` (= `--accent`, `--muted`), `--fill-strong` (= `--sidebar-accent`)       |
 | Controls                  | `--secondary`, `--seg-bg`, `--seg-thumb`, `--seg-thumb-shadow`, `--switch-off`   |
+| Devices                   | `--device-stage`, `--device-body`, `--device-rim`, `--device-glass`              |
 | Lines                     | `--border`, `--border-soft`, `--border-strong` (= `--input`), `--sidebar-border` |
 | Text fields               | `--field` (white with a hairline in light, a quiet lift in dark)                 |
 | Text                      | `--foreground`, `--muted-foreground`, `--subtle-foreground`                      |

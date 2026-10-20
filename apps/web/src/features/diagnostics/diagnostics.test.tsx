@@ -44,16 +44,21 @@ test("support export excludes conversations by default and downloads the chosen 
 test("Settings → Computer use explains how to install the computer's missing tools", async () => {
   await harness().open("/settings/computer-use");
   const tools = await screen.findByRole("region", { name: "Computer tools" });
-  expect(await within(tools).findByText(/Install Xcode from the App Store/)).toBeTruthy();
-  expect(within(tools).getByText(/Install Android Studio/)).toBeTruthy();
+  // The fake computer has Xcode and Git; only the Android SDK is missing.
+  expect(await within(tools).findByText(/Install Android Studio/)).toBeTruthy();
+  expect(within(tools).queryByText(/Install Xcode from the App Store/)).toBeNull();
   expect(within(tools).getByText("Git")).toBeTruthy();
 });
-test("Devices shows toolchain hints before enabling devices and in the catalog", async () => {
+test("the Devices list ends with the device tools' versions, and Set up shows how to add the missing one", async () => {
   const { panel } = await openDevices();
-  expect(await within(panel).findByText(/Install Xcode from the App Store/)).toBeTruthy();
-  await userEvent.click(within(panel).getByRole("button", { name: "Enable devices" }));
-  expect(await within(panel).findByRole("list", { name: "Devices" })).toBeTruthy();
-  expect(within(panel).getByText(/Install Android Studio/)).toBeTruthy();
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  const tools = await within(panel).findByLabelText("Device tools");
+  await waitFor(() =>
+    expect(tools.textContent).toBe("Xcode 26.0·serve-sim 0.1.48·Android SDKSet up…"),
+  );
+  await userEvent.click(within(tools).getByRole("button", { name: "Set up…" }));
+  const dialog = await screen.findByRole("dialog", { name: "Device tools" });
+  expect(within(dialog).getByText(/Install Android Studio/)).toBeTruthy();
 });
 
 test("a failed check offers a retry and a failed export keeps the dialog open", async () => {

@@ -18,7 +18,7 @@
       "items": {
         "$ref": "https://ace.local/protocol/v1/Toolchain.json"
       },
-      "maxItems": 3,
+      "maxItems": 4,
       "type": "array"
     },
     "type": {

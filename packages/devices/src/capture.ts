@@ -3,7 +3,6 @@ import type { DeviceInput } from "@ace/protocol/devices";
 import { type Frame, type ScreenManager, ScreenStopError } from "@ace/screen";
 import type { ScreenStreamSettings, ScreenAgentScope } from "@ace/protocol";
 import type { AppDevice as Device } from "@ace/protocol/devices";
-import { findExecutable as discoverExecutable } from "@ace/provider-kit/discovery";
 import { DeviceError } from "./sdk.ts";
 import { screenrecordCapture } from "./android-screenrecord.ts";
 import { scrcpyCapture } from "./scrcpy-capture.ts";
@@ -12,7 +11,7 @@ import type { DevicePlatform } from "./platform.ts";
 import type { Capture, DeviceRuntime } from "./runtime.ts";
 import { permissionDenied } from "./screen-failure.ts";
 import type { CaptureUI } from "./simulator-ui.ts";
-import { pinnedServeSim, serveSimSupported, serveSimVersion } from "./serve-sim-version.ts";
+import { pinnedServeSim, serveSimStatus } from "./serve-sim-version.ts";
 
 export interface DeviceCapture extends Capture {
   releaseInput?(): Promise<void>;
@@ -45,16 +44,9 @@ export async function startCapture(options: {
   };
   checkAbort();
   if (options.device.platform === "ios") {
-    const command = await discoverExecutable(
-      options.env["ACE_SERVE_SIM"] ?? "serve-sim",
-      options.env,
-    );
+    const { command, version, supported } = await serveSimStatus(options.env, options.runtime);
     checkAbort();
-    const version = command
-      ? await serveSimVersion(command, options.runtime, options.env)
-      : undefined;
-    checkAbort();
-    if (command && serveSimSupported(version)) {
+    if (command && supported) {
       const device = await options.platform.simulatorDevice(options.device);
       checkAbort();
       return simulatorCapture({ ...options, device, command });

@@ -475,9 +475,17 @@ export class FakeServicesWire {
                       },
                       {
                         id: "xcode",
-                        available: false,
-                        detail: "Simulator tools not found",
+                        available: true,
+                        detail: "Xcode at /Applications/Xcode.app/Contents/Developer",
                         hint: "Install Xcode from the App Store and open it once to set up the iOS Simulator.",
+                        version: "26.0",
+                      },
+                      {
+                        id: "serve-sim",
+                        available: true,
+                        detail: "serve-sim 0.1.48",
+                        hint: "Install the pinned version: npm install -g serve-sim@0.1.48",
+                        version: "0.1.48",
                       },
                       {
                         id: "android",
