@@ -35,29 +35,25 @@ function CheckRow(props: { threadId: string; check: CheckRun }) {
   return (
     <li
       aria-label={`${label}: ${words[outcome]}`}
-      className={cn("flex min-h-8 items-start gap-2 py-1.5 pr-2 pl-2 text-ui", capsule)}
+      className={cn("flex h-8 min-w-0 items-center gap-2 pr-2 pl-2 text-ui", capsule)}
     >
-      <span className="flex h-5 shrink-0 items-center">
-        <CapsuleGlyph state={glyphs[outcome]} />
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="flex h-5 min-w-0 items-center gap-2">
-          <span className="min-w-0 flex-1 truncate font-medium">{label}</span>
-          <span
-            data-tone={outcome === "failed" ? "failed" : undefined}
-            className={cn(
-              "shrink-0 text-xs",
-              outcome === "failed" ? "text-(--tone-text)" : "text-muted-foreground",
-            )}
-          >
-            {words[outcome]}
-            {outcome === "failed" && typeof check.exitCode === "number"
-              ? ` · exit ${check.exitCode}`
-              : ""}
-            {outcome !== "running" && when !== undefined ? ` · ${formatAgo(when, now)}` : ""}
-          </span>
-        </span>
-        <CapsuleMeta className="font-mono">{check.command}</CapsuleMeta>
+      <CapsuleGlyph state={glyphs[outcome]} />
+      <span className="shrink-0 font-medium">{label}</span>
+      <CapsuleMeta className="flex-1 font-mono text-subtle-foreground">
+        <span title={check.command}>{check.command}</span>
+      </CapsuleMeta>
+      <span
+        data-tone={outcome === "failed" ? "failed" : undefined}
+        className={cn(
+          "shrink-0 text-xs tabular-nums",
+          outcome === "failed" ? "text-(--tone-text)" : "text-muted-foreground",
+        )}
+      >
+        {words[outcome]}
+        {outcome === "failed" && typeof check.exitCode === "number"
+          ? ` · exit ${check.exitCode}`
+          : ""}
+        {outcome !== "running" && when !== undefined ? ` · ${formatAgo(when, now)}` : ""}
       </span>
     </li>
   );

@@ -1,25 +1,24 @@
 import type { LinkedPullRequest } from "@ace/protocol";
-import { formatAge, formatCount } from "@ace/ui-core";
+import { formatCount } from "@ace/ui-core";
 import { CaretDownIcon } from "@phosphor-icons/react";
 import { capsule } from "../agents/task-capsule.tsx";
 import { PrDot } from "../agents/pr-chip.tsx";
 import { pullRequestTab } from "../pull-request-tab.ts";
 import { cn } from "@/lib/cn.ts";
-import { useNow } from "@/lib/time.ts";
 import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
 
 /** Rows shown before the rest fold into "N more". */
 const shown = 4;
 const foldKey = "prs:all";
 
-function stateLine(pr: LinkedPullRequest, now: number): string {
+function stateLine(pr: LinkedPullRequest): string {
   switch (pr.state) {
     case "open":
       return "in review";
     case "draft":
       return "draft";
     case "merged":
-      return `merged ${formatAge(pr.updatedAt, now)}`;
+      return "merged";
     case "closed":
       return "closed";
   }
@@ -37,7 +36,6 @@ export function PullRequests(props: {
 }) {
   const workspace = useScopeWorkspace(props.threadId);
   const actions = useWorkspaceActions(props.threadId);
-  const now = useNow();
   const sections = workspace.tabs.find((tab) => tab.key === "work")?.ui?.sections;
   const all = sections?.[foldKey] === true;
   // Never fold away a PR still in review.
@@ -54,7 +52,7 @@ export function PullRequests(props: {
           <button
             type="button"
             title={pr.title}
-            aria-label={`Pull request #${pr.number}${pr.title ? `: ${pr.title}` : ""}, ${stateLine(pr, now)}`}
+            aria-label={`Pull request #${pr.number}${pr.title ? `: ${pr.title}` : ""}, ${stateLine(pr)}`}
             onClick={() =>
               actions.open(
                 pullRequestTab({
@@ -74,7 +72,7 @@ export function PullRequests(props: {
             </span>
             <span className="min-w-0 shrink truncate">{pr.title ?? `#${pr.number}`}</span>
             <span className="min-w-0 flex-1 truncate text-xs text-subtle-foreground">
-              {stateLine(pr, now)}
+              {stateLine(pr)}
             </span>
             <span className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
               #{pr.number}

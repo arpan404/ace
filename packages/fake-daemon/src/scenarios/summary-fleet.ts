@@ -204,14 +204,17 @@ export function summaryFleet(id = "thread-fleet"): Scenario {
   finished.forEach((name, index) => {
     const agent = `done-${index}`;
     const pr = opened(true, name);
-    ending.push(endTurn(agent), reported(`spawn-${agent}`, `Done. Opened ${prUrl(pr)}`));
+    ending.push(
+      endTurn(agent),
+      reported(`spawn-${agent}`, `Landed with tests passing. Opened ${prUrl(pr)}`),
+    );
   });
   resumed.forEach((name, index) => {
     const agent = `resumed-${index}`;
     const pr = opened(true, name);
     ending.push(
       endTurn(`${agent}-resumed`),
-      reported(`message-${agent}`, `Finished after the restart. Opened ${prUrl(pr)}`),
+      reported(`message-${agent}`, `Picked up where it stopped; tests pass. Opened ${prUrl(pr)}`),
     );
   });
   cancelled.forEach((_name, index) => ending.push(endTurn(`cancelled-${index}`, "interrupted")));

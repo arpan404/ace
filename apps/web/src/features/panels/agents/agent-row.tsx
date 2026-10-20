@@ -1,6 +1,6 @@
 import {
+  agentOutcome,
   agentPullRequest,
-  agentResult,
   agentStep,
   agentWorkState,
   endedByRestart,
@@ -80,7 +80,7 @@ export function AgentRow(props: {
   const state: CapsuleState = mark === "spinner" ? "working" : mark;
   const files = facts.files.get(agent.id) ?? [];
   const finished = state === "done";
-  const result = finished ? agentResult(identity.spawn) : undefined;
+  const result = finished ? agentOutcome(identity.spawn) : undefined;
   // What it is doing in plain words while it runs; how it ended once it has.
   const current = () =>
     agentStep({ status, item: tool, interaction: facts.requests.get(agent.id) });
@@ -100,19 +100,21 @@ export function AgentRow(props: {
   // The main agent's time is the thread's own, which the status line already counts.
   const elapsed =
     running && !root && end - agent.createdAt >= 1000 ? formatSpan(agent.createdAt, end) : "";
+  // A note on an agent that ran more than once: short on the row, whole in its tooltip.
+  const restarted = earlier.some(endedByRestart);
   const note = props.earlierRun
     ? "Earlier run"
-    : earlier.some(endedByRestart)
-      ? "resumed after a restart"
+    : restarted
+      ? "resumed"
       : earlier.length
         ? `ran ${pluralCount(earlier.length + 1, "time")}`
         : "";
+  const noteTip = restarted ? "Resumed after a restart" : undefined;
   // An earlier run says how it ended, in its own words when it failed.
   const ended = props.earlierRun && status.state === "failed" ? status.error.message : undefined;
   const meta = [ended ?? step, finished && files.length ? pluralCount(files.length, "file") : ""]
     .filter(Boolean)
     .join(" · ");
-  const after = [elapsed, props.earlierRun ? "" : note].filter(Boolean);
   const pr = props.earlierRun
     ? undefined
     : agentPullRequest([identity.spawn, firstSpawn], facts.prs);
@@ -163,18 +165,26 @@ export function AgentRow(props: {
           {props.earlierRun ? note : name}
         </span>
         {needsYou && <CapsuleBadge state={state}>Needs you</CapsuleBadge>}
-        <span
-          className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
-          title={[meta, ...after].join(" · ") || undefined}
-        >
-          <span>{meta}</span>
-          {after.length > 0 && (
-            <span className="text-subtle-foreground tabular-nums">
-              {meta ? " · " : ""}
-              {after.join(" · ")}
+        <span className="flex min-w-0 flex-1 items-center gap-1 text-xs">
+          <span className="min-w-0 truncate text-muted-foreground" title={meta || undefined}>
+            {meta}
+          </span>
+          {elapsed && (
+            // How long it has run stays in view while what it is doing truncates.
+            <span className="shrink-0 text-subtle-foreground tabular-nums">
+              {meta ? "· " : ""}
+              {elapsed}
             </span>
           )}
         </span>
+        {note && !props.earlierRun && (
+          <span
+            title={noteTip}
+            className="hidden shrink-0 text-xs text-subtle-foreground @[22rem]/summary:inline"
+          >
+            {note}
+          </span>
+        )}
         {pr && <PrChip pr={pr} />}
         {facts.mixedProviders && (
           <ProviderIconTip

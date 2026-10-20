@@ -165,7 +165,7 @@ export default function WorkTab(props: TabViewProps) {
       ref={scroll}
       data-summary
       data-work-scroll
-      className="flex h-full min-h-0 flex-col gap-3 overflow-x-hidden overflow-y-auto overscroll-contain px-1.5 py-1.5"
+      className="@container/summary flex h-full min-h-0 flex-col gap-3 overflow-x-hidden overflow-y-auto overscroll-contain px-1.5 py-1.5"
     >
       <div className="flex min-w-0 flex-col gap-1.5">
         <StatusLine thread={thread} running={counts.running} turn={turn} />

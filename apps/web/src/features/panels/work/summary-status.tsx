@@ -105,18 +105,14 @@ export function StatsStrip(props: {
       sub: props.live ? `${formatCount(props.live)} live` : undefined,
     });
   if (stats.length < 2) return null;
-  const odd = stats.length % 2 === 1;
   return (
     <div className="@container px-1">
       <dl
         aria-label="Thread figures"
-        className={`${hairlineGrid} grid-cols-2 overflow-hidden rounded-md border border-border-soft ${wide[stats.length] ?? ""}`}
+        className={`${hairlineGrid} overflow-hidden rounded-md border border-border-soft ${columns[stats.length] ?? ""}`}
       >
-        {stats.map((stat, index) => (
-          <div
-            key={stat.label}
-            className={`flex min-w-0 flex-col gap-0.5 bg-panel px-2.5 py-2 ${odd && index === stats.length - 1 ? "col-span-2 @[520px]:col-span-1" : ""}`}
-          >
+        {stats.map((stat) => (
+          <div key={stat.label} className="flex min-w-0 flex-col gap-0.5 bg-panel px-2.5 py-2">
             <dt className="truncate text-xs text-muted-foreground">{stat.label}</dt>
             <dd className="flex min-w-0 items-baseline gap-1.5">
               <span className="text-base font-medium text-foreground tabular-nums">
@@ -135,9 +131,9 @@ export function StatsStrip(props: {
   );
 }
 
-/** At 520px and wider the figures sit in one row. */
-const wide: Record<number, string> = {
-  2: "@[520px]:grid-cols-2",
-  3: "@[520px]:grid-cols-3",
-  4: "@[520px]:grid-cols-4",
+/** Up to three figures sit in one row; four take two rows below 520px. */
+const columns: Record<number, string> = {
+  2: "grid-cols-2",
+  3: "grid-cols-3",
+  4: "grid-cols-2 @[520px]:grid-cols-4",
 };

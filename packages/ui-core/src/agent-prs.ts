@@ -1,4 +1,5 @@
 import type { Item, LinkedPullRequest } from "@ace/protocol";
+import { resultLead } from "./system-events.ts";
 
 /** The whole text an agent reported back through the call that started (or resumed) it. */
 function reportText(spawn: Item | undefined): string | undefined {
@@ -58,4 +59,18 @@ export function summaryPullRequests(linked: readonly LinkedPullRequest[]): Linke
       (left, right) =>
         stateOrder[left.state] - stateOrder[right.state] || right.updatedAt - left.updatedAt,
     );
+}
+
+/** A report with each pull request URL shortened to its number: "Opened #1105". */
+const shortenPrUrls = (text: string) =>
+  text.replace(prUrl, (_url, _host, _owner, _name, number: string) => `#${number}`);
+
+/**
+ * How a finished agent says it ended, in one short line, its PR links shortened to numbers
+ * ("Fixed the replay order. Opened #301"): the line keeps its words and the PR its chip.
+ */
+export function agentOutcome(spawn: Item | undefined): string | undefined {
+  const text = reportText(spawn);
+  const lead = text ? resultLead(shortenPrUrls(text), 140) : "";
+  return lead || undefined;
 }

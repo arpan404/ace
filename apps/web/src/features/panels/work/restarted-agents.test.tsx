@@ -54,7 +54,9 @@ test("restart-failed, resumed, then done: one done row per agent and nothing nee
   expect(within(done).getAllByRole("treeitem")).toHaveLength(2);
   expect(within(done).queryByRole("treeitem", { name: /: Failed$/ })).toBeNull();
   // Its earlier run is a quiet note on the row, and the PR it reported opening sits beside it.
-  expect(ack[0]?.textContent).toContain("resumed after a restart");
+  expect(within(ack[0] as HTMLElement).getByTitle("Resumed after a restart").textContent).toBe(
+    "resumed",
+  );
   expect(
     within(ack[0] as HTMLElement).getByRole("img", { name: "Pull request #301, merged" }),
   ).toBeTruthy();
