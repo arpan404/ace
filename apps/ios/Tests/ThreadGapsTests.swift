@@ -61,6 +61,27 @@ import Testing
         #expect(model.approvalSubmissions["plan"]?.phase == .saving)
         #expect(session.threadActions.map { $0["type"] as? String } == ["resolve"])
     }
+    @Test func aStopTheDaemonRefusesWhileTheTreeKeepsWorkingCanBeSentAgain() async throws {
+        let (model, session) = try await connected()
+        let busy: [String: Any] = ["type": "thread.controls", "threadId": "thread", "epoch": 1,
+                                   "row": ["busy": true, "delivery": "queue", "alternate": NSNull(), "canStop": true, "provider": "codex", "model": "", "switching": ""]]
+        model.receive(try frame([busy]))
+        model.stopTree()
+        let first = try await stopRequest(session, count: 1)
+        model.receive(try frame([["type": "admission", "id": first, "ok": true, "message": ""]]))
+        model.receive(try frame([["type": "receipt", "id": first, "ok": false, "message": "Thread is busy"], busy]))
+        #expect(model.error == "Thread is busy")
+        #expect(model.thread?.screen.stopping == false)
+        // Stop is offered again; a late result of the refused one never clears the newer Stop.
+        model.stopTree()
+        #expect(model.thread?.screen.stopping == true)
+        let second = try await stopRequest(session, count: 2)
+        #expect(second != first)
+        model.receive(try frame([["type": "receipt", "id": first, "ok": false, "message": "Thread is busy"]]))
+        #expect(model.thread?.screen.stopping == true)
+        model.receive(try frame([["type": "admission", "id": second, "ok": true, "message": ""], ["type": "receipt", "id": second, "ok": true, "message": ""]]))
+        #expect(model.thread?.screen.stopping == true)
+    }
     @Test func anOpenedLogsStepsAssembleInPageOrderAndDropPagesPastTheHeader() throws {
         let model = ClientModel(now: { 0 })
         model.open("a")
@@ -83,6 +104,13 @@ import Testing
         await model.connect(target: target, directory: FileManager.default.temporaryDirectory)
         model.open("thread")
         return (model, session)
+    }
+    /// The request id of the `count`th Stop the bridge received.
+    private func stopRequest(_ session: ThreadActionRecorder, count: Int) async throws -> String {
+        for _ in 0..<50 where session.threadActions.filter({ $0["type"] as? String == "stop" }).count < count { await Task.yield() }
+        let stops = session.threadActions.filter { $0["type"] as? String == "stop" }
+        try #require(stops.count == count)
+        return try #require(stops.last?["requestId"] as? String)
     }
     private func item(_ id: String, thread: String, epoch: Int, index: Int) -> [String: Any] {
         ["type": "thread.item", "threadId": thread, "epoch": epoch, "id": id,
