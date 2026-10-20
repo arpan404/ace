@@ -32,9 +32,10 @@ export interface Context extends Observation {
 
 /**
  * Whether `by` checked independently of the run owner: another thread on another provider, or
- * on the same provider with a model known to differ. An unknown model never counts as different.
+ * on the same provider with a model known to differ. An unknown model or author never counts.
  */
-export function independentOf(owner: OffshiftAuthor, by: OffshiftAuthor): boolean {
+export function independentOf(owner: OffshiftAuthor | null, by: OffshiftAuthor | null): boolean {
+  if (!owner || !by) return false;
   if (by.threadId === owner.threadId) return false;
   if (by.provider !== owner.provider) return true;
   return by.model !== null && owner.model !== null && by.model !== owner.model;

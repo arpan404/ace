@@ -112,6 +112,19 @@ function fixture() {
     deleteThread() {
       db.prepare("DELETE FROM threads WHERE id=?").run(context.threadId);
     },
+    /** Rewrite stored runs as a build that kept no owner or evidence author wrote them. */
+    forgetAuthorship() {
+      for (const row of db.prepare("SELECT thread_id, id, body FROM offshift_runs").all()) {
+        const body = JSON.parse(String(row["body"]));
+        delete body.owner;
+        for (const item of body.evidence) delete item.by;
+        db.prepare("UPDATE offshift_runs SET body=? WHERE thread_id=? AND id=?").run(
+          JSON.stringify(body),
+          String(row["thread_id"]),
+          String(row["id"]),
+        );
+      }
+    },
   };
 }
 
@@ -463,4 +476,42 @@ test("an independent criterion stays pending on the owner's own pass until anoth
   ).toThrow("only get the run or record evidence");
   f.reopen();
   expect(f.get().pending).toEqual([]);
+});
+
+test("a run stored without its owner or evidence authors still loads, and nothing in it counts as independent", () => {
+  const f = fixture();
+  f.call({
+    ...f.start,
+    criteria: [
+      { id: "restore", description: "Restore persists", requiredKinds: ["ui"], independent: true },
+    ],
+  });
+  f.advance("implement");
+  f.advance("verify");
+  f.journal().execute(
+    {
+      action: "evidence",
+      runId: "feature",
+      version: f.get().run.version,
+      evidence: {
+        criterionId: "restore",
+        kind: "ui",
+        result: "pass",
+        revision: f.context.revision,
+        action: "Restore and reload",
+        artifact: "screenshot://restore",
+        note: "Item stays",
+      },
+    },
+    {
+      ...f.context,
+      caller: { threadId: ThreadId.parse(randomUUID()), provider: "claude", model: "opus" },
+    },
+  );
+  expect(f.get().pending).toEqual([]);
+  f.forgetAuthorship();
+  f.reopen();
+  const read = f.get();
+  expect(read.run.owner).toBeNull();
+  expect(read.pending).toEqual([{ criterionId: "restore", kind: "ui", needs: "independent" }]);
 });

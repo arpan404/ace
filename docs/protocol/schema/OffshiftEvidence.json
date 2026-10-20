@@ -16,7 +16,15 @@
       "type": "string"
     },
     "by": {
-      "$ref": "https://ace.local/protocol/v1/OffshiftAuthor.json"
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/OffshiftAuthor.json"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "criterionId": {
       "description": "The criterion this observation checks.",
@@ -68,8 +76,7 @@
     "action",
     "artifact",
     "note",
-    "recordedAt",
-    "by"
+    "recordedAt"
   ],
   "type": "object"
 }

@@ -61,6 +61,7 @@
       "$ref": "https://ace.local/protocol/v1/OffshiftRevision.json"
     },
     "roles": {
+      "default": [],
       "items": {
         "properties": {
           "effort": {
@@ -149,8 +150,7 @@
     "criteria",
     "criteriaCount",
     "pending",
-    "pendingCount",
-    "roles"
+    "pendingCount"
   ],
   "type": "object"
 }

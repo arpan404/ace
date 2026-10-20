@@ -156,43 +156,51 @@
                         "type": "string"
                       },
                       "by": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "model": {
-                            "anyOf": [
-                              {
-                                "maxLength": 256,
-                                "minLength": 1,
+                        "anyOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "model": {
+                                "anyOf": [
+                                  {
+                                    "maxLength": 256,
+                                    "minLength": 1,
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "provider": {
+                                "enum": [
+                                  "claude",
+                                  "codex",
+                                  "opencode",
+                                  "cursor",
+                                  "antigravity",
+                                  "acp",
+                                  "pi"
+                                ],
                                 "type": "string"
                               },
-                              {
-                                "type": "null"
+                              "threadId": {
+                                "minLength": 1,
+                                "type": "string"
                               }
-                            ]
-                          },
-                          "provider": {
-                            "enum": [
-                              "claude",
-                              "codex",
-                              "opencode",
-                              "cursor",
-                              "antigravity",
-                              "acp",
-                              "pi"
+                            },
+                            "required": [
+                              "threadId",
+                              "provider",
+                              "model"
                             ],
-                            "type": "string"
+                            "type": "object"
                           },
-                          "threadId": {
-                            "minLength": 1,
-                            "type": "string"
+                          {
+                            "type": "null"
                           }
-                        },
-                        "required": [
-                          "threadId",
-                          "provider",
-                          "model"
                         ],
-                        "type": "object"
+                        "default": null
                       },
                       "criterionId": {
                         "description": "The criterion this observation checks.",
@@ -271,43 +279,51 @@
                   "type": "string"
                 },
                 "owner": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "model": {
-                      "anyOf": [
-                        {
-                          "maxLength": 256,
-                          "minLength": 1,
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "model": {
+                          "anyOf": [
+                            {
+                              "maxLength": 256,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "provider": {
+                          "enum": [
+                            "claude",
+                            "codex",
+                            "opencode",
+                            "cursor",
+                            "antigravity",
+                            "acp",
+                            "pi"
+                          ],
                           "type": "string"
                         },
-                        {
-                          "type": "null"
+                        "threadId": {
+                          "minLength": 1,
+                          "type": "string"
                         }
-                      ]
-                    },
-                    "provider": {
-                      "enum": [
-                        "claude",
-                        "codex",
-                        "opencode",
-                        "cursor",
-                        "antigravity",
-                        "acp",
-                        "pi"
+                      },
+                      "required": [
+                        "threadId",
+                        "provider",
+                        "model"
                       ],
-                      "type": "string"
+                      "type": "object"
                     },
-                    "threadId": {
-                      "minLength": 1,
-                      "type": "string"
+                    {
+                      "type": "null"
                     }
-                  },
-                  "required": [
-                    "threadId",
-                    "provider",
-                    "model"
                   ],
-                  "type": "object"
+                  "default": null
                 },
                 "phase": {
                   "enum": [

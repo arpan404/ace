@@ -44,7 +44,7 @@ export function runCard(
         kind,
         state,
         recordedAt: found?.recordedAt ?? null,
-        by: found
+        by: found?.by
           ? {
               provider: found.by.provider,
               model: found.by.model === null ? null : clip(found.by.model, 64),

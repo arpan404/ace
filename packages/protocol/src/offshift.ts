@@ -129,8 +129,9 @@ export const OffshiftEvidence = z.strictObject({
   artifact: text.describe("Where the full output is kept: a path, URL or report reference."),
   note: text.describe("The observed result and environment, in a sentence or two."),
   recordedAt: Timestamp,
-  /** Set by the daemon from the authenticated caller, never from input. */
-  by: OffshiftAuthor,
+  /** Set by the daemon from the authenticated caller, never from input; null for records
+   * written before authorship was kept. */
+  by: OffshiftAuthor.nullable().default(null),
 });
 export type OffshiftEvidence = z.infer<typeof OffshiftEvidence>;
 export const OffshiftEvidenceInput = OffshiftEvidence.omit({ recordedAt: true, by: true });
@@ -201,7 +202,8 @@ export const OffshiftRun = z.object({
   endpoint: text,
   criteria: OffshiftCriteria,
   /** The owner's provider and model when the run started; independence is measured from it. */
-  owner: OffshiftAuthor,
+  /** Null for runs started before the owner was kept: nothing then counts as independent. */
+  owner: OffshiftAuthor.nullable().default(null),
   roles: OffshiftRoles,
   playbook: OffshiftPlaybookId.optional(),
   /** The run's procedure in phase order; runs started without one have none. */
@@ -268,7 +270,7 @@ export type OffshiftEvidenceState = z.infer<typeof OffshiftEvidenceState>;
 export const OffshiftCardCriterion = z.object({
   id: key,
   description: z.string().max(160),
-  independent: z.boolean(),
+  independent: z.boolean().default(false),
   /** One entry per required kind, in the criterion's order. */
   evidence: z
     .array(
@@ -277,7 +279,10 @@ export const OffshiftCardCriterion = z.object({
         state: OffshiftEvidenceState,
         recordedAt: Timestamp.nullable(),
         /** Who recorded it, without thread ids; the model is clipped to 64 characters. */
-        by: z.object({ provider: ProviderKind, model: z.string().max(64).nullable() }).nullable(),
+        by: z
+          .object({ provider: ProviderKind, model: z.string().max(64).nullable() })
+          .nullable()
+          .default(null),
       }),
     )
     .max(5),
@@ -315,7 +320,8 @@ export const OffshiftRunCard = z.object({
         effort: z.string().max(64).optional(),
       }),
     )
-    .max(4),
+    .max(4)
+    .default([]),
   /** The current phase's steps, in order; a skipped step's reason is clipped to 160 characters. */
   steps: z
     .array(

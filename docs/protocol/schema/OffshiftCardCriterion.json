@@ -37,7 +37,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "default": null
           },
           "kind": {
             "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceKind.json"
@@ -59,8 +60,7 @@
         "required": [
           "kind",
           "state",
-          "recordedAt",
-          "by"
+          "recordedAt"
         ],
         "type": "object"
       },
@@ -74,13 +74,13 @@
       "type": "string"
     },
     "independent": {
+      "default": false,
       "type": "boolean"
     }
   },
   "required": [
     "id",
     "description",
-    "independent",
     "evidence"
   ],
   "type": "object"
