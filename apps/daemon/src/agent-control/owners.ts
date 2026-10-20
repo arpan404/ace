@@ -3,6 +3,7 @@ import { followAutomationSetting } from "../automation-lifecycle.ts";
 import { AgentPreviews } from "./previews.ts";
 export { AgentPreviews } from "./previews.ts";
 import { createHandoffs } from "./handoffs.ts";
+import { createOffshifts } from "./offshift.ts";
 import { join } from "node:path";
 import { z } from "zod";
 import { AutomationService, AutomationStore } from "@ace/automations";
@@ -110,6 +111,7 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
   context.onListen.push(() => followAutomationSetting(context, automations));
   const previews = new AgentPreviews();
   const handoffs = createHandoffs(context, delegations);
+  const offshifts = createOffshifts(context, delegations);
   return {
     previews,
     async execute(
@@ -125,6 +127,8 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
           return previews.close(operation.threadId, operation.previewId);
         case "thread.handoff":
           return handoffs.execute(caller, operation, signal);
+        case "offshift":
+          return offshifts.execute(caller, operation, signal);
         case "automation.manage": {
           const request = operation.request;
           if (request.type === "automation.list")
