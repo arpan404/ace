@@ -1,6 +1,6 @@
 import type { ChangeTap, ThreadSource } from "@ace/client";
 import {
-  formatElapsed,
+  turnHeadLabel,
   ledgerOf,
   startedThreadOf,
   subagentLabels,
@@ -60,17 +60,12 @@ function workSummary(store: ThreadSource, block: WorkBlock, ids: readonly string
   const to = block.until ?? summary.endedAt;
   const waited = to > from ? ledgerOf(store).waitedWithin(from, to) : 0;
   const ongoing = block.ongoing === true || (block.outcome === undefined && summary.running);
-  const verb =
-    block.outcome === "interrupted"
-      ? "Stopped after"
-      : block.outcome === "failed"
-        ? "Failed after"
-        : "Worked for";
   return {
-    label:
-      block.outcome === "paused"
-        ? "Paused · Usage limit"
-        : `${verb} ${formatElapsed(Math.max(1000, to - from - waited - (block.idle ?? 0)))}`,
+    label: turnHeadLabel(
+      block.outcome,
+      block.restarted === true,
+      to - from - waited - (block.idle ?? 0),
+    ),
     counts: preview(workCounts(summary), 256),
     current: preview(ongoing ? (summary.current ?? "") : "", 256),
     ongoing,
@@ -141,7 +136,9 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
       return {
         ...base,
         ending: {
-          label: endings[block.ending],
+          // A restart, not the person, cut it short.
+          label:
+            block.ending === "interrupted" && block.automatic ? "Interrupted" : endings[block.ending],
           automatic: block.automatic === true,
           error: preview(error?.type === "notice" ? error.text : "", 512),
         },

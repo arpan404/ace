@@ -375,9 +375,11 @@ function readActivity(
         const provider = reader.thread ? providerNames[reader.thread.provider] : undefined;
         return line(pauseLabel(provider, { until: status.until ?? limited }), "paused");
       }
+      if (status.on === "network" && status.until === undefined)
+        return line(reconnectingLabel(status), "held");
       const reason = {
         rate_limit: "Rate limited",
-        network: "Network trouble",
+        network: "Reconnecting to the model",
         upstream: "Provider unavailable",
       }[status.on];
       return line(
@@ -393,6 +395,20 @@ function readActivity(
       // The turn is over; a question it left behind still waits on the person.
       return pending.length ? waitingOnYou(reader, rootId, pending) : undefined;
   }
+}
+
+/**
+ * A provider reconnecting by itself, as the live line says it while it lasts: "Reconnecting to
+ * the model… 2/5" with the provider's own count ("Reconnecting... 2/5"), else its attempt.
+ */
+function reconnectingLabel(status: Extract<AgentStatus, { state: "blocked" }>): string {
+  const count = /\b(\d+)\s*\/\s*(\d+)\b/.exec(status.message ?? "");
+  const progress = count
+    ? ` ${count[1]}/${count[2]}`
+    : status.attempt
+      ? ` attempt ${status.attempt}`
+      : "";
+  return `Reconnecting to the model…${progress}`;
 }
 
 /** Name a tree's current step the same way while the root works or waits on children. */

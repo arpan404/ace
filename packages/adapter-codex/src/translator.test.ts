@@ -265,6 +265,25 @@ test("a throttle Codex retries is a wait, never a usage limit", () => {
   });
   expect(h.state.status).toEqual({ state: "waiting", on: "upstream" });
 });
+test("a stream Codex reconnects by itself is a network wait whose notice is coded as a retry", () => {
+  const h = setup();
+  h.start();
+  const lost = {
+    message: "Reconnecting... 2/5",
+    codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: null } },
+  };
+  h.recv("error", { threadId: "native", willRetry: true, error: lost });
+  expect(h.state.status).toEqual({ state: "waiting", on: "network" });
+  h.recv("error", { threadId: "native", willRetry: false, error: { message: "Stream lost" } });
+  const notices = Object.values(h.state.items).flatMap((i) =>
+    i.type === "notice" ? [{ text: i.text, code: i.code, raw: i.raw.length }] : [],
+  );
+  // The raw frame is kept on both; only the one Codex retries is marked as live status.
+  expect(notices).toEqual([
+    { text: "Reconnecting... 2/5", code: "provider.retry", raw: 1 },
+    { text: "Stream lost", code: undefined, raw: 1 },
+  ]);
+});
 test("generic provider activity cannot clear a usage limit", () => {
   const h = setup();
   h.start();
