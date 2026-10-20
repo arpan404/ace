@@ -107,8 +107,7 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Send
                     switch self.router.route(bytes) {
                     case .none: break
                     case .stream(let message): self.streams?.deliver(message)
-                    // No device view reads the devices channel yet; its pictures are skipped.
-                    case .device: break
+                    case .device(let message): self.streams?.deliver(message)
                     case .sdk: self.event("binary", bytes.base64EncodedString())
                     case .broken: self.finish(1002); return
                     }

@@ -3,10 +3,15 @@ import XCTest
 @MainActor final class ParityUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
 
-    func testBottomTaskEntryOpensTheNativeDraft() {
+    func testTaskEntrySitsBesideTheProjectFilterAndOpensTheNativeDraft() {
         let app = launch()
         let start = app.buttons["inbox.startTask"]
         XCTAssertTrue(start.waitForExistence(timeout: 30))
+        let filter = app.buttons["inbox.projects"]
+        XCTAssertTrue(filter.exists)
+        XCTAssertLessThan(abs(start.frame.midY - filter.frame.midY), 8)
+        XCTAssertGreaterThan(start.frame.midX, filter.frame.midX)
+        XCTAssertLessThan(start.frame.maxY, app.frame.midY)
         start.tap()
         XCTAssertTrue(app.navigationBars["New thread"].waitForExistence(timeout: 10))
         capture("start-task")
@@ -93,7 +98,7 @@ import XCTest
 
     func testMachineSettingsAndUsageLoadThroughTheSharedSdk() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 30)); app.buttons["inbox.settings"].tap()
+        XCTAssertTrue(app.buttons["inbox.library"].waitForExistence(timeout: 30)); app.openBrowseDestination("inbox.settings")
         let machine = app.buttons["settings.machine.ios-spike-host"]
         if !machine.isHittable { app.swipeUp() }
         XCTAssertTrue(machine.waitForExistence(timeout: 15)); machine.tap()

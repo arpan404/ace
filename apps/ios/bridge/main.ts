@@ -20,6 +20,7 @@ import { ComposeActions } from "./compose-actions.ts";
 import { NativeServices, NativeServiceAction } from "./native-services.ts";
 import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
 import { BrowserLive } from "./browser-live.ts";
+import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -74,6 +75,7 @@ let compose: ComposeActions | undefined;
 let services: NativeServices | undefined;
 let terminal: NativeTerminal | undefined;
 let browser: BrowserLive | undefined;
+let devices: NativeDevices | undefined;
 const pump = new PatchPump();
 const trust = new TrustMonitor();
 const sheets = new Sheets(pump, preview);
@@ -144,7 +146,19 @@ async function start(json: string): Promise<void> {
   machine = new MachineProviders(client, pump);
   archive = new ArchiveBrowser(client, pump);
   compose = new ComposeActions(client, pump, preview, () => host.now());
-  services = new NativeServices(client, pump);
+  devices = new NativeDevices({
+    deviceId: config.deviceId,
+    hostId: config.hostId,
+    credential: paired
+      ? pairedCredential(nativeHttp, () => call("secret.get", paired.secretKey), trust)
+      : async () =>
+          z
+            .union([z.strictObject({ token: z.string() }), z.strictObject({ ticket: z.string() })])
+            .parse(JSON.parse(await call("credential"))),
+    id: () => host.uuid(),
+    trust,
+  });
+  services = new NativeServices(client, pump, devices);
   terminal = new NativeTerminal(client, pump);
   browser = new BrowserLive(client, pump, preview, scheduler.set);
   await client.start();
@@ -191,6 +205,11 @@ async function hydrate(
 function action(json: string): void {
   try {
     const raw: unknown = JSON.parse(json);
+    const deviceControl = NativeDeviceControl.safeParse(raw);
+    if (deviceControl.success) {
+      devices?.handle(deviceControl.data);
+      return;
+    }
     const terminalAction = NativeTerminalAction.safeParse(raw);
     if (terminalAction.success) {
       terminal?.handle(terminalAction.data);

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Where the New thread sheet can go: pickers push, choosing pops back to the form.
-enum NewThreadRoute: Hashable { case projects, addProject, agents, mention }
+enum NewThreadRoute: Hashable { case projects, addProject, agents, mention, options }
 
 /// New thread (issue #560), as the web's New thread: machine, project (recent first), an
 /// optional worktree and its base, the coding agent and model, then the first message. The
@@ -10,6 +10,7 @@ struct NewThreadSheet: View {
     @Bindable var inbox: MachineInbox
     /// The start was saved on this phone under this command id on this machine.
     let saved: (_ machineId: String, _ commandId: String) -> Void
+    var initialProject: String? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var drafts = NewThreadDraftModel(store: .standard())
     @State private var path: [NewThreadRoute] = []
@@ -56,47 +57,22 @@ struct NewThreadSheet: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            Form {
-                if inbox.sessions.count > 1 { machineSection }
-                if client?.canOperate == false { ViewOnlyNote(message: NewThreadGate.viewOnly).listRowBackground(Color.clear) }
-                projectSection
-                agentSection
-                messageSection
-                Section {
-                    Picker("Profile", selection: Binding(get: { draft.profileId ?? "" }, set: { id in
-                        drafts.edit { $0.profileId = id.isEmpty ? nil : id; $0.instructions = profiles.first { $0.id == id }?.instructions }
-                    })) {
-                        Text("None").tag("")
-                        ForEach(profiles) { Text($0.name).tag($0.id) }
-                    }
-                    .accessibilityIdentifier("newThread.profile")
-                    TextField("Custom instructions", text: Binding(get: { draft.instructions ?? "" }, set: { value in drafts.edit { $0.instructions = value } }), axis: .vertical).lineLimit(2...6)
-                        .accessibilityIdentifier("newThread.instructions")
-                    NavigationLink("Manage profiles") { TaskProfilesView(store: TaskProfileStore(defaults: .standard)) }
-                        .accessibilityIdentifier("newThread.profiles")
-                } footer: { Text("Instructions are included in this task's first message.") }
-                if let failure {
-                    Text(failure).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.StatusText.failed)
-                        .accessibilityIdentifier("newThread.failure")
-                }
-            }
-            // The form reappears when Manage profiles pops back: read the profiles again there, so
-            // one created or edited meanwhile is in the picker at once.
+            startContent
+            .background(AceTheme.Colours.background)
             .onAppear { profiles = TaskProfileStore(defaults: .standard).load() }
             .navigationTitle("New thread").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button { send() } label: { if sending { ProgressView() } else { Text("Start") } }
-                        .disabled(blocker != nil || sending)
-                        .accessibilityHint(blocker ?? "")
-                        .accessibilityIdentifier("newThread.start")
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink(value: NewThreadRoute.options) { Image(systemName: "ellipsis") }
+                        .accessibilityLabel("Task options").accessibilityIdentifier("newThread.options")
                 }
             }
             .navigationDestination(for: NewThreadRoute.self) { route in destination(route) }
         }
         .task(id: machineId) {
             guard let client else { return }
+            if draft.projectId == nil, let initialProject { drafts.edit { $0.projectId = initialProject } }
             client.composeAction(["kind": "open"])
             client.composeChoice(draft)
             if let project = draft.projectId {
@@ -113,10 +89,46 @@ struct NewThreadSheet: View {
         .onDisappear { client?.composeAction(["kind": "close"]) }
         .sheet(isPresented: $browsing) { projectFiles }
     }
+    private var startContent: some View {
+            GeometryReader { geometry in
+                ScrollView {
+                    VStack(spacing: AceTheme.Spacing.lg) {
+                        if inbox.sessions.count > 1 { machineSection }
+                        HStack(spacing: AceTheme.Spacing.xs) {
+                            Text("What should we build")
+                            NavigationLink(value: NewThreadRoute.projects) {
+                                Text(project.map { "in \($0.name)?" } ?? "Choose a project")
+                                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                            }.accessibilityIdentifier("newThread.project")
+                        }
+                        .aceFont(AceTheme.Typography.title, relativeTo: .title2)
+                        .multilineTextAlignment(.center)
+                        if draft.projectId != nil {
+                            HStack {
+                                Toggle("Worktree", isOn: Binding(get: { draft.worktree && branches?.noWorktree == nil }, set: { on in drafts.edit { $0.worktree = on } }))
+                                    .toggleStyle(.button).disabled(branches?.noWorktree != nil || branches?.state != "ready")
+                                    .accessibilityIdentifier("newThread.worktree")
+                                if draft.worktree { worktreeBase }
+                                Spacer(minLength: AceTheme.Spacing.none)
+                            }
+                            .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                        }
+                        messageSection
+                        if let blocker, !draft.text.isEmpty {
+                            Text(blocker).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        }
+                        ServiceProblem(message: failure ?? attachProblem)
+                    }
+                    .padding(AceTheme.Spacing.lg)
+                    .frame(minHeight: geometry.size.height)
+                }
+                .scrollDismissesKeyboard(.interactively)
+            }
+    }
     /// The chosen project's own folder, read-only, before the thread exists.
     @ViewBuilder private var projectFiles: some View {
         if let client, let project = draft.projectId {
-            ThreadFilesSheet(model: client, scope: .project(project), mention: { file in drafts.edit { $0.text = Mention.insert(file, into: $0.text) } })
+            ThreadFilesSheet(model: client, scope: .project(project), mention: { file in drafts.edit { $0.text = Mention.insert(file, into: $0.text) }; path = [] })
         }
     }
 
@@ -192,14 +204,7 @@ struct NewThreadSheet: View {
         }
     }
     private var messageSection: some View {
-        Section {
-            TextField("What should it do?", text: Binding(get: { draft.text }, set: { text in drafts.edit { $0.text = text } }), axis: .vertical)
-                .lineLimit(4...12)
-                .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                .accessibilityIdentifier("newThread.message")
-            NavigationLink(value: NewThreadRoute.mention) { Label("Mention a file", systemImage: "at") }
-                .disabled(draft.projectId == nil)
-                .accessibilityIdentifier("newThread.mention")
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             if !files.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: AceTheme.Spacing.xs) {
@@ -207,23 +212,59 @@ struct NewThreadSheet: View {
                     }
                 }
             }
-            // Picked files are kept with the draft, so a relaunch puts them back on the message.
-            AttachMenu(stage: { staged in
-                guard let client, let project = draft.projectId else { drafts.staging.discard(staged.localId); return }
-                drafts.picked(staged, workspaceId: project)
-                client.composeAttach(staged, workspaceId: project)
-            }, problem: $attachProblem, identifier: "newThread.attach", staging: drafts.staging) {
-                Label("Add photos or files", systemImage: "plus").frame(maxWidth: .infinity, alignment: .leading)
+            HStack(alignment: .bottom, spacing: AceTheme.Spacing.xs) {
+                AttachMenu(stage: { staged in
+                    guard let client, let project = draft.projectId else { drafts.staging.discard(staged.localId); return }
+                    drafts.picked(staged, workspaceId: project)
+                    client.composeAttach(staged, workspaceId: project)
+                }, problem: $attachProblem, identifier: "newThread.attach", staging: drafts.staging) { Image(systemName: "plus") }
+                    .disabled(draft.projectId == nil || client?.canOperate != true)
+                TextField("What should it do?", text: Binding(get: { draft.text }, set: { text in drafts.edit { $0.text = text } }), axis: .vertical)
+                    .lineLimit(1...5).frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .aceFont(AceTheme.Typography.body, relativeTo: .body)
+                    .accessibilityIdentifier("newThread.message")
+                NavigationLink(value: NewThreadRoute.agents) {
+                    Text(model?.label ?? "Model").lineLimit(1).truncationMode(.middle)
+                        .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                        .frame(maxWidth: AceTheme.Dimensions.touchTarget * 2, minHeight: AceTheme.Dimensions.touchTarget)
+                }.accessibilityIdentifier("newThread.agent")
+                Button { send() } label: {
+                    Group { if sending { ProgressView() } else { Image(systemName: "arrow.up") } }
+                        .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+                        .foregroundStyle(AceTheme.Colours.background).background(AceTheme.Colours.foreground, in: Circle())
+                }
+                .disabled(blocker != nil || sending).accessibilityHint(blocker ?? "")
+                .accessibilityLabel("Start thread").accessibilityIdentifier("newThread.start")
             }
-            .disabled(draft.projectId == nil || client?.canOperate != true)
-            if let attachProblem {
-                Text(attachProblem).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.StatusText.failed)
-            }
+            .padding(AceTheme.Spacing.xs).floatingGlass()
         }
+    }
+    private var options: some View {
+        Form {
+            if inbox.sessions.count > 1 { machineSection }
+            projectSection
+            agentSection
+            Section("Instructions and profile") {
+                Picker("Profile", selection: Binding(get: { draft.profileId ?? "" }, set: { id in
+                    drafts.edit { $0.profileId = id.isEmpty ? nil : id; $0.instructions = profiles.first { $0.id == id }?.instructions }
+                })) {
+                    Text("None").tag("")
+                    ForEach(profiles) { Text($0.name).tag($0.id) }
+                }.accessibilityIdentifier("newThread.profile")
+                TextField("Custom instructions", text: Binding(get: { draft.instructions ?? "" }, set: { value in drafts.edit { $0.instructions = value } }), axis: .vertical)
+                    .lineLimit(2...6).accessibilityIdentifier("newThread.instructions")
+                NavigationLink("Manage profiles") { TaskProfilesView(store: TaskProfileStore(defaults: .standard)) }.accessibilityIdentifier("newThread.profiles")
+            }
+            Section {
+                NavigationLink(value: NewThreadRoute.mention) { Label("Mention a file", systemImage: "at") }
+                    .disabled(draft.projectId == nil).accessibilityIdentifier("newThread.mention")
+            }
+        }.navigationTitle("Task options")
     }
     @ViewBuilder private func destination(_ route: NewThreadRoute) -> some View {
         if let client {
             switch route {
+            case .options: options
             case .projects:
                 ProjectPickerView(compose: client.compose, selected: draft.projectId, canAdd: client.canOperate,
                                   reload: { client.composeAction(["kind": "projects"]) }, addProject: { path.append(.addProject) }) { id in

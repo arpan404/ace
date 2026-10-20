@@ -6,8 +6,11 @@ import Foundation
 final class BrowserStreamHub: @unchecked Sendable {
     private let lock = NSLock()
     private var sink: (@Sendable (BrowserVideoChunk) -> Void)?
+    private var deviceSink: (@Sendable (DeviceFrameChunk) -> Void)?
 
     func attach(_ sink: (@Sendable (BrowserVideoChunk) -> Void)?) { lock.withLock { self.sink = sink } }
+    func attachDevice(_ sink: (@Sendable (DeviceFrameChunk) -> Void)?) { lock.withLock { deviceSink = sink } }
+    func deliver(_ chunk: DeviceFrameChunk) { lock.withLock { deviceSink }?(chunk) }
     /// Called on the delivering socket's queue.
     func deliver(_ chunk: BrowserVideoChunk) {
         let sink = lock.withLock { self.sink }
