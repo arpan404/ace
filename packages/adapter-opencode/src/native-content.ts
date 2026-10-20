@@ -176,6 +176,14 @@ export function text(state: NativeState, type: string, p: Data, evidence: unknow
     },
   ];
 }
+/** What a synthetic message reports, read from its native metadata; undefined when unsaid. */
+export function syntheticKind(
+  metadata: Data,
+): "background_completion" | "subagent_result" | undefined {
+  if (metadata.source === "shell") return "background_completion";
+  if (metadata.source === "subagent") return "subagent_result";
+  return undefined;
+}
 export function projected(state: NativeState, session: string, value: unknown): Fact[] {
   const p = object(value),
     message = string(p.id),
@@ -203,7 +211,10 @@ export function projected(state: NativeState, session: string, value: unknown): 
     });
   }
   if (p.type === "system") return [];
-  if (p.type === "user" || p.type === "synthetic")
+  if (p.type === "user" || p.type === "synthetic") {
+    // A synthetic message is input OpenCode wrote for the model (a finished shell, a child's
+    // result), never the agent's prose: it is the session's input, marked with what it reports.
+    const kind = p.type === "synthetic" ? syntheticKind(object(p.metadata)) : undefined;
     return [
       ...(p.type === "synthetic"
         ? state.completion(object(p.metadata), number(object(p.time).created, -1))
@@ -215,14 +226,16 @@ export function projected(state: NativeState, session: string, value: unknown): 
         draft: {
           type: "message",
           ...(message && message.length <= 256 ? { nativeId: message } : {}),
-          role: p.type === "user" ? "user" : "assistant",
+          role: "user",
           synthetic: p.type === "synthetic",
+          ...(kind ? { origin: { kind } } : {}),
           parts: [{ type: "text", text: string(p.text) }],
           complete: true,
           raw: raw("projected.message", p),
         },
       },
     ];
+  }
   // Idle markers are historical evidence. A fresh info/active snapshot owns turn settlement.
   if (p.type === "idle") return [];
   return [];
