@@ -208,6 +208,47 @@ test("a stamped origin (C-A, attached as the projection carries it) decides over
   expect(inputLine(model!)?.text).toBe("Model: Opus 4.1 → Sonnet 4.5");
 });
 
+test("a Claude background-command notice reads as its command", () => {
+  const text = `<task-notification>\n<task-id>bd0rixyq4</task-id>\n<tool-use-id>toolu_01P</tool-use-id>\n<output-file>/tmp/x.output</output-file>\n<status>completed</status>\n<summary>Background command "bun run check:deps 2&gt;&amp;1 | tail -3" completed (exit code 0)</summary>\n</task-notification>`;
+  expect(inputLine({ kind: "background_completion", text })).toMatchObject({
+    text: "Background task finished: bun run check:deps 2>&1 | tail -3",
+  });
+});
+
+test("a Claude command with backticks and quotes keeps its whole first line", () => {
+  const text =
+    '<task-notification>\n<summary>Background command "echo "`date`" &amp;&amp; ls\nsecond line" failed (exit code 1)</summary>\n</task-notification>';
+  expect(inputLine({ kind: "background_completion", text })).toMatchObject({
+    text: 'Background task finished: echo "`date`" && ls',
+  });
+});
+
+test("an opencode shell notice reads as its command, not backticks in its output", () => {
+  const text = `<shell id="sh_147d" state="completed" command="rm a.test.ts &amp;&amp; bunx vitest run">\nError: \`foo\` is not defined\n</shell>`;
+  expect(inputLine({ kind: "background_completion", text })).toMatchObject({
+    text: "Background task finished: rm a.test.ts && bunx vitest run",
+  });
+});
+
+test("a provider notice without a command never takes a title from its output", () => {
+  const text = '<shell id="sh_1" state="completed">see `README.md`</shell>';
+  expect(inputLine({ kind: "background_completion", text })).toMatchObject({
+    text: "Background task finished",
+  });
+});
+
+test("ace's own background text reads its backtick command", () => {
+  expect(
+    inputLine({ kind: "background_completion", text: "Background task `bun run check` finished" }),
+  ).toMatchObject({ text: "Background task finished: bun run check" });
+});
+
+test("an unknown background notice keeps the fallback text", () => {
+  expect(inputLine({ kind: "background_completion", text: "done" })).toMatchObject({
+    text: "Background task finished",
+  });
+});
+
 test("the first-paint check lets through only what may be ace's input", () => {
   expect(mayBeSystemInput(message("Fix the login redirect loop"))).toBe(false);
   expect(mayBeSystemInput(message(restart))).toBe(true);
