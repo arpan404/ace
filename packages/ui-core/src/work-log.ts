@@ -7,6 +7,7 @@ import { formatElapsed } from "./time.ts";
 import { planCount, planProgress, planTodos } from "./plan.ts";
 import { exploreAction } from "./explore-command.ts";
 import { isToolSearch, toolSearchRow } from "./tool-search.ts";
+import { toolRefusal } from "./tool-refusals.ts";
 
 export type StepIcon =
   | "read"
@@ -290,6 +291,9 @@ export function describeStep(item: Item, context: StepContext = {}): StepText {
       failed: !!ace.problem,
       ace,
     };
+  const refusal = toolRefusal(item);
+  if (refusal)
+    return { icon: "tool", verb: refusal.label, note: "Failed", settled: true, failed: true };
   if (item.type === "notice")
     return {
       icon: "note",

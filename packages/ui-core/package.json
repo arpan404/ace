@@ -38,5 +38,8 @@
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
     "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@ace/mcp-server": "workspace:*"
   }
 }

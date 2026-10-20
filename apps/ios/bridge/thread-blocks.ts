@@ -138,7 +138,9 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
         ending: {
           // A restart, not the person, cut it short.
           label:
-            block.ending === "interrupted" && block.automatic ? "Interrupted" : endings[block.ending],
+            block.ending === "interrupted" && block.automatic
+              ? "Interrupted"
+              : endings[block.ending],
           automatic: block.automatic === true,
           error: preview(error?.type === "notice" ? error.text : "", 512),
         },

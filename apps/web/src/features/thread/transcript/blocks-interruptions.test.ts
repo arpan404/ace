@@ -1,6 +1,6 @@
 import { defaultLimits, ThreadStore } from "@ace/client";
 import { createThreadView } from "@ace/projection";
-import { Event, Thread, type EventPayload } from "@ace/protocol";
+import { Event, Thread } from "@ace/protocol";
 import { turnHeadLabel } from "@ace/ui-core";
 import { expect, test } from "vitest";
 import { createBlockReader } from "./block-reader.ts";
@@ -13,7 +13,7 @@ import type { Block } from "./blocks.ts";
  */
 
 const minute = 60_000;
-const thread = Thread.parse({
+const threadView = Thread.parse({
   id: "thread",
   workspaceId: "workspace",
   provider: "codex",
@@ -26,9 +26,10 @@ const thread = Thread.parse({
 
 function recorded() {
   const store = new ThreadStore(defaultLimits);
-  store.snapshot(createThreadView(thread));
+  store.snapshot(createThreadView(threadView));
   let seq = 0;
-  const admit = (at: number, ...payloads: EventPayload[]) => {
+  // Payloads are parsed as the store receives them, brands and defaults included.
+  const admit = (at: number, ...payloads: unknown[]) => {
     for (const payload of payloads) {
       seq++;
       store.delivery({
@@ -36,7 +37,7 @@ function recorded() {
         subscriptionId: "s",
         afterSeq: seq - 1,
         throughSeq: seq,
-        events: [Event.parse({ id: `event-${seq}`, seq, at, threadId: thread.id, payload })],
+        events: [Event.parse({ id: `event-${seq}`, seq, at, threadId: threadView.id, payload })],
       });
     }
   };
@@ -44,7 +45,7 @@ function recorded() {
     type: "agent.created",
     agent: {
       id: "root",
-      threadId: thread.id,
+      threadId: threadView.id,
       parentId: null,
       origin: "root",
       native: { provider: "codex", nativeId: "root" },
@@ -58,7 +59,7 @@ function recorded() {
   return { store, admit, blocks: () => read(store).value };
 }
 
-const ask = (id: string, at: number, runId?: string): EventPayload => ({
+const ask = (id: string, at: number, runId?: string) => ({
   type: "item.created",
   item: {
     id,
@@ -72,7 +73,7 @@ const ask = (id: string, at: number, runId?: string): EventPayload => ({
     ...(runId ? { runId } : {}),
   },
 });
-const restartInput = (id: string, at: number): EventPayload => ({
+const restartInput = (id: string, at: number) => ({
   type: "item.created",
   item: {
     id,
@@ -86,7 +87,7 @@ const restartInput = (id: string, at: number): EventPayload => ({
     origin: { kind: "restart", commandId: `restart-${id}` },
   },
 });
-const step = (id: string, runId: string, at: number): EventPayload => ({
+const step = (id: string, runId: string, at: number) => ({
   type: "item.created",
   item: {
     id,
@@ -107,16 +108,11 @@ const step = (id: string, runId: string, at: number): EventPayload => ({
     },
   },
 });
-const started = (
-  id: string,
-  at: number,
-  trigger: "user" | "restart",
-  turn?: number,
-): EventPayload => ({
+const started = (id: string, at: number, trigger: "user" | "restart", turn?: number) => ({
   type: "run.started",
   run: {
     id,
-    threadId: thread.id,
+    threadId: threadView.id,
     agentId: "root",
     trigger,
     state: "active",
@@ -124,15 +120,16 @@ const started = (
     ...(turn ? { turn } : {}),
   },
 });
-const ended = (
-  runId: string,
-  at: number,
-  state: "completed" | "interrupted" | "failed",
-): EventPayload => ({ type: "run.ended", runId, state, endedAt: at });
-const status = (next: EventPayload & { type: "agent.status" }) => next;
+const ended = (runId: string, at: number, state: "completed" | "interrupted" | "failed") => ({
+  type: "run.ended",
+  runId,
+  state,
+  endedAt: at,
+});
+const status = (next: { type: "agent.status"; agentId: string; status: unknown }) => next;
 const settled = (state: "idle" | "interrupted") =>
   status({ type: "agent.status", agentId: "root", status: { state } });
-const queue = (reason: "restart" | "stopped" | null): EventPayload => ({
+const queue = (reason: "restart" | "stopped" | null) => ({
   type: "queue.updated",
   revision: 1,
   paused: reason !== null,
@@ -146,7 +143,7 @@ const codexError = (
   at: number,
   willRetry: boolean,
   coded = willRetry,
-): EventPayload => ({
+) => ({
   type: "item.created",
   item: {
     id,
@@ -182,7 +179,7 @@ const head = (blocks: readonly Block[]) => {
 };
 const rows = (blocks: readonly Block[]) => blocks.flatMap((block) => blockIds(block));
 const blockIds = (block: Block): string[] =>
-  block.kind === "work" ? block.itemIds : "itemId" in block ? [block.itemId] : [block.kind];
+  block.kind === "work" ? block.itemIds : [("itemId" in block && block.itemId) || block.kind];
 
 test("a run interrupted by a daemon restart reads as interrupted, not stopped", () => {
   const thread = recorded();
@@ -238,7 +235,9 @@ test("a provider retry that recovers leaves no row in the transcript", () => {
   thread.admit(10_000, step("write", "run", 10_000), ended("run", 12_000, "completed"));
   thread.admit(12_000, settled("idle"));
   expect(rows(thread.blocks())).not.toContain("retry");
-  expect(thread.store.item("retry")?.raw).toHaveLength(1);
+  // Still kept, raw frame and all.
+  const kept = thread.store.item("retry");
+  expect(kept?.type === "notice" && kept.raw).toHaveLength(1);
 });
 
 test("a retry that gives up stays visible", () => {
