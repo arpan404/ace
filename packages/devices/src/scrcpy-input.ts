@@ -4,6 +4,7 @@ import { DeviceError } from "./sdk.ts";
 import {
   clipboardTextLimit,
   injectTextLimit,
+  altOn,
   keycode,
   type ControlMessage,
   type ScreenSize,
@@ -22,6 +23,21 @@ const plainText = /^[\x20-\x7e]*$/;
 const press = (code: number): InputStep[] => [
   { delayMs: 0, message: { type: "keycode", action: "down", keycode: code } },
   { delayMs: 0, message: { type: "keycode", action: "up", keycode: code } },
+];
+
+/**
+ * Alt+K, Gboard's "Show on-screen keyboard": it brings the keyboard back for the focused field
+ * after physical-keyboard input collapsed Gboard to its floating toolbar, or after Back hid it.
+ * With nothing to type into, or the keyboard already up, it does nothing.
+ */
+const showKeyboard: InputStep[] = [
+  {
+    delayMs: 0,
+    message: { type: "keycode", action: "down", keycode: keycode.altLeft, meta: altOn },
+  },
+  { delayMs: 0, message: { type: "keycode", action: "down", keycode: keycode.k, meta: altOn } },
+  { delayMs: 0, message: { type: "keycode", action: "up", keycode: keycode.k, meta: altOn } },
+  { delayMs: 0, message: { type: "keycode", action: "up", keycode: keycode.altLeft } },
 ];
 
 /**
@@ -138,6 +154,8 @@ export function scrcpyInputPlan(
           return press(keycode.volumeUp);
         case "volumeDown":
           return press(keycode.volumeDown);
+        case "keyboard":
+          return showKeyboard;
         case "action":
         case "side":
           return refuseAndroidKey(input.key);

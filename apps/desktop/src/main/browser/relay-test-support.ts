@@ -6,6 +6,7 @@ import { expect, vi } from "vitest";
 import { WebSocketServer, WebSocket as ServerSocket } from "ws";
 import { EmbeddedBackend, type EmbeddedTransport } from "@ace/browser";
 import { BrowserBackend, type ViewHost } from "./backend.ts";
+import type { VideoRelaySource } from "./video-relay.ts";
 import { BackendConnection } from "./connection.ts";
 import { readDesktopCredential } from "./credential.ts";
 
@@ -65,7 +66,12 @@ export async function relayDaemon(
     const connectionId = `connection-${++connections}`;
     let relay: EmbeddedBackend | undefined;
     const reply = (message: unknown) => socket.send(JSON.stringify(message));
-    socket.on("message", (data) => {
+    socket.on("message", (data, binary) => {
+      // The desktop's video encoder events, as the daemon's browser socket service routes them.
+      if (binary) {
+        relay?.binary(new Uint8Array(Buffer.isBuffer(data) ? data : Buffer.from(String(data))));
+        return;
+      }
       const message: unknown = JSON.parse(String(data));
       options.received?.(message);
       if (typeof message !== "object" || message === null || !("type" in message)) return;
@@ -89,6 +95,12 @@ export async function relayDaemon(
             return true;
           },
           close: (reason) => socket.close(4009, reason.slice(0, 120)),
+          video:
+            "capabilities" in message &&
+            typeof message.capabilities === "object" &&
+            message.capabilities !== null &&
+            "video" in message.capabilities &&
+            message.capabilities.video === true,
         });
         relays.push(relay);
         return reply({
@@ -113,24 +125,30 @@ export async function connectDesktop(
   cleanups: (() => unknown)[],
   daemon: { url: string },
   host: ViewHost,
+  /** The app's video encoder: the desktop then registers the `video` capability. */
+  video?: VideoRelaySource,
 ) {
   const home = await mkdtemp(join(tmpdir(), "ace-desktop-relay-"));
   cleanups.push(() => rm(home, { recursive: true, force: true }));
   await writeFile(join(home, "browser-desktop.json"), JSON.stringify(credential));
-  const backend = new BrowserBackend(host, { log: () => {} });
-  const connection = new BackendConnection(backend, {
-    daemon: async () => ({ url: daemon.url, token }),
-    credential: () => readDesktopCredential(home),
-    socket: (url) => new WebSocket(url),
-    timers: {
-      set(delayMs, callback) {
-        const timer = setTimeout(callback, delayMs);
-        return () => clearTimeout(timer);
+  const backend = new BrowserBackend(host, { log: () => {}, ...(video ? { video } : {}) });
+  const connection = new BackendConnection(
+    backend,
+    {
+      daemon: async () => ({ url: daemon.url, token }),
+      credential: () => readDesktopCredential(home),
+      socket: (url) => new WebSocket(url),
+      timers: {
+        set(delayMs, callback) {
+          const timer = setTimeout(callback, delayMs);
+          return () => clearTimeout(timer);
+        },
       },
+      id: randomUUID,
+      log: () => {},
     },
-    id: randomUUID,
-    log: () => {},
-  });
+    { video: video !== undefined },
+  );
   cleanups.push(() => connection.close());
   connection.setAvailable(true);
   await eventually(() => expect(connection.state()).toBe("registered"));

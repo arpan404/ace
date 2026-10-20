@@ -11,7 +11,6 @@ import {
 // The web app's own live-view renderer and decoder, so the probe measures what people see.
 import { pictureRenderer } from "../../../apps/web/src/lib/video/picture-renderer.ts";
 import { webCodecsDecoder } from "../../../apps/web/src/lib/video/codecs.ts";
-import { jpegImage } from "../../../apps/web/src/lib/video/picture-canvas.ts";
 
 const config = z
   .object({
@@ -148,9 +147,9 @@ client.watch((snapshot) => {
   if (!snapshot.connected) return;
   Reflect.set(globalThis, "probeReady", true);
 });
+// Live views are H.264 only, as in the app: no JPEG decoder, and no fallback to one.
 const renderer = pictureRenderer<DevicePicture>({
   decoder: webCodecsDecoder(),
-  image: jpegImage,
   show: (image, picture) => {
     canvas.width = picture.width;
     canvas.height = picture.height;
@@ -159,11 +158,7 @@ const renderer = pictureRenderer<DevicePicture>({
   },
   ack: (picture, keyframe) => client.ack(picture, keyframe),
   fallback: () => {
-    void client.request({
-      op: "stream.configure",
-      deviceId: config.deviceId,
-      settings: deviceStreamProfile({ width: 900, height: 1800 }, "local", false),
-    });
+    record.errors.push("This browser can't decode H.264 video");
   },
   pressure: () => {},
 });
@@ -180,15 +175,13 @@ Reflect.set(globalThis, "probeStart", async () => {
   });
   await client.request({ op: "start", deviceId: config.deviceId, fps: config.fps });
   await client.request({ op: "subscribe", deviceId: config.deviceId });
-  if (!config.baseline)
+  if (!config.baseline && !(await deviceVideoSupported()))
+    record.errors.push("This browser can't decode H.264 video");
+  else if (!config.baseline)
     await client.request({
       op: "stream.configure",
       deviceId: config.deviceId,
-      settings: deviceStreamProfile(
-        { width: 900, height: 1800 },
-        "local",
-        await deviceVideoSupported(),
-      ),
+      settings: deviceStreamProfile({ width: 900, height: 1800 }, "local"),
     });
 });
 Reflect.set(globalThis, "probeTap", async () => {

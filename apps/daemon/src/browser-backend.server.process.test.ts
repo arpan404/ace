@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { BrowserService } from "@ace/browser";
+import { FilesService } from "@ace/files";
+import { encodeEmbeddedVideo } from "@ace/browser/video-encoder";
 import { BrowserBackendServerMessage, DeviceCredential } from "@ace/protocol";
 import { fixture, token } from "./socket-test-support.ts";
 import { RemoteAuth } from "./remote-auth.ts";
@@ -41,13 +43,23 @@ const register = async (socket: WebSocket, credentialToken: string) => {
   return reply;
 };
 
-async function setup() {
+async function setup(options: { files?: boolean } = {}) {
   const home = await mkdtemp(join(tmpdir(), "ace-desktop-auth-"));
   const browser = new BrowserService({ dataDir: home });
-  const f = await fixture({ browser });
+  const files = options.files
+    ? await FilesService.create({
+        workspace: home,
+        dataDir: home,
+        now: () => 1,
+        id: () => "file-id",
+        authorize: () => true,
+      })
+    : undefined;
+  const f = await fixture({ browser, ...(files ? { files } : {}) });
   cleanups.push(async () => {
     await f.close();
     await browser.close();
+    await files?.close();
     await rm(home, { recursive: true, force: true });
   });
   await desktopCredential(home, f.store.devices, () => 1);
@@ -125,4 +137,26 @@ it("HTTP revocation closes the desktop backend even when another revocation list
     type: "error",
     code: "browser_backend_denied",
   });
+});
+it("takes a registered desktop's video encoder events as binary messages on its backend socket", async () => {
+  const f = await setup({ files: true });
+  const desktop = await f.connect(f.credential.device.id);
+  const reply = next(desktop);
+  desktop.send(
+    JSON.stringify({
+      type: "browser.backend.register",
+      requestId: "register",
+      credential: f.credential.token,
+      version: 1,
+      capabilities: { ...capabilities, video: true },
+    }),
+  );
+  expect(await reply).toMatchObject({ type: "browser.backend.registered" });
+  // An encoder event for a capture that already closed: taken and dropped, never refused as a
+  // message no channel takes (the files channel claims binary messages too).
+  desktop.send(encodeEmbeddedVideo({ t: "ended", capture: "closed-capture" }));
+  const pong = next(desktop);
+  desktop.send(JSON.stringify({ type: "ping" }));
+  expect(await pong).toEqual({ type: "pong" });
+  expect(desktop.readyState).toBe(WebSocket.OPEN);
 });

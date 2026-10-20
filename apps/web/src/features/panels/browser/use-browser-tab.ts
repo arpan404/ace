@@ -104,15 +104,15 @@ export function useBrowserTab(
   useEffect(() => {
     if (superseded) setPhase(key, idle);
   }, [superseded, key]);
-  // The screencast follows the daemon's shown tab: it is this tab's picture only once shown.
+  // The video follows the daemon's shown tab: it is this tab's picture only once shown, and
+  // until its first keyframe decodes the tab keeps the last picture this client saw of it.
   // Another tab's half of a split view keeps that tab's last picture meanwhile.
+  const still = shownId ? source.still?.(threadId, shownId) : undefined;
   const frame = !live
     ? undefined
     : live.activeTabId === shownId
-      ? source.frame(threadId)
-      : shownId
-        ? source.still?.(threadId, shownId)
-        : undefined;
+      ? (source.frame(threadId) ?? still)
+      : still;
 
   /** Merge into the panel tab's data as it is now (a navigation spans several renders). */
   const save = (patch: Partial<BrowserTabData>) => {
@@ -243,6 +243,8 @@ export function useBrowserTab(
   return {
     data,
     frame,
+    /** Whether this client can show a live page at all (it streams only as video). */
+    decodesVideo: source.decodesVideo?.(),
     state: own,
     loading: own.phase === "loading" || !!shown?.loading || !!live?.loading,
     /** The address the bar shows: what is loading or failed here, else the tab's own. */

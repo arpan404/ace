@@ -1,5 +1,5 @@
 import { UserBrowserTab, type UserBrowserDownload } from "@ace/protocol";
-import type { BackendOpen, BrowserBackend } from "./backend.ts";
+import type { BackendOpen, BrowserBackend, VideoHost } from "./backend.ts";
 import type { UserChromeHub } from "./user-chrome-hub.ts";
 import type { UserChromeLink } from "./user-chrome-link.ts";
 import { userTabSession, type UserTabSession } from "./user-chrome-session.ts";
@@ -19,9 +19,22 @@ export class UserChromeBackend implements BrowserBackend {
   readonly kind = "user";
   private hub: UserChromeHub;
   private platform: NodeJS.Platform;
-  constructor(hub: UserChromeHub, platform: NodeJS.Platform) {
+  private videoEncoder: () => VideoHost | undefined;
+  constructor(
+    hub: UserChromeHub,
+    platform: NodeJS.Platform,
+    options: {
+      /**
+       * The encoder remote viewers' video of these tabs comes from (ADR 0088): the person's
+       * browser has none ace may use, so ace's own encoder-only Chrome takes their screencast.
+       * Absent: remote viewers get no live picture.
+       */
+      videoEncoder?: () => VideoHost | undefined;
+    } = {},
+  ) {
     this.hub = hub;
     this.platform = platform;
+    this.videoEncoder = options.videoEncoder ?? (() => undefined);
   }
   available(): boolean {
     return this.hub.preferred() !== undefined;
@@ -130,6 +143,6 @@ export class UserChromeBackend implements BrowserBackend {
     tab: UserBrowserTab,
     request: BackendOpen,
   ): Promise<UserTabSession> {
-    return userTabSession(link, tab, request, this.platform);
+    return userTabSession(link, tab, request, this.platform, this.videoEncoder);
   }
 }

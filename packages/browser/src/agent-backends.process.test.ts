@@ -109,3 +109,31 @@ it("forgetting a thread without a desktop reports the desktop purge as still owe
   await f.disconnect();
   expect(await f.service.forgetThread("thread", "workspace-thread")).toEqual({ desktop: false });
 });
+
+it("the desktop opens a kept page in the profile scope the daemon chose", async () => {
+  const f = await backendFixture({
+    profilePreference: (open) => (open.threadId === "private" ? "ephemeral" : "persistent"),
+    profileScope: () => "project",
+  });
+  const opened = once(f.requests, "open");
+  await f.service.open(agentOpen());
+  const [kept] = (await opened) as [BrowserBackendRequest];
+  expect(kept.operation).toMatchObject({ kind: "open", profileScope: "project" });
+  // A private page's partition is a throwaway one: no project profile is asked for.
+  const privately = once(f.requests, "open");
+  await f.service.open(agentOpen("private"));
+  const [throwaway] = (await privately) as [BrowserBackendRequest];
+  expect(throwaway.operation).toMatchObject({ kind: "open", profileScope: "global" });
+});
+
+it("removing a project closes its pages and purges its desktop partition, leaving other projects'", async () => {
+  const f = await backendFixture({ profileScope: () => "project" });
+  await f.service.open(agentOpen());
+  await f.service.open(agentOpen("other"));
+  const purge = once(f.requests, "purgeProject");
+  expect(await f.service.forgetProject("workspace-thread")).toEqual({ desktop: true });
+  const [request] = (await purge) as [BrowserBackendRequest];
+  expect(request.operation).toEqual({ kind: "purgeProject", workspaceId: "workspace-thread" });
+  expect(() => f.service.state("thread")).toThrow("not open");
+  expect(f.service.state("other").closed).toBe(false);
+});

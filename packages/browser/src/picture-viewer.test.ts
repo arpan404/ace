@@ -41,6 +41,8 @@ function setup(options: { refuse?: () => boolean } = {}) {
       return () => timers.splice(timers.indexOf(timer), 1);
     },
     keyframe: () => keyframes++,
+    // A small window, so tests reach its edge with a few pictures.
+    window: { frames: 8, bytes: 2 * 1024 * 1024 },
     write(pieces) {
       if (options.refuse?.()) return false;
       for (const piece of pieces) {

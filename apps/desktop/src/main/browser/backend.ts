@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { traceBatches } from "./trace-batches.ts";
 import { compactPolicyEvent } from "@ace/browser/policy-events";
+import { videoRelay, type VideoRelaySource } from "./video-relay.ts";
 import {
   type BrowserOpen,
+  type BrowserProfileScope,
   type BrowserBackendClientMessage,
   type BrowserBackendOperation,
   type BrowserBackendRequest,
@@ -55,10 +57,14 @@ export interface ViewHost {
     sessionId: string;
     downloadDir?: string | undefined;
     options: BrowserOpen;
+    /** Which persistent partition the page opens in; omitted is the thread's own. */
+    profileScope?: BrowserProfileScope | undefined;
     viewport: { width: number; height: number };
   }): Promise<ViewPage>;
   /** A deleted thread's persistent partition: drop all its data. */
   purge?(request: { threadId: string; workspaceId: string }): Promise<void>;
+  /** A removed project's partition: drop all its data. Its views are closed first. */
+  purgeProject?(request: { workspaceId: string }): Promise<void>;
 }
 
 /**
@@ -69,13 +75,26 @@ export interface BackendLink {
   backendId: string;
   connectionId: string;
   send(serialized: string): boolean;
+  /**
+   * A binary message (the video encoder's events). `droppable`: refused, without closing the
+   * socket, when the socket is backed up; false when it was not sent.
+   */
+  sendBinary?(frame: Uint8Array<ArrayBuffer>, droppable: boolean): boolean;
 }
 
 export interface BackendOptions {
   /** How long a page outlives a lost daemon link, waiting to be adopted again. */
   orphanGraceMs?: number;
   timers?: { set(delayMs: number, callback: () => void): () => void };
+  /**
+   * Whether a new view would draw now. A locked or sleeping Mac draws nothing, so a view opened
+   * then never gives a picture; the daemon is told at once and opens the page in ace's own
+   * Chromium instead. Absent: always.
+   */
+  drawable?: () => boolean;
   log(message: string): void;
+  /** The app's video encoder: its events go to the daemon as binary messages (ADR 0088). */
+  video?: VideoRelaySource;
 }
 
 const TabTrace = z.looseObject({
@@ -148,6 +167,7 @@ export class BrowserBackend {
   constructor(host: ViewHost, options: BackendOptions) {
     this.host = host;
     this.options = options;
+    options.video?.onEvent(videoRelay(options.video, () => this.link));
   }
 
   /** The daemon accepted this app's registration on a new connection. */
@@ -162,6 +182,8 @@ export class BrowserBackend {
    */
   detach(): void {
     this.link = undefined;
+    // The daemon forgot every capture with the link.
+    this.options.video?.stopAll();
     for (const pending of this.opening.values()) pending.canceled = true;
     for (const session of this.sessions.values()) {
       this.sessions.delete(session.id);
@@ -176,6 +198,7 @@ export class BrowserBackend {
    */
   async closeAll(): Promise<void> {
     this.link = undefined;
+    this.options.video?.stopAll();
     for (const pending of this.opening.values()) pending.canceled = true;
     await Promise.all([
       ...[...this.sessions.values()].map((session) => this.dispose(session)),
@@ -300,6 +323,20 @@ export class BrowserBackend {
         this.purging.delete(operation.threadId);
       }
     }
+    if (operation.kind === "purgeProject") {
+      const { workspaceId } = operation;
+      const open = [...this.sessions.values()].filter(
+        (session) => session.options.workspaceId === workspaceId,
+      );
+      await Promise.all(open.map((session) => this.dispose(session)));
+      const kept = [...this.orphans].flatMap(([threadId, orphan]) =>
+        orphan.options.workspaceId === workspaceId ? [threadId] : [],
+      );
+      await Promise.all(kept.map((threadId) => this.closeOrphan(threadId)));
+      if (!this.host.purgeProject) throw new Error("Browser partition purge unavailable");
+      await this.host.purgeProject({ workspaceId });
+      return {};
+    }
     const pending = this.opening.get(sessionId);
     if (operation.kind === "close" && pending) {
       // Fence ownership now, even if native creation cannot be interrupted.
@@ -339,6 +376,9 @@ export class BrowserBackend {
       throw new Error("Embedded browser session limit");
     if (this.purging.has(operation.options.threadId))
       throw new Error("Browser partition purge in progress");
+    // A page kept from before stays this app's; only a new view needs the screen to draw.
+    if (this.options.drawable?.() === false && !this.orphans.has(operation.options.threadId))
+      throw new Error("The desktop can't draw pages while its screen is locked or asleep");
     const completion = Promise.withResolvers<void>();
     const pending: PendingOpen = {
       threadId: operation.options.threadId,
@@ -355,6 +395,7 @@ export class BrowserBackend {
           sessionId,
           downloadDir: operation.downloadDir,
           options: operation.options,
+          profileScope: operation.profileScope,
           viewport: operation.viewport,
         }));
       if (pending.canceled || this.link !== link) {

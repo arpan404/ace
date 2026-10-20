@@ -114,6 +114,9 @@ export function androidInput(input: DeviceInput): string[] {
           "Use the rotate operation on the device service.",
         );
       if (input.key === "action" || input.key === "side") return refuseAndroidKey(input.key);
+      // Gboard's "Show on-screen keyboard" (Android 13+ for keycombination).
+      if (input.key === "keyboard")
+        return adbShell(["input", "keycombination", "KEYCODE_ALT_LEFT", "KEYCODE_K"]);
       const codes = {
         home: "3",
         back: "4",
@@ -199,6 +202,9 @@ export function simulatorInput(input: DeviceInput): ScreenInput {
     mapped = { kind: "pointer.click", x: input.x, y: input.y, button: "left" };
   else if (input.kind === "type") mapped = { kind: "text.type", text: input.text };
   else if (input.key === "enter") mapped = { kind: "key.press", key: "Return", modifiers: [] };
+  // Simulator's I/O ▸ Keyboard ▸ Toggle Software Keyboard.
+  else if (input.key === "keyboard")
+    mapped = { kind: "key.press", key: "K", modifiers: ["command"] };
   else
     throw new DeviceError(
       "not_supported",

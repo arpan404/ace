@@ -38,12 +38,6 @@ test("password fields are blank in agent screenshots and snapshots, and only the
   // The person still sees what they typed: bullets in one field, the text in the other.
   await vi.waitFor(
     async () => {
-      // A still page sends no new frame; nudge a repaint so the newest frame shows the fields.
-      await f.personRun({
-        action: "evaluate",
-        expression:
-          "document.body.style.background = document.body.style.background ? '' : '#fefefe'; true",
-      });
       const live = await f.frameImage();
       expect(await inkIn(live, password)).toBeGreaterThan(20);
       expect(await inkIn(live, shown)).toBeGreaterThan(20);

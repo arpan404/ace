@@ -30,10 +30,29 @@ const hardwareButtons = {
 } as const;
 
 /**
+ * serve-sim's HID tag for a press of Simulator's I/O ▸ Keyboard ▸ Toggle Software Keyboard (⌘K):
+ * Indigo button source 0x3f0. It flips iOS between its on-screen keyboard and hardware-keyboard
+ * mode, and leaves Simulator's Connect Hardware Keyboard setting alone.
+ */
+const softwareKeyboardToggle = 12;
+/**
+ * serve-sim's typing exits before iOS has handled every key it sent, and a key handled after the
+ * toggle puts iOS back into hardware-keyboard mode. Measured on iOS 26.5: a toggle sent at once
+ * lost the keyboard after 44 characters; one sent 250 ms later kept it after 150.
+ */
+const typingSettleMs = 250;
+
+/**
  * Native touch (one finger, or two as serve-sim's two-finger touch) and keyboard operations,
  * revoked synchronously when control changes.
+ *
+ * Typed text reaches iOS as HID keyboard keys, and any such key puts iOS into hardware-keyboard
+ * mode: the on-screen keyboard hides and no later tap brings it back. So after ace types, the
+ * keyboard is toggled back, unless the person hid it with the `keyboard` key themselves.
  */
 export class SimulatorInput {
+  /** Whether the person wants the on-screen keyboard; the `keyboard` key flips it. */
+  private softwareKeyboard = true;
   private epoch = new AbortController();
   private held: { fingers: HeldFingers; epoch: AbortController } = {
     fingers: noFingers,
@@ -141,7 +160,10 @@ export class SimulatorInput {
       return;
     }
     if (input.kind === "key" && input.key !== "enter") {
-      if (input.key === "rotate")
+      if (input.key === "keyboard") {
+        this.softwareKeyboard = !this.softwareKeyboard;
+        this.options.send(softwareKeyboardToggle, {});
+      } else if (input.key === "rotate")
         this.options.send(7, {
           orientation: this.options.orientation() === "portrait" ? "landscape_left" : "portrait",
         });
@@ -184,6 +206,11 @@ export class SimulatorInput {
           "Simulator keyboard input failed",
           "serve-sim supports US keyboard text; check Simulator keyboard permissions.",
         );
+      if (this.softwareKeyboard) {
+        await this.sleep(typingSettleMs, epoch.signal);
+        check();
+        this.options.send(softwareKeyboardToggle, {});
+      }
     } finally {
       timeout();
       epoch.signal.removeEventListener("abort", stop);

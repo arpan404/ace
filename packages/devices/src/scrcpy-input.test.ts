@@ -104,6 +104,15 @@ describe("Android input over the scrcpy control socket", () => {
     ]);
   });
 
+  it("the keyboard key holds Alt over K, Gboard's Show on-screen keyboard", () => {
+    expect(plan({ kind: "key", key: "keyboard" }).map((step) => step.message)).toEqual([
+      { type: "keycode", action: "down", keycode: 57, meta: 0x12 },
+      { type: "keycode", action: "down", keycode: 39, meta: 0x12 },
+      { type: "keycode", action: "up", keycode: 39, meta: 0x12 },
+      { type: "keycode", action: "up", keycode: 57 },
+    ]);
+  });
+
   it("the iPhone Action button is refused on Android rather than pressing something else", () => {
     expect(() => plan({ kind: "key", key: "action" })).toThrow(
       expect.objectContaining({ code: "not_supported" }),

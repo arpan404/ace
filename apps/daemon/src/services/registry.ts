@@ -77,10 +77,12 @@ export const socketServiceFactories = [
   createCursorAuthSession,
   createCommandsSession,
   createPromptFilesSession,
+  // Before files: the files channel claims every binary message on a socket, and the desktop's
+  // backend socket sends its video encoder's (ADR 0088).
+  createBrowserSession,
   createFilesSession,
   createNotificationsSession,
   createPluginsSession,
-  createBrowserSession,
   createBrowsingSession,
   createComputerUsingSession,
   createUserBrowserSession,

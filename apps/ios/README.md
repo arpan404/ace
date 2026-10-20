@@ -199,13 +199,16 @@ open `Views/Browser/BrowserLiveView` full screen; the request's Done is offered 
   connection change, and sends the shown tab's `browser.page` state and the person's input.
   The transport now reports binary support.
 - Pictures never enter JavaScriptCore. `PinnedSocket` routes `ACES` stream pieces to
-  `Sources/Browser`: `StreamAssembler` and `BrowserStreamMessage` read kinds 1 (JPEG) and 2
-  (H.264); downloads (kind 8) and unknown kinds are skipped; any other binary message goes to the
-  SDK. `BrowserRenderer` decodes on its own queue (ImageIO for JPEG, VideoToolbox through
-  `H264Decoder` from the keyframe's `avcC`) and shows pictures on an `AVSampleBufferDisplayLayer`.
-  Each picture is acknowledged once shown (`browser.ack`, video cumulatively); a delta before a
-  keyframe is acknowledged at once, a decode error asks for a keyframe (`VideoChunkGate`), and
-  acknowledgements wait while the app is in the background.
+  `Sources/Browser`: `StreamAssembler` and `BrowserVideoChunk` read kind 2 (H.264); the live view
+  is video only, so JPEG frames (kind 1), downloads (kind 8) and unknown kinds are skipped unread;
+  any other binary message goes to the SDK. `BrowserRenderer` decodes on its own queue
+  (VideoToolbox through `H264Decoder` from the keyframe's `avcC`) and acknowledges each chunk as
+  soon as it is decoded, straight to the runtime (`browser.ack` with `video`, cumulative); a delta
+  before a keyframe is acknowledged at once, a decode error asks for a keyframe
+  (`VideoChunkGate`), and acknowledgements wait while the app is in the background
+  (`BrowserAcks`). The surface's display link draws only the newest decoded picture on an
+  `AVSampleBufferDisplayLayer`, at up to 60 frames a second; until the first keyframe a fresh view
+  shows a loading state, and a restarted one keeps its last picture.
 - Fingers go to the page as touch points (`TouchTracker`), so tap, drag-scroll and pinch are the
   page's own. A hidden `UITextField` over the focused field brings up the keyboard the field asks
   for (`KeyboardStyle`); `RemoteTyping` replays its edits as Backspace, Delete and text, and IME
@@ -421,7 +424,7 @@ tracks verification and the remaining device work.
   native delivery and resumes by byte offset. Its text renderer supports basic VT
   controls, with 1,000 rows of 80 cells. Lost output resets escape parsing and marks
   the gap. Colour and alternate-screen emulation remain future work.
-- The live browser from `main` owns JPEG/H.264 frames, input and tab controls.
+- The live browser from `main` owns H.264 video, input and tab controls.
   View-only phones can watch while navigation and input remain disabled. The old
   screenshot-only browser has been removed. Screen/device control remains future work.
 - Published images decode into native image views. Published HTML uses `@ace/html`

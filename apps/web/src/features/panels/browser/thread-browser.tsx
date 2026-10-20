@@ -103,7 +103,7 @@ function ThreadBrowser(props: { threadId: string }) {
     phone || seenIn !== threadId
       ? undefined
       : pipPage({ view, showingBrowser, dismissed, enabled: automaticPip });
-  // Nobody draws the screencast while the Browser is out of sight (picture-in-picture says for
+  // Nobody draws the live video while the Browser is out of sight (picture-in-picture says for
   // itself whether its native page shows).
   const floats = !!floating;
   useEffect(() => {

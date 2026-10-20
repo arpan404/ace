@@ -136,26 +136,31 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await expect.poll(() => browser.state(thread).url).toBe(s.url + "spa");
       await expect.poll(() => address.inputValue()).toBe(s.url.replace(/^http:\/\//, "") + "spa");
 
-      // A web connection gets changing frames while holding an unseen native page.
+      // A web connection gets live video of the page while the desktop holds it natively.
       await p.getByRole("button", { name: "Right panel" }).click();
-      let latest = "";
-      let count = 0;
+      let chunks = 0;
+      let keyframes = 0;
       const stop = browser.subscribe(
         thread,
         "remote",
         {
-          send(frame) {
-            latest = frame.data;
-            count++;
-            queueMicrotask(() => browser.acknowledge(thread, "remote", frame.sequence));
-            return true;
+          video: {
+            send(chunk) {
+              chunks++;
+              if (chunk.key) keyframes++;
+              queueMicrotask(() => browser.acknowledgeVideo(thread, "remote", chunk.sequence));
+              return true;
+            },
           },
         },
         () => {},
       );
-      await expect.poll(() => count, { timeout: 15000 }).toBeGreaterThan(1);
-      const first = latest;
-      await expect.poll(() => latest, { timeout: 15000 }).not.toBe(first);
+      browser.configureCapture(thread, "remote", {
+        viewport: { width: 800, height: 600, devicePixelRatio: 1 },
+        video: { codecs: ["avc1.42E033", "vp8"] },
+      });
+      await expect.poll(() => keyframes, { timeout: 15000 }).toBeGreaterThan(0);
+      await expect.poll(() => chunks, { timeout: 15000 }).toBeGreaterThan(5);
       stop();
     } catch (error) {
       console.error("Audit scenario failed", error);

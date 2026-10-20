@@ -1,8 +1,8 @@
 import { DeviceStreamOwners } from "./stream-owners.ts";
 import { watchDeviceLease } from "./lease-expiry.ts";
-import { deviceStreamSnapshot } from "./snapshot.ts";
-import { DeviceStreamControl, deviceImageStream } from "./stream-control.ts";
+import { DeviceStreamControl, deviceVideoStream } from "./stream-control.ts";
 import { type Frame, type FrameSink } from "@ace/screen";
+import type { ScreenStreamSettings } from "@ace/protocol";
 import {
   AppDevice as Device,
   DeviceOperation,
@@ -434,7 +434,7 @@ export class DevicesService {
     }
     switch (operation.op) {
       case "stream.configure": {
-        const result = await this.streamControlFor(session).set(actor.owner, operation.settings);
+        const result = await this.watchWith(session, actor.owner, operation.settings);
         viewer?.guard();
         return result;
       }
@@ -690,16 +690,29 @@ export class DevicesService {
       return oneOffFrame(shot, this.options.runtime);
     }
     if (session.latest.header.codec === "h264") {
-      const image = await deviceStreamSnapshot(
-        session,
-        this.streamControlFor(session),
-        this.options.runtime,
+      // Someone is watching: the live view stays video, and the still comes from the device.
+      const shot = await this.options.platform.screenshot(session.device, () =>
+        this.authorize(session, actor),
       );
       this.authorize(session, actor);
       if (session.lifecycle !== "live") throw new Error("Device stopped during screenshot");
-      return image;
+      return oneOffFrame(shot, this.options.runtime);
     }
     return session.latest;
+  }
+  /** A viewer's stream preference; one the capture can't stream is withdrawn, not kept. */
+  private async watchWith(
+    session: DeviceSession,
+    owner: string,
+    settings: ScreenStreamSettings,
+  ): Promise<{ codec: "jpeg" | "h264" }> {
+    const control = this.streamControlFor(session);
+    try {
+      return await control.set(owner, settings);
+    } catch (error) {
+      await control.remove(owner).catch(() => {});
+      throw error;
+    }
   }
   private streamControlFor(session: DeviceSession): DeviceStreamControl {
     session.streamControl ??= new DeviceStreamControl(async (settings) => {
@@ -747,7 +760,8 @@ export class DevicesService {
       throw new DeviceError("not_found", "Device stream is not live", "Start the stream first.");
     const epoch = session.bindingEpoch;
     const preferences = this.streamControlFor(session);
-    if (!preferences.has(actor.owner)) await preferences.set(actor.owner, deviceImageStream);
+    if (!preferences.has(actor.owner))
+      await this.watchWith(session, actor.owner, deviceVideoStream);
     viewer.guard();
     const stop = attach(session, () => {
       viewer.guard();

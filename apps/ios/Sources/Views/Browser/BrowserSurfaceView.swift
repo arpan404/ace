@@ -2,15 +2,19 @@ import AVFoundation
 import SwiftUI
 import UIKit
 
-/// The live page: decoded video on a sample-buffer display layer (JPEG frames on a layer above it
-/// until video starts), fingers forwarded as the page's touch points, and the hidden field that
-/// brings up the keyboard for the page's focused field.
-final class BrowserSurfaceView: UIView, BrowserPictureSink {
+/// The live page: decoded video on a sample-buffer display layer, fingers forwarded as the page's
+/// touch points, and the hidden field that brings up the keyboard for the page's focused field.
+/// While it is on screen a display link draws the newest decoded picture once per refresh, up to
+/// 60 times a second; the layer keeps the last one until a newer arrives.
+final class BrowserSurfaceView: UIView {
     private let videoLayer = AVSampleBufferDisplayLayer()
-    private let imageLayer = CALayer()
+    private var samples = DisplaySamples()
+    private var link: CADisplayLink?
     let textField = RemoteTextField()
-    /// The latest picture's page size in CSS pixels; zero before the first.
+    /// The drawn picture's page size in CSS pixels; zero before the first.
     private(set) var pageSize: CGSize = .zero
+    /// The newest picture decoded since the last refresh, if any.
+    var nextPicture: () -> BrowserPicture? = { nil }
     var interactive = true
     var onInput: ([RemoteInput]) -> Void = { _ in } {
         didSet { textField.onInput = onInput }
@@ -28,10 +32,7 @@ final class BrowserSurfaceView: UIView, BrowserPictureSink {
         backgroundColor = UIColor(AceTheme.Colours.secondaryBackground)
         isMultipleTouchEnabled = true
         videoLayer.videoGravity = .resizeAspect
-        imageLayer.contentsGravity = .resizeAspect
-        imageLayer.isHidden = true
         layer.addSublayer(videoLayer)
-        layer.addSublayer(imageLayer)
         addSubview(textField)
         isAccessibilityElement = true
         accessibilityLabel = "Live browser page"
@@ -45,10 +46,18 @@ final class BrowserSurfaceView: UIView, BrowserPictureSink {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         videoLayer.frame = bounds
-        imageLayer.frame = bounds
-        imageLayer.contentsScale = traitCollection.displayScale
         CATransaction.commit()
         report()
+    }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        link?.invalidate()
+        link = nil
+        guard window != nil else { return }
+        let link = CADisplayLink(target: DisplayTick(self), selector: #selector(DisplayTick.tick(_:)))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
+        link.add(to: .main, forMode: .common)
+        self.link = link
     }
     /// Places the hidden field over the page's focused field, so the system's text UI (the IME's
     /// candidates, dictation) appears next to it.
@@ -58,20 +67,12 @@ final class BrowserSurfaceView: UIView, BrowserPictureSink {
         textField.frame = CGRect(x: shown.minX, y: shown.minY, width: max(1, shown.width), height: max(1, shown.height))
     }
 
-    func show(_ picture: BrowserPicture) {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        switch picture.content {
-        case .image(let image):
-            imageLayer.contents = image
-            imageLayer.isHidden = false
-        case .video(let sample):
-            let renderer = videoLayer.sampleBufferRenderer
-            if renderer.status == .failed { renderer.flush() }
-            renderer.enqueue(sample)
-            imageLayer.isHidden = true
-        }
-        CATransaction.commit()
+    /// One screen refresh: draws the newest picture, if one arrived since the last.
+    fileprivate func drawNewest() {
+        guard let picture = nextPicture(), let sample = samples.sample(picture.image) else { return }
+        let renderer = videoLayer.sampleBufferRenderer
+        if renderer.status == .failed { renderer.flush() }
+        renderer.enqueue(sample)
         pageSize = picture.page
     }
 
@@ -112,6 +113,13 @@ final class BrowserSurfaceView: UIView, BrowserPictureSink {
     }
 }
 
+/// The display link's target: the link holds it strongly, so it holds the surface weakly.
+@MainActor private final class DisplayTick: NSObject {
+    private weak var surface: BrowserSurfaceView?
+    init(_ surface: BrowserSurfaceView) { self.surface = surface }
+    @objc func tick(_ link: CADisplayLink) { surface?.drawNewest() }
+}
+
 /// SwiftUI's handle on the surface: opens the view at its first size, follows the page's focused
 /// field with the keyboard, and hands the surface to the model to draw on.
 struct BrowserSurface: UIViewRepresentable {
@@ -131,7 +139,7 @@ struct BrowserSurface: UIViewRepresentable {
     func makeUIView(context: Context) -> BrowserSurfaceView {
         let view = BrowserSurfaceView()
         let model = model
-        model.browser.surface = view
+        view.nextPicture = { [weak browser = model.browser] in browser?.nextPicture() }
         view.onInput = { model.browserInput($0) }
         view.onLayout = { size, scale in
             if model.browser.threadId == nil { model.openBrowser(size: size, scale: scale) }

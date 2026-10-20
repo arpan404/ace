@@ -1,58 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { BrowserFrame } from "@ace/protocol";
 import { executablePath, fixture, ref } from "./test-support.ts";
 import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 describe.skipIf(!executablePath)("live Chromium shared by people and agents", () => {
-  it("delivers JPEG frames to two viewers while the slow viewer skips intermediate frames", async () => {
-    const f = await fixture();
-    await f.navigate();
-    const fast: BrowserFrame[] = [],
-      slow: BrowserFrame[] = [];
-    const { promise: reached, resolve: ready } = Promise.withResolvers<void>();
-    const stopFast = f.service.subscribe(
-      "thread",
-      "fast",
-      {
-        send: (frame) => {
-          fast.push(frame);
-          f.service.acknowledge("thread", "fast", frame.sequence);
-          if (fast.length >= 4) ready();
-          return true;
-        },
-      },
-      () => {},
-    );
-    const stopSlow = f.service.subscribe(
-      "thread",
-      "slow",
-      {
-        send: (frame) => {
-          slow.push(frame);
-          return true;
-        },
-      },
-      () => {},
-    );
-    try {
-      await f.evaluate(
-        "window.animating=true; window.counter=0; function animate(){ if(!window.animating)return;document.body.style.background=`rgb(${++window.counter%255},30,80)`;requestAnimationFrame(animate)};animate()",
-      );
-      await reached;
-      expect(slow).toHaveLength(1);
-      const first = slow[0];
-      if (!first) throw new Error("No initial frame");
-      f.service.acknowledge("thread", "slow", first.sequence);
-      expect(slow).toHaveLength(2);
-      expect(slow[1]?.sequence).toBe(fast.at(-1)?.sequence);
-      expect(Buffer.from(first.data, "base64").subarray(0, 2)).toEqual(Buffer.from([255, 216]));
-      await f.evaluate("window.animating=false");
-    } finally {
-      stopFast();
-      stopSlow();
-    }
-  }, 60_000);
-
   it("the person and an agent type into the same page without handing control around", async () => {
     const f = await fixture();
     await f.navigate();

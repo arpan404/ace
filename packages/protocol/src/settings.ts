@@ -7,6 +7,7 @@ import { z } from "zod";
 import { JsonValue } from "./json.ts";
 import { ThreadId, WorkspaceId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
+import { BrowserProfileScope } from "./browser-backend.ts";
 import { UtilityModelChoice } from "./utility-model.ts";
 
 const name = z.string().min(1).max(256);
@@ -44,6 +45,13 @@ export const SettingsValues = z.object({
   "browser.backendLoss": z.enum(["pause", "headless"]),
   /** A thread's browser keeps its own cookies and storage, or opens privately in memory. */
   "browser.profile": z.enum(["persistent", "ephemeral"]),
+  /**
+   * Which kept profile persistent browsers open in: shared by every project (`global`, the
+   * default), one per project, or one per thread. Read when a browser opens, so a change applies
+   * to browsers opened afterwards. A project's own choice (`ProjectDefaults.browserProfileScope`)
+   * comes before this daemon's.
+   */
+  "browser.profileScope": BrowserProfileScope,
   /**
    * Where ace's own Chrome on this daemon's machine saves downloads: an existing, writable
    * folder there, global only. Empty uses `browser.downloadDefault`. The desktop app's own

@@ -3,6 +3,7 @@ import { ThreadId, type BrowserAnnotationPageCommand } from "@ace/protocol";
 import { act, configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
+import { browserVideo } from "@/test/browser-video.ts";
 import { harness } from "@/test/harness.tsx";
 import { annotateUnavailable } from "./index.ts";
 
@@ -38,6 +39,7 @@ afterEach(() => {
 });
 
 async function annotating() {
+  browserVideo();
   const app = harness();
   app.play(longHistory(2)).runUntilBlocked();
   seedPanels(app.daemon, threadId);

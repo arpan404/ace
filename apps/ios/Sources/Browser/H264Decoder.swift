@@ -95,24 +95,6 @@ final class H264Decoder {
         guard let image = output.image else { throw DecodeError.noPicture }
         return image
     }
-
-    /// A decoded picture as the display layer takes it, shown as soon as it is enqueued.
-    static func displayBuffer(_ image: CVPixelBuffer) -> CMSampleBuffer? {
-        var described: CMVideoFormatDescription?
-        guard CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: image,
-                                                           formatDescriptionOut: &described) == noErr, let described else { return nil }
-        var timing = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: CMClockGetTime(CMClockGetHostTimeClock()),
-                                        decodeTimeStamp: .invalid)
-        var sample: CMSampleBuffer?
-        guard CMSampleBufferCreateReadyWithImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: image, formatDescription: described,
-                                                       sampleTiming: &timing, sampleBufferOut: &sample) == noErr, let sample else { return nil }
-        if let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: true), CFArrayGetCount(attachments) > 0 {
-            let dictionary = unsafeBitCast(CFArrayGetValueAtIndex(attachments, 0), to: CFMutableDictionary.self)
-            CFDictionarySetValue(dictionary, Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
-                                 Unmanaged.passUnretained(kCFBooleanTrue).toOpaque())
-        }
-        return sample
-    }
 }
 
 /// The synchronous decode's result, written by VideoToolbox's output handler before it returns.

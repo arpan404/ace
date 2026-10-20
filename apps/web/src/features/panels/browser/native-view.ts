@@ -101,7 +101,7 @@ export interface FrozenPage {
  * captured as it is, its picture (`frozen`) is drawn in exactly its place, and only then is the
  * view hidden, marked `covered`; it comes back, at the same bounds, once the overlay is gone.
  * Meanwhile the page keeps running, rendering and playing sound, and the caller draws its live
- * screencast in its place once a fresh frame replaces the picture (`useCoverStill`).
+ * video in its place once a newer picture replaces the still (`useCoverStill`).
  */
 export function useNativeView(
   threadId: string,

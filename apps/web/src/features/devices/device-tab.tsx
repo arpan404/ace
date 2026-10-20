@@ -37,11 +37,7 @@ function useStreamStats(sameClock: boolean, live: boolean) {
     return () => clearInterval(timer);
   }, [meter, live]);
   const onFrame = (shown: ShownScreen) =>
-    meter.add({
-      codec: shown.codec,
-      capturedAt: shown.capturedAt,
-      shownAt: Date.now(),
-    });
+    meter.add({ capturedAt: shown.capturedAt, shownAt: Date.now() });
   return { stats: live ? stats : undefined, onFrame };
 }
 

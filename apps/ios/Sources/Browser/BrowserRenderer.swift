@@ -1,31 +1,26 @@
 import CoreGraphics
-import CoreMedia
+import CoreVideo
 import Foundation
-import ImageIO
 
-/// A picture ready for the screen and what to acknowledge once it is there.
+/// A decoded picture, waiting for the screen's next refresh.
 struct BrowserPicture: @unchecked Sendable {
-    enum Content { case image(CGImage), video(CMSampleBuffer) }
-    let content: Content
+    let image: CVPixelBuffer
     let sequence: Int
-    /// Video chunks are acknowledged cumulatively; JPEG frames one at a time.
-    let video: Bool
     /// The page's size in CSS pixels: input coordinates map to it.
     let page: CGSize
 }
 
-/// What the renderer asks the daemon for once a picture can't be shown or was skipped.
+/// A cumulative video acknowledgement (`browser.ack` with `video`, ADR 0088).
 struct BrowserAck: Equatable, Sendable {
     let sequence: Int
-    let video: Bool
+    /// The decoder lost its place: the daemon sends a keyframe.
     var keyframe = false
 }
 
-/// One thread's pictures, decoded off the main thread: JPEG frames (kind 1) and H.264 chunks
-/// (kind 2), from the socket's queue to `present`. A JPEG frame means the daemon's video for this
-/// viewer stopped, so the video starts again from its next keyframe. Pictures that can't be
-/// decoded are acknowledged at once (a delta with nothing to decode against, a broken JPEG); a
-/// decode error asks for a keyframe. Everything mutable is confined to `queue`.
+/// One thread's H.264 chunks, decoded off the main thread, from the socket's queue to
+/// `present`. Each chunk is acknowledged as soon as the decoder is done with it, whether or not
+/// the screen ever shows its picture: a delta with nothing to decode against is acknowledged at
+/// once, and a decode error asks for a keyframe. Everything mutable is confined to `queue`.
 final class BrowserRenderer: @unchecked Sendable {
     let threadId: String
     private let queue = DispatchQueue(label: "ace.browser.render", qos: .userInteractive)
@@ -40,12 +35,12 @@ final class BrowserRenderer: @unchecked Sendable {
         self.present = present
         self.ack = ack
     }
-    /// From any queue; another thread's messages are ignored.
-    func receive(_ message: BrowserStreamMessage) {
-        guard message.threadId == threadId else { return }
-        queue.async { [self] in handle(message) }
+    /// From any queue; another thread's chunks are ignored.
+    func receive(_ chunk: BrowserVideoChunk) {
+        guard chunk.threadId == threadId else { return }
+        queue.async { [self] in handle(chunk) }
     }
-    /// The daemon starts this viewer's pictures again (a new subscription or tab).
+    /// The daemon starts this viewer's video again (a new subscription or tab).
     func reset() { queue.async { [self] in forget() } }
     func close() { queue.async { [self] in closed = true; forget() } }
 
@@ -53,41 +48,40 @@ final class BrowserRenderer: @unchecked Sendable {
         gate.reset()
         decoder = nil
     }
-    private func handle(_ message: BrowserStreamMessage) {
+    private func handle(_ chunk: BrowserVideoChunk) {
         guard !closed else { return }
-        switch message {
-        case .frame(let frame):
-            forget()
-            let page = CGSize(width: frame.width, height: frame.height)
-            if let image = Self.jpeg(frame.bytes) {
-                present(BrowserPicture(content: .image(image), sequence: frame.sequence, video: false, page: page))
-            } else {
-                // A frame that can't be decoded is skipped; the next one may.
-                ack(BrowserAck(sequence: frame.sequence, video: false))
+        switch gate.admit(chunk) {
+        case .skip:
+            ack(BrowserAck(sequence: chunk.sequence))
+        case .decode(let configure):
+            if let configure {
+                decoder = nil
+                decoder = try? H264Decoder(config: configure)
             }
-        case .video(let chunk):
-            switch gate.admit(chunk) {
-            case .skip:
-                ack(BrowserAck(sequence: chunk.sequence, video: true))
-            case .decode(let configure):
-                if let configure {
-                    decoder = nil
-                    decoder = try? H264Decoder(config: configure)
-                }
-                guard let decoder, let image = try? decoder.decode(chunk.bytes),
-                      let sample = H264Decoder.displayBuffer(image) else { return failed() }
-                present(BrowserPicture(content: .video(sample), sequence: chunk.sequence, video: true,
-                                       page: CGSize(width: chunk.width, height: chunk.height)))
-            }
+            guard let decoder, let image = try? decoder.decode(chunk.bytes) else { return failed() }
+            present(BrowserPicture(image: image, sequence: chunk.sequence, page: CGSize(width: chunk.width, height: chunk.height)))
+            ack(BrowserAck(sequence: chunk.sequence))
         }
     }
     private func failed() {
         decoder = nil
-        if let sequence = gate.failed() { ack(BrowserAck(sequence: sequence, video: true, keyframe: true)) }
+        if let sequence = gate.failed() { ack(BrowserAck(sequence: sequence, keyframe: true)) }
     }
-    private static func jpeg(_ bytes: Data) -> CGImage? {
-        guard let source = CGImageSourceCreateWithData(bytes as CFData, nil) else { return nil }
-        // Decoded here, off the main thread, rather than when the layer first draws it.
-        return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+}
+
+/// The newest decoded picture, handed from the renderer's queue to the display link, which takes
+/// it once per refresh: a picture replaced before the next refresh is never drawn.
+final class LatestBrowserPicture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var picture: BrowserPicture?
+
+    func put(_ value: BrowserPicture) { lock.withLock { picture = value } }
+    /// The picture put since the last take, if any.
+    func take() -> BrowserPicture? {
+        lock.withLock {
+            let taken = picture
+            picture = nil
+            return taken
+        }
     }
 }

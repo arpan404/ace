@@ -217,6 +217,17 @@ export function Disconnected(props: { reason: string | undefined; onReopen(): vo
   );
 }
 
+/** A live page shows only as video (ADR 0088), and this browser has no decoder for it. */
+export function NoVideo() {
+  return (
+    <EmptyState
+      icon={BrowserIcon}
+      title="This browser can't decode video"
+      description="Live pages stream as video. Open ace in a recent Chrome, Edge, Firefox or Safari."
+    />
+  );
+}
+
 /** Offline with nothing to show: say so; the toolbar stays where it is. */
 export function Offline() {
   return (

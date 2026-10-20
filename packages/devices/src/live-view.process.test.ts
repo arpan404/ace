@@ -29,6 +29,8 @@ async function fixture(
     screenRecording?: boolean;
     accessibility?: boolean;
     frontmost?: boolean;
+    /** Off: the screen helper can't encode H.264, as on a Mac without serve-sim's video. */
+    video?: boolean;
     pollMs?: number;
     runtime?: Pick<DeviceRuntime, "now" | "after">;
     after?: DeviceRuntime["after"];
@@ -78,7 +80,12 @@ async function fixture(
     command: process.execPath,
     args: [new URL("./testing/simulator-helper.ts", import.meta.url).pathname],
     platform: "darwin",
-    env: { HELPER_JOURNAL: journal, HELPER_PERMISSIONS: permissions, HELPER_WINDOW: "iPhone" },
+    env: {
+      HELPER_JOURNAL: journal,
+      HELPER_PERMISSIONS: permissions,
+      HELPER_WINDOW: "iPhone",
+      HELPER_VIDEO: options.video === false ? "off" : "on",
+    },
     nextId: () => `screen-${++id}`,
     recordingDirectory: home,
     async publishArtifact() {},
@@ -332,7 +339,7 @@ it("without an open Devices view no scheduled inventory ticks read device state"
   expect(await f.readCount()).toBe(closed);
 });
 
-it("frames from a simulator reach the client", async () => {
+it("frames from a simulator reach the client as H.264 only", async () => {
   const f = await fixture();
   await writeFile(f.state, "booted");
   const { client } = connect(f.service);
@@ -340,8 +347,10 @@ it("frames from a simulator reach the client", async () => {
   await client.request({ op: "enable", enabled: true });
   await client.request({ op: "list" });
   const shown: string[] = [];
+  const codecs = new Set<string>();
   client.watchPictures(deviceId, async (picture) => {
     shown.push(Buffer.from(picture.bytes).toString());
+    codecs.add(picture.codec);
     client.ack(picture);
   });
 
@@ -350,6 +359,37 @@ it("frames from a simulator reach the client", async () => {
 
   expect(deviceState(client)).toMatchObject({ lifecycle: "live" });
   await waitFor(() => expect(shown).toContain("simulator:home"));
+  expect(codecs.size).toBe(1);
+  expect(codecs.has("jpeg")).toBe(false);
+});
+
+it("a Simulator that can only make JPEG refuses the live view and names serve-sim", async () => {
+  const f = await fixture({ video: false });
+  await writeFile(f.state, "booted");
+  const { client } = connect(f.service);
+  await waitFor(() => expect(client.getSnapshot().connected).toBe(true));
+  await client.request({ op: "enable", enabled: true });
+  await client.request({ op: "list" });
+  const shown: string[] = [];
+  client.watchPictures(deviceId, async (picture) => {
+    shown.push(picture.codec);
+    client.ack(picture);
+  });
+  await client.request({ op: "start", deviceId, fps: 60 });
+  await expect(client.request({ op: "subscribe", deviceId })).rejects.toMatchObject({
+    code: "tool_missing",
+    hint: expect.stringContaining("npm install -g serve-sim@0.1.48"),
+  });
+  await expect(
+    client.request({
+      op: "stream.configure",
+      deviceId,
+      settings: { codec: "h264", maxWidth: 1170, maxHeight: 2532, fps: 60, bitrate: 8000000 },
+    }),
+  ).rejects.toMatchObject({ code: "tool_missing" });
+  // The capture keeps making JPEG for agents; none of it reaches the view.
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(shown).toEqual([]);
 });
 
 it("input is refused without control and reaches the simulator with it", async () => {
@@ -469,11 +509,14 @@ it("human typing reaches Simulator behind another app without native idb", async
   await client.request({ op: "input", deviceId, input: { kind: "key", key: "enter" } });
   await client.request({ op: "input", deviceId, input: { kind: "tap", x: 10, y: 20 } });
   await client.request({ op: "input", deviceId, input: { kind: "key", key: "home" } });
+  await client.request({ op: "input", deviceId, input: { kind: "key", key: "keyboard" } });
   expect(await f.helperJournal()).toEqual([
     { input: { kind: "text.type", text: "hello" } },
     { input: { kind: "key.press", key: "Return", modifiers: [] } },
     { input: { kind: "pointer.click", x: 10, y: 20, button: "left" } },
     { button: "Home" },
+    // Simulator's Toggle Software Keyboard shortcut.
+    { input: { kind: "key.press", key: "K", modifiers: ["command"] } },
   ]);
 });
 

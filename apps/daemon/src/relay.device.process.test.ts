@@ -35,7 +35,13 @@ afterEach(async () => {
 });
 type Capture = Parameters<NonNullable<DevicesOptions["capture"]>>[0];
 type Result = Extract<DeviceServerMessage, { type: "devices.result" }>;
-function image(sessionId: string, sequence: number, byte: number): Frame {
+/** A capture's picture: JPEG until a live view asks for video, then H.264 keyframes. */
+function image(
+  sessionId: string,
+  sequence: number,
+  byte: number,
+  codec: "jpeg" | "h264" = "jpeg",
+): Frame {
   const payload = Buffer.alloc(128 * 1024, byte);
   const header = {
     version: 1 as const,
@@ -44,7 +50,8 @@ function image(sessionId: string, sequence: number, byte: number): Frame {
     timestamp: sequence,
     width: 640,
     height: 480,
-    codec: "jpeg" as const,
+    codec,
+    ...(codec === "h264" ? { keyframe: true, videoCodec: "avc1.42E01F" } : {}),
     bytes: payload.length,
   };
   return { header, payload, packet: framePacket(header, payload) };
@@ -154,6 +161,14 @@ async function fixture() {
     spawn: deviceInputProcess(probe),
   });
   const captures = new Map<string, Capture>();
+  const codecs = new Map<string, "jpeg" | "h264">();
+  // A watched device's screenshot comes from the device itself, not the live video.
+  platform.screenshot = async () => ({
+    payload: Buffer.alloc(128 * 1024, 77),
+    width: 640,
+    height: 480,
+    scale: 1,
+  });
   let id = 0;
   const service = new DevicesService({
     platform,
@@ -167,10 +182,20 @@ async function fixture() {
     },
     async capture(options) {
       captures.set(options.device.id, options);
-      options.publish(image(options.streamId, 0, options.device.name === "Pixel" ? 11 : 22));
+      const byte = options.device.name === "Pixel" ? 11 : 22;
+      options.publish(image(options.streamId, 0, byte));
       return {
+        async configure(settings) {
+          // A viewer's video starts at a keyframe of the screen as it is.
+          if (settings.codec === "h264" && codecs.get(options.device.id) !== "h264") {
+            codecs.set(options.device.id, "h264");
+            options.publish(image(options.streamId, 0, byte, "h264"));
+          }
+          return { codec: settings.codec };
+        },
         async stop() {
           captures.delete(options.device.id);
+          codecs.delete(options.device.id);
         },
       };
     },
@@ -238,7 +263,7 @@ async function fixture() {
   function publish(deviceId: string, sequence: number, byte: number) {
     const capture = captures.get(deviceId);
     if (!capture) throw new Error("Device capture was not started");
-    capture.publish(image(capture.streamId, sequence, byte));
+    capture.publish(image(capture.streamId, sequence, byte, codecs.get(deviceId) ?? "jpeg"));
   }
   return { service, auth, admin, reader, connect, connected, publish, inputs };
 }
@@ -264,7 +289,7 @@ it("a relay viewer on the shared media stream gets an emulator's pictures at the
   await ready(client, "android:Tablet");
   const first = await client.picture();
   expect(first.sourceId).toBe("android:Tablet");
-  expect(first.frame).toMatchObject({ sequence: 0, codec: "jpeg", key: true, width: 640 });
+  expect(first.frame).toMatchObject({ sequence: 0, codec: "avc1.42E01F", key: true, width: 640 });
   expect(Buffer.from(first.frame.bytes)).toEqual(Buffer.alloc(128 * 1024, 22));
   // Each 128 KiB picture crossed the relay in pieces no larger than a relay message.
   expect(client.chunks.every((length) => length <= 64 * 1024)).toBe(true);
@@ -332,10 +357,8 @@ it("two live device streams and a screenshot keep whole pictures over one encryp
     sourceId: "android:Pixel",
     frame: { streamId: screenshot.streamId, sequence: screenshot.sequence },
   });
-  // The screenshot is whichever picture was newest when it was taken.
-  expect(Buffer.from(still?.frame.bytes ?? [])).toEqual(
-    Buffer.alloc(128 * 1024, screenshot.sequence === 0 ? 11 : 33),
-  );
+  // The device's own still: a watched live view stays video for a screenshot.
+  expect(Buffer.from(still?.frame.bytes ?? [])).toEqual(Buffer.alloc(128 * 1024, 77));
   const live = pictures.filter((picture) => !picture.frame.still);
   expect(live.map((picture) => [picture.sourceId, picture.frame.sequence]).toSorted()).toEqual([
     ["android:Pixel", 1],

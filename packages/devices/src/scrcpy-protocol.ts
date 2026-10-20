@@ -18,7 +18,11 @@ export const keycode = {
   power: 26,
   enter: 66,
   appSwitch: 187,
+  k: 39,
+  altLeft: 57,
 } as const;
+/** `KeyEvent` meta state with the left Alt key held: META_ALT_ON | META_ALT_LEFT_ON. */
+export const altOn = 0x12;
 
 const type = {
   keycode: 0,

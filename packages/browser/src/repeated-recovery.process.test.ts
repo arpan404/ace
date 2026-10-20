@@ -1,5 +1,4 @@
 import { expect, it } from "vitest";
-import type { BrowserFrame } from "@ace/protocol";
 import { backendFixture, FakeHeadless } from "./backend-test-support.ts";
 import { keepAgentsOut } from "./collaboration-test-support.ts";
 
@@ -19,7 +18,7 @@ it("simultaneous opens join replacement recovery and both return a usable ready 
   const f = await backendFixture({ headlessBackend: headless, backendLoss: () => "headless" });
   await f.open();
   const ready = Promise.withResolvers<void>();
-  f.service.subscribe("thread", "viewer", { send: () => true }, (state) => {
+  f.service.subscribe("thread", "viewer", {}, (state) => {
     if (state.backend === "headless" && state.status === "ready") ready.resolve();
   });
   await f.disconnect();
@@ -49,21 +48,12 @@ it("ordinary agent opens recover after repeated losses of the replacement headle
   await f.open();
   await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/page" });
   const ready = Promise.withResolvers<void>();
-  const frames: BrowserFrame[] = [];
-  f.service.subscribe(
-    "thread",
-    "viewer",
-    {
-      send: (frame) => {
-        frames.push(frame);
-        f.service.acknowledge("thread", "viewer", frame.sequence);
-        return true;
-      },
-    },
-    (state) => {
-      if (state.backend === "headless" && state.status === "ready") ready.resolve();
-    },
-  );
+  // The statuses the viewer was told, without repeats.
+  const statuses: (string | undefined)[] = [];
+  f.service.subscribe("thread", "viewer", {}, (state) => {
+    if (statuses.at(-1) !== state.status) statuses.push(state.status);
+    if (state.backend === "headless" && state.status === "ready") ready.resolve();
+  });
   await f.disconnect();
   await ready.promise;
   for (let count = 0; count < 2; count++) {
@@ -83,7 +73,8 @@ it("ordinary agent opens recover after repeated losses of the replacement headle
     lost.lost("Late context close");
     expect(f.service.state("thread").status).toBe("ready");
   }
-  expect(frames.length).toBeGreaterThanOrEqual(4);
+  // The viewer followed the desktop's loss and every loss of its replacement, to each recovery.
+  expect(statuses).toEqual(["ready", "paused", "ready", "paused", "ready", "paused", "ready"]);
   await f.service.closeThread("thread");
   expect(() => f.service.state("thread")).toThrow("not open");
 });
@@ -93,7 +84,7 @@ it("replacement loss keeps a private page paused until the person opens it", asy
   await f.open();
   keepAgentsOut(f.service);
   const ready = Promise.withResolvers<void>();
-  f.service.subscribe("thread", "owner", { send: () => true }, (state) => {
+  f.service.subscribe("thread", "owner", {}, (state) => {
     if (state.backend === "headless" && state.status === "ready") ready.resolve();
   });
   await f.disconnect();
@@ -130,7 +121,7 @@ it.each(["open"])(
     await f.open();
     await f.disconnect();
     const ready: string[] = [];
-    f.service.subscribe("thread", "viewer", { send: () => true }, (state) => {
+    f.service.subscribe("thread", "viewer", {}, (state) => {
       if (state.status === "ready") ready.push(state.url);
     });
     await f.service.open({ threadId: "thread", workspaceId: "workspace-thread", background: true });

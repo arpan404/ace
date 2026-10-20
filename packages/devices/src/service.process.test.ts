@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFile } from "node:fs/promises";
 import { CredentialRegistry, ToolRegistry } from "@ace/mcp-server";
 import { AgentId, ThreadId } from "@ace/protocol";
@@ -641,7 +641,7 @@ const videoProfile = {
   bitrate: 500000,
 } as const;
 for (const op of ["subscribe", "stream.configure"] as const) {
-  it(`${op} racing disconnect cannot retain a JPEG viewer or exhaust viewer capacity`, async () => {
+  it(`${op} racing disconnect cannot retain a departed viewer or exhaust viewer capacity`, async () => {
     const h = await harness();
     await bind(h);
     await h.request({ op: "start", deviceId, fps: 60 });
@@ -661,7 +661,7 @@ for (const op of ["subscribe", "stream.configure"] as const) {
         operation:
           op === "subscribe"
             ? { op, deviceId }
-            : { op, deviceId, settings: { ...videoProfile, codec: "jpeg" } },
+            : { op, deviceId, settings: { ...videoProfile, maxWidth: 160 } },
       });
       // Even a cached session lookup yields before the preference insertion.
       channel.close();
@@ -672,17 +672,48 @@ for (const op of ["subscribe", "stream.configure"] as const) {
     expect(h.profiles.every((profile) => profile.codec === "h264")).toBe(true);
   });
 }
-it("recording quota completion restores video without increasing a small viewer's budget", async () => {
+it("a recording leaves a watched live view on its 60 fps video from start to stop", async () => {
   const h = await harness();
   await bind(h);
   await h.request({ op: "start", deviceId, fps: 60 });
   await h.request({ op: "stream.configure", deviceId, settings: videoProfile });
   await h.request({ op: "record.start", deviceId });
-  expect(h.profiles.at(-1)).toEqual({ ...videoProfile, codec: "jpeg", fps: 15 });
+  h.publish(1);
+  await h.request({ op: "record.stop", deviceId });
+  expect(h.profiles).toEqual([videoProfile]);
+});
+it("an unwatched recording streams its image budget until its quota completes", async () => {
+  const h = await harness();
+  await bind(h);
+  await h.request({ op: "start", deviceId, fps: 60 });
+  await h.request({ op: "record.start", deviceId });
+  expect(h.profiles.at(-1)).toMatchObject({
+    codec: "jpeg",
+    maxWidth: 1280,
+    maxHeight: 720,
+    fps: 15,
+  });
   h.publish(1, 1024);
   await h.published.promise;
   await h.request({ op: "record.stop", deviceId });
-  expect(h.profiles.at(-1)).toEqual(videoProfile);
+  expect(h.profiles.at(-1)).toMatchObject({ codec: "jpeg", maxHeight: 2160, fps: 30 });
+});
+it("a screenshot while someone watches comes from the device and never switches the view to JPEG", async () => {
+  const h = await harness();
+  await bind(h);
+  await h.request({ op: "start", deviceId, fps: 60 });
+  await h.request({ op: "stream.configure", deviceId, settings: videoProfile });
+  h.publish(1);
+  h.platform.screenshot = async () => ({
+    payload: Buffer.from("device-still"),
+    width: 100,
+    height: 200,
+    scale: 1,
+  });
+  const still = await h.service.screenshot(deviceId, human);
+  expect(still.payload.toString()).toBe("device-still");
+  expect(still.header.codec).toBe("jpeg");
+  expect(h.profiles.every((profile) => profile.codec === "h264")).toBe(true);
 });
 
 {
@@ -748,32 +779,34 @@ it("recording quota releases image demand before a stalled publisher completes",
   const h = await harness();
   await bind(h);
   await h.request({ op: "start", deviceId, fps: 60 });
-  await h.request({ op: "stream.configure", deviceId, settings: videoProfile });
   const publication = h.blockPublication();
   await h.request({ op: "record.start", deviceId });
   h.publish(1, 1024);
   await h.publishing.promise;
-  // A new settings acknowledgement joins the already-requested image release.
-  await h.request({ op: "stream.configure", deviceId, settings: videoProfile });
-  expect(h.profiles.at(-1)).toEqual(videoProfile);
+  // The capture leaves the recording's budget while its publication is still stalled.
+  await vi.waitFor(() =>
+    expect(h.profiles.at(-1)).toMatchObject({ codec: "jpeg", maxHeight: 2160, fps: 30 }),
+  );
   publication.resolve();
   await h.request({ op: "record.stop", deviceId });
 });
 
-it("unsubscribing removes its JPEG preference and restores the remaining video viewer", async () => {
+it("unsubscribing removes its preference and restores the remaining viewer's budget", async () => {
   const h = await harness();
   await bind(h);
   await h.request({ op: "start", deviceId, fps: 60 });
-  await h.request({ op: "stream.configure", deviceId, settings: videoProfile });
+  const large = { ...videoProfile, maxWidth: 1920, maxHeight: 2160, bitrate: 8000000 };
+  await h.request({ op: "stream.configure", deviceId, settings: large });
   const release = await h.service.subscribe(
     deviceId,
-    { kind: "human", owner: "image-viewer" },
+    { kind: "human", owner: "second-viewer" },
     async () => {},
   );
-  expect(h.profiles.at(-1)?.codec).toBe("jpeg");
+  // A view that hasn't sized itself yet asks for 60 fps video in a phone-sized box.
+  expect(h.profiles.at(-1)).toEqual({ ...large, maxWidth: 1440 });
   release();
-  await h.request({ op: "stream.configure", deviceId, settings: videoProfile });
-  expect(h.profiles.at(-1)).toEqual(videoProfile);
+  await h.request({ op: "stream.configure", deviceId, settings: large });
+  expect(h.profiles.at(-1)).toEqual(large);
 });
 
 it("a pending native control handoff cannot reclaim after a newer owner or disconnect", async () => {

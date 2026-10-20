@@ -35,7 +35,7 @@ import { useFileDrop } from "./use-file-drop.tsx";
 import type { DropPoint } from "./use-browser-features.ts";
 
 /**
- * The page itself, edge to edge in the panel: the screencast frame on the panel's own surface,
+ * The page itself, edge to edge in the panel: its live picture on the panel's own surface,
  * never inside a pretend window. Pointer, wheel and keys go to the shown tab at once, whoever
  * else works in it; an agent working there shows as a cursor gliding to where it points. At
  * "Fit the panel" the page is sized to the pane so it renders 1:1; at a device size it is drawn
@@ -47,7 +47,8 @@ export function PageView(props: {
   view: BrowserView;
   /** The tab shown: input goes to exactly this tab. */
   tab: BrowserTabView | undefined;
-  frame: ScreenFrame;
+  /** The live picture; undefined only while a native view shows the page itself. */
+  frame: ScreenFrame | undefined;
   interactive: boolean;
   /** Native page acknowledged as visible; keep capture warm but do not paint a second copy. */
   nativeShown?: boolean;
@@ -55,8 +56,6 @@ export function PageView(props: {
   fit: boolean;
   /** Drawn inside the device toolbar's frame, which it fills exactly. */
   framed?: boolean;
-  /** The tab's zoom: the page is that much smaller in CSS pixels, drawn back at the pane's size. */
-  zoom?: number | undefined;
   /** The right-click menu; without it, a right click goes to the page. */
   menu?: PageMenu | undefined;
   /** Dimmed with a reason over it (offline, paused). */
@@ -92,9 +91,9 @@ export function PageView(props: {
   useCaptureSize(props.source, props.threadId, pane);
   // Pointer positions map back to page pixels through the picture's rendered box.
   const point = (event: MouseEvent<HTMLElement>) => {
-    // The picture is an <img> (JPEG) or a <canvas> (video); either is laid out in CSS pixels.
+    // The picture is a <canvas> laid out in CSS pixels, whatever its bitmap's size.
     const box = event.currentTarget.querySelector("[data-page-picture]")?.getBoundingClientRect();
-    const scale = box?.width ? frame.width / box.width : 1;
+    const scale = box?.width && frame ? frame.width / box.width : 1;
     return {
       x: Math.round((event.clientX - (box?.left ?? 0)) * scale),
       y: Math.round((event.clientY - (box?.top ?? 0)) * scale),
@@ -193,16 +192,14 @@ export function PageView(props: {
         : {}),
     });
   };
-  // A zoomed page is smaller in CSS pixels; drawn at its zoomed size it fills the pane again.
-  const zoom = props.zoom ?? 1;
-  const image = !props.nativeShown && (
+  // The picture drawn here: none while the native view shows the page itself.
+  const drawn = props.nativeShown ? undefined : frame;
+  const image = drawn && (
     <FramePicture
       pictureRef={picture}
-      frame={frame}
+      frame={drawn}
       alt={`Live view of ${props.view.url}`}
       style={echo.pictureStyle}
-      width={Math.round(frame.width * zoom)}
-      height={Math.round(frame.height * zoom)}
       className={cn(
         "block object-contain transition-opacity duration-(--motion-base)",
         props.framed ? "size-full" : "h-auto max-h-full w-auto max-w-full",
@@ -276,23 +273,21 @@ export function PageView(props: {
       {image}
       {image && live && <LocalEchoOverlay ripples={echo.ripples} onSettled={echo.settled} />}
       {fileDrop.indicator}
-      {image && props.tab?.inUse && props.tab.pointer && !inPage && (
+      {drawn && props.tab?.inUse && props.tab.pointer && !inPage && (
         <AgentCursor
-          // It measures the picture it was given: a switch between JPEG and video is a new one.
-          key={frame.video ? "video" : "image"}
           threadId={props.threadId}
           agentId={props.tab.inUse.agentId}
           pointer={props.tab.pointer}
-          page={{ width: frame.width, height: frame.height }}
+          page={{ width: drawn.width, height: drawn.height }}
           picture={picture}
         />
       )}
-      {image && live && (
+      {drawn && live && (
         <PageStateLayer
           page={page}
           pane={pane}
           picture={picture}
-          frame={frame}
+          frame={drawn}
           forward={(input) => void forward(input)}
         />
       )}

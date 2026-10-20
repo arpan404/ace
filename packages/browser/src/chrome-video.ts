@@ -3,6 +3,7 @@ import { BrowserVideoCodec } from "@ace/protocol";
 import type { BrowserCdp, CaptureEvents, VideoCaptureHandle, VideoHost } from "./backend.ts";
 import type { CdpConnection } from "./cdp-connection.ts";
 import { videoExtensionId, writeVideoExtension } from "./video-extension.ts";
+import { deliverVideoEvent, VideoEncoderEvent } from "./video-events.ts";
 
 /*
  * ace's Chrome as a video encoder (ADR 0088): loads the video extension, keeps CDP sessions on
@@ -26,29 +27,6 @@ const Evaluated = z.object({
     .optional(),
 });
 const Binding = z.object({ name: z.string(), payload: z.string() });
-const Event = z.discriminatedUnion("t", [
-  z.object({
-    t: z.literal("chunk"),
-    capture: z.string(),
-    encode: z.string().max(256),
-    key: z.boolean(),
-    codec: BrowserVideoCodec,
-    codedWidth: z.number().int().min(2).max(8192),
-    codedHeight: z.number().int().min(2).max(8192),
-    description: z.base64().max(4096).optional(),
-    age: z.number().finite().min(0).max(60_000).optional(),
-  }),
-  z.object({
-    t: z.literal("audio"),
-    capture: z.string(),
-    codec: BrowserVideoCodec,
-    sampleRate: z.number().int().min(8_000).max(192_000),
-    channels: z.number().int().min(1).max(8),
-    age: z.number().finite().min(0).max(60_000),
-  }),
-  z.object({ t: z.literal("failed"), capture: z.string(), encode: z.string().max(256) }),
-  z.object({ t: z.literal("ended"), capture: z.string() }),
-]);
 
 const origin = `chrome-extension://${videoExtensionId}/`;
 
@@ -120,6 +98,70 @@ export class ChromeVideo implements VideoHost {
       },
     };
   }
+  /**
+   * Video of a tab the extension can't capture (a private browser context, ADR 0088 amended):
+   * the live capture hands the tab's JPEG screencast frames to `pictures.push`, and the same
+   * offscreen document decodes and encodes them. Viewers still get only video. One picture is
+   * in flight to the document; a newer one replaces a waiting one.
+   */
+  async openPictures(
+    _page: BrowserCdp,
+    width: number,
+    height: number,
+    events: CaptureEvents,
+  ): Promise<VideoCaptureHandle> {
+    const { document } = await this.extension();
+    const id = `capture-${++this.ids}`;
+    this.captures.set(id, events);
+    let open = true;
+    let sending = false;
+    let waiting: string | undefined;
+    const send = (data: string) => {
+      sending = true;
+      void evaluate(document, "aceVideo.picture", [id, data])
+        .catch(() => {})
+        .finally(() => {
+          sending = false;
+          const next = waiting;
+          waiting = undefined;
+          if (open && next) send(next);
+        });
+    };
+    try {
+      await evaluate(document, "aceVideo.startPictures", [id]);
+    } catch (error) {
+      this.captures.delete(id);
+      throw error;
+    }
+    const call = (name: string, args: unknown[]) =>
+      void evaluate(document, name, args).catch(() => {});
+    return {
+      encodes: (specs) => call("aceVideo.encodes", [id, specs]),
+      keyframe: (encode) => call("aceVideo.keyframe", [id, encode]),
+      pictures: {
+        width,
+        height,
+        push: (data) => {
+          if (!open) return;
+          if (sending) waiting = data;
+          else send(data);
+        },
+      },
+      close: () => {
+        if (!open) return;
+        open = false;
+        this.captures.delete(id);
+        call("aceVideo.stop", [id]);
+      },
+    };
+  }
+  /** `openPictures` as a video host of its own, for the tabs of a private context. */
+  pictures(): VideoHost {
+    return {
+      supported: (codecs, width, height) => this.supported(codecs, width, height),
+      open: (page, width, height, events) => this.openPictures(page, width, height, events),
+    };
+  }
   private extension(): Promise<{ worker: BrowserCdp; document: BrowserCdp }> {
     this.ready ??= this.load().catch((error: unknown) => {
       this.ready = undefined;
@@ -172,28 +214,11 @@ export class ChromeVideo implements VideoHost {
     } catch {
       return;
     }
-    const event = Event.safeParse(json);
+    const event = VideoEncoderEvent.safeParse(json);
     if (!event.success) return;
-    const events = this.captures.get(event.data.capture);
-    if (!events) return;
-    if (event.data.t === "ended") {
-      this.captures.delete(event.data.capture);
-      events.ended();
-      return;
-    }
-    if (event.data.t === "failed") return events.failed(event.data.encode);
-    if (split === -1) return;
-    const bytes = new Uint8Array(Buffer.from(payload.slice(split + 1), "base64"));
-    if (event.data.t === "audio") {
-      const { capture: _capture, t: _t, ...audio } = event.data;
-      return events.audio?.({ ...audio, bytes });
-    }
-    const { description, capture: _capture, t: _t, ...chunk } = event.data;
-    events.chunk({
-      ...chunk,
-      ...(description ? { description: new Uint8Array(Buffer.from(description, "base64")) } : {}),
-      bytes,
-    });
+    const bytes =
+      split === -1 ? undefined : new Uint8Array(Buffer.from(payload.slice(split + 1), "base64"));
+    deliverVideoEvent(this.captures, event.data, bytes);
   }
 }
 

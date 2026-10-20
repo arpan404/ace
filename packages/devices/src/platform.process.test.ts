@@ -199,6 +199,7 @@ it("maps Android gestures, keys and text to the selected emulator with shell-saf
   await f.manager.input(android(), { kind: "longPress", x: 10, y: 20, durationMs: 900 });
   await f.manager.input(android(), { kind: "swipe", x: 1, y: 2, toX: 3, toY: 4, durationMs: 350 });
   await f.manager.input(android(), { kind: "key", key: "back" });
+  await f.manager.input(android(), { kind: "key", key: "keyboard" });
   await f.manager.input(android(), { kind: "type", text: "a';$(echo unsafe) & b" });
   await f.manager.openUrl(android(), "example://inbox?q=';touch%20bad&x=1");
   const commands = await f.commands();
@@ -211,6 +212,8 @@ it("maps Android gestures, keys and text to the selected emulator with shell-saf
     ["swipe", "10", "20", "10", "20", "900"],
     ["swipe", "1", "2", "3", "4", "350"],
     ["keyevent", "4"],
+    // Gboard's Show on-screen keyboard.
+    ["keycombination", "KEYCODE_ALT_LEFT", "KEYCODE_K"],
     ["text", "a';$(echo%sunsafe)%s&%sb"],
   ])
     expect(commands).toContainEqual({ tool: "input", args });

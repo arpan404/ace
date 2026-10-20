@@ -4,10 +4,10 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { deviceBrowser, openDevice, openDevices, unusable } from "@/test/device-browser.ts";
 
 function noop() {}
-// jsdom has no WebCodecs: every screen here is JPEG, as in a browser without it.
+// jsdom has no WebCodecs: a stand-in decoder shows every H.264 picture, as a browser would.
 let browser: ReturnType<typeof deviceBrowser>;
 beforeEach(() => {
-  browser = deviceBrowser("none");
+  browser = deviceBrowser("decodes");
 });
 afterEach(() => {
   browser.restore();
@@ -101,16 +101,19 @@ test("booting an emulator shows its live screen, which takes keys and text while
   expect(subtitle(pixel, /^Android 15 · Live/)).toBeTruthy();
   expect(await controlChip(pixel, "You're in control")).toBeTruthy();
 
-  // The rail's keys, then the keyboard field it opens, which types on the device.
+  // The rail's keys (Software keyboard brings the device's own keyboard back), then the text
+  // field Type text opens, which types on the device.
   await userEvent.click(within(pixel).getByRole("button", { name: "Back" }));
+  await userEvent.click(within(pixel).getByRole("button", { name: "Software keyboard" }));
   expect(within(pixel).queryByRole("textbox", { name: "Type on the device" })).toBeNull();
-  await userEvent.click(within(pixel).getByRole("button", { name: "Keyboard" }));
+  await userEvent.click(within(pixel).getByRole("button", { name: "Type text" }));
   await userEvent.type(within(pixel).getByRole("textbox", { name: "Type on the device" }), "hello");
   await userEvent.click(within(pixel).getByRole("button", { name: "Send" }));
 
   await waitFor(() =>
     expect(app.daemon.appDevices.inputs.map((entry) => entry.input)).toEqual([
       { kind: "key", key: "back" },
+      { kind: "key", key: "keyboard" },
       { kind: "type", text: "hello" },
     ]),
   );
@@ -232,18 +235,18 @@ test("while the window is hidden the device screen decodes nothing, and shows th
   try {
     visibility("hidden");
     const drawn = browser.draws(screenImage);
-    const decoded = browser.bitmaps.length;
+    const decoded = browser.videoFrames.length;
     // Each key press repaints the device's screen; the daemon has both once it records them.
     await userEvent.click(within(pixel).getByRole("button", { name: "Back" }));
     await userEvent.click(within(pixel).getByRole("button", { name: "Back" }));
     await waitFor(() => expect(app.daemon.appDevices.inputs).toHaveLength(2));
-    expect(browser.bitmaps).toHaveLength(decoded);
+    expect(browser.videoFrames).toHaveLength(decoded);
     expect(browser.draws(screenImage)).toBe(drawn);
 
     // Shown again, the screen asks for the newest frame and decodes only that one.
     act(() => visibility("visible"));
     await waitFor(() => expect(browser.draws(screenImage)).toBe(drawn + 1));
-    expect(browser.bitmaps).toHaveLength(decoded + 1);
+    expect(browser.videoFrames).toHaveLength(decoded + 1);
   } finally {
     visibility("visible");
   }

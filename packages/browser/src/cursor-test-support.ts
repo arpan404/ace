@@ -1,10 +1,11 @@
 import { createServer } from "node:http";
 import { afterEach, expect, vi } from "vitest";
 import { z } from "zod";
-import type { BrowserFrame, BrowserState } from "@ace/protocol";
+import type { BrowserState } from "@ace/protocol";
 import { pixel } from "./annotation-test-support.ts";
 import type { Actor } from "./session.ts";
 import type { BrowserServiceOptions } from "./service-options.ts";
+import type { BrowserVideoChunk } from "./stream-video.ts";
 import { fixture } from "./test-support.ts";
 
 export { executablePath } from "./test-support.ts";
@@ -42,7 +43,44 @@ async function bytesImage(bytes: Uint8Array) {
 }
 
 /**
- * A thread browser with agent cursors on, a person watching its live frames with a magenta
+ * Decodes one keyframe with WebCodecs in a page of its own and returns the picture as a PNG:
+ * what the person's screen shows for it.
+ */
+const decodeKeyframe = (chunk: BrowserVideoChunk) => {
+  const config = {
+    codec: chunk.codec,
+    codedWidth: chunk.codedWidth,
+    codedHeight: chunk.codedHeight,
+    ...(chunk.description
+      ? { description: Buffer.from(chunk.description).toString("base64") }
+      : {}),
+  };
+  return `(async () => {
+    const bytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const config = ${JSON.stringify(config)};
+    let picture;
+    const errors = [];
+    const decoder = new VideoDecoder({
+      output: (frame) => { picture?.close(); picture = frame; },
+      error: (error) => errors.push(String(error)),
+    });
+    decoder.configure({ ...config, ...(config.description ? { description: bytes(config.description) } : {}) });
+    decoder.decode(new EncodedVideoChunk({ type: "key", timestamp: 0, data: bytes(${JSON.stringify(Buffer.from(chunk.bytes).toString("base64"))}) }));
+    await decoder.flush().catch((error) => errors.push(String(error)));
+    if (!picture) throw new Error("No picture: " + errors.join("; "));
+    const canvas = new OffscreenCanvas(picture.displayWidth, picture.displayHeight);
+    canvas.getContext("2d").drawImage(picture, 0, 0);
+    picture.close();
+    const png = new Uint8Array(await (await canvas.convertToBlob({ type: "image/png" })).arrayBuffer());
+    let text = "";
+    for (let index = 0; index < png.length; index += 8192)
+      text += String.fromCharCode(...png.subarray(index, index + 8192));
+    return btoa(text);
+  })()`;
+};
+
+/**
+ * A thread browser with agent cursors on, a person watching its live video with a magenta
  * accent, and helpers to look for the cursor in what each side sees.
  */
 export async function cursorFixture(options: Partial<BrowserServiceOptions> = {}) {
@@ -64,17 +102,19 @@ export async function cursorFixture(options: Partial<BrowserServiceOptions> = {}
     agentCursor: { glideMs: 60, name: (_thread, agentId) => (agentId ? "Helper" : undefined) },
     ...options,
   });
-  const frames: BrowserFrame[] = [];
+  const chunks: BrowserVideoChunk[] = [];
   const states: BrowserState[] = [];
   f.service.subscribe(
     "thread",
     "person",
     {
-      send: (frame) => {
-        frames.push(frame);
-        // Ask for the next frame at once, as a viewer that keeps up does.
-        queueMicrotask(() => f.service.acknowledge("thread", "person", frame.sequence));
-        return true;
+      video: {
+        send: (chunk) => {
+          chunks.push(chunk);
+          // Acknowledge each chunk at once, as a viewer that keeps up does.
+          queueMicrotask(() => f.service.acknowledgeVideo("thread", "person", chunk.sequence));
+          return true;
+        },
       },
     },
     (state) => states.push(state),
@@ -86,7 +126,7 @@ export async function cursorFixture(options: Partial<BrowserServiceOptions> = {}
       devicePixelRatio: 1,
       cursor: { fill: accent, outline: "#FFFFFF" },
     },
-    local: true,
+    video: { codecs: ["avc1.42E033", "vp8"] },
   });
   await f.service.execute("thread", { action: "resize", width: 800, height: 600 });
   await f.service.execute("thread", { action: "navigate", url: `${origin}/` });
@@ -103,17 +143,31 @@ export async function cursorFixture(options: Partial<BrowserServiceOptions> = {}
       if (magenta(await pixel(image, width, x + dx, y + dy))) return true;
     return false;
   };
+  // The person's screen: a page of its own in another thread, where pictures are decoded.
+  let screen: Promise<unknown> | undefined;
+  /** What the person's live view shows now: a fresh keyframe, decoded. */
   const frameImage = async () => {
-    const latest = frames.at(-1);
-    if (!latest) throw new Error("No live frame yet");
+    screen ??= f.service
+      .open({ threadId: "screen", workspaceId: "workspace" })
+      .then(() => f.service.execute("screen", { action: "navigate", url: `${origin}/next` }));
+    await screen;
+    const asked = chunks.length;
+    f.service.acknowledgeVideo("thread", "person", chunks.at(-1)?.sequence ?? 0, true);
+    const fresh = () => chunks.slice(asked).find((chunk) => chunk.key);
+    await vi.waitFor(() => expect(fresh()).toBeDefined(), { timeout: 5_000, interval: 20 });
+    const key = fresh();
+    if (!key) throw new Error("No live keyframe");
+    const data = z
+      .string()
+      .parse(
+        await f.service.execute("screen", { action: "evaluate", expression: decodeKeyframe(key) }),
+      );
     const { default: sharp } = await import("sharp");
-    const data = Buffer.from(latest.data, "base64");
-    return { data: latest.data, width: (await sharp(data).metadata()).width ?? 0 };
+    return { data, width: (await sharp(Buffer.from(data, "base64")).metadata()).width ?? 0 };
   };
   return {
     ...f,
     origin,
-    frames,
     states,
     accentNear,
     frameImage,

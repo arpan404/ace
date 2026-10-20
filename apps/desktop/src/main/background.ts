@@ -2,11 +2,12 @@ import { quitNeedsConfirmation } from "./os/quit-guard.ts";
 import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { notificationOutbox } from "./link/notification-outbox.ts";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { BaseWindow, BrowserWindow } from "electron";
 import type { BrowserPlacement, DeepLink, DesktopSettings } from "../shared/contract.ts";
 import type { BackendConnection } from "./browser/connection.ts";
 import type { EmbeddedViews, PlacementHost } from "./browser/views.ts";
+import type { VideoEncoderHost } from "./browser/video-encoder.ts";
 import type { DaemonRuntime } from "./daemon/runtime.ts";
 import type { DesktopLink } from "./link/desktop-link.ts";
 import { LinkKeeper, runtimeLinkSource, type Endpoint } from "./link/link-keeper.ts";
@@ -56,7 +57,9 @@ export class Background {
   readonly attention: Attention;
   readonly tray: StatusTray;
   private links: LinkKeeper<DesktopLink> | undefined;
-  private browser: { connection: BackendConnection; views: EmbeddedViews } | undefined;
+  private browser:
+    | { connection: BackendConnection; views: EmbeddedViews; video: VideoEncoderHost | undefined }
+    | undefined;
   private browserLoad: Promise<void> | undefined;
   private stopped = false;
   /** Agents working, as the daemon link last reported. */
@@ -173,37 +176,59 @@ export class Background {
       { BackendConnection },
       { readDesktopCredential },
       { EmbeddedViews },
+      { VideoEncoderHost },
     ] = await Promise.all([
       import("./browser/backend.ts"),
       import("./browser/connection.ts"),
       import("./browser/credential.ts"),
       import("./browser/views.ts"),
+      import("./browser/video-encoder.ts"),
     ]);
     if (this.stopped) return;
     const { runtime, log } = this.options;
+    // Remote viewers watch the views as video from the app's own encoder (ADR 0088).
+    const preload = this.options.browserPreload;
+    const video = preload
+      ? new VideoEncoderHost({ preload: join(dirname(preload), "video-encoder-preload.cjs"), log })
+      : undefined;
     const views = new EmbeddedViews({
       preload: this.options.browserPreload,
       window: this.options.window,
       partitionsDir: join(this.options.userData, "Partitions"),
       platform: process.platform,
       log,
+      video,
       onPages: () => this.reviewLifetime(),
       // The person's chosen folder, else the system's Downloads folder.
       downloadFolder: () => this.options.settings().browserDownloads ?? this.options.downloads,
     });
-    const backend = new BrowserBackend(views, { log });
-    const connection = new BackendConnection(backend, {
-      daemon: async () => {
-        const daemon = await runtime.local();
-        return { url: daemon.url, token: daemon.token };
-      },
-      credential: () => readDesktopCredential(home),
-      socket: (url) => new WebSocket(url),
-      timers,
-      id: randomUUID,
+    const { powerMonitor } = await import("electron");
+    const backend = new BrowserBackend(views, {
       log,
+      // A locked screen draws no frames, so a view opened then never shows a picture.
+      drawable: () => powerMonitor.getSystemIdleState(1) !== "locked",
+      ...(video ? { video } : {}),
     });
-    this.browser = { connection, views };
+    const connection = new BackendConnection(
+      backend,
+      {
+        daemon: async () => {
+          const daemon = await runtime.local();
+          return { url: daemon.url, token: daemon.token };
+        },
+        credential: () => readDesktopCredential(home),
+        socket: (url) => new WebSocket(url),
+        timers,
+        id: randomUUID,
+        log,
+      },
+      { video: video !== undefined },
+    );
+    this.browser = { connection, views, video };
+    // While the screen is locked the daemon moves these pages to ace's own Chromium.
+    connection.setDrawable(powerMonitor.getSystemIdleState(1) !== "locked");
+    powerMonitor.on("lock-screen", () => connection.setDrawable(false));
+    powerMonitor.on("unlock-screen", () => connection.setDrawable(true));
     connection.onState((state) => log(`Embedded browser backend: ${state}`));
     runtime.onStatus((status) => {
       if (status.state === "running") connection.wake();
@@ -316,6 +341,7 @@ export class Background {
   async stop(): Promise<void> {
     this.stopped = true;
     const views = this.browser?.connection.close() ?? Promise.resolve();
+    this.browser?.video?.close();
     // A link stuck mid-handshake or a view slow to close never holds up Quit for long.
     await new Promise<void>((resolve) => {
       const cancel = timers.set(stopGraceMs, resolve);

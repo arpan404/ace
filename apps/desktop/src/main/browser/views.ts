@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -12,7 +11,7 @@ import {
   type Session,
   type WebContents,
 } from "electron";
-import type { BrowserOpen } from "@ace/protocol";
+import type { BrowserOpen, BrowserProfileScope } from "@ace/protocol";
 import type {
   BrowserContextAction,
   BrowserPageAction,
@@ -24,8 +23,14 @@ import { BrowserShortcut } from "../../shared/contract.ts";
 import { replayChord } from "../shortcuts.ts";
 import type { ViewHost, ViewPage } from "./backend.ts";
 import { PartitionPool } from "./partition-pool.ts";
+import {
+  persistentPartitionName,
+  projectPartitionName,
+  threadPartitionName,
+} from "./partition-name.ts";
 import { PlacementBook, toWindowBounds } from "./placement.ts";
 import { EmbeddedPage } from "./page.ts";
+import { encoderCapture, type PageVideoHost } from "./page-video.ts";
 import { EmbeddedPageGroup } from "./page-group.ts";
 import { CertificateExceptions } from "./certificates.ts";
 import { clearPartition } from "./partition-cleanup.ts";
@@ -49,6 +54,8 @@ export interface ViewHostOptions {
   log(message: string): void;
   /** The folder the person chose for this app's browser downloads, if any. */
   downloadFolder?(): string | undefined;
+  /** The app's video encoder, for remote viewers watching a view as video (ADR 0088). */
+  video?: PageVideoHost<WebContents> | undefined;
   /** The number of threads with native pages changed (they keep the app running). */
   onPages?(count: number): void;
 }
@@ -74,14 +81,10 @@ const placementOf = (key: string): { threadId: string; tabId?: string } => {
   return at < 0 ? { threadId: key } : { threadId: key.slice(0, at), tabId: key.slice(at + 1) };
 };
 
-const digest = (value: string) => createHash("sha256").update(value).digest("hex").slice(0, 32);
-/** One persistent partition per thread, never shared with another thread or the app. */
-const persistentName = (workspaceId: string, threadId: string) =>
-  `ace-browser-${digest(`${workspaceId}:${threadId}`)}`;
-
 /**
  * The app's in-app browser: Electron's own Chromium in `WebContentsView`s drawn inside a
- * thread's Browser panel. Persistent profiles get one partition per workspace/thread pair and ephemeral
+ * thread's Browser panel. Persistent profiles get the partition the daemon's profile scope names
+ * (one shared by every project, one per project, or one per workspace/thread pair) and ephemeral
  * ones an in-memory partition from a pool, cleared before it is lent again; never the app's
  * session or the person's Chrome profile. Auth popups retain their opener, dialogs await answers and downloads wait for
  * daemon consent. Permissions and service workers remain refused and audited. A hidden view the agent is not driving is background-throttled.
@@ -115,6 +118,7 @@ export class EmbeddedViews implements ViewHost {
     sessionId: string;
     downloadDir?: string | undefined;
     options: BrowserOpen;
+    profileScope?: BrowserProfileScope | undefined;
     viewport: { width: number; height: number };
   }): Promise<ViewPage> {
     const { threadId, workspaceId, profile } = request.options;
@@ -123,7 +127,7 @@ export class EmbeddedViews implements ViewHost {
     const pool = this.ephemeralPartitions;
     const partition = ephemeral
       ? pool.acquire()
-      : `persist:${persistentName(workspaceId, threadId)}`;
+      : `persist:${persistentPartitionName(request.profileScope, { threadId, workspaceId })}`;
     if (
       !ephemeral &&
       !this.configured.has(partition) &&
@@ -166,6 +170,7 @@ export class EmbeddedViews implements ViewHost {
           downloadDir: request.downloadDir,
           downloadFolder: () => this.options.downloadFolder?.(),
           certificates,
+          video: this.options.video,
           session: partitionSession,
           released: undefined,
           window,
@@ -238,7 +243,16 @@ export class EmbeddedViews implements ViewHost {
    */
   async purge(request: { threadId: string; workspaceId: string }): Promise<void> {
     await this.pages.get(request.threadId)?.close();
-    const name = persistentName(request.workspaceId, request.threadId);
+    await this.clearStored(threadPartitionName(request.workspaceId, request.threadId));
+  }
+
+  /** A removed project's partition: its stored data goes. Its views were closed first. */
+  async purgeProject(request: { workspaceId: string }): Promise<void> {
+    await this.clearStored(projectPartitionName(request.workspaceId));
+  }
+
+  /** A persistent partition's stored data; one this app never created is left alone. */
+  private async clearStored(name: string): Promise<void> {
     const dir = join(this.options.partitionsDir, name);
     if (!existsSync(dir)) return;
     if (!(await clearPartition(sessions.fromPartition(`persist:${name}`))))
@@ -502,10 +516,16 @@ export class EmbeddedViews implements ViewHost {
       return false;
     };
     partitionSession.setPermissionRequestHandler((contents, permission, callback, details) =>
-      callback(permit(contents, permission, details.requestingUrl || contents.getURL())),
+      callback(
+        encoderCapture(
+          permission,
+          "securityOrigin" in details ? details.securityOrigin : undefined,
+        ) || permit(contents, permission, details.requestingUrl || contents.getURL()),
+      ),
     );
-    partitionSession.setPermissionCheckHandler((contents, permission, origin) =>
-      permit(contents, permission, origin),
+    partitionSession.setPermissionCheckHandler(
+      (contents, permission, origin) =>
+        encoderCapture(permission, origin) || permit(contents, permission, origin),
     );
     partitionSession.setDevicePermissionHandler(() => false);
     partitionSession.on("will-download", (event, item, contents) => {

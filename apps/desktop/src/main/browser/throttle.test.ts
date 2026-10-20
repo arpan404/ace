@@ -50,6 +50,12 @@ it("keeps a remote viewer's human-controlled page rendering offscreen", () => {
   });
 });
 
+it("keeps an unseen view rendering at full speed while a remote viewer watches it as video", () => {
+  expect(
+    throttleDecision({ ...hiddenIdle, agentControl: false, videoCapture: true }, 600_000, idleMs),
+  ).toEqual({ presence: "parked", throttle: false });
+});
+
 it("keeps a view the person watches rendering while one of the app's menus covers it", () => {
   // Nobody drives it and no screencast runs yet: it still renders (parked) at full speed.
   expect(

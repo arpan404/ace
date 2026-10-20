@@ -14,7 +14,12 @@ const Reply = z.object({
  * JSON). It stands in for the person's browser: the test loads ace for Chrome into it the way a
  * person loads an unpacked extension, then acts like the person through its pages.
  */
-export async function launchTestChrome(executable: string, userDataDir: string) {
+export async function launchTestChrome(
+  executable: string,
+  userDataDir: string,
+  /** More flags, such as a larger screen and window. */
+  extraArgs: readonly string[] = [],
+) {
   const child: ChildProcess = spawn(
     executable,
     [
@@ -26,6 +31,7 @@ export async function launchTestChrome(executable: string, userDataDir: string) 
       "--no-default-browser-check",
       "--use-mock-keychain",
       "--password-store=basic",
+      ...extraArgs,
       "about:blank",
     ],
     { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] },

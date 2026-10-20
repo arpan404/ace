@@ -4,6 +4,7 @@ import { WorkspaceId } from "./ids.ts";
 import { BadgeColor } from "./badge-color.ts";
 import { ProviderKind } from "./provider-data.ts";
 import { AccessMode } from "./permissions.ts";
+import { BrowserProfileScope } from "./browser-backend.ts";
 import { ProjectNote, ProjectNoteEdit, maxProjectNotes } from "./project-notes.ts";
 
 /*
@@ -103,6 +104,11 @@ export const ProjectDefaults = z
     /** Access for new threads in the project, ahead of the daemon's default. */
     access: AccessMode.optional(),
     baseBranch: z.string().min(1).max(1024).optional(),
+    /**
+     * Which kept browser profile the project's threads open in, ahead of the daemon's
+     * `browser.profileScope`. Applies to browsers opened afterwards.
+     */
+    browserProfileScope: BrowserProfileScope.optional(),
   })
   .refine((value) => value.model === undefined || value.provider !== undefined, {
     message: "A default model needs its provider",

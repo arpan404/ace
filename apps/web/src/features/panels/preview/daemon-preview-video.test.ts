@@ -137,7 +137,7 @@ test("a client that decodes video asks for it with its codecs, best first", asyn
   );
 });
 
-test("a client without a video decoder asks for JPEG frames and still shows them", async () => {
+test("a client without a video decoder subscribes without video and ignores JPEG frames", async () => {
   const { wire, preview } = await watching({ decoder: null });
   const subscribe = wire.requests.find(
     (request) =>
@@ -147,6 +147,7 @@ test("a client without a video decoder asks for JPEG frames and still shows them
       request.type === "browser.subscribe",
   );
   expect(subscribe).not.toHaveProperty("video");
+  expect(preview.decodesVideo?.()).toBe(false);
   wire.stream({
     kind: "browser.frame",
     threadId: ThreadId.parse(thread),
@@ -158,12 +159,13 @@ test("a client without a video decoder asks for JPEG frames and still shows them
       bytes: new Uint8Array([255, 216]),
     },
   });
-  await waitFor(() => expect(preview.frame(thread)?.sequence).toBe(3));
-  expect(preview.frame(thread)?.video).toBeUndefined();
+  await Promise.resolve();
+  expect(preview.frame(thread)).toBeUndefined();
+  expect(wire.sent).not.toContainEqual(expect.objectContaining({ type: "browser.ack" }));
 });
 
-test("a client whose decoder plays none of the codecs asks for JPEG frames", async () => {
-  const { wire } = await watching({ decoder: fakeDecoder(), codecs: [] });
+test("a client whose decoder plays none of the codecs subscribes without video", async () => {
+  const { wire, preview } = await watching({ decoder: fakeDecoder(), codecs: [] });
   const subscribe = wire.requests.find(
     (request) =>
       typeof request === "object" &&
@@ -172,6 +174,12 @@ test("a client whose decoder plays none of the codecs asks for JPEG frames", asy
       request.type === "browser.subscribe",
   );
   expect(subscribe).not.toHaveProperty("video");
+  expect(preview.decodesVideo?.()).toBe(false);
+});
+
+test("a client that plays a codec says it decodes video", async () => {
+  const { preview } = await watching({ decoder: fakeDecoder() });
+  expect(preview.decodesVideo?.()).toBe(true);
 });
 
 test("a keyframe and its deltas are decoded, shown at device pixels and acked as video", async () => {
@@ -188,9 +196,13 @@ test("a keyframe and its deltas are decoded, shown at device pixels and acked as
     },
   ]);
   decoder.flush();
-  const frame = preview.frame(thread);
-  expect(frame).toMatchObject({ sequence: 11, width: 390, height: 800 });
-  expect(frame?.video).toMatchObject({ codedWidth: 1170, codedHeight: 2400 });
+  expect(preview.frame(thread)).toMatchObject({
+    sequence: 11,
+    width: 390,
+    height: 800,
+    codedWidth: 1170,
+    codedHeight: 2400,
+  });
   // The picture it replaced is freed.
   expect([...decoder.closed]).toEqual([10]);
   expect(videoAcks()).toEqual([
@@ -205,7 +217,7 @@ test("deltas before any keyframe are skipped but acked, so the daemon's window f
   const { preview, video, videoAcks } = await watching({ decoder });
   video(4, false);
   expect(decoder.decoded).toEqual([]);
-  expect(preview.frame(thread)?.video).toBeUndefined();
+  expect(preview.frame(thread)).toBeUndefined();
   expect(videoAcks()).toEqual([expect.objectContaining({ sequence: 4, video: true })]);
 });
 
@@ -243,9 +255,9 @@ test("a hidden page owes its video acks until it shows again", async () => {
   expect(videoAcks()).toEqual([expect.objectContaining({ sequence: 8, video: true })]);
 });
 
-test("a JPEG frame after video replaces the picture, and video starts over from a keyframe", async () => {
+test("a JPEG frame after video is ignored: the picture stays and the video carries on", async () => {
   const decoder = fakeDecoder();
-  const { preview, wire, video } = await watching({ decoder });
+  const { preview, wire, video, videoAcks } = await watching({ decoder });
   video(1, true);
   decoder.flush();
   wire.stream({
@@ -253,11 +265,63 @@ test("a JPEG frame after video replaces the picture, and video starts over from 
     threadId: ThreadId.parse(thread),
     frame: { sequence: 50, timestamp: 1, width: 390, height: 800, bytes: new Uint8Array([255]) },
   });
-  await waitFor(() => expect(preview.frame(thread)?.sequence).toBe(50));
-  expect(preview.frame(thread)?.video).toBeUndefined();
-  expect(decoder.closed.has(1)).toBe(true);
+  await Promise.resolve();
+  expect(preview.frame(thread)?.sequence).toBe(1);
+  expect(decoder.closed.has(1)).toBe(false);
+  video(2, false);
+  decoder.flush();
+  expect(decoder.decoded).toEqual([1, 2]);
+  expect(videoAcks()).not.toContainEqual(expect.objectContaining({ sequence: 50 }));
+});
+
+test("same-sized pictures replace each other without a change to the views; a new size is one", async () => {
+  const decoder = fakeDecoder();
+  const { preview, wire, video } = await watching({ decoder });
+  let changes = 0;
+  const stop = preview.subscribe(() => changes++, thread);
+  video(1, true);
+  decoder.flush();
+  const shown = preview.frame(thread);
+  expect(changes).toBe(1);
+  let drawn = 0;
+  shown?.subscribe(() => drawn++);
+  video(2, false);
+  video(3, false);
+  decoder.flush();
+  // The same picture object, holding the newest picture; the one before is freed.
+  expect(preview.frame(thread)).toBe(shown);
+  expect(shown?.sequence).toBe(3);
+  expect([...decoder.closed]).toEqual([1, 2]);
+  expect(drawn).toBe(2);
+  expect(changes).toBe(1);
+  wire.stream({
+    kind: "browser.video",
+    threadId: ThreadId.parse(thread),
+    chunk: { ...chunk(4, true), width: 800, height: 600, codedWidth: 1600, codedHeight: 1200 },
+  });
+  decoder.flush();
+  expect(preview.frame(thread)).not.toBe(shown);
+  expect(preview.frame(thread)).toMatchObject({ sequence: 4, width: 800, codedWidth: 1600 });
+  expect(changes).toBe(2);
+  stop();
+});
+
+test("a reconnect keeps the last picture until the new stream's first keyframe replaces it", async () => {
+  const decoder = fakeDecoder();
+  const { preview, wire, video } = await watching({ decoder });
+  video(1, true);
+  decoder.flush();
+  const client = wire.api;
+  client.networkOnline(false);
+  client.networkOnline(true);
+  await waitFor(() => expect(client.state).toBe("ready"));
+  expect(preview.frame(thread)?.sequence).toBe(1);
+  // The new stream's deltas can't be decoded before its keyframe.
   video(2, false);
   expect(decoder.decoded).toEqual([1]);
+  video(3, true);
+  decoder.flush();
+  expect(preview.frame(thread)?.sequence).toBe(3);
 });
 
 test("a keyframe reconfigures the decoder only when its codec, size or description changed", async () => {

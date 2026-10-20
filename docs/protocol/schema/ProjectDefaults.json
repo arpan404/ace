@@ -10,6 +10,9 @@
       "minLength": 1,
       "type": "string"
     },
+    "browserProfileScope": {
+      "$ref": "https://ace.local/protocol/v1/BrowserProfileScope.json"
+    },
     "model": {
       "maxLength": 256,
       "minLength": 1,

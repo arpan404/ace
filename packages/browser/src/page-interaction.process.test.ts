@@ -13,7 +13,7 @@ async function viewer() {
   f.service.subscribe(
     "thread",
     "person",
-    { send: () => true },
+    {},
     () => {},
     (event) => {
       if (event.type === "browser.page") page = event.page;
@@ -139,7 +139,7 @@ describe.skipIf(!executablePath)("remote view page state", () => {
     v.f.service.subscribe(
       "thread",
       "second",
-      { send: () => true },
+      {},
       () => {},
       (event) => {
         if (event.type === "browser.page") seen.push(event.page);

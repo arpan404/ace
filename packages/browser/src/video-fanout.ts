@@ -2,11 +2,13 @@
  * Encoded video to each viewer, at the pace that viewer acknowledges (ADR 0088). Pure: no
  * timers or I/O, so the drop and keyframe rules are tested directly.
  *
- * JPEG keeps one frame in flight; video can't, since every delta needs the ones before it. A
- * viewer has a window of unacknowledged chunks instead, and acks are cumulative. A delta that
- * doesn't fit is dropped, with every later delta until the next keyframe, and a keyframe is
- * asked for. Keyframes are never dropped: one that doesn't fit waits in the viewer's queue
- * (replacing an older one), and the deltas after it queue behind it.
+ * Every delta needs the ones before it, so a viewer has a window of unacknowledged chunks and
+ * acks are cumulative. The window is a full second of 60 fps video: it holds a phone link's
+ * round trip with room for jitter, so on a link that keeps up nothing is ever dropped. The
+ * encode's bit rate follows each viewer's link (`link-rate.ts`), which keeps the window from
+ * filling; a delta that still doesn't fit is dropped, with every later delta until the next
+ * keyframe, and a keyframe is asked for. Keyframes are never dropped: one that doesn't fit
+ * waits in the viewer's queue (replacing an older one), and the deltas after it queue behind it.
  */
 
 export interface VideoPiece {
@@ -27,13 +29,17 @@ export interface VideoWindow {
   bytes: number;
 }
 
-export const videoWindow: VideoWindow = { frames: 8, bytes: 2 * 1024 * 1024 };
+export const videoWindow: VideoWindow = { frames: 60, bytes: 8 * 1024 * 1024 };
 
 export interface VideoFanoutOptions {
   /** An encode owes a keyframe (a viewer joined it, or dropped a delta, or asked). */
   keyframe(encode: string): void;
-  /** A viewer started or stopped showing video: its JPEG frames pause or resume. */
+  /** A viewer started or stopped showing video. */
   playing(id: string, playing: boolean): void;
+  /** A chunk went to a viewer's transport. */
+  sent?(id: string, sequence: number, bytes: number): void;
+  /** A delta didn't fit a viewer's window and was dropped. */
+  dropped?(id: string): void;
   window?: VideoWindow;
 }
 
@@ -84,7 +90,7 @@ export class VideoFanout<C extends VideoPiece> {
   has(id: string): boolean {
     return this.viewers.has(id);
   }
-  /** Moves a viewer to an encode (or none: it takes JPEG). A new encode starts at a keyframe. */
+  /** Moves a viewer to an encode (or none: it shows nothing). A new encode starts at a keyframe. */
   assign(id: string, encode: string | undefined): void {
     const viewer = this.viewers.get(id);
     if (!viewer || viewer.encode === encode) return;
@@ -167,6 +173,7 @@ export class VideoFanout<C extends VideoPiece> {
     );
   }
   private drop(viewer: Viewer<C>, encode: string): void {
+    this.options.dropped?.(viewer.id);
     viewer.needKey = true;
     viewer.dropping = true;
     if (!viewer.queue[0]?.key) viewer.queue = [];
@@ -177,16 +184,29 @@ export class VideoFanout<C extends VideoPiece> {
     while (viewer.queue.length) {
       const chunk = viewer.queue[0];
       if (!chunk || !this.fits(viewer, chunk)) return;
+      // In flight before it goes: a transport that acknowledges inside `send` finds it there,
+      // and the flush that ack starts never sends it again.
+      viewer.queue.shift();
+      const entry = { sequence: chunk.sequence, bytes: chunk.bytes.length };
+      viewer.inflight.push(entry);
+      viewer.inflightBytes += entry.bytes;
+      this.options.sent?.(viewer.id, chunk.sequence, entry.bytes);
       let sent = false;
       try {
         sent = viewer.sink.send(chunk);
       } catch {
         sent = false;
       }
-      if (!sent) return;
-      viewer.queue.shift();
-      viewer.inflight.push({ sequence: chunk.sequence, bytes: chunk.bytes.length });
-      viewer.inflightBytes += chunk.bytes.length;
+      if (!sent) {
+        // Refused: it waits at the head of the queue again, as if never sent.
+        const index = viewer.inflight.indexOf(entry);
+        if (index !== -1) {
+          viewer.inflight.splice(index, 1);
+          viewer.inflightBytes -= entry.bytes;
+        }
+        viewer.queue.unshift(chunk);
+        return;
+      }
       if (chunk.key && !viewer.playing) {
         viewer.playing = true;
         this.options.playing(viewer.id, true);
@@ -194,6 +214,7 @@ export class VideoFanout<C extends VideoPiece> {
       if (viewer.encode !== encode) return;
     }
   }
+
   private stopPlaying(id: string, viewer: Viewer<C>): void {
     if (!viewer.playing) return;
     viewer.playing = false;
