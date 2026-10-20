@@ -176,17 +176,16 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
       : "inset 0 1px 0 rgb(255 255 255 / 0.06), 0 1px 3px rgb(0 0 0 / 0.4)",
     "--switch-off": wash(p.t1, light ? 16 : 22),
 
-    // A simulator's drawn hardware (Devices): a graphite body with a lit rim, the stage it
-    // sits on, and the black glass around its screen.
+    // A simulator's drawn hardware (Devices): a near-black body with a lit metal rim, the
+    // stage it sits on, and the black glass around its screen. Hardware looks the same in
+    // every theme, so the body is a fixed colour, just above the glass.
     "--device-stage": light
       ? `color-mix(in srgb, ${p.sidebar}, ${p.t1} 4%)`
       : `color-mix(in srgb, ${p.s1}, #fff 2.5%)`,
-    "--device-body": light
-      ? `color-mix(in srgb, ${p.t1} 90%, ${p.s0})`
-      : `color-mix(in srgb, ${p.s2}, #fff 12%)`,
+    "--device-body": "#111113",
     "--device-rim": light
-      ? "inset 0 0 0 1px rgb(255 255 255 / 0.1), 0 0 0 1px rgb(0 0 0 / 0.14)"
-      : "inset 0 0 0 1px rgb(255 255 255 / 0.1), 0 0 0 1px rgb(0 0 0 / 0.5)",
+      ? "inset 0 0 0 1px rgb(255 255 255 / 0.14), 0 0 0 1px rgb(0 0 0 / 0.14)"
+      : "inset 0 0 0 1px rgb(255 255 255 / 0.14), 0 0 0 1px rgb(0 0 0 / 0.5)",
     "--device-glass": "#000",
 
     // Floating layers: solid edge and shadow, and the glass material (styles/glass.css).
