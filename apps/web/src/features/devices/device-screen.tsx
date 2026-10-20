@@ -11,7 +11,8 @@ import { cn } from "@/lib/cn.ts";
 import { webCodecsDecoder } from "@/lib/video/codecs.ts";
 import { TouchGestures, type TouchEffect } from "@/lib/touch-gestures.ts";
 import type { DeviceSession } from "./device-session.ts";
-import { deviceRenderer, type DeviceImage } from "./device-renderer.ts";
+import { pictureRenderer, type PictureImage } from "@/lib/video/picture-renderer.ts";
+import { drawUpright, jpegImage } from "@/lib/video/picture-canvas.ts";
 import { DeviceFingers, pinchPartner } from "./device-fingers.ts";
 
 type Touch = "multi" | "pointer" | "gestures";
@@ -106,13 +107,12 @@ export function DeviceScreen(props: {
       video = false,
       pressure = 0;
     let streaming = false,
-      configured = "",
-      recovering = false;
+      configured = "";
     let lastPressure = 0,
       stableSince = performance.now();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let resizeTimer: ReturnType<typeof setTimeout> | undefined;
-    /** The newest paced picture a hidden page didn't show: acked when the page shows again. */
+    /** The newest picture a hidden page didn't show: acked when the page shows again. */
     let owed: DevicePicture | undefined;
     const configure = () => {
       if (disposed || !streaming) return;
@@ -131,19 +131,9 @@ export function DeviceScreen(props: {
         configured = "";
       });
     };
-    const show = (picture: DeviceImage, shown: DevicePicture) => {
+    const show = (picture: PictureImage, shown: DevicePicture) => {
       if (disposed) return;
-      const turned = shown.rotation % 180 !== 0;
-      const width = turned ? shown.height : shown.width;
-      const height = turned ? shown.width : shown.height;
-      if (element.width !== width) element.width = width;
-      if (element.height !== height) element.height = height;
-      context.save();
-      context.translate(width / 2, height / 2);
-      context.rotate((shown.rotation * Math.PI) / 180);
-      context.translate(-shown.width / 2, -shown.height / 2);
-      picture.draw(context, shown.width, shown.height);
-      context.restore();
+      const { width, height } = drawUpright(element, context, picture, shown);
       element.dataset["frame"] = String(shown.sequence);
       latestFrame.current?.({
         width,
@@ -172,27 +162,11 @@ export function DeviceScreen(props: {
         rotation: shown.rotation,
       };
     };
-    const renderer = deviceRenderer({
+    const renderer = pictureRenderer<DevicePicture>({
       decoder: webCodecsDecoder(),
-      image: async (bytes) => {
-        const bitmap = await createImageBitmap(new Blob([bytes.slice()], { type: "image/jpeg" }));
-        return {
-          draw: (target, width, height) => target.drawImage(bitmap, 0, 0, width, height),
-          close: () => bitmap.close(),
-        };
-      },
+      image: jpegImage,
       show,
       ack: (picture, keyframe) => session.client.ack(picture, keyframe),
-      keyframe: () => {
-        if (disposed || recovering) return;
-        recovering = true;
-        void session.client
-          .request({ op: "stream.keyframe", deviceId })
-          .catch(() => {})
-          .finally(() => {
-            recovering = false;
-          });
-      },
       fallback: () => {
         video = false;
         configured = "";
@@ -211,7 +185,7 @@ export function DeviceScreen(props: {
       if (document.visibilityState === "hidden") {
         // Nothing draws it: hold the ack, so the daemon stops sending until the page shows.
         renderer.reset();
-        if (next.paced) owed = next;
+        owed = next;
         return;
       }
       await renderer.render(next);

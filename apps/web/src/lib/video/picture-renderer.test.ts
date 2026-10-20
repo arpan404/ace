@@ -1,24 +1,19 @@
 import { expect, test } from "vitest";
-import type { DevicePicture } from "@ace/client/devices";
-import type { VideoDecoderFactory } from "@/lib/video/codecs.ts";
-import { deviceRenderer } from "./device-renderer.ts";
+import type { VideoDecoderFactory } from "./codecs.ts";
+import { pictureRenderer, type LivePicture } from "./picture-renderer.ts";
 
 const picture = (
   sequence: number,
-  options: Partial<Pick<DevicePicture, "key" | "codec" | "paced" | "streamId">> = {},
-): DevicePicture => ({
-  deviceId: "android:emulator-5554",
+  options: Partial<Pick<LivePicture, "key" | "codec" | "streamId">> = {},
+): LivePicture => ({
   streamId: options.streamId ?? "capture-1",
   sequence,
   timestamp: sequence,
   width: 720,
   height: 1600,
-  scale: 0.5,
-  rotation: 0,
   codec: options.codec ?? "avc1.640028",
   key: options.key ?? false,
   bytes: new Uint8Array([sequence]),
-  paced: options.paced ?? true,
 });
 
 /** A renderer over a stand-in decoder: `broken` decoders report every chunk as an error. */
@@ -35,12 +30,11 @@ function setup(decoder: "decodes" | "broken" | "unsupported" | "none" = "decodes
     },
     close: () => {},
   });
-  const renderer = deviceRenderer({
+  const renderer = pictureRenderer<LivePicture>({
     decoder: decoder === "none" ? undefined : factory,
     image: async () => ({ draw: () => {}, close: () => events.push("image closed") }),
     show: (_image, shown_) => shown.push(shown_.sequence),
     ack: (target, keyframe) => acks.push({ sequence: target.sequence, keyframe }),
-    keyframe: () => events.push("keyframe requested"),
     fallback: () => events.push("fallback"),
     pressure: () => events.push("pressure"),
   });
@@ -68,15 +62,6 @@ test("a delta after a gap waits for a keyframe, asked for through the ack", asyn
   ]);
   await view.renderer.render(picture(5, { key: true }));
   expect(view.shown).toEqual([1, 5]);
-});
-
-test("an older daemon's packets ask for keyframes by request, and are never acked", async () => {
-  const view = setup();
-  await view.renderer.render(picture(1, { paced: false }));
-  expect(view.events).toContain("keyframe requested");
-  await view.renderer.render(picture(2, { key: true, paced: false }));
-  expect(view.shown).toEqual([2]);
-  expect(view.acks).toEqual([]);
 });
 
 test("a codec the platform refuses falls back to JPEG at once; JPEGs show and are freed", async () => {
