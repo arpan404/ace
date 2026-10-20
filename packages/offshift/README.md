@@ -62,7 +62,16 @@ agent's final tool call, `waiting_on_tree` is expected until the agent itself se
 
 Each successful change also publishes a bounded card of the run (`runCard`) as an
 `offshift.updated` thread event, so the person sees the latest run in the Summary tab, worded
-against the whole tree, with the current phase's steps.
+against the whole tree, with the current phase's steps. The card names its `playbook` and the
+view's `next` at that write; cards stored before either existed still read. When a project's
+default roles change, the latest card of up to 32 of its threads with an unfinished run is
+republished if the roles it uses changed (same version, same revision).
+
+`@ace/projection` reduces a card to a run mark (`runMark`: phase, `open` / `blocked` /
+`delivered`, pending count, playbook) that the thread's list entry carries, and decides what a
+settled tree's notice says about it (`runNotice`). The finished notice of a done tree names an
+open or blocked run ("Run stopped at Verify: <next>") on every settle and a delivered run once
+per run write; a live tree never notifies about its run.
 
 `OffshiftJournal` takes the host's synchronous SQLite transaction port and stores runs and request
 receipts atomically in the daemon database. Records cascade with the owner thread and are purged

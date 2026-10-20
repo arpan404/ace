@@ -35,6 +35,10 @@
       "pattern": "^[a-zA-Z0-9_.-]+$",
       "type": "string"
     },
+    "next": {
+      "maxLength": 512,
+      "type": "string"
+    },
     "outcome": {
       "maxLength": 512,
       "type": "string"
@@ -56,6 +60,9 @@
     },
     "phase": {
       "$ref": "https://ace.local/protocol/v1/OffshiftPhase.json"
+    },
+    "playbook": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftPlaybookId.json"
     },
     "revision": {
       "$ref": "https://ace.local/protocol/v1/OffshiftRevision.json"

@@ -1,6 +1,6 @@
 # 0090: Native Offshift workflow records
 
-Date: 2026-10-16. Updated 2026-10-20 (playbooks and steps). Status: accepted.
+Date: 2026-10-16. Updated 2026-10-20 (playbooks and steps; notifications, sidebar, review and arena). Status: accepted.
 
 ## Context
 
@@ -159,8 +159,69 @@ status words, and shows the current phase's steps (Done, Skipped with its reason
 independent criteria and who checked each kind: Waiting while a blocker is recorded; otherwise the tree's own state (Working,
 Approve, Answer, Failed, Waiting) while anything in it works, waits on the person or is held;
 Waiting while a settled tree leaves the run unfinished; Done only for a delivered run with every
-kind current and no delivery step to do on a settled tree. A done run leaves the Summary. There is no route, palette entry,
-composer strip or sidebar change.
+kind current and no delivery step to do on a settled tree. A done run leaves the Summary. The
+Summary's status line names the playbook first when the run started from one ("Fix · Verify · 3
+of 5"); the card carries it as an optional field so cards stored earlier still parse. There is no
+route, palette entry or composer strip.
+
+When a project's default roles change, cards that use them would go stale. The same transaction
+that writes the defaults republishes the latest card of the workspace's threads whose run is
+unfinished and whose roles in use change under the new defaults. The run is untouched: the
+version stays, and evidence states stay as of the card's own revision, since republishing does
+no Git I/O. The fan-out is capped at the 32 most recently updated unfinished cards in the
+workspace; older ones refresh on their run's next write.
+
+## Notifications
+
+The moment the person most needs to hear about is an agent ending its turn with work open. ace
+learns that from canonical status, not from a provider turn end: the notification service already
+folds `thread.updated` status and raises a finished notice when a thread becomes `done`, and a
+thread's status counts its delegated children through their summary agents. The service now also
+folds `offshift.updated` into a small per-thread run signal (run id and version, the run mark,
+and the blocker or else the card's `next`, clipped to 300 characters).
+
+We fold the run into that finished notice instead of sending a second one, so a settle produces
+exactly one notification and the person's existing settings (category toggles, quiet hours,
+snooze, presence) apply unchanged. When the done tree's latest run is open, the notice's message
+reads "Run stopped at Verify: <next>"; when blocked, "Run blocked at Review: <blocker>"; and it
+carries `run: {outcome, phase}` for clients. The wording comes from `runNotice` in
+`@ace/projection`, a pure function of the run mark and the tree state that returns nothing unless
+the tree is done, so a delivered run is never announced while anything still works and a blocker
+recorded mid-turn notifies no one (the agent asks the person with `ask`).
+
+An open or blocked run is named on every settle while it stays open: the tree is done, the work
+is not, and an unqualified "Finished" would read as done (priority 1). That is still one notice
+per settle; a status that does not change (a rename, a replay) produces none. A delivered run
+("Run delivered") is announced once per run write: the service remembers the run version it
+announced, and later settles at that version send the ordinary finished notice. The next and the
+blocker come from the run record, not the transcript, so they are sent like an agent's own
+notice; the card's evidence states are as of its last write, as in the Summary.
+
+## Sidebar
+
+A thread's list entry carries `run`, the mark of its latest run (`runMark` in `@ace/projection`:
+phase, `open`, `blocked` or `delivered`, pending count and playbook, no ids). `offshift.updated`
+is a sidebar event, so the mark travels on the existing thread-list patches; the daemon keeps it in
+the thread row's metadata and drops a mark the schema can no longer read. A run write does not
+count as thread activity, so it never reorders the list.
+
+The row shows the mark only when the tree is done and the run is open or blocked: the status word
+becomes Waiting (never Done) and line 3 leads with the phase word, after a paused ring in the
+waiting colour when a blocker holds it; the full line ("Run stopped at Verify") is the tooltip and
+part of the spoken details. A working, waiting or asking tree shows its own status and no mark, so
+an agent still at work never reads as needing the person. A delivered run adds nothing.
+
+## Review and arena
+
+The guide adds two short recipes made only of existing tools, so no runner is needed. Independent
+review: `delegate` with `runRole` `review` or `verify` in the owner's checkout, a brief with the
+criteria, the diff base and the owner's thread as `runOwner`; the child records evidence and
+reports findings, and the owner fixes them. Arena, for a design or sizeable artifact where one
+attempt could fix the wrong shape: the same task to two or three providers or models, each in its
+own `new_worktree`; a judge on another provider compares them against a stated rubric; the owner
+picks a base, folds in the best parts by hand and verifies as usual. Attempts in other worktrees
+record no evidence, because evidence binds to the owner's checkout. An arena playbook step was left
+out: the recipe is a choice made per task, not a step every run of a kind should take.
 
 ## Verification
 
@@ -178,4 +239,10 @@ both steps, and advances; `delegate` with `runRole` starts the child on the run'
 task fields win. It also proves that a change publishes the card to subscribers and
 snapshots, that replays and refusals publish nothing, and that the snapshot keeps the card after
 the store reopens. The web Summary is tested against the fake daemon for a blocked run, missing
-evidence, and a delivered run that is not Done while a subagent still works.
+evidence, a delivered run that is not Done while a subagent still works, and the playbook in its
+status line. `runMark` and `runNotice` are tested as pure functions across run and tree states;
+the notification service is tested with real SQLite for the stopped, blocked and delivered
+wording, one notice per settle and the once-per-version delivered notice; a daemon test drives a
+real run through two settles and checks the notices and the sidebar mark; and changing project
+roles republishes the card to subscribers and the snapshot. The web row is tested for the mark on
+a settled thread, its absence on a working tree and on a delivered run.
