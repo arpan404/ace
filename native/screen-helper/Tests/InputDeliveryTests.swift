@@ -53,12 +53,15 @@ final class InputDeliveryTests: XCTestCase {
         let original = FocusState(pid: 42, cursor: .zero)
         var desktop = original
         let guardState = FocusGuard(runtime: FocusRuntime(read: { desktop }, uptime: { 1 }, humanInput: { _ in false }))
+        // Launched windows stay visible (a hidden app can't be captured or acted on); only
+        // activation would move the person's focus.
         let launched = try await backgroundLaunch(at: URL(fileURLWithPath: "/unused"), guardState: guardState, wait: {}, open: { _, configuration in
             if configuration.activates { desktop = FocusState(pid: 99, cursor: .zero) }
             return configuration.hides ? "hidden" : "visible"
         })
-        XCTAssertEqual(launched, "hidden")
+        XCTAssertEqual(launched, "visible")
         XCTAssertEqual(desktop, original)
+        XCTAssertNil(guardState.warning(targetPID: 99))
     }
     func testObservationWaitReturnsTheChangedUIAfterNotificationsSettle() async throws {
         var text = "old", revision: UInt64 = 0
