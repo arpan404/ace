@@ -4,6 +4,19 @@ import Testing
 @testable import Ace
 
 @Suite @MainActor struct PatchPumpTests {
+    @Test func thinkingAndEditsStayGroupedWithNarrationInOrderOnTheNativeBridge() throws {
+        let harness = try DeliveryHarness()
+        harness.call("queueWorkFlow")
+        for _ in 0..<8 { try harness.step() }
+        let block = try #require(harness.model.thread?.screen.blocks["flow"])
+        let groups = try #require(block.row.groups)
+        #expect(groups.map(\.items) == [["thought"], ["edit-1", "edit-2"], ["narration"]])
+        #expect(groups[1].label == "Edited 2 files")
+        #expect(groups[2].single)
+        #expect(harness.model.thread?.items["narration"]?.row.text == "The layout is fixed. Checking the result.")
+        #expect(harness.model.thread?.items["edit-1"]?.row.step?.verb == "Edited")
+        #expect(harness.rejected == 0)
+    }
     @Test func aSurrogateBoundaryTitleAndLaterCanonicalStatusBothArrive() throws {
         let harness = try DeliveryHarness()
         harness.call("queueUnicode")

@@ -8,6 +8,8 @@ struct TranscriptLinks {
     /// Where a settled log reads its turn's full steps; nil shows the steps already loaded.
     var steps: StepsLinks? = nil
     var openMedia: ((TranscriptRow) -> Void)? = nil
+    var openChanges: (() -> Void)? = nil
+    var openMessage: ((TranscriptRow) -> Void)? = nil
 }
 
 /// One transcript block. Items render through their own observed rows, so streaming text
@@ -19,10 +21,18 @@ struct BlockView: View {
     var body: some View {
         let row = block.row
         switch row.kind {
-        case "work": WorkBlockView(row: row, blockId: block.id, thread: thread, steps: links.steps)
+        case "work": WorkBlockView(row: row, blockId: block.id, thread: thread, steps: links.steps, openMessage: links.openMessage)
         case "subagents": if let agents = row.agents { SubagentGroupView(agents: agents, open: open) }
         case "live": LiveLine(thread: thread)
         case "end": if let ending = row.ending { EndingLine(ending: ending) }
+        case "files":
+            if let openChanges = links.openChanges {
+                Button(action: openChanges) { Label("View edited files", systemImage: "doc.text") }
+                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .accessibilityIdentifier("transcript.changes")
+            }
         case "started":
             if let started = row.started {
                 LinkRow(icon: "bubble.left.and.text.bubble.right", title: started.title, detail: "Conversation") { links.openThread(started.threadId) }
@@ -35,7 +45,7 @@ struct BlockView: View {
         default:
             VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
                 ForEach(row.items, id: \.self) { id in
-                    if let item = thread.items[id] { ItemRowView(item: item, openMedia: links.openMedia) }
+                    if let item = thread.items[id] { ItemRowView(item: item, openMedia: links.openMedia, openMessage: links.openMessage) }
                 }
             }
         }
@@ -50,10 +60,13 @@ struct BlockView: View {
 struct ItemRowView: View {
     @Bindable var item: ItemModel
     var openMedia: ((TranscriptRow) -> Void)? = nil
+    var openMessage: ((TranscriptRow) -> Void)? = nil
+    var workEnded = false
     var body: some View {
         let row = item.row
         switch row.type {
-        case "message": MessageRow(row: row)
+        case "message": MessageRow(row: row, openMessage: openMessage)
+        case "reasoning": ThoughtRow(row: row, openMessage: openMessage, workEnded: workEnded)
         case "html", "image":
             if let openMedia {
                 Button { openMedia(row) } label: {
@@ -70,6 +83,7 @@ struct ItemRowView: View {
 
 struct MessageRow: View {
     let row: TranscriptRow
+    var openMessage: ((TranscriptRow) -> Void)? = nil
     var body: some View {
         let user = row.role == "user"
         VStack(alignment: user ? .trailing : .leading, spacing: AceTheme.Spacing.xs) {
@@ -86,7 +100,10 @@ struct MessageRow: View {
             Text(Date(timeIntervalSince1970: row.createdAt / 1000), format: .dateTime.hour().minute())
                 .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
-            if row.truncated { Text("Showing a bounded preview").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
+            if row.truncated, let openMessage {
+                Button("Read full message") { openMessage(row) }.aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                    .accessibilityIdentifier("message.full.\(row.id)")
+            }
         }.frame(maxWidth: .infinity, alignment: user ? .trailing : .leading)
     }
 }
@@ -132,11 +149,14 @@ struct StepRow: View {
     static func symbol(_ icon: String) -> String {
         switch icon {
         case "read": "doc.text"
-        case "search": "magnifyingglass"
+        case "search", "explore": "magnifyingglass"
         case "list": "list.bullet"
-        case "shell": "terminal"
+        case "shell", "command": "terminal"
         case "edit": "pencil"
-        case "web": "globe"
+        case "web", "fetch", "websearch": "globe"
+        case "browser": "safari"
+        case "computer": "display"
+        case "plan": "checklist"
         case "think": "brain"
         case "note": "info.circle"
         default: "wrench.and.screwdriver"
@@ -151,8 +171,14 @@ struct WorkBlockView: View {
     var blockId = ""
     let thread: ThreadModel
     var steps: StepsLinks? = nil
+    var openMessage: ((TranscriptRow) -> Void)? = nil
     @State private var expanded = false
     var body: some View {
+        if row.work?.ongoing == true, let groups = row.groups {
+            WorkProgressView(groups: groups, thread: thread, openMessage: openMessage)
+        } else { settled }
+    }
+    private var settled: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
             Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { expanded.toggle() } } label: {
                 HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.xs) {
@@ -165,7 +191,7 @@ struct WorkBlockView: View {
                                     .monospacedDigit()
                             }
                         } else { Text(work.label) }
-                        if !work.counts.isEmpty { Text("· \(work.counts)").lineLimit(2) }
+                        if !work.counts.isEmpty { Text("· \(work.counts)").lineLimit(1) }
                     } else { Text("Worked") }
                     Spacer(minLength: AceTheme.Spacing.none)
                     Image(systemName: "chevron.right").rotationEffect(.degrees(expanded ? 90 : 0))
@@ -204,8 +230,8 @@ private struct WorkStep: View {
     @Bindable var item: ItemModel
     var body: some View {
         if item.row.type == "message" {
-            Text(Markdown.inline(item.row.text)).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.foreground)
-        } else { ItemRowView(item: item) }
+            MarkdownView(text: item.row.text)
+        } else { ItemRowView(item: item, workEnded: true) }
     }
 }
 
@@ -214,8 +240,7 @@ private struct LiveLine: View {
     let thread: ThreadModel
     var body: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
-            ProgressView().controlSize(.mini)
-            if let status = thread.metadata?.status { Text(status.label).foregroundStyle(StateStyle.text(status.token)) }
+            if let status = thread.metadata?.status { Text(status.label).foregroundStyle(AceTheme.Colours.mutedForeground) }
         }
         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
         .accessibilityElement(children: .combine)

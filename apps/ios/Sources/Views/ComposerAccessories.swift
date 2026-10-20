@@ -7,7 +7,6 @@ import SwiftUI
 struct ComposerAccessories: View {
     @Bindable var model: ClientModel
     let screen: ThreadScreenModel
-    @State private var problem: String?
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             if !screen.attachments.isEmpty {
@@ -17,28 +16,19 @@ struct ComposerAccessories: View {
                     }
                 }
             }
-            HStack(spacing: AceTheme.Spacing.sm) {
-                AttachMenu(stage: { model.attach($0) }, problem: $problem)
-                if let tune = screen.tune, !tune.efforts.isEmpty || !tune.speeds.isEmpty { TuneChip(tune: tune, model: model) }
-                Spacer(minLength: AceTheme.Spacing.none)
-            }
-            .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-            .foregroundStyle(AceTheme.Colours.mutedForeground)
             // The bridge's notice and a failed pick sit below the controls, so a long
             // reason truncates instead of squeezing the + and tune chips.
             if let notice = screen.tune?.notice, !notice.isEmpty {
                 Text(notice).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(2)
             }
-            if let problem {
-                Text(problem).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.StatusText.failed).lineLimit(2)
-            }
+
         }
         .padding(.horizontal, AceTheme.Dimensions.composerInset + AceTheme.Spacing.xs)
     }
 }
 
 /// "High · Fast": the next message's effort and speed, with why one can't change.
-private struct TuneChip: View {
+struct TuneChip: View {
     let tune: TuneRow
     let model: ClientModel
     var body: some View {
@@ -79,5 +69,27 @@ private struct TuneChip: View {
         let effort = tune.efforts.first { $0.id == tune.effort }?.label
         let speed = tune.speeds.first { $0.speed == tune.speed && tune.speed != "standard" }?.label
         return [effort, speed].compactMap { $0 }.joined(separator: " · ")
+    }
+}
+
+/// One model control in the compact row; tuning lives in the model sheet.
+struct ComposerModelButton: View {
+    let screen: ThreadScreenModel
+    let open: () -> Void
+    var body: some View {
+        Button(action: open) {
+            VStack(alignment: .trailing, spacing: AceTheme.Spacing.xxs) {
+                Text(screen.controls?.model.isEmpty == false ? screen.controls?.model ?? "Model" : "Model")
+                    .lineLimit(1).truncationMode(.middle)
+                if let tune = screen.tune, let effort = tune.efforts.first(where: { $0.id == tune.effort }) {
+                    Text(effort.label).foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1)
+                }
+            }
+            .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+            .foregroundStyle(AceTheme.Colours.mutedForeground)
+            .frame(width: AceTheme.Dimensions.touchTarget * 2, height: AceTheme.Dimensions.touchTarget)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).accessibilityLabel("Model and reasoning").accessibilityIdentifier("composer.model")
     }
 }

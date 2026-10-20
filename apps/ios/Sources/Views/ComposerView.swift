@@ -1,48 +1,31 @@
 import SwiftUI
 
-/// The floating composer. The model chip sits on its own line above the message field,
-/// so a long model name truncates instead of squeezing the text. While the agent works
+/// The compact composer keeps attachments, input, model and send on one row. While the agent works
 /// an empty composer's button stops the whole tree; a typed message goes the way the
 /// bridge says (steer or queue), and a long press offers the other delivery where the
 /// provider can steer. The model chip opens the model list.
-struct ComposerView: View {
+struct ComposerView<Leading: View, Trailing: View>: View {
     @Environment(\.colorScheme) private var colourScheme
     let controls: ControlsRow?
     let stopping: Bool
     let placeholder: String
     let send: (String, Bool) async -> Bool
     let stop: () -> Void
-    let openModels: () -> Void
     let inputBegan: () -> Void
     /// A file picked in Files: each new one is inserted as `@path`.
     var mention: ComposerMention? = nil
     /// Files on the next message: with any, the message can go without words.
     var files = 0
+    @ViewBuilder var leading: () -> Leading
+    @ViewBuilder var trailing: () -> Trailing
     @State private var draft = ComposerDraft()
     @State private var feedback = 0
     private var empty: Bool { files == 0 && draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var stops: Bool { empty && controls?.busy == true && controls?.canStop == true }
-    private var modelName: String? {
-        guard let model = controls?.model, !model.isEmpty else { return nil }
-        return model
-    }
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            if let model = modelName {
-                Button(action: openModels) {
-                    HStack(spacing: AceTheme.Spacing.xxs) {
-                        Text(model).lineLimit(1).truncationMode(.middle)
-                        if controls?.switching == "queued" { Image(systemName: "clock") }
-                    }
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .padding(.horizontal, AceTheme.Spacing.sm).padding(.vertical, AceTheme.Spacing.xs).background(AceTheme.Colours.fill, in: Capsule())
-                    .frame(minHeight: AceTheme.Dimensions.touchTarget).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Model: \(model)\(controls?.switching == "queued" ? ", switching from the next turn" : "")")
-                .accessibilityIdentifier("composer.model")
-            }
-            HStack(alignment: .bottom, spacing: AceTheme.Spacing.md) {
+            HStack(alignment: .bottom, spacing: AceTheme.Spacing.xs) {
+                leading()
                 NativeTextInput(text: $draft.text, inputBegan: inputBegan, submit: { if !disabled && !stops { submit(alternate: false) } })
                     .overlay(alignment: .leading) {
                         // Visual only: VoiceOver hears the field's own label.
@@ -54,6 +37,7 @@ struct ComposerView: View {
                     }
                     .accessibilityLabel(placeholder)
                     .layoutPriority(1)
+                trailing()
                 Button {
                     feedback += 1
                     if stops { stop() } else { submit(alternate: false) }
@@ -73,7 +57,7 @@ struct ComposerView: View {
                 .accessibilityIdentifier("composer.send")
             }
         }
-        .padding(.leading, AceTheme.Spacing.lg).padding(.trailing, AceTheme.Spacing.sm).padding(.vertical, AceTheme.Spacing.sm)
+        .padding(.leading, AceTheme.Spacing.xs).padding(.trailing, AceTheme.Spacing.sm).padding(.vertical, AceTheme.Spacing.sm)
         .floatingGlass()
         .sensoryFeedback(.impact(weight: .light), trigger: feedback)
         .onChange(of: mention) { _, picked in if let picked { draft.text = Mention.insert(picked.path, into: draft.text) } }

@@ -8,17 +8,21 @@ struct ThreadView: View {
     @Bindable var thread: ThreadModel
     /// Push another thread (a delegated child or a conversation this one started).
     let openThread: (String) -> Void
+    @State private var attachProblem: String?
+    @State private var showWork = false
     @State private var showDetails = false
     @State private var showModels = false
     @State private var lane: BlockRow.Agents.Entry?
     @State private var scrolledToTail = false
     @State private var showFiles = false
     @State private var media: TranscriptRow?
+    @State private var fullMessage: TranscriptRow?
     @State private var showTools = false
     @State private var activityProblem: String?
     @State private var showChanges = false
     @State private var showTerminal = false
     @State private var showBrowser = false
+    @State private var showSearch = false
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
     private var metadata: ThreadRow? { thread.metadata ?? thread.placeholder?.metadata ?? model.inbox[thread.id] }
@@ -33,7 +37,7 @@ struct ThreadView: View {
     }
     private var screen: ThreadScreenModel { thread.screen }
     /// An archived thread opens read-only (from the archive browser) until it's unarchived.
-    private var archived: Bool { model.inbox[thread.id]?.archivedAt != nil }
+    private var archived: Bool { (model.inbox[thread.id] ?? metadata)?.archivedAt != nil }
     var body: some View {
         ScrollViewReader { proxy in
             List {
@@ -47,7 +51,7 @@ struct ThreadView: View {
                 // Back from a child: what this thread last showed stays until its session's first patch.
                 let shown = thread.placeholder ?? thread
                 if !thread.loaded && thread.placeholder == nil { ProgressView("Loading conversation…").listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background) }
-                let links = TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: screen, epoch: thread.epoch), openMedia: { media = $0 })
+                let links = TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: screen, epoch: thread.epoch), openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { fullMessage = $0 })
                 ForEach(shown.screen.blockOrder, id: \.self) { id in
                     if let block = shown.screen.blocks[id] {
                         BlockView(block: block, thread: shown, links: links)
@@ -106,11 +110,16 @@ struct ThreadView: View {
                             .padding(.horizontal, AceTheme.Dimensions.composerInset).padding(.bottom, AceTheme.Spacing.sm)
                     } else if model.canOperate {
                         ComposerAccessories(model: model, screen: screen)
+                        ServiceProblem(message: attachProblem)
                         ComposerView(controls: screen.controls, stopping: screen.stopping,
                                      placeholder: thread.approvals.isEmpty ? "Steer or follow up…" : "Reply instead…",
                                      send: { await model.sendMessage($0, alternate: $1) }, stop: { model.stopTree() },
-                                     openModels: { showModels = true }, inputBegan: { model.metrics?.inputBegan() }, mention: mention,
-                                     files: screen.attachments.count)
+                                     inputBegan: { model.metrics?.inputBegan() }, mention: mention,
+                                     files: screen.attachments.count) {
+                            AttachMenu(stage: { model.attach($0) }, problem: $attachProblem)
+                        } trailing: {
+                            ComposerModelButton(screen: screen, open: { showModels = true })
+                        }
                     } else {
                         ViewOnlyNote.thread
                             .padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.md)
@@ -124,6 +133,11 @@ struct ThreadView: View {
             .toolbar {
                 ToolbarItem(placement: .principal) { header }
                 ToolbarItem(placement: .topBarTrailing) { menu }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showWork = true } label: { Image(systemName: "laptopcomputer") }
+                        .accessibilityLabel("Work").accessibilityIdentifier("thread.work")
+                }
+                ToolbarItem(placement: .topBarTrailing) { panel }
             }
             .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
                 if typeSize.isAccessibilitySize, let status = metadata?.status {
@@ -134,7 +148,7 @@ struct ThreadView: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
-            .threadSheets(model: model, thread: thread, openThread: openThread, changes: $showChanges, terminal: $showTerminal)
+            .threadSheets(model: model, thread: thread, openThread: openThread, work: $showWork, changes: $showChanges, terminal: $showTerminal)
             .sheet(isPresented: $showDetails) { details }
             .alert("Live Activity", isPresented: Binding(get: { activityProblem != nil }, set: { if !$0 { activityProblem = nil } })) {
                 Button("OK") { activityProblem = nil }
@@ -142,15 +156,21 @@ struct ThreadView: View {
             .sheet(isPresented: $showTools) {
                 NavigationStack { ThreadToolsView(model: model, thread: thread, openThread: openThread) }.presentationDetents([.large]).presentationDragIndicator(.visible)
             }
+            .sheet(item: $fullMessage) { item in FullMessageView(model: model, threadId: thread.id, item: item) }
             .sheet(item: $media) { item in
                 NavigationStack { NativeMediaView(model: model, threadId: thread.id, item: item) }.presentationDetents([.large]).presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $showSearch) {
+                NavigationStack { ConversationSearchView(model: model, threadId: thread.id, openThread: { id in showSearch = false; openThread(id) }) }
             }
             .sheet(isPresented: $showFiles) {
                 ThreadFilesSheet(model: model, scope: .thread(thread.id), mention: model.canOperate ? { mention = ComposerMention(path: $0) } : nil)
                     .presentationDetents([.large]).presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showModels) {
-                ModelPickerSheet(screen: screen, load: { model.requestModels() }, choose: { await model.switchModel($0) })
+                ModelPickerSheet(screen: screen, load: { model.requestModels() }, choose: { await model.switchModel($0) }, tuning: {
+                    if let tune = screen.tune, !tune.efforts.isEmpty || !tune.speeds.isEmpty { TuneChip(tune: tune, model: model) }
+                })
             }
             .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
             // The agent may open its browser after the thread was opened: ask again as it works.
@@ -179,26 +199,25 @@ struct ThreadView: View {
         guard scenePhase == .active, screen.controls?.busy == true, !model.threadHasBrowser else { return nil }
         return thread.epoch
     }
-    /// Title, the whole tree's canonical status, and where it runs.
+    /// The browser's compact title; canonical state and workspace details are in Work.
     private var header: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-            Text(metadata?.title ?? "Thread").aceFont(AceTheme.Typography.title, relativeTo: .headline).lineLimit(1)
-            if !typeSize.isAccessibilitySize {
-                HStack(spacing: AceTheme.Spacing.xs) {
-                    if let status = metadata?.status { StateLabel(status: status).lineLimit(1).fixedSize(horizontal: true, vertical: false) }
-                    if let project = metadata?.project, !project.isEmpty {
-                        Text(verbatim: "· \(project)")
-                            .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
-                    }
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("thread.header")
+        Text(metadata?.title ?? "Thread").aceFont(AceTheme.Typography.title, relativeTo: .headline).lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityValue(metadata?.status.label ?? "")
+            .accessibilityIdentifier("thread.header")
+    }
+    private var panel: some View {
+        Menu {
+            Button("Files", systemImage: "folder") { showFiles = true }
+            Button("Terminal", systemImage: "terminal") { showTerminal = true }
+            if model.threadHasBrowser { Button("Browser", systemImage: "safari") { showBrowser = true } }
+            Button("Skills and tools", systemImage: "wrench.and.screwdriver") { showTools = true }
+        } label: { Image(systemName: "sidebar.right") }
+        .accessibilityLabel("Right panel").accessibilityIdentifier("thread.panel")
     }
     private var menu: some View {
         Menu {
+            Button("Search conversation", systemImage: "magnifyingglass") { showSearch = true }
             Button("Changes", systemImage: "plusminus") { showChanges = true }.accessibilityIdentifier("thread.changes")
             Button("Terminal", systemImage: "terminal") { showTerminal = true }.accessibilityIdentifier("thread.terminal")
             Button("Files", systemImage: "folder") { showFiles = true }.accessibilityIdentifier("thread.files")

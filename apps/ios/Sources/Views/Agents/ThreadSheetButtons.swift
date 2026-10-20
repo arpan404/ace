@@ -8,22 +8,38 @@ struct ThreadSheetButtons: ViewModifier {
     /// Pushes an agent that runs as its own ace thread.
     let openThread: ((String) -> Void)?
     @State private var showingAgents = false
+    @State private var workDestination: String?
+    @Binding var showingWork: Bool
     @Binding var showingChanges: Bool
     @Binding var showingTerminal: Bool
     private var metadata: ThreadRow? { thread.metadata ?? model.inbox[thread.id] }
 
     func body(content: Content) -> some View {
         content
-            .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { showingAgents = true } label: {
-                        HStack(spacing: AceTheme.Spacing.xs) {
-                            Image(systemName: "point.3.connected.trianglepath.dotted")
-                            Text((metadata?.agents ?? 1).formatted())
-                        }.accessibilityLabel("\(metadata?.agents ?? 1) agents")
+            .sheet(isPresented: $showingWork, onDismiss: {
+                if workDestination == "agents" { showingAgents = true }
+                if workDestination == "changes" { showingChanges = true }
+                workDestination = nil
+            }) {
+                NavigationStack {
+                    Form {
+                        Section("Workspace") {
+                            LabeledContent("Machine", value: metadata?.machine ?? "")
+                            LabeledContent("Project", value: metadata?.project ?? "")
+                        }
+                        Section("Branch") {
+                            Text(metadata?.branch ?? "")
+                            Button("Changes", systemImage: "plusminus") { workDestination = "changes"; showingWork = false }
+                        }
+                        Section("Agents") {
+                            if let status = metadata?.status { StateLabel(status: status) }
+                            Button("View agents", systemImage: "point.3.connected.trianglepath.dotted") { workDestination = "agents"; showingWork = false }
+                                .accessibilityIdentifier("thread.agents")
+                        }
                     }
-                    .accessibilityIdentifier("thread.agents")
-                }
+                    .navigationTitle("Work").navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showingWork = false } } }
+                }.adaptiveSheetDetents().presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showingAgents) {
                 AgentsSheet(model: model, thread: thread, openThread: openThread).adaptiveSheetDetents().presentationDragIndicator(.visible)
@@ -38,7 +54,7 @@ struct ThreadSheetButtons: ViewModifier {
 }
 
 extension View {
-    func threadSheets(model: ClientModel, thread: ThreadModel, openThread: ((String) -> Void)? = nil, changes: Binding<Bool>, terminal: Binding<Bool>) -> some View {
-        modifier(ThreadSheetButtons(model: model, thread: thread, openThread: openThread, showingChanges: changes, showingTerminal: terminal))
+    func threadSheets(model: ClientModel, thread: ThreadModel, openThread: ((String) -> Void)? = nil, work: Binding<Bool>, changes: Binding<Bool>, terminal: Binding<Bool>) -> some View {
+        modifier(ThreadSheetButtons(model: model, thread: thread, openThread: openThread, showingWork: work, showingChanges: changes, showingTerminal: terminal))
     }
 }

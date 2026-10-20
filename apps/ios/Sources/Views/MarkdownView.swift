@@ -47,6 +47,25 @@ struct MarkdownView: View {
             }.fixedSize(horizontal: false, vertical: true)
         case .rule:
             Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border)
+        case .table(let headers, let rows):
+            ScrollView(.horizontal, showsIndicators: false) {
+                Grid(alignment: .topLeading, horizontalSpacing: AceTheme.Spacing.none, verticalSpacing: AceTheme.Spacing.none) {
+                    GridRow {
+                        ForEach(Array(headers.enumerated()), id: \.offset) { _, cell in tableCell(cell).fontWeight(.semibold).background(AceTheme.Colours.fill) }
+                    }
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                        GridRow {
+                            ForEach(Array(row.enumerated()), id: \.offset) { _, cell in tableCell(cell) }
+                        }
+                    }
+                }
+            }.accessibilityIdentifier("markdown.table")
         }
+    }
+    private func tableCell(_ text: String) -> some View {
+        Text(Markdown.inline(text)).aceFont(AceTheme.Typography.body, relativeTo: .body)
+            .frame(width: AceTheme.Dimensions.touchTarget * 4, alignment: .leading)
+            .padding(AceTheme.Spacing.sm)
+            .overlay(alignment: .bottom) { Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border) }
     }
 }
