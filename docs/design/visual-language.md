@@ -107,30 +107,30 @@ number: `--neutral-1` … `--neutral-12`. Each theme also sets `--font-sans`, `-
 Theme tokens are generated per palette in `tokens.ts`. The names agreed with shadcn are kept, so
 existing components need no edits.
 
-| Purpose                   | Token(s)                                                                         |
-| ------------------------- | -------------------------------------------------------------------------------- |
-| Page, reading column      | `--background`, `--reading`, `--surface-0`                                       |
-| Neutral ramp              | `--neutral-1` … `--neutral-12`, `--hover`, `--active`, `--faint-foreground`      |
-| Raised quiet fill         | `--surface-1`, `--card`, `--bubble`                                              |
-| Floating (solid)          | `--surface-2`, `--popover`                                                       |
-| Sidebar, right panel      | `--sidebar`, `--panel`                                                           |
-| Hover and selected washes | `--fill` (= `--accent`, `--muted`), `--fill-strong` (= `--sidebar-accent`)       |
-| Controls                  | `--secondary`, `--seg-bg`, `--seg-thumb`, `--seg-thumb-shadow`, `--switch-off`   |
-| Devices                   | `--device-stage`, `--device-body`, `--device-rim`, `--device-glass`              |
-| Lines                     | `--border`, `--border-soft`, `--border-strong` (= `--input`), `--sidebar-border` |
-| Text fields               | `--field` (white with a hairline in light, a quiet lift in dark)                 |
-| Text                      | `--foreground`, `--muted-foreground`, `--subtle-foreground`                      |
-| Inverse (tooltips, send)  | `--primary`, `--primary-foreground`                                              |
-| Accent                    | `--ring`, `--ring-hover`, `--ring-pressed`, `--ring-foreground`, `--ring-text`   |
-| Focus                     | `--focus`                                                                        |
-| Status                    | `--status-{working,needs-you,waiting,unresponsive,failed,done}` and `…-text`     |
-| Errors                    | `--destructive`                                                                  |
-| Code                      | `--code`, `--syn-{kw,str,num,fn,type,com,punc}`, `--diff-{add,del}` (+ `-text`)  |
-| Loading                   | `--skel`, `--skel-hi`                                                            |
-| Modal backdrop            | `--scrim` (solid), `--scrim-glass` over a `--backdrop-blur` (7px) blur           |
-| Floating material         | `--float-edge`, `--float-shadow` (= `--glass-shadow`), `--glass-*`, `--sliver`   |
-| Project badges            | `--project-1` … `--project-12`                                                   |
-| Chat visualization series | `--chart-1` … `--chart-6`                                                        |
+| Purpose                   | Token(s)                                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------ |
+| Page, reading column      | `--background`, `--reading`, `--surface-0`                                                 |
+| Neutral ramp              | `--neutral-1` … `--neutral-12`, `--hover`, `--active`, `--faint-foreground`                |
+| Raised quiet fill         | `--surface-1`, `--card`, `--bubble`                                                        |
+| Floating (solid)          | `--surface-2`, `--popover`                                                                 |
+| Sidebar, right panel      | `--sidebar`, `--panel`                                                                     |
+| Hover and selected washes | `--fill` (= `--accent`, `--muted`), `--fill-strong` (= `--sidebar-accent`)                 |
+| Controls                  | `--secondary`, `--seg-bg`, `--seg-thumb`, `--seg-thumb-shadow`, `--switch-off`             |
+| Devices                   | `--device-stage`, `--device-body`, `--device-body-hover`, `--device-rim`, `--device-glass` |
+| Lines                     | `--border`, `--border-soft`, `--border-strong` (= `--input`), `--sidebar-border`           |
+| Text fields               | `--field` (white with a hairline in light, a quiet lift in dark)                           |
+| Text                      | `--foreground`, `--muted-foreground`, `--subtle-foreground`                                |
+| Inverse (tooltips, send)  | `--primary`, `--primary-foreground`                                                        |
+| Accent                    | `--ring`, `--ring-hover`, `--ring-pressed`, `--ring-foreground`, `--ring-text`             |
+| Focus                     | `--focus`                                                                                  |
+| Status                    | `--status-{working,needs-you,waiting,unresponsive,failed,done}` and `…-text`               |
+| Errors                    | `--destructive`                                                                            |
+| Code                      | `--code`, `--syn-{kw,str,num,fn,type,com,punc}`, `--diff-{add,del}` (+ `-text`)            |
+| Loading                   | `--skel`, `--skel-hi`                                                                      |
+| Modal backdrop            | `--scrim` (solid), `--scrim-glass` over a `--backdrop-blur` (7px) blur                     |
+| Floating material         | `--float-edge`, `--float-shadow` (= `--glass-shadow`), `--glass-*`, `--sliver`             |
+| Project badges            | `--project-1` … `--project-12`                                                             |
+| Chat visualization series | `--chart-1` … `--chart-6`                                                                  |
 
 Tailwind utilities: `bg-surface-{0,1,2}`, `bg-fill`, `bg-fill-strong`, `bg-scrim`, `bg-tint`,
 `bg-tint-hover`, `bg-tint-pressed`, `text-tint-foreground`, `text-link`, and every shadcn name.

@@ -183,6 +183,8 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
       ? `color-mix(in srgb, ${p.sidebar}, ${p.t1} 1.5%)`
       : `color-mix(in srgb, ${p.sidebar}, #000 20%)`,
     "--device-body": "#111113",
+    // A hardware button under the pointer: the body's metal, one step lighter.
+    "--device-body-hover": "#232327",
     "--device-rim": light
       ? "inset 0 0 0 1px rgb(255 255 255 / 0.14), 0 0 0 1px rgb(0 0 0 / 0.14)"
       : "inset 0 0 0 1px rgb(255 255 255 / 0.14), 0 0 0 1px rgb(0 0 0 / 0.5)",

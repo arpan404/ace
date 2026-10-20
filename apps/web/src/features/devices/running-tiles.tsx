@@ -5,6 +5,7 @@ import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { cardEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
+import { bodyTurn, deviceButtons } from "./device-buttons.ts";
 import { deviceKind } from "./device-catalog.ts";
 import { DeviceFrame } from "./device-frame.tsx";
 import { defaultScreens, frameGeometry, framePoints, type Size } from "./device-frame-geometry.ts";
@@ -42,6 +43,9 @@ function RunningTile(props: {
     if (!watching || !session) return;
     return session.client.retainStream(row.id);
   }, [watching, session, row.id]);
+  // Drawn only: the tile is itself a button.
+  const turn = bodyTurn(row.platform, screen, 0);
+  const hardware = { buttons: deviceButtons(kind, row.name, turn), turn };
   const room =
     measured.width > 0 && measured.height > 0
       ? { width: measured.width - 24, height: measured.height - 24 }
@@ -61,7 +65,12 @@ function RunningTile(props: {
           ref={preview}
           className="relative grid h-44 w-full place-items-center bg-(--device-stage)"
         >
-          <DeviceFrame geometry={frameGeometry(kind, row.name, screen)} screen={screen} room={room}>
+          <DeviceFrame
+            geometry={frameGeometry(kind, row.name, screen)}
+            screen={screen}
+            room={room}
+            hardware={hardware}
+          >
             {watching && session ? (
               <DeviceScreen
                 session={session}
