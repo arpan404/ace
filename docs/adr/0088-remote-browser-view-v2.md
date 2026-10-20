@@ -5,6 +5,11 @@ Date: 2026-10-19. Status: accepted. Amends [ADR 0083](0083-browser-v2-daemon-chr
 [ADR 0055](0055-browser-backends.md). Umbrella issue #1062; this ADR lands with #1053 (daemon)
 and #1054 (client).
 
+Amended 2026-10-20 (owner decision): live views are video only, at a steady 60 fps, with the bit
+rate following each viewer's link. See "Amendment: video only, 60 fps" at the end. Where the
+sections below describe JPEG viewers, frame-rate tiers or the 8-chunk window, the amendment
+replaces them.
+
 ## Context
 
 Web, phone and remote desktop clients watch a thread's browser as a stream of JPEG screenshots
@@ -281,3 +286,72 @@ and without a viewer.
 - Clients without WebCodecs `AudioDecoder` for Opus (older Safari) get no speaker button.
 - The jitter buffer is fixed at 60 ms over the quickest arrival; a link with larger jitter
   restarts the schedule more often rather than buffering more.
+
+## Amendment: video only, 60 fps
+
+Date: 2026-10-20. Status: accepted (owner decision).
+
+### Why
+
+Watched from a phone over 5G and Tailscale, the view ran at 5 fps on JPEG and between 5 and
+38 fps on video, never steady. A phone-link benchmark (`packages/browser/bench/video-link.ts`:
+real headless Chrome, a simulated link with bandwidth, delay and jitter) reproduced it:
+
+| Link                          | Before                                 | After            |
+| ----------------------------- | -------------------------------------- | ---------------- |
+| 25 Mbit/s, 120 ms             | 30 fps (the cap)                       | 59–61 fps        |
+| 25 Mbit/s, 200 ms, 100 jitter | 13–16 fps, 29 forced keyframes in 15 s | 56–64 fps        |
+| 4 Mbit/s, 120 ms              | 1–8 fps                                | 45–68, median 60 |
+| 10 Mbit/s, 150 ms, 60 jitter  | —                                      | 56–62 fps        |
+
+The causes: a 30 fps cap; frame-rate tiers that dropped a viewer to 15 and 8 fps whenever it
+was "backed up", which a long round trip always looks like; an 8-chunk window that a 60 fps
+stream over a 150 ms round trip fills by itself; and the rule that a dropped delta drops
+everything until a keyframe at least 500 ms away, so one overflow froze the picture and the
+keyframe that followed overflowed again. The encoder's bit rate never followed the link.
+
+### Decision
+
+- **No JPEG to any viewer.** Live views carry encoded video only (`browserVideo`, and H.264
+  pictures for devices). There is no JPEG before the first keyframe, no JPEG when an encode
+  stops, and no JPEG for clients without WebCodecs: those show that they can't decode video.
+  `browserFrame` is no longer sent to viewers. The JPEG screencast is internal: it feeds
+  recordings and keeps a headless page drawing while an agent works it, with one fixed setting.
+- **60 fps always.** Every encode runs at 60 fps and the tab capture asks for 60. A link that
+  can't carry the picture costs quality, never frames.
+- **The bit rate follows each viewer's link** (`link-rate.ts`, pure). Every chunk's round trip
+  (sent → cumulative ack) is smoothed, and compared with the lowest smoothed round trip of the
+  last 10 s; comparing smoothed with smoothed cancels a link's steady jitter. Near that floor
+  the rate climbs 8 % per 200 ms, up to 1.3 × the best rate the link delivered in the last
+  30 s. More than 80 ms above it, the rate falls to 90 % of what was delivered in the last
+  second, and holds for a round trip while that queue drains. A dropped chunk cuts it to 60 %.
+  Bounds: 0.5–16 Mbit/s; a viewer starts at 4 Mbit/s. An encode shared by several viewers runs
+  at the slowest member's rate. The encoder takes a new rate in place (`VideoEncoder.configure`
+  with the same codec and size), so a rate change costs no keyframe; the encode key no longer
+  carries the rate or a tier.
+- **Thin links get a smaller picture, not fewer frames** (`video-scale.ts`, pure). Below about
+  0.02 bits per pixel per frame a real-time encoder skips frames to hold its rate (0.5 Mbit/s at
+  2560 × 1600 gave 20 fps). The picture steps down by 0.84 per side, at most six steps, once the
+  link has stayed short for 1 s, and steps back up once it has carried the larger picture with
+  30 % spare for 3 s. Each step is a new encode and a keyframe. The tab capture stays at the
+  full size; the encoder scales.
+- **A one-second window.** A viewer may have 60 chunks or 8 MiB unacknowledged. On a link that
+  keeps up nothing is dropped; the rate control keeps the window from filling. The drop rule for
+  a delta that still doesn't fit is unchanged.
+- **Keyframes at least every 20 s** (was 6 s): a keyframe is many deltas big, and a viewer that
+  lost its place asks for one at once.
+- **Every backend streams video.** ace's Chrome uses tab capture. A tab in a private context,
+  which the extension can't capture, is encoded from its own screencast (JPEG at quality 80, up
+  to 1920 px on the long side, decoded and encoded by the same offscreen document): the wire
+  still carries only video, at 58–61 fps in the benchmark. The desktop's embedded views get an
+  encoder of their own (see the embedded-encoder section, added with that change). "Use my
+  Chrome" has no encoder yet and shows no live picture remotely.
+
+### Consequences
+
+- `check:perf` runs `video-link.ts` and fails below a 55 fps median or a 45 fps p10 on the
+  default link (25 Mbit/s, 120 ms, 30 ms jitter). `frame-wire.ts`, `video-wire.ts`, `crisp.ts`
+  and the JPEG fanout bench are gone with the JPEG viewer path.
+- The JPEG screencast no longer runs while only viewers watch, which saves Chrome a JPEG encode
+  per frame next to the video encode.
+- A client without WebCodecs H.264 (or VP8/VP9 for the browser) sees no live picture.
