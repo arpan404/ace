@@ -1,22 +1,24 @@
-import type { IconRef, ToolIcon } from "@ace/protocol";
-import { iconKey, type IconCache } from "./icon-cache.ts";
+import type { IconRef } from "@ace/protocol";
+import { iconKey, type CachedIcon, type IconCache } from "./icon-cache.ts";
 
 /*
- * Resolves the icons browser and computer-use steps show (ADR 0002: public favicon fetches and
- * local app icons only). Each site or app is looked up once at a time, at most `limit` at once;
+ * Resolves the icons browser and computer-use steps show, and people's GitHub avatars (ADR 0002:
+ * public favicon and avatar fetches and local app icons only). Each site or app is looked up once at a time, at most `limit` at once;
  * a known icon answers from the cache's in-memory index at once, and one past its lifetime is
  * answered as it was while it is looked up again.
  */
 
 /** Raw icon bytes: null when there is none, undefined when the lookup may succeed later. */
-type Source = (icon: ToolIcon) => Promise<Buffer | null | undefined>;
+type Source<Icon extends CachedIcon> = (icon: Icon) => Promise<Buffer | null | undefined>;
 
 export interface IconServiceOptions {
   cache: IconCache;
-  site: Source;
-  app: Source;
+  site: Source<Extract<CachedIcon, { kind: "site" }>>;
+  app: Source<Extract<CachedIcon, { kind: "app" }>>;
+  /** A person's avatar, by the canonical URL the daemon built for it. */
+  avatar: Source<Extract<CachedIcon, { kind: "avatar" }>>;
   /** Bytes from a source as a PNG of at most 64px, with the same null/undefined meaning. */
-  normalize(bytes: Buffer, icon: ToolIcon): Promise<Buffer | null | undefined>;
+  normalize(bytes: Buffer, icon: CachedIcon): Promise<Buffer | null | undefined>;
   now(): number;
   /** Lookups in flight at once; more wait their turn. */
   limit?: number;
@@ -34,7 +36,7 @@ export class IconService {
   }
 
   /** The icon's ref if it was resolved before; never looks anything up or touches the disk. */
-  cached(icon: ToolIcon): IconRef | undefined {
+  cached(icon: CachedIcon): IconRef | undefined {
     return this.options.cache.lookup(icon, this.options.now())?.ref ?? undefined;
   }
 
@@ -43,7 +45,7 @@ export class IconService {
   }
 
   /** The icon's ref; null when it has none, undefined when the lookup may succeed later. */
-  async resolve(icon: ToolIcon): Promise<IconRef | null | undefined> {
+  async resolve(icon: CachedIcon): Promise<IconRef | null | undefined> {
     const known = this.options.cache.lookup(icon, this.options.now());
     if (known?.fresh) return known.ref;
     const lookup = this.lookup(icon);
@@ -51,7 +53,7 @@ export class IconService {
     return known ? known.ref : lookup;
   }
 
-  private lookup(icon: ToolIcon): Promise<IconRef | null | undefined> {
+  private lookup(icon: CachedIcon): Promise<IconRef | null | undefined> {
     const key = iconKey(icon);
     const existing = this.flying.get(key);
     if (existing) return existing;
@@ -79,11 +81,16 @@ export class IconService {
     else this.active--;
   }
 
-  private async run(icon: ToolIcon): Promise<IconRef | null | undefined> {
+  private fetch(icon: CachedIcon): Promise<Buffer | null | undefined> {
+    if (icon.kind === "site") return this.options.site(icon);
+    if (icon.kind === "app") return this.options.app(icon);
+    return this.options.avatar(icon);
+  }
+
+  private async run(icon: CachedIcon): Promise<IconRef | null | undefined> {
     if (!(await this.acquire())) return undefined;
     try {
-      const source = icon.kind === "site" ? this.options.site : this.options.app;
-      const bytes = await source(icon).catch(() => undefined);
+      const bytes = await this.fetch(icon).catch(() => undefined);
       const png = bytes ? await this.options.normalize(bytes, icon) : bytes;
       // Only a definite answer is remembered; a passing failure is asked again next time.
       if (png === undefined) return undefined;

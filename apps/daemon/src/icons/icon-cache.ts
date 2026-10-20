@@ -23,15 +23,20 @@ const Index = z.object({
 const ttl = {
   site: 7 * 24 * 3600_000,
   app: 30 * 24 * 3600_000,
+  avatar: 24 * 3600_000,
   miss: 24 * 3600_000,
 };
+
+/** What the cache holds an icon for: a step's site or app, or a person's avatar by its URL. */
+export type CachedIcon = ToolIcon | { kind: "avatar"; url: string };
 
 export interface IconCacheLimits {
   maxIcons: number;
   maxBytes: number;
 }
 
-export function iconKey(icon: ToolIcon): string {
+export function iconKey(icon: CachedIcon): string {
+  if (icon.kind === "avatar") return `avatar:${icon.url}`;
   return icon.kind === "site" ? `site:${icon.origin}` : `app:${icon.identity}`;
 }
 
@@ -86,7 +91,7 @@ export class IconCache {
    * What the icon resolved to: a ref, null for a remembered miss, undefined when unknown. `fresh`
    * says whether it is still within its lifetime.
    */
-  lookup(icon: ToolIcon, now: number): { ref: string | null; fresh: boolean } | undefined {
+  lookup(icon: CachedIcon, now: number): { ref: string | null; fresh: boolean } | undefined {
     const entry = this.keys.get(iconKey(icon));
     if (!entry || (entry.ref && !this.images.has(entry.ref))) return undefined;
     const life = entry.ref ? ttl[icon.kind] : ttl.miss;
@@ -94,7 +99,7 @@ export class IconCache {
   }
 
   /** Remember what the icon resolved to; returns the PNG's ref. */
-  async store(icon: ToolIcon, png: Buffer | null, now: number): Promise<string | null> {
+  async store(icon: CachedIcon, png: Buffer | null, now: number): Promise<string | null> {
     const ref = png ? createHash("sha256").update(png).digest("hex") : null;
     if (png && ref && !this.images.has(ref)) {
       let writing = this.pending.get(ref);
