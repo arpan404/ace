@@ -114,7 +114,7 @@ export function ComposerStrip(props: {
   };
   const [pick, setPick] = useState<ReturnType<typeof pickStrip>>();
   // A waiting question's line in the transcript asks for its card: the slot goes back to the
-  // requests, and each ask focuses that card and lights the strip's edge once.
+  // requests, and each ask moves focus into that card.
   const [asked, setAsked] = useState<{ id: string; at: number }>();
   const asks = useRef(0);
   useEffect(
@@ -151,7 +151,7 @@ export function ComposerStrip(props: {
     />
   );
   return (
-    <StripSurface slot={slot.shown} flash={slot.shown === "request" ? asked?.at : undefined}>
+    <StripSurface slot={slot.shown}>
       {slot.shown === "confirm-stop" ? (
         <ConfirmStopStrip subagents={props.confirmStop?.subagents ?? 0} />
       ) : slot.shown === "stopped" ? (

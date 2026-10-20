@@ -48,28 +48,3 @@
     height: 2rem;
   }
 }
-
-/*
- * A waiting question's line in the transcript brought the strip up: its edge lights once in the
- * needs-you hue and fades. Opacity only, so reduced motion keeps it as the fade it is.
- */
-.composer-strip-flash {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  box-shadow: inset 0 0 0 1.5px var(--status-needs-you);
-  opacity: 0;
-  animation: composer-strip-flash calc(var(--motion-slow) * 3) var(--ease-out) both;
-}
-@keyframes composer-strip-flash {
-  0% {
-    opacity: 0;
-  }
-  25% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-  }
-}

@@ -37,8 +37,6 @@ test("a waiting question stays in view as its own line, and the line brings its 
   await waitFor(() =>
     expect(document.activeElement).toBe(within(card).getByRole("radio", { name: /^Tabs/ })),
   );
-  // The strip's edge lights once to show where the question went.
-  expect(document.querySelector("[data-strip-flash]")).toBeTruthy();
 });
 
 test("an answered question folds into the turn's work log as the question beside its answer", async () => {
