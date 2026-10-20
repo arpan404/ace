@@ -4,7 +4,6 @@ import { usePageActions } from "./page-actions.ts";
 import type { HtmlVisualization } from "@ace/protocol";
 import { resolveHtmlMode } from "@ace/html";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { controlDivider } from "@/components/ui/rules.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { desktopVisualizations } from "@/boot/desktop-visualizations.ts";
@@ -16,7 +15,7 @@ import { visualizationTab } from "./visualization-tab.ts";
 
 /** An action, dimmed until hovered, focused or pressed. */
 const action =
-  "opacity-60 transition-[background-color,color,transform,opacity] hover:opacity-100 focus-visible:opacity-100 active:opacity-100 motion-reduce:transition-none";
+  "rounded-md opacity-60 transition-[background-color,color,transform,opacity] hover:opacity-100 focus-visible:opacity-100 active:opacity-100 motion-reduce:transition-none";
 
 /**
  * A published HTML page, inline in the agent's reply at the message column's full width: no
@@ -61,7 +60,7 @@ export function HtmlVisualizationView(props: {
           aria-label={`${title} actions`}
           className="flex h-7 items-center justify-end"
         >
-          <div className="inline-flex items-center rounded-md p-0.5 shadow-[inset_0_0_0_1px_var(--border)]">
+          <div className="inline-flex items-center rounded-lg p-0.5 shadow-[inset_0_0_0_1px_var(--border)]">
             <IconButton
               size="sm"
               icon={CornersOutIcon}
@@ -69,7 +68,6 @@ export function HtmlVisualizationView(props: {
               className={action}
               onClick={() => panel.open(visualizationTab(visualization))}
             />
-            <span aria-hidden className={controlDivider} />
             <IconButton
               size="sm"
               icon={actions.copied ? CheckIcon : CopyIcon}
@@ -77,7 +75,6 @@ export function HtmlVisualizationView(props: {
               className={action}
               onClick={actions.copy}
             />
-            <span aria-hidden className={controlDivider} />
             <IconButton
               size="sm"
               icon={DownloadSimpleIcon}
