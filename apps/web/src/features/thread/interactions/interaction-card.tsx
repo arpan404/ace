@@ -228,19 +228,10 @@ function OpenRequest(props: {
   };
   return (
     <article tabIndex={-1} aria-label={title} onKeyDown={onKeyDown} className={props.className}>
-      {request.kind !== "approval" && (
-        <p
-          className={cn(
-            "flex min-h-6 items-center gap-[7px] text-xs",
-            request.kind === "question" ? "text-muted-foreground" : "text-subtle-foreground",
-          )}
-        >
-          {request.kind === "question" ? (
-            <Icon icon={ChatTeardropDotsIcon} size={14} />
-          ) : (
-            <Dot tone="needs-you" />
-          )}
-          {request.kind === "question" ? props.asker : `${props.asker} · ${kind}`}
+      {request.kind !== "approval" && request.kind !== "question" && (
+        <p className="flex min-h-6 items-center gap-[7px] text-xs text-subtle-foreground">
+          <Dot tone="needs-you" />
+          {props.asker} · {kind}
           <span className="ml-auto flex items-center gap-3">{props.aside}</span>
         </p>
       )}
@@ -301,6 +292,9 @@ function OpenRequest(props: {
         <QuestionForm
           interactionId={interaction.id}
           asker={props.asker}
+          // Who asks is said aloud only; the strip shows the question.
+          lead={<Icon icon={ChatTeardropDotsIcon} size={14} label={`${props.asker} is asking`} />}
+          aside={props.aside && <span className="flex items-center gap-3">{props.aside}</span>}
           questions={request.questions}
           disabled={sending}
           onAnswer={answer}

@@ -1,7 +1,7 @@
 import type { Question } from "@ace/protocol";
 import { questionOptions } from "@ace/ui-core";
 import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Input } from "@/components/ui/input.tsx";
@@ -22,6 +22,10 @@ export function QuestionForm(props: {
   interactionId: string;
   /** Who asks, for the note's placeholder. */
   asker: string;
+  /** At the start of the question's first line (its header, else its text). */
+  lead?: ReactNode;
+  /** At the end of that line: the strip's pager and indicators. */
+  aside?: ReactNode;
   questions: readonly Question[];
   disabled: boolean;
   onAnswer: Answer;
@@ -100,6 +104,8 @@ export function QuestionForm(props: {
         question={current}
         picked={picked[current.id] ?? []}
         text={texts[current.id] ?? ""}
+        lead={props.lead}
+        aside={props.aside}
         disabled={props.disabled}
         onToggle={(id) => toggle(current, id)}
         onText={(text) => type(current, text)}

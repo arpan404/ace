@@ -27,7 +27,9 @@ test("a delegated child's question shows in the parent's strip, named, and answe
   const card = await within(region).findByRole("article", {
     name: "Should the review include the archived blog posts?",
   });
-  expect(card.textContent).toContain("general assistant");
+  // Who asks is said aloud; the strip itself shows only the question.
+  expect(within(card).getByRole("img", { name: "general assistant is asking" })).toBeTruthy();
+  expect(card.textContent).not.toContain("general assistant");
 
   await userEvent.click(within(card).getByRole("radio", { name: "Skip the archive" }));
   await userEvent.click(within(card).getByRole("button", { name: "Continue" }));

@@ -1,7 +1,7 @@
 import type { Question } from "@ace/protocol";
 import { questionOptions } from "@ace/ui-core";
 import { LockSimpleIcon } from "@phosphor-icons/react";
-import { useId, useRef } from "react";
+import { useId, useRef, type ReactNode } from "react";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { Input } from "@/components/ui/input.tsx";
@@ -23,12 +23,17 @@ export function QuestionField(props: {
   question: Question;
   picked: readonly string[];
   text: string;
+  /** At the start of the first line (the header, else the text): the request's icon. */
+  lead?: ReactNode;
+  /** At the end of the first line: the strip's pager. */
+  aside?: ReactNode;
   disabled: boolean;
   onToggle(id: string): void;
   onText(text: string): void;
 }) {
   const { question } = props;
   const legend = useId();
+  const header = useId();
   const field = useRef<HTMLInputElement>(null);
   const options = questionOptions(question);
   /** An option's control; the free answer's names itself, having no label around it. */
@@ -96,18 +101,35 @@ export function QuestionField(props: {
   );
   return (
     <fieldset
-      aria-labelledby={legend}
+      aria-labelledby={question.header ? `${header} ${legend}` : legend}
       data-question={question.id}
       className="flex flex-col gap-0.5"
     >
-      <legend id={legend} className="mb-1.5 text-md leading-[1.35] font-medium tracking-[-0.005em]">
+      <div className="mb-1.5 flex flex-col gap-0.5">
+        <div
+          className={cn(
+            "flex min-h-6 items-center gap-1.5",
+            question.header
+              ? "text-xs text-subtle-foreground"
+              : "text-md leading-[1.35] font-medium tracking-[-0.005em]",
+          )}
+        >
+          {props.lead && (
+            <span className={cn("flex shrink-0", !question.header && "text-muted-foreground")}>
+              {props.lead}
+            </span>
+          )}
+          <span id={question.header ? header : legend} className="min-w-0 flex-1">
+            {question.header ?? question.text}
+          </span>
+          {props.aside && <span className="ml-auto shrink-0">{props.aside}</span>}
+        </div>
         {question.header && (
-          <span className="mb-0.5 block text-xs font-normal text-subtle-foreground">
-            {question.header}
+          <span id={legend} className="text-md leading-[1.35] font-medium tracking-[-0.005em]">
+            {question.text}
           </span>
         )}
-        {question.text}
-      </legend>
+      </div>
       {typedOnly(question) ? (
         <TypedAnswer
           question={question}

@@ -30,6 +30,13 @@ test("each option's description reads under its label", async () => {
   expect(within(card).getByText("2 spaces, like the web app")).toBeTruthy();
 });
 
+test("the card names no agent on screen, only aloud, its icon leading the question's header", async () => {
+  const { card } = await openCard("thread-ux-question-pick", "Tabs or Spaces?");
+  expect(card.textContent).not.toContain("Codex");
+  const icon = within(card).getByRole("img", { name: "Codex is asking" });
+  expect(icon.closest("div")?.textContent).toBe("Indentation");
+});
+
 test("a question with nothing to pick is one field, and Continue sends the words typed", async () => {
   const { app, card } = await openCard(
     "thread-ux-question-text",
@@ -57,7 +64,7 @@ test("a secret answer is typed hidden and sent as typed, while the transcript sh
     "thread-ux-question-secret",
     "Paste the npm token for the private registry",
   );
-  const field = within(card).getByLabelText("Paste the npm token for the private registry");
+  const field = within(card).getByPlaceholderText("Type your answer");
   expect(field.getAttribute("type")).toBe("password");
   await userEvent.type(field, `${token}{Enter}`);
   await waitFor(() =>
