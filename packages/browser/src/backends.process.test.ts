@@ -1,5 +1,6 @@
 import { once } from "node:events";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { expect, it } from "vitest";
 import { z } from "zod";
 import { backendFixture } from "./backend-test-support.ts";
@@ -174,6 +175,26 @@ it("a private desktop session's sign-ins move into a throwaway context", async (
   desktop.signIns = [{ name: "sid", value: "x", domain: "example.com", hostOnly: true }];
   await lockAndMove(f);
   expect(f.headless.opens.at(-1)?.options.profile).toBe("ephemeral");
+  expect(f.headless.pages.at(-1)?.planted).toEqual([
+    { name: "sid", value: "x", url: "http://example.com/", path: "/" },
+  ]);
+});
+it("a desktop page moved off a locked screen lands in its project's profile, with its sign-ins", async () => {
+  const f = await backendFixture({
+    profileScope: () => "project",
+    backendPreference: (open) => (open.threadId === "direct" ? "headless" : "auto"),
+  });
+  // Another thread of the same project already browses in ace's Chrome.
+  await f.service.open({ threadId: "direct", workspaceId: "workspace-thread" });
+  await f.open();
+  const desktop = [...f.pages.values()][0];
+  if (!desktop) throw new Error("Missing desktop page");
+  desktop.signIns = [{ name: "sid", value: "x", domain: "example.com", hostOnly: true }];
+  await lockAndMove(f);
+  const [direct, moved] = f.headless.opens;
+  expect(moved?.options.threadId).toBe("thread");
+  expect(moved?.profileDir).toBe(direct?.profileDir);
+  expect(moved?.profileDir).not.toBe(join(f.home, "browser", "profile"));
   expect(f.headless.pages.at(-1)?.planted).toEqual([
     { name: "sid", value: "x", url: "http://example.com/", path: "/" },
   ]);

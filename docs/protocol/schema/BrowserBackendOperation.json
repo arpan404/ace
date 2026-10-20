@@ -16,6 +16,9 @@
         "options": {
           "$ref": "https://ace.local/protocol/v1/BrowserOpen.json"
         },
+        "profileScope": {
+          "$ref": "https://ace.local/protocol/v1/BrowserProfileScope.json"
+        },
         "viewport": {
           "properties": {
             "height": {
@@ -177,6 +180,22 @@
       "required": [
         "kind",
         "threadId",
+        "workspaceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "purgeProject",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "kind",
         "workspaceId"
       ],
       "type": "object"

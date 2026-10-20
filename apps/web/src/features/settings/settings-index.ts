@@ -286,6 +286,12 @@ const entries = [
     keywords: ["profile", "cookies", "private", "incognito", "sign-ins"],
   },
   {
+    id: "browser.profileScope",
+    page: "/settings/browser",
+    title: "Browser profile",
+    keywords: ["profile", "cookies", "sign-ins", "project", "thread", "shared", "global"],
+  },
+  {
     id: "browser.loss",
     page: "/settings/browser",
     title: "When the desktop app goes away",

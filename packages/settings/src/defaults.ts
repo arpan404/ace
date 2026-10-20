@@ -40,6 +40,7 @@ export const defaults: SettingsValues = {
   "browser.backend": "auto",
   "browser.backendLoss": "pause",
   "browser.profile": "persistent",
+  "browser.profileScope": "global",
   "browser.downloadDir": "",
   "browser.downloadDefault": "",
   "browser.userChrome.storageReads": false,

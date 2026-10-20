@@ -55,6 +55,11 @@ export const settingKeys = {
   limitPolicy: setting<LimitPolicy>("threads.limitPolicy", LimitPolicy, "manual"),
   browserEngine: setting("browser.backend", SettingsValues.shape["browser.backend"], "auto"),
   browserProfile: setting("browser.profile", SettingsValues.shape["browser.profile"], "persistent"),
+  browserProfileScope: setting(
+    "browser.profileScope",
+    SettingsValues.shape["browser.profileScope"],
+    "global",
+  ),
   browserLoss: setting("browser.backendLoss", SettingsValues.shape["browser.backendLoss"], "pause"),
   browserDownloads: setting("browser.downloadDir", SettingsValues.shape["browser.downloadDir"], ""),
   browserDownloadDefault: setting(

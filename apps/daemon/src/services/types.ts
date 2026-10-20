@@ -44,6 +44,8 @@ export interface Services {
   activityReads?: import("../activity-reads.ts").ActivityReads;
   icons?: import("../icons/icon-service.ts").IconService;
   projects?: import("../projects.ts").Projects;
+  /** Removed projects' browser profiles, forgotten in ace's Chrome and on the desktop. */
+  browserProjects?: import("../browser-forget-projects.ts").BrowserProjectForget;
   workspaceActions?: import("../workspace-runtime.ts").WorkspaceRuntime;
   canReadThread?: NonNullable<import("../server-options.ts").ServerOptions["canReadThread"]>;
   agentControl?: {

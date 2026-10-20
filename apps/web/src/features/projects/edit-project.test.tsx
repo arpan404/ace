@@ -278,6 +278,30 @@ test("a project that turns worktrees off starts its new threads on the local che
   });
 });
 
+test("a project keeps its own browser sign-ins once chosen in Edit project, and Inherit undoes it", async () => {
+  const made = app();
+  await made.open("/new?project=docs");
+  await screen.findByRole("button", { name: "Project: docs" });
+
+  let dialog = await openEditor();
+  const profile = within(dialog).getByRole("combobox", { name: "Browser profile" });
+  expect(profile.textContent).toContain("Inherit");
+  await userEvent.click(profile);
+  await userEvent.click(await screen.findByRole("option", { name: "This project" }));
+  expect(within(dialog).getByText(/Sign-ins stay in this project/)).toBeTruthy();
+  expect(within(dialog).getByText(/Applies to browsers opened after you save/)).toBeTruthy();
+  await save(dialog);
+  await waitFor(() => expect(saved(made)?.defaults?.browserProfileScope).toBe("project"));
+
+  dialog = await openEditor();
+  const again = within(dialog).getByRole("combobox", { name: "Browser profile" });
+  expect(again.textContent).toContain("This project");
+  await userEvent.click(again);
+  await userEvent.click(await screen.findByRole("option", { name: "Inherit" }));
+  await save(dialog);
+  await waitFor(() => expect(saved(made)?.defaults?.browserProfileScope).toBeUndefined());
+});
+
 test("Remove project in the editor stops listing the project and leaves its folder", async () => {
   const made = app();
   const other = fakeClient(made.daemon);

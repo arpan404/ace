@@ -3,6 +3,7 @@ import type {
   BrowserArtifact,
   BrowserBackendLost,
   BrowserDownloadProgress,
+  BrowserProfileScope,
 } from "@ace/protocol";
 import type { BrowserBackend } from "./backend.ts";
 import type { ChromiumAcquisitionOptions } from "./acquisition.ts";
@@ -102,12 +103,17 @@ export interface BrowserServiceOptions {
    */
   firstPictureMs?: number;
   /**
-   * The profile for an open that names none; the library default is `persistent`, ace's one
-   * shared browser profile. `ephemeral` is a private throwaway context inside it.
+   * The profile for an open that names none; the library default is `persistent`, the kept
+   * profile `profileScope` picks. `ephemeral` is a private throwaway context inside it.
    */
   profilePreference?: (
     options: BrowserOpen,
   ) => "persistent" | "ephemeral" | Promise<"persistent" | "ephemeral">;
+  /**
+   * Which kept profile a thread's browser opens in (`browser.profileScope`, a project's choice
+   * first). Read when a browser opens; the library default is `global`, one shared profile.
+   */
+  profileScope?: (options: BrowserOpen) => BrowserProfileScope | Promise<BrowserProfileScope>;
   /**
    * Where ace's own Chrome saves what a thread downloads (the daemon's `browser.downloadDir`):
    * an existing, writable folder on this machine. Undefined keeps downloads with the thread's

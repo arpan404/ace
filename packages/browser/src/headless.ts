@@ -28,9 +28,11 @@ export interface ChromeBackendOptions {
 const Png = z.object({ data: z.string().max(64 * 1024 * 1024) });
 
 /**
- * ace's own Chrome for Testing, driven over a pipe. One host per profile is shared by every
- * thread; a thread gets tabs in the persistent profile, or in a throwaway context when its
- * browser is ephemeral. A crashed browser is restarted and the thread's page reopened.
+ * ace's own Chrome for Testing, driven over a pipe. One host per profile directory is shared by
+ * every thread that opens in it (the global profile, a project's or a thread's own); a thread
+ * gets tabs in that profile, or in a throwaway context when its browser is ephemeral. A host
+ * with no sessions stops its Chrome after the idle wait. A crashed browser is restarted and the
+ * thread's page reopened.
  */
 export class ChromeBackend implements BrowserBackend {
   readonly kind = "headless";
@@ -44,6 +46,13 @@ export class ChromeBackend implements BrowserBackend {
   /** Stops every browser this backend started. Sessions must be closed first. */
   async close(): Promise<void> {
     await Promise.allSettled([...this.hosts.values()].map((host) => host.close()));
+  }
+  /** A profile about to be deleted: its Chrome stops now rather than after the idle wait. */
+  async retireProfile(profileDir: string): Promise<void> {
+    const host = this.hosts.get(profileDir);
+    if (!host) return;
+    this.hosts.delete(profileDir);
+    await host.close();
   }
   private video(instance: ChromeInstance, profileDir: string): ChromeVideo {
     let video = this.videos.get(instance);

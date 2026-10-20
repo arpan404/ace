@@ -88,6 +88,20 @@ test("the desktop app's own browser keeps its downloads folder in the app, chose
   await waitFor(() => expect(machine.stored().browserDownloads).toBeNull());
 });
 
+test("browsers share one global profile until the person keeps sign-ins per project", async () => {
+  const app = harness();
+  await app.open("/settings/browser");
+  const scope = await screen.findByRole("combobox", { name: "Browser profile" });
+  expect(scope.textContent).toContain("Global");
+  expect(screen.getByText(/A project can choose its own in Edit project/)).toBeTruthy();
+
+  await userEvent.click(scope);
+  await userEvent.click(await screen.findByRole("option", { name: "Each project" }));
+  await waitFor(() =>
+    expect(app.daemon.services.settings.get("browser.profileScope")).toBe("project"),
+  );
+});
+
 test("in a browser there is no app folder to choose, and the person's Chrome decides for itself", async () => {
   const app = harness();
   await app.open("/settings/browser");

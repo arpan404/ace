@@ -4,6 +4,7 @@ import { compactPolicyEvent } from "@ace/browser/policy-events";
 import { videoRelay, type VideoRelaySource } from "./video-relay.ts";
 import {
   type BrowserOpen,
+  type BrowserProfileScope,
   type BrowserBackendClientMessage,
   type BrowserBackendOperation,
   type BrowserBackendRequest,
@@ -56,10 +57,14 @@ export interface ViewHost {
     sessionId: string;
     downloadDir?: string | undefined;
     options: BrowserOpen;
+    /** Which persistent partition the page opens in; omitted is the thread's own. */
+    profileScope?: BrowserProfileScope | undefined;
     viewport: { width: number; height: number };
   }): Promise<ViewPage>;
   /** A deleted thread's persistent partition: drop all its data. */
   purge?(request: { threadId: string; workspaceId: string }): Promise<void>;
+  /** A removed project's partition: drop all its data. Its views are closed first. */
+  purgeProject?(request: { workspaceId: string }): Promise<void>;
 }
 
 /**
@@ -318,6 +323,20 @@ export class BrowserBackend {
         this.purging.delete(operation.threadId);
       }
     }
+    if (operation.kind === "purgeProject") {
+      const { workspaceId } = operation;
+      const open = [...this.sessions.values()].filter(
+        (session) => session.options.workspaceId === workspaceId,
+      );
+      await Promise.all(open.map((session) => this.dispose(session)));
+      const kept = [...this.orphans].flatMap(([threadId, orphan]) =>
+        orphan.options.workspaceId === workspaceId ? [threadId] : [],
+      );
+      await Promise.all(kept.map((threadId) => this.closeOrphan(threadId)));
+      if (!this.host.purgeProject) throw new Error("Browser partition purge unavailable");
+      await this.host.purgeProject({ workspaceId });
+      return {};
+    }
     const pending = this.opening.get(sessionId);
     if (operation.kind === "close" && pending) {
       // Fence ownership now, even if native creation cannot be interrupted.
@@ -376,6 +395,7 @@ export class BrowserBackend {
           sessionId,
           downloadDir: operation.downloadDir,
           options: operation.options,
+          profileScope: operation.profileScope,
           viewport: operation.viewport,
         }));
       if (pending.canceled || this.link !== link) {

@@ -10,6 +10,7 @@ import { useProjectDirectory } from "@/lib/projects.ts";
 import { Footer, Problem, TextField } from "./form-parts.tsx";
 import { iconChoiceOf, iconEdit, type IconChoice } from "./icon-choice.ts";
 import { projectFailure, useProjectCommands } from "./project-commands.ts";
+import { ProjectBrowserProfile } from "./project-browser-profile.tsx";
 import { ProjectDefaultsFields } from "./project-defaults-fields.tsx";
 import { ProjectIconChooser } from "./project-icon-chooser.tsx";
 import { ProjectNotesFields } from "./project-notes-fields.tsx";
@@ -107,6 +108,10 @@ export function EditProjectDialog(props: {
               />
               <ProjectDefaultsFields
                 projectId={project.id}
+                value={defaults ?? project.defaults ?? {}}
+                onChange={setDefaults}
+              />
+              <ProjectBrowserProfile
                 value={defaults ?? project.defaults ?? {}}
                 onChange={setDefaults}
               />

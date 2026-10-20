@@ -316,6 +316,39 @@ describe("embedded browser backend", () => {
     expect(await t.response(after)).toMatchObject({ error: "Unknown browser session" });
   });
 
+  it("opens a kept page in the partition scope the daemon names", async () => {
+    const t = setup();
+    await t.response(
+      t.request("s-1", {
+        kind: "open",
+        options: { threadId: "t-1", workspaceId: "w-1", profile: "persistent" },
+        profileScope: "project",
+        viewport: { width: 1280, height: 720 },
+      }),
+    );
+    await t.open("s-2", "t-2", "persistent");
+    expect(t.views.scopes.get("s-1")).toBe("project");
+    // An older daemon names none: the view keeps the thread's own partition.
+    expect(t.views.scopes.get("s-2")).toBeUndefined();
+  });
+
+  it("purges a removed project's partition, closing only that project's views first", async () => {
+    const t = setup();
+    await t.open("s-1", "t-1");
+    await t.response(
+      t.request("s-2", {
+        kind: "open",
+        options: { threadId: "t-2", workspaceId: "w-2", profile: "persistent" },
+        viewport: { width: 1280, height: 720 },
+      }),
+    );
+    const id = t.request("purge-1", { kind: "purgeProject", workspaceId: "w-1" });
+    expect(await t.response(id)).toMatchObject({ sessionId: "purge-1", result: {} });
+    expect(t.views.purgedProjects).toEqual(["w-1"]);
+    expect(t.views.pages.get("s-1")?.closed).toBe(true);
+    expect(t.views.pages.get("s-2")?.closed).toBe(false);
+  });
+
   it("reports a partition it could not clear, so the daemon retries the purge", async () => {
     const t = setup();
     t.views.failPurge("Browser partition could not be cleared");
