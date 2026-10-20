@@ -349,6 +349,43 @@ keyframe that followed overflowed again. The encoder's bit rate never followed t
   encoder of their own ("The desktop's encoder", below). "Use my
   Chrome" has no encoder yet and shows no live picture remotely.
 
+### Thin links: ace's own rate control, HEVC first
+
+Added the same day. Measured in Chrome for Testing on Apple silicon, a scrolling page at
+1280 × 800 encoded for 3 s per setting:
+
+| Encoder                        | 1 Mbit/s asked | Frames kept | Bits out                       |
+| ------------------------------ | -------------- | ----------- | ------------------------------ |
+| H.264 hardware, `variable`     | 1 Mbit/s       | 16 of 60    | 1.0 Mbit/s                     |
+| H.264 software, `variable`     | 1 Mbit/s       | 60          | 15.7 Mbit/s (ignores the rate) |
+| VP8 / VP9 software             | 1 Mbit/s       | 60          | 10.6 / 6.0 Mbit/s (ignore it)  |
+| H.264 hardware, `quantizer` 48 | —              | 60          | 1.2 Mbit/s                     |
+| HEVC hardware, `quantizer` 48  | —              | 60          | 0.4 Mbit/s                     |
+
+A hardware encoder holds a bit rate by skipping frames, and the software ones don't hold it.
+
+- **`quantizer` mode with ace's own rate control** (`quantizer-control.ts`, pure, bundled into
+  the extension). Where the hardware takes it (H.264, HEVC), the encoder runs in `quantizer`
+  mode and codes every frame at a quantizer ace picks. The quantizer moves by about
+  3 × log2(recent delta size ÷ target size), at most every third frame, within 18–51. +6
+  roughly halves a frame. Keyframes are coded 6 coarser, and the deltas after them sharpen
+  the picture. A new bit rate takes effect from the next frame. Elsewhere it falls back to
+  `variable`.
+- **HEVC first.** The encoder probes `hvc1.1.6.L153.B0`, then H.264 High and Baseline, then
+  VP9 and VP8. Web viewers list them in that order, and each browser lists only what its
+  decoder takes. On the benchmark's page at the same quality, HEVC sent 0.7 Mbit/s where
+  H.264 sent 2.8. The iOS app still asks for H.264.
+- **Slow start.** A viewer's rate starts at 1.5 Mbit/s and climbs 25 % per step until the link
+  first shows a queue, then 8 %. The first picture is sized for that rate (`video-scale.ts`),
+  and a step back up jumps straight to the largest picture the link carries with 50 % spare.
+
+| Link (120 ms, 30 ms jitter) | Median fps, before → after | p10 after             |
+| --------------------------- | -------------------------- | --------------------- |
+| 0.75 Mbit/s                 | 11 → 54–60                 | 21–29 (first seconds) |
+| 1 Mbit/s                    | 17 → 60                    | 49–52                 |
+| 1.5 Mbit/s                  | 39 → 59                    | 54                    |
+| 25 Mbit/s                   | 60 → 60                    | 59                    |
+
 ### Consequences
 
 - `check:perf` runs `video-link.ts` and fails below a 55 fps median or a 45 fps p10 on the
