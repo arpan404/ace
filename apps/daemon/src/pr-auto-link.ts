@@ -1,6 +1,7 @@
 import { setImmediate } from "node:timers/promises";
 import { z } from "zod";
 import { ThreadId, type ForgeRepository, type ForgePrRef, type Event } from "@ace/protocol";
+import { outputStreamId } from "@ace/projection";
 import { createsPullRequest, createdPullRequest } from "./pr-create-command.ts";
 import type { Store } from "./store.ts";
 
@@ -18,7 +19,16 @@ const Pending = z.object({
   streamId: z.string().nullable(),
 });
 
-/** Durable observation of completed commands, independent of provider-native frame shapes. */
+/** Creates whose output hasn't arrived yet that this process still watches for. */
+const awaitingLimit = 256;
+const finished = new Set(["succeeded", "failed", "cancelled"]);
+
+/**
+ * Durable observation of completed commands, independent of provider-native frame shapes, for
+ * the main agent and every subagent alike. Some providers mark a command complete before its
+ * output arrives (Claude reports a subagent's tool result after the call ends): such a create is
+ * recorded at once and read again when its output lands.
+ */
 export class PullRequestAutoLink {
   private readonly store: Store;
   private readonly workspace: WorkspacePrLinks;
@@ -28,6 +38,7 @@ export class PullRequestAutoLink {
   private closed = false;
   private revision = 0;
   private handledRevision = 0;
+  private readonly awaiting = new Set<string>();
   constructor(store: Store, workspace: WorkspacePrLinks, onError: (error: unknown) => void) {
     this.store = store;
     this.workspace = workspace;
@@ -50,21 +61,18 @@ export class PullRequestAutoLink {
     let added = false;
     for (const event of events) {
       const payload = event.payload;
+      if (payload.type === "item.delta") {
+        if (payload.field === "output")
+          added ||= this.outputArrived(event.threadId, payload.itemId);
+        continue;
+      }
       if (payload.type !== "item.created" && payload.type !== "item.updated") continue;
       const item = payload.item;
-      if (
-        item.type !== "tool_call" ||
-        !item.complete ||
-        (item.call.status !== "succeeded" && item.call.status !== "failed")
-      )
-        continue;
+      if (item.type !== "tool_call" || !item.complete || !finished.has(item.call.status)) continue;
       const detail = item.call.detail;
-      if (
-        detail.kind !== "shell" ||
-        !createsPullRequest(detail.rawCommand ?? detail.command) ||
-        !detail.output
-      )
+      if (detail.kind !== "shell" || !createsPullRequest(detail.rawCommand ?? detail.command))
         continue;
+      if (!detail.output) this.watch(event.threadId, item.id);
       try {
         const result = this.store
           .statement(`
@@ -75,7 +83,7 @@ export class PullRequestAutoLink {
             event.threadId,
             item.id,
             this.workspace.root(event.threadId),
-            detail.output.streamId,
+            detail.output?.streamId ?? null,
           );
         added ||= result.changes > 0;
       } catch (error) {
@@ -83,6 +91,31 @@ export class PullRequestAutoLink {
       }
     }
     if (added) this.wake();
+  }
+  /** Watch for the output of a create that completed before it printed anything. */
+  private watch(threadId: ThreadId, itemId: string): void {
+    this.awaiting.add(`${threadId} ${itemId}`);
+    // Bounded: a create that never prints anything is forgotten, oldest first.
+    if (this.awaiting.size > awaitingLimit) {
+      const oldest = this.awaiting.values().next();
+      if (!oldest.done) this.awaiting.delete(oldest.value);
+    }
+  }
+  /** A watched create printed its output: read it again, once, for the created PR's URL. */
+  private outputArrived(threadId: ThreadId, itemId: string): boolean {
+    if (!this.awaiting.delete(`${threadId} ${itemId}`)) return false;
+    try {
+      const rearmed = this.store
+        .statement(`
+          UPDATE thread_pr_creations SET stream_id=?,done=0
+          WHERE thread_id=? AND item_id=? AND stream_id IS NULL
+        `)
+        .run(outputStreamId(itemId), threadId, itemId);
+      return rearmed.changes > 0;
+    } catch (error) {
+      this.onError(error);
+      return false;
+    }
   }
   private wake(): void {
     this.revision++;

@@ -207,6 +207,62 @@ test("a created PR still links when a later attachment upload fails", async () =
   }
 });
 
+test("a subagent's create that completes before its output arrives still links its PR", async () => {
+  const f = await fixture();
+  try {
+    const id = f.thread("subagent", "claude");
+    const running = AgentItem.parse({
+      id: "worker-create",
+      agentId: "worker",
+      type: "tool_call",
+      complete: false,
+      createdAt: 1,
+      call: {
+        id: "worker-create",
+        agentId: "worker",
+        kind: "shell",
+        title: "Run command",
+        status: "running",
+        startedAt: 1,
+        raw: [],
+        detail: {
+          kind: "shell",
+          command: `gh pr create --base main --title "Fix" --body "$(cat <<'EOF'\nDon't "quote" me\nEOF\n)"`,
+        },
+      },
+    });
+    if (running.type !== "tool_call") throw new Error("Not a command");
+    // Claude reports a subagent's tool result after the call has ended.
+    f.store.appendEvents(id, [
+      { type: "item.created", item: running },
+      {
+        type: "item.updated",
+        item: AgentItem.parse({
+          ...running,
+          complete: true,
+          call: { ...running.call, status: "succeeded" },
+        }),
+      },
+    ]);
+    await f.auto.drained();
+    expect(f.store.getThread(id)?.details?.linkedPrs ?? []).toEqual([]);
+    f.store.appendEvents(id, [
+      {
+        type: "item.delta",
+        itemId: running.id,
+        agentId: running.agentId,
+        field: "output",
+        append: "https://github.com/test/project/pull/412",
+      },
+    ]);
+    await f.auto.drained();
+    expect(f.store.getThread(id)?.details?.linkedPrs).toMatchObject([{ number: 412 }]);
+    expect(f.errors).toEqual([]);
+  } finally {
+    await f.close();
+  }
+});
+
 test("a command captured before shutdown completes linking after the subscriber restarts", async () => {
   const f = await fixture();
   try {
