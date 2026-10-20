@@ -13,38 +13,68 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     private lazy var video: VideoEncoder = VideoEncoder(sessionId: sessionId, version: version,
         publish: { [weak self] packet in if let self { self.writer.publish(packet, sessionId: self.sessionId) } },
         completed: { [weak self] in self?.queue.async { [weak self] in self?.pendingVideo.completed() } })
-    private struct ChangedImage { let image: CVPixelBuffer; let timestamp: Double; let scale: Double; let damage: [CGRect]? }
+    private struct ChangedImage { let image: CVPixelBuffer; let timestamp: Double; let scale: Double; let damage: [CGRect]?; var quality = StreamQuality.motion }
     private lazy var pendingVideo: LatestVideoFrames<ChangedImage> = LatestVideoFrames<ChangedImage> { [weak self] changed in
         guard let self else { return .unavailable }
-        let result = self.video.encode(changed.image, sequence: self.nextSequence, timestamp: changed.timestamp, scale: changed.scale)
+        let result = self.video.encode(changed.image, sequence: self.nextSequence, timestamp: changed.timestamp, scale: changed.scale, quality: changed.quality)
         if result == .submitted { self.lock.lock(); self.sequence += 1; self.initial = false; self.lock.unlock() }
         if result == .unavailable { self.codec = "jpeg"; self.publishImage(changed) }
+        if result != .busy, changed.quality == .refine { self.refine.sent() }
         return result
     }
     private let images = CaptureImages<ChangedImage>()
     private func publishImage(_ changed: ChangedImage) {
         let started = runtime.nanos()
         guard let packet = encoder.packet(image: changed.image, sessionId: sessionId, sequence: nextSequence,
-            timestamp: changed.timestamp, version: version, scale: changed.scale, dirtyRects: changed.damage) else { return }
+            timestamp: changed.timestamp, version: version, scale: changed.scale, dirtyRects: changed.damage, quality: jpegQuality(changed.quality)) else { return }
         lock.lock(); sequence += 1; initial = false; encodeNanos += runtime.nanos() - started; lock.unlock()
         writer.publish(packet, sessionId: sessionId)
+    }
+    /// A still picture is re-sent once at refine quality; see `RefineOnIdle`.
+    private var refine = RefineOnIdle()
+    private var refineArmed = false
+    private var refineGeneration = 0
+    private func resetRefine() { refine.reset(); refineGeneration += 1; refineArmed = false }
+    private func armRefine() {
+        guard !refineArmed, let wake = refine.wakeAt else { return }
+        refineArmed = true
+        let generation = refineGeneration, now = runtime.nanos()
+        queue.asyncAfter(deadline: .now() + .nanoseconds(Int(wake > now ? wake - now : 0))) { [weak self] in
+            guard let self, self.refineGeneration == generation else { return }
+            self.refineArmed = false
+            self.refineIfDue()
+        }
+    }
+    private func refineIfDue() {
+        guard refine.due(at: runtime.nanos()) else { armRefine(); return }
+        guard var still = images.latest else { refine.sent(); return }
+        still.quality = .refine
+        if codec == "h264" { pendingVideo.offer(still) }
+        else { publishImage(still); refine.sent() }
+    }
+    /// The latest picture as a keyframe or screenshot asks for it: refined while it holds still.
+    private func latestImage() -> ChangedImage? {
+        guard var image = images.latest else { return nil }
+        image.quality = refine.still ? .refine : .motion
+        return image
     }
     private var codec = "jpeg"
     func configure(_ settings: StreamSettings, targetWidth: Double) async {
         await withCheckedContinuation { continuation in queue.async {
-            self.pendingVideo.clear(); self.video.close(); self.targetWidth = targetWidth; self.codec = settings.codec; self.video.configure(bitrate: settings.bitrate, fps: settings.fps)
+            self.pendingVideo.clear(); self.video.close(); self.resetRefine(); self.targetWidth = targetWidth; self.codec = settings.codec; self.video.configure(bitrate: settings.bitrate, fps: settings.fps)
             self.markInitial(); continuation.resume()
         } }
     }
     func requestKeyframe() { queue.async {
         self.video.requestKeyframe(); self.markInitial()
-        if self.codec == "h264", let image = self.images.latest { self.pendingVideo.offer(image) }
+        if self.codec == "h264", let image = self.latestImage() { self.pendingVideo.offer(image) }
     } }
     func requestImage() { queue.async {
-        guard let image = self.images.request() else { self.markInitial(); return }
+        guard var image = self.images.request() else { self.markInitial(); return }
+        image.quality = .refine
         self.pendingVideo.clear(); self.video.close(); self.publishImage(image)
     } }
-    func finish() async { await withCheckedContinuation { continuation in queue.async { self.pendingVideo.clear(); self.video.close(); self.images.clear(); continuation.resume() } } }
+    func finish() async { await withCheckedContinuation { continuation in queue.async { self.pendingVideo.clear(); self.video.close(); self.images.clear(); self.resetRefine(); continuation.resume() } } }
     private var sequence: UInt64 = 0
     private let lock = NSLock()
     private var initial = true
@@ -81,15 +111,18 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
         }
         let currentScale = measured.flatMap { $0.isFinite && $0 > 0 && $0 <= 8 ? $0 : nil } ?? Double(CVPixelBufferGetWidth(image)) / targetWidth
         let changed = ChangedImage(image: image, timestamp: runtime.milliseconds(), scale: currentScale, damage: damage)
-        if let screenshot = images.receive(changed) {
+        if var screenshot = images.receive(changed) {
+            screenshot.quality = .refine
             pendingVideo.clear(); video.close(); publishImage(screenshot)
         }
         lock.lock(); let first = initial; lock.unlock()
         var nextChanges = changes
         guard nextChanges.changed(initial: first, dirtyRects: damage, fingerprint: { pixelFingerprint(image) }) else { return }
         changes = nextChanges
+        refine.changed(at: runtime.nanos())
         if codec == "h264" { pendingVideo.offer(changed) }
         else { publishImage(changed) }
+        armRefine()
     }
     var onStopped: ((SCStream, Error) -> Void)?
     func stream(_ stream: SCStream, didStopWithError error: Error) { onStopped?(stream, error) }
@@ -124,6 +157,8 @@ struct ShareableContent {
     private(set) var target: Target?
     private(set) var allowed = Set<String>()
     private(set) var frame = CGRect.zero
+    /// Pixels per point of the display showing the target: the live view never captures more.
+    private var density = 1.0
     private(set) var width = 0
     private(set) var height = 0
     var measurementInputMark: (() -> Void)?
@@ -189,10 +224,13 @@ struct ShareableContent {
         guard frame.width > 0, frame.height > 0 else { throw HelperError("Empty capture target", code: "bounds") }
         // A window is captured at the screen's pixel density, so a phone screen stays legible;
         // a whole display stays at points to bound its encoding cost.
-        let density = target.kind != "display" ? Self.pixelDensity(of: frame, on: content.displays) : 1
-        let scale = min(density, min(3840 / frame.width, 2160 / frame.height))
+        density = Self.pixelDensity(of: frame, on: content.displays)
+        let scale = min(target.kind != "display" ? density : 1, min(3840 / frame.width, 2160 / frame.height))
         width = max(1, Int(frame.width * scale)); height = max(1, Int(frame.height * scale))
         let config = SCStreamConfiguration()
+        // The window alone, edge to edge: its shadow would shrink the content inside the frame
+        // (blurring it) and offset input coordinates.
+        if #available(macOS 14.0, *), target.kind != "display" { config.ignoreShadowsSingleWindow = true }
         config.width = width; config.height = height; config.queueDepth = 3
         config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
         config.scalesToFit = true
@@ -213,9 +251,7 @@ struct ShareableContent {
         }
         self.settings = settings
         let config = configuration.config
-        let scale = min(Double(settings.maxWidth) / frame.width, Double(settings.maxHeight) / frame.height)
-        config.width = max(2, Int(frame.width * scale) / 2 * 2)
-        config.height = max(2, Int(frame.height * scale) / 2 * 2)
+        (config.width, config.height) = streamCaptureSize(points: frame.size, density: density, maxWidth: settings.maxWidth, maxHeight: settings.maxHeight)
         config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(settings.fps))
         await output.configure(settings, targetWidth: frame.width)
         try await stream?.updateConfiguration(config)
@@ -263,10 +299,11 @@ struct ShareableContent {
               window.frame.width > 0, window.frame.height > 0,
               abs(window.frame.width - frame.width) >= 1 || abs(window.frame.height - frame.height) >= 1 else { return }
         let density = Self.pixelDensity(of: window.frame, on: content.displays)
-        let scale = settings.map { min(Double($0.maxWidth) / window.frame.width, Double($0.maxHeight) / window.frame.height) } ?? min(density, min(3840 / window.frame.width, 2160 / window.frame.height))
         let config = configuration.config
-        config.width = max(2, Int(window.frame.width * scale) / 2 * 2); config.height = max(2, Int(window.frame.height * scale) / 2 * 2)
+        (config.width, config.height) = streamCaptureSize(points: window.frame.size, density: density,
+            maxWidth: settings?.maxWidth ?? 3840, maxHeight: settings?.maxHeight ?? 2160)
         do { try await stream.updateConfiguration(config) } catch { return }
+        self.density = density
         frame = window.frame; width = config.width; height = config.height
         if let settings { await output?.configure(settings, targetWidth: frame.width) }
         output?.markInitial()
