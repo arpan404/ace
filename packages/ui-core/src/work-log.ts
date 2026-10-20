@@ -7,6 +7,7 @@ import { formatElapsed } from "./time.ts";
 import { planCount, planProgress, planTodos } from "./plan.ts";
 import { exploreAction } from "./explore-command.ts";
 import { isToolSearch, toolSearchRow } from "./tool-search.ts";
+import { toolRefusal } from "./tool-refusals.ts";
 
 export type StepIcon =
   | "read"
@@ -290,6 +291,9 @@ export function describeStep(item: Item, context: StepContext = {}): StepText {
       failed: !!ace.problem,
       ace,
     };
+  const refusal = toolRefusal(item);
+  if (refusal)
+    return { icon: "tool", verb: refusal.label, note: "Failed", settled: true, failed: true };
   if (item.type === "notice")
     return {
       icon: "note",
@@ -514,4 +518,29 @@ export function workLogHeadline(summary: WorkSummary, now: number): WorkLogHeadl
     failures: failureCounts(summary),
     firstFailed: summary.firstFailed,
   };
+}
+
+/** How a settled turn ended, as its head says it. */
+export type TurnOutcome = "completed" | "interrupted" | "failed" | "paused";
+
+/**
+ * A settled turn's head, from how its run ended: "Worked for 2m 5s"; "Stopped after 12s" when
+ * the person stopped it; "Interrupted after 3m 5s" when a restart (the app quit, the daemon
+ * restarted) cut it short; "Failed after 4s"; or a usage-limit pause. A short burst reads as 1s.
+ */
+export function turnHeadLabel(
+  outcome: TurnOutcome | undefined,
+  restarted: boolean,
+  ms: number,
+): string {
+  if (outcome === "paused") return "Paused · Usage limit";
+  const verb =
+    outcome === "interrupted"
+      ? restarted
+        ? "Interrupted after"
+        : "Stopped after"
+      : outcome === "failed"
+        ? "Failed after"
+        : "Worked for";
+  return `${verb} ${formatElapsed(Math.max(1000, ms))}`;
 }

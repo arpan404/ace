@@ -12,13 +12,15 @@ import {
 } from "./ace-tools.ts";
 import { siteOf, str } from "./ace-tool-specs.ts";
 import { field, mcpResultParts } from "./mcp-result.ts";
+import { aceCallFailed, reportsOn, toolRefusal } from "./tool-refusals.ts";
 
 /*
  * One work log's ace steps read together. Each step learns what earlier ones said (the app the
  * agent opened, the site it went to, a device's name, an element's name behind a ref) and the
  * daemon's audit of each computer-use action is folded into the call it records, so the raw
- * `key.press · com.apple.Safari · …` notice never shows twice. Consecutive steps on one app,
- * site or device collapse into one line: "Used Safari · 8 actions · 3 failed". Pure.
+ * `key.press · com.apple.Safari · …` notice never shows twice; so is ace's report of a call that
+ * failed. Consecutive steps on one app, site or device collapse into one line: "Used Safari ·
+ * 8 actions · 3 failed". Pure.
  */
 
 export type AceLogRow =
@@ -74,6 +76,8 @@ interface AgentState {
   unknownApp: string[];
   /** Audited calls not yet matched with their audit, oldest first. */
   pending: { id: string; tool: string }[];
+  /** Its latest ace calls no failure report has claimed yet, oldest first. */
+  calls: { id: string; item: Item }[];
 }
 
 /** Text parts: JSON parsed, anything else as its text. */
@@ -138,7 +142,7 @@ function readContexts(ids: readonly string[], items: readonly (Item | undefined)
     if (!state)
       agents.set(
         agentId,
-        (state = { app: undefined, site: undefined, unknownApp: [], pending: [] }),
+        (state = { app: undefined, site: undefined, unknownApp: [], pending: [], calls: [] }),
       );
     return state;
   };
@@ -175,9 +179,19 @@ function readContexts(ids: readonly string[], items: readonly (Item | undefined)
       if (step.bundleId) setApp(owner ?? state, step.bundleId);
       continue;
     }
+    if (toolRefusal(item)) {
+      // ace's report of a failed call this log holds: the call's own row says it, once. A call
+      // that does not read as failed (yet) leaves the report its own row.
+      const at = state.calls.findLastIndex((call) => reportsOn(item, call.item));
+      const [call] = at >= 0 ? state.calls.splice(at, 1) : [];
+      if (call && aceCallFailed(call.item)) absorbed.add(id);
+      continue;
+    }
     const call = aceCallOf(item);
     const spec = call && aceToolSpec(call.server, call.tool);
     if (!call || !spec) continue;
+    state.calls.push({ id, item });
+    if (state.calls.length > 64) state.calls.shift();
     const args =
       typeof call.args === "object" && call.args !== null
         ? (call.args as Record<string, unknown>)

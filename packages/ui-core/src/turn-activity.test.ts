@@ -431,6 +431,19 @@ test("a rate-limited root with nothing else running says it is rate limited", ()
   });
 });
 
+test("a provider reconnecting by itself says so with its count, then reads Working again", () => {
+  const message = "Reconnecting... 2/5";
+  const thread = world({ state: "blocked", on: "network", refs: [], message }, []);
+  expect(turnActivity(thread.reader, "root")).toMatchObject({
+    label: "Reconnecting to the model… 2/5",
+    tone: "held",
+  });
+  thread.status({ state: "blocked", on: "network", refs: [], attempt: 3 });
+  expect(turnActivity(thread.reader, "root")?.label).toBe("Reconnecting to the model… attempt 3");
+  thread.status(working);
+  expect(turnActivity(thread.reader, "root")).toMatchObject({ label: "Working", tone: "working" });
+});
+
 test("a root waiting on its subagents says so instead of Working, keeping its timer", () => {
   const thread = world({ state: "blocked", on: "subagents", refs: ["web", "mobile"] }, [
     said("ask", "user", 0),

@@ -6,6 +6,7 @@ import {
   type AceLog,
   type AceToolView,
 } from "@ace/ui-core/ace-tools";
+import { toolRefusal } from "@ace/ui-core";
 import { useMemo } from "react";
 import { useLightbox } from "@/components/attachment-open.tsx";
 import type { ShownImage } from "@/components/attachment-format.ts";
@@ -17,12 +18,12 @@ import { useStepItemsSelect } from "./step-items.ts";
  * audits folded into their calls) and the images a step answered with.
  */
 
-/** Whether an item is one of ace's own steps or the daemon's audit of one; memoised per item. */
+/** Whether an item is one of ace's own steps, or the daemon's audit or failure report of one; memoised. */
 const aceItems = new WeakMap<Item, boolean>();
 function isAce(item: Item): boolean {
   let known = aceItems.get(item);
   if (known === undefined) {
-    known = !!screenStep(item) || !!aceCallOf(item);
+    known = !!screenStep(item) || !!aceCallOf(item) || !!toolRefusal(item);
     aceItems.set(item, known);
   }
   return known;

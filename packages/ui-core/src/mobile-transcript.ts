@@ -1,5 +1,6 @@
 import type { Item } from "@ace/protocol";
 import { handoffMarker } from "./handoff-marker.ts";
+import { toolRefusal } from "./tool-refusals.ts";
 
 export const visualizationFallback = "Visualization — view on desktop or web";
 
@@ -35,8 +36,12 @@ export function transcriptRowContent(item: Item): TranscriptRowContent {
   else if (item.type === "tool_call") {
     row.text = `${item.call.title} · ${item.call.status}`;
     row.quiet = true;
-  } else if (item.type === "notice") row.text = item.text;
-  else if (item.type === "delegation.started") row.text = `${item.title} · ${item.status.state}`;
+  } else if (item.type === "notice") {
+    // A refused or failed ace tool reads in a person's words, never the agent's hint.
+    const refusal = toolRefusal(item);
+    row.text = refusal?.label ?? item.text;
+    row.detail = refusal?.reason ?? "";
+  } else if (item.type === "delegation.started") row.text = `${item.title} · ${item.status.state}`;
   else row.text = item.type.replaceAll("_", " ");
   return row;
 }

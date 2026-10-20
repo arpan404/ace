@@ -4,7 +4,7 @@ import { carriesOnStretch, type InlineQuestion } from "./thread-ledger.ts";
 import { isBareErrorCode } from "./error-display.ts";
 import { isThreadStartCall } from "./started-thread.ts";
 import { mergesWith, type GroupEntry } from "./transcript-groups.ts";
-import { toolRefusal } from "./tool-refusals.ts";
+import { reportsOn, toolRefusal } from "./tool-refusals.ts";
 
 export { isInlineInteraction } from "./thread-ledger.ts";
 
@@ -59,6 +59,11 @@ export type Block =
       idle?: number | undefined;
       startedAt?: number | undefined;
       outcome?: "completed" | "interrupted" | "failed" | "paused" | undefined;
+      /**
+       * An interrupted turn that a restart (the app quit, the daemon restarted), not the
+       * person, cut short: it reads "Interrupted after", never "Stopped after".
+       */
+      restarted?: boolean | undefined;
       /**
        * A completed turn's head: everything it did before its answer, in order (work, what
        * it said between steps, subagents, background commands), folded behind "Worked for".
@@ -168,6 +173,11 @@ export interface BlockSource {
   pausedTurns?: ReadonlySet<string>;
   /** The agent stopped or failed in a turn none of whose output is loaded. */
   stoppedTail?: "failed" | "interrupted" | "paused" | undefined;
+  /**
+   * A restart cut the newest turn short and nothing has run since: the queue holds for it
+   * (`reason: "restart"`) until ace's Continue or the person's next message.
+   */
+  restartedTail?: boolean | undefined;
   /** The owner is still active when the newest output has no known root turn. */
   unsettledTail?: boolean | undefined;
   /** Filled with the runs and agents whose settling would change the blocks. */
@@ -221,6 +231,12 @@ function anchorQuestions(source: BlockSource): Map<string, string[]> {
 /** What the blocks remember of one turn while building. */
 interface TurnMark {
   id: string;
+  /**
+   * The root turns, as the turn tree counts them, that it spans, oldest first: its own, then
+   * each run the daemon numbered into the same turn (ace's Continue after a restart). It is
+   * settled only once all of them are, and ends as the last one did (ADR 0062).
+   */
+  heads: string[];
   /**
    * What its rows are keyed by for their whole life: the ask that started it (which the run
    * adopts once it starts), else its run. Never changes as history pages in or the run starts.
@@ -348,11 +364,14 @@ const isPseudoTurn = (id: string) => id === "" || id.startsWith("ask:");
  * the transcript's last stretch while the owner is active, and a real one by the canonical
  * settlement, else by its run.
  */
-function stillWorking(source: BlockSource, turn: string, lastStretch: boolean): boolean {
-  if (isPseudoTurn(turn)) return lastStretch && !!source.unsettledTail;
-  if (source.turnSettled) return !source.turnSettled(turn);
-  const run = source.run?.(turn);
-  return !run || run.state === "active";
+function stillWorking(source: BlockSource, turn: TurnMark, lastStretch: boolean): boolean {
+  if (isPseudoTurn(turn.id)) return lastStretch && !!source.unsettledTail;
+  const { turnSettled } = source;
+  if (turnSettled) return turn.heads.some((id) => !turnSettled(id));
+  return turn.heads.some((id) => {
+    const run = source.run?.(id);
+    return !run || run.state === "active";
+  });
 }
 
 /**
@@ -418,16 +437,22 @@ export function buildBlocks(source: BlockSource): Block[] {
       const admitted = ask === undefined ? undefined : turns.get(`ask:${ask}`);
       if (admitted && admitted === previous && !admitted.blocks.size) {
         admitted.id = id;
+        admitted.heads = [id];
         source.turnKeys?.set(id, admitted.key);
         turns.set(id, admitted);
         return admitted;
       }
       if (previous && continues(source, previous.id, id)) {
+        // A run the agent started by itself is already its turn's in the tree; one the daemon
+        // numbered into this turn is a turn of its own there, which this one now waits on.
+        if (!carriesOnStretch(source.run?.(id)?.trigger) && !isPseudoTurn(previous.id))
+          previous.heads.push(id);
         turns.set(id, previous);
         return previous;
       }
       found = {
         id,
+        heads: [id],
         key: remember(id, keyFor(id, ask)),
         askId: ask,
         edits: [],
@@ -528,6 +553,21 @@ export function buildBlocks(source: BlockSource): Block[] {
     placed(blocks.length - 1, message);
   };
   const reviewsPlaced = new Map<string, number>();
+  // Calls a failure report already joined, so two reports never claim one step.
+  const reported = new Set<string>();
+  /** The logged ace call a failure report at `at` is about: the latest one, a few items back. */
+  const reportedStep = (at: number): string | undefined => {
+    const report = source.item(order[at] ?? "");
+    if (!toolRefusal(report)) return undefined;
+    for (let back = at - 1; back >= Math.max(0, at - 64); back--) {
+      const id = order[back];
+      if (id === undefined || reported.has(id) || !groupOf.has(id)) continue;
+      if (!reportsOn(report, source.item(id))) continue;
+      reported.add(id);
+      return id;
+    }
+    return undefined;
+  };
   for (const [index, id] of order.entries()) {
     const item = source.item(id);
     if (!item) continue;
@@ -585,7 +625,7 @@ export function buildBlocks(source: BlockSource): Block[] {
             // stays in that log, before any it is its own row. A later step never moves a row
             // that is already on screen.
             const at = stretchAt[index] ?? -1;
-            const working = !!mark && stillWorking(source, mark.id, at === lastStretch);
+            const working = !!mark && stillWorking(source, mark, at === lastStretch);
             const between =
               !launchNarration && (working ? !!stretch.work : (lastWork.get(at) ?? -1) > index);
             if (between) group("work", id);
@@ -654,8 +694,9 @@ export function buildBlocks(source: BlockSource): Block[] {
             group("work", id);
             break;
           }
-          // Output of a step joins that step's log, right after the step.
-          const callId = item.toolCallId;
+          // Output of a step joins that step's log, right after the step; so does ace's report
+          // of a step that failed, which the step itself shows (one failure, one row).
+          const callId = item.toolCallId ?? reportedStep(index);
           const host = callId ? groupOf.get(callId) : undefined;
           if (callId && host) {
             const after = (reviewsPlaced.get(callId) ?? 0) + 1;
@@ -746,10 +787,17 @@ export function buildBlocks(source: BlockSource): Block[] {
     const pseudo = isPseudoTurn(turn.id);
     const facts = pseudo ? undefined : source.run?.(turn.id);
     const startedAt = source.turnStartedAt?.(turn.id) ?? facts?.startedAt;
+    // It ends as the last run numbered into it did.
+    const lastHead = turn.heads.at(-1) ?? turn.id;
+    const lastFacts = lastHead === turn.id ? facts : source.run?.(lastHead);
     const ending =
-      source.turnEnding?.(turn.id) ?? (facts ? { ...facts, runId: turn.id } : undefined);
-    const held = !pseudo && (source.heldTurn === turn.id || source.pausedTurns?.has(turn.id));
+      source.turnEnding?.(lastHead) ?? (lastFacts ? { ...lastFacts, runId: lastHead } : undefined);
+    const heldNow = source.heldTurn !== undefined && turn.heads.includes(source.heldTurn);
+    const held = !pseudo && (heldNow || turn.heads.some((id) => source.pausedTurns?.has(id)));
     if (held) turn.paused = true;
+    // A restart, not the person, cut it short: ace's Continue started a turn after it, or the
+    // queue still holds for the restart with nothing run since.
+    if (newest === turn && source.restartedTail) turn.automatic = true;
     if (
       (pseudo && newest === turn && source.unsettledTail) ||
       (!pseudo && !settled(source, turn, newestRun === turn))
@@ -757,41 +805,43 @@ export function buildBlocks(source: BlockSource): Block[] {
       for (const block of turn.work) block.ongoing = true;
       // The newest turn says what it is doing in one line at the top of its flow, under its
       // ask, where its "Worked for" head stands once it settles (DESIGN.md §8).
-      if (newest === turn && source.heldTurn !== turn.id) {
+      if (newest === turn && !heldNow) {
         const live: Block = { kind: "live", key: `live:${turn.key}`, askId: turn.askId };
         const first = turn.blocks.size ? Math.min(...turn.blocks) : undefined;
         if (first === undefined) place(turn.lastBlock, live);
         else before.set(first, [live, ...(before.get(first) ?? [])]);
       }
       // A pause shows while the turn waits on the limit, before anything settles.
-      if (source.heldTurn === turn.id) {
+      if (heldNow) {
         place(turn.lastBlock, endBlock(turn, "paused", newest === turn, ending?.runId));
         for (const block of turn.work) absorbed.add(workAt.get(block) ?? -1);
       }
       continue;
     }
-    if (turn.openWork && facts?.endedAt !== undefined) turn.openWork.until = facts.endedAt;
-    if (facts?.endedAt !== undefined && startedAt !== undefined && !turn.paused) {
+    const endedAt = lastFacts?.endedAt;
+    if (turn.openWork && endedAt !== undefined) turn.openWork.until = endedAt;
+    if (facts && endedAt !== undefined && startedAt !== undefined && !turn.paused) {
       const ends = [...turn.runs].flatMap((id) => source.run?.(id)?.endedAt ?? []);
       const taskEnds = [...turn.tasks].flatMap((id) => source.task?.(id)?.endedAt ?? []);
       const until = Math.max(
-        facts.endedAt,
-        source.turnEndedAt?.(turn.id) ?? facts.endedAt,
+        endedAt,
+        ...turn.heads.map((id) => source.turnEndedAt?.(id) ?? endedAt),
         ...ends,
         ...taskEnds,
       );
       const first = turn.work[0];
       const firstIds = first?.itemIds ?? [];
-      const state = ending?.state ?? facts.state;
+      const state = ending?.state ?? lastFacts?.state ?? facts.state;
       const outcome = turn.paused ? "paused" : state === "active" ? "completed" : state;
+      const restarted = outcome === "interrupted" && turn.automatic ? true : undefined;
       let head: WorkBlock | undefined = first;
       if (first) {
         first.startedAt = startedAt;
         first.idle =
-          source.turnIdle?.(turn.id) ??
-          turn.work.reduce((total, work) => total + (work.idle ?? 0), 0);
+          idleOf(source, turn) ?? turn.work.reduce((total, work) => total + (work.idle ?? 0), 0);
         first.until = until;
         first.outcome = outcome;
+        first.restarted = restarted;
         first.itemIds = turn.work.flatMap((block) => block.itemIds);
         for (const block of turn.work.slice(1)) absorbed.add(workAt.get(block) ?? -1);
       } else {
@@ -800,9 +850,10 @@ export function buildBlocks(source: BlockSource): Block[] {
           key: `work:${turn.key}`,
           itemIds: [],
           startedAt,
-          idle: source.turnIdle?.(turn.id),
+          idle: idleOf(source, turn),
           until,
           outcome,
+          restarted,
         };
         // Above its answer; with none, after its last block, ahead of how it ended, which is
         // placed there below. Never before the next turn's ask, under this turn's ending.
@@ -899,6 +950,7 @@ export function buildBlocks(source: BlockSource): Block[] {
       ending: source.stoppedTail,
       runId: undefined,
       askId: last.itemId,
+      ...(source.restartedTail ? { automatic: true } : {}),
       latest: true,
     });
   return result;
@@ -933,11 +985,34 @@ function endBlock(
 }
 
 /**
+ * Time a turn sat idle inside its log, by the tree's clocks: each root turn it spans, and the
+ * gap between one ending and the next starting (the app was down before ace's Continue).
+ * Undefined without the tree's clocks.
+ */
+function idleOf(source: BlockSource, turn: TurnMark): number | undefined {
+  const { turnIdle } = source;
+  if (!turnIdle || turn.heads.length < 2) return turnIdle?.(turn.id);
+  let idle = 0;
+  let previous: string | undefined;
+  for (const id of turn.heads) {
+    idle += turnIdle(id) ?? 0;
+    if (previous !== undefined) {
+      const ended = source.turnEndedAt?.(previous) ?? source.run?.(previous)?.endedAt;
+      const started = source.turnStartedAt?.(id) ?? source.run?.(id)?.startedAt;
+      if (ended !== undefined && started !== undefined && started > ended) idle += started - ended;
+    }
+    previous = id;
+  }
+  return idle;
+}
+
+/**
  * Whether a turn's whole tree has settled: every run in it has ended and every agent it spawned
  * has finished. What is still open is added to `watch`, so its settling rebuilds the blocks.
  */
 function settled(source: BlockSource, turn: TurnMark, newest: boolean): boolean {
-  if (source.turnSettled) return source.turnSettled(turn.id);
+  const { turnSettled } = source;
+  if (turnSettled) return turn.heads.every((id) => turnSettled(id));
   let done = !(newest && (source.pending || (source.unsettledTail && !source.heldTurn)));
   for (const taskId of turn.tasks) {
     const task = source.task?.(taskId);

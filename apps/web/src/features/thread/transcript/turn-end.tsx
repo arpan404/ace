@@ -122,7 +122,8 @@ export function TurnEnd(props: { threadId: string; block: EndBlock }) {
       ending.ranMs !== undefined && ending.ranMs >= 1000
         ? ` · after ${formatElapsed(ending.ranMs)}`
         : "";
-    const text = `Stopped${after}`;
+    // A restart (the app quit, the daemon restarted) is no stop the person made.
+    const text = `${block.automatic ? "Interrupted" : "Stopped"}${after}`;
     return <SystemRow text={text} icon={<StopCircleIcon aria-hidden size={14} />} />;
   }
   return (

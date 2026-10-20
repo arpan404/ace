@@ -1,6 +1,7 @@
 import type { Item } from "@ace/protocol";
 import { z } from "zod";
 import { diagnosticNoticeText, isDiagnosticNotice } from "./diagnostic-notice.ts";
+import { isProviderRetryNotice } from "./retry-notice.ts";
 
 const nativeMessage = z.object({
   type: z.string().optional(),
@@ -10,11 +11,15 @@ const nativeMessage = z.object({
   ordinal: z.number().optional(),
 });
 
-/** Bookkeeping stays available as raw history, without taking a transcript row. */
+/**
+ * Bookkeeping stays available as raw history, without taking a transcript row. So does a
+ * provider's own retry notice: the live line says it while it lasts.
+ */
 export function isRawHistoryItem(item: Item | undefined): boolean {
   if (!item) return false;
   if (item.type === "notice")
     return (
+      isProviderRetryNotice(item) ||
       (isDiagnosticNotice(item) && !diagnosticNoticeText(item)) ||
       item.code === "history.raw-only" ||
       /^Native history record: (?:event_msg|turn_context|session_meta|message|world_state)$/.test(
