@@ -44,7 +44,9 @@ export function AgentListSection(props: {
     else settled.push(agent);
   }
   const failed = settled.filter((agent) => agent.status.state === "failed").length;
-  const [open, setOpen] = useState(false);
+  const [opened, setOpen] = useState<boolean>();
+  // A settled agent on screen keeps its row in view: Completed starts open around it.
+  const open = opened ?? settled.some((agent) => agent.id === props.self);
   const [allRunning, setAllRunning] = useState(false);
   const [allSettled, setAllSettled] = useState(false);
   if (running.length + settled.length === 0 && !props.children) return null;
@@ -70,12 +72,12 @@ export function AgentListSection(props: {
         </RowButton>
       )}
       {settled.length > 0 && (
-        <RowButton aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-          <RowCaret />
+        <RowButton aria-expanded={open} onClick={() => setOpen(!open)}>
           <RowLabel>
             Completed ({settled.length})
             {!open && failed > 0 && <span className="text-status-failed"> · {failed} failed</span>}
           </RowLabel>
+          <RowCaret className={open ? "rotate-180" : undefined} />
         </RowButton>
       )}
       {open &&

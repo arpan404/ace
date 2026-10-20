@@ -57,9 +57,15 @@ export function RowSub({ className, ...props }: ComponentProps<"span">) {
 }
 
 /** The trailing caret: ⌄ opens a menu, › opens somewhere else. */
-export function RowCaret(props: { to?: "menu" | "elsewhere" }) {
+export function RowCaret(props: { to?: "menu" | "elsewhere"; className?: string | undefined }) {
   const Glyph = props.to === "elsewhere" ? CaretRightIcon : CaretDownIcon;
-  return <Glyph aria-hidden size={14} className={rowIcon} />;
+  return (
+    <Glyph
+      aria-hidden
+      size={14}
+      className={cn(rowIcon, "transition-transform duration-(--motion-fast)", props.className)}
+    />
+  );
 }
 
 /** A small text action at a row's end: Merge, Stop. */

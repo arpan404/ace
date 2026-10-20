@@ -277,7 +277,7 @@ test("a finished thread ace delegated shows the bar with its model, effort and d
   await screen.findByRole("heading", { level: 1, name: "Relay docs for 0.9" });
 });
 
-test("the details card's Agents names a subagent's parent with its status and its siblings", async () => {
+test("the details card's Agents names a subagent's parent and its siblings, with a finished subagent on screen in view", async () => {
   const app = harness();
   app.play(coldStartReplay()).runThrough("audit-done");
   await app.open("/t/thread-cold-start");
@@ -288,9 +288,13 @@ test("the details card's Agents names a subagent's parent with its status and it
   expect(
     within(lineage).getByRole("button", { name: new RegExp(`^Open parent ${parentTitle}, `) }),
   ).toBeTruthy();
-  await userEvent.click(within(lineage).getByRole("button", { name: /^Completed \(1\)/ }));
-  // The one on screen is marked, not offered as somewhere to go.
+  // The one on screen is marked, not offered as somewhere to go, and Completed opens around it.
   expect(within(lineage).getByRole("group", { name: /^resume-sweep, Done, shown$/ })).toBeTruthy();
+  expect(
+    within(lineage)
+      .getByRole("button", { name: /^Completed / })
+      .getAttribute("aria-expanded"),
+  ).toBe("true");
 
   await userEvent.click(within(lineage).getByRole("button", { name: /^Open ack-buffer-test, / }));
   await screen.findByRole("heading", { level: 1, name: "ack-buffer-test" });
