@@ -1,19 +1,32 @@
 import { expect, test } from "vitest";
 import { ThreadId } from "@ace/protocol";
-import { OffshiftRun, type OffshiftEvidenceKind } from "@ace/protocol/offshift";
+import {
+  OffshiftRun,
+  type OffshiftAuthor,
+  type OffshiftEvidenceKind,
+} from "@ace/protocol/offshift";
 import { runCard } from "./index.ts";
 
 const kinds: OffshiftEvidenceKind[] = ["automated", "source", "ui", "human", "manual"];
+const ownerThread = ThreadId.parse("00000000-0000-4000-8000-000000000001");
+const owner = { threadId: ownerThread, provider: "codex" as const, model: "gpt-5" };
+const reviewer = {
+  threadId: ThreadId.parse("00000000-0000-4000-8000-000000000002"),
+  provider: "claude" as const,
+  model: "opus",
+};
 function run(overrides: Partial<OffshiftRun> = {}): OffshiftRun {
   return OffshiftRun.parse({
     id: "feature",
-    threadId: ThreadId.parse("00000000-0000-4000-8000-000000000001"),
+    threadId: ownerThread,
     outcome: "User can restore an item",
     endpoint: "Verified local change",
     criteria: [
       { id: "restore", description: "Restore persists", requiredKinds: ["automated", "ui"] },
       { id: "audit", description: "Restores are logged", requiredKinds: ["source", "human"] },
     ],
+    owner,
+    roles: {},
     phase: "verify",
     version: 4,
     blocker: null,
@@ -29,6 +42,7 @@ const evidence = (
   kind: OffshiftEvidenceKind,
   result: "pass" | "fail",
   revision: string,
+  by: OffshiftAuthor = owner,
 ) => ({
   criterionId,
   kind,
@@ -38,6 +52,7 @@ const evidence = (
   artifact: "b",
   note: "c",
   recordedAt: 5,
+  by,
 });
 
 test("evidence reads as a current pass, a current failure, a pass at an older revision or nothing", () => {
@@ -51,14 +66,15 @@ test("evidence reads as a current pass, a current failure, a pass at an older re
     }),
     "r2",
   );
+  const by = { provider: "codex", model: "gpt-5" };
   expect(card.criteria.map((item) => item.evidence)).toEqual([
     [
-      { kind: "automated", state: "pass", recordedAt: 5 },
-      { kind: "ui", state: "fail", recordedAt: 5 },
+      { kind: "automated", state: "pass", recordedAt: 5, by },
+      { kind: "ui", state: "fail", recordedAt: 5, by },
     ],
     [
-      { kind: "source", state: "stale", recordedAt: 5 },
-      { kind: "human", state: "missing", recordedAt: null },
+      { kind: "source", state: "stale", recordedAt: 5, by },
+      { kind: "human", state: "missing", recordedAt: null, by: null },
     ],
   ]);
   expect(card.pending).toEqual([
@@ -103,4 +119,42 @@ test("clipping never splits a surrogate pair and leaves short text whole", () =>
     outcome: "User can restore an item",
     outcomeTruncated: false,
   });
+});
+
+test("an independent criterion's own-model pass reads not independent until another provider passes it", () => {
+  const criteria = [
+    {
+      id: "restore",
+      description: "Restore persists",
+      requiredKinds: ["ui" as const],
+      independent: true,
+    },
+  ];
+  const own = runCard(run({ criteria, evidence: [evidence("restore", "ui", "pass", "r1")] }), "r1");
+  expect(own.criteria[0]).toMatchObject({
+    independent: true,
+    evidence: [{ state: "not_independent", by: { provider: "codex", model: "gpt-5" } }],
+  });
+  expect(own.pending).toEqual([{ criterionId: "restore", kind: "ui", needs: "independent" }]);
+  const checked = runCard(
+    run({ criteria, evidence: [evidence("restore", "ui", "pass", "r1", reviewer)] }),
+    "r1",
+  );
+  expect(checked.criteria[0]?.evidence[0]).toMatchObject({
+    state: "pass",
+    by: { provider: "claude", model: "opus" },
+  });
+  expect(checked.pendingCount).toBe(0);
+});
+
+test("the card names each role from the run, falling back to the project default", () => {
+  const card = runCard(run({ roles: { build: { provider: "codex", model: "gpt-5" } } }), "r1", {
+    build: { provider: "cursor" },
+    verify: { provider: "claude", effort: "high" },
+  });
+  expect(card.roles).toEqual([
+    { role: "build", source: "run", provider: "codex", model: "gpt-5" },
+    { role: "verify", source: "project", provider: "claude", effort: "high" },
+  ]);
+  expect(runCard(run(), "r1").roles).toEqual([]);
 });

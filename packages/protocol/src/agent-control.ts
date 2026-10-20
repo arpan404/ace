@@ -1,4 +1,4 @@
-import { OffshiftRequest } from "./offshift.ts";
+import { OffshiftCall, OffshiftRole } from "./offshift.ts";
 import { ForgePrWorktree } from "./forge-worktree.ts";
 import { AccessRequest } from "./permissions.ts";
 import { z } from "zod";
@@ -67,6 +67,11 @@ export type DelegationRequest = z.infer<typeof DelegationRequest>;
  */
 export const DelegationTask = DelegationRequest.omit({ wait: true, waitMs: true }).extend({
   provider: ProviderKind.optional(),
+  /**
+   * Fill provider, model and effort from the caller's Offshift run role, else the project's
+   * default; fields the task sets win. Resolved before admission, never stored on the request.
+   */
+  runRole: OffshiftRole.optional(),
 });
 export type DelegationTask = z.infer<typeof DelegationTask>;
 /** A single delegation as an operation states it: the provider may still be resolved. */
@@ -400,7 +405,15 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     until: Timestamp.nullable(),
   }),
   z.strictObject({ op: z.literal("automation.manage"), request: AgentAutomationRequest }),
-  z.strictObject({ op: z.literal("offshift"), request: OffshiftRequest }),
+  z.strictObject({
+    op: z.literal("offshift"),
+    request: OffshiftCall,
+    /**
+     * An ancestor's thread, whose run a delegated descendant reads or records evidence on.
+     * Omitted: the caller's own runs. The daemon checks the ancestry.
+     */
+    runOwner: ThreadId.optional(),
+  }),
   /** Omitted workspaceId: the caller's own project. */
   z.strictObject({ op: z.literal("project.read"), workspaceId: WorkspaceId.optional() }),
   z.strictObject({

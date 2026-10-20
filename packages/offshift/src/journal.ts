@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { z } from "zod";
 import {
@@ -5,6 +6,7 @@ import {
   OffshiftRequest,
   OffshiftRun,
   type OffshiftResult,
+  type OffshiftRoles,
   type OffshiftView,
 } from "@ace/protocol/offshift";
 import { OffshiftError, transition, view, type Context } from "./workflow.ts";
@@ -39,10 +41,26 @@ export class OffshiftJournal {
     `),
     );
   }
+  /**
+   * The roles of the thread's most recently updated run not yet in delivery: the run a
+   * delegation by role works for. Undefined when the thread has none.
+   */
+  activeRoles(threadId: string): OffshiftRoles | undefined {
+    return this.transactions.atomic((db) => {
+      const row = db
+        .prepare(
+          "SELECT body FROM offshift_runs WHERE thread_id=? AND json_extract(body,'$.phase')<>'delivery' ORDER BY json_extract(body,'$.updatedAt') DESC, id LIMIT 1",
+        )
+        .get(threadId);
+      return row ? OffshiftRun.parse(JSON.parse(stored.parse(row).body)).roles : undefined;
+    });
+  }
   execute(input: unknown, context: Context): Executed {
     const request = OffshiftRequest.parse(input);
     return this.transactions.atomic((db): Executed => {
       if (request.action === "list") {
+        if (context.caller.threadId !== context.threadId)
+          throw new OffshiftError("list reads only your own runs; call it without runOwner");
         // Metadata only: evidence bodies never multiply the MCP result size.
         const result = db
           .prepare(
@@ -69,15 +87,23 @@ export class OffshiftJournal {
         .get(context.threadId, request.runId);
       const current = row ? OffshiftRun.parse(JSON.parse(stored.parse(row).body)) : undefined;
       if (request.action === "get") {
-        if (!current) throw new OffshiftError("Run not found in the calling thread");
+        if (!current)
+          throw new OffshiftError(
+            `Run not found in the calling thread; call list to see its runs${context.caller.threadId === context.threadId ? "" : ", or check runOwner"}`,
+          );
         return { result: view(current, context) };
       }
+      // The receipt names who asked, so another thread's identical request is never a replay.
+      const encoded = JSON.stringify({ request, by: context.caller.threadId });
+      // Without a requestId the normalized request (version included) is its own key: a retry
+      // after a lost response hashes the same and applies once. ":" never occurs in a given id.
+      const requestId =
+        request.requestId ?? `auto:${createHash("sha256").update(encoded).digest("hex")}`;
       const prior = db
         .prepare(
           "SELECT input FROM offshift_receipts WHERE thread_id=? AND run_id=? AND request_id=?",
         )
-        .get(context.threadId, request.runId, request.requestId);
-      const encoded = JSON.stringify(request);
+        .get(context.threadId, request.runId, requestId);
       if (prior) {
         if (receipt.parse(prior).input !== encoded)
           throw new OffshiftError("requestId was already used for a different operation");
@@ -108,7 +134,7 @@ export class OffshiftJournal {
       ).run(context.threadId, request.runId, body);
       db.prepare(
         "INSERT INTO offshift_receipts(thread_id,run_id,request_id,input) VALUES (?,?,?,?)",
-      ).run(context.threadId, request.runId, request.requestId, encoded);
+      ).run(context.threadId, request.runId, requestId, encoded);
       const changed = view(next, context);
       return { result: changed, changed };
     });

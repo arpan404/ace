@@ -332,7 +332,14 @@ test("purging a thread removes its Offshift outcome and evidence while preservin
     criteria: [{ id: "behavior", description: "Private requirement", requiredKinds: ["source"] }],
   } as const;
   for (const thread of [old, retained]) {
-    const context = { threadId: thread.id, now: 1, revision: "source", treeState: "done" as const };
+    const caller = { threadId: thread.id, provider: "codex" as const, model: null };
+    const context = {
+      threadId: thread.id,
+      caller,
+      now: 1,
+      revision: "source",
+      treeState: "done" as const,
+    };
     journal.execute(request, context);
     journal.execute(
       {
@@ -367,13 +374,25 @@ test("purging a thread removes its Offshift outcome and evidence while preservin
   expect(() =>
     journal.execute(
       { action: "get", runId: "feature" },
-      { threadId: old.id, now: 2, revision: "source", treeState: "done" },
+      {
+        threadId: old.id,
+        caller: { threadId: old.id, provider: "codex", model: null },
+        now: 2,
+        revision: "source",
+        treeState: "done",
+      },
     ),
   ).toThrow("Run not found");
   expect(
     journal.execute(
       { action: "get", runId: "feature" },
-      { threadId: retained.id, now: 2, revision: "source", treeState: "done" },
+      {
+        threadId: retained.id,
+        caller: { threadId: retained.id, provider: "codex", model: null },
+        now: 2,
+        revision: "source",
+        treeState: "done",
+      },
     ),
   ).toMatchObject({
     result: { run: { outcome: "Private outcome", evidence: [{ note: "Private observation" }] } },

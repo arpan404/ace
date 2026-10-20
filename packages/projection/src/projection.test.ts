@@ -73,6 +73,7 @@ const offshiftCard = (id: string, version: number) => ({
   criteriaCount: 1,
   pending: [],
   pendingCount: 0,
+  roles: [],
 });
 describe("projection", () => {
   it("folds every payload type and preserves JSON data and tree links", () => {

@@ -6,7 +6,7 @@ import { afterEach, expect, test } from "vitest";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { ThreadId } from "@ace/protocol";
 import { OffshiftView, type OffshiftCriterion, type OffshiftRequest } from "@ace/protocol/offshift";
-import { OffshiftJournal, type Context } from "./index.ts";
+import { OffshiftJournal, OffshiftProjectRoles, resolveRole, type Context } from "./index.ts";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -35,8 +35,10 @@ function fixture() {
   };
   let journal = open();
   cleanups.push(() => db.close());
+  const threadId = ThreadId.parse(randomUUID());
   const context: Context = {
-    threadId: ThreadId.parse(randomUUID()),
+    threadId,
+    caller: { threadId, provider: "codex", model: "gpt-5" },
     now: 1000,
     revision: "revision-1",
     treeState: "working",
@@ -97,6 +99,16 @@ function fixture() {
       db = new DatabaseSync(path);
       journal = open();
     },
+    /** The project-roles store over the same database, as the daemon owner builds it. */
+    projectRoles() {
+      db.exec("CREATE TABLE IF NOT EXISTS workspaces(id TEXT PRIMARY KEY)");
+      db.prepare("INSERT OR IGNORE INTO workspaces(id) VALUES ('shop')").run();
+      return new OffshiftProjectRoles({
+        atomic(work) {
+          return work(db);
+        },
+      });
+    },
     deleteThread() {
       db.prepare("DELETE FROM threads WHERE id=?").run(context.threadId);
     },
@@ -110,7 +122,7 @@ test("acceptance survives reopening and completion waits for every required evid
   f.advance("verify");
   f.evidence("automated");
   f.advance("review");
-  expect(() => f.advance("delivery")).toThrow("current passing evidence");
+  expect(() => f.advance("delivery")).toThrow("counting pass");
   f.reopen();
   expect(f.get().pending).toEqual([{ criterionId: "restore", kind: "ui" }]);
   f.evidence("ui");
@@ -254,7 +266,7 @@ test("revising a criterion invalidates its earlier passes, keeps others, and sur
     { criterionId: "audit", kind: "source" },
   ]);
   expect(() => f.advance("review")).not.toThrow();
-  expect(() => f.advance("delivery")).toThrow("current passing evidence");
+  expect(() => f.advance("delivery")).toThrow("counting pass");
   revise("add-export", { id: "export", description: "Export works", requiredKinds: ["ui"] });
   expect(f.get().pending).toContainEqual({ criterionId: "export", kind: "ui" });
 });
@@ -288,7 +300,12 @@ test("revising is refused while blocked and once a run holds 64 criteria", () =>
 test("calling threads cannot read or mutate each other's runs and deleting a thread removes its records", () => {
   const f = fixture();
   f.call(f.start);
-  const other = { ...f.context, threadId: ThreadId.parse(randomUUID()) };
+  const otherThread = ThreadId.parse(randomUUID());
+  const other = {
+    ...f.context,
+    threadId: otherThread,
+    caller: { ...f.context.caller, threadId: otherThread },
+  };
   expect(() => f.journal().execute({ action: "get", runId: "feature" }, other)).toThrow(
     "Run not found",
   );
@@ -308,4 +325,142 @@ test("listing full-capacity Unicode outcomes stays within the transport budget a
     Array.from({ length: 32 }, () => ({ outcome: "雪".repeat(128), outcomeTruncated: true })),
   );
   expect(f.call({ action: "get", runId: "run-0" }).run.outcome).toBe(outcome);
+});
+
+test("a request without a requestId applies once, even when retried after a reopen", () => {
+  const f = fixture();
+  const { requestId: _omit, ...start } = f.start;
+  f.call(start);
+  const block = {
+    action: "block",
+    runId: "feature",
+    version: 0,
+    note: "Need a test account",
+  } as const;
+  expect(f.call(block).run.version).toBe(1);
+  f.reopen();
+  // The lost-response retry hashes the same and returns the current view without a second write.
+  expect(f.call(block).run).toMatchObject({ version: 1, blocker: "Need a test account" });
+  expect(f.call(start).run.version).toBe(1);
+  // The same words at the new version are a new change, refused only by the workflow rules.
+  expect(() => f.call({ ...block, version: 1 })).not.toThrow();
+  expect(f.get().run.version).toBe(2);
+});
+
+test("roles start with the run, are replaced whole, and fall back to the project default", () => {
+  const f = fixture();
+  f.call({ ...f.start, roles: { build: { provider: "codex", model: "gpt-5" } } });
+  expect(f.journal().activeRoles(f.context.threadId)).toEqual({
+    build: { provider: "codex", model: "gpt-5" },
+  });
+  f.call({
+    action: "roles",
+    runId: "feature",
+    version: 0,
+    roles: { verify: { provider: "claude", effort: "high" } },
+  });
+  f.reopen();
+  const roles = f.journal().activeRoles(f.context.threadId);
+  expect(roles).toEqual({ verify: { provider: "claude", effort: "high" } });
+  const project = f.projectRoles();
+  project.set("shop", { build: { provider: "cursor" }, verify: { provider: "opencode" } });
+  const stored = project.get("shop");
+  expect(resolveRole("build", roles, stored)).toEqual({
+    selection: { provider: "cursor" },
+    source: "project",
+  });
+  expect(resolveRole("verify", roles, stored)?.source).toBe("run");
+  expect(resolveRole("review", roles, stored)).toBeUndefined();
+  project.set("shop", {});
+  expect(project.get("shop")).toBeUndefined();
+});
+
+test("a delivered run no longer supplies roles to delegation", () => {
+  const f = fixture();
+  f.call({
+    ...f.start,
+    criteria: [{ id: "restore", description: "x", requiredKinds: ["source"] }],
+    roles: { build: { provider: "claude" } },
+  });
+  f.advance("implement");
+  f.advance("verify");
+  f.call({
+    action: "evidence",
+    runId: "feature",
+    version: f.get().run.version,
+    evidence: {
+      criterionId: "restore",
+      kind: "source",
+      result: "pass",
+      revision: f.context.revision,
+      action: "Read the diff",
+      artifact: "diff",
+      note: "Matches",
+    },
+  });
+  f.advance("review");
+  f.advance("delivery");
+  expect(f.journal().activeRoles(f.context.threadId)).toBeUndefined();
+});
+
+test("an independent criterion stays pending on the owner's own pass until another provider or model passes it", () => {
+  const f = fixture();
+  f.call({
+    ...f.start,
+    criteria: [
+      { id: "restore", description: "Restore persists", requiredKinds: ["ui"], independent: true },
+    ],
+  });
+  f.advance("implement");
+  f.advance("verify");
+  const check = (caller: Context["caller"]) =>
+    OffshiftView.parse(
+      f.journal().execute(
+        {
+          action: "evidence",
+          runId: "feature",
+          version: f.get().run.version,
+          evidence: {
+            criterionId: "restore",
+            kind: "ui",
+            result: "pass",
+            revision: f.context.revision,
+            action: "Restore and reload",
+            artifact: "screenshot://restore",
+            note: "Item stays",
+          },
+        },
+        { ...f.context, caller },
+      ).result,
+    );
+  const owner = f.context.caller;
+  expect(check(owner).pending).toEqual([
+    { criterionId: "restore", kind: "ui", needs: "independent" },
+  ]);
+  // Another thread on the same provider and model is no independent check either.
+  const sameModel = { ...owner, threadId: ThreadId.parse(randomUUID()) };
+  expect(check(sameModel).pending).toHaveLength(1);
+  const child = {
+    threadId: ThreadId.parse(randomUUID()),
+    provider: "claude" as const,
+    model: "opus",
+  };
+  const passed = check(child);
+  expect(passed.pending).toEqual([]);
+  expect(passed.run.evidence[0]?.by).toEqual(child);
+  // A descendant records evidence only; every other change stays with the owner.
+  expect(() =>
+    f.journal().execute(
+      {
+        action: "advance",
+        runId: "feature",
+        version: passed.run.version,
+        phase: "review",
+        note: "x",
+      },
+      { ...f.context, caller: child },
+    ),
+  ).toThrow("only get the run or record evidence");
+  f.reopen();
+  expect(f.get().pending).toEqual([]);
 });

@@ -290,17 +290,30 @@ function installPage(): Scenario {
             {
               id: "commands",
               description: "Every command on the page runs on a clean machine",
-              evidence: [{ kind: "manual", state: "missing", recordedAt: null }],
+              independent: true,
+              evidence: [{ kind: "manual", state: "missing", recordedAt: null, by: null }],
             },
             {
               id: "service",
               description: "The service install section matches ace start --help",
-              evidence: [{ kind: "source", state: "pass", recordedAt: 0 }],
+              independent: false,
+              evidence: [
+                {
+                  kind: "source",
+                  state: "pass",
+                  recordedAt: 0,
+                  by: { provider: "opencode", model: null },
+                },
+              ],
             },
           ],
           criteriaCount: 2,
           pending: [{ criterionId: "commands", kind: "manual" }],
           pendingCount: 1,
+          roles: [
+            { role: "build", source: "run", provider: "opencode" },
+            { role: "verify", source: "project", provider: "claude", effort: "high" },
+          ],
         },
       },
       {
