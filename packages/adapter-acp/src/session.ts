@@ -118,6 +118,8 @@ class AcpSession implements ProviderSession {
   selecting = false;
   closed = false;
   deliberate = false;
+  /** Whether this connection's first prompt has carried ace's guidance. */
+  guided = false;
   sequence = 0;
   readonly started: number;
   readonly now: () => number;
@@ -387,14 +389,16 @@ class AcpSession implements ProviderSession {
           ...(next.origin ? { origin: next.origin } : {}),
         });
       }
+      // ACP has no portable system-instruction field, so ace's guidance rides in prompt context:
+      // once per connection (a new or loaded session), never every turn, where each copy would
+      // stay in history and re-bill. ACP reports no compaction, so there is no signal to resend on.
+      const guidance = this.ctx.mcp && !this.guided;
       const result = await this.rpc.request(
         "session/prompt",
         {
           sessionId: this.nativeSessionId,
           prompt: [
-            // ACP has no portable system-instruction field. Native prompt context is the
-            // interoperable fallback, refreshed each turn so compaction cannot erase it.
-            ...(this.ctx.mcp
+            ...(guidance
               ? [
                   {
                     type: "text",
@@ -407,6 +411,7 @@ class AcpSession implements ProviderSession {
         },
         { timeoutMs: null, signal: this.ctx.signal },
       );
+      if (guidance) this.guided = true;
       const stop = promptStop(result);
       if (!stop) {
         const error = new Error("ACP prompt completion is unconfirmed");
