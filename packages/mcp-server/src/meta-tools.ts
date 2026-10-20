@@ -3,7 +3,7 @@ import { nodeScheduler, ToolRegistry, type CatalogTool } from "./registry.ts";
 import { PublicToolError } from "./public-error.ts";
 import { maxBatchInputBytes } from "./result-budgets.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
-import { guideTopics } from "./status.ts";
+import { guideTopics, toolFamilies } from "./status.ts";
 import { rankTools } from "./tool-search.ts";
 import { findDelivery } from "./tool-delivery.ts";
 import { aceToolDispatch, aceToolSearch, bareToolName } from "./tool-names.ts";
@@ -63,7 +63,7 @@ const toolsFind = {
       .max(500)
       .describe('What you want to do, in plain words, e.g. "click a button in Safari".'),
     limit: z.number().int().min(1).max(maxMatches).default(5).describe("At most this many."),
-    family: z.enum(guideTopics).optional().describe("Only this family's tools."),
+    family: z.enum(toolFamilies).optional().describe("Only this family's tools."),
   }),
   output: FindResult,
   capability: null,

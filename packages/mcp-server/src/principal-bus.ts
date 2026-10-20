@@ -13,9 +13,9 @@ import type { Principal } from "./credentials.ts";
 export class PrincipalEventBus implements ServerEventBus {
   private readonly current = new AsyncLocalStorage<Principal>();
   private readonly listeners = new Map<(event: ServerEvent) => void, Principal | undefined>();
-  private readonly onerror: (error: unknown) => void;
-  constructor(onerror: (error: unknown) => void = () => {}) {
-    this.onerror = onerror;
+  private readonly report: (error: unknown) => void;
+  constructor(report: (error: unknown) => void = () => {}) {
+    this.report = report;
   }
   /** Runs one request for this lease; a stream it subscribes belongs to the lease. */
   serving<T>(principal: Principal | undefined, run: () => T): T {
@@ -34,12 +34,12 @@ export class PrincipalEventBus implements ServerEventBus {
     this.deliver(event, (owner) => owner === principal);
   }
   private deliver(event: ServerEvent, accepts: (owner: Principal | undefined) => boolean): void {
-    for (const [listener, owner] of [...this.listeners])
+    for (const [listener, owner] of this.listeners)
       if (accepts(owner))
         try {
           listener(event);
         } catch (error) {
-          this.onerror(error);
+          this.report(error);
         }
   }
 }

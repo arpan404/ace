@@ -76,6 +76,17 @@ it.skipIf(!chromium)("tools_find ranks the browser's tab tool first for tab work
     expect(found(await agent.call("tools_find", { query }))[0], query).toBe("browser_tabs");
 });
 
+it("tools_find narrows to any family a guide opens, offshift included", async () => {
+  world = await evalWorld({ browser: false });
+  const { agent } = await world.agent({});
+  const result = await agent.call("tools_find", {
+    query: "own a coding outcome end to end",
+    family: "offshift",
+  });
+  expect(result.failed, result.text).toBe(false);
+  expect(found(result)).toEqual(["offshift"]);
+});
+
 it("tools_find answers a query nothing matches with where to look next", async () => {
   world = await evalWorld({ browser: false });
   const { agent } = await world.agent({});
