@@ -54,6 +54,24 @@ Roles say who does which work: `build` (code), `judgment` (planning, hard design
 
 For an independent criterion, delegate the check in the same checkout and put your thread id from `next` in the brief as `runOwner`. The child calls `get` and `evidence` with `runOwner`; it can change nothing else. ace records who checked from the session, never from the note.
 
+## Independent review
+
+Once the diff is ready, have another model review it before you deliver:
+
+1. `delegate` one task with `runRole` `review` (or `verify`) and no `workspace`, so it works in your checkout.
+2. Brief it with the criteria (ids and descriptions), the diff base (`git diff <base>...HEAD`) and your thread id as `runOwner`.
+3. It checks the diff and records `evidence` on your run with `runOwner`; its result lists what it found.
+4. `wait`, read the findings, fix the ones that hold, record fresh evidence, and review again after a large fix.
+
+## Arena
+
+For a design or a sizeable artifact where one attempt could lock in the wrong shape:
+
+1. `delegate` the same task to 2 or 3 different `provider`s or `model`s, each with `workspace` `{kind: "new_worktree", base: {ref: "<your branch>"}}`, so no attempt touches another or your checkout.
+2. Put the rubric in every brief: the criteria and what a minimal result looks like. Attempts record no evidence; their checkouts are not yours.
+3. `wait` for all, then `delegate` a judge on yet another provider: give it the worktree paths and the rubric; it compares and ranks, changing nothing.
+4. Pick a base, fold in the best parts by hand in your own checkout, then verify and record evidence as usual.
+
 ## Blockers
 
 `block` records what stops you; it asks no one. Ask with `ask`, then `resume` with the decision in `note`. To pause or stop, use `thread_control`. Lasting project facts go to `note_add`.
