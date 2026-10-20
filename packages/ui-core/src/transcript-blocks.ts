@@ -21,8 +21,9 @@ const backgroundEntry = (item: Item): GroupEntry => ({
  * parent's, so these are per turn, not per run of adjacent items). What the agent says between
  * steps sits inside that log, in order; what it says after its last step is the answer, shown
  * below it. Launch cards separate work segments, and batch narration stays between the cards.
- * Background tasks, questions and notices show where they happened without opening a
- * second log, and a run the agent starts by itself when its background work finishes carries
+ * Background tasks are steps of the tool work, where they started: work after one continues in a
+ * segment below its row (merged into one "Worked for" once the turn settles). Questions and
+ * notices show where they happened without opening a second log, and a run the agent starts by itself when its background work finishes carries
  * the same log on. Once a turn's whole tree has settled, one changed-files card follows its
  * last answer, and a turn that failed, was stopped or was paused by a usage limit says so after
  * its last block. Blocks
@@ -420,7 +421,9 @@ export function buildBlocks(source: BlockSource): Block[] {
   const { stretchAt, lastWork, lastStretch } = lastWorkOf(order, source, standsIn);
   const turns = new Map<string, TurnMark>();
   const ordered: TurnMark[] = [];
-  let stretch: { work?: { block: WorkBlock; at: number } } = {};
+  // `work` is the stretch's open log segment. `earlier` is its segment above a background row:
+  // steps after the row open a new segment below it, so the row stays where its call started.
+  let stretch: { work?: { block: WorkBlock; at: number }; earlier?: WorkBlock } = {};
   // Launch batches belong to their launching agent's own run, independent of work-log stretches.
   const batches = new Map<string, { run: string | undefined; itemIds: string[]; at: number }>();
   const launched = new Map<string, { run: string | undefined; itemIds: string[]; at: number }>();
@@ -500,9 +503,9 @@ export function buildBlocks(source: BlockSource): Block[] {
   };
   /** End the stretch; its work log stops counting at `at`. */
   const close = (at: number | undefined) => {
-    const work = stretch.work;
-    if (work && at !== undefined) work.block.until = at;
-    if (mark && work && at === undefined) mark.openWork = work.block;
+    const work = stretch.work?.block ?? stretch.earlier;
+    if (work && at !== undefined) work.until = at;
+    if (mark && work && at === undefined) mark.openWork = work;
     stretch = {};
   };
   const group = (kind: "work" | "subagents", id: string) => {
@@ -606,13 +609,14 @@ export function buildBlocks(source: BlockSource): Block[] {
       if (next !== turnId) {
         if (turnId === undefined || !continues(source, turnId, next)) {
           if (turnId !== undefined) close(item.createdAt);
-        } else if (stretch.work) {
+        } else if (stretch.work || stretch.earlier) {
           // The log carries on into the run the agent started by itself; the wait between the
           // two runs was no work.
+          const log = stretch.work?.block ?? stretch.earlier;
           const ended = source.run?.(turnId)?.endedAt;
           const started = source.run?.(next)?.startedAt;
-          if (ended !== undefined && started !== undefined && started > ended)
-            stretch.work.block.idle = (stretch.work.block.idle ?? 0) + started - ended;
+          if (log && ended !== undefined && started !== undefined && started > ended)
+            log.idle = (log.idle ?? 0) + started - ended;
         }
         turnId = next;
         mark = markOf(next, askId);
@@ -637,7 +641,8 @@ export function buildBlocks(source: BlockSource): Block[] {
             const at = stretchAt[index] ?? -1;
             const working = !!mark && stillWorking(source, mark, at === lastStretch);
             const between =
-              !launchNarration && (working ? !!stretch.work : (lastWork.get(at) ?? -1) > index);
+              !launchNarration &&
+              (working ? !!(stretch.work || stretch.earlier) : (lastWork.get(at) ?? -1) > index);
             if (between) group("work", id);
             else
               push(
@@ -685,6 +690,10 @@ export function buildBlocks(source: BlockSource): Block[] {
                 },
                 false,
               );
+            // The row is a step of the stretch's tool work, where its call started: what the
+            // agent does next goes below it, in a log segment of its own, never into the
+            // segment above. Ending later updates the row in place; it never moves.
+            stretch = { earlier: stretch.work?.block ?? stretch.earlier };
           } else {
             group("work", id);
             if (editKinds.has(item.call.kind)) mark?.edits.push(id);
