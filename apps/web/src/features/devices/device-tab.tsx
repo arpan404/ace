@@ -6,13 +6,10 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { toolbarEdge } from "@/components/ui/rules.ts";
-import { useHotkey } from "@/lib/hotkeys.ts";
-import { keymap } from "@/lib/keymap.ts";
 import { cn } from "@/lib/cn.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { ActivityCaption, useFreshActivity } from "./activity-overlay.tsx";
-import { ControlRail, takeControlReason } from "./control-rail.tsx";
-import { controllerOf } from "./controller-label.tsx";
+import { ControlRail } from "./control-rail.tsx";
 import { DeviceDrawer } from "./device-drawer.tsx";
 import { DeviceHeader } from "./device-header.tsx";
 import { needsPermission, PermissionGuide } from "./device-permission.tsx";
@@ -61,21 +58,12 @@ function SelectedDevice(props: { devices: Devices }) {
   const [keyboard, setKeyboard] = useState(false);
   const [highlight, setHighlight] = useState<Bounds>();
   const bare = useScreenOnly();
-  const controlled = controls?.inControl === true;
   const live = controls?.live === true;
   const { stats, onFrame } = useStreamStats(session?.connection === "local", live);
   const shown = useFreshActivity(view.activity);
   // A missing macOS permission gets its own guidance instead of a one-line error.
   const permission = [view.problem, controls?.error].find(needsPermission);
-  const toggle = () => {
-    if (view.pending || !controls?.running) return;
-    if (controlled) devices.release();
-    else devices.takeControl();
-  };
-  useHotkey(keymap.takeControl.keys, toggle, { enabled: live });
   if (!selected || !controls || !session) return null;
-  const state = view.controllers.get(selected.id);
-  const controller = controllerOf(state ?? { controller: "none" });
   const problems = [view.problem, controls.error].filter(
     (problem): problem is DeviceProblem => problem !== undefined && !needsPermission(problem),
   );
@@ -117,16 +105,6 @@ function SelectedDevice(props: { devices: Devices }) {
         ]}
         busy={controls.busy}
         onBack={() => actions.open({ kind: "devices" })}
-        control={{
-          running: controls.running,
-          controller,
-          leaseLeftMs: controls.leaseLeftMs,
-          threadId: devices.threadId,
-          disabled: view.pending,
-          onTake: devices.takeControl,
-          onRelease: devices.release,
-          onDelegate: (agentId) => devices.delegate(agentId),
-        }}
         menu={<DevicesMenu devices={devices} />}
       />
       {problems.length > 0 && (
@@ -147,11 +125,10 @@ function SelectedDevice(props: { devices: Devices }) {
           row={selected}
           session={session}
           live={live}
-          interactive={controlled}
+          interactive={live}
           bare={bare}
           press={{
-            enabled: controlled && live,
-            reason: live ? takeControlReason : undefined,
+            enabled: live,
             onPress: (key) => void devices.input({ kind: "key", key }),
           }}
           onInput={devices.input}
@@ -163,11 +140,10 @@ function SelectedDevice(props: { devices: Devices }) {
             <ControlRail
               scope={scope}
               android={selected.platform === "android"}
-              controlled={controlled}
               live={live}
               pending={view.pending}
               recording={devices.recording}
-              keyboardOpen={keyboard && controlled}
+              keyboardOpen={keyboard}
               onKey={(key) => void devices.input({ kind: "key", key })}
               onKeyboard={() => setKeyboard((open) => !open)}
               onScreenshot={devices.screenshot}
@@ -176,7 +152,7 @@ function SelectedDevice(props: { devices: Devices }) {
           }
           footer={
             <>
-              {keyboard && controlled && live && (
+              {keyboard && live && (
                 <KeyboardField
                   onInput={(input) => void devices.input(input)}
                   onClose={() => {
@@ -218,8 +194,8 @@ function DeviceSkeleton(props: { name: string; onBack(): void }) {
 }
 
 /**
- * One simulator or emulator as a workspace tab: boot it, watch it live, drive it or hand it to
- * an agent, and read its logs and UI tree. The device keeps its own identity when the channel
+ * One simulator or emulator as a workspace tab: boot it, watch and drive it live (the first
+ * input takes control), and read its logs and UI tree. The device keeps its own identity when the channel
  * drops or devices are off, so the tab says which device it is waiting for.
  */
 export function DeviceTab(props: {

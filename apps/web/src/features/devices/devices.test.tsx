@@ -21,9 +21,6 @@ async function shows(screenImage: HTMLElement) {
 
 /** The line under a device's name: its OS, where it is and, while live, its stream. */
 const subtitle = (section: HTMLElement, pattern: RegExp) => within(section).getByText(pattern);
-/** Who drives the device, as its header's chip says. */
-const controlChip = (section: HTMLElement, name: string) =>
-  within(section).findByRole("status", { name });
 
 test("devices stay off until enabled, then show the running simulator and every device by kind", async () => {
   const { panel } = await openDevices();
@@ -88,7 +85,7 @@ test("a device opened from the list comes back under Recent, with Boot to start 
   expect(app.daemon.appDevices.boundThread("android:Pixel_9_API_35")).toBe("thread-checkout");
 });
 
-test("booting an emulator shows its live screen, which takes keys and text while you're in control", async () => {
+test("booting an emulator shows its live screen, which takes keys and text at once", async () => {
   const { app, panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const pixel = await openDevice(panel, "Pixel 9");
@@ -99,7 +96,6 @@ test("booting an emulator shows its live screen, which takes keys and text while
   const screenImage = await within(pixel).findByRole("img", { name: "Pixel 9 screen" });
   await shows(screenImage);
   expect(subtitle(pixel, /^Android 15 · Live/)).toBeTruthy();
-  expect(await controlChip(pixel, "You're in control")).toBeTruthy();
 
   // The rail's keys (Software keyboard brings the device's own keyboard back), then the text
   // field Type text opens, which types on the device.
@@ -117,31 +113,17 @@ test("booting an emulator shows its live screen, which takes keys and text while
       { kind: "type", text: "hello" },
     ]),
   );
-
-  await userEvent.click(within(pixel).getByRole("button", { name: /Hand back/ }));
-  await waitFor(() =>
-    expect(unusable(within(pixel).getByRole("button", { name: "Back" }))).toBe(true),
-  );
-  expect(within(pixel).queryByRole("textbox", { name: "Type on the device" })).toBeNull();
 });
 
-test("a running simulator shows its screen, and only watches until you take control", async () => {
+test("a running simulator's live screen takes input at once, with no control step first", async () => {
   const { app, panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const iphone = await openDevice(panel, "iPhone 16 Pro");
 
   const screenImage = await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
   await shows(screenImage);
-  expect(unusable(within(iphone).getByRole("button", { name: "Home" }))).toBe(true);
-  expect(within(iphone).queryByRole("status", { name: "You're in control" })).toBeNull();
-
-  // The header's control action hands the device to you, and back.
-  await userEvent.click(within(iphone).getByRole("button", { name: /Take control/ }));
-  await waitFor(() =>
-    expect(unusable(within(iphone).getByRole("button", { name: "Home" }))).toBe(false),
-  );
   expect(subtitle(iphone, /^iOS 18\.4 · Live/)).toBeTruthy();
-  expect(await controlChip(iphone, "You're in control")).toBeTruthy();
+  expect(unusable(within(iphone).getByRole("button", { name: "Home" }))).toBe(false);
   await userEvent.click(within(iphone).getByRole("button", { name: "Home" }));
   await waitFor(() =>
     expect(app.daemon.appDevices.inputs.map((entry) => entry.input)).toEqual([
@@ -308,7 +290,6 @@ test("a simulator key refused for want of Accessibility says how to allow it, ab
   const iphone = await openDevice(panel, "iPhone 16 Pro");
   await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
 
-  await userEvent.click(within(iphone).getByRole("button", { name: /Take control/ }));
   await userEvent.click(within(iphone).getByRole("button", { name: "Home" }));
 
   const guide = await within(iphone).findByRole("alert", {
@@ -319,30 +300,6 @@ test("a simulator key refused for want of Accessibility says how to allow it, ab
   expect(app.daemon.appDevices.inputs).toEqual([]);
   await userEvent.click(within(guide).getByRole("button", { name: "Open Accessibility settings" }));
   await waitFor(() => expect(app.daemon.appDevices.requested).toEqual(["accessibility"]));
-});
-
-test("a device delegated to one of the thread's agents moves to the thread, the agent holds it, and it can be taken back", async () => {
-  const { app, panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
-  const iphone = await openDevice(panel, "iPhone 16 Pro");
-
-  await userEvent.click(
-    await within(iphone).findByRole("button", { name: "Delegate to an agent" }),
-  );
-  const agents = await screen.findAllByRole("menuitem");
-  const chosen = agents[0]?.textContent ?? "";
-  await userEvent.click(agents[0]!);
-
-  // The daemon's state names the agent that holds it now.
-  expect(await within(iphone).findByText(chosen)).toBeTruthy();
-  expect(within(iphone).getByRole("button", { name: /Take over/ })).toBeTruthy();
-  expect(app.daemon.appDevices.boundThread("ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b")).toBe(
-    "thread-checkout",
-  );
-
-  await userEvent.click(within(iphone).getByRole("button", { name: /Take over/ }));
-  expect(await controlChip(iphone, "You're in control")).toBeTruthy();
-  expect(within(iphone).queryByText(chosen)).toBeNull();
 });
 
 test("Simulator can restart its live view", async () => {
@@ -537,7 +494,7 @@ test("administrator refusals explain inventory and enable access immediately", a
   expect(within(panel).queryByText(/timed out/i)).toBeNull();
 });
 
-test("another connection's control offers takeover and boot acquires this panel's own lease", async () => {
+test("boot takes this panel's own lease from another connection that holds the device", async () => {
   const { DeviceClient } = await import("@ace/client/devices");
   const { app, panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
@@ -554,18 +511,13 @@ test("another connection's control offers takeover and boot acquires this panel'
         controller: "human",
       });
     });
-    expect(await controlChip(pixel, "Another connection is in control")).toBeTruthy();
-    expect(subtitle(pixel, /^Android 15 · Off$/)).toBeTruthy();
-    expect(within(pixel).queryByRole("button", { name: /Hand back/ })).toBeNull();
+    await waitFor(() => expect(subtitle(pixel, /^Android 15 · Off$/)).toBeTruthy());
     await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
-    expect(await controlChip(pixel, "You're in control")).toBeTruthy();
     await waitFor(() => expect(subtitle(pixel, /^Android 15 · Live/)).toBeTruthy());
     expect(
       other.getSnapshot().states.find((state) => state.device.id === "android:Pixel_9_API_35")
         ?.ownedHere,
     ).toBe(false);
-    act(() => other.disconnect());
-    expect(await controlChip(pixel, "You're in control")).toBeTruthy();
   } finally {
     other.disconnect();
   }

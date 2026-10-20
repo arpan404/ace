@@ -8,7 +8,7 @@ import type {
   DeviceSettings,
   DeviceState,
 } from "@ace/protocol";
-import { AgentId, ThreadId, ScreenUITreeResult } from "@ace/protocol";
+import { ThreadId, ScreenUITreeResult } from "@ace/protocol";
 import {
   deviceControls,
   deviceProblem,
@@ -252,30 +252,6 @@ export function useDevices(threadId: string, deviceId?: string) {
       act(() => send({ op: "permissions.request", permission })),
     /** Try the live view again, as after granting a permission. */
     retry: () => target && act(() => run({ op: "start", deviceId: target, fps: 60 })),
-    takeControl: () =>
-      target &&
-      act(() =>
-        run({
-          op: "controller",
-          deviceId: target,
-          controller: "human",
-          threadId: ThreadId.parse(threadId),
-        }),
-      ),
-    release: () =>
-      target && act(() => run({ op: "controller", deviceId: target, controller: "none" })),
-    /** Hand the device to one of this thread's agents, which moves the device to this thread. */
-    delegate: (agentId: string) =>
-      target &&
-      act(() =>
-        run({
-          op: "controller",
-          deviceId: target,
-          controller: "agent",
-          threadId: ThreadId.parse(threadId),
-          agentId: AgentId.parse(agentId),
-        }),
-      ),
     action: (operation: DeviceOperation) => act(() => withControl(operation)),
     install: (path: string) =>
       target && act(() => withControl({ op: "install", deviceId: target, path })),
