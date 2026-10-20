@@ -78,7 +78,12 @@ export function validateCreation(
   if (p.handoffFrom) {
     const source = repo.store.getThread(p.handoffFrom);
     if (!source) return fail("handoff_source_not_found");
-    const page = repo.store.readBoundedItemPage(p.handoffFrom, Number.MAX_SAFE_INTEGER, 100, 262144);
+    const page = repo.store.readBoundedItemPage(
+      p.handoffFrom,
+      Number.MAX_SAFE_INTEGER,
+      100,
+      262144,
+    );
     handoff = portableContext(
       {
         threadId: source.id,

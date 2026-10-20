@@ -21,7 +21,12 @@ export async function agentControlCall<T>(
       error instanceof AgentControlError || error instanceof PublicToolError
         ? error.code
         : "execution_failed";
-    const errorId = logToolFailure(context.log, context.id, { tool: operation, caller, error, code });
+    const errorId = logToolFailure(context.log, context.id, {
+      tool: operation,
+      caller,
+      error,
+      code,
+    });
     const failure = new PublicToolError(
       code,
       error instanceof PublicToolError ? error.permission : undefined,
@@ -50,7 +55,10 @@ export async function agentControlCall<T>(
               // One short reason: what the agent was told it can retry with, else the hint.
               text: failure.detail ?? failure.hint,
               raw: [
-                { type: "ace.agent_control.failed", data: { operation, ...(errorId ? { errorId } : {}) } },
+                {
+                  type: "ace.agent_control.failed",
+                  data: { operation, ...(errorId ? { errorId } : {}) },
+                },
               ],
             },
           },

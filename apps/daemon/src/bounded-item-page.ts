@@ -100,7 +100,12 @@ function fill(
     const rest: Parts =
       limit > 1
         ? fill(source, seq, limit - 1, budget - used, full)
-        : { items: [], itemSeqs: {}, omitted: [], itemsBefore: source.hasItemBefore(seq) ? seq : null };
+        : {
+            items: [],
+            itemSeqs: {},
+            omitted: [],
+            itemsBefore: source.hasItemBefore(seq) ? seq : null,
+          };
     return {
       items: shown ? [...rest.items, slim] : rest.items,
       itemSeqs: shown ? { ...rest.itemSeqs, [item.id]: seq } : rest.itemSeqs,

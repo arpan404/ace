@@ -427,7 +427,8 @@ export class HistoryIndex {
       const size =
         Buffer.byteLength(JSON.stringify(item)) + Buffer.byteLength(JSON.stringify(row.id)) + 64;
       if (bytes + size > byteLimit) {
-        if (!items.length) throw new ItemPageCapacityExceeded("Historical item exceeds page capacity");
+        if (!items.length)
+          throw new ItemPageCapacityExceeded("Historical item exceeds page capacity");
         break;
       }
       bytes += size;

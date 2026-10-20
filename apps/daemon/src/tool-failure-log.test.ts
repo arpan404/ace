@@ -43,7 +43,12 @@ test("an unexpected tool error is logged with its stack and the agent sees a cor
     new AbortController().signal,
   );
   try {
-    const result = await registry.call("thread_read", {}, lease.principal, new AbortController().signal);
+    const result = await registry.call(
+      "thread_read",
+      {},
+      lease.principal,
+      new AbortController().signal,
+    );
     expect(result.isError).toBe(true);
     const text = JSON.stringify(result);
     expect(text).not.toMatch(/cannot read|secret-plan|TypeError|failingTool/);

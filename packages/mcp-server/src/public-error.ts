@@ -86,6 +86,10 @@ export const PublicToolCode = z.enum([
   "machine_forbidden",
   "machine_disconnected",
   "tool_unavailable",
+  "thread_not_found",
+  "thread_busy",
+  "request_conflict",
+  "handoff_unavailable",
 ]);
 export type PublicToolCode = z.infer<typeof PublicToolCode>;
 const candidateIds = z
@@ -425,6 +429,22 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   machine_forbidden: {
     message: "Not allowed on that machine",
     hint: "Its agent access or pairing is read-only, or this thread is read-only. Use a read-only tool there, or do the work on this machine.",
+  },
+  thread_not_found: {
+    message: "That thread or task no longer exists",
+    hint: "It was deleted or never existed. Call threads_find, or agents_status for your children, for current threadIds.",
+  },
+  thread_busy: {
+    message: "The thread is changing state",
+    hint: "It is being created, recovered, switched or moved right now. Retry the same call, with the same requestId, in a few seconds.",
+  },
+  request_conflict: {
+    message: "This requestId was already used for a different request",
+    hint: "A requestId names one request. Reuse it only to repeat that exact call; for a new request, pass a new requestId.",
+  },
+  handoff_unavailable: {
+    message: "That history is not part of this thread's handoff",
+    hint: "handoff_read reads only the threads a handoff cites, up to the point it was handed over. Use the sourceThreadId the handoff names, or thread_read for other threads.",
   },
   machine_disconnected: {
     message: "The connection to that machine dropped during the call",

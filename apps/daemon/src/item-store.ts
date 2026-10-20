@@ -232,10 +232,9 @@ export class ItemStore {
   }
   hasItemBefore(threadId: ThreadId, before: number): boolean {
     return (
-      this.statement("SELECT 1 FROM item_heads WHERE thread_id = ? AND created_seq < ? LIMIT 1").get(
-        threadId,
-        before,
-      ) !== undefined
+      this.statement(
+        "SELECT 1 FROM item_heads WHERE thread_id = ? AND created_seq < ? LIMIT 1",
+      ).get(threadId, before) !== undefined
     );
   }
   /** One item as a step list shows it: text cut to its bounded preview, tool bodies whole. */
@@ -299,9 +298,7 @@ export class ItemStore {
         // that fit a standalone page but cannot fit alongside the jump target.
         page = this.wirePage(threadId, seq + 1, 1, byteLimit - bytes + 512);
       } catch (error) {
-        if (
-seq !== targetSeq && error instanceof ItemPageCapacityExceeded)
-          return false;
+        if (seq !== targetSeq && error instanceof ItemPageCapacityExceeded) return false;
         throw error;
       }
       const item = page.items[0];

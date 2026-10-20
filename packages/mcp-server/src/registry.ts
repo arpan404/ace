@@ -1,4 +1,4 @@
-import { parseToolArguments, toolFailure } from "./tool-failure.ts";
+import { inputTooLarge, parseToolArguments, toolFailure } from "./tool-failure.ts";
 import { PublicToolError } from "./public-error.ts";
 import { maxStructuredResultBytes } from "./result-budgets.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
@@ -183,8 +183,8 @@ export class ToolRegistry {
             : undefined;
         },
         async execute(value, context) {
-          if (!withinJsonBudget(value, definition.maxInputBytes ?? 64 * 1024))
-            throw new Error("Input budget exceeded");
+          const maxInput = definition.maxInputBytes ?? 64 * 1024;
+          if (!withinJsonBudget(value, maxInput)) throw inputTooLarge(maxInput);
           const args = parseToolArguments(input, value);
           context.signal.throwIfAborted();
           const result = await definition.run(args, context);

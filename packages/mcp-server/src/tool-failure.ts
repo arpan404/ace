@@ -17,6 +17,16 @@ export function parseToolArguments<T extends z.ZodType>(schema: T, value: unknow
     );
   return parsed.data;
 }
+/** Arguments too large to read: the agent can send less, so the reason is public. */
+export function inputTooLarge(maxBytes: number): PublicToolError {
+  return new PublicToolError(
+    "limit",
+    undefined,
+    undefined,
+    undefined,
+    `The arguments exceed ${Math.floor(maxBytes / 1024)} KiB as JSON. Send less in one call.`,
+  );
+}
 const Origin = z.object({
   blocked: z.object({
     origin: z.string().max(8192),
