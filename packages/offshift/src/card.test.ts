@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import { ThreadId } from "@ace/protocol";
 import {
   OffshiftRun,
+  OffshiftRunCard,
   type OffshiftAuthor,
   type OffshiftEvidenceKind,
 } from "@ace/protocol/offshift";
@@ -167,4 +168,15 @@ test("the card names each role from the run, falling back to the project default
     { role: "verify", source: "project", provider: "claude", effort: "high" },
   ]);
   expect(runCard(run(), "r1").roles).toEqual([]);
+});
+
+test("the card names the playbook the run started from, and a card stored before it still reads", () => {
+  expect(runCard(run({ playbook: "fix" }), "r").playbook).toBe("fix");
+  expect(runCard(run(), "r").playbook).toBeUndefined();
+  const { playbook: _playbook, next: _next, ...older } = runCard(run({ playbook: "fix" }), "r");
+  expect(OffshiftRunCard.parse(older)).toMatchObject({ id: "feature", phase: "verify" });
+});
+
+test("the card carries the run's next step as worded at the write", () => {
+  expect(runCard(run(), "r", undefined, "Advance to review.").next).toBe("Advance to review.");
 });

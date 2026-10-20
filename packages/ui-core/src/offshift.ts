@@ -8,7 +8,7 @@ import type {
   OffshiftRunCard,
   OffshiftStepState,
 } from "@ace/protocol/offshift";
-import { offshiftPhaseNames, runMark } from "@ace/projection/offshift-mark";
+import { offshiftPhaseNames, offshiftPlaybookNames, runMark } from "@ace/projection/offshift-mark";
 import { listTreeFacts, treeWorking } from "./live-status.ts";
 import { providerNames } from "./providers.ts";
 import type { Tone } from "./status.ts";
@@ -63,7 +63,7 @@ export interface OffshiftRoleRow {
 export interface OffshiftSummary {
   word: OffshiftWord;
   tone: Tone;
-  /** "Verify · 3 of 5". */
+  /** "Fix · Verify · 3 of 5"; the playbook leads when the run started from one. */
   phase: string;
   blocker: string | undefined;
   /** Evidence still missing, failing or out of date: "Bad password shows an error", "UI check". */
@@ -158,7 +158,13 @@ export function offshiftSummary(card: OffshiftRunCard, tree: OffshiftTree): Offs
   const descriptions = new Map(card.criteria.map((item) => [item.id, item.description]));
   return {
     ...state,
-    phase: `${offshiftPhaseNames[card.phase]} · ${phases.indexOf(card.phase) + 1} of ${phases.length}`,
+    phase: [
+      card.playbook && offshiftPlaybookNames[card.playbook],
+      offshiftPhaseNames[card.phase],
+      `${phases.indexOf(card.phase) + 1} of ${phases.length}`,
+    ]
+      .filter(Boolean)
+      .join(" · "),
     blocker: card.blocker ?? undefined,
     missing: card.pending.map((item) => ({
       key: `${item.criterionId}:${item.kind}`,

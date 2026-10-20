@@ -198,3 +198,10 @@ test("a delivered run on a settled tree leaves the Summary", async () => {
   const work = await openWorkPanel();
   expect(within(work).queryByRole("region", { name: "Offshift" })).toBeNull();
 });
+
+test("the Summary names the run's playbook in its status line", async () => {
+  const section = await openRun(card({ phase: "verify", playbook: "perf", pendingCount: 0 }));
+  expect(within(section).getByRole("status").getAttribute("aria-label")).toBe(
+    "Offshift run: Waiting · Performance · Verify · 3 of 5",
+  );
+});

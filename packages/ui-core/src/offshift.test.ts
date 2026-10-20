@@ -216,3 +216,10 @@ test("a delivered run with a delivery step still to do is not Done", () => {
   const reported = [{ id: "report", title: "Report", state: "done" as const }];
   expect(offshiftSummary(card({ steps: reported }), settled).done).toBe(true);
 });
+
+test("the status line names the playbook first when the run started from one", () => {
+  expect(offshiftSummary(card({ phase: "verify", playbook: "fix" }), settled).phase).toBe(
+    "Fix · Verify · 3 of 5",
+  );
+  expect(offshiftSummary(card({ phase: "verify" }), settled).phase).toBe("Verify · 3 of 5");
+});

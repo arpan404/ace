@@ -87,6 +87,7 @@ export function runCard(
         state: step.state,
         reason: step.state === "skipped" && step.note ? clip(step.note, 160) : undefined,
       })),
+    ...(run.playbook ? { playbook: run.playbook } : {}),
     ...(next ? { next: clip(next, 512) } : {}),
   });
 }
