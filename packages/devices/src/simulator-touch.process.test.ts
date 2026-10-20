@@ -139,7 +139,7 @@ it("typing on a Simulator brings back the on-screen keyboard its keys hid, unles
   const { sim, live } = await capture();
   const input = live.input;
   if (!input) throw new Error("Missing native input");
-  const toggles = () => sim.hid.filter(([tag]) => tag === 12).length;
+  const toggles = () => sim.hid.filter((entry) => Array.isArray(entry) && entry[0] === 12).length;
 
   // Typed keys put iOS into hardware-keyboard mode; the toggle after them undoes that.
   await input({ kind: "type", text: "hi" }, () => {});
