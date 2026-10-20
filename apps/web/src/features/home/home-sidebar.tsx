@@ -8,6 +8,7 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useNewThreadEntry } from "@/features/projects/index.ts";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { useHeld } from "@/lib/held.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { formatKeys } from "@/lib/keymap.ts";
@@ -37,6 +38,8 @@ export function HomeSidebar() {
   useThreadsWindowSync();
   const organizer = useOrganizer();
   const loaded = useSidebarLoaded();
+  // A filter switch usually paints at once (remembered or derived rows): never flash a skeleton.
+  const skeleton = useHeld(!loaded);
   const empty = [list.pinned, list.active, list.recent, list.snoozed, list.settled].every(
     (ids) => !ids.length,
   );
@@ -78,7 +81,7 @@ export function HomeSidebar() {
           </Suspense>
         )}
         {!loaded ? (
-          <ListSkeleton label="threads" shape="thread" />
+          skeleton && <ListSkeleton label="threads" shape="thread" />
         ) : empty ? (
           <>
             <EmptyState

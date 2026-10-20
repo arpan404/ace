@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { useHeld } from "@/lib/held.ts";
 import {
   useOrganizer,
   useOrganizerState,
@@ -37,6 +38,7 @@ import { useArchivedList } from "./use-home-threads.ts";
 export function ArchivedScreen() {
   const ids = useArchivedList();
   const loaded = useSidebarLoaded();
+  const skeleton = useHeld(!loaded);
   const { project } = useOrganizerState();
   const organizer = useOrganizer();
   const projectName = useProjectName();
@@ -48,7 +50,7 @@ export function ArchivedScreen() {
       <Page>
         <div>
           {!loaded ? (
-            <ListSkeleton label="archived threads" shape="row" />
+            skeleton && <ListSkeleton label="archived threads" shape="row" />
           ) : ids.length === 0 ? (
             <div className="text-sm text-muted-foreground">
               <p>{scope ? `Nothing archived in ${scope}` : "Nothing archived"}</p>
