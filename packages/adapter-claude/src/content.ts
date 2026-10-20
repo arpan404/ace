@@ -8,6 +8,12 @@ import { childUsage } from "./usage.ts";
 import { toolDetail } from "./tools.ts";
 import { childPrompt, injectedInput } from "./injected-inputs.ts";
 
+/** Claude Code's markers that the person stopped it: shown as ace's notice, not their words. */
+const interruptions = new Set([
+  "[Request interrupted by user]",
+  "[Request interrupted by user for tool use]",
+]);
+
 export function tool(
   state: ClaudeState,
   agent: string,
@@ -121,19 +127,17 @@ export function message(
   }
   const userText = content
     .map(object)
-    .filter(
-      (block) => block["type"] === "text" && block["text"] !== "[Request interrupted by user]",
-    );
+    .filter((block) => block["type"] === "text" && !interruptions.has(string(block["text"])));
   if (role === "user" && userText.length) {
     const parts = userText.map((block) => ({ type: "text" as const, text: string(block["text"]) }));
     const joined = parts.map((part) => part.text).join("");
     // A notification Claude writes into a subagent is its own input, not the subagent's prompt.
-    const kind =
-      agent !== state.root && childPrompt(state, agent, joined)
-        ? undefined
-        : injectedInput(state, data, joined);
+    const echoedPrompt = agent !== state.root && childPrompt(state, agent, joined);
+    const kind = echoedPrompt ? undefined : injectedInput(state, data, joined);
+    // Claude's own notes for the model (an image's scale) say so natively; never the person's.
+    const synthetic = !echoedPrompt && (kind !== undefined || data["isSynthetic"] === true);
     const item =
-      agent !== state.root && !kind
+      agent !== state.root && !synthetic
         ? state.key("prompt", agent)
         : state.key("message", `${agent}:${id}:0`);
     state.emit({
@@ -144,7 +148,8 @@ export function message(
         type: "message",
         role: "user",
         parts,
-        ...(kind ? { synthetic: true, origin: { kind } } : {}),
+        ...(synthetic ? { synthetic: true } : {}),
+        ...(kind ? { origin: { kind } } : {}),
         complete: true,
         ...(string(data["uuid"]) && string(data["uuid"]).length <= 256
           ? { nativeId: string(data["uuid"]) }
@@ -219,7 +224,7 @@ export function message(
         });
     } else if (type === "text") {
       const contentText = string(block["text"]);
-      if (role === "user" && contentText === "[Request interrupted by user]") {
+      if (role === "user" && interruptions.has(contentText)) {
         state.notice(data, `${seq}`, agent, "info", contentText);
         continue;
       }

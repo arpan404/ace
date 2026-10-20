@@ -110,22 +110,9 @@ export function foldProviderFacts(
       fact,
       previousItem?.type === "tool_call" ? previousItem.call : undefined,
     );
-    if (
-      (fact.type === "item.upsert" || fact.type === "item.reconciled") &&
-      fact.agent === (state.rootKey ?? "root") &&
-      fact.draft.type === "message" &&
-      fact.draft.role === "user" &&
-      !fact.draft.origin
-    ) {
-      const runId = state.agents[fact.agent]?.activeRun;
-      const trigger = runId ? state.runs[runId]?.trigger : undefined;
-      if (trigger === "background_completion" || trigger === "subagent_result")
-        fact = {
-          ...fact,
-          draft: { ...fact.draft, origin: { kind: trigger }, synthetic: true },
-        };
-    }
-
+    // A provider's own wake input (a finished shell, a child's result) is classified by its
+    // adapter, which holds the native evidence. The run's trigger is no evidence: Claude writes
+    // other notes into a woken run too (an image's scale, an interruption), and they are not it.
     if (fact.type === "turn.started" && fact.agent === (state.rootKey ?? "root")) {
       const pending = repo.pending.awaiting(id);
       if (
