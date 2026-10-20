@@ -105,7 +105,7 @@ test("Enter in the Something else field continues", async () => {
 
 test("a message sent while the agent waits on its question answers it", async () => {
   const { app, message } = await openQuestion();
-  expect(message.getAttribute("aria-placeholder")).toBe("Reply to Codex…");
+  expect(message.getAttribute("aria-placeholder")).toBe("Reply…");
   await userEvent.type(message, "Use whatever the repo already does{Enter}");
   await waitFor(() =>
     expect(app.daemon.resolution(threadId, "indent")).toEqual({

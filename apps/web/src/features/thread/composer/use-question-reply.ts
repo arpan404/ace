@@ -1,6 +1,6 @@
-import { useAgent, useClient, useInteraction, useInteractions } from "@ace/client-react";
+import { useClient, useInteraction, useInteractions } from "@ace/client-react";
 import type { Interaction } from "@ace/protocol";
-import { agentName, requestIdentity } from "@ace/ui-core";
+import { requestIdentity } from "@ace/ui-core";
 import { composerReply } from "../interactions/composer-reply.ts";
 import { questionDrafts } from "../interactions/question-drafts.ts";
 import type { Draft } from "./draft.ts";
@@ -16,18 +16,17 @@ const plainWords = (draft: Draft) =>
   (draft.input ?? []).every((part) => part.type === "text");
 
 /**
- * The composer while an agent asks the person something: its placeholder says who to reply
- * to, and a message of plain words sent to a question the agent waits on answers it
+ * The composer while an agent asks the person something: its placeholder reads "Reply…"
+ * and a message of plain words sent to a question the agent waits on answers it
  * (`composerReply`) instead of going in as a message. Only the request the strip shows first
  * is answered so; a message with files or references goes as it would.
  */
 export function useQuestionReply(threadId: string) {
   const client = useClient();
   const asking = useInteraction(threadId, useInteractions(threadId, pendingQuestion)?.[0] ?? "");
-  const agent = useAgent(threadId, asking?.agentId ?? "");
   // The request on the strip by default: the oldest one still open.
   const first = useInteraction(threadId, useInteractions(threadId)?.[0] ?? "");
-  const placeholder = asking ? `Reply to ${agent ? agentName(agent) : "the agent"}…` : undefined;
+  const placeholder = asking ? "Reply…" : undefined;
   const reply = async (draft: Draft): Promise<boolean> => {
     if (first?.request.kind !== "question" || !plainWords(draft)) return false;
     const resolution = composerReply(first, questionDrafts.get(first.id), draft.text);
