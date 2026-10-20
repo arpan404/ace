@@ -376,3 +376,17 @@ screenshot`, `screencap`). A watched recording decodes the live H.264 through ff
   H.264 decoder, or when the platform refuses the stream, it shows "This browser can't decode H.264
   video", and a refused stream shows the daemon's message and hint. The iOS reader marks stills
   and exposes `isLiveVideo`. The fake daemon streams real H.264 IDRs of its screens.
+
+## The on-screen keyboard comes back, 2026-10-20
+
+A typed key used to leave a device without its on-screen keyboard. On iOS, serve-sim types with
+HID keyboard keys, and any such key puts iOS into hardware-keyboard mode: the keyboard hides and
+refocusing a field doesn't bring it back (Simulator's Connect Hardware Keyboard setting plays no
+part). On Android, physical-keyboard input collapses Gboard to its floating toolbar, which no tap
+undoes; ace's own scrcpy text and keys come from the virtual keyboard and don't do this.
+
+The `keyboard` key brings it back. On iOS it presses Simulator's Toggle Software Keyboard (serve-sim
+HID tag 12, Indigo button source 0x3f0, what ⌘K sends; ⌘K itself on the screen-helper path), and
+after ace types it toggles the keyboard back 250 ms later unless the person hid it with that key.
+On Android it presses Alt+K, Gboard's "Show on-screen keyboard". The device view's rail has a
+Software keyboard button; sim_act takes the key.

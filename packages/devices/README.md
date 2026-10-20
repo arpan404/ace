@@ -101,7 +101,9 @@ time limit and no ffmpeg in the live view. While nobody watches, agents' stills 
 recordings decode that H.264 once through ffmpeg; without ffmpeg the capture stays on
 H.264 and stills come from `screencap`. Input goes over the control socket:
 multi-touch with pointer ids (`pointer.pointerId`), keys including back, home,
-recents and volume up/down, rotation, and text. Printable ASCII is injected as text; anything else
+recents and volume up/down, rotation, and text. The `keyboard` key presses Alt+K, Gboard's "Show
+on-screen keyboard": physical-keyboard input (the emulator window, its console) collapses Gboard
+to a floating toolbar that no tap undoes. Printable ASCII is injected as text; anything else
 (accents, emoji) is pasted through the device clipboard and the action completes
 when the device acknowledges it, so it replaces the emulator's clipboard. The
 `clipboard.get`/`clipboard.set` operations (sim_act `clipboard_get`/`clipboard_set`) use
@@ -131,7 +133,9 @@ and supervises it per device: live views get its H.264 (serve-sim encodes at 60 
 re-encode, and a stream that won't start refuses the view with a reinstall hint. Agents'
 stills and recordings while nobody watches get its MJPEG through the bounded resize path,
 input uses its HID socket (edge
-gestures included), and `ui.tree`/`ui.find`/`ui.act` read its accessibility
+gestures included; typed text is HID keyboard keys, which put iOS into hardware-keyboard mode and
+hide the on-screen keyboard, so ace toggles it back 250 ms after typing unless the person hid it
+with the `keyboard` key, Simulator's Toggle Software Keyboard), and `ui.tree`/`ui.find`/`ui.act` read its accessibility
 bridge. Other serve-sim versions are not driven (ADR 0064, "Native Simulator
 transport"). Without it, iOS capture and semantic actions use the Simulator window
 through the macOS helper; its live view needs the helper's H.264 encoder and is otherwise
