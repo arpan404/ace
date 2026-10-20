@@ -191,7 +191,12 @@ export class Background {
       // The person's chosen folder, else the system's Downloads folder.
       downloadFolder: () => this.options.settings().browserDownloads ?? this.options.downloads,
     });
-    const backend = new BrowserBackend(views, { log });
+    const { powerMonitor } = await import("electron");
+    const backend = new BrowserBackend(views, {
+      log,
+      // A locked screen draws no frames, so a view opened then never shows a picture.
+      drawable: () => powerMonitor.getSystemIdleState(1) !== "locked",
+    });
     const connection = new BackendConnection(backend, {
       daemon: async () => {
         const daemon = await runtime.local();

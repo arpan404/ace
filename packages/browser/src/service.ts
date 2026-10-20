@@ -205,6 +205,8 @@ export class BrowserService {
     let recoveryGeneration = 0;
     let session: BrowserSession | undefined;
     let released = false;
+    /** The session being closed is handed on to the next backend, not ended. */
+    let retiring = false;
     let backendLost = false;
     const loss = new DesktopLoss(this.navigationClock, this.options.desktopReadoptionGraceMs);
     let opening: BackendOpen | undefined;
@@ -390,89 +392,112 @@ export class BrowserService {
         },
       };
       opening = request;
+      const ffmpeg = this.options.ffmpeg ?? (await detectFfmpeg());
+      const build = (opened: BrowserBackendSession, kind: BrowserBackend["kind"]) =>
+        new BrowserSession({
+          threadId: options.threadId,
+          backend: opened,
+          backendKind: kind,
+          dir,
+          now: this.now,
+          id: this.id,
+          navigationClock: this.navigationClock,
+          cancelPolicy: () => {
+            if (!retiring) scope.abort();
+          },
+          ...(this.options.userChromeStorageReads
+            ? {
+                storageReads: () =>
+                  this.options.userChromeStorageReads?.(options.threadId) ?? false,
+              }
+            : {}),
+          ...(this.options.agentCursor
+            ? {
+                cursor: {
+                  visible: true,
+                  glideMs: this.options.agentCursor.glideMs ?? defaultGlideMs,
+                  style: () => this.cursorStyle,
+                  name: (agentId: string | undefined) =>
+                    this.options.agentCursor?.name?.(options.threadId, agentId),
+                },
+              }
+            : {}),
+          ...(this.options.collaboration ? { collaboration: this.options.collaboration } : {}),
+          ...(this.options.spawn ? { spawn: this.options.spawn } : {}),
+          ...(ffmpeg ? { ffmpeg } : {}),
+          ...policies.session,
+          artifact: (artifact) => this.options.onArtifact?.(options.threadId, artifact),
+          state: (state) => this.emit(state),
+          annotation: (connectionId, event) =>
+            this.subscriptions.annotation(connectionId, {
+              type: "browser.annotation",
+              threadId: options.threadId,
+              event,
+            }),
+          pageState: (tabId, page) =>
+            this.subscriptions.page({
+              type: "browser.page",
+              threadId: options.threadId,
+              tabId,
+              page,
+            }),
+          cleanup: async () => {
+            // A session handed on to the next backend keeps the thread's scope and profile.
+            if (!retiring) await release();
+          },
+          ...(restoredTabs.length ? { restoredTabs } : {}),
+          ...(store
+            ? {
+                persistTabs: (records) => {
+                  try {
+                    store.save(options.threadId, records);
+                  } catch (error) {
+                    this.options.onError?.(error);
+                  }
+                },
+                forgetTabs: () => {
+                  try {
+                    store.clear(options.threadId);
+                  } catch (error) {
+                    this.options.onError?.(error);
+                  }
+                },
+              }
+            : {}),
+          ...this.lifecycle(),
+        });
       for (const [index, candidate] of candidates.entries()) {
+        const last = index === candidates.length - 1;
         backend = candidate;
         try {
           context = await candidate.open(request);
-          break;
         } catch (error) {
           // The desktop could not host the view: auto continues with ace's own Chromium.
-          if (signal.aborted || index === candidates.length - 1) throw error;
+          if (signal.aborted || last) throw error;
           this.options.onError?.(error);
+          continue;
+        }
+        signal.throwIfAborted();
+        session = build(context, candidate.kind);
+        try {
+          await (last
+            ? session.live.start()
+            : drawsWithin(session.live.start(), this.options.firstPictureMs ?? 10_000));
+          break;
+        } catch (error) {
+          // A view that opened but draws nothing (a locked or sleeping desktop) is no better
+          // than one that failed to open: the next backend takes the session.
+          if (signal.aborted || last) throw error;
+          this.options.onError?.(error);
+          const failed = session;
+          session = undefined;
+          context = undefined;
+          retiring = true;
+          await failed.close().catch(() => {});
+          retiring = false;
         }
       }
-      if (!context) throw new Error("No browser backend opened");
-      signal.throwIfAborted();
-      const ffmpeg = this.options.ffmpeg ?? (await detectFfmpeg());
-      session = new BrowserSession({
-        threadId: options.threadId,
-        backend: context,
-        backendKind: backend.kind,
-        dir,
-        now: this.now,
-        id: this.id,
-        navigationClock: this.navigationClock,
-        cancelPolicy: () => scope.abort(),
-        ...(this.options.userChromeStorageReads
-          ? {
-              storageReads: () => this.options.userChromeStorageReads?.(options.threadId) ?? false,
-            }
-          : {}),
-        ...(this.options.agentCursor
-          ? {
-              cursor: {
-                visible: true,
-                glideMs: this.options.agentCursor.glideMs ?? defaultGlideMs,
-                style: () => this.cursorStyle,
-                name: (agentId: string | undefined) =>
-                  this.options.agentCursor?.name?.(options.threadId, agentId),
-              },
-            }
-          : {}),
-        ...(this.options.collaboration ? { collaboration: this.options.collaboration } : {}),
-        ...(this.options.spawn ? { spawn: this.options.spawn } : {}),
-        ...(ffmpeg ? { ffmpeg } : {}),
-        ...policies.session,
-        artifact: (artifact) => this.options.onArtifact?.(options.threadId, artifact),
-        state: (state) => this.emit(state),
-        annotation: (connectionId, event) =>
-          this.subscriptions.annotation(connectionId, {
-            type: "browser.annotation",
-            threadId: options.threadId,
-            event,
-          }),
-        pageState: (tabId, page) =>
-          this.subscriptions.page({
-            type: "browser.page",
-            threadId: options.threadId,
-            tabId,
-            page,
-          }),
-        cleanup: async () => {
-          await release();
-        },
-        ...(restoredTabs.length ? { restoredTabs } : {}),
-        ...(store
-          ? {
-              persistTabs: (records) => {
-                try {
-                  store.save(options.threadId, records);
-                } catch (error) {
-                  this.options.onError?.(error);
-                }
-              },
-              forgetTabs: () => {
-                try {
-                  store.clear(options.threadId);
-                } catch (error) {
-                  this.options.onError?.(error);
-                }
-              },
-            }
-          : {}),
-        ...this.lifecycle(),
-      });
-      await session.live.start();
+      if (!session) throw new Error("No browser backend opened");
       this.sessions.set(options.threadId, session);
       this.generations.set(session, ++this.sequence);
       this.subscriptions.replace(options.threadId, session.live);
@@ -803,5 +828,21 @@ export class BrowserService {
       if (failed?.status === "rejected") throw failed.reason;
     })();
     return this.closing;
+  }
+}
+
+/** The first picture within `ms`, or an error naming why the backend is passed over. */
+async function drawsWithin(start: Promise<void>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`The desktop drew no picture of the page within ${ms} ms`)),
+      ms,
+    );
+  });
+  try {
+    await Promise.race([start, late]);
+  } finally {
+    clearTimeout(timer);
   }
 }

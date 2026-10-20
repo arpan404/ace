@@ -35,6 +35,32 @@ it("selects headless after desktop disconnect and rejects an explicit missing em
   expect(await f.open()).toMatchObject({ backend: "headless" });
   await expect(f.open("explicit")).rejects.toThrow("unavailable");
 });
+it("a desktop that opens a view but never draws it hands the session to ace's Chromium", async () => {
+  const errors: unknown[] = [];
+  const f = await backendFixture({
+    firstPictureMs: 200,
+    onError: (error) => errors.push(error),
+  });
+  // A locked or sleeping Mac: the view opens, but its first picture never comes.
+  f.hold("Page.captureScreenshot");
+  const desktopClosed = once(f.requests, "close");
+  expect(await f.open()).toMatchObject({ backend: "headless", closed: false });
+  await desktopClosed;
+  expect(f.pages.size).toBe(0);
+  expect(String(errors[0])).toContain("drew no picture");
+  await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/after" });
+  expect(f.headless.pages.map((page) => page.url)).toEqual(["http://localhost:3000/after"]);
+});
+it("an explicit desktop preference never moves a slow first picture to another backend", async () => {
+  const f = await backendFixture({ firstPictureMs: 50, backendPreference: () => "embedded" });
+  f.hold("Page.captureScreenshot");
+  const opened = f.open();
+  const screenshot = (await once(f.requests, "Page.captureScreenshot"))[0];
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  f.reply(BrowserBackendRequest.parse(screenshot), { data: "AA==" });
+  expect(await opened).toMatchObject({ backend: "embedded", closed: false });
+  expect(f.headless.opens).toHaveLength(0);
+});
 const quick = {
   quietMs: 400,
   maxWaitMs: 1_200,

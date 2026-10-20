@@ -75,6 +75,12 @@ export interface BackendOptions {
   /** How long a page outlives a lost daemon link, waiting to be adopted again. */
   orphanGraceMs?: number;
   timers?: { set(delayMs: number, callback: () => void): () => void };
+  /**
+   * Whether a new view would draw now. A locked or sleeping Mac draws nothing, so a view opened
+   * then never gives a picture; the daemon is told at once and opens the page in ace's own
+   * Chromium instead. Absent: always.
+   */
+  drawable?: () => boolean;
   log(message: string): void;
 }
 
@@ -339,6 +345,9 @@ export class BrowserBackend {
       throw new Error("Embedded browser session limit");
     if (this.purging.has(operation.options.threadId))
       throw new Error("Browser partition purge in progress");
+    // A page kept from before stays this app's; only a new view needs the screen to draw.
+    if (this.options.drawable?.() === false && !this.orphans.has(operation.options.threadId))
+      throw new Error("The desktop can't draw pages while its screen is locked or asleep");
     const completion = Promise.withResolvers<void>();
     const pending: PendingOpen = {
       threadId: operation.options.threadId,
