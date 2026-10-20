@@ -1,6 +1,7 @@
 import type { ClientApi } from "@ace/client";
 import { maxMessageBytes, type ForkPoint, type MessageContext } from "@ace/protocol";
 import {
+  activeRootRun,
   choiceSelection,
   imageType,
   imagesUnreadable,
@@ -26,6 +27,17 @@ export const continuationNote = "Continues in a new thread with your next messag
 /** Why the message can't start the new thread yet, in words the composer shows as they are. */
 export class ContinuationRefused extends Error {
   override name = "ContinuationRefused";
+}
+
+/**
+ * The main agent is still mid-turn, so there is no finished turn yet to carry this message's
+ * context. The composer offers to stop it; once stopped, the next send continues.
+ */
+export class TurnStillRunning extends ContinuationRefused {
+  override name = "TurnStillRunning";
+  constructor() {
+    super("The agent is still on this turn. Stop it, then send again to continue in a new thread.");
+  }
 }
 
 /**
@@ -106,7 +118,9 @@ export async function forkWithDraft(request: {
 
 /**
  * The person's message as the first one of a portable fork on `choice`, from the thread's newest
- * finished turn (`forkWithDraft`). Resolves the new thread's id.
+ * finished turn (`forkWithDraft`). Only the main agent's own running turn holds it back: a usage
+ * limit, background commands and subagents (running or failed) stay with this thread and never
+ * block the person from carrying on elsewhere. Resolves the new thread's id.
  */
 export async function continueInNewThread(request: {
   client: ClientApi;
@@ -116,20 +130,19 @@ export async function continueInNewThread(request: {
   /** The new thread's model's input modalities, from the catalog; undefined if unlisted. */
   modalities: readonly string[] | undefined;
   draft: Draft;
-  busy: boolean;
 }): Promise<string> {
-  if (request.busy)
-    throw new ContinuationRefused(
-      "Wait for this turn to finish, then send again to continue in a new thread.",
-    );
   const lease = request.client.thread(request.thread.id);
-  const point = (() => {
+  const { running, point } = (() => {
     try {
-      return latestFinishedTurn(lease.store, lease.store.thread?.rootAgentId);
+      return {
+        running: activeRootRun(lease.store) !== undefined,
+        point: latestFinishedTurn(lease.store, lease.store.thread?.rootAgentId),
+      };
     } finally {
       lease.release();
     }
   })();
+  if (running) throw new TurnStillRunning();
   if (!point)
     throw new ContinuationRefused(
       "This thread has no finished turn to carry over. Start a new thread instead.",

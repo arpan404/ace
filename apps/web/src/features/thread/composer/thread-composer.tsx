@@ -56,6 +56,7 @@ import { useThreadSources } from "../sources/index.ts";
 import {
   ContinuationRefused,
   continueInNewThread,
+  TurnStillRunning,
   type Continuation,
 } from "./continue-in-thread.ts";
 
@@ -158,7 +159,6 @@ export function ThreadComposer({
         choice: target.choice,
         modalities: catalog && selectionInputs(catalog, choiceSelection(target.choice)),
         draft,
-        busy,
       });
       setContinuation(undefined);
       toast.add({ title: `Continues on ${target.choice.model} in a new thread` });
@@ -168,6 +168,10 @@ export function ThreadComposer({
       toast.error({
         title: "Message not sent",
         description: error instanceof ContinuationRefused ? error.message : failureMessage(error),
+        // The person picked another model to get past this turn: one click stops it.
+        ...(error instanceof TurnStillRunning
+          ? { actionProps: { children: "Stop agent", onClick: () => stop() } }
+          : {}),
       });
       return false;
     }
