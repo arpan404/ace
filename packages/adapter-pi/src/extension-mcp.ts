@@ -30,6 +30,7 @@ const Tools = z.object({
         name: AceToolName,
         description: z.string().max(16384).optional(),
         inputSchema: z.record(z.string(), z.unknown()),
+        annotations: z.object({ readOnlyHint: z.boolean().optional() }).passthrough().optional(),
         _meta: z
           .object({ "ace/timeoutMs": z.number().int().min(1).max(maxToolTimeoutMs).optional() })
           .passthrough()
@@ -39,6 +40,12 @@ const Tools = z.object({
     .max(256),
   nextCursor: z.string().optional(),
 });
+type ListedTool = z.infer<typeof Tools>["tools"][number];
+/** Which listed ace tools this session offers Pi. */
+export type AceToolFilter = (tool: ListedTool) => boolean;
+export const anyAceTool: AceToolFilter = () => true;
+/** Read-only Pi: only the tools ace's server marks read-only (its risk class), never a write. */
+export const readOnlyAceTool: AceToolFilter = (tool) => tool.annotations?.readOnlyHint === true;
 const SessionResource = z.object({
   brief: z.string().max(4096).optional(),
   roles: z.string().max(1024).nullable().optional(),
@@ -130,7 +137,11 @@ type McpClient = InstanceType<(typeof import("@modelcontextprotocol/client"))["C
  * factory registers hooks alone and the connection and catalogue wait for `session_start`.
  * A failure there is an extension error Pi reports; Pi itself keeps working without ace tools.
  */
-export function registerAceMcpTools(pi: PiExtensionApi, connection: AceMcpConnection): void {
+export function registerAceMcpTools(
+  pi: PiExtensionApi,
+  connection: AceMcpConnection,
+  offered: AceToolFilter = anyAceTool,
+): void {
   // Pi's turn-start hook is synchronous, so the session brief is read from ace://session in the
   // background and the latest copy goes into each turn's system prompt.
   let guidance: SessionGuidance = {};
@@ -189,7 +200,7 @@ export function registerAceMcpTools(pi: PiExtensionApi, connection: AceMcpConnec
         }),
       );
       await refreshGuidance();
-      await listen(pi, mcp);
+      await listen(pi, mcp, offered);
     } catch (error) {
       await mcp.close();
       throw error;
@@ -201,13 +212,18 @@ export function registerAceMcpTools(pi: PiExtensionApi, connection: AceMcpConnec
 }
 
 /** Registers the catalogue's tools, keeps them active beside Pi's own, and follows changes. */
-async function listen(pi: PiExtensionApi, client: McpClient): Promise<void> {
+async function listen(
+  pi: PiExtensionApi,
+  client: McpClient,
+  offered: AceToolFilter,
+): Promise<void> {
   const slot = callSlots(64);
   const registered = new Set<string>();
   const refresh = (catalogValue: unknown) => {
     const catalog = Tools.parse(catalogValue);
     if (catalog.nextCursor) throw new Error("ace MCP catalog exceeds extension budget");
-    for (const tool of catalog.tools) {
+    const tools = catalog.tools.filter(offered);
+    for (const tool of tools) {
       const name = piToolName(tool.name);
       if (registered.has(name)) continue;
       registered.add(name);
@@ -255,7 +271,7 @@ async function listen(pi: PiExtensionApi, client: McpClient): Promise<void> {
     }
     if (pi.setActiveTools && pi.getActiveTools) {
       const native = pi.getActiveTools().filter((name) => !registered.has(name));
-      pi.setActiveTools([...native, ...catalog.tools.map((tool) => piToolName(tool.name))]);
+      pi.setActiveTools([...native, ...tools.map((tool) => piToolName(tool.name))]);
     }
   };
   refresh(await client.listTools());
