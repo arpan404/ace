@@ -9,7 +9,14 @@ mkdir -p build
 release=${ACE_SCREEN_SIGN_RELEASE:-0}
 if [ "$release" = 1 ]; then
   release_identity=${ACE_SCREEN_SIGN_IDENTITY:-${CSC_NAME:-}}
-  if [ -z "$release_identity" ] || ! security find-identity -v -p codesigning 2>/dev/null | grep -F -- "$release_identity" | grep -q 'Developer ID Application'; then
+  if [ -n "$release_identity" ]; then
+    # A bare name can match several keychain identities (the Apple
+    # Distribution and Developer ID Application certificates share one team
+    # name), which codesign rejects as ambiguous. Resolve to the hash of the
+    # matching Developer ID Application identity before signing.
+    release_identity=$(security find-identity -v -p codesigning 2>/dev/null | grep 'Developer ID Application' | grep -F -- "$release_identity" | awk 'length($2) == 40 && $2 ~ /^[0-9A-F]+$/ {print $2; exit}')
+  fi
+  if [ -z "$release_identity" ]; then
     echo 'screen-helper: release signing needs a "Developer ID Application" identity in the keychain, named by ACE_SCREEN_SIGN_IDENTITY or CSC_NAME' >&2
     exit 1
   fi
