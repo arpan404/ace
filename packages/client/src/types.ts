@@ -60,6 +60,14 @@ export interface ConnectionClose {
   /** When it closed; absent without `now`. */
   at?: number;
 }
+/**
+ * A fact for the app's diagnostics log: why a connection dropped and how it recovered. Values are
+ * codes, counts and durations; never tokens, message contents or file paths.
+ */
+export interface DiagnosticEvent {
+  event: string;
+  data?: Record<string, string | number | boolean | null>;
+}
 export interface ClientOptions {
   deviceId: DeviceId;
   /** Pin a directory entry before subscriptions or durable intents can replay. */
@@ -85,6 +93,8 @@ export interface ClientOptions {
   id(): string;
   /** Wall-clock milliseconds for `connectionInfo()` timestamps; without it they are left out. */
   now?(): number;
+  /** Where connection drops and recoveries are reported. None: they go unreported. */
+  report?(event: DiagnosticEvent): void;
   limits?: Partial<Limits>;
 }
 export interface Limits {
