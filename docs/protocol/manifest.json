@@ -917,8 +917,8 @@
       "sha256": "fdbe6b88ebde71f9f7ffe94071158c71b9f807be7ea35c0ee51cd1ba00837856"
     },
     "schema/DeviceInput.json": {
-      "bytes": 3411,
-      "sha256": "7cd997fd7524458885cc3f7b127f704449be4c09ca426fbb5546bd4ff8ddb499"
+      "bytes": 3503,
+      "sha256": "5926309696b1e32df34658ba7aea60ff010ef782b2b6add127960febe1004ee9"
     },
     "schema/DeviceInventory.json": {
       "bytes": 543,
@@ -3853,10 +3853,10 @@
       "sha256": "3c00a18ea5c34e708a57c9d0f5d0cdba097745d6b5fc80bd543053d4c1079efc"
     },
     "types.md": {
-      "bytes": 818269,
-      "sha256": "92ccc86d17514cec69b16248fd80beb778c73d4612c808d9e89c85ab089908f9"
+      "bytes": 818308,
+      "sha256": "299ae42a5c1e79cf612a140b718d8310a8de8d3c335aba8ebac9fb5b3bc53c99"
     }
   },
-  "input": "6a435b1435a2886700365aceba58a69e06089655e47e464a505206ad9657c52d",
+  "input": "949204b31d25e1d33b298542c55c8ebbf8996c278503c6681ccda312c9f23f5e",
   "version": 1
 }

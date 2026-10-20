@@ -1,6 +1,7 @@
 import type { DeviceInput } from "@ace/protocol/devices";
 import type { RawSupervisedProcess } from "@ace/provider-kit/process";
 import type { DeviceRuntime } from "./runtime.ts";
+import { refuseSimulatorKey } from "./key-support.ts";
 import { DeviceError } from "./sdk.ts";
 import {
   endFingers,
@@ -13,6 +14,20 @@ import {
   type FingerStep,
   type HeldFingers,
 } from "./simulator-fingers.ts";
+
+/**
+ * Simulator hardware buttons as HID (usage page, usage), the codes Xcode's DeviceKit chrome
+ * gives each button; serve-sim presses a button sent with both. Consumer page 0x0C: Sleep/Wake
+ * 0x30, Volume Up 0xE9, Volume Down 0xEA, and 0x95 for Apple Watch's side button. Telephony
+ * page 0x0B, usage 0x2D: the Action button.
+ */
+const hardwareButtons = {
+  power: { page: 12, usage: 48 },
+  volumeUp: { page: 12, usage: 233 },
+  volumeDown: { page: 12, usage: 234 },
+  action: { page: 11, usage: 45 },
+  side: { page: 12, usage: 149 },
+} as const;
 
 /**
  * Native touch (one finger, or two as serve-sim's two-finger touch) and keyboard operations,
@@ -132,13 +147,15 @@ export class SimulatorInput {
         });
       else if (input.key === "home") this.options.send(4, { button: "home" });
       else if (input.key === "power")
-        this.options.send(4, { button: "power", page: 12, usage: 48 });
-      else
-        throw new DeviceError(
-          "not_supported",
-          "iOS has no Back key",
-          "Use a gesture or the app's back control.",
-        );
+        this.options.send(4, { button: "power", ...hardwareButtons.power });
+      else if (
+        input.key === "volumeUp" ||
+        input.key === "volumeDown" ||
+        input.key === "action" ||
+        input.key === "side"
+      )
+        this.options.send(4, hardwareButtons[input.key]);
+      else refuseSimulatorKey(input.key);
       return;
     }
     const typing = this.options.runtime.spawn({
