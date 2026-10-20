@@ -43,7 +43,11 @@ async function main() {
   await cp(join(installedPty, "LICENSE"), join(destination, "LICENSE"));
   await stageNativeFiles(target, prebuild, join(destination, "prebuilds", target), native);
   execFileSync("bun", ["x", "vite", "build"], { cwd: join(repo, "apps/web"), stdio: "inherit" });
-  await cp(join(repo, "apps/web/dist"), join(root, "web"), { recursive: true });
+  // The web build emits hidden source maps; nothing loads them, so they stay out of the archive.
+  await cp(join(repo, "apps/web/dist"), join(root, "web"), {
+    recursive: true,
+    filter: (path) => !path.endsWith(".map"),
+  });
   const inputs = await bundleDaemon(repo, root, publicKey, target);
   await collectLicenses(inputs, root);
   await cp(join(repo, "LICENSE"), join(root, "ACE-LICENSE"));
