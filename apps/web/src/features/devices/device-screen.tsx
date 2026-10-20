@@ -16,6 +16,17 @@ import { DeviceFingers, pinchPartner } from "./device-fingers.ts";
 
 type Touch = "multi" | "pointer" | "gestures";
 
+/** A picture as the screen drew it, upright: for a frame drawn around it and the stream's stats. */
+export interface ShownScreen {
+  /** Upright size in pixels, and the pixels per point. */
+  width: number;
+  height: number;
+  scale: number;
+  codec: "jpeg" | "h264";
+  /** When it was captured, on the daemon's clock. */
+  capturedAt: number;
+}
+
 /** Which finger an input moves (-1: not a finger). */
 const finger = (input: DeviceInput) => (input.kind === "pointer" ? (input.pointerId ?? 0) : -1);
 /** A pointer event where it is on screen and on the device. */
@@ -40,13 +51,19 @@ export function DeviceScreen(props: {
   name: string;
   interactive: boolean;
   onInput(input: DeviceInput): void | Promise<void>;
+  /** Each picture as it is drawn. */
+  onFrame?(shown: ShownScreen): void;
+  /** Classes for the canvas, over its defaults (a drawn device frame clips the corners). */
+  className?: string;
 }) {
   const cursor = useRef<HTMLSpanElement>(null);
   const image = useRef<HTMLCanvasElement>(null);
   const latestInput = useRef(props.onInput);
+  const latestFrame = useRef(props.onFrame);
   useEffect(() => {
     latestInput.current = props.onInput;
-  }, [props.onInput]);
+    latestFrame.current = props.onFrame;
+  }, [props.onInput, props.onFrame]);
   const touch = useRef<Touch>("gestures");
   const frame = useRef<FrameSize | undefined>(undefined);
   /** The live touch sequence: its gesture reader, the device's fingers and coalesced moves. */
@@ -128,6 +145,13 @@ export function DeviceScreen(props: {
       picture.draw(context, shown.width, shown.height);
       context.restore();
       element.dataset["frame"] = String(shown.sequence);
+      latestFrame.current?.({
+        width,
+        height,
+        scale: shown.scale,
+        codec: shown.codec === "jpeg" ? "jpeg" : "h264",
+        capturedAt: shown.timestamp,
+      });
       const previous = frame.current;
       if (
         previous &&
@@ -339,6 +363,7 @@ export function DeviceScreen(props: {
         className={cn(
           "block h-auto max-h-full w-auto max-w-full touch-none rounded-[22px] bg-black object-contain select-none shadow-[0_0_0_1px_var(--border)]",
           props.interactive ? "cursor-pointer" : "cursor-default",
+          props.className,
         )}
         onPointerDown={(event) => {
           if (!props.interactive) return;

@@ -6,6 +6,18 @@ import type { Toolchain } from "@ace/protocol";
 
 type Run = (command: string, args: string[]) => Promise<string | undefined>;
 
+/** "Xcode 26.0\nBuild version 17A324" → "26.0". */
+function xcodeVersion(output: string | undefined): string | undefined {
+  return output && /^Xcode\s+(\d[\w.]*)/.exec(output)?.[1]?.slice(0, 64);
+}
+/** The platform-tools release `adb version` reports ("Version 35.0.2-12147458" → "35.0.2"). */
+function adbToolsVersion(output: string | undefined): string | undefined {
+  if (!output) return undefined;
+  const match =
+    /^Version\s+(\d+(?:\.\d+)+)/m.exec(output) ?? /version\s+(\d+(?:\.\d+)+)/i.exec(output);
+  return match?.[1]?.slice(0, 64);
+}
+
 /**
  * Tools ace uses but never bundles: git (workspaces, review), Xcode (iOS Simulator) and the
  * Android SDK (emulators). Missing tools get a setup hint instead of an error.
@@ -38,21 +50,25 @@ export async function detectToolchains(
   if (platform === "darwin") {
     const xcode = await exec("xcrun", ["simctl", "help"]);
     const developer = await exec("xcode-select", ["-p"]);
+    const version = xcode ? xcodeVersion(await exec("xcodebuild", ["-version"])) : undefined;
     result.push({
       id: "xcode",
       available: Boolean(xcode),
       detail: xcode ? `Xcode at ${developer ?? "unknown path"}` : "Simulator tools not found",
       hint: "Install Xcode from the App Store, open it once, then run: sudo xcode-select -s /Applications/Xcode.app",
+      ...(version ? { version } : {}),
     });
   }
   const sdk = env.ANDROID_HOME ?? env.ANDROID_SDK_ROOT;
   const adb = sdk ? join(sdk, "platform-tools", platform === "win32" ? "adb.exe" : "adb") : "adb";
   const adbVersion = sdk && !existsSync(adb) ? undefined : await exec(adb, ["version"]);
+  const platformTools = adbToolsVersion(adbVersion);
   result.push({
     id: "android",
     available: Boolean(adbVersion),
     detail: adbVersion?.split("\n")[0] ?? "Android SDK not found",
     hint: "Optional: install Android Studio, then set ANDROID_HOME to its SDK directory.",
+    ...(platformTools ? { version: platformTools } : {}),
   });
   return result;
 }

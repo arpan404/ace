@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { deviceBrowser, openDevice, openDevices } from "@/test/device-browser.ts";
+import { deviceBrowser, openDevice, openDevices, unusable } from "@/test/device-browser.ts";
 
 function noop() {}
 // jsdom has no WebCodecs: every screen here is JPEG, as in a browser without it.
@@ -19,22 +19,73 @@ async function shows(screenImage: HTMLElement) {
   await waitFor(() => expect(browser.draws(screenImage)).toBeGreaterThan(0));
 }
 
-/** The line at the top of a device's tab: "<device> · <what it is doing>". */
-const statusLine = (section: HTMLElement) =>
-  within(section).getByText(
-    (_, element) => element?.tagName === "P" && /·/.test(element.textContent ?? ""),
-  ).textContent;
+/** The line under a device's name: its OS, where it is and, while live, its stream. */
+const subtitle = (section: HTMLElement, pattern: RegExp) => within(section).getByText(pattern);
+/** Who drives the device, as its header's chip says. */
+const controlChip = (section: HTMLElement, name: string) =>
+  within(section).findByRole("status", { name });
 
-test("devices stay off until enabled, then list the simulator and emulator", async () => {
+test("devices stay off until enabled, then show the running simulator and every device by kind", async () => {
   const { panel } = await openDevices();
 
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
 
-  const list = await within(panel).findByRole("list", { name: "Devices" });
-  const rows = within(list).getAllByRole("button");
-  expect(rows[0]?.textContent).toMatch(/^iPhone 16 Pro.*iOS 18\.4 · Running$/);
-  expect(rows[1]?.textContent).toMatch(/^Pixel 9.*Android 15 · Off$/);
-  expect(rows).toHaveLength(2);
+  // The booted iPhone is running, so it leads as a tile; the Pixel is off.
+  const running = await within(panel).findByRole("list", { name: "Running devices" });
+  expect(
+    within(running)
+      .getAllByRole("button")
+      .map((tile) => tile.getAttribute("aria-label")),
+  ).toEqual(["iPhone 16 Pro, iOS 18.4, Running"]);
+
+  // Every device sits under its kind, folded with a count until opened.
+  const all = within(panel).getByRole("region", { name: "All devices" });
+  expect(within(all).queryByRole("list", { name: "iPhone" })).toBeNull();
+  await userEvent.click(within(all).getByText("iPhone"));
+  await userEvent.click(within(all).getByText("Android phone"));
+  expect(
+    within(within(all).getByRole("list", { name: "iPhone" })).getByRole("button").textContent,
+  ).toMatch(/^iPhone 16 Pro.*iOS 18\.4 · Running$/);
+  expect(
+    within(within(all).getByRole("list", { name: "Android phone" })).getByRole("button")
+      .textContent,
+  ).toMatch(/^Pixel 9.*Android 15 · Off$/);
+});
+
+test("the search and the platform filter narrow the list, and / goes to the search", async () => {
+  const { panel } = await openDevices();
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  const all = await within(panel).findByRole("region", { name: "All devices" });
+
+  await userEvent.click(within(panel).getByRole("button", { name: "Android" }));
+  expect(within(panel).queryByRole("list", { name: "Running devices" })).toBeNull();
+  expect(within(all).getByRole("list", { name: "Android phone" })).toBeTruthy();
+  expect(within(all).queryByText("iPhone")).toBeNull();
+
+  await userEvent.click(within(panel).getByRole("button", { name: "All" }));
+  await userEvent.keyboard("/");
+  const search = within(panel).getByRole("searchbox", { name: "Search devices" });
+  expect(document.activeElement).toBe(search);
+  await userEvent.type(search, "watch");
+  expect(await within(panel).findByText("No devices match")).toBeTruthy();
+  await userEvent.click(within(panel).getByRole("button", { name: "Clear search" }));
+  expect(within(panel).getByRole("list", { name: "Running devices" })).toBeTruthy();
+});
+
+test("a device opened from the list comes back under Recent, with Boot to start it again", async () => {
+  const { app, panel } = await openDevices();
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await openDevice(panel, "Pixel 9");
+
+  await userEvent.click(within(panel).getByRole("tab", { name: "Devices" }));
+  const recent = await within(panel).findByRole("list", { name: "Recent devices" });
+  const row = within(recent).getByText("Pixel 9").closest("li");
+  expect(row?.textContent).toMatch(/Android 15 · used just now/);
+
+  await userEvent.click(within(row!).getByRole("button", { name: "Boot" }));
+  const pixel = await within(panel).findByRole("region", { name: "Pixel 9" });
+  await shows(await within(pixel).findByRole("img", { name: "Pixel 9 screen" }));
+  expect(app.daemon.appDevices.boundThread("android:Pixel_9_API_35")).toBe("thread-checkout");
 });
 
 test("booting an emulator shows its live screen, which takes keys and text while you're in control", async () => {
@@ -47,9 +98,13 @@ test("booting an emulator shows its live screen, which takes keys and text while
 
   const screenImage = await within(pixel).findByRole("img", { name: "Pixel 9 screen" });
   await shows(screenImage);
-  expect(statusLine(pixel)).toBe("Pixel 9 · Live · You're in control");
+  expect(subtitle(pixel, /^Android 15 · Live/)).toBeTruthy();
+  expect(await controlChip(pixel, "You're in control")).toBeTruthy();
 
+  // The rail's keys, then the keyboard field it opens, which types on the device.
   await userEvent.click(within(pixel).getByRole("button", { name: "Back" }));
+  expect(within(pixel).queryByRole("textbox", { name: "Type on the device" })).toBeNull();
+  await userEvent.click(within(pixel).getByRole("button", { name: "Keyboard" }));
   await userEvent.type(within(pixel).getByRole("textbox", { name: "Type on the device" }), "hello");
   await userEvent.click(within(pixel).getByRole("button", { name: "Send" }));
 
@@ -62,8 +117,9 @@ test("booting an emulator shows its live screen, which takes keys and text while
 
   await userEvent.click(within(pixel).getByRole("button", { name: /Hand back/ }));
   await waitFor(() =>
-    expect(within(pixel).getByRole("button", { name: "Back" }).hasAttribute("disabled")).toBe(true),
+    expect(unusable(within(pixel).getByRole("button", { name: "Back" }))).toBe(true),
   );
+  expect(within(pixel).queryByRole("textbox", { name: "Type on the device" })).toBeNull();
 });
 
 test("a running simulator shows its screen, and only watches until you take control", async () => {
@@ -73,16 +129,16 @@ test("a running simulator shows its screen, and only watches until you take cont
 
   const screenImage = await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
   await shows(screenImage);
-  expect(within(iphone).getByRole("button", { name: "Home" }).hasAttribute("disabled")).toBe(true);
+  expect(unusable(within(iphone).getByRole("button", { name: "Home" }))).toBe(true);
+  expect(within(iphone).queryByRole("status", { name: "You're in control" })).toBeNull();
 
-  // The control bar over the screen hands the device to you, and back.
+  // The header's control action hands the device to you, and back.
   await userEvent.click(within(iphone).getByRole("button", { name: /Take control/ }));
   await waitFor(() =>
-    expect(within(iphone).getByRole("button", { name: "Home" }).hasAttribute("disabled")).toBe(
-      false,
-    ),
+    expect(unusable(within(iphone).getByRole("button", { name: "Home" }))).toBe(false),
   );
-  expect(statusLine(iphone)).toBe("iPhone 16 Pro · Live · You're in control");
+  expect(subtitle(iphone, /^iOS 18\.4 · Live/)).toBeTruthy();
+  expect(await controlChip(iphone, "You're in control")).toBeTruthy();
   await userEvent.click(within(iphone).getByRole("button", { name: "Home" }));
   await waitFor(() =>
     expect(app.daemon.appDevices.inputs.map((entry) => entry.input)).toEqual([
@@ -127,15 +183,22 @@ test("disabling devices is machine-wide, so it asks first", async () => {
   expect(await within(panel).findByRole("button", { name: "Enable devices" })).toBeTruthy();
 });
 
-test("the device's logs appear while the log section is open", async () => {
+test("the device's logs appear while the drawer shows them, and the filter narrows them", async () => {
   const { panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   await openDevice(panel, "iPhone 16 Pro");
+  expect(within(panel).queryByRole("log", { name: "Device logs" })).toBeNull();
 
   await userEvent.click(await within(panel).findByRole("button", { name: "Logs" }));
 
   const logs = await within(panel).findByRole("log", { name: "Device logs" });
   expect(await within(logs).findByText(/SpringBoard launched/)).toBeTruthy();
+  await userEvent.type(within(panel).getByRole("searchbox", { name: "Filter logs" }), "network");
+  expect(within(logs).queryByText(/SpringBoard launched/)).toBeNull();
+  expect(within(logs).getByText(/Network reachable/)).toBeTruthy();
+
+  await userEvent.click(within(panel).getByRole("button", { name: "Fold the drawer" }));
+  expect(within(panel).queryByRole("log", { name: "Device logs" })).toBeNull();
 });
 
 test("a dropped devices channel says so, and Reconnect opens a fresh one", async () => {
@@ -199,8 +262,14 @@ test("each device opens as its own tab beside the others, and the catalog marks 
   expect(within(pixel).getByText("Pixel 9 is off.")).toBeTruthy();
 
   await userEvent.click(within(panel).getByRole("tab", { name: "Devices" }));
-  const list = within(panel).getByRole("list", { name: "Devices" });
-  for (const row of within(list).getAllByRole("button")) expect(row.textContent).toContain("Open");
+  await userEvent.clear(within(panel).getByRole("searchbox", { name: "Search devices" }));
+  const all = await within(panel).findByRole("region", { name: "All devices" });
+  await userEvent.click(within(all).getByText("iPhone"));
+  await userEvent.click(within(all).getByText("Android phone"));
+  for (const kind of ["iPhone", "Android phone"])
+    expect(
+      within(within(all).getByRole("list", { name: kind })).getByRole("button").textContent,
+    ).toContain("Open");
 });
 
 test("when macOS hasn't allowed screen recording, the simulator tab says how to allow it and shows the screen once allowed", async () => {
@@ -262,14 +331,15 @@ test("a device delegated to one of the thread's agents moves to the thread, the 
   await userEvent.click(agents[0]!);
 
   // The daemon's state names the agent that holds it now.
-  expect(await within(iphone).findByText(`${chosen} is using it`)).toBeTruthy();
-  expect(statusLine(iphone)).toMatch(/The agent is in control$/);
+  expect(await within(iphone).findByText(chosen)).toBeTruthy();
+  expect(within(iphone).getByRole("button", { name: /Take over/ })).toBeTruthy();
   expect(app.daemon.appDevices.boundThread("ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b")).toBe(
     "thread-checkout",
   );
 
-  await userEvent.click(within(iphone).getByRole("button", { name: "Take back" }));
-  expect(await within(iphone).findByText("You're using it")).toBeTruthy();
+  await userEvent.click(within(iphone).getByRole("button", { name: /Take over/ }));
+  expect(await controlChip(iphone, "You're in control")).toBeTruthy();
+  expect(within(iphone).queryByText(chosen)).toBeNull();
 });
 
 test("Simulator can restart its live view", async () => {
@@ -367,12 +437,9 @@ test("booting has a visible status until the emulator finishes", async () => {
   await userEvent.click(await within(panel).findByRole("button", { name: "Reconnect" }));
   pixel = await within(panel).findByRole("region", { name: "Pixel 9" });
   await userEvent.click(within(pixel).getByRole("button", { name: /^Boot$/ }));
+  // Said under the name and over the device, with nothing left to press until it is up.
   expect(await within(pixel).findAllByText(/Booting…/)).toHaveLength(2);
-  expect(
-    within(pixel)
-      .getByRole("button", { name: /^Boot$/ })
-      .hasAttribute("disabled"),
-  ).toBe(true);
+  expect(within(pixel).queryByRole("button", { name: /^Boot$/ })).toBeNull();
   act(() => resume?.());
   expect(await within(pixel).findByRole("img", { name: "Pixel 9 screen" })).toBeTruthy();
   spy.mockRestore();
@@ -484,18 +551,18 @@ test("another connection's control offers takeover and boot acquires this panel'
         controller: "human",
       });
     });
-    await waitFor(() =>
-      expect(statusLine(pixel)).toBe("Pixel 9 · Off · Another connection is in control"),
-    );
+    expect(await controlChip(pixel, "Another connection is in control")).toBeTruthy();
+    expect(subtitle(pixel, /^Android 15 · Off$/)).toBeTruthy();
     expect(within(pixel).queryByRole("button", { name: /Hand back/ })).toBeNull();
     await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
-    await waitFor(() => expect(statusLine(pixel)).toBe("Pixel 9 · Live · You're in control"));
+    expect(await controlChip(pixel, "You're in control")).toBeTruthy();
+    await waitFor(() => expect(subtitle(pixel, /^Android 15 · Live/)).toBeTruthy());
     expect(
       other.getSnapshot().states.find((state) => state.device.id === "android:Pixel_9_API_35")
         ?.ownedHere,
     ).toBe(false);
     act(() => other.disconnect());
-    expect(statusLine(pixel)).toBe("Pixel 9 · Live · You're in control");
+    expect(await controlChip(pixel, "You're in control")).toBeTruthy();
   } finally {
     other.disconnect();
   }

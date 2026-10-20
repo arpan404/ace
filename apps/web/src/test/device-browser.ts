@@ -171,9 +171,20 @@ export async function openDevices() {
   return { app, panel };
 }
 
-/** Open a device from the catalog as its own tab; its region once loaded. */
+/**
+ * Open a device from the catalog as its own tab, as a person finds it: search for its name, then
+ * pick its row under All devices. Its region once loaded.
+ */
 export async function openDevice(panel: HTMLElement, name: string) {
-  const list = await within(panel).findByRole("list", { name: "Devices" });
-  await userEvent.click(within(list).getByRole("button", { name: new RegExp(`^${name}`) }));
+  const search = await within(panel).findByRole("searchbox", { name: "Search devices" });
+  await userEvent.clear(search);
+  await userEvent.type(search, name);
+  const all = within(panel).getByRole("region", { name: "All devices" });
+  await userEvent.click(within(all).getByRole("button", { name: new RegExp(`^${name}`) }));
   return within(panel).findByRole("region", { name });
+}
+
+/** Whether a control can't be used now: disabled outright, or disabled with a reason to read. */
+export function unusable(element: HTMLElement): boolean {
+  return element.hasAttribute("disabled") || element.getAttribute("aria-disabled") === "true";
 }

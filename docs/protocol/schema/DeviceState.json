@@ -2,6 +2,9 @@
   "$id": "https://ace.local/protocol/v1/DeviceState.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "activity": {
+      "$ref": "https://ace.local/protocol/v1/DeviceActivity.json"
+    },
     "booting": {
       "type": "boolean"
     },

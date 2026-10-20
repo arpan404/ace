@@ -15,6 +15,8 @@ export const toolbarEdge = "shadow-[inset_0_-1px_0_var(--border)]";
 export const sectionRule = "border-t border-border";
 export const listDivider = "divide-y divide-border-soft";
 export const controlDivider = "mx-1 h-4 w-px shrink-0 bg-border";
+/** `controlDivider` turned on its side, between the groups of a vertical rail of controls. */
+export const railDivider = "my-1 h-px w-4 shrink-0 bg-border";
 
 /*
  * Containers:

@@ -24,6 +24,11 @@ function SplitButton(props: {
   disabled?: boolean;
   /** Only the main action is unavailable; `actionLabel` (its tooltip) should say why. */
   actionDisabled?: boolean;
+  /**
+   * When the label hides, leaving the icon: by default in a narrow app header (container
+   * `header`); a pane passes its own container query.
+   */
+  labelClassName?: string;
   className?: string;
 }) {
   const outline = (props.variant ?? "outline") === "outline";
@@ -54,7 +59,11 @@ function SplitButton(props: {
         >
           {props.icon}
           {/* In a narrow header (container `header`) only the icon shows; the name stays. */}
-          {props.label && <span className="@max-[45rem]/header:sr-only">{props.label}</span>}
+          {props.label && (
+            <span className={props.labelClassName ?? "@max-[45rem]/header:sr-only"}>
+              {props.label}
+            </span>
+          )}
         </ButtonPrimitive>
       </Tip>
       <Menu>
