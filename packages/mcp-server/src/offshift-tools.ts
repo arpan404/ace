@@ -5,8 +5,10 @@ import {
   OffshiftCriterion,
   OffshiftEvidenceInput,
   OffshiftPhase,
+  OffshiftPlaybookId,
   OffshiftResult,
   OffshiftRoles,
+  OffshiftStepsInput,
   type OffshiftCall,
 } from "@ace/protocol/offshift";
 import { controlResult, controlTool, controlToolTimeoutMs, fields } from "./control-tool.ts";
@@ -17,12 +19,14 @@ const needs = {
   start: ["runId", "outcome", "endpoint", "criteria"],
   get: ["runId"],
   list: [],
+  playbooks: [],
   advance: [...mutation, "phase", "note"],
   block: [...mutation, "note"],
   resume: [...mutation, "note"],
   evidence: [...mutation, "evidence"],
   revise: [...mutation, "criterion", "note"],
   roles: ["roles"],
+  step: [...mutation, "stepId", "state"],
 } as const;
 type Action = keyof typeof needs;
 const actions = Object.keys(needs) as [Action, ...Action[]];
@@ -33,7 +37,7 @@ const Input = z
     action: z
       .enum(actions)
       .describe(
-        "start: open a run with its outcome, endpoint, criteria and optional roles. get: the run, revision, pending evidence and next. list: this thread's runs. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record one check's result. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked. roles: replace the run's roles (runId, version), or the project default with scope project.",
+        "start: open a run with its outcome, endpoint, criteria, and optional playbook, steps and roles. get: the run, revision, pending evidence and next. list: this thread's runs. playbooks: the built-in playbooks and their steps. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record one check's result. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked. roles: replace the run's roles (runId, version), or the project default with scope project. step: mark stepId done or skipped (note: what you saw, or why).",
       ),
     runId: z
       .string()
@@ -66,7 +70,21 @@ const Input = z
     phase: OffshiftPhase.optional().describe(
       "advance: plan, implement, verify, review, then delivery.",
     ),
-    note: text.optional().describe("advance, block, resume and revise: why, in a sentence."),
+    note: text
+      .optional()
+      .describe("advance, block, resume, revise and step: why, in a sentence. Required to skip."),
+    playbook: OffshiftPlaybookId.optional().describe("start: a built-in playbook's steps."),
+    steps: OffshiftStepsInput.optional().describe(
+      "start: your own steps ({id, title, phase}), after the playbook's; up to 24 in all.",
+    ),
+    stepId: z
+      .string()
+      .min(1)
+      .max(128)
+      .regex(/^[a-zA-Z0-9_.-]+$/)
+      .optional()
+      .describe("step: the step to mark."),
+    state: z.enum(["done", "skipped"]).optional().describe("step: done or skipped."),
     evidence: OffshiftEvidenceInput.optional().describe(
       "evidence: one check, at the revision get returned before it ran.",
     ),
@@ -96,7 +114,7 @@ const Input = z
   })
   .meta({
     "x-ace-constraint":
-      "start needs runId, outcome, endpoint and criteria; get needs runId; advance needs runId, version, phase and note; block and resume need runId, version and note; evidence needs runId, version and evidence; revise needs runId, version, criterion and note; roles needs roles, plus runId and version unless scope is project.",
+      "start needs runId, outcome, endpoint and criteria; get needs runId; advance needs runId, version, phase and note; block and resume need runId, version and note; evidence needs runId, version and evidence; revise needs runId, version, criterion and note; step needs runId, version, stepId and state; roles needs roles, plus runId and version unless scope is project.",
   });
 type Input = z.output<typeof Input>;
 
@@ -119,11 +137,14 @@ function request(input: Input): OffshiftCall {
         endpoint: input.endpoint ?? "",
         criteria: input.criteria ?? [],
         ...(input.roles ? { roles: input.roles } : {}),
+        ...(input.playbook ? { playbook: input.playbook } : {}),
+        ...(input.steps ? { steps: input.steps } : {}),
       };
     case "get":
       return { action: "get", runId };
     case "list":
-      return { action: "list" };
+    case "playbooks":
+      return { action: input.action };
     case "advance":
       return { action: "advance", ...change, phase: input.phase ?? "plan", note };
     case "block":
@@ -139,6 +160,14 @@ function request(input: Input): OffshiftCall {
       if (!criterion) throw new Error("revise needs criterion.");
       return { action: "revise", ...change, criterion, note };
     }
+    case "step":
+      return {
+        action: "step",
+        ...change,
+        stepId: input.stepId ?? "",
+        state: input.state ?? "done",
+        ...(input.note === undefined ? {} : { note: input.note }),
+      };
     case "roles": {
       const roles = input.roles ?? {};
       return input.scope === "project"
@@ -160,7 +189,7 @@ export const offshift = controlTool({
   riskClass: "thread-write",
   capability: "thread_control",
   description:
-    "Keep this thread's durable record of a multi-step coding outcome: criteria, phase (plan, implement, verify, review, delivery), blocker, roles and evidence bound to the workspace's Git revision. It records work and never runs it. Changes take the last version. Every result's next says what to do now. Each action's fields are named in action's description.",
+    "Keep this thread's durable record of a multi-step coding outcome: criteria, steps (from a playbook or your own), phase (plan, implement, verify, review, delivery), blocker, roles and evidence bound to the workspace's Git revision. It records work and never runs it. Changes take the last version. Every result's next says what to do now. Each action's fields are named in action's description.",
   input: Input,
   output: controlResult(OffshiftResult),
   run: (input, control) =>

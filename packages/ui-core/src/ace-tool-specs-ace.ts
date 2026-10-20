@@ -179,6 +179,11 @@ const offshiftWords: Record<string, (args: Args) => ToolWords> = {
     ),
   get: (args) => say(verbs.checked, " an Offshift run", named(args, ["runId"])),
   list: () => say(verbs.listed, " Offshift runs"),
+  playbooks: () => say(verbs.listed, " Offshift playbooks"),
+  step: (args) =>
+    str(args, "state") === "skipped"
+      ? say(["Skipped", "Skipping", "Skip"], " a step", named(args, ["stepId"]))
+      : say(["Finished", "Finishing", "Finish"], " a step", named(args, ["stepId"])),
   advance: (args) => {
     const phase = named(args, ["phase"]);
     return say(["Moved", "Moving", "Move"], ` an Offshift run${phase ? ` to ${phase}` : ""}`);

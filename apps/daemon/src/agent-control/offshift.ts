@@ -3,6 +3,7 @@ import {
   OffshiftError,
   OffshiftJournal,
   OffshiftProjectRoles,
+  playbookCatalogue,
   resolveRole,
   runCard,
   type ResolvedRole,
@@ -72,6 +73,8 @@ export function createOffshifts(context: ServiceContext, delegations: Delegation
       signal: AbortSignal,
     ): Promise<AgentControlResult> {
       const request = operation.request;
+      // The catalogue is static data: no run, revision or ancestry is involved.
+      if (request.action === "playbooks") return { ok: true, data: playbookCatalogue() };
       const ownerId = operation.runOwner ?? caller.threadId;
       const foreign = ownerId !== caller.threadId;
       if (foreign) {

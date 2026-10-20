@@ -262,6 +262,13 @@ test("an offshift call reads as the record it changed", () => {
     target: "restore",
   });
   expect(words({ action: "list" })?.past).toBe("Listed Offshift runs");
+  expect(words({ action: "step", stepId: "reproduce", state: "skipped" })).toMatchObject({
+    past: "Skipped a step",
+    target: "reproduce",
+  });
+  expect(words({ action: "step", stepId: "reproduce", state: "done" })?.past).toBe(
+    "Finished a step",
+  );
 });
 
 test("delegating several tasks counts them; one task quotes its words", () => {

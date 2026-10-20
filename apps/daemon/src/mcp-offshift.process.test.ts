@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
 import type { OffshiftRunCard } from "@ace/protocol/offshift";
-import { OffshiftView } from "@ace/protocol/offshift";
+import { OffshiftPlaybooks, OffshiftView } from "@ace/protocol/offshift";
 import type { ThreadId } from "@ace/protocol";
 import { evalWorld, type EvalWorld } from "./evals/world.ts";
 import { Store } from "./store.ts";
@@ -283,4 +283,81 @@ it("delegate with runRole runs the child as the run's role or the project defaul
   });
   expect(unset.failed).toBe(true);
   expect(unset.text).toContain("is not set on your active Offshift run");
+});
+
+it("an agent picks a playbook from the catalogue, starts from it, and marks steps before leaving a phase", async () => {
+  world = await evalWorld({ browser: false });
+  const { agent } = await world.agent({});
+  const catalogue = Control.parse((await agent.call("offshift", { action: "playbooks" })).data);
+  expect(catalogue.ok).toBe(true);
+  const playbooks = OffshiftPlaybooks.parse(catalogue.data).playbooks;
+  expect(playbooks.map((item) => item.id)).toEqual([
+    "fix",
+    "feature",
+    "refactor",
+    "perf",
+    "investigate",
+    "ui",
+    "land",
+  ]);
+
+  const started = view((await agent.call("offshift", { ...start, playbook: "fix" })).data);
+  expect(started.run.playbook).toBe("fix");
+  expect(started.next).toContain("Step `reproduce`");
+
+  const early = await agent.call("offshift", {
+    action: "advance",
+    runId: "login",
+    version: started.run.version,
+    phase: "implement",
+    note: "Planned",
+  });
+  expect(Control.parse(early.data)).toMatchObject({ ok: false, code: "invalid" });
+  expect(Control.parse(early.data).hint).toContain("Finish plan first");
+
+  const done = view(
+    (
+      await agent.call("offshift", {
+        action: "step",
+        runId: "login",
+        version: started.run.version,
+        stepId: "reproduce",
+        state: "done",
+        note: "Saw no error under the field",
+      })
+    ).data,
+  );
+  const unexplained = await agent.call("offshift", {
+    action: "step",
+    runId: "login",
+    version: done.run.version,
+    stepId: "root-cause",
+    state: "skipped",
+  });
+  expect(Control.parse(unexplained.data).hint).toContain("needs a note with the reason");
+  const skipped = view(
+    (
+      await agent.call("offshift", {
+        action: "step",
+        runId: "login",
+        version: done.run.version,
+        stepId: "root-cause",
+        state: "skipped",
+        note: "The reproduction shows the missing handler",
+      })
+    ).data,
+  );
+  const advanced = view(
+    (
+      await agent.call("offshift", {
+        action: "advance",
+        runId: "login",
+        version: skipped.run.version,
+        phase: "implement",
+        note: "Planned",
+      })
+    ).data,
+  );
+  expect(advanced.run.phase).toBe("implement");
+  expect(advanced.next).toContain("Step `failing-test`");
 });
