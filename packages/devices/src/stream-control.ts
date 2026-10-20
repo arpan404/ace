@@ -122,6 +122,8 @@ export class DeviceStreamControl {
           ? { ...deviceImageStream, ...recordingImages }
           : deviceImageStream;
       if (!this.settings || !sameDeviceStream(this.settings, next)) {
+        // A refused update may have half-applied: the next one always reaches the capture.
+        this.settings = undefined;
         result = await this.apply(next);
         if (next.codec === "h264" && result.codec !== "h264")
           throw new DeviceError(

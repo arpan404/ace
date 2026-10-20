@@ -95,6 +95,19 @@ it("a live view never accepts JPEG, and a capture that can't stream video is ref
   await expect(control.set("view", fast)).rejects.toMatchObject({ code: "not_supported" });
   await control.close();
 });
+it("after a refused video request the capture gets the remaining settings again", async () => {
+  const applied: ScreenStreamSettings[] = [];
+  const control = new DeviceStreamControl(async (settings) => {
+    applied.push(settings);
+    return { codec: "jpeg" };
+  });
+  await control.refresh();
+  await expect(control.set("view", fast)).rejects.toMatchObject({ code: "not_supported" });
+  await control.remove("view");
+  expect(applied.map((settings) => settings.codec)).toEqual(["jpeg", "h264", "jpeg"]);
+  expect(applied.at(-1)).toEqual(applied[0]);
+  await control.close();
+});
 it("the shared capture fits every viewer instead of letting the latest subscriber increase traffic", () => {
   const mixed = commonDeviceStream([
     fast,
