@@ -157,6 +157,15 @@ test("tool commands, paths, changes and outputs are searchable but raw payloads 
   expect(log.query("uniqueoutput").hits).toEqual([]);
 });
 
+test("a thread stopped at its provider's usage limit stays searchable", () => {
+  const item = message("quotaword");
+  log.append([{ type: "item.created", item }]);
+  log.append([{ type: "thread.updated", status: { state: "limited", until: 50 } }]);
+  const hits = log.query("quotaword").hits;
+  expect(hits.map((hit) => [hit.itemId, hit.status])).toEqual([[item.id, "limited"]]);
+  expect(log.query("quotaword", { filters: { status: "limited" } }).hits).toHaveLength(1);
+});
+
 test("workspace, provider, date, status, agent and kind filters constrain hits", () => {
   const other = Thread.parse({
     ...thread,

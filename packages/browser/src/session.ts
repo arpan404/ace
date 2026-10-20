@@ -156,6 +156,8 @@ export class BrowserSession {
         return host ? { host, page: page.cdp } : undefined;
       },
     );
+    // A recording needs frames whether or not anyone watches.
+    this.live.require(() => this.recordings.active);
     this.persist();
     this.scheduleLifecycle();
   }
@@ -206,6 +208,7 @@ export class BrowserSession {
       wake: (tabId) => this.wakeIdle(tabId),
       beginRecording: async (tabId, check, by) => {
         await this.recordings.start(check, this.recordedTab(tabId), tabActor(by));
+        this.live.demand();
         this.emit();
       },
       finishRecording: () => this.finishRecording(),
@@ -560,7 +563,8 @@ export class BrowserSession {
     }
   }
   execute(raw: unknown, actor: Actor = { kind: "agent" }, signal?: AbortSignal): Promise<unknown> {
-    return this.submit(BrowserCommand.parse(raw), actor, signal);
+    const command = BrowserCommand.parse(raw);
+    return this.live.during(() => this.submit(command, actor, signal));
   }
   /** Popup events capture the submitting lease and page before entering their tab's queue. */
   async popup(url: string, target: PopupTarget): Promise<void> {
@@ -696,6 +700,7 @@ export class BrowserSession {
         this.recordedTab(viewed.id),
         tabActor(actor),
       );
+      this.live.demand();
       this.emit();
     });
   }
@@ -726,6 +731,7 @@ export class BrowserSession {
     try {
       return await this.recordings.stop();
     } finally {
+      this.live.demand();
       this.emit();
     }
   }

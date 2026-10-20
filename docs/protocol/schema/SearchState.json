@@ -6,6 +6,7 @@
     "working",
     "waiting",
     "needs_you",
+    "limited",
     "done",
     "failed",
     "unresponsive"

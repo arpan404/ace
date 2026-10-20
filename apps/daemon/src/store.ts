@@ -18,6 +18,7 @@ import { purgeTranscript } from "./storage/transcript.ts";
 import { SearchReplay } from "./search-replay.ts";
 import { migrateSidebarRevisions } from "./sidebar-revisions.ts";
 import { seedSentMessages } from "./draft-migration.ts";
+import { timeOrderedIds } from "./time-ordered-id.ts";
 import { NativeImageStore } from "./native-image-store.ts";
 import { ToolResultStore } from "./tool-result-store.ts";
 import { MeasurementStore } from "./measurement-store.ts";
@@ -40,7 +41,6 @@ import { setImmediate } from "node:timers/promises";
 import type { ArchiveReader } from "@ace/history-import";
 import { installArchive } from "./history-storage.ts";
 import { systemCredentials, type CredentialRuntime } from "./credential-runtime.ts";
-import { randomUUID } from "node:crypto";
 import { DatabaseSync, type StatementSync } from "@ace/provider-kit/sqlite";
 import {
   McpIntent,
@@ -80,6 +80,8 @@ export interface StoreOptions extends Partial<CredentialRuntime> {
   bufferScheduler?: BufferScheduler;
 }
 type Listener = (events: Event[]) => void;
+/** Passes of the search writer (100 ms apart by default) between refreshes of streaming items. */
+const streamingRefreshPasses = 20;
 export class Store {
   readonly devices: Devices;
   readonly workspaceReservations: WorkspaceReservations;
@@ -166,8 +168,8 @@ export class Store {
       statement: (sql) => this.statement(sql),
       commit: (run) => this.atomic(run),
     });
-    this.nextId = options.nextId ?? randomUUID;
     this.now = options.now ?? Date.now;
+    this.nextId = options.nextId ?? timeOrderedIds();
     this.writes = new StoreWriteGate(options.writeGate);
     this.streaming = new StoreStream({
       scheduler: options.bufferScheduler ?? bufferScheduler,
@@ -251,12 +253,17 @@ export class Store {
         },
       });
       this.searchQueries = new SearchQueries(path, options.searchWorkerFactory);
+      let passes = 0;
       this.searchMaintenance = createSearchMaintenance(
         options.searchScheduler ?? scheduleSearch,
         () => {
           if (this.historyWriting) return;
           try {
-            this.search.flush();
+            // Finished items publish on every pass. An item still streaming would otherwise
+            // rewrite its search documents on every pass while its agent writes; it refreshes
+            // once every `streamingRefreshPasses` instead.
+            if (++passes % streamingRefreshPasses === 0) this.search.flush();
+            else this.search.flushCompleted();
           } catch (error) {
             try {
               this.onError(error);

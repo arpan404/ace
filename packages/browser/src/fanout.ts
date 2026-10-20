@@ -27,6 +27,14 @@ interface Viewer {
 export class FrameFanout {
   private viewers = new Map<string, Viewer>();
   private latest: BrowserFrame | undefined;
+  private changed: () => void = () => {};
+  /** Told whenever a viewer joins or leaves, so capture can run only while it is watched. */
+  watch(listener: () => void): void {
+    this.changed = listener;
+  }
+  get watched(): boolean {
+    return this.viewers.size > 0;
+  }
   subscribe(id: string, sink: FrameSink, capture?: CaptureViewer): () => void {
     if (!this.viewers.has(id) && this.viewers.size >= 64)
       throw new Error("Browser subscriber limit");
@@ -38,8 +46,11 @@ export class FrameFanout {
     };
     this.viewers.set(id, viewer);
     this.flushViewer(viewer);
+    this.changed();
     return () => {
-      if (this.viewers.get(id) === viewer) this.viewers.delete(id);
+      if (this.viewers.get(id) !== viewer) return;
+      this.viewers.delete(id);
+      this.changed();
     };
   }
   configure(id: string, capture: CaptureViewer): void {
@@ -116,6 +127,7 @@ export class FrameFanout {
   }
   clear(): void {
     this.viewers.clear();
+    this.changed();
     this.latest = undefined;
   }
 }

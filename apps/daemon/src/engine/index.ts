@@ -34,7 +34,7 @@ import { recoverEngine } from "./restart.ts";
 import { IntentDelivery } from "./intent-delivery.ts";
 import { ThreadTransitions, type TransitionIO } from "./transitions.ts";
 import { Sessions } from "./sessions.ts";
-import { randomUUID } from "node:crypto";
+import { timeOrderedIds } from "../time-ordered-id.ts";
 import { deriveThreadStatus, readyForChildResults, type IdSource } from "@ace/core";
 import { SteerLane } from "./steer-lane.ts";
 import { rootRun } from "./steer-yield.ts";
@@ -156,7 +156,7 @@ export class Engine {
     const executeGit = promisify(execFile);
     const worktreeGit =
       options.worktreeGit ?? ((cwd, args) => runWorktreeGit(executeGit, process.env, cwd, args));
-    this.nextThreadId = options.threadId ?? randomUUID;
+    this.nextThreadId = options.threadId ?? timeOrderedIds();
     this.clock = options.clock ?? systemClock;
     this.repo = new EngineRepository(
       store,
@@ -333,7 +333,7 @@ export class Engine {
       () => this.clock.now(),
       silenceMs,
       (id) => this.wake(id),
-      options.threadId ?? randomUUID,
+      this.nextThreadId,
       this.recovery,
       this.limits,
       this.admissions,

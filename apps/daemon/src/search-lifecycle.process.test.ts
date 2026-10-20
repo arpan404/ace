@@ -43,7 +43,7 @@ test("reentrant scheduler cancellation still closes the store once and releases 
   expect(db.isOpen).toBe(false);
 });
 
-test("settled search cancels polling and a later streamed message wakes indexing again", async () => {
+test("streamed text becomes searchable on a periodic refresh, and settled search stops polling until more streams", async () => {
   const { Thread, Item, AgentId } = await import("@ace/protocol");
   let tick: (() => void) | undefined;
   const store = new Store(":memory:", () => {}, {
@@ -89,7 +89,15 @@ test("settled search cancels polling and a later streamed message wakes indexing
         append: "wokenneedle",
       },
     ]);
+    // A streaming item is not rewritten on every pass, but within one refresh period.
     tick?.();
+    expect(store.search.query({ text: "wokenneedle" }).hits).toEqual([]);
+    expect(tick).toBeDefined();
+    for (let pass = 0; pass < 20; pass++) {
+      const run = tick;
+      if (!run) break;
+      run();
+    }
     expect(store.search.query({ text: "wokenneedle" }).hits).toMatchObject([{ itemId: item.id }]);
     expect(tick).toBeUndefined();
     store.appendEvents(thread.id, [
@@ -101,7 +109,11 @@ test("settled search cancels polling and a later streamed message wakes indexing
         append: " laterneedle",
       },
     ]);
-    tick?.();
+    for (let pass = 0; pass < 20; pass++) {
+      const run = tick;
+      if (!run) break;
+      run();
+    }
     expect(store.search.query({ text: "laterneedle" }).hits).toMatchObject([{ itemId: item.id }]);
     expect(tick).toBeUndefined();
   } finally {
