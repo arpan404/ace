@@ -34,7 +34,7 @@ it("a viewer sees the agent that took a device and each action it takes, numbere
   });
   expect(stateOf(client, iphone)?.activity).toBeUndefined();
 
-  fake.agentActs(iphone, { action: "tap", ref: "e7", label: "Sign in", point: { x: 195, y: 244 } });
+  fake.agentActs(iphone, { action: "tap", ref: "e2", label: "Sign in", point: { x: 195, y: 244 } });
   fake.agentActs(iphone, { action: "type" });
   await settle();
   expect(stateOf(client, iphone)?.activity).toEqual({ sequence: 2, action: "type" });
@@ -64,7 +64,7 @@ it("a device's accessibility tree names its elements by ref, inside the screen",
     await client.request({ op: "ui.tree", deviceId: iphone, maxDepth: 8, maxNodes: 200 }),
   );
   const nodes = flat(tree.nodes);
-  expect(nodes.find((node) => node.ref === "e7")).toMatchObject({
+  expect(nodes.find((node) => node.ref === "ax-sign-in")).toMatchObject({
     role: "Button",
     name: "Sign in",
   });

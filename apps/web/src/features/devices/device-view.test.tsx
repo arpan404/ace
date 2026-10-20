@@ -35,13 +35,13 @@ test("an agent's tap shows on the stage as a ripple and a caption naming the ele
     app.daemon.appDevices.agentActs(iphoneId, {
       action: "press",
       point: { x: 195, y: 422 },
-      ref: "e7",
+      ref: "e2",
       label: "Sign in",
     }),
   );
 
   const caption = await within(iphone).findByRole("status", { name: "Agent action" });
-  expect(caption.textContent).toBe("tap @e7 “Sign in”");
+  expect(caption.textContent).toBe("tap @e2 “Sign in”");
   expect(iphone.querySelector("[data-activity-ripple]")).not.toBeNull();
   await waitFor(
     () => expect(within(iphone).queryByRole("status", { name: "Agent action" })).toBeNull(),
@@ -65,7 +65,7 @@ test("the UI tree lists the refs agents read, and hovering one outlines it on th
   await userEvent.click(within(iphone).getByRole("button", { name: "UI tree" }));
 
   const tree = await within(iphone).findByRole("tree", { name: "UI tree" });
-  const signIn = within(tree).getByRole("treeitem", { name: "@e7 Button Sign in" });
+  const signIn = within(tree).getByRole("treeitem", { name: "@e2 Button Sign in" });
   expect(iphone.querySelector("[data-bounds-outline]")).toBeNull();
   await userEvent.hover(within(signIn).getByText("Sign in"));
   expect(iphone.querySelector("[data-bounds-outline]")).not.toBeNull();

@@ -3,6 +3,7 @@ import { activityCaption, screenFraction } from "./agent-activity.ts";
 import { fitFrame, frameGeometry } from "./device-frame-geometry.ts";
 import { filterLines, logLevel } from "./device-log-lines.ts";
 import { StreamMeter, streamSummary } from "./stream-stats.ts";
+import { shortRefs } from "./ui-tree-refs.ts";
 
 test("the frame fits the room it is given and keeps the screen's aspect", () => {
   const screen = { width: 393, height: 852 };
@@ -89,4 +90,37 @@ test("the subtitle leaves out what it can't know: the rate in the first second, 
   expect(streamSummary(remote.read(200))).toEqual(["JPEG"]);
   expect(streamSummary(remote.read(5000))).toEqual(["JPEG"]);
   expect(streamSummary(new StreamMeter({ sameClock: true }).read(0))).toEqual([]);
+});
+
+const refsOf = (nodes: ReturnType<typeof shortRefs>): unknown[] =>
+  nodes.map((entry) => [entry.node.name, entry.ref, refsOf(entry.children)]);
+
+test("the UI tree numbers the elements agents can act on as agents do, children before parents", () => {
+  const leaf = (ref: string, name: string, actions: "press"[] = ["press"]) => ({
+    ref,
+    role: "Button",
+    name,
+    bounds: { x: 0, y: 0, w: 1, h: 1 },
+    states: [],
+    actions,
+    children: [],
+  });
+  const tree = shortRefs([
+    {
+      ...leaf("ax-cell", "Wi-Fi"),
+      children: [leaf("ax-toggle", "Switch"), leaf("ax-label", "Label", [])],
+    },
+    leaf("ax-done", "Done"),
+  ]);
+  expect(refsOf(tree)).toEqual([
+    [
+      "Wi-Fi",
+      "e2",
+      [
+        ["Switch", "e1", []],
+        ["Label", undefined, []],
+      ],
+    ],
+    ["Done", "e3", []],
+  ]);
 });

@@ -98,12 +98,13 @@ function RunningTile(props: {
         </div>
         <span className="flex w-full flex-col gap-0.5 px-3 pt-2 pb-2.5">
           <span className="truncate text-ui font-medium text-foreground">{row.name}</span>
-          <span className="flex min-w-0 items-center justify-between gap-2 text-meta text-muted-foreground">
-            <span className="shrink-0">
-              {row.runtime ?? (row.platform === "ios" ? "iOS" : "Android")}
-            </span>
-            <ControllerLabel controller={props.controller} className="min-w-0 justify-end" />
+          <span className="truncate text-meta text-subtle-foreground">
+            {row.runtime ?? (row.platform === "ios" ? "iOS" : "Android")}
           </span>
+          <ControllerLabel
+            controller={props.controller}
+            className="flex min-w-0 text-meta text-muted-foreground"
+          />
         </span>
         {/* Over the stage too, so the tile's edge runs all the way round. */}
         <span

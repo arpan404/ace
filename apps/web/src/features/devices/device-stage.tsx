@@ -122,7 +122,9 @@ export function DeviceStage({
       {!props.live && props.idle && (
         <div className="absolute inset-0 grid place-items-center p-6">{props.idle}</div>
       )}
-      {props.rail && <div className="absolute top-1/2 right-3 -translate-y-1/2">{props.rail}</div>}
+      {props.live && props.rail && (
+        <div className="absolute top-1/2 right-3 -translate-y-1/2">{props.rail}</div>
+      )}
       {props.footer && (
         <div className="pointer-events-none absolute inset-x-16 bottom-3 flex flex-col items-center gap-2 *:pointer-events-auto">
           {props.footer}

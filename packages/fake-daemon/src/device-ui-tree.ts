@@ -15,25 +15,29 @@ function node(
 
 /**
  * The accessibility tree every simulated device answers `ui.tree` with: a Settings screen on a
- * 390x844 point display, so a viewer can draw element outlines and refs.
+ * 390x844 point display, with platform refs as a real accessibility read has them (agents and
+ * the device view number the actionable ones @e1, @e2, ...), so a viewer can draw outlines.
  */
 export const fakeDeviceUITree: ScreenUITreeResult = ScreenUITreeResult.parse({
   truncated: false,
   nodes: [
     node(
-      "e1",
+      "ax-app",
       "Application",
       "Settings",
       { x: 0, y: 0, w: 390, h: 844 },
       [],
       [
-        node("e2", "NavigationBar", "Settings", { x: 0, y: 47, w: 390, h: 96 }),
-        node("e3", "SearchField", "Search", { x: 16, y: 150, w: 358, h: 36 }, ["press", "focus"]),
-        node("e7", "Button", "Sign in", { x: 16, y: 206, w: 358, h: 76 }, ["press"]),
-        node("e4", "Button", "Wi‑Fi", { x: 16, y: 310, w: 358, h: 44 }, ["press"]),
-        node("e5", "Button", "Bluetooth", { x: 16, y: 354, w: 358, h: 44 }, ["press"]),
-        node("e6", "Button", "Cellular", { x: 16, y: 398, w: 358, h: 44 }, ["press"]),
-        node("e8", "Button", "General", { x: 16, y: 470, w: 358, h: 44 }, ["press"]),
+        node("ax-nav", "NavigationBar", "Settings", { x: 0, y: 47, w: 390, h: 96 }),
+        node("ax-search", "SearchField", "Search", { x: 16, y: 150, w: 358, h: 36 }, [
+          "press",
+          "focus",
+        ]),
+        node("ax-sign-in", "Button", "Sign in", { x: 16, y: 206, w: 358, h: 76 }, ["press"]),
+        node("ax-wifi", "Button", "Wi‑Fi", { x: 16, y: 310, w: 358, h: 44 }, ["press"]),
+        node("ax-bluetooth", "Button", "Bluetooth", { x: 16, y: 354, w: 358, h: 44 }, ["press"]),
+        node("ax-cellular", "Button", "Cellular", { x: 16, y: 398, w: 358, h: 44 }, ["press"]),
+        node("ax-general", "Button", "General", { x: 16, y: 470, w: 358, h: 44 }, ["press"]),
       ],
     ),
   ],

@@ -98,7 +98,7 @@ export function DeviceDrawer(props: {
               placeholder="Filter"
               value={filter}
               onValueChange={setFilter}
-              className="h-6 max-w-40 min-w-0 flex-1 text-xs"
+              className="h-6 max-w-40 min-w-24 flex-1 text-xs"
             />
             <IconButton
               size="sm"
