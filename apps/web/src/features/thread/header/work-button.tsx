@@ -1,6 +1,6 @@
 import { useThreadMeta } from "@ace/client-react";
 import { listTreeFacts, treeWorking } from "@ace/ui-core";
-import { ListChecksIcon } from "@phosphor-icons/react";
+import { CirclesThreeIcon } from "@phosphor-icons/react";
 import {
   Suspense,
   useLayoutEffect,
@@ -66,7 +66,7 @@ export function WorkButton(props: { threadId: string }) {
       <span className="relative inline-flex">
         <IconButton
           ref={button}
-          icon={ListChecksIcon}
+          icon={CirclesThreeIcon}
           label={
             dot === "needs-you"
               ? "Thread details, something needs you"
