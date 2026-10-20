@@ -32,7 +32,9 @@ test("a stopped turn shows no thought still going, even when the stream reopens 
   expect(await within(feed).findByRole("button", { name: /^Thought/ })).toBeTruthy();
   expect(within(feed).queryByText("Thinking…")).toBeNull();
   // A late frame marks the stopped turn's thought open again: nothing streams into an ended turn.
-  act(() => app.daemon.apply("stop", [openThought("Re-reading the riskiest regions before verdict")]));
+  act(() =>
+    app.daemon.apply("stop", [openThought("Re-reading the riskiest regions before verdict")]),
+  );
   expect(await within(feed).findByRole("button", { name: /^Thought/ })).toBeTruthy();
   expect(within(feed).queryByText("Thinking…")).toBeNull();
 });
