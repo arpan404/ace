@@ -91,7 +91,7 @@ export class LinkRate {
   /** A chunk didn't fit the viewer's window and was dropped. */
   dropped(at: number): void {
     this.#dropped = true;
-    this.#step(at);
+    this.#step(at, true);
   }
   /** Chunks sent before a new encode don't count against the new one. */
   reset(): void {
@@ -118,8 +118,8 @@ export class LinkRate {
     this.#proven.push({ at, rate: delivered });
     return this.#proven[0]?.rate ?? delivered;
   }
-  #step(at: number): void {
-    if (at - this.#lastStep < stepMs) return;
+  #step(at: number, now = false): void {
+    if (!now && at - this.#lastStep < stepMs) return;
     this.#lastStep = at;
     const { min, max } = this.#limits;
     const delivered = this.#deliveryRate(at);

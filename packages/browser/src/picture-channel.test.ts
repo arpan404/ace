@@ -38,6 +38,8 @@ function setup(options: { buffered?: () => number } = {}) {
       return () => {};
     },
     failed: (error) => failures.push(error),
+    // A small window, so tests reach its edge with a few pictures.
+    window: { frames: 8, bytes: 2 * 1024 * 1024 },
   });
   const messages = (): StreamMessage[] => {
     const assembler = new StreamAssembler();
