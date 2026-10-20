@@ -105,6 +105,7 @@ export {
   ContextResult,
 } from "./context-tool.ts";
 export { guideToolkit, type AceGuide } from "./guide-tools.ts";
+export { changesKey, resultReader, structuredClientHeader, type ResultReader } from "./changes.ts";
 export { metaToolCatalog } from "./meta-tools.ts";
 export {
   coreTools,

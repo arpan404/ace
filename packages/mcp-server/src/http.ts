@@ -1,7 +1,7 @@
 import { legacySessions } from "./legacy-sessions.ts";
 import { mcpStatusGroups, type StatusReader, aceInstructions } from "./status.ts";
 import { SessionAwareness, type AwarenessPort } from "./awareness.ts";
-import { withChanges } from "./changes.ts";
+import { resultReader, structuredClientHeader, withChanges } from "./changes.ts";
 import { contextResources, createContextRegistry } from "./context-tool.ts";
 import type { KnowledgePort } from "./knowledge-tools.ts";
 import { OpenToolsets, coreToolsHeader, toolListing } from "./toolsets.ts";
@@ -179,6 +179,7 @@ async function createHandler(
     if (!principal) throw new Error("Unauthorized");
     const caller = principal;
     const listing = toolListing(requestInfo?.headers.get(coreToolsHeader.name));
+    const reader = resultReader(requestInfo?.headers.get(structuredClientHeader.name));
     const catalog = (): CatalogTool[] =>
       [...status.list(principal), ...options.registry.list(principal)].map((tool) => ({
         tool,
@@ -318,7 +319,7 @@ async function createHandler(
         if (!result.isError && opens(name, args, result)) announce();
         // A dispatched call is remembered as the tool it ran.
         const tool = dispatchedAceCall(name, args).name;
-        return awareness ? withChanges(awareness, principal, tool, result) : result;
+        return awareness ? withChanges(awareness, principal, tool, result, reader) : result;
       } finally {
         pending.delete(id);
         if (!pending.size) calls.delete(principal);
