@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AgentStatus, Interaction, ThreadStatus, type Event, type Thread } from "@ace/protocol";
 import {
   itemMessagePreview,
+  providerNotice,
   itemDigestContribution,
   approvalAutoReviewed,
   runTurn,
@@ -468,18 +469,21 @@ export class TurnWriter {
     if (item.type === "tool_call" || (old && Object.keys(decodeCounters(old.counters)).length))
       this.digests.itemDetails(event, ordinal, item.id, contribution, item.agentId);
     const preview = itemMessagePreview(item);
+    // A provider's notice is no one's words: it is neither the turn's ask nor its latest answer.
+    const role = item.type !== "message" ? null : providerNotice(item) ? "notice" : item.role;
     this.data.run(
       `INSERT INTO long_items VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(thread_id,item_id) DO UPDATE SET ordinal=excluded.ordinal,preview=excluded.preview,counters=excluded.counters,agent_id=excluded.agent_id`,
       event.threadId,
       item.id,
       ordinal,
       event.seq,
-      item.type === "message" ? item.role : null,
+      role,
       preview,
       JSON.stringify(contribution.counters),
       item.agentId ?? null,
     );
-    if (item.type === "message") this.preview(event, ordinal, item.role, preview, item.id);
+    if (role === "user" || role === "assistant")
+      this.preview(event, ordinal, role, preview, item.id);
     // A message that moved turns (bound to the run that took it) leaves its old turn's previews.
     if (old && Number(old.ordinal) !== ordinal) {
       const left = Number(old.ordinal);

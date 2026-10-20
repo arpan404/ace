@@ -20,7 +20,8 @@ import { SystemRow } from "./system-row.tsx";
 /*
  * The live turn's one status line, at the top of its flow under its ask (DESIGN.md §8): one
  * muted `Working for 3m 6s` row, where the turn's "Worked for" stands once it settles.
- * While the agent only waits on its subagents it reads `Waiting for 3 subagents · 3m 6s`.
+ * While the agent only waits on its subagents or its background commands the line steps aside:
+ * the composer's strip says `Waiting for 3 subagents · 3m 6s`, with a Stop.
  * It reads the same `turnActivity` as every other surface, counting the whole tree. The timer
  * writes its text through a ref, so a ticking second re-renders nothing, and it stands at the
  * time reached while the turn waits on the person (that time comes from the thread, so a redrawn
@@ -39,8 +40,9 @@ export function LiveHead(props: { threadId: string }) {
   const live = useLiveConnection();
   const progress = plans[0] ? livePlanStep(plans[0].progress) : undefined;
   const subagents = useWorkingSubagents(props.threadId, activity?.subagents);
-  // A pause is the turn's own row; a lost connection is the header's to say.
-  if (!activity || activity.tone === "paused" || live.staleLabel) return null;
+  // A pause is the turn's own row; a lost connection is the header's to say; what the agent
+  // only waits on is the composer's strip, with its Stop.
+  if (!activity || activity.tone === "paused" || live.staleLabel || activity.waitingOn) return null;
   // The status line stays a live region of its own; its text can be selected.
   return (
     <div role="group" aria-label="Turn in progress" className="flex min-w-0 items-center gap-1">

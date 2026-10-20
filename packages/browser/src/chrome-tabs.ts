@@ -375,6 +375,10 @@ export class ChromeTabs {
     });
     return tab.reviving;
   }
+  /** Whether the tab's page was dropped while idle and has not reopened yet. */
+  discarded(id: string): boolean {
+    return this.tabs.get(id)?.discarded === true;
+  }
   /** Whether an agent uses this tab (ADR 0067, collaboration). */
   agentUse(id: string, active: boolean): void {
     const tab = this.tabs.get(id);

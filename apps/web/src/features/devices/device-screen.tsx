@@ -23,6 +23,8 @@ export interface ShownScreen {
   width: number;
   height: number;
   scale: number;
+  /** Degrees clockwise the picture was turned to stand upright (a turned Simulator's). */
+  rotation: number;
   codec: "jpeg" | "h264";
   /** When it was captured, on the daemon's clock. */
   capturedAt: number;
@@ -139,6 +141,7 @@ export function DeviceScreen(props: {
         width,
         height,
         scale: shown.scale,
+        rotation: shown.rotation,
         codec: shown.codec === "jpeg" ? "jpeg" : "h264",
         capturedAt: shown.timestamp,
       });

@@ -73,11 +73,14 @@ struct LiveActivityCommitGate {
             let ending = Self.shouldEnd(state: row.state, online: online, confirmed: row.confirmed)
             let endDate = at.addingTimeInterval(Self.dismissalAfter)
             let activityId = activity.id
+            // ActivityKit's handle isn't Sendable, but its update and end are safe from any
+            // context; the gate above still orders every commit on the main actor.
+            nonisolated(unsafe) let target = activity
             queue = Task { @MainActor [weak self] in
                 await previous?.value
                 guard self?.gate.shouldCommit(id: activityId, revision: revision) == true else { return }
-                if ending { await activity.end(next, dismissalPolicy: .after(endDate)) }
-                else { await activity.update(next) }
+                if ending { await target.end(next, dismissalPolicy: .after(endDate)) }
+                else { await target.update(next) }
             }
         }
     }

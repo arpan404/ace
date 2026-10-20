@@ -62,20 +62,7 @@ export function StoppedStrip(props: {
   commands: readonly BackgroundTask[];
   indicators: ReactNode;
 }) {
-  const client = useClient();
-  const toast = useToast();
-  const [sending, setSending] = useState(false);
-  const stoppable = props.commands.filter((task) => task.stoppable);
-  const stopAll = () => {
-    setSending(true);
-    void Promise.all(
-      stoppable.map((task) =>
-        client.enqueue({ type: "background_task.stop", taskId: task.id }, crypto.randomUUID()),
-      ),
-    )
-      .catch(() => toast.error({ title: "Couldn't stop the background commands" }))
-      .finally(() => setSending(false));
-  };
+  const { stoppable, sending, stopAll } = useStopCommands(props.commands);
   const count = props.commands.length;
   return (
     <div role="status" className="flex h-7 min-w-0 items-center gap-1.5 px-1 text-xs">
@@ -94,4 +81,23 @@ export function StoppedStrip(props: {
       {props.indicators}
     </div>
   );
+}
+
+/** Stop every one of `commands` that can be stopped, in one press; `sending` until all answer. */
+export function useStopCommands(commands: readonly BackgroundTask[]) {
+  const client = useClient();
+  const toast = useToast();
+  const [sending, setSending] = useState(false);
+  const stoppable = commands.filter((task) => task.stoppable);
+  const stopAll = () => {
+    setSending(true);
+    void Promise.all(
+      stoppable.map((task) =>
+        client.enqueue({ type: "background_task.stop", taskId: task.id }, crypto.randomUUID()),
+      ),
+    )
+      .catch(() => toast.error({ title: "Couldn't stop the background commands" }))
+      .finally(() => setSending(false));
+  };
+  return { stoppable, sending, stopAll };
 }

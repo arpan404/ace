@@ -14,6 +14,22 @@ extension ClientModel {
         guard let thread else { return }
         browserAction(["kind": "probe", "threadId": thread.id, "epoch": thread.epoch])
     }
+    /// Waits between probes while the open thread works without a browser: about two minutes in
+    /// all, then quiet until its state changes or the person comes back to it.
+    static let browserFollowDelays: [Duration] = [.seconds(3), .seconds(5), .seconds(10), .seconds(20), .seconds(30), .seconds(60)]
+    /// The agent can open a browser mid-turn without changing the thread's state. While the
+    /// thread on screen works and has none, ask again after each delay; stops as soon as one is
+    /// found, the turn settles, another visit begins or the caller's task is cancelled.
+    func followBrowser(sleep: (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) async {
+        guard let thread else { return }
+        let id = thread.id, epoch = thread.epoch
+        for delay in Self.browserFollowDelays {
+            do { try await sleep(delay) } catch { return }
+            guard !Task.isCancelled, let current = self.thread, current.id == id, current.epoch == epoch,
+                  current.screen.controls?.busy == true, !threadHasBrowser else { return }
+            probeBrowser()
+        }
+    }
     /// Start watching the open thread's browser at the view's size (points) and screen scale.
     func openBrowser(size: CGSize, scale: CGFloat) {
         guard let thread else { return }

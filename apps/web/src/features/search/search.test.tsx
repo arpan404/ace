@@ -112,6 +112,28 @@ test("arrow keys move through results and Enter opens the thread", async () => {
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Search" })).toBeNull());
 });
 
+test("moving the highlight to a result follows its thread before it is opened", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  await search("the", app);
+  const list = within(await results());
+  expect(list.getAllByRole("option")[0]?.textContent).toContain(
+    "Dedupe thread events after reconnect",
+  );
+  await waitFor(() =>
+    expect(app.client.cachedThread?.("thread-dedupe")?.thread?.title).toBe(
+      "Dedupe thread events after reconnect",
+    ),
+  );
+  expect(app.client.cachedThread?.("thread-retry-budget")?.thread).toBeUndefined();
+  await userEvent.keyboard("{ArrowDown}");
+  await waitFor(() =>
+    expect(app.client.cachedThread?.("thread-retry-budget")?.thread?.title).toBe(
+      "Retry budget for app-server restarts",
+    ),
+  );
+});
+
 test("a search with no matches says so", async () => {
   await search("kubernetes");
   expect(await screen.findByText("No matches")).toBeTruthy();

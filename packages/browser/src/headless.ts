@@ -240,6 +240,7 @@ export class ChromeBackend implements BrowserBackend {
         downloadSource: (id) => tabs.downloads.transfers.source(id),
         discard: (id) => tabs.discard(id),
         revive: (id) => tabs.revive(id),
+        discarded: (id) => tabs.discarded(id),
         opener: (id) => tabs.opener(id),
         answerAuth: (id, authId, credentials) => tabs.answerAuth(id, authId, credentials),
         proceedCertificate: (id, url) => tabs.proceedCertificate(id, url),

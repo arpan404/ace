@@ -57,6 +57,18 @@ export function iphoneCutout(name: string): "island" | "notch" | "none" {
   return number >= 10 ? "notch" : "none";
 }
 
+/**
+ * Whether an iPhone has the Action button (15 Pro, every iPhone from 16 on and the Air) or the
+ * older ring/silent switch in its place.
+ */
+export function iphoneHasActionButton(name: string): boolean {
+  if (/iPhone Air\b/i.test(name)) return true;
+  const generation = /iPhone (\d+)/i.exec(name)?.[1];
+  if (!generation) return iphoneCutout(name) === "island";
+  const number = Number(generation);
+  return number >= 16 || (number === 15 && /\bPro\b/i.test(name));
+}
+
 export type PlatformFilter = "all" | "ios" | "android";
 
 /** One use of a device, remembered on this machine. */

@@ -25,10 +25,11 @@ extension ClientModel {
         guard canOperate, let thread, thread.screen.controls?.canStop == true, !thread.screen.stopping else { return }
         let id = admissions.nextId()
         thread.screen.stopping = true
+        thread.screen.stopRequest = id
         Task { [weak self, weak thread] in
             guard let self else { return }
             let saved = await self.admissions.wait(id: id) { self.threadAction(["type": "stop", "requestId": id]) }
-            if !saved { thread?.screen.stopping = false }
+            if !saved { thread?.screen.stopFailed(id) }
         }
     }
     /// Answer a question with option ids or, where offered, the person's own words.

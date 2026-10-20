@@ -63,6 +63,8 @@ export interface AgentRecord {
 
 export interface LiveIndexes {
   liveTools: Record<Key, true>;
+  /** Thoughts, replies and compactions the provider is still streaming into. */
+  openText: Record<Key, true>;
   pendingInteractions: Record<Key, true>;
   runningTasks: Record<Key, true>;
   agentKeysById: Record<string, Key>;
@@ -141,6 +143,7 @@ export function createThreadState(init: {
     taskHistory: dictionary(),
     indexes: {
       liveTools: dictionary(),
+      openText: dictionary(),
       pendingInteractions: dictionary(),
       runningTasks: dictionary(),
       agentKeysById: dictionary(),

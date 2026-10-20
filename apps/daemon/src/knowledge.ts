@@ -5,6 +5,7 @@ import {
   type McpAttribution,
   type Thread,
 } from "@ace/protocol";
+import { isAgentProse } from "@ace/projection";
 import type { KnowledgeResult, KnowledgeTopic, KnowledgePort } from "@ace/mcp-server";
 import type { Store } from "./store.ts";
 import type { ProjectStorage } from "./project-storage.ts";
@@ -141,7 +142,7 @@ function recentThreads(deps: KnowledgeDeps, self: Thread): NonNullable<Knowledge
 function lastAnswer(deps: KnowledgeDeps, id: ThreadId): string | undefined {
   const items = deps.store.readItemPage(id, deps.store.headSeq() + 1, 20, 32 * 1024).items;
   for (const item of items.toReversed())
-    if (item.type === "message" && item.role === "assistant") {
+    if (isAgentProse(item)) {
       const text = item.parts
         .flatMap((part) => (part.type === "text" ? [part.text] : []))
         .join(" ");
