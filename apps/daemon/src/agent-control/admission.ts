@@ -153,7 +153,7 @@ export class DelegationAdmission {
       record.parentAgentId !== caller.agentId ||
       JSON.stringify(delegationRequest(record.request)) !== JSON.stringify(delegationRequest(input))
     )
-      throw new Error("Request identity conflict");
+      throw new AgentControlError("request_conflict", "Request identity conflict");
   }
   createThread(
     caller: McpAttribution,

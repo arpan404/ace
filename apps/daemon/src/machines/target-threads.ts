@@ -270,7 +270,7 @@ export class TargetThreads {
   }
   private lastOutput(thread: Thread): string | undefined {
     const { store } = this.deps;
-    const page = store.readItemPage(thread.id, store.headSeq() + 1, 5, 16384);
+    const page = store.readBoundedItemPage(thread.id, store.headSeq() + 1, 5, 16384);
     for (let index = page.items.length - 1; index >= 0; index--) {
       const item = page.items[index];
       if (!isAgentProse(item)) continue;

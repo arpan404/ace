@@ -1,4 +1,4 @@
-import { parseToolArguments, toolFailure } from "./tool-failure.ts";
+import { inputTooLarge, parseToolArguments, toolFailure } from "./tool-failure.ts";
 import { PublicToolError } from "./public-error.ts";
 import { maxStructuredResultBytes } from "./result-budgets.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
@@ -57,6 +57,15 @@ export type CallObserver = (
   context: ToolContext,
 ) => ((result: CallToolResult) => Promise<void>) | undefined;
 
+/**
+ * Records a tool failure whose cause stays private (an unexpected error, not a PublicToolError)
+ * and returns the id of that record, which the agent's result carries.
+ */
+export type ToolFailureReporter = (failure: {
+  tool: string;
+  caller: McpAttribution;
+  error: unknown;
+}) => string | undefined;
 type RiskClass = import("@ace/protocol").ApprovalTarget["riskClass"];
 /** What every registration shares: identity, annotations and placement. */
 export interface ToolMetadata {
@@ -143,15 +152,18 @@ export class ToolRegistry {
     | ((caller: McpAttribution) => (name: string, capability: McpCapability | null) => boolean)
     | undefined;
   readonly observeCall: CallObserver | undefined;
+  private reportFailure: ToolFailureReporter | undefined;
   constructor(options: {
     scheduler: Scheduler;
     maxTools?: number;
     maxCalls?: number;
     maxCallsPerThread?: number;
     observeCall?: CallObserver;
+    reportFailure?: ToolFailureReporter;
   }) {
     this.scheduler = options.scheduler;
     this.observeCall = options.observeCall;
+    this.reportFailure = options.reportFailure;
     this.maxTools = options.maxTools ?? 128;
     // Waits hold a call for up to ten minutes, so these bound runaway work, not normal fan-out:
     // a parent waiting on many children still has room for every other tool.
@@ -171,8 +183,8 @@ export class ToolRegistry {
             : undefined;
         },
         async execute(value, context) {
-          if (!withinJsonBudget(value, definition.maxInputBytes ?? 64 * 1024))
-            throw new Error("Input budget exceeded");
+          const maxInput = definition.maxInputBytes ?? 64 * 1024;
+          if (!withinJsonBudget(value, maxInput)) throw inputTooLarge(maxInput);
           const args = parseToolArguments(input, value);
           context.signal.throwIfAborted();
           const result = await definition.run(args, context);
@@ -269,6 +281,15 @@ export class ToolRegistry {
           }
         : {}),
     };
+  }
+  /** A private cause goes to the host's log; the agent gets only the record's id. */
+  private report(tool: string, caller: McpAttribution, error: unknown): string | undefined {
+    if (error instanceof PublicToolError || !this.reportFailure) return undefined;
+    try {
+      return this.reportFailure({ tool, caller, error });
+    } catch {
+      return undefined;
+    }
   }
   /** The entry any provider spelling of a tool name refers to. */
   private entry(name: string): Entry | undefined {
@@ -408,7 +429,7 @@ export class ToolRegistry {
       .catch((error: unknown) =>
         error instanceof ResultBudgetExceeded
           ? failure("Tool result too large")
-          : toolFailure(error),
+          : toolFailure(error, this.report(entry.name, context.caller, error)),
       )
       .finally(() => {
         executionSettled = true;

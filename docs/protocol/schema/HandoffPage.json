@@ -21,6 +21,13 @@
         }
       ]
     },
+    "omitted": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/OmittedItem.json"
+      },
+      "maxItems": 50,
+      "type": "array"
+    },
     "threadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
     }

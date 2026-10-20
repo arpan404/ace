@@ -18,6 +18,7 @@ import { browserToolkit } from "../browser-toolkit.ts";
 import { computerToolkit, screenToolkit } from "@ace/screen";
 import { handoffToolkit } from "./handoff-tools.ts";
 import { startDaemonMcp } from "../mcp.ts";
+import { toolFailureReporter } from "../tool-failure-log.ts";
 import { hostname } from "node:os";
 import { mcpAwareness } from "../mcp-awareness.ts";
 import { knowledgePort } from "../knowledge.ts";
@@ -210,6 +211,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
       machine: hostname(),
     }),
     knowledge,
+    toolFailureReporter(context.log, context.id),
   );
   resources.own(() => mcp.close());
   services.mcp = mcp;

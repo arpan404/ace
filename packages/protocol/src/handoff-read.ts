@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ThreadId } from "./ids.ts";
 import { Item } from "./items.ts";
+import { OmittedItem } from "./omitted-items.ts";
 
 export const HandoffPageInput = z.strictObject({
   sourceThreadId: ThreadId,
@@ -11,6 +12,8 @@ export const HandoffPage = z.object({
   threadId: ThreadId,
   items: z.array(Item).max(50),
   itemsBefore: z.number().int().positive().nullable(),
+  /** Items too large for one page, summarized or shown without their raw payloads. */
+  omitted: z.array(OmittedItem).max(50).optional(),
 });
 export const HandoffChunkInput = z.strictObject({
   sourceThreadId: ThreadId,

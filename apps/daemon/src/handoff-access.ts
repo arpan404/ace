@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ThreadId } from "@ace/protocol";
+import { PublicToolError } from "@ace/mcp-server";
 import type { Store } from "./store.ts";
 
 /** Durable capabilities for paged conversation reads, independent of prompt delivery. */
@@ -46,7 +47,14 @@ export class HandoffAccess {
       const row = db
         .prepare("SELECT through_seq FROM engine_handoff_grants WHERE recipient=? AND source=?")
         .get(recipient, source);
-      if (!row) throw new Error("Source history is outside this handoff");
+      if (!row)
+        throw new PublicToolError(
+          "handoff_unavailable",
+          undefined,
+          undefined,
+          undefined,
+          "That thread is not cited by a handoff to this thread.",
+        );
       return z.number().int().nonnegative().parse(row.through_seq);
     });
   }

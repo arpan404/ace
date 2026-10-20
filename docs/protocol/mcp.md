@@ -550,7 +550,7 @@ Example:
 
 ## thread_read
 
-Read a thread: title, status, branch, linked PRs, preview servers, queued messages (with entryIds for queue_edit) and a page of its transcript, newest first. Omit threadId for this thread. Page back with before = itemsBefore. A truncated part with source.streamId continues with streamId and offset (base64 bytes, then nextOffset).
+Read a thread: title, status, branch, linked PRs, preview servers, queued messages (with entryIds for queue_edit) and a page of its latest transcript items, oldest first. Omit threadId for this thread. Page back with before = itemsBefore until it is null; an item too large for a page is listed in omitted. A truncated part with source.streamId continues with streamId and offset (base64 bytes, then nextOffset).
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -585,7 +585,7 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"thread":{"type":"object","properties":{"id":{"type":"string"},"title":{"type":"string"}},"required":["id","title"],"additionalProperties":{}},"items":{"type":"array","items":{"type":"object","properties":{"type":{"type":"string"},"id":{"type":"string"}},"required":["type"],"additionalProperties":{}}},"itemsBefore":{"type":["number","null"]},"linkedPrs":{"type":"array","items":{}},"previews":{"type":"array","items":{}},"bytes":{"description":"Base64 output bytes, when reading a stream","type":"string"},"nextOffset":{"type":"number"},"queue":{"description":"Messages waiting for the thread, oldest first."}},"additionalProperties":{}} |
+| data | no | object | {"properties":{"thread":{"type":"object","properties":{"id":{"type":"string"},"title":{"type":"string"}},"required":["id","title"],"additionalProperties":{}},"items":{"type":"array","items":{"type":"object","properties":{"type":{"type":"string"},"id":{"type":"string"}},"required":["type"],"additionalProperties":{}}},"itemsBefore":{"description":"Pass as before for the previous page; null when nothing is earlier.","type":["number","null"]},"omitted":{"description":"Items too large for a page: shown without raw payloads (dropped raw) or only summarized (dropped item).","type":"array","items":{"type":"object","properties":{"itemId":{"type":"string"},"dropped":{"type":"string"}},"required":["itemId","dropped"],"additionalProperties":{}}},"linkedPrs":{"type":"array","items":{}},"previews":{"type":"array","items":{}},"bytes":{"description":"Base64 output bytes, when reading a stream","type":"string"},"nextOffset":{"type":"number"},"queue":{"description":"Messages waiting for the thread, oldest first."}},"additionalProperties":{}} |
 
 Example:
 
@@ -1190,6 +1190,7 @@ Example:
 | threadId | no | string |  |
 | items | no | array | {"items":{"type":"object","properties":{"type":{"type":"string"},"id":{"type":"string"}},"required":["type"],"additionalProperties":{}}} |
 | itemsBefore | no | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+| omitted | no | array | {"items":{"type":"object","properties":{"itemId":{"type":"string"},"dropped":{"type":"string"}},"required":["itemId","dropped"],"additionalProperties":{}}} |
 | bytes | no | string |  |
 | encoding | no | ["utf-16le","utf-8"] |  |
 | nextOffset | no | integer | {"minimum":0,"maximum":9007199254740991} |
@@ -1199,6 +1200,7 @@ Example:
 
 ```json
 {
+  "eof": true,
   "items": [],
   "itemsBefore": null
 }
@@ -1221,11 +1223,7 @@ Required capability: none beyond session authentication. Timeout: 30000 ms.
 Example:
 
 ```json
-{
-  "topics": [
-    "status"
-  ]
-}
+{}
 ```
 
 ## context.output
@@ -1245,23 +1243,8 @@ Example:
 
 ```json
 {
-  "changes": {
-    "ahead": 9,
-    "behind": 5,
-    "branch": "example",
-    "files": [],
-    "staged": 5,
-    "unstaged": 8,
-    "untracked": 8,
-    "upstream": null
-  },
   "prs": [],
-  "status": {
-    "access": "read-only",
-    "agentId": "example",
-    "groups": [],
-    "threadId": "example"
-  }
+  "recent": []
 }
 ```
 
@@ -1301,7 +1284,7 @@ Example:
 ```json
 {
   "noteId": "example",
-  "notes": 3
+  "notes": 5
 }
 ```
 
@@ -1339,7 +1322,7 @@ Example:
 
 ```json
 {
-  "retired": true
+  "retired": false
 }
 ```
 
@@ -1364,6 +1347,7 @@ Example:
 
 ```json
 {
+  "allowOther": false,
   "question": "example"
 }
 ```
@@ -1384,7 +1368,7 @@ Example:
 {
   "answer": [],
   "askId": "example",
-  "status": "pending"
+  "status": "answered"
 }
 ```
 
@@ -1408,7 +1392,8 @@ Example:
 
 ```json
 {
-  "limit": 10,
+  "family": "ace-agents",
+  "limit": 4,
   "query": "example"
 }
 ```
@@ -1427,7 +1412,6 @@ Example:
 
 ```json
 {
-  "hint": "example",
   "matches": []
 }
 ```
@@ -1468,7 +1452,6 @@ Example:
 
 ```json
 {
-  "content": [],
-  "isError": true
+  "content": []
 }
 ```

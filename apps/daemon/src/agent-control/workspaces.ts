@@ -11,6 +11,7 @@ import type { CreationWorkspace } from "../creation-workspace.ts";
 import type { ServiceContext } from "../services/types.ts";
 import type { DelegationService } from "./delegations.ts";
 import { controlCommandId } from "./command-id.ts";
+import { AgentControlError } from "./failure.ts";
 export type AgentWorkspaceContext = Pick<ServiceContext, "store" | "signal"> & {
   services: Pick<ServiceContext["services"], "workspaceActions">;
 };
@@ -120,10 +121,12 @@ export function createWorkspaceDelegations(
     const identity = JSON.stringify([caller.agentId, request]);
     const existing = pending.get(key);
     if (existing) {
-      if (existing.identity !== identity) throw new Error("Request identity conflict");
+      if (existing.identity !== identity)
+        throw new AgentControlError("request_conflict", "Request identity conflict");
       return existing.work;
     }
-    if (pending.size >= 4) throw new Error("Workspace admission busy");
+    if (pending.size >= 4)
+      throw new AgentControlError("delegation_limit", "Workspace admission busy");
     const work = create(caller, request, signal);
     pending.set(key, { identity, work });
     try {
