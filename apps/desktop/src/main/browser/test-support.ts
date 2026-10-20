@@ -106,16 +106,24 @@ export function fakeViews() {
   const pages = new Map<string, FakePage>();
   const opened: BrowserOpen[] = [];
   const purged: { threadId: string; workspaceId: string }[] = [];
+  const purgedProjects: string[] = [];
+  /** The profile scope each view opened with, by session. */
+  const scopes = new Map<string, string | undefined>();
   let purgeError: string | undefined;
   const host: ViewHost = {
     async purge(request) {
       if (purgeError) throw new Error(purgeError);
       purged.push(request);
     },
+    async purgeProject(request) {
+      if (purgeError) throw new Error(purgeError);
+      purgedProjects.push(request.workspaceId);
+    },
     async open(request) {
       const page = new FakePage();
       pages.set(request.sessionId, page);
       opened.push(request.options);
+      scopes.set(request.sessionId, request.profileScope);
       return page;
     },
   };
@@ -127,7 +135,7 @@ export function fakeViews() {
   const failPurge = (message: string) => {
     purgeError = message;
   };
-  return { host, pages, opened, purged, failPurge, only };
+  return { host, pages, opened, purged, purgedProjects, scopes, failPurge, only };
 }
 
 /** A CDP screencast frame as Chromium sends it. */
