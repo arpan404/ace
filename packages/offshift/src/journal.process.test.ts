@@ -42,7 +42,8 @@ function fixture() {
     treeState: "working",
   };
   db.prepare("INSERT INTO threads(id) VALUES (?)").run(context.threadId);
-  const call = (request: OffshiftRequest) => OffshiftView.parse(journal.execute(request, context));
+  const call = (request: OffshiftRequest) =>
+    OffshiftView.parse(journal.execute(request, context).result);
   const start: OffshiftRequest = {
     action: "start",
     runId: "feature",
@@ -291,7 +292,7 @@ test("calling threads cannot read or mutate each other's runs and deleting a thr
   expect(() => f.journal().execute({ action: "get", runId: "feature" }, other)).toThrow(
     "Run not found",
   );
-  expect(f.journal().execute({ action: "list" }, other)).toEqual([]);
+  expect(f.journal().execute({ action: "list" }, other).result).toEqual([]);
   f.deleteThread();
   expect(() => f.get()).toThrow("Run not found");
 });
@@ -301,7 +302,7 @@ test("listing full-capacity Unicode outcomes stays within the transport budget a
   const outcome = "雪".repeat(4096);
   for (let index = 0; index < 32; index++)
     f.call({ ...f.start, runId: `run-${index}`, requestId: `start-${index}`, outcome });
-  const list = f.journal().execute({ action: "list" }, f.context);
+  const list = f.journal().execute({ action: "list" }, f.context).result;
   expect(Buffer.byteLength(JSON.stringify(list))).toBeLessThan(65536);
   expect(list).toMatchObject(
     Array.from({ length: 32 }, () => ({ outcome: "雪".repeat(128), outcomeTruncated: true })),

@@ -100,3 +100,54 @@ export type OffshiftRunSummary = z.infer<typeof OffshiftRunSummary>;
 /** What `offshift` returns: a run's view, or the caller's run summaries for `list`. */
 export const OffshiftResult = z.union([OffshiftView, z.array(OffshiftRunSummary).max(32)]);
 export type OffshiftResult = z.infer<typeof OffshiftResult>;
+
+/**
+ * Where one required evidence kind stands at the write that produced a card: a current pass, a
+ * current failure, a pass recorded at an older source revision, or nothing recorded yet.
+ */
+export const OffshiftEvidenceState = z.enum(["pass", "fail", "stale", "missing"]);
+export type OffshiftEvidenceState = z.infer<typeof OffshiftEvidenceState>;
+export const OffshiftCardCriterion = z.object({
+  id: key,
+  description: z.string().max(160),
+  /** One entry per required kind, in the criterion's order. */
+  evidence: z
+    .array(
+      z.object({
+        kind: OffshiftEvidenceKind,
+        state: OffshiftEvidenceState,
+        recordedAt: Timestamp.nullable(),
+      }),
+    )
+    .max(5),
+});
+export type OffshiftCardCriterion = z.infer<typeof OffshiftCardCriterion>;
+/**
+ * A bounded client card of one run, as observed at the write that produced it. Notes, actions
+ * and artifacts stay in the record. Strings are clipped and lists capped (with their full
+ * counts) so a card stays a few KB whatever the run holds.
+ */
+export const OffshiftRunCard = z.object({
+  id: key,
+  outcome: z.string().max(512),
+  outcomeTruncated: z.boolean(),
+  endpoint: z.string().max(256),
+  phase: OffshiftPhase,
+  blocker: z.string().max(512).nullable(),
+  version: z.number().int().nonnegative(),
+  updatedAt: Timestamp,
+  revision: OffshiftRevision,
+  /** The run's first criteria, in order; `criteriaCount` is how many it holds. */
+  criteria: z.array(OffshiftCardCriterion).max(16),
+  criteriaCount: z.number().int().min(1).max(64),
+  /** Required kinds without a current pass, in run order; `pendingCount` is the full number. */
+  pending: z.array(z.object({ criterionId: key, kind: OffshiftEvidenceKind })).max(16),
+  pendingCount: z.number().int().nonnegative().max(320),
+});
+export type OffshiftRunCard = z.infer<typeof OffshiftRunCard>;
+/** A thread-log event: an Offshift run of this thread changed. */
+export const OffshiftUpdated = z.object({
+  type: z.literal("offshift.updated"),
+  card: OffshiftRunCard,
+});
+export type OffshiftUpdated = z.infer<typeof OffshiftUpdated>;

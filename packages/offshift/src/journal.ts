@@ -1,6 +1,12 @@
 import type { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { z } from "zod";
-import { OffshiftPhase, OffshiftRequest, OffshiftRun } from "@ace/protocol/offshift";
+import {
+  OffshiftPhase,
+  OffshiftRequest,
+  OffshiftRun,
+  type OffshiftResult,
+  type OffshiftView,
+} from "@ace/protocol/offshift";
 import { OffshiftError, transition, view, type Context } from "./workflow.ts";
 
 const stored = z.object({ body: z.string() });
@@ -8,6 +14,14 @@ const receipt = z.object({ input: z.string() });
 /** Synchronous host transaction: state and idempotency receipts commit together. */
 export interface Transactions {
   atomic<T>(work: (db: DatabaseSync) => T): T;
+}
+/**
+ * What a call did: `changed` holds the new view only when this call wrote the run, so the host
+ * can publish a change inside the same transaction. Reads and receipt replays leave it out.
+ */
+export interface Executed {
+  result: OffshiftResult;
+  changed?: OffshiftView;
 }
 export class OffshiftJournal {
   private readonly transactions: Transactions;
@@ -25,12 +39,12 @@ export class OffshiftJournal {
     `),
     );
   }
-  execute(input: unknown, context: Context) {
+  execute(input: unknown, context: Context): Executed {
     const request = OffshiftRequest.parse(input);
-    return this.transactions.atomic((db) => {
+    return this.transactions.atomic((db): Executed => {
       if (request.action === "list") {
         // Metadata only: evidence bodies never multiply the MCP result size.
-        return db
+        const result = db
           .prepare(
             "SELECT id, json_extract(body,'$.outcome') AS outcome, json_extract(body,'$.phase') AS phase FROM offshift_runs WHERE thread_id=? ORDER BY id LIMIT 32",
           )
@@ -48,6 +62,7 @@ export class OffshiftJournal {
               outcomeTruncated: outcome !== item.outcome,
             };
           });
+        return { result };
       }
       const row = db
         .prepare("SELECT body FROM offshift_runs WHERE thread_id=? AND id=?")
@@ -55,7 +70,7 @@ export class OffshiftJournal {
       const current = row ? OffshiftRun.parse(JSON.parse(stored.parse(row).body)) : undefined;
       if (request.action === "get") {
         if (!current) throw new OffshiftError("Run not found in the calling thread");
-        return view(current, context);
+        return { result: view(current, context) };
       }
       const prior = db
         .prepare(
@@ -68,7 +83,7 @@ export class OffshiftJournal {
           throw new OffshiftError("requestId was already used for a different operation");
         if (!current) throw new OffshiftError("Run receipt has no run");
         // A receipt prevents replay, but never replays a stale completion observation.
-        return view(current, context);
+        return { result: view(current, context) };
       }
       if (request.action === "start") {
         const count = z
@@ -94,7 +109,8 @@ export class OffshiftJournal {
       db.prepare(
         "INSERT INTO offshift_receipts(thread_id,run_id,request_id,input) VALUES (?,?,?,?)",
       ).run(context.threadId, request.runId, request.requestId, encoded);
-      return view(next, context);
+      const changed = view(next, context);
+      return { result: changed, changed };
     });
   }
 }
