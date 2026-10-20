@@ -110,7 +110,7 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
     const f = await fixture();
     for (let i = 0; i < 64; i++)
       expect(() =>
-        f.service.subscribe("thread", String(i), { send: () => true }, () => {
+        f.service.subscribe("thread", String(i), {}, () => {
           throw new Error("viewer failed");
         }),
       ).toThrow("viewer failed");

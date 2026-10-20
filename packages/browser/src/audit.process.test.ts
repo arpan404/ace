@@ -151,7 +151,7 @@ it("Reopen restores a lost native page with its thread profile", async () => {
   const id = [...f.pages.keys()][0];
   if (!id) throw new Error("Missing page");
   const paused = Promise.withResolvers<void>();
-  f.service.subscribe("thread", "viewer", { send: () => true }, (state) => {
+  f.service.subscribe("thread", "viewer", {}, (state) => {
     if (state.status === "paused") paused.resolve();
   });
   f.sendEvent(id, "Inspector.detached", { reason: "crashed" });

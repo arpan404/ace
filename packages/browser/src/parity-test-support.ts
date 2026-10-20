@@ -135,7 +135,7 @@ export async function setup(
     await rm(home, { recursive: true, force: true });
   });
   await service.open({ threadId: "thread", workspaceId: "workspace", background: true });
-  service.subscribe("thread", "parity-observer", { send: () => true }, changed);
+  service.subscribe("thread", "parity-observer", {}, changed);
   const execute = (command: unknown) => service.execute("thread", command);
   await execute({ action: "navigate", url });
   // DOMContentLoaded does not wait for iframe documents; their commits invalidate refs.

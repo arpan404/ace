@@ -18,7 +18,7 @@
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
-    "bench": "node bench/fanout.ts && node bench/pipeline.ts && node bench/frame-wire.ts && node bench/input-policy.ts && node bench/evaluation.ts && node bench/relay.ts && node bench/acquisition.ts && node bench/video-wire.ts"
+    "bench": "node bench/pipeline.ts && node bench/input-policy.ts && node bench/evaluation.ts && node bench/relay.ts && node bench/acquisition.ts && node bench/video-link.ts"
   },
   "dependencies": {
     "@ace/browser-annotate": "workspace:*",

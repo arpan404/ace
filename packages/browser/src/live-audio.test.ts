@@ -54,7 +54,6 @@ function fakeHost() {
 
 const viewer = (audio: boolean, extra: Partial<CaptureViewer["viewport"]> = {}): CaptureViewer => ({
   viewport: { width: 640, height: 400, devicePixelRatio: 2, audio, ...extra },
-  local: false,
   video: { codecs: ["avc1.42E033"] },
 });
 

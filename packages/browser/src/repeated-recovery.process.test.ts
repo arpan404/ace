@@ -19,7 +19,7 @@ it("simultaneous opens join replacement recovery and both return a usable ready 
   const f = await backendFixture({ headlessBackend: headless, backendLoss: () => "headless" });
   await f.open();
   const ready = Promise.withResolvers<void>();
-  f.service.subscribe("thread", "viewer", { send: () => true }, (state) => {
+  f.service.subscribe("thread", "viewer", {}, (state) => {
     if (state.backend === "headless" && state.status === "ready") ready.resolve();
   });
   await f.disconnect();
@@ -93,7 +93,7 @@ it("replacement loss keeps a private page paused until the person opens it", asy
   await f.open();
   keepAgentsOut(f.service);
   const ready = Promise.withResolvers<void>();
-  f.service.subscribe("thread", "owner", { send: () => true }, (state) => {
+  f.service.subscribe("thread", "owner", {}, (state) => {
     if (state.backend === "headless" && state.status === "ready") ready.resolve();
   });
   await f.disconnect();
@@ -130,7 +130,7 @@ it.each(["open"])(
     await f.open();
     await f.disconnect();
     const ready: string[] = [];
-    f.service.subscribe("thread", "viewer", { send: () => true }, (state) => {
+    f.service.subscribe("thread", "viewer", {}, (state) => {
       if (state.status === "ready") ready.push(state.url);
     });
     await f.service.open({ threadId: "thread", workspaceId: "workspace-thread", background: true });

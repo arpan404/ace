@@ -128,7 +128,7 @@ it("pause on desktop loss emits the URL and rejects an in-flight read without re
   f.service.subscribe(
     "thread",
     "viewer",
-    { send: () => true },
+    {},
     (state) => states.push(state),
     (event) => {
       if (event.type === "browser.backend.lost") events.push(event);

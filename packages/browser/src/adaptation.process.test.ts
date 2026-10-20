@@ -66,7 +66,7 @@ describe.skipIf(!executablePath)("capture adaptation in real Chromium", () => {
     phase = "pressure";
     batch = [];
     signal = Promise.withResolvers<void>();
-    const stopSlow = f.service.subscribe("thread", "slow", { send: () => true }, () => {});
+    const stopSlow = f.service.subscribe("thread", "slow", {}, () => {});
     // Eight consecutive frames encoded at reduced quality prove adaptation has
     // happened, rather than guessing how many frames the interval will need.
     await signal.promise;

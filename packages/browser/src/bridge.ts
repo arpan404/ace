@@ -9,7 +9,7 @@ import {
   type DeviceScope,
 } from "@ace/protocol";
 import type { BrowserService } from "./service.ts";
-import type { CaptureViewer } from "./fanout.ts";
+import type { CaptureViewer } from "./viewer-sink.ts";
 import { downloadBusy, encodeDownloadChunk } from "./stream-download.ts";
 
 type BrowserAccess = Extract<DeviceScope, "read" | "operate">;
@@ -51,7 +51,6 @@ export function connectBrowser(
   service: BrowserService,
   options: {
     connectionId: string;
-    local?: boolean;
     authorize: (
       threadId: string,
       workspaceId: string | undefined,
@@ -90,13 +89,6 @@ export function connectBrowser(
       threadId,
       options.connectionId,
       {
-        send: (frame) =>
-          entry.binary && sendStream
-            ? sendStream(service.streamFrame(threadId, frame))
-            : options.send(
-                { type: "browser.frame", threadId: ThreadId.parse(threadId), frame },
-                service.serializeFrame(threadId, frame),
-              ),
         ...(sendStream
           ? {
               video: {
@@ -124,7 +116,6 @@ export function connectBrowser(
     video: BrowserVideoRequest | undefined,
   ): CaptureViewer => ({
     viewport,
-    local: options.local ?? false,
     ...(video ? { video } : {}),
   });
   let pending = 0;
@@ -375,6 +366,7 @@ export function connectBrowser(
             break;
           }
           case "browser.ack":
+            // Live views are video only: an ack without `video` names nothing the daemon sent.
             if (message.video)
               service.acknowledgeVideo(
                 threadId,
@@ -382,7 +374,6 @@ export function connectBrowser(
                 message.sequence,
                 message.keyframe === true,
               );
-            else service.acknowledge(threadId, options.connectionId, message.sequence);
             break;
           case "browser.recording.start":
             await service.startRecording(threadId, {

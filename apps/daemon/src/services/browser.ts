@@ -212,7 +212,6 @@ export function createBrowserSession(context: SocketContext): SocketService {
   let stopRevocation: (() => void) | undefined;
   const browser = connectBrowser(options.browser, {
     connectionId: sessionId,
-    local: context.local ?? false,
     authorize: (threadId, workspaceId, access) => {
       const id = ThreadId.parse(threadId);
       const thread = options.store.getThread(id);

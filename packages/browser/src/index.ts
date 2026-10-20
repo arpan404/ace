@@ -1,8 +1,8 @@
 export { BrowserService, type BrowserServiceOptions } from "./service.ts";
 export { detectChromium, installChromium } from "./discovery.ts";
 export { connectBrowser } from "./bridge.ts";
-export { FrameFanout, type FrameSink } from "./fanout.ts";
-export { captureSettings } from "./capture-policy.ts";
+export type { ViewerSink } from "./viewer-sink.ts";
+export { screencastSettings } from "./capture-policy.ts";
 export { SessionLogs } from "./logs.ts";
 export {
   BrowserOriginError,

@@ -4,16 +4,16 @@ import type {
   BrowserPageMessage,
   BrowserState,
 } from "@ace/protocol";
-import type { CaptureViewer, FrameSink } from "./fanout.ts";
+import type { CaptureViewer, ViewerSink } from "./viewer-sink.ts";
 
-/** Where a viewer's frames come from: the live capture (JPEG and, when asked, video). */
+/** Where a viewer's pictures come from: the live capture's video. */
 interface FrameSource {
-  subscribe(id: string, sink: FrameSink, capture?: CaptureViewer): () => void;
+  subscribe(id: string, sink: ViewerSink, capture?: CaptureViewer): () => void;
 }
 
 type Subscriber = {
   connectionId: string;
-  sink: FrameSink;
+  sink: ViewerSink;
   state(state: BrowserState): void;
   event?(event: BrowserBackendLost | BrowserAnnotationMessage | BrowserPageMessage): void;
   stopFrames(): void;
