@@ -1,6 +1,11 @@
 /*
  * The steps of a screen_act batch. The source of truth for the helper's action set: the helper
  * parses leniently, so every cross-field rule is checked here, with errors the model can fix.
+ *
+ * The model reads one flat step object (`AdvertisedStep`): each field once, and a one-line
+ * grammar on `type` saying which fields each step takes. That costs about a third of a union
+ * of nineteen step objects on every request. Each call is then checked against the strict
+ * union (`StrictStep`), so a field the step does not take is still an error naming it.
  */
 import { z } from "zod";
 
@@ -59,7 +64,7 @@ const windowOps = [
   "resize",
 ] as const;
 
-export const ComputerAction = z.discriminatedUnion("type", [
+const StrictStep = z.discriminatedUnion("type", [
   step("click", {
     id: id.optional(),
     x: point.optional().describe("Screenshot pixel, when the element is not in the outline."),
@@ -186,4 +191,122 @@ export const ComputerAction = z.discriminatedUnion("type", [
         context.addIssue({ code: "custom", message: "if needs text or id" });
     }),
 ]);
+
+const stepTypes = [
+  "click",
+  "move",
+  "type",
+  "paste",
+  "key",
+  "set_value",
+  "select_text",
+  "scroll",
+  "scroll_to",
+  "action",
+  "menu",
+  "focus",
+  "drag",
+  "window",
+  "wait",
+  "wait_for",
+  "activate",
+  "if",
+] as const;
+
+const grammar = [
+  "click {id | x,y; button, count, modifiers, hold_ms}",
+  "move {id | x,y}: hover",
+  "type {text; id}",
+  "paste {text; format, id}",
+  "key {key; repeat, hold_ms, id}",
+  "set_value {id, value}",
+  "select_text {id, text; prefix, suffix, cursor}",
+  "scroll {direction; id | x,y; pages | pixels}",
+  "scroll_to {id}",
+  "action {id, name}",
+  "menu {path}",
+  "focus {id}",
+  "drag {from, to; modifiers, hold_ms}",
+  "window {op; x,y | width,height}",
+  "wait {ms}",
+  "wait_for {text | id; gone, timeout_ms}",
+  "activate",
+  "if {text | id; gone, steps}: run the next steps only if it is there now, else skip them",
+].join(" · ");
+
+// Advertised shapes: the strict steps check their bounds.
+const anyPoint = z.number();
+const anyEndpoint = z.union([
+  z.tuple([anyPoint, anyPoint]),
+  z.strictObject({ id: z.number().int() }),
+]);
+
+/** What the model reads: every field once. Bounds are the widest any step allows. */
+const AdvertisedStep = z.strictObject({
+  type: z.enum(stepTypes).describe(`Fields after ";" are optional. ${grammar}`),
+  id: id.optional(),
+  x: anyPoint
+    .optional()
+    .describe("Screenshot pixel, for things missing from the outline; window move: screen point."),
+  y: anyPoint.optional(),
+  text: z
+    .string()
+    .min(1)
+    .max(200_000)
+    .optional()
+    .describe(
+      "select_text: exactly as the outline shows it; wait_for, if: text in an element's line.",
+    ),
+  key: z
+    .string()
+    .min(1)
+    .max(64)
+    .optional()
+    .describe('"Return", "Escape", "Down", "cmd+n", "shift+Tab".'),
+  value: z.union([z.string().max(100_000), z.number(), z.boolean()]).optional(),
+  name: z.string().min(1).max(80).optional().describe("One of the element's listed Actions."),
+  path: z.array(z.string()).optional().describe('e.g. ["File", "Export…"].'),
+  button: z.enum(["left", "right", "middle"]).optional().describe("right opens the context menu."),
+  count: z.number().int().min(1).max(3).optional().describe("2 for a double-click."),
+  modifiers: z
+    .array(z.enum(["cmd", "shift", "alt", "ctrl", "fn"]))
+    .optional()
+    .describe('Held during the step, e.g. ["cmd"].'),
+  hold_ms: z.number().int().optional().describe("Long press, up to 5000."),
+  repeat: z.number().int().min(1).max(50).optional(),
+  format: z
+    .enum(["text", "markdown", "html"])
+    .optional()
+    .describe("markdown or html paste as rich text."),
+  prefix: z
+    .string()
+    .max(200)
+    .optional()
+    .describe("Text just before it, when it occurs more than once."),
+  suffix: z.string().max(200).optional(),
+  cursor: z.enum(["before", "after"]).optional().describe("Place the caret instead of selecting."),
+  direction: z.enum(["up", "down", "left", "right"]).optional(),
+  pages: z.number().min(0.1).max(20).optional().describe("Default 1."),
+  pixels: z.number().int().optional(),
+  from: anyEndpoint.optional().describe("[x, y] screenshot pixels, or {id}; to as well."),
+  to: anyEndpoint.optional(),
+  op: z
+    .enum(windowOps)
+    .optional()
+    .describe("On the current window; move and resize take screen points."),
+  width: z.number().int().optional(),
+  height: z.number().int().optional(),
+  ms: z.number().int().optional().describe("Up to 10000."),
+  gone: z.boolean().optional().describe("Until or only if it is not there."),
+  timeout_ms: z.number().int().min(100).max(15_000).optional().describe("Default 5000."),
+  steps: z
+    .number()
+    .int()
+    .min(1)
+    .max(19)
+    .optional()
+    .describe("How many steps if guards; default 1."),
+});
+
+export const ComputerAction = AdvertisedStep.pipe(StrictStep);
 export type ComputerAction = z.infer<typeof ComputerAction>;
