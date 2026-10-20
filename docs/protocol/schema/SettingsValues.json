@@ -47,6 +47,9 @@
       ],
       "type": "string"
     },
+    "browser.profileScope": {
+      "$ref": "https://ace.local/protocol/v1/BrowserProfileScope.json"
+    },
     "browser.userChrome.storageReads": {
       "type": "boolean"
     },
@@ -328,6 +331,7 @@
     "browser.backend",
     "browser.backendLoss",
     "browser.profile",
+    "browser.profileScope",
     "browser.downloadDir",
     "browser.downloadDefault",
     "browser.userChrome.storageReads",

@@ -30,7 +30,11 @@ Downloads report progress through `onDownload` and `browser.download.progress`.
 Production startup never searches personal Chrome installations or profiles.
 `detectChromium` remains a diagnostic and test discovery API; the trusted
 `executablePath` option supports CI and packaged executables, always with an
-ace-owned profile. Persistent profiles are isolated by workspace and thread.
+ace-owned profile. Persistent pages open in the kept profile `browser.profileScope`
+names: one shared by every project (`global`, the default, `<dataDir>/browser/profile`),
+one per project or one per thread (`<dataDir>/browser/profiles/`). The desktop opens
+them in the matching partition, so a session has the same sign-ins on either backend
+([ADR 0083](../../docs/adr/0083-browser-v2-daemon-chrome.md), amendment: profile scope).
 
 The desktop bridge contract is [ADR 0055](../../docs/adr/0055-browser-backends.md).
 `BrowserBackend` opens a session with a CDP transport and page operations.
@@ -41,8 +45,10 @@ and client commands keep using `BrowserService`. `browser.backend` can be
 opens (`background`) get the same choice, so agents drive the desktop's native
 view when one is registered; `auto` falls back to headless when the desktop
 cannot open a view ([ADR 0069](../../docs/adr/0069-shared-native-browser.md)).
-`profilePreference` fills an open without a profile; `forgetThread` closes a
-deleted thread's browser and purges its persistent profiles.
+`profilePreference` fills an open without a profile and `profileScope` picks its
+kept profile; `forgetThread` closes a deleted thread's browser and purges its own
+profile and desktop partition; `forgetProject` closes a removed project's browsers
+and purges its project profile and partition.
 Desktop disconnect emits `browser.backend.lost` and pauses by default; the
 agent's next open resumes a paused page headlessly unless a person holds it.
 `browser.backendLoss: headless` reopens the last URL in an ephemeral
