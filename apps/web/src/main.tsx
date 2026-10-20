@@ -24,7 +24,7 @@ import { webStorage } from "./boot/web-storage.ts";
 import { BareBootFailure, BootFailure, DesktopFailureScreen } from "./features/connect/index.ts";
 import { StartupPending } from "./features/startup/index.ts";
 import { createStartup } from "./lib/startup/startup.tsx";
-import { watchKeyboardInset } from "./lib/keyboard-inset.ts";
+import { watchVisibleHeight } from "./lib/visible-height.ts";
 import { profileName, setProfileName } from "./lib/profile.ts";
 import { glassEngine } from "./theme/glass.ts";
 import "./styles/index.css";
@@ -170,8 +170,8 @@ const startup = createStartup({
 });
 
 async function start(root: Root) {
-  // iOS covers the page with its keyboard instead of resizing it; bottom UI reads --kb-inset.
-  watchKeyboardInset(window, document.documentElement);
+  // iOS covers the page with its keyboard instead of resizing it; the app shell ends above it.
+  watchVisibleHeight(window, document.documentElement);
   const daemon = desktopDaemon();
   const render = (children: ReactNode) =>
     root.render(
