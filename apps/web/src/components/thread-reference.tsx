@@ -11,6 +11,7 @@ const InlineImage = deferredComponent(() =>
 import type { ClientApi, ThreadReader, ThreadSource } from "@ace/client";
 import type { Attachment } from "@ace/protocol";
 import { displayName } from "./attachment-format.ts";
+import { LinkedFile } from "./linked-file.tsx";
 
 export const ThreadReferenceScope = createContext<
   { threadId: string; cwd?: string; itemId?: string } | undefined
@@ -166,6 +167,17 @@ function ScopedReference(props: {
       >
         {props.children ?? props.alt ?? displayName(relative)}
       </button>
+    );
+  if (path && props.itemId)
+    return (
+      <LinkedFile
+        threadId={props.threadId}
+        itemId={props.itemId}
+        reference={props.reference}
+        name={displayName(path)}
+      >
+        {props.children ?? props.alt ?? displayName(path)}
+      </LinkedFile>
     );
   return (
     <span title="This file is not available from the thread's environment">
