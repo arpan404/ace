@@ -2,6 +2,7 @@ import type { BrowserBackendSession, BrowserBackend } from "./backend.ts";
 import type {
   BrowserAnnotationEvent,
   BrowserArtifact,
+  BrowserPageState,
   BrowserState,
   ThreadId,
 } from "@ace/protocol";
@@ -45,6 +46,8 @@ export interface SessionOptions {
   state: (state: BrowserState) => void;
   /** Annotation events for the one connection that started annotate mode (ADR 0082). */
   annotation?: (connectionId: string, event: BrowserAnnotationEvent) => void;
+  /** A tab's page state for remote views changed: its focused field, picker, cursor, tooltip. */
+  pageState?: (tabId: string, page: BrowserPageState) => void;
   cleanup: () => Promise<void>;
   /** Tab records from before a restart: their labels and openers come back with them. */
   restoredTabs?: readonly import("./tab-store.ts").BrowserTabRecord[];

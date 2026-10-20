@@ -41,6 +41,17 @@ function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 const RpcEnvelope = z.record(z.string(), z.unknown());
+const RpcErrorCode = z.object({ code: z.number().int() });
+/** The JSON-RPC error code a rejected request carries, if the peer answered with one. */
+export function rpcErrorCode(error: unknown): number | undefined {
+  if (!(error instanceof Error)) return undefined;
+  try {
+    const parsed = RpcErrorCode.safeParse(JSON.parse(error.message));
+    return parsed.success ? parsed.data.code : undefined;
+  } catch {
+    return undefined;
+  }
+}
 const noop = () => {};
 
 /** Lenient stdio framing: extension methods and absent jsonrpc tags are accepted. */

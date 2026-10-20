@@ -32,6 +32,8 @@ export interface OriginLike {
   role?: string | undefined;
   from?: { provider: ProviderKind; model?: string | undefined } | undefined;
   to?: { provider: ProviderKind; model?: string | undefined } | undefined;
+  /** A context handoff's source models, oldest first. */
+  sources?: readonly { provider: ProviderKind; model?: string | undefined }[] | undefined;
   lossy?: boolean | undefined;
 }
 

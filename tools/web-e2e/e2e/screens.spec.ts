@@ -38,16 +38,17 @@ const rightTab =
   };
 /** A tool opened in the side panel by its shortcut: ⌘J's terminal (the thread's zsh), ⌃⇧L Logs. */
 const shortcutTab =
-  (path: string, keys: string, tab: string): Setup =>
+  (path: string, keys: string, tab: string, region = "Thread panel"): Setup =>
   async (page) => {
     await openThread(path)(page);
     await page.keyboard.press(keys);
     await page
-      .getByRole("region", { name: "Thread panel" })
+      .getByRole("region", { name: region })
       .getByRole("tab", { name: tab, selected: true })
       .waitFor();
   };
-const terminalTab = shortcutTab("/t/thread-cold-start", "ControlOrMeta+j", "zsh");
+// ⌘J shows the bottom terminal panel under the conversation.
+const terminalTab = shortcutTab("/t/thread-cold-start", "ControlOrMeta+j", "zsh", "Terminal panel");
 const logsTab = shortcutTab("/t/thread-cold-start", "Control+Shift+l", "Logs");
 /**
  * Home lands on a thread (the last opened, else the top row). The design's hero was the last

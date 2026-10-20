@@ -38,8 +38,7 @@ export function PrReviewSubmission({ detail }: { detail: ForgePrDetail }) {
   const drafts = review?.state?.drafts ?? [];
   const outdated = drafts.some((d) => d.anchor.commit !== detail.status.headSha);
   return (
-    <section aria-label="Submit GitHub review" className="space-y-3 border-t border-border pt-4">
-      <h3 className="font-medium">GitHub review</h3>
+    <section aria-label="Submit GitHub review" className="space-y-3">
       <Textarea
         aria-label="Review summary"
         maxLength={60_000}

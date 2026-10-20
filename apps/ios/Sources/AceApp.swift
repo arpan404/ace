@@ -9,12 +9,14 @@ import QuartzCore
     @State private var production = ProductionApp.make()
     var body: some Scene {
         WindowGroup {
-            if SpikeConfiguration.enabled { spike }
-            else if let production {
-                production.root(notifications: notificationDelegate.coordinator)
-                    .environment(notificationDelegate.coordinator)
-                    .onChange(of: scenePhase) { _, phase in notificationDelegate.coordinator.scene(active: phase == .active) }
-            } else { storageUnavailable }
+            Group {
+                if SpikeConfiguration.enabled { spike }
+                else if let production {
+                    production.root(notifications: notificationDelegate.coordinator)
+                        .environment(notificationDelegate.coordinator)
+                        .onChange(of: scenePhase) { _, phase in notificationDelegate.coordinator.scene(active: phase == .active) }
+                } else { storageUnavailable }
+            }.modifier(PhoneAppearance())
         }
     }
     private var storageUnavailable: some View {

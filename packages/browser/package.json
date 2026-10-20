@@ -8,13 +8,14 @@
     "./policy": "./src/policy.ts",
     "./policy-events": "./src/policy-events.ts",
     "./zoom": "./src/zoom.ts",
+    "./stream": "./src/stream.ts",
     "./history": "./src/page-history.ts",
     "./testing": "./src/backend-test-support.ts",
     "./conformance": "./src/conformance/index.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
-    "bench": "node bench/fanout.ts && node bench/pipeline.ts && node bench/input-policy.ts && node bench/evaluation.ts && node bench/relay.ts && node bench/acquisition.ts"
+    "bench": "node bench/fanout.ts && node bench/pipeline.ts && node bench/frame-wire.ts && node bench/input-policy.ts && node bench/evaluation.ts && node bench/relay.ts && node bench/acquisition.ts && node bench/video-wire.ts"
   },
   "dependencies": {
     "@ace/browser-annotate": "workspace:*",
@@ -29,6 +30,7 @@
   "devDependencies": {
     "@types/ws": "8.18.1",
     "@types/yauzl": "2.10.3",
+    "esbuild": "0.25.12",
     "ws": "8.22.0"
   }
 }

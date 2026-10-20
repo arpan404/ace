@@ -7,6 +7,7 @@ import {
   stripAceOriginMarker,
   echoesEarlierError,
   failureCount,
+  handoffMarker,
   handoffSummary,
   inputLine,
   interruptionNotice,
@@ -40,6 +41,7 @@ import { PostedImage } from "@/components/attachment-tiles.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { cn } from "@/lib/cn.ts";
 import { DelegationCard } from "./delegation-card.tsx";
+import { HandoffDivider } from "./handoff-divider.tsx";
 import { ErrorRow, noticeError } from "./error-row.tsx";
 import { NotSentNotice } from "./not-sent-notice.tsx";
 import { notSentCommand } from "./send-failure.ts";
@@ -174,6 +176,8 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
   if (!input && item.type === "message" && item.role === "user" && !item.synthetic)
     return <UserMessage threadId={props.threadId} itemId={props.itemId} />;
   if (input) {
+    const handoff = input.kind === "handoff" ? handoffMarker(item) : undefined;
+    if (handoff) return <HandoffDivider marker={handoff} at={item.createdAt} />;
     switch (input.kind) {
       // The question block above already shows the answer with its question.
       case "interaction_answer":

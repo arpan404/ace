@@ -31,7 +31,8 @@ test("running another script opens a terminal tab of its own, printing as it run
 }) => {
   await page.goto("/t/thread-replay-cursor");
   await runAction(page, "bun run test");
-  const panel = page.getByRole("region", { name: "Thread panel" });
+  // Terminals open in the bottom panel, under the conversation.
+  const panel = page.getByRole("region", { name: "Terminal panel" });
   await expect(panel.getByRole("tab", { name: "test", selected: true })).toBeVisible();
   await expect(panel.getByRole("group", { name: "test terminal" })).toContainText("8 pass");
 });

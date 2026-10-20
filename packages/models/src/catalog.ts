@@ -602,10 +602,21 @@ export class ModelCatalog implements ModelCatalogApi {
     void write.then(cleanup, cleanup);
     return write;
   }
-  loginChanged(instance: string, revision: string): Promise<ModelInstanceStatus[]> {
+  /** `signInMethod`: the ACP method now signed in with, or null once signed out; omitted, kept. */
+  loginChanged(
+    instance: string,
+    revision: string,
+    signInMethod?: string | null,
+  ): Promise<ModelInstanceStatus[]> {
     const state = this.#states.get(instance);
     if (!state) throw new Error("Unknown instance");
-    this.registerInstance({ ...state.config, loginRevision: revision });
+    const { signInMethod: previous, ...config } = state.config;
+    const method = signInMethod === undefined ? previous : (signInMethod ?? undefined);
+    this.registerInstance({
+      ...config,
+      loginRevision: revision,
+      ...(method ? { signInMethod: method } : {}),
+    });
     return this.refresh({ instance });
   }
   removeInstance(instance: string): Promise<void> {

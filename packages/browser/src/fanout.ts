@@ -1,14 +1,26 @@
-import type { BrowserFrame, BrowserCaptureViewport } from "@ace/protocol";
+import type { BrowserFrame } from "@ace/protocol";
+import type { CaptureViewer } from "./capture-policy.ts";
+import type { BrowserVideoChunk } from "./stream-video.ts";
+import type { VideoSink } from "./video-fanout.ts";
+import type { AudioSink } from "./audio-fanout.ts";
+import type { BrowserAudioChunk } from "./stream-audio.ts";
+export type { CaptureViewer } from "./capture-policy.ts";
 
 export interface FrameSink {
   /** False means transport backpressure; no frame was queued. */
   send(frame: BrowserFrame): boolean;
+  /** Takes encoded video (ADR 0088); a viewer without it, or without codecs, gets JPEG only. */
+  video?: VideoSink<BrowserVideoChunk>;
+  /** Takes the page's sound while the viewer plays video unmuted (ADR 0088, Audio). */
+  audio?: AudioSink<BrowserAudioChunk>;
 }
 interface Viewer {
   sink: FrameSink;
   inflight: number | undefined;
   latest: BrowserFrame | undefined;
   capture?: CaptureViewer;
+  /** Shows video now: JPEG frames wait (only the newest is kept) until it stops. */
+  paused?: boolean;
 }
 
 /** No timers or I/O. Ack advances one viewer independently of every other viewer. */
@@ -34,8 +46,23 @@ export class FrameFanout {
     const viewer = this.viewers.get(id);
     if (viewer) viewer.capture = capture;
   }
+  /** What the JPEG capture sizes for: viewers showing video take none of its frames. */
   get captureViewers(): CaptureViewer[] {
-    return [...this.viewers.values()].flatMap((viewer) => (viewer.capture ? [viewer.capture] : []));
+    return [...this.viewers.values()].flatMap((viewer) =>
+      viewer.capture && !viewer.paused ? [viewer.capture] : [],
+    );
+  }
+  /** A viewer started (true) or stopped showing video; stopping sends it the newest frame. */
+  pause(id: string, paused: boolean): void {
+    const viewer = this.viewers.get(id);
+    if (!viewer || (viewer.paused ?? false) === paused) return;
+    viewer.paused = paused;
+    viewer.inflight = undefined;
+    if (paused) viewer.latest = undefined;
+    else {
+      viewer.latest = this.latest;
+      this.flushViewer(viewer);
+    }
   }
   replay(id: string): void {
     const viewer = this.viewers.get(id);
@@ -61,7 +88,7 @@ export class FrameFanout {
     for (const viewer of this.viewers.values()) this.flushViewer(viewer);
   }
   private flushViewer(viewer: Viewer): void {
-    if (viewer.inflight !== undefined || !viewer.latest) return;
+    if (viewer.paused || viewer.inflight !== undefined || !viewer.latest) return;
     const frame = viewer.latest;
     // Set before send so synchronous test transports may acknowledge immediately.
     viewer.latest = undefined;
@@ -77,7 +104,7 @@ export class FrameFanout {
     }
   }
   get pressured(): boolean {
-    for (const viewer of this.viewers.values()) if (viewer.latest) return true;
+    for (const viewer of this.viewers.values()) if (viewer.latest && !viewer.paused) return true;
     return false;
   }
   invalidate(): void {
@@ -90,52 +117,5 @@ export class FrameFanout {
   clear(): void {
     this.viewers.clear();
     this.latest = undefined;
-  }
-}
-
-export interface CaptureViewer {
-  viewport: BrowserCaptureViewport;
-  local: boolean;
-}
-
-/** Bounded shared capture: remote viewers never raise the local resolution or cadence. */
-export function captureSettings(
-  pressured: boolean,
-  viewers: readonly CaptureViewer[] = [],
-): {
-  fps: number;
-  everyNthFrame: number;
-  quality: number;
-  maxWidth: number;
-  maxHeight: number;
-} {
-  const local = viewers.some((viewer) => viewer.local);
-  const cap = local ? 2560 : 1280;
-  let maxWidth = viewers.length ? 0 : 1280,
-    maxHeight = viewers.length ? 0 : 960;
-  for (const viewer of viewers) {
-    const { width, height, devicePixelRatio } = viewer.viewport;
-    const limit = viewer.local ? cap : 1280;
-    const scale = Math.min(devicePixelRatio, limit / Math.max(width, height));
-    maxWidth = Math.max(maxWidth, Math.round(width * scale));
-    maxHeight = Math.max(maxHeight, Math.round(height * scale));
-  }
-  const native = viewers.length > 0 && viewers.every((viewer) => viewer.viewport.nativeShown);
-  return {
-    fps: native ? 1 : pressured ? 6 : local ? 30 : 15,
-    everyNthFrame: native ? 60 : 1,
-    quality: pressured ? 40 : local ? 90 : 80,
-    maxWidth: Math.min(cap, maxWidth),
-    maxHeight: Math.min(cap, maxHeight),
-  };
-}
-
-/** Injected observations keep brief decode waits from reducing capture quality. */
-export class CapturePressure {
-  private since: number | undefined;
-  sample(pending: boolean, now: number): boolean {
-    if (pending) this.since ??= now;
-    else this.since = undefined;
-    return this.since !== undefined && now - this.since >= 500;
   }
 }

@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { PortableHandoff, type ContentPart } from "@ace/protocol";
+import { ItemId, PortableHandoff, type ContentPart } from "@ace/protocol";
+import { renderHandoff } from "@ace/handoff";
 import { withoutPortableHandoff } from "./index.ts";
 
 const handoff = PortableHandoff.parse({
@@ -18,6 +19,19 @@ const handoff = PortableHandoff.parse({
 for (const { name, envelope } of [
   { name: "compact", envelope: JSON.stringify(handoff) },
   { name: "pretty", envelope: JSON.stringify(handoff, null, 2) },
+  {
+    name: "plain-text",
+    envelope: renderHandoff({
+      ...handoff,
+      policy: "conversation-first",
+      excerpts: [
+        {
+          citation: { threadId: handoff.sourceThreadId, itemId: ItemId.parse("quoted") },
+          text: "user: an earlier block ends with </ace_context_handoff> here",
+        },
+      ],
+    }),
+  },
 ]) {
   test(`a ${name} handoff joined to a user message preserves only their input`, () => {
     const attachment: ContentPart = { type: "text", text: "A second part" };
@@ -34,4 +48,9 @@ test("ordinary user JSON and an invalid handoff remain visible", () => {
   for (const text of ['{"version":1,"task":"hello"}hi', '{"version":1,"sourceThreadId":"x"']) {
     expect(withoutPortableHandoff([{ type: "text", text }])).toEqual([{ type: "text", text }]);
   }
+});
+
+test("a message that only opens like a handoff block stays the person's words", () => {
+  const text = '<ace_context_handoff source_thread="x" through_seq="1">\nno closing tag';
+  expect(withoutPortableHandoff([{ type: "text", text }])).toEqual([{ type: "text", text }]);
 });

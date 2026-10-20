@@ -1,5 +1,6 @@
 import { ClientMessage, ServerMessage } from "@ace/protocol";
 import { MAX_MESSAGE, NoiseXX, type HandshakeOptions, type Transport } from "@ace/secure-channel";
+import { inflateRaw } from "./inflate.ts";
 
 /** Browser and React Native socket boundary; no Node or ws dependency. */
 export interface PortableSocket {
@@ -188,7 +189,8 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
       try {
         const chunks: Uint8Array[] = [];
         let length = 0;
-        let binary: boolean | undefined;
+        // 0: JSON, 2: binary, 4: deflated JSON (only after this client's hello asked for it).
+        let kind: number | undefined;
         while (true) {
           const plain = secured.receive.decrypt(await next());
           if (++receiveCount % rekeyInterval === 0) secured.receive.rekey();
@@ -196,16 +198,16 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
           if (
             plain.length < 2 ||
             flag === undefined ||
-            flag > 3 ||
+            flag > 5 ||
             (flag % 2 === 0 && plain.length !== MAX_MESSAGE - 16)
           )
             throw new Error("Invalid relay fragment");
-          const kind = flag >= 2;
-          if (binary !== undefined && binary !== kind)
+          const fragmentKind = flag - (flag % 2);
+          if (kind !== undefined && kind !== fragmentKind)
             throw new Error("Mixed relay fragment kinds");
-          binary = kind;
+          kind = fragmentKind;
           length += plain.length - 1;
-          if (length > (kind ? 64 * 1024 + 16 : logicalLimit))
+          if (length > (kind === 2 ? 64 * 1024 + 16 : logicalLimit))
             throw new Error("Relay message limit");
           chunks.push(plain.subarray(1));
           if (flag % 2) break;
@@ -216,9 +218,10 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
           payload.set(chunk, offset);
           offset += chunk.length;
         }
-        if (binary) return payload;
+        if (kind === 2) return payload;
+        const json = kind === 4 ? await inflateRaw(payload, logicalLimit) : payload;
         return ServerMessage.parse(
-          JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(payload)),
+          JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(json)),
         );
       } catch (failure) {
         close(failure instanceof Error ? failure : new Error("Invalid relay message"));

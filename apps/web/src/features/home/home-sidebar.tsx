@@ -13,7 +13,7 @@ import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { formatKeys } from "@/lib/keymap.ts";
 import { ThreadsActions } from "./project-filter.tsx";
 import { ThreadList } from "./thread-list.tsx";
-import { ThreadPagination } from "./thread-pagination.tsx";
+import { useThreadsWindowSync } from "./thread-pagination.tsx";
 import { useHomeList } from "./use-home-threads.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 
@@ -24,13 +24,17 @@ const StartedTitlePublisher = deferredComponent(() =>
 
 /**
  * Home's list in the sidebar: one list of tasks across projects, pinned first, then in the order
- * of what is owed, with Settled folded away at the end. The toolbar holds the project filter
+ * of what is owed, with Snoozed and Settled folded away at the foot. The toolbar holds the project filter
  * (Add project lives in its menu) and New thread.
  */
 export function HomeSidebar() {
   const list = useHomeList();
-  const settledTotal = useSidebar(["homeWindow"], (reader) => reader.homeWindow?.total);
-  const { project, settledOpen } = useOrganizerState();
+  // The daemon's count of settled threads, while it still holds some back.
+  const settledTotal = useSidebar(["homeWindow"], (reader) =>
+    reader.homeWindow?.before ? reader.homeWindow.total : undefined,
+  );
+  const { project } = useOrganizerState();
+  useThreadsWindowSync();
   const organizer = useOrganizer();
   const loaded = useSidebarLoaded();
   const empty = [list.pinned, list.active, list.recent, list.snoozed, list.settled].every(
@@ -105,7 +109,6 @@ export function HomeSidebar() {
         ) : (
           <ThreadList list={list} settledTotal={settledTotal} />
         )}
-        <ThreadPagination settledOpen={settledOpen} />
       </nav>
     </>
   );

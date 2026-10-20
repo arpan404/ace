@@ -13,7 +13,7 @@ export function AceLogo(props: { className?: string }) {
       viewBox="0 0 20 20"
       className={cn("shrink-0 rounded-[30%] bg-foreground text-background", props.className)}
     >
-      <g fill="currentColor" transform="translate(3.76 4.33) scale(0.52)">
+      <g fill="currentColor" transform="translate(1 1.83) scale(0.75)">
         <AceWings />
       </g>
     </svg>

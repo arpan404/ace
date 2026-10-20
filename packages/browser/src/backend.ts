@@ -1,10 +1,61 @@
 import type { BrowserOpen, BrowserTab, BrowserDownload, BrowserDialog } from "@ace/protocol";
+import type { VideoEncode } from "./video-policy.ts";
 
 /** Opaque CDP results are parsed by their owning operation before use. */
 export interface BrowserCdp {
   send(method: string, params?: Record<string, unknown>): Promise<unknown>;
   on(method: string, listener: (params: unknown) => void): unknown;
   off(method: string, listener: (params: unknown) => void): unknown;
+}
+/** One encoded chunk from an engine's video encoder, for the encode named `encode`. */
+export interface EncodedChunk {
+  encode: string;
+  key: boolean;
+  codec: string;
+  codedWidth: number;
+  codedHeight: number;
+  description?: Uint8Array;
+  bytes: Uint8Array;
+  /** How long ago (ms) the frame was captured, as the encoder measured it. */
+  age?: number | undefined;
+}
+/** One encoded chunk of the captured tab's sound (Opus), with how long ago it was captured. */
+export interface EncodedAudio {
+  codec: string;
+  sampleRate: number;
+  channels: number;
+  /** Milliseconds between the sound's capture and this chunk leaving the encoder. */
+  age: number;
+  bytes: Uint8Array;
+}
+export interface CaptureEvents {
+  chunk(chunk: EncodedChunk): void;
+  /** Encoded sound, while the capture's audio is on (`VideoCaptureHandle.audio`). */
+  audio?(chunk: EncodedAudio): void;
+  /** No encoder configuration worked for this encode. */
+  failed(encode: string): void;
+  /** The capture stopped on its own (the tab closed, the extension went away). */
+  ended(): void;
+}
+/** One tab capture feeding the encodes it is told to run. */
+export interface VideoCaptureHandle {
+  encodes(specs: readonly VideoEncode[]): void;
+  keyframe(encode: string): void;
+  /** Encode the tab's sound too (ADR 0088, Audio), or stop; it starts off. */
+  audio?(on: boolean): void;
+  close(): void;
+}
+/** An engine's video encoder (ADR 0088): what a live capture needs to stream a tab as video. */
+export interface VideoHost {
+  /** The codecs (of those asked, in order) the encoder supports at this size. */
+  supported(codecs: readonly string[], width: number, height: number): Promise<string[]>;
+  /** Captures the tab `page` shows, at exactly this many pixels. */
+  open(
+    page: BrowserCdp,
+    width: number,
+    height: number,
+    events: CaptureEvents,
+  ): Promise<VideoCaptureHandle>;
 }
 export interface BackendLog {
   /** The tab that logged the entry, when the backend knows it. */
@@ -25,6 +76,14 @@ export interface BackendLog {
    */
   type: string;
   text: string;
+}
+/** Where a finished download's quarantined copy is, and what it was when it finished. */
+export interface DownloadSource {
+  path: string;
+  bytes: number;
+  filename: string;
+  mimeType: string;
+  flags: BrowserDownload["flags"];
 }
 /** A tab to bring back when a thread's browser reopens, such as after a daemon restart. */
 export interface BackendRestoreTab {
@@ -108,6 +167,11 @@ export interface BrowserBackendTabs {
    */
   downloads?(): BrowserDownload[];
   /**
+   * A finished download's quarantined copy, for the person to fetch to their device. Only this
+   * thread's own downloads are found; absent where the backend keeps no copy.
+   */
+  downloadSource?(downloadId: string): DownloadSource | undefined;
+  /**
    * The tab whose page opened this one (a popup the backend adopted as a tab of its own). The
    * new tab counts as opened by whoever drove its opener.
    */
@@ -154,8 +218,11 @@ export interface BrowserBackendPage {
     permissionDenied?: { origin: string; permission: string } | undefined;
   };
   networkBody?(requestId: string): Promise<unknown>;
-  /** This page's network requests still in flight, for network-idle waits. */
-  networkPending?(): number;
+  /**
+   * Ids of this page's network requests still in flight, for network-idle waits; streams the
+   * page keeps open while it lives (EventSource, event streams, sockets) are left out.
+   */
+  networkPending?(): readonly string[];
   frames?(): Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]>;
   url(): string;
   navigate(url: string, timeout: number, signal?: AbortSignal): Promise<void>;
@@ -164,7 +231,21 @@ export interface BrowserBackendPage {
   press(key: string): Promise<void>;
   wheel(x: number, y: number): Promise<void>;
   screenshot(format: "png" | "jpeg"): Promise<Buffer>;
-  resize(width: number, height: number): Promise<void>;
+  /**
+   * Size the page in CSS pixels. `devicePixelRatio`: the resizing viewer's screen, which a
+   * backend that can renders the page as sharp as (up to 3); others ignore it.
+   */
+  resize(width: number, height: number, devicePixelRatio?: number): Promise<void>;
+  /**
+   * Window pixels per CSS pixel in this page's screencast frames beyond the browser's own scale
+   * (1 when the page renders at that scale). Absent: always 1.
+   */
+  captureScale?(): number;
+  /**
+   * The engine's video encoder for this page's tab (ADR 0088). Absent, or undefined: remote
+   * viewers take JPEG frames (the desktop's views, the person's Chrome, private contexts).
+   */
+  video?(): VideoHost | undefined;
   viewport(): { width: number; height: number };
   media(colorScheme: "light" | "dark" | "no-preference"): Promise<void>;
   /**

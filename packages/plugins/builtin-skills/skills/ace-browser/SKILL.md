@@ -11,7 +11,7 @@ Each thread has a real Chromium browser with tabs inside ace, shared by you and 
 
 ## Drive a page
 
-1. `browser_open {url}` loads an http(s) URL in your tab and returns its `tabId`. Without `url` it reports where you are. `waitUntil: "load"` or `"networkidle"` waits for pages that keep loading after their HTML.
+1. `browser_open {url}` loads an http(s) URL in your tab and returns its `tabId`. Without `url` it reports where you are. `waitUntil: "load"` or `"networkidle"` waits for pages that keep loading after their HTML; `networkidle` ignores sockets, event streams and requests open over 5 s, so a dev server's reload channel doesn't hold it.
 2. `browser_snapshot` returns the page as indented lines, one per meaningful element:
    ```
    - heading "Sign in" [level=1] [ref=e2-14]
@@ -69,6 +69,8 @@ Every failure has a `code` and a `hint` that says what to do next. The common on
 - `browser_restarted`: the browser or the daemon restarted and the tab reopened at its last address. Form input and refs are gone: snapshot again and redo the lost steps.
 - A result with `pending_dialog` means a dialog holds the tab. Answer it with `browser_act {action:"dialog"}`, then retry.
 - `evaluate_failed`: the script threw, ran over 10 seconds, or (in `read-only` mode) tried a side effect.
+- `not_hittable` or `covered` on a click: the press did not reach what you aimed at, so nothing was clicked. Snapshot again and retry.
+- `viewport_mismatch` after `resize` or `emulate`: the tab kept another size (`detail` says which); screenshots and clicks use that size. Use `browser_screenshot` with `sizes` for a one-off look at other widths.
 
 ## When only the person can do it
 

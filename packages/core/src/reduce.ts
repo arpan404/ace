@@ -281,6 +281,8 @@ function fold(
       }
       break;
     }
+    // The engine lifts a root agent's goal onto the thread before facts reach the reducer.
+    case "goal.updated":
     case "signal":
     case "tick":
       break;

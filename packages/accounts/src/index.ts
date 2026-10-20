@@ -24,7 +24,13 @@ export {
   type Candidate,
   type RolePolicy,
 } from "./scheduler.ts";
-export { migrateSession, type MigrationSafety, type MigrationRequest } from "./migration.ts";
+export {
+  migrateSession,
+  noMigrationLease,
+  type MigrationLease,
+  type MigrationSafety,
+  type MigrationRequest,
+} from "./migration.ts";
 
 export type { MigrationObserver, MigrationProgress } from "./migration-files.ts";
 export { AccountService, type AccountAdapterFactory } from "./service.ts";

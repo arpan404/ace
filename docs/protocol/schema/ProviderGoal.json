@@ -1,0 +1,46 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProviderGoal.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "checks": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "lastReason": {
+      "maxLength": 4000,
+      "type": "string"
+    },
+    "objective": {
+      "maxLength": 4000,
+      "minLength": 1,
+      "type": "string"
+    },
+    "setAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/ProviderGoalStatus.json"
+    },
+    "timeUsedSeconds": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "tokenBudget": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "tokensUsed": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "objective",
+    "status"
+  ],
+  "type": "object"
+}

@@ -10,6 +10,7 @@ import {
 } from "@ace/devices";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { logFields } from "@ace/diagnostics";
+import { mayCompress } from "../compression-policy.ts";
 import { ThreadId, AgentId, ItemId } from "@ace/protocol";
 import { basename, join } from "node:path";
 import { homedir } from "node:os";
@@ -29,6 +30,7 @@ export async function startDevices(context: ServiceContext): Promise<void> {
         platform: process.platform,
         home: homedir(),
         env: process.env,
+        toolsDirectory: join(config.dataDir, "tools"),
         ...(services.screen ? { screen: services.screen } : {}),
       }),
       runtime: {
@@ -103,8 +105,10 @@ export function createDevicesSession(context: SocketContext): SocketService {
       if (!context.connected() || !context.authorize("admin"))
         throw new Error("Device socket revoked");
       await new Promise<void>((resolve, reject) =>
-        context.socket.send(JSON.stringify(message), (error) =>
-          error ? reject(error) : resolve(),
+        context.socket.send(
+          JSON.stringify(message),
+          { compress: mayCompress(message.type) },
+          (error) => (error ? reject(error) : resolve()),
         ),
       );
     },
@@ -126,7 +130,7 @@ export function createDevicesSession(context: SocketContext): SocketService {
           authorize: () => context.connected() && context.authorize("admin"),
           write: (packet) =>
             new Promise<void>((resolve, reject) => {
-              context.socket.send(packet, { binary: true }, (error) =>
+              context.socket.send(packet, { binary: true, compress: false }, (error) =>
                 error ? reject(error) : resolve(),
               );
             }),

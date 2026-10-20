@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { NavigationPolicies } from "./policy-waits.ts";
 import { BrowserActionError } from "./action-error.ts";
 import type { BackendLog, BrowserBackendSession, PopupTarget } from "./backend.ts";
-import type { BrowserAnnotationEvent, BrowserOriginBlock } from "@ace/protocol";
+import type { BrowserAnnotationEvent, BrowserOriginBlock, BrowserPageState } from "@ace/protocol";
 import { BrowserCommand, type BrowserArtifact, type BrowserState } from "@ace/protocol";
 import { LiveCapture } from "./live.ts";
 import { SessionLogs } from "./logs.ts";
@@ -19,7 +19,9 @@ import { settleIdleTabs, wakeTab } from "./session-lifecycle.ts";
 import { tabCommand } from "./session-commands.ts";
 import { collaborationTiming } from "./collaboration.ts";
 import { keepAfterPersonMs, temporaryTabs } from "./turn-end.ts";
-import { requestAsPerson, type PersonRequest } from "./person-requests.ts";
+import { requestAsPerson, type PersonFile, type PersonRequest } from "./person-requests.ts";
+import { DroppedFiles } from "./dropped-files.ts";
+import { readDownload } from "./download-read.ts";
 import { OfflineRetries } from "./offline-retry.ts";
 import { printPdf } from "./page-capture.ts";
 
@@ -42,6 +44,7 @@ export class BrowserSession {
   readonly live: LiveCapture;
   lastActivity: number;
   private logs: SessionLogs;
+  private drops: DroppedFiles;
   private options: SessionOptions;
   private tabs: SessionTabs;
   private budget = new QueueBudget(128);
@@ -107,6 +110,7 @@ export class BrowserSession {
     this.options = options;
     this.lastActivity = options.now();
     this.logs = new SessionLogs(options.dir);
+    this.drops = new DroppedFiles(options.dir, options.id);
     this.recordings = new SessionRecording(
       options,
       () => this.paused,
@@ -145,6 +149,12 @@ export class BrowserSession {
       },
       () => this.viewedPage().viewport(),
       () => (this.options.backend.tabs ? this.captured : undefined),
+      () => this.viewedPage().captureScale?.() ?? 1,
+      () => {
+        const page = this.viewedPage();
+        const host = page.video?.();
+        return host ? { host, page: page.cdp } : undefined;
+      },
     );
     this.persist();
     this.scheduleLifecycle();
@@ -202,7 +212,15 @@ export class BrowserSession {
       recording: () => this.recordings.active,
       annotation: (connectionId: string, event: BrowserAnnotationEvent) =>
         this.options.annotation?.(connectionId, event),
+      pageState: (tabId, page) => this.options.pageState?.(tabId, page),
     };
+  }
+  /** Each tab's page state for remote views, for a viewer that just subscribed. */
+  pageStates(): { tabId: string; page: BrowserPageState }[] {
+    return this.tabs.all().flatMap((tab) => {
+      const page = tab.interaction?.state;
+      return page && Object.keys(page).length ? [{ tabId: tab.id, page }] : [];
+    });
   }
   get state(): BrowserState {
     const viewed = this.tabs.viewed();
@@ -416,6 +434,24 @@ export class BrowserSession {
     );
     this.emit();
     return this.state;
+  }
+  /** Files the person dropped on a tab's page at a point, given to the page as a native drop. */
+  async dropFiles(
+    request: { tabId: string; x: number; y: number; modifiers: number; files: PersonFile[] },
+    connectionId: string,
+  ): Promise<BrowserState> {
+    const tab = this.tab(request.tabId);
+    this.lastActivity = this.options.now();
+    const paths = await this.drops.stage(request.files);
+    await tab.drop(paths, { x: request.x, y: request.y }, request.modifiers, connectionId);
+    return this.state;
+  }
+  /** A chunk of one of this thread's finished downloads, for the person's device. */
+  readDownload(downloadId: string, offset: number, length: number, validator?: string) {
+    if (this.closed) throw new BrowserActionError("browser_closed");
+    const source = this.options.backend.tabs?.downloadSource?.(downloadId);
+    if (!source) throw new Error("No finished download with that id in this thread");
+    return readDownload(source, offset, length, validator);
   }
   /** The person used a tab in a view the daemon does not route (the desktop's native view). */
   leaveUnasked(tabId?: string): boolean {
@@ -771,7 +807,7 @@ export class BrowserSession {
         () => Promise.all(this.tabs.all().map((tab) => tab.settled())),
         this.recordings,
         this.logs,
-      );
+      ).finally(() => this.drops.close());
     })();
     return this.closing;
   }

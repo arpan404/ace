@@ -99,13 +99,14 @@ test("forking from the last turn opens a new thread with the conversation so far
 
   await page.getByRole("button", { name: "More actions" }).click();
   await page.getByRole("menuitem", { name: "Fork from the last turn…" }).click();
-  const dialog = page.getByRole("dialog", { name: "Fork from here" });
-  await dialog
-    .getByRole("textbox", { name: "First message of the fork" })
-    .fill("Try a shorter README.");
-  await dialog.getByRole("button", { name: "Fork" }).click();
+  // The fork opens as its own thread with the caret in its composer; the message starts it.
+  const message = page.getByRole("combobox", { name: "Message" });
+  await expect(message).toBeFocused();
+  await message.fill("Try a shorter README.");
+  await message.press("Enter");
 
   await expect(page).not.toHaveURL(source);
+  await expect(page).not.toHaveURL(/\/fork/);
   const transcript = page.getByRole("feed", { name: "Transcript" });
   await expect(transcript.getByText("Tidy the README.")).toBeVisible();
   await expect(transcript.getByText("Try a shorter README.")).toBeVisible();

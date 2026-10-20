@@ -1,5 +1,6 @@
 import type { AttachmentReader, ComposerDraft } from "@ace/ui-core";
 import type { ReactNode, Ref } from "react";
+import type { KeymapId } from "@/lib/keymap.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import type { Draft } from "./draft.ts";
 import type { ReturnedDraft } from "./send-store.ts";
@@ -35,6 +36,11 @@ export interface ComposerProps {
   followUp?: "queue" | "steer" | undefined;
   /** ⌘↵ does the other follow-up; false when the provider can't steer (both queue). */
   canSteer?: boolean | undefined;
+  /**
+   * What the other send key does here instead of the other follow-up (New thread: start the
+   * thread without opening it): its shortcut, and the Send tooltip's words for it.
+   */
+  otherSend?: { shortcut: KeymapId; hint: string } | undefined;
   /**
    * Take the message. Resolves false when this device couldn't save it: the composer puts it
    * back if nothing new was typed meanwhile.

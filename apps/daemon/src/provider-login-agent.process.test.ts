@@ -107,6 +107,8 @@ test("an installed ACP binding enrolls and signs in before any thread exists, th
       availability: "available",
       quota: { auth: "logged_in" },
     });
+    // Sessions select it again when the agent asks which method to use.
+    expect(registry.acpSignInMethod(identity.instanceId)).toBe("browser");
     expect(context.services.accounts?.isChangingAccount(identity.instanceId)).toBe(false);
     const modelId = acpModelInstanceId(identity);
     await mkdir(join(f.home, "workspace"));

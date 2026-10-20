@@ -119,5 +119,8 @@ test("the row's ⋯ menu forks from the last turn, as its right-click menu does"
   const fork = await screen.findByRole("menuitem", { name: /Fork from the last turn/ });
   expect(fork.getAttribute("aria-disabled")).not.toBe("true");
   await userEvent.click(fork);
-  expect(await screen.findByRole("dialog", { name: "Fork from here" })).toBeTruthy();
+  expect(
+    await screen.findByRole("heading", { level: 1, name: `${routerTitle} (fork)` }),
+  ).toBeTruthy();
+  expect(await screen.findByRole("combobox", { name: "Message" })).toBeTruthy();
 });

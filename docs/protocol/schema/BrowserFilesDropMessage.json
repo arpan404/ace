@@ -1,0 +1,71 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserFilesDropMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "files": {
+      "items": {
+        "properties": {
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "sha256": {
+            "$ref": "https://ace.local/protocol/v1/BlobHash.json"
+          }
+        },
+        "required": [
+          "sha256",
+          "name"
+        ],
+        "type": "object"
+      },
+      "maxItems": 16,
+      "minItems": 1,
+      "type": "array"
+    },
+    "modifiers": {
+      "default": 0,
+      "maximum": 15,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "tabId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "browser.files.drop",
+      "type": "string"
+    },
+    "x": {
+      "maximum": 100000,
+      "minimum": 0,
+      "type": "number"
+    },
+    "y": {
+      "maximum": 100000,
+      "minimum": 0,
+      "type": "number"
+    }
+  },
+  "required": [
+    "requestId",
+    "threadId",
+    "type",
+    "tabId",
+    "x",
+    "y",
+    "files"
+  ],
+  "type": "object"
+}

@@ -21,6 +21,7 @@ const fs = require('node:fs');
 const args = process.argv.slice(2);
 if (args.includes('--version')) console.log(${JSON.stringify(provider === "codex" ? "codex-cli 0.159.1" : "2.1.286")});
 else if (args.includes('--help')) console.log('login logout --device-auth --claudeai');
+else if (args[0] === 'app-server') process.exit(2);
 else if (args.includes('status')) console.log(${JSON.stringify(provider === "codex" ? "Not logged in" : '{"loggedIn":false}')});
 else {
  console.log(${JSON.stringify(provider === "codex" ? "Open https://auth.openai.com/codex/device\nEnter code: ABCD-12345\nPress Enter to continue." : "Open https://claude.ai/oauth/authorize?client_id=synthetic&response_type=code&code_challenge=fixture\nPress Enter to continue.")});

@@ -1,406 +1,273 @@
-import { Suspense, useMemo, useRef, useState } from "react";
-import type { ForgePrDetail, ForgeRepository, ForgeFile } from "@ace/protocol";
-import type { FileChanges } from "@ace/ui-core";
-import {
-  ParagraphIcon,
-  RowsIcon,
-  ColumnsIcon,
-  TextAlignLeftIcon,
-  ArrowsInLineVerticalIcon,
-  TreeStructureIcon,
-  PlusCircleIcon,
-  MinusCircleIcon,
-  PencilCircleIcon,
-  ArrowCircleRightIcon,
-} from "@phosphor-icons/react";
-import { useScopeWorkspace } from "@/lib/workspace/index.ts";
-import { useDaemonQuery } from "@/lib/daemon-query.ts";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import type { ForgeFile, ForgePrDetail, ForgeRepository } from "@ace/protocol";
 import { useFileChanges } from "@/lib/diffs/use-file-diffs.ts";
+import { useScopeWorkspace } from "@/lib/workspace/index.ts";
+import { VirtualRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
+import { Button } from "@/components/ui/button.tsx";
+import { Spinner } from "@/components/ui/spinner.tsx";
 import {
   DeferredFileDiffBlock,
   DeferredFileTree,
+  fileHeight,
   freshView,
-  type FileView,
+  useFileViews,
 } from "@/features/panels/index.ts";
-import { Button } from "@/components/ui/button.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
-import { Select } from "@/components/ui/select.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
-import { readForge } from "./source.ts";
-import { QueryState } from "./query-state.tsx";
 import { usePrCommits } from "./pr-commits.tsx";
-import type { PrWorkspaceContext, PrWorkspaceExtensions, PrDiffContext } from "./pr-extensions.ts";
-import { PrFileReview } from "./pr-file-review.tsx";
-import { usePrReview } from "./pr-review-context.tsx";
+import { codeCaveats, hostedFileChanges, offDiffThreads } from "./pr-code-model.ts";
+import { PrCodeFile } from "./pr-code-file.tsx";
+import { PrCodeToolbar, type CodeOptions } from "./pr-code-toolbar.tsx";
+import type { PrDiffContext, PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
+import { usePrFilePages } from "./pr-file-pages.ts";
+import { composerClearance } from "./pr-composer.tsx";
+import { cn } from "@/lib/cn.ts";
+import { PrMoreFiles } from "./pr-more-files.tsx";
+import { PrOffDiffThreads } from "./pr-off-diff-threads.tsx";
+import { usePrViewedMarks } from "./pr-viewed-marks.ts";
 
 // The diff renderer loads with this view, not with the app's first paint (`preloadPrFiles`).
-const FileDiffBlock = DeferredFileDiffBlock.Component;
 const FileTree = DeferredFileTree.Component;
 
-/** Warm the diff renderer while a pull request is open, before its Files tab is chosen. */
+/** Warm the diff renderer while a pull request is open, before its Code tab is chosen. */
 export function preloadPrFiles(): void {
   void DeferredFileDiffBlock.preload().catch(() => {});
   void DeferredFileTree.preload().catch(() => {});
 }
 
-const fileStatus = (file: ForgeFile) =>
-  file.status === "added"
-    ? "added"
-    : file.status === "removed"
-      ? "deleted"
-      : file.status === "renamed"
-        ? "moved"
-        : "modified";
-export function PrFiles(props: {
+/** Past this many diff rows across the files read, only the files near the viewport mount. */
+const virtualRowsAbove = 2_000;
+
+interface PrFilesProps {
   workspaceId: string;
   repository: ForgeRepository;
   detail: ForgePrDetail;
   context: PrWorkspaceContext;
   extensions?: PrWorkspaceExtensions | undefined;
-}) {
+  /** A file to scroll to (the Summary's Changes); a new `seq` asks again. */
+  focus?: { path: string; seq: number } | undefined;
+}
+
+/**
+ * The Code tab: every changed file of the pull request (or of one commit) in one continuous
+ * scroll, read page by page as it nears the end, with the files tree beside it on request.
+ */
+export function PrFiles(props: PrFilesProps) {
   return <PrFileRange key={`${props.detail.status.headSha}/${props.detail.baseSha}`} {...props} />;
 }
-function PrFileRange(props: {
-  workspaceId: string;
-  repository: ForgeRepository;
-  detail: ForgePrDetail;
-  context: PrWorkspaceContext;
-  extensions?: PrWorkspaceExtensions | undefined;
-}) {
+
+function PrFileRange(props: PrFilesProps) {
   const [commit, setCommit] = useState("");
+  const [options, setOptions] = useState<CodeOptions>({
+    mode: "unified",
+    wrap: false,
+    tree: false,
+  });
   const commits = usePrCommits(props);
   return (
-    <PrFilePage key={commit} {...props} commit={commit} onCommit={setCommit} commits={commits} />
+    <PrCodeRange
+      key={commit}
+      {...props}
+      commit={commit}
+      onCommit={setCommit}
+      commits={commits}
+      options={options}
+      onOptions={(change) => setOptions((previous) => ({ ...previous, ...change }))}
+    />
   );
 }
-function PrFilePage(
-  props: Parameters<typeof PrFileRange>[0] & {
+
+function PrCodeRange(
+  props: PrFilesProps & {
     commit: string;
     onCommit(commit: string): void;
     commits: ReturnType<typeof usePrCommits>;
+    options: CodeOptions;
+    onOptions(change: Partial<CodeOptions>): void;
   },
 ) {
-  const [page, setPage] = useState(1);
-  const filesElement = useRef<HTMLDivElement>(null);
-  const [current, setCurrent] = useState<string>();
   const scope = `forge:${props.workspaceId}`;
   const workspace = useScopeWorkspace(scope);
-  const [mode, setMode] = useState<"unified" | "split">("unified");
-  const [wrap, setWrap] = useState(false);
-  const [whitespace, setWhitespace] = useState(false);
-  const [tree, setTree] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
-  const [views, setViews] = useState<ReadonlyMap<string, FileView>>(new Map());
-  const toast = useToast();
-  const review = usePrReview();
-  const ref = props.detail.status.ref;
-  const query = useDaemonQuery({
-    queryKey: [
-      "forge",
-      props.workspaceId,
-      ref,
-      "files",
-      props.detail.baseSha,
-      props.detail.status.headSha,
-      props.commit,
-      page,
-    ],
-    retry: false,
-    read: async (client, signal) => {
-      const result = await readForge(
-        client,
-        {
-          op: "forge.pr.files",
-          workspaceId: props.workspaceId,
-          repository: props.repository,
-          number: ref.number,
-          headSha: props.detail.status.headSha,
-          baseSha: props.detail.baseSha,
-          page,
-          ...(props.commit ? { commit: props.commit } : {}),
-        },
-        signal,
-      );
-      if (result.resource !== "prFiles") throw new Error("No changed-file response.");
-      return result.value;
-    },
-  });
-  const inputs = useMemo(
-    (): FileChanges[] =>
-      query.data?.files.map((file) => ({
-        path: file.path,
-        changes: [
-          {
-            path: file.previousPath ?? file.path,
-            kind:
-              file.status === "added"
-                ? "add"
-                : file.status === "removed"
-                  ? "delete"
-                  : file.previousPath
-                    ? "move"
-                    : "update",
-            ...(file.previousPath ? { movePath: file.path } : {}),
-            diff: file.patch ?? "",
-          },
-        ],
-      })) ?? [],
-    [query.data],
-  );
+  const pages = usePrFilePages(props);
+  const range = pages.range;
+  const files = range?.files ?? noFiles;
+  const inputs = useMemo(() => hostedFileChanges(files), [files]);
   const diffs = useFileChanges(inputs);
-  const byPath = new Map(diffs.files.map((file) => [file.path, file]));
-  const diffContext: PrDiffContext | undefined = query.data
-    ? {
-        ...props.context,
-        files: query.data,
-        disabled: props.context.disabled || query.isFetching || query.isError,
-      }
-    : undefined;
-  const nativeViewed =
-    !props.commit && review?.state?.headSha === props.detail.status.headSha
-      ? review.state.viewed?.filter((file) => file.state === "VIEWED")
-      : undefined;
-  const viewedCount = props.extensions?.viewedCount
-    ? diffContext && props.extensions.viewedCount(diffContext)
-    : nativeViewed?.length;
-  const fileCount = props.commit ? (query.data?.files.length ?? 0) : props.detail.changedFiles;
-  return (
-    <section aria-label="Hosted PR diff" className="min-w-0">
-      <div
-        role="toolbar"
-        aria-label="Diff controls"
-        className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-border bg-panel px-3 py-1.5"
-      >
-        <Select
-          label="Commit range"
-          className="w-56"
-          value={props.commit}
-          onValueChange={props.onCommit}
-          options={[
-            { value: "", label: "All commits" },
-            ...(props.commits.data?.commits.map((c) => ({
-              value: c.sha,
-              label: `${c.sha.slice(0, 7)} ${c.message.split("\n")[0] ?? ""}`,
-            })) ?? []),
-          ]}
+  const byPath = useMemo(() => new Map(diffs.files.map((diff) => [diff.path, diff])), [diffs]);
+  const context: PrDiffContext | undefined = range && { ...props.context, files: range };
+  const marks = usePrViewedMarks(context, props.extensions);
+  const markByPath = new Map(files.map((file) => [file.path, marks.markOf(file)]));
+  // A file marked viewed folds; unmarking it, or a new version of its diff, opens it again.
+  const versions = new Map(
+    files.map((file) => [
+      file.path,
+      `${diffs.versions.get(file.path) ?? ""}:${markByPath.get(file.path)?.checked ? "viewed" : ""}`,
+    ]),
+  );
+  const folded = new Set(files.filter((file) => markByPath.get(file.path)?.checked).map(pathOf));
+  const views = useFileViews(diffs.files, versions, folded);
+  const scroller = useRef<HTMLDivElement>(null);
+  const blocks = useRef<VirtualRowsHandle>(null);
+  const [current, setCurrent] = useState<string>();
+  const anchor = `pr-file-${props.commit || "all"}`;
+  const jump = (path: string) => {
+    const index = files.findIndex((file) => file.path === path);
+    if (index < 0) return;
+    setCurrent(path);
+    const diff = byPath.get(path);
+    if (diff && !views.viewOf(diff).open)
+      views.setView(path, { ...views.viewOf(diff), open: true });
+    const block = document.getElementById(`${anchor}-${index}`);
+    if (block) block.scrollIntoView?.({ block: "start" });
+    else blocks.current?.scrollToIndex(index);
+  };
+  // A file picked elsewhere (the Summary's Changes) opens here once its page has loaded.
+  const focused = useRef(0);
+  const focus = props.focus;
+  const ready = files.some((file) => file.path === focus?.path);
+  useEffect(() => {
+    if (!focus || !ready || focused.current === focus.seq) return;
+    focused.current = focus.seq;
+    jump(focus.path);
+  });
+  const complete = pages.more === "done";
+  const caveats = codeCaveats({
+    viewed: marks.availability,
+    withheld: files.some((file) => file.patch === null || file.truncated),
+    truncated: range?.truncated ?? false,
+    commitsTruncated: props.commits.data?.truncated ?? false,
+  });
+  if (props.commits.error) caveats.push("Couldn't read the commit list.");
+  const threads = props.commit
+    ? []
+    : offDiffThreads(props.detail.status.reviewThreads, { files, diffs: diffs.files, complete });
+  // A single commit's total is known only once its pages are read; the PR's comes with it.
+  const fileCount = props.commit ? files.length : props.detail.changedFiles;
+  const rows = diffs.files.reduce((sum, diff) => sum + diff.rows.length, 0);
+  const renderFile = (file: ForgeFile, index: number) => {
+    const diff = byPath.get(file.path);
+    return (
+      context && (
+        <PrCodeFile
+          key={file.path}
+          id={`${anchor}-${index}`}
+          file={file}
+          diff={diff}
+          context={context}
+          extensions={props.extensions}
+          view={diff ? views.viewOf(diff) : freshView}
+          onView={(next) => views.setView(file.path, next)}
+          mode={props.options.mode}
+          wrap={props.options.wrap}
+          mark={markByPath.get(file.path)}
         />
-        <span className="text-sm text-muted-foreground">
-          {fileCount} files{props.commit ? " on this page" : ""}
-          {viewedCount !== undefined && ` · ${viewedCount} / ${fileCount} viewed`}
-        </span>
-        <div className="ml-auto flex gap-1">
-          <IconButton
-            icon={ParagraphIcon}
-            label="Show whitespace"
-            pressed={whitespace}
-            onClick={() => setWhitespace(!whitespace)}
-          />
-          <div role="group" aria-label="Diff layout" className="flex rounded-md bg-muted">
-            <IconButton
-              icon={RowsIcon}
-              label="Unified diff"
-              pressed={mode === "unified"}
-              onClick={() => setMode("unified")}
-            />
-            <IconButton
-              icon={ColumnsIcon}
-              label="Split diff"
-              pressed={mode === "split"}
-              onClick={() => setMode("split")}
-            />
-          </div>
-          <IconButton
-            icon={TextAlignLeftIcon}
-            label="Wrap lines"
-            pressed={wrap}
-            onClick={() => setWrap(!wrap)}
-          />
-          <IconButton
-            icon={ArrowsInLineVerticalIcon}
-            label={collapsed ? "Expand all files" : "Collapse all files"}
-            onClick={() => {
-              setCollapsed(!collapsed);
-              setViews(new Map());
-            }}
-          />
-          <IconButton
-            icon={TreeStructureIcon}
-            label="Show file tree"
-            pressed={tree}
-            onClick={() => setTree(!tree)}
-          />
+      )
+    );
+  };
+  return (
+    <section
+      aria-label="Hosted PR diff"
+      className="@container/code flex h-full min-h-0 min-w-0 flex-col"
+    >
+      <PrCodeToolbar
+        commit={props.commit}
+        commits={props.commits.data?.commits ?? []}
+        onCommit={props.onCommit}
+        files={fileCount}
+        viewed={marks.count}
+        caveats={caveats}
+        options={props.options}
+        onOptions={props.onOptions}
+        allCollapsed={views.allCollapsed}
+        onCollapseAll={views.collapseAll}
+      />
+      {pages.error && (
+        <div role="alert" className="space-y-2 px-3.5 py-6 text-center text-xs">
+          <p className="font-medium text-foreground">Couldn't load the changed files.</p>
+          <p className="text-muted-foreground">{pages.error.message}</p>
+          <Button size="xs" onClick={pages.retry}>
+            Retry
+          </Button>
         </div>
-      </div>
-      <div className="px-3">
-        <QueryState query={props.commits} />
-        <QueryState query={query} />
-      </div>
-      {props.commits.data?.truncated && (
-        <p role="status" className="p-3 text-sm">
-          GitHub exposes the first 250 commits. Open GitHub for the full range.
-        </p>
       )}
-      {query.data && diffContext && (
+      {pages.pending && <Spinner label="Reading GitHub" className="m-3.5" />}
+      {range && context && (
         <>
-          <p className="sr-only">
-            {props.commit
-              ? "Commit compared with its first parent"
-              : "PR compared with its merge base"}
-            : {query.data.baseSha} ← {query.data.headSha}
-          </p>
-          {query.data.truncated && (
-            <p role="status" className="p-3 text-sm text-muted-foreground">
-              Some patches are binary, too large, omitted or truncated. GitHub exposes at most 3,000
-              PR files. Open GitHub for the complete diff.
-            </p>
-          )}
-          <Suspense fallback={null}>
-            <div className="flex min-w-0">
-              {tree && (
-                <FileTree
-                  threadId={scope}
-                  tabKey={workspace.active}
-                  className="w-48 shrink-0 border-r border-border"
-                  files={query.data.files.map((file) => ({
-                    path: file.path,
-                    additions: file.additions,
-                    deletions: file.deletions,
-                  }))}
-                  current={current}
-                  viewed={
-                    new Set(
-                      query.data.files
-                        .filter((file) =>
-                          props.extensions?.viewed
-                            ? props.extensions.viewed(file, diffContext)?.checked
-                            : nativeViewed?.some((viewed) => viewed.path === file.path),
-                        )
-                        .map((file) => file.path),
-                    )
-                  }
-                  comments={new Map()}
-                  onJump={(index) => {
-                    const file = query.data?.files[index];
-                    if (file) setCurrent(file.path);
-                    filesElement.current
-                      ?.querySelector<HTMLElement>(`[id="pr-file-${page}-${index}"]`)
-                      ?.scrollIntoView({ block: "start" });
-                  }}
-                />
-              )}
-              <div ref={filesElement} className="min-w-0 flex-1">
-                {query.data.files.map((file, index) => {
-                  const diff = byPath.get(file.path);
-                  const Icon =
-                    file.status === "added"
-                      ? PlusCircleIcon
-                      : file.status === "removed"
-                        ? MinusCircleIcon
-                        : file.status === "renamed"
-                          ? ArrowCircleRightIcon
-                          : PencilCircleIcon;
-                  const viewed = props.extensions?.viewed?.(file, diffContext);
-                  const view = views.get(file.path) ?? { ...freshView, open: !collapsed };
-                  return (
-                    <PrFileReview key={file.path} file={file} context={diffContext}>
-                      {(native) => (
-                        <div className="border-b border-border">
-                          {diff ? (
-                            <FileDiffBlock
-                              id={`pr-file-${page}-${index}`}
-                              file={{
-                                ...diff,
-                                status: fileStatus(file),
-                                additions: file.additions,
-                                deletions: file.deletions,
-                              }}
-                              view={view}
-                              onView={(next) =>
-                                setViews((previous) => new Map(previous).set(file.path, next))
-                              }
-                              mode={mode}
-                              wrap={wrap}
-                              whitespace={whitespace}
-                              statusIcon={<Icon aria-label={file.status} size={18} />}
-                              highlighted={() => false}
-                              renderAnnotation={(target) =>
-                                props.extensions?.annotation?.(file.path, target, diffContext)
-                              }
-                              onComment={
-                                props.extensions?.onLineComment && !diffContext.disabled
-                                  ? (range) =>
-                                      props.extensions?.onLineComment?.(
-                                        file.path,
-                                        range,
-                                        diffContext,
-                                      )
-                                  : !props.extensions?.onLineComment
-                                    ? native.onComment
-                                    : undefined
-                              }
-                              viewed={props.extensions?.viewed ? viewed?.checked : native.viewed}
-                              actions={
-                                viewed ? (
-                                  <label className="flex shrink-0 items-center gap-2 px-2 text-xs text-muted-foreground">
-                                    <input
-                                      type="checkbox"
-                                      aria-label={`Viewed ${file.path}`}
-                                      checked={viewed.checked}
-                                      disabled={diffContext.disabled || viewed.disabled}
-                                      onChange={(e) =>
-                                        void viewed
-                                          .change(e.target.checked)
-                                          .catch(() =>
-                                            toast.error({ title: "Couldn't save viewed state" }),
-                                          )
-                                      }
-                                      className="size-4 rounded-sm focus-ring"
-                                    />
-                                    Viewed
-                                  </label>
-                                ) : !props.extensions?.viewed ? (
-                                  native.actions
-                                ) : null
-                              }
-                            />
-                          ) : (
-                            <p className="p-3 text-sm">Preparing {file.path}…</p>
-                          )}
-                          {view.open && (file.patch === null || file.truncated) && (
-                            <p role="status" className="p-3 text-sm text-muted-foreground">
-                              {file.patch === null
-                                ? "Binary or large file: GitHub did not provide a text patch."
-                                : "This patch is truncated."}{" "}
-                              Open GitHub to inspect the complete file.
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </PrFileReview>
-                  );
-                })}
-                {!query.data.files.length && (
-                  <p className="p-3 text-sm text-muted-foreground">
-                    No changed files on this page.
-                  </p>
-                )}
-              </div>
-            </div>
-          </Suspense>
-          <div className="flex items-center gap-3 p-3">
-            <Button disabled={page === 1} onClick={() => setPage(page - 1)}>
-              Previous files
-            </Button>
-            <span className="text-sm text-muted-foreground">Page {page}</span>
-            <Button
-              disabled={!query.data.nextPage}
-              onClick={() => query.data?.nextPage && setPage(query.data.nextPage)}
+          <PrOffDiffThreads threads={threads} onFile={jump} />
+          <div className="flex min-h-0 flex-1">
+            <div
+              ref={scroller}
+              data-diff-scroller=""
+              className={cn("min-h-0 min-w-0 flex-1 overflow-auto", composerClearance)}
             >
-              Next files
-            </Button>
+              <p className="sr-only">
+                {props.commit
+                  ? "Commit compared with its first parent"
+                  : "PR compared with its merge base"}
+                : {range.baseSha} ← {range.headSha}
+              </p>
+              <Suspense fallback={null}>
+                {files.length > 1 && rows > virtualRowsAbove ? (
+                  <VirtualRows
+                    items={files}
+                    rowKey={pathOf}
+                    estimate={(file) => {
+                      const diff = byPath.get(file.path);
+                      return diff ? fileHeight(diff, views.viewOf(diff)) : 32;
+                    }}
+                    render={renderFile}
+                    // A file is tall (up to hundreds of rows): two past each edge keep scrolling seamless.
+                    overscan={2}
+                    handle={blocks}
+                  />
+                ) : (
+                  files.map(renderFile)
+                )}
+              </Suspense>
+              {!files.length && complete && (
+                <p className="px-3.5 py-6 text-center text-xs text-muted-foreground">
+                  No changed files.
+                </p>
+              )}
+              <PrMoreFiles
+                state={pages.more}
+                loaded={pages.loaded}
+                root={scroller}
+                onMore={pages.loadMore}
+                onRetry={pages.retry}
+              />
+            </div>
+            {props.options.tree && (
+              <aside
+                aria-label="Files"
+                className="flex w-[40%] max-w-80 min-w-48 shrink-0 flex-col border-l border-border"
+              >
+                <p className="flex h-8 shrink-0 items-center gap-1.5 px-3 text-xs font-medium text-muted-foreground">
+                  Files
+                  <span className="text-subtle-foreground tabular-nums">{fileCount}</span>
+                </p>
+                <Suspense fallback={null}>
+                  <FileTree
+                    threadId={scope}
+                    tabKey={workspace.active}
+                    className="min-h-0 flex-1"
+                    files={files}
+                    current={current}
+                    viewed={folded}
+                    comments={noComments}
+                    onJump={(index) => {
+                      const file = files[index];
+                      if (file) jump(file.path);
+                    }}
+                  />
+                </Suspense>
+              </aside>
+            )}
           </div>
         </>
       )}
     </section>
   );
 }
+
+const pathOf = (file: ForgeFile) => file.path;
+const noFiles: readonly ForgeFile[] = [];
+const noComments: ReadonlyMap<string, number> = new Map();

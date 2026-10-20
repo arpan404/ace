@@ -3,7 +3,7 @@ import { ThreadId } from "@ace/protocol";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { chooseModel } from "@/test/model-control.ts";
 
@@ -24,32 +24,40 @@ const thread = (app: ReturnType<typeof harness>, id: string) => {
   return view?.kind === "thread" ? view.thread : undefined;
 };
 
-test("forking from an answer opens a new thread that starts with the person's message", async () => {
+const forks = (app: ReturnType<typeof harness>) =>
+  Object.values(
+    (() => {
+      const view = app.daemon.snapshot({ kind: "threads" });
+      return view?.kind === "threads" ? view.threads : {};
+    })(),
+  ).filter((entry) => entry.lineage?.parentThreadId === "thread-router");
+
+test("forking from an answer opens the fork ready for a message, and the message starts it", async () => {
   const { app, feed } = await openRouter();
   await within(feed).findByText(/Answer 1: route 1/, {}, { timeout: 10000 });
   const forkHere = within(feed).getAllByRole("button", { name: "Fork from here" })[0];
   if (!forkHere) throw new Error("No finished answer to fork");
   await userEvent.click(forkHere);
-  const dialog = await screen.findByRole("dialog", { name: "Fork from here" });
-  await userEvent.type(
-    within(dialog).getByRole("textbox", { name: "First message of the fork" }),
-    "Try nested routes instead",
-  );
-  await userEvent.click(within(dialog).getByRole("button", { name: "Fork" }));
 
+  // No dialog: the fork is its own thread, with its parent before the title.
   await screen.findByRole("heading", { level: 1, name: "Document the router (fork)" });
-  const forked = Object.values(
-    (() => {
-      const view = app.daemon.snapshot({ kind: "threads" });
-      return view?.kind === "threads" ? view.threads : {};
-    })(),
-  ).find((entry) => entry.lineage?.parentThreadId === "thread-router");
-  expect(forked?.lineage?.point.type).toBe("turn");
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(
+    within(screen.getByRole("banner")).getByRole("link", { name: "Document the router" }),
+  ).toBeTruthy();
+  // Nothing exists until the first message is sent.
+  expect(forks(app)).toEqual([]);
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Message" }),
+    "Try nested routes instead{Enter}",
+  );
+
   expect(
     await within(await screen.findByRole("feed", { name: "Transcript" })).findByText(
       "Try nested routes instead",
     ),
   ).toBeTruthy();
+  expect(forks(app).map((entry) => entry.lineage?.point.type)).toEqual(["turn"]);
   // The source thread is untouched.
   expect(thread(app, "thread-router")?.status.state).toBe("done");
 });
@@ -62,8 +70,96 @@ test("the palette forks from the last finished turn", async () => {
     "Fork",
   );
   await userEvent.click(await screen.findByRole("option", { name: /Fork from the last turn/ }));
-  expect(await screen.findByRole("dialog", { name: "Fork from here" })).toBeTruthy();
+  expect(
+    await screen.findByRole("heading", { level: 1, name: "Document the router (fork)" }),
+  ).toBeTruthy();
+  expect(await screen.findByRole("combobox", { name: "Message" })).toBeTruthy();
 });
+
+test("on a desktop window the fork opens with the caret in its composer", async () => {
+  vi.stubGlobal("matchMedia", (query: string): MediaQueryList => ({
+    matches: query.includes("min-width"),
+    media: query,
+    onchange: null,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+    dispatchEvent: () => false,
+  }));
+  try {
+    await openRouter();
+    await userEvent.keyboard("{Meta>}k{/Meta}");
+    await userEvent.type(
+      await screen.findByRole("combobox", { name: "Search commands" }, { timeout: 10000 }),
+      "Fork",
+    );
+    await userEvent.click(await screen.findByRole("option", { name: /Fork from the last turn/ }));
+    await screen.findByRole("heading", { level: 1, name: "Document the router (fork)" });
+    const message = await screen.findByRole("combobox", { name: "Message" });
+    await waitFor(() => expect(document.activeElement).toBe(message));
+  } finally {
+    vi.unstubAllGlobals();
+  }
+}, 20_000);
+
+async function openForkFromPalette() {
+  await userEvent.keyboard("{Meta>}k{/Meta}");
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Search commands" }, { timeout: 10000 }),
+    "Fork",
+  );
+  await userEvent.click(await screen.findByRole("option", { name: /Fork from the last turn/ }));
+  await screen.findByRole("heading", { level: 1, name: "Document the router (fork)" });
+  return screen.findByRole("combobox", { name: "Message" });
+}
+const forkDrafts = () => screen.queryByRole("list", { name: "Fork drafts" });
+
+test("a fork left before its first message stays a draft in Unsent and reopens with its message", async () => {
+  const { app } = await openRouter();
+  await userEvent.type(await openForkFromPalette(), "Half a thought");
+  await userEvent.click(
+    within(screen.getByRole("banner")).getByRole("link", { name: "Document the router" }),
+  );
+  await screen.findByRole("heading", { level: 1, name: "Document the router" });
+  // Nothing exists on the daemon: the fork is only a draft on this device.
+  expect(forks(app)).toEqual([]);
+
+  const list = await screen.findByRole("list", { name: "Fork drafts" });
+  await userEvent.click(
+    within(list).getByRole("link", { name: /^Document the router \(fork\)\. Fork draft/ }),
+  );
+  const message = await screen.findByRole("combobox", { name: "Message" });
+  await waitFor(() => expect(message.textContent).toBe("Half a thought"));
+});
+
+test("sending a fork's first message takes its draft out of Unsent", async () => {
+  const { app } = await openRouter();
+  await userEvent.type(await openForkFromPalette(), "Try nested routes instead{Enter}");
+  await within(await screen.findByRole("feed", { name: "Transcript" })).findByText(
+    "Try nested routes instead",
+  );
+  expect(forks(app)).toHaveLength(1);
+  await waitFor(() => expect(forkDrafts()).toBeNull());
+});
+
+test("discarding a fork draft forgets it and its message, and Undo brings both back", async () => {
+  await openRouter();
+  await userEvent.type(await openForkFromPalette(), "Half a thought");
+  const list = await screen.findByRole("list", { name: "Fork drafts" });
+  await userEvent.click(
+    within(list).getByRole("button", { name: "Discard fork draft of Document the router" }),
+  );
+  // Its page was open, so the parent opens in its place.
+  await screen.findByRole("heading", { level: 1, name: "Document the router" });
+  await waitFor(() => expect(forkDrafts()).toBeNull());
+
+  await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+  const back = await screen.findByRole("list", { name: "Fork drafts" });
+  await userEvent.click(within(back).getByRole("link", { name: /Fork draft/ }));
+  const message = await screen.findByRole("combobox", { name: "Message" });
+  await waitFor(() => expect(message.textContent).toBe("Half a thought"));
+}, 20_000);
 
 test("picking another provider's model asks first, then switches after the running turn", async () => {
   const app = harness();

@@ -86,6 +86,8 @@ if (mode === 'opencode' && process.argv.includes('auth')) {
   process.stdout.write('x'.repeat(5 * 1024 * 1024));
 } else {
   if (mode === 'hang') console.log('ready');
+  // Like Antigravity's ACP server: a sign-in method must be selected in each process.
+  let signedIn = process.env.FAKE_NEEDS_SIGN_IN !== '1';
   createInterface({input: process.stdin}).on('line', line => {
     const request = JSON.parse(line);
     if (mode === 'hang') return;
@@ -100,7 +102,16 @@ if (mode === 'opencode' && process.argv.includes('auth')) {
       console.log(JSON.stringify({type:'control_response',response:{subtype:'success',request_id:request.request_id,response:payload}}));
       return;
     }
-    if (!['initialize','initialized','model/list','session/new','cursor/list_available_models'].includes(request.method)) process.exit(9);
+    if (!['initialize','initialized','model/list','session/new','authenticate','cursor/list_available_models'].includes(request.method)) process.exit(9);
+    if (request.method === 'authenticate') {
+      signedIn = request.params.methodId === 'oauth-personal';
+      console.log(JSON.stringify({jsonrpc:'2.0',id:request.id,result:{}}));
+      return;
+    }
+    if (request.method === 'session/new' && !signedIn) {
+      console.log(JSON.stringify({jsonrpc:'2.0',id:request.id,error:{code:-32000,message:'Authentication required'}}));
+      return;
+    }
     if (request.method === 'initialized') return;
     if (request.method === 'cursor/list_available_models') {
       if (process.env.FAKE_CURSOR_MODELS) console.log(JSON.stringify({jsonrpc:'2.0',id:request.id,result:JSON.parse(process.env.FAKE_CURSOR_MODELS)}));

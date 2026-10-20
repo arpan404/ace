@@ -1,4 +1,7 @@
-/** OpenCode v2 uses integration IDs as positional targets, with CLI-owned credential entry. */
+/**
+ * OpenCode v2 uses integration IDs as positional targets, with CLI-owned credential entry. These
+ * are offered when OpenCode's server can't list its integrations, and for sign-out.
+ */
 export const openCodeLoginChoices = [
   { id: "github-copilot", label: "GitHub Copilot" },
   { id: "openai", label: "OpenAI / ChatGPT" },
@@ -9,21 +12,40 @@ export const openCodeLoginChoices = [
   { id: "other", label: "Other provider" },
 ];
 
-export function openCodeAuthArgs(action: "login" | "logout", upstream?: string): string[] {
-  if (upstream && !openCodeLoginChoices.some((choice) => choice.id === upstream))
+const integrationId = /^[a-z0-9_-]{1,64}$/;
+
+/** `opencode auth <action>`, aimed at one integration and method when given. */
+export function openCodeAuthArgs(
+  action: "login" | "logout",
+  integration?: string,
+  method?: string,
+): string[] {
+  if (integration && !integrationId.test(integration))
     throw new Error("Unknown OpenCode integration");
-  return ["auth", action, "--standalone", ...(upstream && upstream !== "other" ? [upstream] : [])];
+  if (method && !integrationId.test(method)) throw new Error("Unknown OpenCode sign-in method");
+  return [
+    "auth",
+    action,
+    "--standalone",
+    ...(integration && integration !== "other" ? [integration] : []),
+    ...(method ? ["--method", method] : []),
+  ];
 }
 
-export function openCodeAuthSteps(action: "login" | "logout", upstream?: string) {
-  const args = openCodeAuthArgs(action, upstream);
-  const name = openCodeLoginChoices.find((choice) => choice.id === upstream)?.label;
+export function openCodeAuthSteps(
+  action: "login" | "logout",
+  integration?: string,
+  method?: string,
+  label?: string,
+) {
+  const args = openCodeAuthArgs(action, integration, method);
+  const name = label ?? openCodeLoginChoices.find((choice) => choice.id === integration)?.label;
   return {
     command: ["opencode", ...args].join(" "),
     instruction:
       action === "logout"
         ? "Choose the account to disconnect in the terminal below. ace checks the result when OpenCode finishes."
-        : `Follow ${name && upstream !== "other" ? name + "'s" : "your provider's"} sign-in prompts in the terminal below. If a browser opens, finish there and return here. Enter keys or codes only in this terminal; ace checks the result when OpenCode finishes.`,
+        : `Follow ${name && integration !== "other" ? name + "'s" : "your provider's"} sign-in prompts in the terminal below. If a browser opens, finish there and return here. Enter keys or codes only in this terminal; ace checks the result when OpenCode finishes.`,
   };
 }
 

@@ -28,6 +28,21 @@ import { daemonAnnotate } from "./daemon-annotate.ts";
 import { decodeFrame, type FrameDecoder } from "./frames.ts";
 import { SuggestionStore } from "./preview-suggestions.ts";
 import { readBrowserLogs } from "./browser-logs.ts";
+import { PageStates } from "./page-states.ts";
+import { ThreadVideos } from "./thread-videos.ts";
+import { ThreadAudio } from "./thread-audio.ts";
+import {
+  webAudioOutput,
+  webCodecsAudioDecoder,
+  type AudioDecoderFactory,
+  type AudioOutputFactory,
+} from "./audio-codecs.ts";
+import {
+  webCodecsDecoder,
+  webCodecsSupport,
+  type VideoDecoderFactory,
+  type VideoSupport,
+} from "./video-codecs.ts";
 
 /** How often a watched thread without a browser asks again, and re-reads its dev servers. */
 const retryMs = 5_000;
@@ -86,8 +101,20 @@ const view = (state: BrowserState): BrowserView => ({
 
 const wireInput = (input: ForwardedInput): BrowserInput => {
   if (input.kind === "mouse")
-    return { ...input, button: input.button ?? "left", clickCount: input.clickCount ?? 1 };
-  if (input.kind === "scroll") return input;
+    return {
+      ...input,
+      button: input.button ?? "left",
+      clickCount: input.clickCount ?? 1,
+      modifiers: input.modifiers ?? 0,
+    };
+  if (input.kind === "scroll") return { ...input, modifiers: input.modifiers ?? 0 };
+  if (input.kind === "touch" || input.kind === "ime") return input;
+  if (input.kind === "pick")
+    return {
+      kind: "pick",
+      pickerId: input.pickerId,
+      ...(input.values ? { values: [...input.values] } : {}),
+    };
   return {
     kind: "key",
     event: input.event,
@@ -126,7 +153,6 @@ interface Watch {
   count: number;
   subscribed: boolean;
   subscribing: boolean;
-  capture?: BrowserCaptureViewport;
   /** Cancels the next poll. */
   cancel: (() => void) | undefined;
   /** The newest frame received; an older one still decoding is dropped when it lands. */
@@ -143,6 +169,23 @@ export interface PreviewOptions {
   schedule?: Schedule;
   visibility?: PageVisibility;
   decode?: FrameDecoder;
+  /** This screen's device pixel ratio, for a viewer that hasn't reported its pane yet. */
+  devicePixelRatio?: () => number;
+  /**
+   * The video decoder (ADR 0088); omitted: the platform's WebCodecs `VideoDecoder`, if any.
+   * `null`: play no video, always take JPEG frames.
+   */
+  videoDecoder?: VideoDecoderFactory | null;
+  /** Which codecs the decoder plays; omitted: asks WebCodecs. */
+  videoSupport?: VideoSupport;
+  /**
+   * The page sound's decoder and speaker (ADR 0088, Audio); omitted: WebCodecs `AudioDecoder`
+   * and Web Audio, if any. `null`: offer no sound.
+   */
+  audioDecoder?: AudioDecoderFactory | null;
+  audioOutput?: AudioOutputFactory | null;
+  /** Local time in ms on the speaker's clock; omitted: `performance.now()`. */
+  clock?: () => number;
 }
 
 /**
@@ -159,6 +202,21 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   const later = options.schedule ?? defaultSchedule;
   const visibility = options.visibility ?? documentVisibility;
   const decode = options.decode ?? decodeFrame;
+  const screenRatio = options.devicePixelRatio ?? (() => globalThis.devicePixelRatio || 1);
+  /**
+   * What each thread's view shows (`browser.capture`), kept apart from the watch: a pane can
+   * report its size before it watches, and the report goes with the subscribe so the daemon
+   * sizes even the first frame for it.
+   */
+  const captures = new Map<string, BrowserCaptureViewport>();
+  const captureOf = (threadId: string): BrowserCaptureViewport =>
+    captures.get(threadId) ?? {
+      width: 1280,
+      height: 720,
+      devicePixelRatio: Math.min(4, Math.max(1, screenRatio())),
+    };
+  /** Binary frames need a client that hands over binary stream messages. */
+  const binaryFrames = typeof client.onStream === "function";
   const listeners = new Map<() => void, string | undefined>();
   const views = new Map<string, BrowserView>();
   const frames = new Map<string, Shown>();
@@ -181,8 +239,48 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     stills.set(threadId, kept);
   };
   const servers = new Map<string, readonly PreviewServer[]>();
+  /** Each tab's page state: focused field, picker, cursor shape, tooltip. */
+  const pages = new PageStates();
   const suggestions = new SuggestionStore();
   const watches = new Map<string, Watch>();
+  /** A thread's pictures are seen now: the page shows and no native view covers it. */
+  const seen = (threadId: string) =>
+    visibility.visible() && captures.get(threadId)?.nativeShown !== true;
+  const videoDecoder = binaryFrames
+    ? options.videoDecoder === null
+      ? undefined
+      : (options.videoDecoder ?? webCodecsDecoder())
+    : undefined;
+  const clock = options.clock ?? (() => performance.now());
+  /** Each thread's page sound: only with video, and muted until the person unmutes it. */
+  const sounds = new ThreadAudio({
+    decoder:
+      videoDecoder && options.audioDecoder !== null
+        ? (options.audioDecoder ?? webCodecsAudioDecoder())
+        : undefined,
+    output:
+      options.audioOutput === null ? undefined : (options.audioOutput ?? webAudioOutput(clock)),
+    now: clock,
+  });
+  /** Each thread's video, when this client decodes it (binary frames only). */
+  const videos = new ThreadVideos({
+    decoder: videoDecoder,
+    support: options.videoSupport ?? webCodecsSupport,
+    schedule: later,
+    seen,
+    watching: (threadId) => watches.has(threadId),
+    present: (threadId, frame, timestamp) => {
+      const watch = watches.get(threadId);
+      if (!watch) return frame.release();
+      sounds.shown(threadId, timestamp);
+      // Video is newer than any JPEG frame still decoding: that one is dropped when it lands.
+      watch.latest = undefined;
+      frames.get(threadId)?.release();
+      frames.set(threadId, frame);
+      changed(threadId);
+    },
+    ack: (threadId, sequence, keyframe) => ack(threadId, sequence, { keyframe }),
+  });
   /** Threads no view shows any more, oldest first; their state goes past `keptThreads`. */
   const unwatched = new Set<string>();
   let disposed = false;
@@ -204,23 +302,47 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     for (const still of stills.get(threadId)?.values() ?? []) still.release();
     stills.delete(threadId);
     views.delete(threadId);
+    pages.delete(threadId);
     servers.delete(threadId);
     suggestions.delete(threadId);
+    captures.delete(threadId);
+    videos.delete(threadId);
+    sounds.delete(threadId);
   };
   const invalidate = (threadId: string, watch: Watch) => {
     watch.generation++;
     watch.latest = undefined;
     watch.owed = undefined;
+    videos.reset(threadId);
+    sounds.reset(threadId);
     frames.get(threadId)?.release();
     frames.delete(threadId);
+    // The next subscription sends every tab's page state again.
+    pages.delete(threadId);
   };
   const requestId = () => `browser-${++requests}`;
   const call = async (
-    type: "browser.subscribe" | "browser.unsubscribe" | "browser.close" | "browser.recording.stop",
+    type: "browser.unsubscribe" | "browser.close" | "browser.recording.stop",
     threadId: string,
   ) => {
     if (disposed) throw new Error("preview_disposed");
     const reply = await request({ type, threadId: ThreadId.parse(threadId) });
+    if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
+    return reply.result;
+  };
+  /** Subscribes with how this view takes frames and, when known, what it shows. */
+  const subscribe = async (threadId: string) => {
+    if (disposed) throw new Error("preview_disposed");
+    const codecs = await videos.codecs();
+    if (disposed) throw new Error("preview_disposed");
+    const viewport = captures.get(threadId);
+    const reply = await request({
+      type: "browser.subscribe",
+      threadId: ThreadId.parse(threadId),
+      ...(binaryFrames ? { binaryFrames: true } : {}),
+      ...(viewport ? { viewport } : {}),
+      ...(codecs.length ? { video: { codecs: [...codecs] } } : {}),
+    });
     if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
     return reply.result;
   };
@@ -284,12 +406,13 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     if (!reply.ok || !reply.link) throw new Error(reply.error ?? "preview_link_refused");
     return reply.link;
   };
-  const sendCapture = (threadId: string, watch: Watch) => {
-    if (!watch.subscribed || !watch.capture || client.state !== "ready") return;
+  const sendCapture = (threadId: string, watch: Watch | undefined) => {
+    const viewport = captures.get(threadId);
+    if (!watch?.subscribed || !viewport || client.state !== "ready") return;
     void request({
       type: "browser.capture",
       threadId: ThreadId.parse(threadId),
-      viewport: watch.capture,
+      viewport,
     }).catch(() => {});
   };
   /** Reads the dev servers and retries the browser, every few seconds while the page shows. */
@@ -300,7 +423,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     if (!watch.subscribed && !watch.subscribing) {
       watch.subscribing = true;
       const generation = watch.generation;
-      void call("browser.subscribe", threadId)
+      const reported = captures.get(threadId);
+      void subscribe(threadId)
         .then(
           () => {
             // A view that left and came back meanwhile (a tab replaced by another, a remount)
@@ -308,7 +432,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
             const current = watches.get(threadId);
             if (current === watch && current.generation === generation) {
               current.subscribed = true;
-              sendCapture(threadId, current);
+              // The subscribe carried the pane as it was; tell a change made since.
+              if (captures.get(threadId) !== reported) sendCapture(threadId, current);
             } else if (!current && !disposed)
               void call("browser.unsubscribe", threadId).catch(() => {});
           },
@@ -325,13 +450,16 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     watch.cancel?.();
     watch.cancel = later(() => poll(threadId), retryMs);
   };
-  const ack = (threadId: string, sequence: number) => {
+  /** ACKs a JPEG frame, or with `video` a video chunk (cumulative; maybe asking for a keyframe). */
+  const ack = (threadId: string, sequence: number, video?: { keyframe: boolean }) => {
     try {
       client.send({
         type: "browser.ack",
         requestId: requestId(),
         threadId: ThreadId.parse(threadId),
         sequence,
+        ...(video ? { video: true } : {}),
+        ...(video?.keyframe ? { keyframe: true } : {}),
       });
     } catch {
       // Offline: the subscription ended with the connection.
@@ -396,20 +524,40 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           });
       }
       views.set(state.threadId, view(state));
+      if (state.tabs)
+        pages.keep(
+          state.threadId,
+          state.tabs.map((tab) => tab.tabId),
+        );
       changed(state.threadId);
       return;
     }
-    if (message.type !== "browser.frame") return;
-    const { threadId, frame } = message;
+    if (message.type === "browser.page") {
+      if (!watches.has(message.threadId)) return;
+      if (pages.set(message.threadId, message.tabId, message.page)) changed(message.threadId);
+      return;
+    }
+    if (message.type === "browser.frame")
+      arrived(message.threadId, message.frame, message.frame.data);
+  };
+  /** A frame, from JSON (base64) or from a binary stream message (its JPEG's bytes). */
+  const arrived = (
+    threadId: string,
+    frame: { sequence: number; width: number; height: number },
+    picture: string | Uint8Array,
+  ) => {
+    if (disposed) return;
     const watch = watches.get(threadId);
     if (!watch) return;
     const generation = watch.generation;
     watch.latest = frame.sequence;
-    if (watch.capture?.nativeShown) {
+    // JPEG again: the daemon's video for this view stopped, and a new one starts from a keyframe.
+    videos.reset(threadId);
+    if (captures.get(threadId)?.nativeShown) {
       watch.owed = frame.sequence;
       return;
     }
-    void decode(frame.data).then(
+    void decode(picture).then(
       (decoded) =>
         show(threadId, watch, generation, frame.sequence, {
           sequence: frame.sequence,
@@ -427,6 +575,19 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   };
   try {
     stops.push(client.onMessage(receive));
+    const stopStream = client.onStream?.((message) => {
+      if (message.kind === "browser.frame")
+        arrived(message.threadId, message.frame, message.frame.bytes);
+      else if (message.kind === "browser.video" && !disposed)
+        videos.receive(
+          message.threadId,
+          message.chunk,
+          captures.get(message.threadId)?.nativeShown !== true,
+        );
+      else if (message.kind === "browser.audio" && !disposed && watches.has(message.threadId))
+        sounds.receive(message.threadId, message.chunk);
+    });
+    if (stopStream) stops.push(stopStream);
     stops.push(
       client.connectionState().subscribe(() => {
         const ready = client.state === "ready";
@@ -445,6 +606,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         for (const [threadId, watch] of watches) {
           if (watch.owed !== undefined) ack(threadId, watch.owed);
           watch.owed = undefined;
+          if (seen(threadId)) videos.settle(threadId);
           watch.cancel?.();
           poll(threadId);
         }
@@ -462,10 +624,14 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       for (const watch of watches.values()) watch.cancel?.();
       watches.clear();
       for (const threadId of new Set([...frames.keys(), ...stills.keys()])) release(threadId);
+      videos.dispose();
+      sounds.dispose();
       views.clear();
+      pages.clear();
       servers.clear();
       suggestions.clear();
       unwatched.clear();
+      captures.clear();
       listeners.clear();
       download = undefined;
     },
@@ -508,6 +674,10 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       function stop() {
         watches.delete(threadId);
         current.cancel?.();
+        // Nobody shows the page: its sound stops, and a later view starts muted again.
+        sounds.set(threadId, false);
+        const shown = captures.get(threadId);
+        if (shown?.audio) captures.set(threadId, { ...shown, audio: false });
         unwatched.add(threadId);
         for (const oldest of unwatched) {
           if (unwatched.size <= keptThreads) break;
@@ -521,6 +691,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       }
     },
     view: (threadId) => views.get(threadId),
+    page: (threadId, tabId) => pages.get(threadId, tabId),
     frame: (threadId) => frames.get(threadId),
     still: (threadId, tabId) => stills.get(threadId)?.get(tabId),
     servers: (threadId) => servers.get(threadId) ?? [],
@@ -667,49 +838,60 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         : "";
     },
     nativeShown(threadId, shown) {
+      if (disposed) return;
+      captures.set(threadId, { ...captureOf(threadId), nativeShown: shown });
       const watch = watches.get(threadId);
-      if (!watch) return;
-      watch.capture = {
-        ...(watch.capture ?? { width: 1280, height: 720, devicePixelRatio: 1 }),
-        nativeShown: shown,
-      };
       sendCapture(threadId, watch);
-      if (!shown && watch.owed !== undefined) {
+      if (watch && !shown && watch.owed !== undefined) {
         ack(threadId, watch.owed);
         watch.owed = undefined;
       }
+      if (watch && seen(threadId)) videos.settle(threadId);
     },
     cursorStyle(threadId, style) {
-      const watch = watches.get(threadId);
-      if (!watch) return;
-      const before = watch.capture?.cursor;
+      if (disposed) return;
+      const before = captures.get(threadId)?.cursor;
       if (before?.fill === style.fill && before.outline === style.outline) return;
-      watch.capture = {
-        ...(watch.capture ?? { width: 1280, height: 720, devicePixelRatio: 1 }),
-        cursor: style,
-      };
-      sendCapture(threadId, watch);
+      captures.set(threadId, { ...captureOf(threadId), cursor: style });
+      sendCapture(threadId, watches.get(threadId));
+    },
+    audio: (threadId) => (sounds.available ? sounds.on(threadId) : undefined),
+    setAudio(threadId, on) {
+      if (disposed || !sounds.available) return;
+      sounds.set(threadId, on);
+      captures.set(threadId, { ...captureOf(threadId), audio: on });
+      sendCapture(threadId, watches.get(threadId));
+      changed(threadId);
     },
     async stopRecording(threadId) {
       await call("browser.recording.stop", threadId);
     },
     capture(threadId, width, height, devicePixelRatio) {
-      const watch = watches.get(threadId);
-      if (!watch) return;
-      watch.capture = {
-        nativeShown: watch.capture?.nativeShown,
-        ...(watch.capture?.cursor ? { cursor: watch.capture.cursor } : {}),
+      if (disposed) return;
+      const before = captures.get(threadId);
+      captures.set(threadId, {
+        nativeShown: before?.nativeShown,
+        ...(before?.cursor ? { cursor: before.cursor } : {}),
+        ...(before?.audio ? { audio: true } : {}),
         width: clamp(width),
         height: clamp(height),
         devicePixelRatio: Math.min(4, Math.max(1, devicePixelRatio)),
-      };
-      sendCapture(threadId, watch);
+      });
+      sendCapture(threadId, watches.get(threadId));
     },
-    resize(threadId, width, height) {
+    resize(threadId, width, height, touch, devicePixelRatio) {
       void request({
         type: "browser.execute",
         threadId: ThreadId.parse(threadId),
-        command: { action: "resize", width: clamp(width), height: clamp(height) },
+        command: {
+          action: "resize",
+          width: clamp(width),
+          height: clamp(height),
+          ...(touch ? { touch } : {}),
+          ...(devicePixelRatio === undefined
+            ? {}
+            : { devicePixelRatio: Math.min(4, Math.max(1, devicePixelRatio)) }),
+        },
       }).catch(() => {});
     },
   };

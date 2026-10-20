@@ -130,7 +130,7 @@
     },
     "apps/desktop": {
       "name": "@ace/desktop",
-      "version": "0.1.0",
+      "version": "0.0.1",
       "dependencies": {
         "@ace/browser": "workspace:*",
         "@ace/client": "workspace:*",
@@ -160,6 +160,7 @@
       "dependencies": {
         "@ace/client": "workspace:*",
         "@ace/design-tokens": "workspace:*",
+        "@ace/html": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/ui-core": "workspace:*",
@@ -414,6 +415,7 @@
       "devDependencies": {
         "@types/ws": "8.18.1",
         "@types/yauzl": "2.10.3",
+        "esbuild": "0.25.12",
         "ws": "8.22.0",
       },
     },
@@ -443,6 +445,7 @@
     "packages/client": {
       "name": "@ace/client",
       "dependencies": {
+        "@ace/browser": "workspace:*",
         "@ace/devices": "workspace:*",
         "@ace/files": "workspace:*",
         "@ace/projection": "workspace:*",
@@ -752,6 +755,7 @@
     "packages/projection": {
       "name": "@ace/projection",
       "dependencies": {
+        "@ace/handoff": "workspace:*",
         "@ace/protocol": "workspace:*",
         "zod": "^4.6.5",
       },
@@ -848,6 +852,7 @@
         "@ace/client": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/forge": "workspace:*",
+        "@ace/handoff": "workspace:*",
         "@ace/models": "workspace:*",
         "@ace/native-session": "workspace:*",
         "@ace/projection": "workspace:*",

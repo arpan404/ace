@@ -13,7 +13,7 @@ struct ViewOnlyNote: View {
 }
 
 extension ViewOnlyNote {
-    static let thread = ViewOnlyNote(message: "View only. To send, stop or approve from this phone, pair it again with View and act.")
+    static let thread = ViewOnlyNote(message: "View only. Reply on your computer.")
     static let approval = ViewOnlyNote(message: "View only. Answer this on your computer, or pair this phone with View and act.")
     static let inbox = ViewOnlyNote(message: "View only. Archive and snooze need a View and act pairing.")
 }

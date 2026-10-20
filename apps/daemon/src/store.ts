@@ -1061,6 +1061,9 @@ export class Store {
   historicalItemCompletion(threadId: ThreadId, itemId: ItemId) {
     return this.threadReads.historicalItemCompletion(threadId, itemId);
   }
+  historicalOpening(threadId: ThreadId, through: number) {
+    return this.threadReads.historicalOpening(threadId, through);
+  }
   readHistoricalItemPage(
     threadId: ThreadId,
     through: number,

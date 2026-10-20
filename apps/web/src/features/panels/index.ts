@@ -32,10 +32,11 @@ export const loadCreateFile = () => import("./files/create-file.tsx");
 export const loadAuthTerminal = () => import("./terminal/auth-terminal.tsx");
 
 export const loadThreadBrowser = () => import("./browser/thread-browser.tsx");
-/** The daemon tab the person views in a thread's browser (one panel tab per daemon tab). */
-export { shownBrowserTab } from "./browser/browser-closers.ts";
-/** Bring one of the thread's browser tabs to the person (a help request's Open tab). */
-export { useRevealBrowserTab } from "./browser/reveal-tab.ts";
+/**
+ * Bring one of the thread's browser tabs to the person (a help request's Open tab), or the
+ * Browser the daemon shows them (an agent's page, from its transcript row).
+ */
+export { useRevealBrowserTab, useShowBrowserPanel } from "./browser/reveal-tab.ts";
 /** The thread's browser tabs the composer's `@` list offers. */
 export { useMentionTabs, type MentionTab } from "./browser/mention-tabs.ts";
 
@@ -49,8 +50,10 @@ export const DeferredFileDiffBlock = deferredComponent(() =>
 export const DeferredFileTree = deferredComponent(() =>
   import("./changes/file-tree.tsx").then((module) => module.FileTree),
 );
-export { freshView, type FileView } from "./changes/file-view.ts";
+export { freshView, fileHeight, type FileView } from "./changes/file-view.ts";
+export { useFileViews } from "./changes/file-views.ts";
 export type { LineRange, LineTarget } from "./changes/file-diff.tsx";
 export { bindTerminalEndDelivery } from "./terminal/end-delivery.ts";
 export { useAlwaysShowDevices } from "./browser/device-settings.ts";
 export { useAutomaticPip } from "./browser/pip-setting.ts";
+export { useRevealAgentPages } from "./browser/reveal-setting.ts";

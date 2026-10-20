@@ -191,11 +191,14 @@ struct FormRequestCard: View {
     }
 }
 
-/// A browser tab on the agent's machine needs the person: they finish there, then say Done.
+/// A browser tab on the agent's machine needs the person: they finish it in the live view (or on
+/// the machine), then say Done.
 struct BrowserHelpCard: View {
     let interaction: ApprovalRow
     let submission: ApprovalSubmission?
     var canAct = true
+    /// Opens the thread's browser live on the phone.
+    var openBrowser: (() -> Void)?
     let answer: ([String: Any]) -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
@@ -203,7 +206,12 @@ struct BrowserHelpCard: View {
             if let detail = interaction.help?.detail, !detail.isEmpty {
                 Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
             }
-            Text("The tab is open on your machine.").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground)
+            if let openBrowser {
+                CardButton(title: "Open browser", action: openBrowser)
+                    .accessibilityIdentifier("help.open")
+            } else {
+                Text("The tab is open on your machine.").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground)
+            }
             HStack(spacing: AceTheme.Spacing.sm) {
                 CardButton(title: "Skip") { answer(["kind": "help", "outcome": "skipped"]) }
                 CardButton(title: "Done", primary: true) { answer(["kind": "help", "outcome": "done"]) }

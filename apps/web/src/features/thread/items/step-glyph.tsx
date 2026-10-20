@@ -1,5 +1,5 @@
 import type { Item, ToolSurface } from "@ace/protocol";
-import { exploreAction, displayCommand } from "@ace/ui-core";
+import { exploreAction, displayCommand, isToolSearch, toolSearchRow } from "@ace/ui-core";
 import type { ToolMark } from "@ace/ui-core/ace-tools";
 import {
   BrainIcon,
@@ -55,7 +55,10 @@ export function stepGlyph(item: Item | undefined, mark?: ToolMark): PhosphorIcon
     case "file.read":
       return FileTextIcon;
     case "search":
-      return MagnifyingGlassIcon;
+      // Loading the agent's own tools by name is a tool step; a keyword search of them still looks.
+      return isToolSearch(item.call) && toolSearchRow(detail.query).loaded
+        ? PlugIcon
+        : MagnifyingGlassIcon;
     case "shell": {
       const explored = exploreAction(displayCommand(detail).command);
       return explored === "search"

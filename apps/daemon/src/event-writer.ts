@@ -138,6 +138,7 @@ export class EventWriter {
               permission: thread.permission,
               titleSource: thread.titleSource,
               queue: thread.queue,
+              goal: thread.goal,
             }),
             thread.id,
           );
@@ -145,7 +146,8 @@ export class EventWriter {
         event.payload.type === "thread.created" ||
         (event.payload.type === "thread.updated" &&
           (event.payload.effectiveCapabilities !== undefined ||
-            event.payload.acpSupport !== undefined))
+            event.payload.acpSupport !== undefined ||
+            event.payload.acp !== undefined))
       ) {
         this.source
           .statement("UPDATE threads SET acp = ? WHERE id = ?")

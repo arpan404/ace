@@ -24,7 +24,10 @@ const Reply = z.object({
   }),
 });
 const Tree = z.object({
-  nodes: z.array(z.object({ ref: z.string(), name: z.string(), value: z.string().optional() })),
+  // sim_ui puts refs only on elements an agent can act on.
+  nodes: z.array(
+    z.object({ ref: z.string().optional(), name: z.string(), value: z.string().optional() }),
+  ),
 });
 
 const data = (result: z.infer<typeof Reply>["result"]) =>

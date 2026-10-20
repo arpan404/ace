@@ -19,6 +19,7 @@ export type {
   TextReadOptions,
 } from "./types.ts";
 export { webSocketTransport } from "./transport.ts";
+export type { BrowserFrameBytes, StreamMessage } from "@ace/browser/stream";
 export type { SocketLike } from "./transport.ts";
 export type { Selection, ChangeTap } from "./observable.ts";
 export { Notifications } from "./observable.ts";
@@ -58,6 +59,7 @@ export { retrySend } from "./send-retry.ts";
 export { readServerQueue } from "./queue-read.ts";
 
 export { BrowserFeaturesClient } from "./browser-features.ts";
+export { deviceDownloadMax, fetchBrowserDownload } from "./browser-download.ts";
 export { DeviceClient, DeviceClientError } from "@ace/devices/client";
 export type {
   DeviceClientSnapshot,

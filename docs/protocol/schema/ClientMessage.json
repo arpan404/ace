@@ -1820,6 +1820,9 @@
     },
     {
       "properties": {
+        "binaryFrames": {
+          "type": "boolean"
+        },
         "requestId": {
           "maxLength": 256,
           "minLength": 1,
@@ -1836,6 +1839,12 @@
         "type": {
           "const": "browser.subscribe",
           "type": "string"
+        },
+        "video": {
+          "$ref": "https://ace.local/protocol/v1/BrowserVideoRequest.json"
+        },
+        "viewport": {
+          "$ref": "https://ace.local/protocol/v1/BrowserCaptureViewport.json"
         }
       },
       "required": [
@@ -1900,6 +1909,10 @@
     },
     {
       "properties": {
+        "keyframe": {
+          "const": true,
+          "type": "boolean"
+        },
         "requestId": {
           "maxLength": 256,
           "minLength": 1,
@@ -1916,6 +1929,10 @@
         "type": {
           "const": "browser.ack",
           "type": "string"
+        },
+        "video": {
+          "const": true,
+          "type": "boolean"
         }
       },
       "required": [
@@ -1981,6 +1998,12 @@
         "files"
       ],
       "type": "object"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/BrowserFilesDropMessage.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/BrowserDownloadReadMessage.json"
     },
     {
       "properties": {
@@ -2168,6 +2191,14 @@
             "provider_auth"
           ],
           "type": "string"
+        },
+        "compression": {
+          "items": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "type": "array"
         },
         "deviceId": {
           "$ref": "https://ace.local/protocol/v1/DeviceId.json"

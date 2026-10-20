@@ -35,7 +35,7 @@ try {
   const start = performance.now();
   const result = await migrateSession(
     { provider: "codex", nativeSessionId: id, from, to },
-    { acquire: async () => ({ release: async () => {} }) },
+    { acquire: async () => ({ status: "held", release: async () => {} }) },
   );
   const elapsed = performance.now() - start;
   if (result.status !== "migrated" || (await digest(source)) !== (await digest(target)))

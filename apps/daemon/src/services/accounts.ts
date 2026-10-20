@@ -6,6 +6,7 @@ import { warmup } from "./warmup.ts";
 import { AccountManagementRequest, type AccountsResponse } from "@ace/protocol/accounts";
 import type { ProviderLoginSessions } from "@ace/accounts";
 import { AccountManagement } from "../account-management.ts";
+import { providerMigrationSafety } from "../account-leases.ts";
 import { AccountService, openRegistryIndex, cursorSdkLoginDriver } from "@ace/accounts";
 import { join } from "node:path";
 /** How often every account's limits are re-read where the CLI can say without a turn. */
@@ -44,6 +45,15 @@ export async function startAccounts(context: ServiceContext) {
     now,
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     env: process.env,
+    // Copies between accounts run under the provider's own writer lock (Codex resumes the thread).
+    safety: providerMigrationSafety({
+      env: options.accounts?.env ?? process.env,
+      cwd: config.dataDir,
+      signal: context.signal,
+      discovery: options.accounts?.discovery,
+      configuration: (provider, instance) =>
+        services.providerConfigurations?.for(provider, instance) ?? { provider },
+    }),
     cursorEnv: options.engine?.cursor?.env ?? process.env,
     resolveAcpLogin: (identity, env) =>
       services.agentRegistry?.resolveLogin(identity, env) ?? Promise.resolve(undefined),

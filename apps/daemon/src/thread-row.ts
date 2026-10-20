@@ -1,5 +1,6 @@
 import type { SQLOutputValue } from "node:sqlite";
 import {
+  ProviderGoal,
   Thread,
   ThreadClientFields,
   ThreadTransitionView,
@@ -40,6 +41,7 @@ export function decodeThreadRow(row: Record<string, SQLOutputValue>): Thread {
           titleSource: true,
           queue: true,
         }).parse(JSON.parse(String(row.provider_metadata)))),
+    ...storedGoal(row.provider_metadata),
     ...(row.acp == null ? {} : ThreadProviderMetadata.parse(JSON.parse(String(row.acp)))),
     status: JSON.parse(String(row.status)),
     createdAt: row.created_at,
@@ -48,4 +50,14 @@ export function decodeThreadRow(row: Record<string, SQLOutputValue>): Thread {
     ...(row.imported == null ? {} : { imported: JSON.parse(String(row.imported)) }),
     ...(row.root_agent_id === null ? {} : { rootAgentId: row.root_agent_id }),
   });
+}
+
+/** A stored goal the current schema can't read is dropped: the provider's next update restores it. */
+function storedGoal(metadata: SQLOutputValue | undefined): { goal?: ProviderGoal } {
+  if (metadata == null) return {};
+  const value: unknown = JSON.parse(String(metadata));
+  const goal = ProviderGoal.safeParse(
+    typeof value === "object" && value !== null && "goal" in value ? value.goal : undefined,
+  );
+  return goal.success ? { goal: goal.data } : {};
 }

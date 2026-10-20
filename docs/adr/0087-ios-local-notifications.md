@@ -81,7 +81,8 @@ on/off switch, quiet hours (`notification.preferences`) and per-thread snooze
   or the user opens the app. The settings sheet says so.
 - No Apple key, gateway, APNs token or hosted service exists. ADR 0002 is unchanged.
 - The daemon's direct APNs transport (ADR 0012) is untouched. Its removal and the gateway stay in
-  the deferred draft. Live Activities are out of scope.
+  the deferred draft. Live Activities were out of scope for this decision.
+  [ADR 0089](0089-ios-native-tools-and-local-activities.md) adds foreground local activities.
 - Quiet-hour alerts are still dropped, not held (draft contradiction 7). Catch-up doesn't revive
   them.
 

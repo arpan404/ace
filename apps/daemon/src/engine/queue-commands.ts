@@ -5,7 +5,7 @@ import type { EngineClock } from "./actor.ts";
 interface Dependencies {
   repo: EngineRepository;
   clock: EngineClock;
-  ports: { resetAt?(thread: ThreadId): number | null | undefined; migrate?: unknown };
+  ports: { resetAt?(thread: ThreadId): number | null | undefined; moveTarget?: unknown };
   sync(id: ThreadId): void;
   schedule(): void;
   wake(id: ThreadId): void;
@@ -159,7 +159,13 @@ export function handleQueue(
         dependencies.repo.backend(p.threadId) === "cursor-sdk"
       )
         return fail("sdk_account_migration_unsupported");
-      if (p.type === "thread.limit" && p.action === "migrate_now" && !dependencies.ports.migrate)
+      if (
+        p.type === "thread.limit" &&
+        p.action === "migrate_now" &&
+        dependencies.repo.store.getThread(p.threadId)?.provider === "acp"
+      )
+        return fail("acp_account_fixed");
+      if (p.type === "thread.limit" && p.action === "migrate_now" && !dependencies.ports.moveTarget)
         return fail("migration_unavailable");
       if (
         p.type === "thread.limit" &&

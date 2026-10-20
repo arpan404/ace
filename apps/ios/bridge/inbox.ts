@@ -16,6 +16,28 @@ import { preview, threadRow } from "./presentation.ts";
 import { dispatchCommand } from "./commands.ts";
 import type { PatchSink } from "./agents.ts";
 
+/**
+ * The inbox's confirmation generation: a monotonic fence so a cached confirmed row can never
+ * read as fresh after the bridge loses freshness. Bumped only when a confirmed row stops
+ * being the daemon's current list (connected, caught up, confirmed, error-free); carried
+ * atomically on every connection patch and every inbox row. Native keeps the newest
+ * generation it has seen and treats older confirmed rows as unconfirmed until their
+ * snapshot returns. Missing generations (old payloads) never confirm.
+ */
+export interface ActivityGeneration {
+  current(): number;
+  /** Advance after losing confirmation; returns the new generation. */
+  bump(): number;
+}
+
+export function makeActivityGeneration(): ActivityGeneration {
+  let generation = 0;
+  return {
+    current: () => generation,
+    bump: () => ++generation,
+  };
+}
+
 /** The phone's clock and timers, injected so a snooze's end is testable without waiting. */
 export interface InboxClock {
   now(): number;
@@ -36,15 +58,25 @@ function inboxThread(store: SidebarSource, machineId: string, id: string): Inbox
   return entry && { key: id, machineId, entry, unconfirmed: store.unconfirmed === true };
 }
 
+/**
+ * Whether a row is the daemon's current list: connected, caught up, confirmed and error-free.
+ * Carried atomically with each row so a cached done row can never read as a fresh completion.
+ */
+function isConfirmed(store: SidebarSource, online: boolean): boolean {
+  return online && !store.syncing && store.unconfirmed !== true && !store.error;
+}
+
 export function followInbox(
   owner: ClientCore,
   machineId: string,
   pump: PatchSink,
   clock: InboxClock,
+  generation: ActivityGeneration = makeActivityGeneration(),
 ): () => void {
   const store = owner.threads().store;
   const sends = owner.pendingSends();
   const connection = owner.connectionState();
+  const online = () => connection.getSnapshot() === "ready";
   const row = (id: string) =>
     pump.put(`inbox:${id}`, () => {
       const thread = inboxThread(store, machineId, id);
@@ -58,6 +90,8 @@ export function followInbox(
               status: inboxStatus(thread, clock.now()),
               activityAt: thread.entry.activityAt ?? thread.entry.updatedAt,
               archivedAt: thread.entry.archivedAt ?? null,
+              confirmed: isConfirmed(store, online()),
+              generation: generation.current(),
             }
           : null,
       };
@@ -113,9 +147,16 @@ export function followInbox(
       return { type: "pending", id, row: send ? pendingRow(send, connection.getSnapshot()) : null };
     });
   let unconfirmed = store.unconfirmed === true;
+  let fresh = isConfirmed(store, online());
   const change: ChangeTap = (keys) => {
-    const flipped = unconfirmed !== (store.unconfirmed === true);
-    unconfirmed = store.unconfirmed === true;
+    const nowUnconfirmed = store.unconfirmed === true;
+    const nowFresh = isConfirmed(store, online());
+    // Losing confirmation advances the fence so older confirmed rows stop matching,
+    // even when PatchPump delivers the connection and row frames separately.
+    if (fresh && !nowFresh) generation.bump();
+    const flipped = nowUnconfirmed !== unconfirmed || nowFresh !== fresh;
+    unconfirmed = nowUnconfirmed;
+    fresh = nowFresh;
     if (keys === "all" || keys.has("ids")) {
       pump.clear("inbox:");
       pump.put("inbox:reset", () => ({ type: "inbox.reset" }));
@@ -130,8 +171,25 @@ export function followInbox(
       pending(id);
       sections();
     }),
-    // Offline changes what a held send says ("Sends on reconnect").
+    // The connection patch is produced here, beside the rows that share its fence, so a
+    // coalesced offline-to-ready still carries the advanced generation with the ready state.
+    // Offline changes what a held send says ("Sends on reconnect"), and any freshness
+    // flip (welcome before its snapshot, catch-up, error) re-issues every row with its
+    // current confirmation even when the thread content itself did not change.
     connection.subscribe(() => {
+      pump.put("connection", () => ({
+        type: "connection",
+        state: connection.getSnapshot(),
+        generation: generation.current(),
+      }));
+      const nowFresh = isConfirmed(store, online());
+      if (fresh && !nowFresh) generation.bump();
+      const flipped = nowFresh !== fresh;
+      fresh = nowFresh;
+      if (flipped) {
+        for (const id of store.ids) row(id);
+        sections();
+      }
       for (const send of sends.getSnapshot()) pending(send.commandId);
     }),
   ];

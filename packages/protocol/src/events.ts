@@ -1,8 +1,9 @@
+import { ProviderGoal } from "./goal.ts";
 import { PermissionState } from "./permissions.ts";
 import { RunClientUpdated } from "./run-client.ts";
 import { ThreadClientUpdated } from "./thread-client.ts";
 import { ThreadLineage, ExecutionSelection, ThreadSwitch } from "./thread-transitions.ts";
-import { AcpSessionSupport } from "./agent-registry.ts";
+import { AcpIdentity, AcpSessionSupport } from "./agent-registry.ts";
 import { WorkspaceFilesChanged } from "./files.ts";
 import { z } from "zod";
 import { QueueUpdated } from "./queue.ts";
@@ -56,8 +57,12 @@ export const EventPayload = z.discriminatedUnion("type", [
     switch: ThreadSwitch.optional(),
     effectiveCapabilities: Capabilities.optional(),
     acpSupport: AcpSessionSupport.optional(),
+    /** The ACP agent the thread now runs on, after a switch to it. */
+    acp: AcpIdentity.optional(),
     status: ThreadStatus.optional(),
     archivedAt: Timestamp.nullable().optional(),
+    /** The provider's goal changed; null when it was cleared. */
+    goal: ProviderGoal.nullable().optional(),
   }),
   z.object({ type: z.literal("agent.created"), agent: Agent }),
   z.object({

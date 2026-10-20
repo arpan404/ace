@@ -26,10 +26,11 @@ export type RecoveryPreferences = z.infer<typeof RecoveryPreferences>;
 export interface RecoveryPorts {
   preferences?(thread: ThreadId | undefined): Promise<RecoveryPreferences>;
   resetAt?(thread: ThreadId): number | null | undefined;
-  migrate?(
-    thread: ThreadId,
-    target?: string,
-  ): Promise<{ nativeSessionId: string; instanceId: string }>;
+  /**
+   * The account a usage-limit move goes to: `requested`, or another available account of the
+   * thread's provider. Throws when there is none. The move itself is a thread transition.
+   */
+  moveTarget?(thread: ThreadId, requested?: string): string;
   contextWindow?: ContextWindowLookup;
   /** Reports a deadline pass that failed and will be retried. */
   onError?(error: unknown): void;
@@ -297,7 +298,7 @@ export class Recovery {
       },
       at,
     );
-    if (policy === "migrate_now" && this.ports.migrate)
+    if (policy === "migrate_now" && this.ports.moveTarget)
       this.automatic(state.threadId, "migrate_now");
     this.schedule();
     if (this.ports.preferences)
@@ -310,7 +311,7 @@ export class Recovery {
         const queue = this.repo.queue.get(id);
         if (this.closed || !queue.limited || !this.owns(id, token)) return;
         const policy = this.preferences(id).limitPolicy;
-        if (policy === "migrate_now" && this.ports.migrate) this.automatic(id, "migrate_now");
+        if (policy === "migrate_now" && this.ports.moveTarget) this.automatic(id, "migrate_now");
         else if (
           (policy === "resume_at_reset" || policy === "snooze_until_reset") &&
           queue.resetAt !== null &&
@@ -428,22 +429,9 @@ export class Recovery {
       return;
     }
   }
-  async migrate(id: ThreadId, target?: string): Promise<void> {
-    if (!this.ports.migrate) throw new Error("Account migration is unavailable");
-    const result = await this.ports.migrate(id, target);
-    await this.repo.store.writable();
-    this.repo.nativeSession(id, result.nativeSessionId, this.repo.backend(id), result.instanceId);
-    const metadata = this.repo.transitions.get(id);
-    if (metadata.selection) {
-      metadata.selection.instanceId = result.instanceId;
-      this.repo.transitions.set(id, metadata);
-      this.repo.transitions.remember(id, metadata.selection);
-      this.repo.store.appendEvents(
-        id,
-        [{ type: "thread.updated", execution: metadata.selection }],
-        this.clock.now(),
-      );
-    }
+  moveTarget(id: ThreadId, requested?: string): string {
+    if (!this.ports.moveTarget) throw new Error("Account migration is unavailable");
+    return this.ports.moveTarget(id, requested);
   }
   bindingChanged(id: ThreadId): void {
     const queue = this.repo.queue.get(id);

@@ -15,7 +15,8 @@ import { appChord, browserChord, pageChord } from "../shortcuts.ts";
 import { parseChord } from "./keys.ts";
 import { WebSocketGate } from "./socket-gate.ts";
 import { throttleDecision, type ViewPresence } from "./throttle.ts";
-import { deviceEmulation, type NativeDevice, type Rect } from "./placement.ts";
+import { agentEmulation, deviceEmulation, type NativeDevice, type Rect } from "./placement.ts";
+import { changesEmulationScale, emulationScale, scaledInput } from "./input-scale.ts";
 import { clearPartition } from "./partition-cleanup.ts";
 import { PausedRequests } from "./paused-requests.ts";
 import { CrashBackoff } from "./crash-backoff.ts";
@@ -105,6 +106,8 @@ export class EmbeddedPage implements ViewPage {
   private home: BaseWindow;
   private presence: ViewPresence = "hidden";
   private metrics = new PageMetrics();
+  /** The scale the page is drawn at under device emulation; CDP input is scaled to match. */
+  private inputScale = 1;
   private target: { bounds: Rect; zoom: number; device?: NativeDevice | undefined } | undefined;
   private downloads: NativeDownloads;
   private popups: NativePopups;
@@ -339,6 +342,8 @@ export class EmbeddedPage implements ViewPage {
   }
 
   private detachDebugger(): void {
+    // A new debugger session starts without the old one's emulation.
+    this.inputScale = 1;
     const contents = this.contents;
     if (!contents.isDestroyed() && contents.debugger.isAttached()) contents.debugger.detach();
   }
@@ -482,7 +487,7 @@ export class EmbeddedPage implements ViewPage {
       this.emit("ace.viewport", this.viewport());
       void this.metrics
         .place(key, () =>
-          this.send(
+          this.emulate(
             params ? "Emulation.setDeviceMetricsOverride" : "Emulation.clearDeviceMetricsOverride",
             params,
           ),
@@ -547,27 +552,26 @@ export class EmbeddedPage implements ViewPage {
       this.restart(0);
       return {};
     }
-    if (
-      method === "Emulation.setDeviceMetricsOverride" ||
-      method === "Emulation.clearDeviceMetricsOverride"
-    ) {
+    if (changesEmulationScale(method)) {
       return this.metrics.override(() => {
         // An agent's device on a shown page is drawn fitted into the panel; the person's
         // device toolbar takes it up and places the page at that size (`ace.tabs` lists it).
         if (this.placed && this.agentControl && this.target)
           return method === "Emulation.setDeviceMetricsOverride"
-            ? this.send(method, this.fitted(params))
-            : this.send(method);
+            ? this.emulate(method, this.fitted(params))
+            : this.emulate(method);
         if (this.placed && this.target) {
           const { device, bounds } = this.target;
           return device
-            ? this.send(
+            ? this.emulate(
                 "Emulation.setDeviceMetricsOverride",
                 deviceEmulation(device, bounds, this.appZoom),
               )
-            : this.send("Emulation.clearDeviceMetricsOverride");
+            : this.emulate("Emulation.clearDeviceMetricsOverride");
         }
-        return this.send(method, params);
+        return method === "Emulation.setDeviceMetricsOverride"
+          ? this.emulate(method, this.fitted(params))
+          : this.emulate(method);
       });
     }
     if (method === "ace.zoom") {
@@ -612,7 +616,8 @@ export class EmbeddedPage implements ViewPage {
     this.gate.command(method, params);
     this.paused.command(method, params);
     if (!method.startsWith("Input.")) return this.send(method, params);
-    return this.inject(() => this.send(method, params));
+    // Input comes in the page's CSS pixels; a device drawn scaled takes it scaled the same.
+    return this.inject(() => this.send(method, scaledInput(method, params, this.inputScale)));
   }
 
   /**
@@ -726,32 +731,31 @@ export class EmbeddedPage implements ViewPage {
 
   async resize(width: number, height: number): Promise<void> {
     this.driven();
+    const size = { width, height, deviceScaleFactor: 0, mobile: false };
     if (this.placed) {
       // The panel sizes a shown page; an agent's size is drawn fitted into it until the
       // person's device toolbar takes it up.
       if (this.agentControl)
         await this.metrics.override(() =>
-          this.send(
-            "Emulation.setDeviceMetricsOverride",
-            this.fitted({ width, height, deviceScaleFactor: 0, mobile: false }),
-          ),
+          this.emulate("Emulation.setDeviceMetricsOverride", this.fitted(size)),
         );
       return;
     }
+    // In DIPs: the size that lays the page out at `width` × `height` CSS pixels at its zoom.
+    const emulated = this.fitted(size);
     await this.metrics.override(() =>
       this.placed
         ? Promise.resolve()
-        : this.send("Emulation.setDeviceMetricsOverride", {
-            width,
-            height,
-            deviceScaleFactor: 0,
-            mobile: false,
-          }),
+        : this.emulate("Emulation.setDeviceMetricsOverride", emulated),
     );
     // A view the renderer is not showing takes the requested size itself.
     if (this.placed) return;
-    if (this.presence === "parked") this.options.park({ width, height });
-    this.options.view.setBounds({ x: 0, y: 0, width, height });
+    const bounds = {
+      width: typeof emulated["width"] === "number" ? emulated["width"] : width,
+      height: typeof emulated["height"] === "number" ? emulated["height"] : height,
+    };
+    if (this.presence === "parked") this.options.park(bounds);
+    this.options.view.setBounds({ x: 0, y: 0, ...bounds });
   }
 
   /** The page zoom the daemon keeps for this tab, on top of the app window's own zoom. */
@@ -770,16 +774,28 @@ export class EmbeddedPage implements ViewPage {
       });
   }
 
-  /** Device metrics scaled so the whole device fits the box the panel gives the page. */
+  /**
+   * Device metrics in CSS pixels as Chromium takes them in the app's zoom (`agentEmulation`),
+   * scaled so the whole device fits the box the panel gives a shown page. The tab's own zoom
+   * still shrinks its CSS viewport, as zoom does in ace's Chrome.
+   */
   private fitted(params: Record<string, unknown> | undefined): Record<string, unknown> {
     const size = z
       .object({ width: z.number().positive(), height: z.number().positive() })
       .safeParse(params);
-    if (!size.success || !this.target) return params ?? {};
-    // Emulated sizes are DIPs, drawn at `scale` whatever the page zoom.
-    const { bounds } = this.target;
-    const scale = Math.min(1, bounds.width / size.data.width, bounds.height / size.data.height);
-    return { deviceScaleFactor: 0, mobile: false, ...params, scale };
+    if (!size.success) return params ?? {};
+    const bounds =
+      this.placed && this.target
+        ? this.target.bounds
+        : { x: 0, y: 0, width: Number.POSITIVE_INFINITY, height: Number.POSITIVE_INFINITY };
+    return agentEmulation({ ...params, ...size.data }, bounds, this.appZoom);
+  }
+
+  /** An emulation change; input follows the drawing scale it leaves once it applied. */
+  private async emulate(method: string, params?: Record<string, unknown>): Promise<unknown> {
+    const result = await this.send(method, params);
+    this.inputScale = emulationScale(method, params);
+    return result;
   }
 
   /** The tab's developer tools in their own window, at an element when `at` is given. */

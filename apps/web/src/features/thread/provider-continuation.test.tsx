@@ -84,7 +84,7 @@ test("picking Codex on a Cursor thread sends the next message once to a new Code
   expect(said).toEqual(["yo"]);
 });
 
-test("an ACP agent says it starts new threads only before anything is sent", async () => {
+test("an ACP agent's model can be picked from another provider's thread, and nothing is sent yet", async () => {
   const app = await openCursorThread();
   const popover = await openModelControl(/^Model: Composer 2\.5/);
   await openModelPicker(popover);
@@ -95,8 +95,10 @@ test("an ACP agent says it starts new threads only before anything is sent", asy
   const row = within(popover)
     .getAllByRole("option")
     .find((option) => option.getAttribute("aria-label")?.startsWith("Gemini 2.5 Pro"));
-  expect(row?.getAttribute("aria-disabled")).toBe("true");
-  expect(row?.textContent).toContain("Starts new threads only");
+  // A picked ACP model names its agent, so the thread can move to it like any provider.
+  expect(row).toBeTruthy();
+  expect(row?.getAttribute("aria-disabled")).not.toBe("true");
+  expect(row?.textContent).not.toContain("Starts new threads only");
   expect(thread(app, "cursor-greeting")?.switch).toBeUndefined();
 });
 

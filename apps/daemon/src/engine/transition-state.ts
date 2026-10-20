@@ -2,6 +2,7 @@ import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import { NativeSessionId } from "@ace/protocol";
 import { z } from "zod";
 import { HandoffAccess } from "../handoff-access.ts";
+import { ProviderSessions } from "./provider-sessions.ts";
 import type { Store } from "../store.ts";
 import {
   ExecutionSelection,
@@ -19,6 +20,13 @@ const Metadata = z.object({
   selection: ExecutionSelection.optional(),
   fork: NativeFork.optional(),
   handoff: PortableHandoff.optional(),
+  /** The transcript marker of `handoff` while it waits for delivery. */
+  marker: z.string().min(1).max(512).optional(),
+  /**
+   * A return to a provider resumes its earlier session with only what happened since; if that
+   * session is gone, this full handoff goes to a fresh one instead.
+   */
+  fallback: PortableHandoff.optional(),
   /** Merge summaries are message-sized; an entry also carries their citations and escaping. */
   context: z
     .array(z.string().max(2 * maxMessageBytes))
@@ -37,9 +45,12 @@ export function admitTransitionMetadata(input: unknown): TransitionMetadata {
 export class TransitionState {
   private store: Store;
   readonly history: HandoffAccess;
+  /** Native sessions a provider left behind, resumed when the thread returns to it. */
+  readonly left: ProviderSessions;
   constructor(store: Store) {
     this.store = store;
     this.history = new HandoffAccess(store);
+    this.left = new ProviderSessions(store);
     store.atomic((_db) =>
       _db.exec(`
       CREATE TABLE IF NOT EXISTS engine_transitions (
@@ -120,9 +131,15 @@ export class TransitionState {
     },
   ): ExecutionSelection {
     const previous = this.get(id).selection ?? fallback;
-    const same = previous.provider === requested.provider;
+    // Another ACP agent is another agent: none of the previous one's model carries over.
+    const otherAgent =
+      requested.provider === "acp" &&
+      requested.instanceId !== undefined &&
+      requested.instanceId !== previous.instanceId;
+    const same = previous.provider === requested.provider && !otherAgent;
     const model =
-      requested.model ?? (same ? previous.model : this.latest(id, requested.provider)?.model);
+      requested.model ??
+      (same ? previous.model : otherAgent ? undefined : this.latest(id, requested.provider)?.model);
     const selectedId = requested.instanceId ?? (same ? previous.instanceId : undefined);
     const instanceId = requested.provider === "cursor" ? cursorInstanceId(selectedId) : selectedId;
     const remembered = this.options(id, requested.provider, model ?? "");

@@ -13,7 +13,7 @@ import { AcpIdentity } from "@ace/protocol";
 import { instanceEnv } from "./instances.ts";
 import { filterSessionToolEnv } from "./tool-env.ts";
 import { pickInstance } from "./scheduler.ts";
-import { migrateSession, type MigrationSafety } from "./migration.ts";
+import { migrateSession, noMigrationLease, type MigrationSafety } from "./migration.ts";
 import { accountFrame } from "./frames.ts";
 import { ProviderLoginFailure } from "./login-failure.ts";
 export type AccountAdapterFactory = Pick<
@@ -42,7 +42,7 @@ const quotaKeys = [
   "total_cost_usd",
   "error",
 ];
-/** The default never infers offline safety from absence of locks or ace processes. */
+/** Without a provider lease (`safety`) no session is copied; threads hand over instead. */
 export class AccountService {
   subscribeQuota(
     listener: (
@@ -63,6 +63,8 @@ export class AccountService {
   private resolveAcpLogin: AcpLoginResolver | undefined;
   private writers = new Map<string, number>();
   private migrating = new Set<string>();
+  /** Session copies reading or writing each account's home. A sign-in waits for them. */
+  private copies = new Map<string, number>();
   /** Open sessions per account, so an auth change can stop them before the credential changes. */
   private closers = new Map<string, Set<() => Promise<void>>>();
   constructor(options: {
@@ -83,13 +85,14 @@ export class AccountService {
     this.env = { ...options.env };
     this.cursorEnv = { ...(options.cursorEnv ?? options.env) };
     this.resolveAcpLogin = options.resolveAcpLogin;
-    this.safety = options.safety ?? { acquire: async () => undefined };
+    this.safety = options.safety ?? noMigrationLease;
   }
   isChangingAccount(id: string): boolean {
     return this.migrating.has(id);
   }
   reserveAccountChange(id: string): () => void {
-    if (this.writers.has(id) || this.migrating.has(id)) throw new Error("Instance is busy");
+    if (this.writers.has(id) || this.migrating.has(id) || this.copies.has(id))
+      throw new Error("Instance is busy");
     this.migrating.add(id);
     return () => this.migrating.delete(id);
   }
@@ -102,6 +105,10 @@ export class AccountService {
     if (this.migrating.has(id))
       throw new ProviderLoginFailure(
         "Another sign-in or account change for this account is still running. Try again when it finishes.",
+      );
+    if (this.copies.has(id))
+      throw new ProviderLoginFailure(
+        "A thread is moving to or from this account. Try again when the switch finishes.",
       );
     this.migrating.add(id);
     const release = () => {
@@ -218,13 +225,23 @@ export class AccountService {
       result: { status: "refused", reason },
     });
     if (!from || !to) return refused("Unknown instance");
-    if (from.implicit || to.implicit) return refused("Normal CLI homes are immutable");
+    // ace never writes into a normal CLI home; a thread moving there continues through a handoff.
+    // Copying out of one only reads it, under the provider's own writer lock.
+    if (to.implicit)
+      return {
+        type: request.type,
+        requestId: request.requestId,
+        result: {
+          status: "unsupported",
+          reason: "ace doesn't copy history into a normal CLI login",
+        },
+      };
+    // A sign-in replaces the credential under the account's home; unrelated sessions don't matter.
     for (const id of [from.id, to.id])
-      if (this.writers.has(id) || this.migrating.has(id))
-        return refused("Source or destination has an active writer or migration");
-    this.migrating.add(from.id);
-    this.migrating.add(to.id);
-    let releaseFailed = false;
+      if (this.migrating.has(id))
+        return refused("That account is signing in or changing. Try again when it finishes.");
+    const counted = [from.id, to.id];
+    for (const id of counted) this.copies.set(id, (this.copies.get(id) ?? 0) + 1);
     try {
       await this.registry.validateHome(from);
       await this.registry.validateHome(to);
@@ -232,12 +249,12 @@ export class AccountService {
         { provider: request.provider, nativeSessionId: request.nativeSessionId, from, to },
         this.safety,
       );
-      releaseFailed = result.cleanupWarnings?.includes("lease_release_failed") ?? false;
       return AccountsResponse.parse({ type: request.type, requestId: request.requestId, result });
     } finally {
-      if (!releaseFailed) {
-        this.migrating.delete(from.id);
-        this.migrating.delete(to.id);
+      for (const id of counted) {
+        const count = (this.copies.get(id) ?? 1) - 1;
+        if (count) this.copies.set(id, count);
+        else this.copies.delete(id);
       }
     }
   }
@@ -428,6 +445,8 @@ export class AccountService {
                   Promise.reject(new Error("Mode selection unavailable")),
               }
             : {}),
+          ...(session.setGoal ? { setGoal: session.setGoal.bind(session) } : {}),
+          ...(session.clearGoal ? { clearGoal: session.clearGoal.bind(session) } : {}),
           ...(session.mcp ? { mcp: session.mcp } : {}),
           get sessionConfirmed() {
             return session.sessionConfirmed ?? true;

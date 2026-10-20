@@ -27,6 +27,7 @@ import type {
 import type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 import type { Intent } from "./intents.ts";
 import type { OneWayMessage } from "./one-way.ts";
+import type { StreamMessage } from "@ace/browser/stream";
 import type { ServiceRequest, ServiceResponse } from "./service-requests.ts";
 import type { ChangeTap, Selection } from "./observable.ts";
 import type { SidebarKey, SidebarReader, ThreadKey, ThreadReader } from "./readers.ts";
@@ -129,6 +130,11 @@ export interface ClientApi {
   ): Promise<ServiceResponse<Q>>;
   /** Uncorrelated service messages (such as `settings.changed`); call the result to stop. */
   onMessage(listener: (message: ServerMessage) => void): () => void;
+  /**
+   * Binary stream messages (a browser frame's JPEG as bytes); call the result to stop. Absent
+   * where the client can't receive them, so a viewer asks for frames as JSON instead.
+   */
+  onStream?(listener: (message: StreamMessage) => void): () => void;
   /**
    * One-way service controls (a browser frame ACK, a terminal credit). Never queued or replayed:
    * throws `offline` unless connected and `protocol` for a message that isn't one-way.

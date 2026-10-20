@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ForgePrDetail, ThreadId, WorkspaceId, type ForgePrStatus } from "@ace/protocol";
 import { workbench } from "@ace/fake-daemon";
@@ -98,15 +98,21 @@ test("checks GitHub couldn't read say so in the PR panel instead of claiming non
   expect(screen.queryByText("No checks reported")).toBeNull();
 });
 
-test("Merge PR is off with the shared merge gate's reason shown beside it", async () => {
-  const app = open(detail({ mergeability: "conflicting" }));
+test("a failing check blocks the merge with the blocking gate named, and a refresh that clears it offers the merge", async () => {
+  const app = open(detail({ ci: "failure", checks: [{ ...running, status: "failure" }] }));
   await openPullRequest(app, { project: "api", number: 42 });
-  await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
-  const merge = await screen.findByRole<HTMLButtonElement>("button", { name: "Merge PR" });
-  expect(merge.disabled).toBe(true);
-  expect(screen.getByText("Resolve the conflicts with main first")).toBeTruthy();
+  const panel = within(await screen.findByRole("article", { name: "Pull request #42" }));
+  const blocked = await panel.findByRole<HTMLButtonElement>("button", { name: "Merge blocked" });
+  expect(blocked.disabled).toBe(true);
+  // The tooltip names what blocks it.
+  await userEvent.hover(blocked.parentElement ?? blocked);
+  expect(await screen.findByText(/Checks: 1 failing · 0 ok/, {}, { timeout: 3_000 })).toBeTruthy();
   app.daemon.workspace.setForgeRead(operation, { resource: "prDetail", value: detail() });
-  await userEvent.click(screen.getByRole("button", { name: "Refresh PR" }));
-  await waitFor(() => expect(merge.disabled).toBe(false));
-  expect(screen.queryByText("Resolve the conflicts with main first")).toBeNull();
+  await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Refresh" }));
+  await waitFor(() =>
+    expect(
+      panel.getByRole<HTMLButtonElement>("button", { name: "Squash and merge" }).disabled,
+    ).toBe(false),
+  );
 });

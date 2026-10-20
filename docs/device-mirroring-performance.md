@@ -1,6 +1,6 @@
 # Device mirroring performance
 
-The Devices panel negotiates a bounded H.264 stream for WebCodecs-capable viewers. The macOS helper uses VideoToolbox's required hardware encoder, realtime mode, Baseline H.264 and no frame reordering. Android retains screenrecord's hardware H.264 output; ffmpeg inserts access-unit delimiters without decoding/re-encoding pixels. JPEG remains the default for clients that do not negotiate video, unsupported decoders, screenshots and Devices recordings.
+The Devices panel negotiates a bounded H.264 stream for WebCodecs-capable viewers. The macOS helper uses VideoToolbox's required hardware encoder, realtime mode, Baseline H.264 and no frame reordering. Android uses the scrcpy server's H.264 from the device's own encoder, passed through without ffmpeg (see the Android section below); the screenrecord fallback still decodes to JPEG through ffmpeg. JPEG remains the default for clients that do not negotiate video, unsupported decoders, screenshots and Devices recordings.
 
 The helper retains one outstanding encode, its latest captured image and one replaceable changed image. Encoder completion submits that last changed image even when the source has become idle. Its existing frame writer keeps one partially written packet and one replaceable pending packet. Daemon, relay and client frame hubs retain one in-flight frame and one replaceable pending frame per consumer. Preview packets stop being admitted above 128 KiB of buffered data. Screenshot packets use a separate reliable operation which explicitly rejects congestion rather than reporting success without pixels. A missing video sequence invalidates dependent deltas; the decoder requests a self-contained IDR with parameter sets and retries once per second if it is lost while the source becomes idle. Decoder errors or a 500 ms output timeout negotiate JPEG. Hidden/unmounted views close decoding and release images; visibility recovery requests a fresh frame, including for an idle simulator.
 
@@ -32,6 +32,34 @@ Baseline mode requests the original 10 fps and uses image decode/draw and tap in
 
 The source app paints a 32-bit millisecond clock and toggles a pixel acknowledgement on each tap. The harness counts canvas presentation opportunities at requestAnimationFrame after warm-up and sends sixteen taps. It reports capture-header → canvas presentation and source-pixel clock → canvas presentation separately, FPS, binary bytes including headers, input-request → changed pixel, input dispatch duration, helper/daemon/Chromium-renderer CPU, negotiated codecs and resolution. CPU is normalized to one core (100% = one core), using CPU-time deltas; daemon CPU includes the Node harness, and renderer CPU includes the clock readback. These are headless canvas/rAF measurements, not physical display scanout or photon measurements. Android timestamps currently start at daemon receipt, so Android capture latency needs a source-clock benchmark before making equivalent latency claims.
 
+## iOS through serve-sim (2026-10-19, #1102)
+
+With a pinned serve-sim, H.264 viewers receive serve-sim's own VideoToolbox stream
+(High 5.1, native framebuffer size) re-framed as Annex B; the daemon neither decodes
+nor re-encodes. Measured on this Mac (Apple Silicon, Xcode 26.6, iPhone 16 Pro on
+iOS 26.5, 1206×2622, host load average 5–9) with the perf probe app from
+`tools/web-perf/device/Probe.swift`, which redraws a clock every display frame and
+toggles a colour cell on each tap. A script drove `simulatorCapture` directly: 30 taps
+at random 450–750 ms intervals, frames timestamped on arrival at the daemon, and the
+first frame whose decoded cell shows the toggled colour gives input → pixel. This
+stops at the daemon: WebCodecs decode and canvas paint are not included (Electron 44's
+Chromium decoded 120 of these frames, `avc1.640033` without a description, in 159 ms
+including setup).
+
+| Path (serve-sim 0.1.48)             | Input → pixel p50 / p95 |  fps |      Wire | serve-sim CPU | daemon CPU |
+| ----------------------------------- | ----------------------: | ---: | --------: | ------------: | ---------: |
+| H.264 passthrough                   |             35 / 110 ms | 59.1 | 0.55 Mbps |           46% |         1% |
+| MJPEG + sharp resize (old path)     |             53 / 106 ms | 57.2 | 19.3 Mbps |           79% |       164% |
+| H.264 passthrough, serve-sim 0.1.47 |             36 / 115 ms | 57.3 | 0.51 Mbps |           49% |         1% |
+
+CPU is percent of one core from CPU-time deltas over the run. The probe redraws the
+whole screen every frame, which is serve-sim's worst case; on a static Settings screen
+its H.264 stream costs 5.5% (MJPEG 8%) and nothing when no one subscribes. The p95 tail
+is two or three taps per run that landed during a keyframe or a host stall. The old
+ScreenCaptureKit path's 106–137 ms below was measured with a different harness (canvas
+in a browser) and is not directly comparable, but both runs start the clock at input
+dispatch and use the same probe.
+
 ## Historical measurements on this Mac
 
 These measurements predate review fixes and the merge of main. They describe revision `2d9e1a0d`, are preserved unchanged, and have not been independently reproduced. Current latency, FPS, bandwidth, CPU and RSS **need run at merge**.
@@ -51,6 +79,25 @@ Apple M4 Max, 16 cores, 128 GB; iPhone 16 / iOS 18.5. Initial measurements on 20
 The final immediate down/up run (`after-final.json`) passed `ACE_PERF_ASSERT=1`: 48.44 fps, capture-header → rAF p50 6.27 ms / p95 20.64 ms (579 samples), source-pixel → rAF p50 27 ms, and input → pixel p50 115 ms (16 acknowledgements). It reduced bandwidth about 87% from the original 10 fps JPEG baseline. The final run had no other ace checks running alongside it, although external host load remained extreme (around 400). Helper plus daemon used 22.91% of one core, approximately 1.43% of this 16-core machine. The initial intermediate H.264 run is also retained as `after-initial.json` (41.12 fps / 106 ms input p50). 60 fps is enabled; sustained 60 fps has not been established on this busy host. These results do not establish physical-display latency, Android performance, relay throughput or production-workload CPU costs.
 
 A later baseline rerun during extreme host contention (load average peaked above 580) fell to 5.72 fps, source-pixel latency p50 52 ms / p95 601 ms and input latency p50 770 ms / p95 7305 ms. Its full JSON is retained as `before-contention.json`. The immediate pointer-phase rerun (`after-contention.json`) still displayed 43.80 fps, capture-header → rAF p50 10.40 ms / p95 29.31 ms, source-pixel → rAF p50 31 ms / p95 64 ms and 0.35 Mbps, but missed the input target at p50 217 ms / p95 302 ms. Helper/daemon/renderer CPU was 17.71% / 4.38% / 8.61%. Its daemon shutdown also exceeded the existing 8 s cleanup deadline; the harness now explicitly stops owned capture before closing the daemon. Restricting the geometry query to the target and onscreen windows above it (`after-geometry.json`) improved displayed cadence to 50.24 fps, capture-header → rAF p50 4.63 ms / p95 16.97 ms and source-pixel → rAF p50 26 ms / p95 39 ms; input p50 improved to 137 ms / p95 179 ms but still missed the 120 ms target under contention. Bandwidth was 0.37 Mbps; helper/daemon/renderer CPU was 16.77% / 4.57% / 9.13%. The final refinement removes a duplicate permission query, retaining permission verification immediately before every posted event, and passes all three local assertions as reported above. Report repeat measurements with host load; do not compare the low-contention initial run directly with an oversubscribed run or relax the targets to hide contention.
+
+## Android emulator through scrcpy (2026-10-19)
+
+Measured on an Apple M4 Max (16 cores), host load average 4–12, with a headless `Ace_Pixel_Spike` AVD (API 36, arm64, 1080×2400, `-no-window`). The daemon side ran ace's own scrcpy client against the pinned scrcpy-server v5.0.1. Probes are throwaway scripts; the opt-in `scrcpy.live.process.test.ts` repeats the functional checks (`ACE_DEVICE_LIVE=1 ACE_DEVICE_LIVE_ANDROID_SERIAL=<serial>`).
+
+| Metric                                                           | scrcpy H.264 (new) | scrcpy → ffmpeg JPEG (images) | screenrecord → ffmpeg JPEG (fallback) |
+| ---------------------------------------------------------------- | -----------------: | ----------------------------: | ------------------------------------: |
+| Key input → first new frame at the daemon, p50 (range), 8 runs   |     57 ms (28–108) |                         55 ms |                         68 ms (58–90) |
+| Emulator (qemu) CPU during 10 s of swipes; 447 % with no capture |              520 % |                         553 % |                                 538 % |
+| ffmpeg CPU                                                       |               none |                          31 % |                                  33 % |
+| Daemon (Node) CPU                                                |              0.4 % |                         0.7 % |                                 0.7 % |
+| Bandwidth at 1080 wide, 8 Mbps cap                               |           5.6 Mbps |                     14.1 Mbps |                             13.6 Mbps |
+
+- Input → frame is measured from the control message to the first packet the daemon receives after an idle screen. It includes the device's composition and encode, not the viewer's decode or display. scrcpy repeats an idle frame now and then, so the low end of each range is noisy.
+- CPU is one core = 100 %. The emulator's own cost dominates and is noisy on a shared host; the clear differences are that the H.264 view runs no ffmpeg and that its stream is less than half the bytes.
+- Start-up: 370–420 ms to a running capture with a cached jar (about 1 s on first use, including the download and checksum), and the first keyframe about 480 ms after the start request. A keyframe request (a video reset) produced a new IDR in about 40–60 ms.
+- One capture streamed for 227 s through repeated swipes with no restart; scrcpy has no time limit.
+- Typing `héllo 👋` into a contact field landed exactly (pasted through the clipboard; the action took 5–70 ms). Two fingers (`pointerId` 0 and 1) were tracked as two pointers by Android's pointer-location overlay.
+- UI tree: ace's UiAutomation helper answered in 46–48 ms per read (173 ms for the first read, which pushes and starts it), against 2.0–2.04 s for `uiautomator dump`, both including ace's per-read emulator identity checks.
 
 ## Validation and follow-up
 

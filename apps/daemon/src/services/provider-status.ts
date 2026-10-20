@@ -1,7 +1,8 @@
-import { antigravityDiscovery } from "./antigravity.ts";
+import { antigravityAuth, antigravityDiscovery } from "./antigravity.ts";
 import { reportedAuthMethod } from "../provider-account-support.ts";
 import { apiKeySupport } from "../provider-api-key.ts";
 import { probeOutput } from "@ace/provider-kit/process";
+import { refreshAcpAgentAuth } from "../acp-agent-status.ts";
 import { checkCli } from "@ace/provider-kit/cli-requirements";
 import { instanceEnv, cursorSdkLoginDriver } from "@ace/accounts";
 import { createCursorAccountDriver } from "@ace/adapter-cursor/auth";
@@ -49,8 +50,8 @@ export function startProviderStatuses(context: ServiceContext): void {
           context.services.models && hasUnauthenticatedOpenCodeModels(context.services.models),
         ),
       account(row) {
-        if (row.provider === "antigravity" && context.services.antigravityAuth)
-          return { auth: context.services.antigravityAuth };
+        const signedIn = row.provider === "antigravity" ? antigravityAuth(context) : undefined;
+        if (signedIn) return { auth: signedIn };
         const registry = context.services.accountRegistry;
         const selected = selectedInstance(row.provider);
         const account = registry?.get(selected);
@@ -122,6 +123,17 @@ export function startProviderStatuses(context: ServiceContext): void {
         for (const row of rows)
           if (row.version)
             context.services.models?.installationChanged(row.provider, row.version, row.runtime);
+        // ACP agents whose own command reports its login (Cursor) are read on the same check.
+        const accounts = context.services.accountRegistry;
+        const agents = context.services.agentRegistry;
+        if (accounts && agents)
+          void refreshAcpAgentAuth({
+            registry: accounts,
+            installed: agents.inventory.all(),
+            env: context.options.providerStatus?.env ?? process.env,
+            now: context.now,
+            probe: probeOutput,
+          }).catch(() => {});
       },
       configuration: (provider) => ({
         ...context.services.providerConfigurations?.for(provider, selectedInstance(provider)),

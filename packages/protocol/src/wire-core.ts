@@ -197,6 +197,12 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
       deviceId: DeviceId,
       token: z.string().optional(),
       ticket: z.string().optional(),
+      /**
+       * Message compression this client can undo on a relayed channel: `deflate-raw` lets the
+       * daemon deflate bulk JSON messages, each alone, before encrypting them. Unknown names
+       * are ignored.
+       */
+      compression: z.array(z.string().max(32)).max(8).optional(),
     })
     .refine((hello) => (hello.token !== undefined) !== (hello.ticket !== undefined), {
       message: "Exactly one credential is required",

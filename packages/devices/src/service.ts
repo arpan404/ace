@@ -22,6 +22,8 @@ import { enqueueDeviceInput } from "./input-queue.ts";
 import type { spawnSupervised } from "@ace/provider-kit/process";
 import { mirrorDeviceController } from "./screen-controller.ts";
 import { InventoryWatch, sameDevice, type DeviceLog, type Inventory } from "./inventory.ts";
+import { SimAgentState } from "./sim-state.ts";
+import { oneOffFrame } from "./one-off-screenshot.ts";
 
 /** Expected refusals a person can act on; anything else is a fault worth a warning. */
 const routine = new Set(["lease_required", "permission_denied", "busy", "not_booted"]);
@@ -34,6 +36,8 @@ export interface DevicesOptions extends LifecycleOptions {
   inventoryIntervalMs?: number;
 }
 export class DevicesService {
+  /** Element refs and how-to state for device agents, shared by the sim_* tools and `ace sim`. */
+  readonly agents = new SimAgentState();
   private readonly streamOwners = new DeviceStreamOwners();
   private enabled = false;
   private closed = false;
@@ -449,27 +453,33 @@ export class DevicesService {
         return await this.screenshot(session.device.id, actor);
       case "ui.tree":
         return this.ui(session, actor, () =>
-          session.capture?.screenSessionId && this.options.screen
-            ? this.options.screen.uiTree(session.capture.screenSessionId, operation)
-            : this.options.platform.uiTree(session.device, operation),
+          session.capture?.ui
+            ? session.capture.ui.tree(operation)
+            : session.capture?.screenSessionId && this.options.screen
+              ? this.options.screen.uiTree(session.capture.screenSessionId, operation)
+              : this.options.platform.uiTree(session.device, operation),
         );
       case "ui.find":
         return this.ui(session, actor, () =>
-          session.capture?.screenSessionId && this.options.screen
-            ? this.options.screen.uiFind(session.capture.screenSessionId, operation)
-            : this.options.platform.uiFind(session.device, operation),
+          session.capture?.ui
+            ? session.capture.ui.find(operation)
+            : session.capture?.screenSessionId && this.options.screen
+              ? this.options.screen.uiFind(session.capture.screenSessionId, operation)
+              : this.options.platform.uiFind(session.device, operation),
         );
       case "ui.act":
         return this.enqueue(session, actor, (guard) =>
-          session.capture?.screenSessionId && this.options.screen
-            ? this.options.screen.uiAct(
-                session.capture.screenSessionId,
-                actor.kind,
-                operation,
-                actor.owner,
-                guard,
-              )
-            : this.options.platform.uiAct(session.device, operation, guard),
+          session.capture?.ui
+            ? session.capture.ui.act(operation, guard)
+            : session.capture?.screenSessionId && this.options.screen
+              ? this.options.screen.uiAct(
+                  session.capture.screenSessionId,
+                  actor.kind,
+                  operation,
+                  actor.owner,
+                  guard,
+                )
+              : this.options.platform.uiAct(session.device, operation, guard),
         );
       case "logs.start":
         await this.startLogs(session, actor, () => viewer?.guard());
@@ -650,12 +660,16 @@ export class DevicesService {
       if (session.lifecycle !== "live") throw new Error("Capture stopped during screenshot");
       return image;
     }
-    if (!session.latest || session.lifecycle !== "live")
-      throw new DeviceError(
-        "not_found",
-        "No live device frame",
-        "Start the device stream and wait for its first frame.",
+    if (!session.latest || session.lifecycle !== "live") {
+      // No live view to read from: one frame straight from the device instead.
+      if (session.device.state !== "booted")
+        throw new DeviceError("not_booted", "Device is not booted", "Boot it, then retry.");
+      const shot = await this.options.platform.screenshot(session.device, () =>
+        this.authorize(session, actor),
       );
+      this.authorize(session, actor);
+      return oneOffFrame(shot, this.options.runtime);
+    }
     if (session.latest.header.codec === "h264") {
       const image = await deviceStreamSnapshot(
         session,

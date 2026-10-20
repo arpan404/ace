@@ -40,6 +40,7 @@ import { Route as AutomationsAutomationIdIndexRouteImport } from "./routes/autom
 import { Route as AutomationsAutomationIdEditRouteImport } from "./routes/automations.$automationId.edit"
 import { Route as SettingsProvidersIndexRouteImport } from "./routes/settings.providers.index"
 import { Route as SettingsProvidersProviderRouteImport } from "./routes/settings.providers.$provider"
+import { Route as HomeTThreadIdForkRouteImport } from "./routes/_home.t.$threadId_.fork"
 import { Route as HomeTThreadIdAgentsAgentIdRouteImport } from "./routes/_home.t.$threadId_.agents.$agentId"
 
 const HomeRoute = HomeRouteImport.update({
@@ -199,6 +200,11 @@ const SettingsProvidersProviderRoute =
     path: "/providers/$provider",
     getParentRoute: () => SettingsRoute,
   } as any)
+const HomeTThreadIdForkRoute = HomeTThreadIdForkRouteImport.update({
+  id: "/t/$threadId_/fork",
+  path: "/t/$threadId/fork",
+  getParentRoute: () => HomeRoute,
+} as any)
 const HomeTThreadIdAgentsAgentIdRoute =
   HomeTThreadIdAgentsAgentIdRouteImport.update({
     id: "/t/$threadId_/agents/$agentId",
@@ -237,6 +243,7 @@ export interface FileRoutesByFullPath {
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
+  "/t/$threadId/fork": typeof HomeTThreadIdForkRoute
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
 export interface FileRoutesByTo {
@@ -267,6 +274,7 @@ export interface FileRoutesByTo {
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/automations/$automationId": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers": typeof SettingsProvidersIndexRoute
+  "/t/$threadId/fork": typeof HomeTThreadIdForkRoute
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
 export interface FileRoutesById {
@@ -302,6 +310,7 @@ export interface FileRoutesById {
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
+  "/_home/t/$threadId_/fork": typeof HomeTThreadIdForkRoute
   "/_home/t/$threadId_/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
 export interface FileRouteTypes {
@@ -337,6 +346,7 @@ export interface FileRouteTypes {
     | "/settings/providers/$provider"
     | "/automations/$automationId/"
     | "/settings/providers/"
+    | "/t/$threadId/fork"
     | "/t/$threadId/agents/$agentId"
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -367,6 +377,7 @@ export interface FileRouteTypes {
     | "/settings/providers/$provider"
     | "/automations/$automationId"
     | "/settings/providers"
+    | "/t/$threadId/fork"
     | "/t/$threadId/agents/$agentId"
   id:
     | "__root__"
@@ -401,6 +412,7 @@ export interface FileRouteTypes {
     | "/settings/providers/$provider"
     | "/automations/$automationId/"
     | "/settings/providers/"
+    | "/_home/t/$threadId_/fork"
     | "/_home/t/$threadId_/agents/$agentId"
   fileRoutesById: FileRoutesById
 }
@@ -633,6 +645,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsProvidersProviderRouteImport
       parentRoute: typeof SettingsRoute
     }
+    "/_home/t/$threadId_/fork": {
+      id: "/_home/t/$threadId_/fork"
+      path: "/t/$threadId/fork"
+      fullPath: "/t/$threadId/fork"
+      preLoaderRoute: typeof HomeTThreadIdForkRouteImport
+      parentRoute: typeof HomeRoute
+    }
     "/_home/t/$threadId_/agents/$agentId": {
       id: "/_home/t/$threadId_/agents/$agentId"
       path: "/t/$threadId/agents/$agentId"
@@ -648,6 +667,7 @@ interface HomeRouteChildren {
   HomeNewRoute: typeof HomeNewRoute
   HomeIndexRoute: typeof HomeIndexRoute
   HomeTThreadIdRoute: typeof HomeTThreadIdRoute
+  HomeTThreadIdForkRoute: typeof HomeTThreadIdForkRoute
   HomeTThreadIdAgentsAgentIdRoute: typeof HomeTThreadIdAgentsAgentIdRoute
 }
 
@@ -656,6 +676,7 @@ const HomeRouteChildren: HomeRouteChildren = {
   HomeNewRoute: HomeNewRoute,
   HomeIndexRoute: HomeIndexRoute,
   HomeTThreadIdRoute: HomeTThreadIdRoute,
+  HomeTThreadIdForkRoute: HomeTThreadIdForkRoute,
   HomeTThreadIdAgentsAgentIdRoute: HomeTThreadIdAgentsAgentIdRoute,
 }
 

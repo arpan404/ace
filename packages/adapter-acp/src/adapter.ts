@@ -15,6 +15,8 @@ export interface AdapterOptions {
   args?: string[];
   env?: NodeJS.ProcessEnv;
   resolveLaunch?(ctx: import("@ace/engine-api").SessionContext): Promise<LaunchPlan>;
+  /** The method the person signed in to this agent with through ace, if any. */
+  signInMethod?(ctx: import("@ace/engine-api").SessionContext): string | undefined;
 }
 export function createAcpAdapter(
   quirks: AcpQuirks = genericQuirks,
@@ -49,6 +51,8 @@ export function createAcpAdapter(
     },
     async openSession(ctx) {
       const env = { ...options.env, ...ctx.env };
+      const method = options.signInMethod?.(ctx);
+      const signIn = method ? { signInMethod: method } : {};
       if (options.resolveLaunch) {
         const plan = await options.resolveLaunch(ctx);
         return openAcpSession(ctx, quirks, {
@@ -57,6 +61,7 @@ export function createAcpAdapter(
           env: { ...ctx.env, ...plan.env },
           version: plan.version,
           ...(plan.profile ? { profile: plan.profile } : {}),
+          ...signIn,
         });
       }
       const command = ctx.executable ?? options.command ?? quirks.command;
@@ -67,6 +72,7 @@ export function createAcpAdapter(
         command: path,
         args: options.args ?? quirks.args,
         env,
+        ...signIn,
       });
     },
   };

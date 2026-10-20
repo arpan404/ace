@@ -1,4 +1,5 @@
 import { projectIntent } from "./project-intents.ts";
+import { fakeGoalUpdate } from "./goal-commands.ts";
 import type { FakeHistory } from "./history-wire.ts";
 import { MachineIcon } from "@ace/protocol";
 import { markUncertainInput, restoreInput, repeatInput } from "./queue-fixtures.ts";
@@ -317,6 +318,7 @@ export class FakeDaemon implements Host {
     | "setGitDiff"
     | "setEditors"
     | "setForgeRead"
+    | "seedPullRequests"
     | "setDraftGenerator"
     | "setIssueOutcome"
     | "git"
@@ -462,6 +464,8 @@ export class FakeDaemon implements Host {
         permissions: fakeProviderPermissions(init.provider),
         permissionModes: fakeProviderPermissions(init.provider).permissionModes,
         accessModes: fakeAccessModes(init.provider),
+        // Codex's goals are native: ace sets, pauses and clears them (`thread.goal.*`).
+        goals: init.provider === "codex",
         ...init.capabilities,
       },
       ...(init.details ? { details: init.details } : {}),
@@ -1431,6 +1435,20 @@ export class FakeDaemon implements Host {
           if (outcome) return this.run(commandId, host.id, () => outcome);
         }
         return { commandId, ok: false, error: "task_not_found" };
+      }
+      case "thread.goal.set":
+      case "thread.goal.clear": {
+        const host = this.threads.get(payload.threadId);
+        if (!host) return { commandId, ok: false, error: "thread_not_found" };
+        const now = this.options.clock();
+        const next = fakeGoalUpdate(
+          host.view.thread,
+          payload.type === "thread.goal.clear" ? "clear" : payload.change,
+          now,
+        );
+        if ("error" in next) return { commandId, ok: false, error: next.error };
+        this.append(host, [{ type: "thread.updated", goal: next.goal }], now);
+        return { commandId, ok: true };
       }
       case "thread.archive": {
         const host = this.threads.get(payload.threadId);

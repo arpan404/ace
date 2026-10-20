@@ -69,7 +69,8 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
   {
     label: "Thread",
     ids: [
-      "send",
+      "followUpOther",
+      "startInBackground",
       "stopAgent",
       "stopFromComposer",
       "reorderQueued",
@@ -101,7 +102,7 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
   { label: "Tools", ids: ["changes", "agents", "files", "preview", "devices", "logs"] },
   {
     label: "Terminal & browser",
-    ids: ["terminal", "newTerminal", "findInTerminal", "browser", "takeControl"],
+    ids: ["terminal", "terminalPanel", "newTerminal", "findInTerminal", "browser", "takeControl"],
   },
   {
     label: "Thread list",
@@ -118,6 +119,7 @@ const scopeChips: Record<Exclude<KeyScope, "global">, string> = {
   home: "In the thread list",
   thread: "In a thread",
   composer: "In the composer",
+  newThread: "On New thread",
   panel: "On a side panel tab",
   files: "In the file tree",
   terminal: "In a terminal",

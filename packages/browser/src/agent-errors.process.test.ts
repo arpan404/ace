@@ -98,6 +98,33 @@ describe.skipIf(!executablePath)("browser failures an agent can act on", () => {
     expect(failure.hint).toMatch(/unrestricted/);
   });
 
+  it("a read-only script reads the site's storage, and is still refused when it writes it", async () => {
+    const f = await fixture();
+    await f.navigate();
+    await f.evaluate(
+      "localStorage.setItem('draft', 'kept'); sessionStorage.setItem('tab', 'one'); 0",
+    );
+    const agent = agentMcp(toolPort(f.service));
+    const read = async (expression: string) =>
+      agent.json(await agent.ok("browser_evaluate", { expression, mode: "read-only" }));
+    expect(await read("localStorage.getItem('draft')")).toBe("kept");
+    expect(await read("JSON.stringify([localStorage.getItem('missing')])")).toBe("[null]");
+    expect(await read("[localStorage.key(0), sessionStorage.getItem('tab')]")).toEqual([
+      "draft",
+      "one",
+    ]);
+    const write = await agent.failure("browser_evaluate", {
+      expression: "localStorage.setItem('draft', 'lost')",
+      mode: "read-only",
+    });
+    expect(write.code).toBe("evaluate_failed");
+    expect(await f.evaluate("localStorage.getItem('draft')")).toBe("kept");
+    // The page's own storage methods stay the browser's.
+    expect(await f.evaluate("String(Storage.prototype.getItem).includes('[native code]')")).toBe(
+      true,
+    );
+  });
+
   it("downscales a screenshot too dense for the model's budget instead of failing", async () => {
     const f = await fixture();
     await f.navigate();

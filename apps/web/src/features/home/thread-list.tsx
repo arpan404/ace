@@ -1,4 +1,4 @@
-import { CaretDownIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, PlusIcon } from "@phosphor-icons/react";
 import { useSidebarStore } from "@ace/client-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/cn.ts";
@@ -17,6 +17,7 @@ import {
 } from "react";
 import { rowMotion, useListMotion } from "@/lib/motion.ts";
 import {
+  homeFootStart,
   homeRowKey,
   homeRowThread,
   homeRows,
@@ -25,6 +26,7 @@ import {
   type RowBox,
 } from "@ace/ui-core";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { useElementSize } from "@/lib/element-size.ts";
 import { matchesChord } from "@/lib/hotkeys.ts";
 import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { parseChord } from "@/lib/keymap.ts";
@@ -45,6 +47,7 @@ import { SettledRow } from "./settled-row.tsx";
 import { UnsentRows } from "./unsent-rows.tsx";
 import { useHomeSort, type HomeList } from "./use-home-threads.ts";
 import { useHeldRows, useListHold } from "./use-held-rows.ts";
+import { useSettledPaging } from "./settled-paging.ts";
 import {
   useHomeSelection,
   useHomeSelectionState,
@@ -70,7 +73,11 @@ const estimates: Record<HomeRow["kind"], number> = {
   snoozed: 84,
   "settled-header": 37,
   settled: 34,
+  "settled-more": 34,
 };
+
+/** The viewport's bottom padding (`pb-4`), below the list: the foot's free space leaves it out. */
+const footPadding = 16;
 
 /** Keys that move focus between rows: arrows, and j/k as in other lists. */
 const steps: Record<string, number> = { ArrowDown: 1, ArrowUp: -1, j: 1, k: -1 };
@@ -97,9 +104,10 @@ function HeadingText(props: { label: string; count?: number | undefined }) {
 
 /**
  * The Home list, virtualized: the Pinned group in the person's own order, then one row per
- * thread across projects (the work in hand, then threads at rest), then the collapsible
- * Settled section (when threads settle is a
- * setting, in Settings › General). Only visible rows mount. Up and Down (or j and k) move
+ * thread across projects (the work in hand, then threads at rest), then the collapsible Snoozed
+ * and Settled sections at the foot: below the free space while the list is shorter than the
+ * sidebar, so the work in hand always comes first. An open Settled section shows its first rows
+ * and a "Show N more" row for the next batch; closing it starts again from the first rows. Only visible rows mount. Up and Down (or j and k) move
  * between rows; Tab still walks each row's actions. On a row, P pins or unpins it, X picks it
  * (⌘- and Shift-click too) and Space picks it up to move by keyboard; rows drag with the pointer
  * into, within and out of the Pinned group, and, when threads are sorted by hand (Settings ›
@@ -112,9 +120,13 @@ function HeadingText(props: { label: string; count?: number | undefined }) {
  */
 export function ThreadList(props: { list: HomeList; settledTotal?: number | undefined }) {
   const { pinned, active, recent, snoozed, settled } = props.list;
-  const { snoozedOpen, settledOpen } = useOrganizerState();
+  const { snoozedOpen, settledOpen, project } = useOrganizerState();
   const organizer = useOrganizer();
+  const paging = useSettledPaging(project, settledOpen);
+  const current = useParams({ strict: false, select: (params) => params.threadId });
   const [moving, setMoving] = useState<readonly string[]>();
+  const settledTotal = props.settledTotal;
+  const settledShown = paging.shown;
   const rows = useMemo(() => {
     return homeRows(
       { pinned, active, recent, snoozed, settled },
@@ -123,9 +135,24 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
         settledOpen,
         includeUnsent: true,
         pinZone: moving !== undefined,
+        settledShown,
+        settledTotal,
+        current,
       },
     );
-  }, [pinned, active, recent, snoozed, settled, snoozedOpen, settledOpen, moving]);
+  }, [
+    pinned,
+    active,
+    recent,
+    snoozed,
+    settled,
+    snoozedOpen,
+    settledOpen,
+    moving,
+    settledShown,
+    settledTotal,
+    current,
+  ]);
   const hold = useListHold(moving !== undefined);
   const held = useHeldRows(rows, hold.state, props.list.needsYou);
   const { rows: drawn, moving: sliding } = useListMotion(held, homeRowKey);
@@ -152,6 +179,11 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
     getItemKey: (index) => drawn[index]?.key ?? index,
   });
   useForgetGoneRows(virtualizer, drawn.length, (index) => drawn[index]?.key ?? index);
+  // The foot sections sit at the sidebar's bottom while the rows above leave free space.
+  const footStart = homeFootStart(drawn);
+  const viewportHeight = useElementSize(viewport).height;
+  const listHeight = virtualizer.getTotalSize();
+  const footGap = footStart < 0 ? 0 : Math.max(0, viewportHeight - footPadding - listHeight);
   useRevealOpenThread(drawn, virtualizer.scrollToIndex, viewport);
   /** Thread ids top to bottom, as drawn: what a Shift-click range runs over. */
   const order = useMemo(
@@ -420,7 +452,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
           // A row is a link: the browser's own link drag would fight ours.
           onDragStart={(event) => event.preventDefault()}
           className={cn("relative w-full", sliding && "fx-list-moving")}
-          style={{ height: virtualizer.getTotalSize() }}
+          style={{ height: listHeight + footGap }}
         >
           {virtualizer.getVirtualItems().map((item) => {
             const entry = drawn[item.index];
@@ -451,7 +483,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                   sliding && entry.rising && "z-[1]",
                 )}
                 style={{
-                  transform: `translateY(${item.start}px)`,
+                  transform: `translateY(${item.start + (item.index >= footStart && footStart >= 0 ? footGap : 0)}px)`,
                   ...(thread && movingSet.has(thread) ? { opacity: 0.4 } : {}),
                 }}
               >
@@ -469,6 +501,22 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                     <ThreadRow threadId={row.id} settled={false} leaving={leaving} />
                   )}
                   {row.kind === "settled" && <SettledRow threadId={row.id} leaving={leaving} />}
+                  {row.kind === "settled-more" && (
+                    <button
+                      type="button"
+                      data-section-toggle=""
+                      disabled={paging.loading}
+                      onClick={() => void paging.more()}
+                      className="flex h-8 w-full items-center gap-2 rounded-md px-3 text-left text-ui text-subtle-foreground/75 focus-ring-inset transition-colors duration-(--motion-fast) hover:bg-hover hover:text-muted-foreground disabled:opacity-60"
+                    >
+                      <PlusIcon aria-hidden size={14} className="shrink-0" />
+                      {paging.loading
+                        ? "Loading…"
+                        : paging.error
+                          ? "Retry loading more"
+                          : `Show ${row.count} more`}
+                    </button>
+                  )}
                   {row.kind === "unsent" && <UnsentRows />}
                   {row.kind === "pinned-end" && <div aria-hidden className="h-2" />}
                   {row.kind === "pinned-header" && (
@@ -507,7 +555,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                       onClick={() => organizer.setSettledOpen(!settledOpen)}
                       className={cn(header, "hover:text-muted-foreground")}
                     >
-                      <span>Settled ({props.settledTotal ?? row.count})</span>
+                      <span>Settled ({row.count})</span>
                       <CaretDownIcon
                         aria-hidden
                         size={12}

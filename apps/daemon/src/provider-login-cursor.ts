@@ -10,6 +10,10 @@ import type { ProviderInstance } from "@ace/protocol/accounts";
 const environmentKeyRemains =
   "ace removed Cursor's saved sign-in, but CURSOR_API_KEY in the environment ace was started with still signs Cursor in. Remove it there to sign out completely.";
 
+/** Cursor's SDK sign-out only forgets the key here; the key its sign-in minted lives on. */
+const mintedKeyRemains =
+  "Signed out of Cursor on this computer. The key Cursor made for ace stays valid until it expires; delete it under API keys in Cursor's dashboard to end it now.";
+
 /** The adapter stream owns SDK cancellation and drains its isolated host before completion. */
 export function cursorLoginDriver(
   instance: ProviderInstance,
@@ -33,7 +37,7 @@ export function cursorLoginDriver(
         signal.throwIfAborted();
         return auth.source === "environment" && auth.status === "logged-in"
           ? { success: true, message: environmentKeyRemains }
-          : { success: true };
+          : { success: true, message: mintedKeyRemains };
       }
       const login = createCursorLoginDriver(
         { id: instance.id, homeDir: instance.homeDir },

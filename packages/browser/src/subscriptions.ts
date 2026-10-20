@@ -1,11 +1,21 @@
-import type { BrowserAnnotationMessage, BrowserBackendLost, BrowserState } from "@ace/protocol";
-import type { CaptureViewer, FrameFanout, FrameSink } from "./fanout.ts";
+import type {
+  BrowserAnnotationMessage,
+  BrowserBackendLost,
+  BrowserPageMessage,
+  BrowserState,
+} from "@ace/protocol";
+import type { CaptureViewer, FrameSink } from "./fanout.ts";
+
+/** Where a viewer's frames come from: the live capture (JPEG and, when asked, video). */
+interface FrameSource {
+  subscribe(id: string, sink: FrameSink, capture?: CaptureViewer): () => void;
+}
 
 type Subscriber = {
   connectionId: string;
   sink: FrameSink;
   state(state: BrowserState): void;
-  event?(event: BrowserBackendLost | BrowserAnnotationMessage): void;
+  event?(event: BrowserBackendLost | BrowserAnnotationMessage | BrowserPageMessage): void;
   stopFrames(): void;
   capture?: CaptureViewer;
 };
@@ -27,7 +37,7 @@ export class BrowserSubscriptions {
   }
   add(
     threadId: string,
-    fanout: FrameFanout,
+    fanout: FrameSource,
     state: BrowserState,
     viewer: Omit<Subscriber, "stopFrames">,
   ): () => void {
@@ -60,7 +70,7 @@ export class BrowserSubscriptions {
       if (viewer.connectionId === connectionId) viewer.capture = capture;
     }
   }
-  replace(threadId: string, fanout: FrameFanout): void {
+  replace(threadId: string, fanout: FrameSource): void {
     for (const viewer of this.threads.get(threadId) ?? []) {
       detachFrames(viewer);
       const stop = fanout.subscribe(viewer.connectionId, viewer.sink, viewer.capture);
@@ -79,7 +89,14 @@ export class BrowserSubscriptions {
       if (state.closed) detachFrames(viewer);
     }
   }
+  /** A tab's page state goes to every viewer of the thread. */
+  page(message: BrowserPageMessage): void {
+    this.broadcast(message);
+  }
   backendLost(event: BrowserBackendLost): void {
+    this.broadcast(event);
+  }
+  private broadcast(event: BrowserBackendLost | BrowserPageMessage): void {
     for (const viewer of this.threads.get(event.threadId) ?? []) {
       try {
         viewer.event?.(event);

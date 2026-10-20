@@ -2,6 +2,7 @@ import { toolSurface } from "@ace/projection";
 import type { Item } from "@ace/protocol";
 import { displayCommand } from "./step-display.ts";
 import { exploreAction } from "./explore-command.ts";
+import { isToolSearch } from "./tool-search.ts";
 
 /*
  * A work log's steps as rows: consecutive steps of one family by one agent group into one summary
@@ -108,7 +109,8 @@ export function stepFact(item: Item, retried?: ReadonlySet<string>): StepFact | 
     case "file.read":
       return { ...fact, kind: "read", target: detail.path };
     case "search":
-      return { ...fact, kind: "search" };
+      // Loading the agent's own tools is bookkeeping, not a search of the code.
+      return { ...fact, kind: isToolSearch(call) ? "tool" : "search" };
     case "file.edit":
     case "file.write":
     case "file.delete":
@@ -196,7 +198,7 @@ function phrases(facts: readonly StepFact[]): { kind: StepKind; text: string; st
   add("read", () => `read ${plural(distinct(facts, "read"), "file")}`);
   add("search", (steps) => `searched ${steps === 1 ? "once" : `${steps} times`}`);
   add("list", (steps) => `listed ${plural(steps, "folder")}`);
-  add("plan", () => "updated the plan");
+  add("plan", () => "updated the task list");
   add("spawn", (steps) => `started ${plural(steps, "subagent")}`);
   add("agent", (steps) => `messaged ${plural(steps, "subagent")}`);
   add("tool", (steps) => `used ${plural(steps, "tool")}`);

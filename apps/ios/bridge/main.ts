@@ -4,7 +4,7 @@ import { z } from "zod";
 import { DeviceId, HostId } from "@ace/protocol";
 import { call, scheduler } from "./host.ts";
 import { PatchPump, followThread } from "./patches.ts";
-import { followInbox, inboxAction } from "./inbox.ts";
+import { followInbox, inboxAction, makeActivityGeneration } from "./inbox.ts";
 import { ArchiveBrowser } from "./archive.ts";
 import { dispatchCommand } from "./commands.ts";
 import { ThreadSession } from "./thread-session.ts";
@@ -17,6 +17,9 @@ import { NotificationAction, NotificationBridge } from "./notifications.ts";
 import { Sheets } from "./sheets.ts";
 import { preview } from "./presentation.ts";
 import { ComposeActions } from "./compose-actions.ts";
+import { NativeServices, NativeServiceAction } from "./native-services.ts";
+import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
+import { BrowserLive } from "./browser-live.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -54,6 +57,8 @@ const Action = z.discriminatedUnion("type", [
   }),
   /** The archive browser (`archive.ts`). */
   z.object({ type: z.literal("archive"), action: z.unknown() }),
+  /** The thread's live browser view (`browser-live.ts`). */
+  z.object({ type: z.literal("browser"), action: z.unknown() }),
 ]);
 let client: ClientCore | undefined;
 let notifications: NotificationBridge | undefined;
@@ -66,6 +71,9 @@ let historyAbort: AbortController | undefined;
 let machine: MachineProviders | undefined;
 let archive: ArchiveBrowser | undefined;
 let compose: ComposeActions | undefined;
+let services: NativeServices | undefined;
+let terminal: NativeTerminal | undefined;
+let browser: BrowserLive | undefined;
 const pump = new PatchPump();
 const trust = new TrustMonitor();
 const sheets = new Sheets(pump, preview);
@@ -117,19 +125,28 @@ async function start(json: string): Promise<void> {
   const connection = client.connectionState();
   notifications = new NotificationBridge(client, (key, read) => pump.put(key, read), scheduler.set);
   const owner = client;
+  const activityGeneration = makeActivityGeneration();
   connection.subscribe(() => {
     if (connection.getSnapshot() === "ready") trust.clear();
-    pump.put("connection", () => ({ type: "connection", state: connection.getSnapshot() }));
     pump.put("connection.problem", () => ({
       type: "connection.problem",
       problem: connectionProblem(connection.getSnapshot(), owner.error, trust),
     }));
   });
-  followInbox(client, config.hostId, pump, { now: () => host.now(), set: scheduler.set });
+  followInbox(
+    client,
+    config.hostId,
+    pump,
+    { now: () => host.now(), set: scheduler.set },
+    activityGeneration,
+  );
   followMachine(client, pump, trust);
   machine = new MachineProviders(client, pump);
   archive = new ArchiveBrowser(client, pump);
   compose = new ComposeActions(client, pump, preview, () => host.now());
+  services = new NativeServices(client, pump);
+  terminal = new NativeTerminal(client, pump);
+  browser = new BrowserLive(client, pump, preview, scheduler.set);
   await client.start();
 }
 async function hydrate(
@@ -174,6 +191,16 @@ async function hydrate(
 function action(json: string): void {
   try {
     const raw: unknown = JSON.parse(json);
+    const terminalAction = NativeTerminalAction.safeParse(raw);
+    if (terminalAction.success) {
+      terminal?.handle(terminalAction.data);
+      return;
+    }
+    const service = NativeServiceAction.safeParse(raw);
+    if (service.success) {
+      services?.handle(service.data);
+      return;
+    }
     const notice = NotificationAction.safeParse(raw);
     if (notice.success) {
       if (notifications) notifications.handle(notice.data);
@@ -204,6 +231,8 @@ function action(json: string): void {
         session?.dispose();
         stopThread = followThread(lease.store, value.threadId, ++epoch, pump, itemLimit);
         session = new ThreadSession(client, lease.store, value.threadId, epoch, pump);
+        browser?.close();
+        browser?.probe(value.threadId, epoch);
         if (itemLimit > 200) {
           const generation = epoch;
           const signal = historyAbort.signal;
@@ -219,6 +248,7 @@ function action(json: string): void {
         session = undefined;
         stopThread?.();
         sheets.close();
+        browser?.close();
         lease?.release();
         lease = undefined;
         openThreadId = undefined;
@@ -249,6 +279,9 @@ function action(json: string): void {
         break;
       case "files":
         if (!compose?.files(value.action)) error();
+        break;
+      case "browser":
+        if (!browser?.action(value.action)) error();
         break;
       case "sheet": {
         const thread =

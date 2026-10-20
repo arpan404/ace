@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { spawnProcess, type ProcessSpawner } from "./io.ts";
+import { frameBytes } from "./frame-bytes.ts";
 import { createWriteStream, type WriteStream } from "node:fs";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -82,7 +83,7 @@ export class Recording {
   }
   accept(frame: BrowserFrame): boolean {
     if (!this.admissionOpen()) return false;
-    return this.acceptJpeg(frame.timestamp, Buffer.from(frame.data, "base64"));
+    return this.acceptJpeg(frame.timestamp, frameBytes(frame));
   }
   /** Admit an owned JPEG without base64 conversion. Keep its bytes unchanged until flush. */
   acceptJpeg(timestamp: number, data: Uint8Array): boolean {

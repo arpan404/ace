@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   BrowserOpen,
   browserSessionLimit,
+  ThreadId,
   type BrowserArtifact,
   type BrowserState,
   type BrowserFrame,
@@ -23,6 +24,7 @@ import type {
   BrowserAnnotationMessage,
   BrowserBackendLost,
   BrowserDownloadProgress,
+  BrowserPageMessage,
 } from "@ace/protocol";
 import { sessionPolicies } from "./session-policies.ts";
 import { agentResumes, backendCandidates } from "./backend-choice.ts";
@@ -38,8 +40,17 @@ const defaultGlideMs = 220;
 import { PolicyGate } from "./policy-call.ts";
 import { watchWake } from "./wake-watch.ts";
 import { setMaxListeners } from "node:events";
+import {
+  encodeBrowserAudio,
+  encodeBrowserFrame,
+  encodeBrowserVideo,
+  type BrowserAudioChunk,
+  type BrowserVideoChunk,
+} from "./stream.ts";
+import { frameBytes } from "./frame-bytes.ts";
 import type { BrowserServiceOptions } from "./service-options.ts";
 import type { PersonRequest } from "./person-requests.ts";
+import type { DownloadRead } from "./download-read.ts";
 export type { BrowserServiceOptions } from "./service-options.ts";
 
 export class BrowserService {
@@ -54,6 +65,10 @@ export class BrowserService {
   private profiles: BrowserProfiles;
   private subscriptions: BrowserSubscriptions;
   private frameMessages = new WeakMap<BrowserFrame, string>();
+  private framePieces = new WeakMap<BrowserFrame, readonly Uint8Array[]>();
+  private videoPieces = new WeakMap<BrowserVideoChunk, readonly Uint8Array[]>();
+  private audioPieces = new WeakMap<BrowserAudioChunk, readonly Uint8Array[]>();
+  private streamIds = 0;
   private now: () => number;
   private id: () => string;
   private closing: Promise<void> | undefined;
@@ -430,6 +445,13 @@ export class BrowserService {
             threadId: options.threadId,
             event,
           }),
+        pageState: (tabId, page) =>
+          this.subscriptions.page({
+            type: "browser.page",
+            threadId: options.threadId,
+            tabId,
+            page,
+          }),
         cleanup: async () => {
           await release();
         },
@@ -457,7 +479,7 @@ export class BrowserService {
       await session.live.start();
       this.sessions.set(options.threadId, session);
       this.generations.set(session, ++this.sequence);
-      this.subscriptions.replace(options.threadId, session.live.fanout);
+      this.subscriptions.replace(options.threadId, session.live);
       this.emit(session.state);
       return session;
     } catch (error) {
@@ -626,6 +648,24 @@ export class BrowserService {
   asPerson(threadId: string, request: PersonRequest): Promise<BrowserState> {
     return this.get(threadId).asPerson(request);
   }
+  /** Files the person dropped on a tab's page, from their own client connection. */
+  dropFiles(
+    threadId: string,
+    request: Parameters<BrowserSession["dropFiles"]>[0],
+    connectionId: string,
+  ): Promise<BrowserState> {
+    return this.get(threadId).dropFiles(request, connectionId);
+  }
+  /** A chunk of one of the thread's finished downloads, fetched to the person's device. */
+  readDownload(
+    threadId: string,
+    downloadId: string,
+    offset: number,
+    length: number,
+    validator?: string,
+  ): Promise<DownloadRead> {
+    return this.get(threadId).readDownload(downloadId, offset, length, validator);
+  }
   disconnect(connectionId: string): void {
     for (const session of this.sessions.values()) session.disconnect(connectionId);
   }
@@ -634,15 +674,24 @@ export class BrowserService {
     connectionId: string,
     sink: FrameSink,
     onState: (state: BrowserState) => void,
-    onBackendEvent?: (event: BrowserBackendLost | BrowserAnnotationMessage) => void,
+    onBackendEvent?: (
+      event: BrowserBackendLost | BrowserAnnotationMessage | BrowserPageMessage,
+    ) => void,
+    /** What this viewer shows, known before its first frame so that frame is sized for it. */
+    capture?: import("./fanout.ts").CaptureViewer,
   ): () => void {
     const session = this.get(threadId);
-    return this.subscriptions.add(threadId, session.live.fanout, session.state, {
+    const stop = this.subscriptions.add(threadId, session.live, session.state, {
       connectionId,
       sink,
       state: onState,
       ...(onBackendEvent ? { event: onBackendEvent } : {}),
+      ...(capture ? { capture } : {}),
     });
+    // A new viewer starts from each tab's current page state, then follows its changes.
+    for (const { tabId, page } of session.pageStates())
+      onBackendEvent?.({ type: "browser.page", threadId: ThreadId.parse(threadId), tabId, page });
+    return stop;
   }
   configureCapture(
     threadId: string,
@@ -650,7 +699,7 @@ export class BrowserService {
     capture: import("./fanout.ts").CaptureViewer,
   ): void {
     this.subscriptions.configure(threadId, connectionId, capture);
-    this.get(threadId).live.fanout.configure(connectionId, capture);
+    this.get(threadId).live.configure(connectionId, capture);
     const style = capture.viewport.cursor;
     if (
       style &&
@@ -663,6 +712,42 @@ export class BrowserService {
   acknowledge(threadId: string, connectionId: string, sequence: number): void {
     this.get(threadId).live.fanout.acknowledge(connectionId, sequence);
   }
+  /**
+   * A viewer showed every video chunk up to `sequence` (ADR 0088); `keyframe`: its decoder lost
+   * its place and needs one.
+   */
+  acknowledgeVideo(
+    threadId: string,
+    connectionId: string,
+    sequence: number,
+    keyframe = false,
+  ): void {
+    const video = this.get(threadId).live.video;
+    video.acknowledge(connectionId, sequence);
+    if (keyframe) video.keyframe(connectionId);
+  }
+  /** One binary encoding of a video chunk, shared by every viewer of its encode. */
+  streamVideo(threadId: string, chunk: BrowserVideoChunk): readonly Uint8Array[] {
+    let pieces = this.videoPieces.get(chunk);
+    if (!pieces) {
+      this.streamIds = (this.streamIds + 1) >>> 0;
+      const { bytes, ...header } = chunk;
+      pieces = encodeBrowserVideo(this.streamIds, threadId, header, bytes);
+      this.videoPieces.set(chunk, pieces);
+    }
+    return pieces;
+  }
+  /** One binary encoding of an audio chunk, shared by every listener. */
+  streamAudio(threadId: string, chunk: BrowserAudioChunk): readonly Uint8Array[] {
+    let pieces = this.audioPieces.get(chunk);
+    if (!pieces) {
+      this.streamIds = (this.streamIds + 1) >>> 0;
+      const { bytes, ...header } = chunk;
+      pieces = encodeBrowserAudio(this.streamIds, threadId, header, bytes);
+      this.audioPieces.set(chunk, pieces);
+    }
+    return pieces;
+  }
   /** Share one serialization across every viewer of this exact frame. */
   serializeFrame(threadId: string, frame: BrowserFrame): string {
     let message = this.frameMessages.get(frame);
@@ -671,6 +756,20 @@ export class BrowserService {
       this.frameMessages.set(frame, message);
     }
     return message;
+  }
+  /**
+   * Share one binary encoding (`@ace/browser/stream`) across every viewer of this exact frame:
+   * the JPEG is decoded from base64 once and never re-encoded per viewer.
+   */
+  streamFrame(threadId: string, frame: BrowserFrame): readonly Uint8Array[] {
+    let pieces = this.framePieces.get(frame);
+    if (!pieces) {
+      this.streamIds = (this.streamIds + 1) >>> 0;
+      const { data: _data, ...header } = frame;
+      pieces = encodeBrowserFrame(this.streamIds, threadId, header, frameBytes(frame));
+      this.framePieces.set(frame, pieces);
+    }
+    return pieces;
   }
   private stateObservers = new Set<(state: BrowserState) => void>();
   /** Every thread's browser state as it changes, for daemon-wide views (who is browsing). */

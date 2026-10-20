@@ -576,6 +576,11 @@
           "const": "resize",
           "type": "string"
         },
+        "devicePixelRatio": {
+          "maximum": 4,
+          "minimum": 1,
+          "type": "number"
+        },
         "height": {
           "maximum": 4096,
           "minimum": 100,
@@ -586,6 +591,9 @@
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
+        },
+        "touch": {
+          "type": "boolean"
         },
         "width": {
           "maximum": 4096,

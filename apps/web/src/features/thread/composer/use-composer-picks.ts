@@ -6,6 +6,7 @@ import { useEffect, useEffectEvent, type RefObject } from "react";
 import {
   receiveComposerMentions,
   receiveComposerTabs,
+  receiveComposerText,
   type ComposerTab,
 } from "@/lib/composer-insert.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
@@ -218,6 +219,12 @@ export function useComposerPicks(args: {
       ].toSorted((a, b) => a.start - b.start),
     });
   });
+  // "Fix with agent" from the PR panel: its request, at the caret, for the person to send.
+  const insertText = useEffectEvent((value: string) => {
+    const spaced = text && !/\s$/.test(text.slice(0, args.caret)) ? `\n\n${value}` : value;
+    const next = insertAt(text, args.caret, spaced);
+    edit({ ...next, tokens: editComposerTokens(text, next.text, tokens) });
+  });
   const threadId = args.thread.id;
   const draft = args.thread.draft;
   useEffect(() => {
@@ -225,6 +232,7 @@ export function useComposerPicks(args: {
     const stops = [
       receiveComposerMentions(threadId, (file) => insertMention(file)),
       receiveComposerTabs(threadId, (tab) => insertTab(tab)),
+      receiveComposerText(threadId, (value) => insertText(value)),
     ];
     return () => {
       for (const stop of stops) stop();

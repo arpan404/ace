@@ -8,6 +8,7 @@ import type { DiscoveryOptions } from "@ace/provider-kit/discovery";
 import type { SupervisedProcess } from "@ace/provider-kit/process";
 import { runtime, type Runtime } from "./runtime.ts";
 import { NativeEvent, loopback } from "./boundaries.ts";
+import { basicAuthorization, ownedServerReady, spawnOwnedServer } from "./owned-server.ts";
 import { validateSpec, version, versionRefusal } from "./contract.ts";
 import { observedFetch, sanitize, type Observe } from "./observation.ts";
 import { Routes } from "./routes.ts";
@@ -192,7 +193,7 @@ export class OpenCodeServer {
         expected = cli.version ?? "";
         if (!version(expected)) throw versionRefusal(cli.version);
         const password = this.runtime.entropy(32);
-        this.authorization = `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`;
+        this.authorization = basicAuthorization(password);
         this.secrets = [
           ...(this.options.secrets ?? []),
           password,
@@ -209,17 +210,11 @@ export class OpenCodeServer {
                 { plugin: this.options.mcpReadyPlugin, skills: this.options.skillDirectories },
               )
             : providerEnv;
-        const proc = this.runtime.spawn({
+        const proc = spawnOwnedServer({
+          spawn: this.runtime.spawn,
           command: cli.path,
-          args: ["serve", "--stdio", "--hostname", "127.0.0.1", "--port", "0"],
-          env: {
-            ...env,
-            OPENCODE_PASSWORD: password,
-            OPENCODE_SERVER_PASSWORD: undefined,
-            OPENCODE_SERVER_USERNAME: undefined,
-          },
-          name: "opencode-server",
-          maxLineBytes: 65536,
+          env,
+          password,
         });
         this.process = proc;
         // stdout/stderr are intentionally not observed: startup/config logs may contain secrets.
@@ -231,37 +226,7 @@ export class OpenCodeServer {
           for (const c of this.consumers)
             c.exited(this.deliberate, "OpenCode owned process exited");
         });
-        this.base = await new Promise<URL>((resolve, reject) => {
-          const cleanup = () => {
-            proc.stdout.off("line", line);
-            this.controller.signal.removeEventListener("abort", abort);
-          };
-          const abort = () => {
-            cleanup();
-            reject(new Error("OpenCode startup cancelled or process exited"));
-          };
-          const line = (text: string) => {
-            let parsed: unknown;
-            try {
-              parsed = JSON.parse(text);
-            } catch {
-              return;
-            }
-            const readiness = z.object({ url: z.string() }).safeParse(parsed);
-            if (!readiness.success) return;
-            try {
-              const base = loopback(readiness.data.url);
-              cleanup();
-              resolve(base);
-            } catch {
-              cleanup();
-              reject(new Error("Invalid OpenCode readiness URL"));
-            }
-          };
-          proc.stdout.on("line", line);
-          this.controller.signal.addEventListener("abort", abort, { once: true });
-          if (this.controller.signal.aborted) abort();
-        });
+        this.base = await ownedServerReady(proc, this.controller.signal);
       }
       if (!version(expected)) throw versionRefusal(expected);
       this.factory = (await import("@opencode/client")).OpenCode;

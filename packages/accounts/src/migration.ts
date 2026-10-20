@@ -25,19 +25,32 @@ export type MigrationRequest = {
   to: ProviderInstance;
 };
 /**
- * The engine must exclude ALL source/destination writers, including outside ace,
- * and new starts until release. Reject if exclusive quiescence cannot be proven.
- * Holding a lease for only the root is insufficient: fork ancestors/sidechains matter.
+ * What proves no one else writes the session while it is copied. The provider's own CLI holds its
+ * writer lock (Codex resumes the thread on a short-lived app-server), so every writer, inside ace
+ * or outside it, is excluded until release. Unrelated sessions on either account keep running.
  */
+export type MigrationLease =
+  | { status: "held"; release: () => Promise<void> }
+  /** Another process has the session open; nothing was copied and a retry may succeed. */
+  | { status: "busy"; reason: string }
+  /** The provider has no writer lock ace can hold, so its history can't be copied safely. */
+  | { status: "unsupported"; reason: string };
 export type MigrationSafety = {
-  acquire: (request: MigrationRequest) => Promise<{ release: () => Promise<void> } | undefined>;
+  acquire: (request: MigrationRequest) => Promise<MigrationLease>;
+};
+/** Without a provider lease nothing proves the copy is complete, so the thread hands over. */
+export const noMigrationLease: MigrationSafety = {
+  acquire: async () => ({
+    status: "unsupported",
+    reason: "This provider has no writer lock ace can hold while copying",
+  }),
 };
 export async function migrateSession(
   request: MigrationRequest,
   safety: MigrationSafety,
   observe?: MigrationObserver,
 ): Promise<MigrationResult> {
-  const owned: { lease?: Awaited<ReturnType<MigrationSafety["acquire"]>> } = {};
+  const owned: { release?: () => Promise<void> } = {};
   let stage: string | undefined;
   const published: string[] = [];
   const cleanupWarnings: NonNullable<MigrationResult["cleanupWarnings"]> = [];
@@ -83,12 +96,10 @@ export async function migrateSession(
         ((await exists(to.homeDir)) && (await lstat(to.homeDir)).isSymbolicLink())
       )
         throw new MigrationFailure("refused", "Symlinked instance homes cannot be migrated");
-      owned.lease = await safety.acquire({ ...request, from, to, nativeSessionId: id });
-      if (!owned.lease)
-        throw new MigrationFailure(
-          "refused",
-          "Source or destination is live, or exclusive quiescence cannot be proven",
-        );
+      const lease = await safety.acquire({ ...request, from, to, nativeSessionId: id });
+      if (lease.status === "busy") throw new MigrationFailure("refused", lease.reason);
+      if (lease.status === "unsupported") throw new MigrationFailure("unsupported", lease.reason);
+      owned.release = lease.release;
       await mkdir(to.homeDir, { recursive: true, mode: 0o700 });
       if ((await realpath(to.homeDir)) !== targetHome)
         throw new MigrationFailure("refused", "Destination changed before migration");
@@ -107,8 +118,9 @@ export async function migrateSession(
           await safeParents(targetHome, target);
           const source = await digestFile(file.source);
           const destination = await digestFile(target);
+          // A different session under this ID can't be replaced; the thread hands over instead.
           if (source.hash !== destination.hash)
-            throw new MigrationFailure("refused", "Destination session already exists");
+            throw new MigrationFailure("unsupported", "Destination session already exists");
           fingerprints.push(source.fingerprint);
         } else {
           fingerprints.push(await stageFile(file, stage, observe));
@@ -145,7 +157,7 @@ export async function migrateSession(
         reason:
           error instanceof MigrationFailure
             ? error.message
-            : "Migration failed validation or filesystem safety checks",
+            : "ace couldn't copy this conversation to that account",
       };
     }
   };
@@ -156,7 +168,7 @@ export async function migrateSession(
     cleanupWarnings.push("staging_cleanup_failed");
   }
   try {
-    await owned.lease?.release();
+    await owned.release?.();
   } catch {
     cleanupWarnings.push("lease_release_failed");
   }

@@ -18,7 +18,9 @@ export const ids = [
   "33333333-3333-4333-8333-333333333333",
   "44444444-4444-4444-8444-444444444444",
 ];
-export const idle: MigrationSafety = { acquire: async () => ({ release: async () => {} }) };
+export const idle: MigrationSafety = {
+  acquire: async () => ({ status: "held", release: async () => {} }),
+};
 const roots: string[] = [];
 export async function temp() {
   const path = await mkdtemp(join(tmpdir(), "ace-accounts-"));
@@ -38,7 +40,7 @@ export async function hash(path: string) {
     .update(await readFile(path))
     .digest("hex");
 }
-export async function homes(provider: "codex" | "claude" | "cursor" | "opencode") {
+export async function homes(provider: "codex" | "claude" | "cursor" | "opencode" | "pi") {
   const root = await temp();
   const from = createInstance({ id: "from", provider, label: "from", homeDir: join(root, "from") });
   const to = createInstance({ id: "to", provider, label: "to", homeDir: join(root, "to") });

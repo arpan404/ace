@@ -31,6 +31,7 @@
     "@ace/client": "workspace:*",
     "@ace/core": "workspace:*",
     "@ace/forge": "workspace:*",
+    "@ace/handoff": "workspace:*",
     "@ace/models": "workspace:*",
     "@ace/native-session": "workspace:*",
     "@ace/projection": "workspace:*",

@@ -68,6 +68,12 @@ const entries = [
     keywords: ["agent", "claude", "codex", "model"],
   },
   {
+    id: "terminals.openIn",
+    page: "/settings/general",
+    title: "Terminals open in",
+    keywords: ["terminal", "shell", "bottom panel", "side panel", "dock", "location"],
+  },
+  {
     id: "threads.useWorktree",
     page: "/settings/general",
     title: "New threads use a worktree",
@@ -296,6 +302,12 @@ const entries = [
     page: "/settings/browser",
     title: "Picture in picture",
     keywords: ["pip", "floating", "mini player", "video", "float"],
+  },
+  {
+    id: "browser.revealAgentPages",
+    page: "/settings/browser",
+    title: "Open the browser panel when an agent opens a page",
+    keywords: ["side panel", "auto open", "reveal", "browser_open", "sheet"],
   },
   {
     id: "host.displayName",

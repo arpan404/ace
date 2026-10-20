@@ -11,6 +11,7 @@ private struct E2EConfig: Decodable {
     let admin: Admin
     let trapOrigin: String
     let closedOrigin: String
+    let control: Admin?
     static let path = "/tmp/ace-ios-pairing-e2e/config.json"
     static func load() -> E2EConfig? {
         guard let data = FileManager.default.contents(atPath: path) else { return nil }
@@ -20,13 +21,52 @@ private struct E2EConfig: Decodable {
 
 @Suite(.serialized, .enabled(if: E2EConfig.load() != nil, "Run scripts/pairing-e2e.ts first"))
 @MainActor struct RealDaemonPairingTests {
+    @Test(.timeLimit(.minutes(2))) func anOfflineCommandSurvivesDaemonRestartAndPhoneRuntimeReplacement() async throws {
+        let config = try #require(E2EConfig.load())
+        let control = try #require(config.control)
+        let harness = try Harness()
+        defer { harness.cleanUp() }
+        await harness.machines.load()
+        try await expectPaired(harness, try PairingLink.parse(try await freshLink("restart", config)), "restart durability")
+        let entry = try #require(harness.machines.machines.first)
+        let client = try #require(harness.machines.inbox.client(entry.hostId))
+        try await until("seeded thread") { client.connection == "ready" && client.inbox["ios-restart-durability"] != nil }
+        client.network(false)
+        try await until("offline") { client.connection == "offline" }
+        let title = "Replayed \(UUID().uuidString)"
+        let id = client.admissions.nextId()
+        let saved = await client.admissions.wait(id: id) {
+            client.command(["type": "thread.rename", "threadId": "ios-restart-durability", "title": title], requestId: id)
+        }
+        #expect(saved)
+        await client.disconnectAndWait()
+        var request = URLRequest(url: try #require(URL(string: "\(control.origin)/restart")))
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(control.token)", forHTTPHeaderField: "Authorization")
+        let (_, response) = try await URLSession.shared.data(for: request)
+        #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        // Recreate the entire native runtime on the same SQLite database and Keychain grant.
+        let restored = ClientModel(now: { Date().timeIntervalSince1970 * 1000 })
+        let target = try #require(entry.connectionTarget)
+        await restored.connect(target: target, directory: harness.storage)
+        defer { restored.disconnect() }
+        try await until("replayed rename after daemon restart") { restored.connection == "ready" && restored.inbox["ios-restart-durability"]?.title == title }
+        // A second daemon restart proves the replayed command's effect was committed there.
+        let (_, again) = try await URLSession.shared.data(for: request)
+        #expect((again as? HTTPURLResponse)?.statusCode == 200)
+        await restored.disconnectAndWait()
+        let fresh = ClientModel(now: { Date().timeIntervalSince1970 * 1000 })
+        await fresh.connect(target: target, directory: harness.root.appendingPathComponent("fresh"))
+        defer { fresh.disconnect() }
+        try await until("durable in a fresh cache after another restart") { fresh.connection == "ready" && fresh.inbox["ios-restart-durability"]?.title == title }
+    }
     @Test(.timeLimit(.minutes(2))) func pairsConnectsReconnectsWithFreshTicketsAndReportsRevocation() async throws {
         let config = try #require(E2EConfig.load())
         let harness = try Harness()
         defer { harness.cleanUp() }
         await harness.machines.load()
         #expect(harness.machines.machines.isEmpty)
-        let link = try PairingLink.parse(try #require(config.links["operate"]))
+        let link = try PairingLink.parse(try await freshLink("operate", config))
         try await expectPaired(harness, link, "ace iOS e2e")
         let entry = try #require(harness.machines.machines.first)
         // The authenticated identity from the pinned socket, not the address's hostname.
@@ -66,7 +106,7 @@ private struct E2EConfig: Decodable {
         let harness = try Harness()
         defer { harness.cleanUp() }
         await harness.machines.load()
-        try await expectPaired(harness, try PairingLink.parse(try #require(config.links["read"])), "ace iOS read-only")
+        try await expectPaired(harness, try PairingLink.parse(try await freshLink("read", config)), "ace iOS read-only")
         let entry = try #require(harness.machines.machines.first)
         try await until("ready") { harness.machines.inbox.client(entry.hostId)?.connection == "ready" }
         #expect(harness.machines.isReadOnly(entry.hostId))
@@ -78,9 +118,10 @@ private struct E2EConfig: Decodable {
         let harness = try Harness()
         defer { harness.cleanUp() }
         await harness.machines.load()
-        let good = try PairingLink.parse(try #require(config.links["pin"]))
+        let real = try await freshLink("pin", config)
+        let good = try PairingLink.parse(real)
         let wrong = String(good.fingerprint.reversed())
-        let tampered = try PairingLink.parse(try #require(config.links["pin"]).replacingOccurrences(of: good.fingerprint, with: wrong))
+        let tampered = try PairingLink.parse(real.replacingOccurrences(of: good.fingerprint, with: wrong))
         #expect(await harness.machines.pair(tampered, name: "wrong pin")?.code == "pin")
         #expect(harness.machines.machines.isEmpty)
         try await expectPaired(harness, good, "right pin")
@@ -92,7 +133,7 @@ private struct E2EConfig: Decodable {
         let harness = try Harness()
         defer { harness.cleanUp() }
         await harness.machines.load()
-        let real = try #require(config.links["redirect"])
+        let real = try await freshLink("redirect", config)
         let trap = try #require(URL(string: config.trapOrigin))
         let viaTrap = real.replacingOccurrences(of: "127.0.0.1:4611", with: "\(trap.host ?? ""):\(trap.port ?? 0)")
         // The trap holds the daemon's own TLS key, so the pin passes and only the redirect is tested.
@@ -110,6 +151,18 @@ private struct E2EConfig: Decodable {
         let link = try PairingLink.parse("https://\(closed.host ?? ""):\(closed.port ?? 0)/pair#fingerprint=\(DaemonCertificate.pin)&code=abc")
         #expect(await harness.machines.pair(link, name: "nobody")?.code == "unreachable")
         #expect(harness.machines.machines.isEmpty)
+    }
+
+    private func freshLink(_ role: String, _ config: E2EConfig) async throws -> String {
+        guard let control = config.control else { return try #require(config.links[role]) }
+        let grant = role == "read" ? "read" : "operate"
+        var request = URLRequest(url: try #require(URL(string: "\(control.origin)/pairing/\(grant)")))
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(control.token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        struct Link: Decodable { let url: String }
+        return try JSONDecoder().decode(Link.self, from: data).url
     }
 
     private func expectPaired(_ harness: Harness, _ link: PairingLink, _ name: String) async throws {

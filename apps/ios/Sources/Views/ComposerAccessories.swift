@@ -20,14 +20,18 @@ struct ComposerAccessories: View {
             HStack(spacing: AceTheme.Spacing.sm) {
                 AttachMenu(stage: { model.attach($0) }, problem: $problem)
                 if let tune = screen.tune, !tune.efforts.isEmpty || !tune.speeds.isEmpty { TuneChip(tune: tune, model: model) }
-                if let notice = screen.tune?.notice, !notice.isEmpty {
-                    Text(notice).lineLimit(1).foregroundStyle(AceTheme.Colours.mutedForeground)
-                }
-                if let problem { Text(problem).lineLimit(2).foregroundStyle(AceTheme.StatusText.failed) }
                 Spacer(minLength: AceTheme.Spacing.none)
             }
             .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
             .foregroundStyle(AceTheme.Colours.mutedForeground)
+            // The bridge's notice and a failed pick sit below the controls, so a long
+            // reason truncates instead of squeezing the + and tune chips.
+            if let notice = screen.tune?.notice, !notice.isEmpty {
+                Text(notice).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(2)
+            }
+            if let problem {
+                Text(problem).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.StatusText.failed).lineLimit(2)
+            }
         }
         .padding(.horizontal, AceTheme.Dimensions.composerInset + AceTheme.Spacing.xs)
     }

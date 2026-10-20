@@ -1,6 +1,31 @@
 import { useClient } from "@ace/client-react";
-import { useWorkspaceActions, useWorkspaceStore } from "@/lib/workspace/index.ts";
+import { useCallback } from "react";
+import { tabKey, useWorkspaceActions, useWorkspaceStore } from "@/lib/workspace/index.ts";
 import { panelServices } from "../services.ts";
+import { shownBrowserTab } from "./browser-closers.ts";
+
+/**
+ * Bring the thread's Browser forward in the side panel, opening the panel: the panel tab of
+ * `tabId` (else of the tab the daemon shows the person), else any Browser tab, else a new one.
+ */
+export function useShowBrowserPanel(threadId: string): (tabId?: string) => void {
+  const actions = useWorkspaceActions(threadId);
+  const store = useWorkspaceStore();
+  return useCallback(
+    (tabId?: string) => {
+      const tabs = store.get(threadId).tabs;
+      const wanted = tabId ?? shownBrowserTab(threadId);
+      const panel =
+        tabs.find((each) => wanted !== undefined && each.key === tabKey("browser", wanted)) ??
+        tabs.find((each) => each.kind === "browser");
+      if (panel) {
+        actions.activate(panel.key);
+        actions.setOpen(true);
+      } else actions.open({ kind: "browser" });
+    },
+    [threadId, store, actions],
+  );
+}
 
 /**
  * Show one of the thread's browser tabs to the person: the Browser comes forward in the side
@@ -9,14 +34,9 @@ import { panelServices } from "../services.ts";
  */
 export function useRevealBrowserTab(threadId: string): (tabId: string) => Promise<boolean> {
   const client = useClient();
-  const actions = useWorkspaceActions(threadId);
-  const store = useWorkspaceStore();
+  const show = useShowBrowserPanel(threadId);
   return async (tabId) => {
-    const panel = store.get(threadId).tabs.find((each) => each.kind === "browser");
-    if (panel) {
-      actions.activate(panel.key);
-      actions.setOpen(true);
-    } else actions.open({ kind: "browser" });
+    show(tabId);
     try {
       await (await panelServices(client)).preview.selectTab(threadId, tabId);
       return true;

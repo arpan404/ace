@@ -35,7 +35,7 @@ export const ScreenLegacyFrameHeader = z.object({
   sequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   timestamp: z.number().finite().nonnegative(),
   width: z.number().int().positive().max(3840),
-  height: z.number().int().positive().max(2160),
+  height: z.number().int().positive().max(3840),
   codec: z.enum(["jpeg", "h264"]),
   keyframe: z.boolean().optional(),
   videoCodec: z
@@ -57,7 +57,7 @@ export const ScreenV2FrameHeader = z.object({
   seq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   ts: z.number().finite().nonnegative(),
   width: z.number().int().positive().max(3840),
-  height: z.number().int().positive().max(2160),
+  height: z.number().int().positive().max(3840),
   scale: z.number().finite().positive().max(8),
   codec: z.enum(["jpeg", "h264"]),
   keyframe: z.boolean().optional(),

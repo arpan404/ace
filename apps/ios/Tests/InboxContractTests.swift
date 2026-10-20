@@ -16,7 +16,7 @@ import Testing
         #expect(section(model, of: "ios-tree")?.label == "Working")
         #expect(model.inbox["ios-tree"]?.status == StatusDisplay(label: "Working", token: "working"))
         #expect(section(model, of: "ios-many-inbox")?.label == "Needs you")
-        #expect(model.inbox["ios-many-inbox"]?.status == StatusDisplay(label: "Needs you", token: "needsYou"))
+        #expect(model.inbox["ios-many-inbox"]?.status == StatusDisplay(label: "Approve", token: "needsYou"))
         #expect(section(model, of: "ios-done")?.label == "Done")
         #expect(model.inbox["ios-tree"]?.machineId == "ios-spike-host")
         let order = model.inboxLayout.sections.map(\.key)

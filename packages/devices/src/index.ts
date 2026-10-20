@@ -21,3 +21,11 @@ export { devicePacketDelivery } from "./packet-delivery.ts";
 
 export { deviceControlDelivery } from "./control-delivery.ts";
 export { consumeDeviceRecording } from "./recording-artifact.ts";
+export {
+  callSimTool,
+  simFailure,
+  simPublicError,
+  type SimActor,
+  type SimResult,
+} from "./sim-tools.ts";
+export { type SimToolName } from "./sim-schemas.ts";

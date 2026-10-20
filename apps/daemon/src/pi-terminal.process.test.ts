@@ -16,7 +16,7 @@ async function next(
   }
 }
 
-test("Pi Other starts a live PTY, echoes input, resizes and settles only after a clean exit", async () => {
+test("Pi without its SDK signs in through a live PTY that echoes input, resizes and settles only after a clean exit", async () => {
   const f = await harness();
   const command = join(f.bin, "pi");
   await writeFile(
@@ -54,14 +54,8 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
   try {
     const client = await server.connect();
     await client.next();
+    // This Pi has no SDK beside it, so sign-in goes straight to Pi's own terminal.
     client.send({ type: "provider.login.start", requestId: "start", provider: "pi" });
-    await next(client, (m) => m.type === "provider.login.progress" && !!m.progress.choices);
-    client.send({
-      type: "provider.login.input",
-      requestId: "choose",
-      session: "pi-other",
-      input: { choice: "other" },
-    });
     const opened = await next(
       client,
       (m) => m.type === "provider.login.progress" && !!m.progress.manual?.terminalId,

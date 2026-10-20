@@ -1,4 +1,5 @@
 import type { Item } from "@ace/protocol";
+import { handoffMarker } from "./handoff-marker.ts";
 
 export const visualizationFallback = "Visualization — view on desktop or web";
 
@@ -14,6 +15,9 @@ export interface TranscriptRowContent {
 /** What a transcript item shows on the native apps; HTML visualizations render only on desktop and web. */
 export function transcriptRowContent(item: Item): TranscriptRowContent {
   const row = { text: "", detail: "", user: false, quiet: false };
+  // A handoff's input is the context ace sent the new agent, never a bubble: one quiet line.
+  const handoff = item.type === "message" && item.role === "user" ? handoffMarker(item) : undefined;
+  if (handoff) return { ...row, text: handoff.text, quiet: true };
   if (item.type === "message") {
     row.text = item.parts
       .filter((part) => part.type === "text")

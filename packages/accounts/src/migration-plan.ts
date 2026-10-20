@@ -19,91 +19,83 @@ const sessionMeta = z
         session_id: NativeSessionId.optional(),
         forked_from_id: NativeSessionId.nullish(),
         parent_thread_id: NativeSessionId.nullish(),
-        history_mode: z.string().optional(),
         history_base: z.unknown().optional(),
       })
       .passthrough(),
   })
   .passthrough();
+const historyBase = z.object({ thread_id: NativeSessionId }).passthrough();
 export type MigrationPlan = { files: CopyFile[]; ids: string[]; action: "fork" | "resume" };
+const lowerIds = (candidates: unknown[]) =>
+  candidates
+    .filter((candidate): candidate is string => typeof candidate === "string")
+    .map((candidate) => candidate.toLowerCase());
+/** A Codex rollout's name ends in its thread ID: `rollout-<time>-<id>.jsonl[.zst]`. */
+const rolloutName = /([a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12})\.jsonl(\.zst)?$/i;
+/**
+ * The session and every rollout it builds on: fork parents, the spawning thread and the base a
+ * paginated fork reads through. Rollouts are found by name and only the lineage's own files are
+ * opened, so a large normal CLI home costs a directory walk, not a read of every session.
+ */
 export async function codexPlan(home: string, id: string): Promise<MigrationPlan> {
-  const sessions = new Map<string, { path: string; parents: string[]; unsupported: boolean }>();
-  const failures = new Map<string, string>();
-  const fail = (path: string, reason: string) => {
-    const candidate = basename(path).match(
-      /[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}/i,
-    )?.[0];
-    if (candidate) failures.set(candidate, reason);
-  };
-  const budget = { entries: 0 };
-  for (const root of ["sessions", "archived_sessions"]) {
+  const found = new Map<string, string[]>();
+  const budget = { entries: 0, limit: 200_000 };
+  for (const root of ["sessions", "archived_sessions"])
     for await (const path of walkFiles(join(home, root), budget)) {
-      if (path.endsWith(".zst")) {
-        fail(path, "Compressed Codex rollouts need provider-owned materialization");
-        continue;
-      }
-      if (!path.endsWith(".jsonl")) continue;
-      let value: unknown;
-      try {
-        value = JSON.parse(await firstLine(path));
-      } catch {
-        fail(path, "Unrecognized Codex rollout metadata");
-        continue;
-      }
-      const parsed = sessionMeta.safeParse(value).data;
-      if (!parsed) {
-        fail(path, "Unrecognized Codex rollout metadata");
-        continue;
-      }
-      const meta = parsed.payload;
-      if (sessions.has(meta.id)) {
-        failures.set(meta.id, "Multiple physical rollouts need provider-owned materialization");
-        continue;
-      }
-      sessions.set(meta.id, {
-        path,
-        parents: [
-          ...new Set(
-            [
-              meta.forked_from_id,
-              meta.parent_thread_id,
-              meta.session_id === meta.id ? undefined : meta.session_id,
-            ].filter((p): p is string => typeof p === "string"),
-          ),
-        ],
-        unsupported:
-          (meta.history_mode !== undefined && meta.history_mode !== "legacy") ||
-          meta.history_base != null,
-      });
+      const match = basename(path).match(rolloutName)?.[1]?.toLowerCase();
+      if (match) found.set(match, [...(found.get(match) ?? []), path]);
     }
-  }
   const files: CopyFile[] = [];
-  const ids: string[] = [];
+  const lineage: string[] = [];
   const visiting = new Set<string>();
   const visited = new Set<string>();
-  const visit = (current: string, depth: number) => {
+  const visit = async (current: string, depth: number, required: boolean): Promise<void> => {
     if (depth > 128) throw new MigrationFailure("refused", "Lineage depth limit exceeded");
     if (visiting.has(current)) throw new MigrationFailure("refused", "Cyclic session lineage");
     if (visited.has(current)) return;
-    const failure = failures.get(current);
-    if (failure) throw new MigrationFailure("unsupported", failure);
-    const session = sessions.get(current);
-    if (!session) throw new MigrationFailure("refused", "Missing session or ancestor rollout");
-    if (session.unsupported)
+    const paths = found.get(current) ?? [];
+    const path = paths[0];
+    if (!path && !required) return;
+    if (!path) throw new MigrationFailure("unsupported", "Missing session or ancestor rollout");
+    if (paths.length > 1)
       throw new MigrationFailure(
         "unsupported",
-        "Paginated Codex history needs provider-owned materialization",
+        "Multiple physical rollouts need provider-owned materialization",
       );
+    if (path.endsWith(".zst"))
+      throw new MigrationFailure(
+        "unsupported",
+        "Compressed Codex rollouts need provider-owned materialization",
+      );
+    let value: unknown;
+    try {
+      value = JSON.parse(await firstLine(path));
+    } catch {
+      throw new MigrationFailure("unsupported", "Unrecognized Codex rollout metadata");
+    }
+    const meta = sessionMeta.safeParse(value).data?.payload;
+    if (meta?.id.toLowerCase() !== current)
+      throw new MigrationFailure("unsupported", "Unrecognized Codex rollout metadata");
+    // A fork reads its parent's history; the spawning thread and tree root are only references.
+    const history = lowerIds([
+      meta.forked_from_id,
+      historyBase.safeParse(meta.history_base).data?.thread_id,
+    ]);
+    const references = lowerIds([
+      meta.parent_thread_id,
+      meta.session_id === meta.id ? undefined : meta.session_id,
+    ]).filter((parent) => !history.includes(parent));
     visiting.add(current);
-    for (const parent of session.parents) visit(parent, depth + 1);
+    for (const parent of new Set(history)) await visit(parent, depth + 1, true);
+    for (const parent of new Set(references)) await visit(parent, depth + 1, false);
     visiting.delete(current);
     visited.add(current);
     if (files.length >= 512) throw new MigrationFailure("refused", "Lineage size limit exceeded");
-    ids.push(current);
-    files.push({ source: session.path, relative: relative(home, session.path) });
+    lineage.push(current);
+    files.push({ source: path, relative: relative(home, path) });
   };
-  visit(id, 0);
-  return { files, ids, action: "fork" };
+  await visit(id.toLowerCase(), 0, true);
+  return { files, ids: lineage, action: "fork" };
 }
 export async function claudePlan(home: string, id: string): Promise<MigrationPlan> {
   let root: string | undefined;
@@ -122,21 +114,20 @@ export async function claudePlan(home: string, id: string): Promise<MigrationPla
   files.push({ source: root, relative: relative(home, root) });
   return { files, ids: [id], action: "resume" };
 }
+/**
+ * Claude marks a live session with a lock file. Codex's lock files outlive their writers, so a
+ * Codex copy relies on the lease, which holds the real lock, instead of reading the directory.
+ */
 export async function checkWriterLocks(
   home: string,
   provider: "codex" | "claude",
   ids: readonly string[],
 ) {
-  for (const id of ids) {
-    const paths =
-      provider === "codex"
-        ? [join(home, "thread-writer-locks", `${id}.lock`)]
-        : [join(home, "session-locks", `${id}.lock`)];
-    for (const path of paths)
-      if (await exists(path))
-        throw new MigrationFailure(
-          "refused",
-          "Session writer lock exists; stop the CLI before migrating",
-        );
-  }
+  if (provider === "codex") return;
+  for (const id of ids)
+    if (await exists(join(home, "session-locks", `${id}.lock`)))
+      throw new MigrationFailure(
+        "refused",
+        "Session writer lock exists; stop the CLI before migrating",
+      );
 }

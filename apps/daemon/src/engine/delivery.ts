@@ -48,9 +48,20 @@ export async function executeIntent(
     try {
       await sessions.open(actor);
     } catch (error) {
-      throw new DeliveryNotStarted(error instanceof Error ? error.message : String(error), {
-        cause: error,
-      });
+      // A provider returning to the thread resumes the session it left; if that is gone, it
+      // opens once more as a fresh session with the full handoff.
+      let failure = error;
+      if (transitions.abandonReturn(actor.id, error))
+        try {
+          await sessions.open(actor);
+          failure = undefined;
+        } catch (retry) {
+          failure = retry;
+        }
+      if (failure !== undefined)
+        throw new DeliveryNotStarted(failure instanceof Error ? failure.message : String(failure), {
+          cause: failure,
+        });
     }
     await repo.store.writable();
     if (repo.cancelled(intent.id)) throw new DeliveryDeferred("Cancelled before delivery");
@@ -211,6 +222,9 @@ export async function executeIntent(
     if (!actor.session || !interaction || interaction.state !== "pending")
       throw new InteractionUnavailable("interaction_unavailable");
   }
+  // A goal is the provider's own state: an idle thread's session reopens to change it.
+  if ((p.type === "thread.goal.set" || p.type === "thread.goal.clear") && !actor.session)
+    await sessions.open(actor);
   if (!actor.session) {
     if (
       p.type === "thread.interrupt" &&
@@ -238,6 +252,12 @@ export async function executeIntent(
   } else if (p.type === "thread.mode.set") {
     if (!actor.session.setMode) throw new Error("Provider mode selection unavailable");
     await actor.session.setMode(p.mode);
+  } else if (p.type === "thread.goal.set") {
+    if (!actor.session.setGoal) throw new Error("Provider goals unavailable");
+    await actor.session.setGoal(p.change);
+  } else if (p.type === "thread.goal.clear") {
+    if (!actor.session.clearGoal) throw new Error("Provider goals unavailable");
+    await actor.session.clearGoal();
   } else if (p.type === "thread.interrupt") {
     const targetKey =
       p.agentId === undefined ? state.rootKey : state.indexes.agentKeysById[p.agentId];

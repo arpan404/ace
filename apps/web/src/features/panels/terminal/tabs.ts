@@ -1,5 +1,6 @@
 import {
-  findTab,
+  allTabs,
+  locateTab,
   type OpenTab,
   type ScopeWorkspace,
   type WorkspaceActions,
@@ -11,11 +12,15 @@ import {
  *
  * - `terminal:<pty id>`: one of your PTYs. Closing the tab ends its shell.
  * - `terminal` (id "terminal"): a terminal about to start that first picks up a running shell
- *   of the thread that no tab shows, else opens one. The launcher, ⌃` and ⌘J open this.
+ *   of the thread that no tab shows, else opens one. The launcher, ⌃` and ⌘J open this (in
+ *   the bottom panel or the side panel, as Settings say).
  * - `terminal:pending-<n>`: a terminal about to start that always opens a new shell (New
  *   terminal).
  * - `shell:<task id>`: an agent's background shell, read-only. Closing the tab only stops
  *   showing it; the agent's shell keeps running.
+ *
+ * A terminal tab is open in one panel at a time, side or bottom (`lib/workspace/places.ts`), so
+ * these look across both.
  */
 
 export const terminalKind = "terminal";
@@ -31,7 +36,7 @@ export const reusesSpareShell = (id: string): boolean => id === terminalKind;
 
 /** A new terminal, always with a shell of its own. */
 export function newTerminal(workspace: ScopeWorkspace): OpenTab {
-  const taken = workspace.tabs
+  const taken = allTabs(workspace)
     .filter((tab) => tab.kind === terminalKind && tab.id.startsWith(pendingPrefix))
     .map((tab) => Number(tab.id.slice(pendingPrefix.length)) || 0);
   return { kind: terminalKind, id: `${pendingPrefix}${Math.max(0, ...taken) + 1}` };
@@ -46,7 +51,7 @@ export function openNewTerminal(
   workspace: ScopeWorkspace,
 ): void {
   const fresh = newTerminal(workspace);
-  const waiting = findTab(workspace, terminalKind);
+  const waiting = locateTab(workspace, terminalKind);
   if (waiting) actions.replace(waiting.tab.key, { ...fresh, pinned: waiting.tab.pinned });
   else actions.open(fresh);
 }
@@ -75,7 +80,7 @@ export function shellLabel(command: string): string {
 /** Ids of the PTYs a scope's tabs show. */
 export function openTerminalIds(workspace: ScopeWorkspace): Set<string> {
   return new Set(
-    workspace.tabs
+    allTabs(workspace)
       .filter((tab) => tab.kind === terminalKind && !isPendingTerminal(tab.id))
       .map((tab) => tab.id),
   );

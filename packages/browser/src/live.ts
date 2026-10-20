@@ -2,11 +2,21 @@ import { z } from "zod";
 import type { BrowserCdp } from "./backend.ts";
 import type { BrowserFrame } from "@ace/protocol";
 import { Screencast } from "./cdp.ts";
-import { captureSettings, CapturePressure, FrameFanout } from "./fanout.ts";
+import { FrameFanout, type CaptureViewer, type FrameSink } from "./fanout.ts";
+import { captureSettings, CapturePressure, sameEncoding } from "./capture-policy.ts";
+import { LiveVideo, type LiveVideoSource } from "./live-video.ts";
 
 const Ack = z.object({ sessionId: z.number().int() });
+/**
+ * The thread's live view: the JPEG screencast every viewer can take (and recordings use), and
+ * video for viewers that ask for it (ADR 0088). A video viewer gets JPEG frames until its first
+ * keyframe, and again whenever its video stops.
+ */
 export class LiveCapture {
   readonly fanout = new FrameFanout();
+  readonly video: LiveVideo;
+  private sinks = new Map<string, FrameSink>();
+  private videoSource: () => LiveVideoSource | undefined;
   private cdp: BrowserCdp;
   private now: () => number;
   private onFrame: (frame: BrowserFrame, epoch: number) => void;
@@ -15,11 +25,12 @@ export class LiveCapture {
   private sequence = 0;
   private lastFrame = -Infinity;
   private lastAdapt = -Infinity;
-  private settings = captureSettings(false);
+  private settings = captureSettings(0);
   private pressure = new CapturePressure();
   private viewport: () => { width: number; height: number };
   private adapting = false;
   private tab: () => string | undefined;
+  private scale: () => number;
   private closed = false;
   private generation = 0;
   constructor(
@@ -29,13 +40,51 @@ export class LiveCapture {
     privacy: () => { epoch: number; since: number } = () => ({ epoch: 0, since: -Infinity }),
     viewport: () => { width: number; height: number } = () => ({ width: 1280, height: 720 }),
     tab: () => string | undefined = () => undefined,
+    /**
+     * How many window pixels stand for one CSS pixel of the captured tab: above 1 while the page
+     * renders sharper than the browser's own scale (`headless-size.ts`). Frames report CSS size.
+     */
+    scale: () => number = () => 1,
+    /** The shown tab's video encoder; absent where the backend has none (JPEG only). */
+    videoSource: () => LiveVideoSource | undefined = () => undefined,
   ) {
+    this.videoSource = videoSource;
+    this.video = new LiveVideo({
+      now,
+      playing: (id, playing) => this.fanout.pause(id, playing),
+    });
     this.tab = tab;
+    this.scale = scale;
     this.cdp = cdp;
     this.now = now;
     this.onFrame = onFrame;
     this.privacy = privacy;
     this.viewport = viewport;
+  }
+  /** A viewer of the page: JPEG frames, plus video when it asked and its sink takes it. */
+  subscribe(id: string, sink: FrameSink, capture?: CaptureViewer): () => void {
+    const stop = this.fanout.subscribe(id, sink, capture);
+    this.sinks.set(id, sink);
+    this.video.remove(id);
+    if (capture) this.configureVideo(id, sink, capture);
+    return () => {
+      stop();
+      if (this.sinks.get(id) !== sink) return;
+      this.sinks.delete(id);
+      this.video.remove(id);
+    };
+  }
+  /** What a viewer shows changed (`browser.capture`). */
+  configure(id: string, capture: CaptureViewer): void {
+    this.fanout.configure(id, capture);
+    const sink = this.sinks.get(id);
+    if (sink) this.configureVideo(id, sink, capture);
+  }
+  private configureVideo(id: string, sink: FrameSink, capture: CaptureViewer): void {
+    if (sink.video && capture.video) {
+      if (this.video.has(id)) this.video.configure(id, capture);
+      else this.video.add(id, sink.video, capture, sink.audio);
+    } else this.video.remove(id);
   }
   private receive: (raw: unknown) => void = () => {};
   /** The tab this capture shows, fixed when the capture starts on its page. */
@@ -51,12 +100,14 @@ export class LiveCapture {
     const timestamp = this.now();
     if (timestamp - this.lastFrame < 1000 / this.settings.fps) return;
     this.lastFrame = timestamp;
+    // Input coordinates are CSS pixels, so a frame reports the page's CSS size.
+    const scale = this.scale();
     const frame: BrowserFrame = {
       sequence: ++this.sequence,
       timestamp,
       data: parsed.data.data,
-      width: parsed.data.metadata.deviceWidth,
-      height: parsed.data.metadata.deviceHeight,
+      width: Math.round(parsed.data.metadata.deviceWidth / scale),
+      height: Math.round(parsed.data.metadata.deviceHeight / scale),
       ...this.tabField(),
     };
     this.fanout.publish(frame);
@@ -124,18 +175,20 @@ export class LiveCapture {
       this.fanout.publish(frame);
       if (epoch === this.privacy().epoch) this.onFrame(frame, epoch);
     }
+    this.video.attach(this.videoSource(), this.capturing, { ...viewport, scale: dpr });
     this.timer = setInterval(() => {
       this.fanout.flush();
+      if (!this.closed) this.video.tick(this.viewport());
       const now = this.now();
-      const pressured = this.pressure.sample(this.fanout.pressured, now);
-      const settings = captureSettings(pressured, this.fanout.captureViewers);
-      if (
-        this.closed ||
-        this.adapting ||
-        JSON.stringify(settings) === JSON.stringify(this.settings) ||
-        this.now() - this.lastAdapt < 2000
-      )
+      const load = this.pressure.sample(this.fanout.pressured, now);
+      const settings = captureSettings(load, this.fanout.captureViewers);
+      if (this.closed || this.adapting) return;
+      // The frame rate is applied here, as frames arrive: changing it alone needs no restart.
+      if (sameEncoding(settings, this.settings)) {
+        this.settings = settings;
         return;
+      }
+      if (now - this.lastAdapt < 1000) return;
       this.lastAdapt = this.now();
       this.adapting = true;
       void (async () => {
@@ -163,6 +216,7 @@ export class LiveCapture {
     this.generation++;
     clearInterval(this.timer);
     this.cdp.off("Page.screencastFrame", this.receive);
+    this.video.detach();
     this.fanout.invalidate();
   }
   async replace(cdp: BrowserCdp): Promise<void> {
@@ -173,7 +227,7 @@ export class LiveCapture {
     this.closed = false;
     this.lastFrame = -Infinity;
     this.pressure = new CapturePressure();
-    this.settings = captureSettings(false, this.fanout.captureViewers);
+    this.settings = captureSettings(0, this.fanout.captureViewers);
     await this.start();
   }
   async close(): Promise<void> {
@@ -181,6 +235,8 @@ export class LiveCapture {
     this.generation++;
     clearInterval(this.timer);
     this.cdp.off("Page.screencastFrame", this.receive);
+    this.video.clear();
+    this.sinks.clear();
     this.fanout.clear();
     await this.cdp.send("Page.stopScreencast").catch(() => {});
   }

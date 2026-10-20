@@ -78,6 +78,9 @@ export function isolatedTestEnvironment(
     ...(ambient.ACE_DEVICE_LIVE_ANDROID_AVD !== undefined
       ? { ACE_DEVICE_LIVE_ANDROID_AVD: ambient.ACE_DEVICE_LIVE_ANDROID_AVD }
       : {}),
+    ...(ambient.ACE_DEVICE_LIVE_ANDROID_SERIAL !== undefined
+      ? { ACE_DEVICE_LIVE_ANDROID_SERIAL: ambient.ACE_DEVICE_LIVE_ANDROID_SERIAL }
+      : {}),
     // Browser binaries are installed once per machine; tests drive them read-only.
     PLAYWRIGHT_BROWSERS_PATH: ambient.PLAYWRIGHT_BROWSERS_PATH ?? playwrightCache(realHome),
   };

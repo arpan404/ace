@@ -14,6 +14,8 @@ import {
   BrowserAnnotationMessage,
   BrowserAnnotationPageCommand,
 } from "./browser-annotation.ts";
+import { BrowserPageMessage } from "./browser-page.ts";
+import { BrowserDownloadReadMessage, BrowserFilesDropMessage } from "./browser-transfer.ts";
 
 const short = z.string().min(1).max(256);
 const dimension = z.number().int().min(100).max(4096);
@@ -197,7 +199,21 @@ export const BrowserCommand = z.discriminatedUnion("action", [
     status: z.number().int().min(100).max(599).optional(),
     limit: z.number().int().min(1).max(200).default(100),
   }),
-  commandBase.extend({ action: z.literal("resize"), width: dimension, height: dimension }),
+  commandBase.extend({
+    action: z.literal("resize"),
+    width: dimension,
+    height: dimension,
+    /**
+     * Person-only: the pane is on a touch screen. The page lays out as a phone's or tablet's
+     * (the mobile flag) and gets touch events; agents' resizes ignore it.
+     */
+    touch: z.boolean().optional(),
+    /**
+     * The resizing viewer's device pixel ratio: ace's Chrome renders the page that sharp, up to
+     * 3, so a high-density screen gets pixels instead of an upscaled picture.
+     */
+    devicePixelRatio: z.number().finite().min(1).max(4).optional(),
+  }),
   commandBase.extend({
     action: z.literal("emulate"),
     width: dimension,
@@ -309,7 +325,14 @@ export const BrowserInput = z.discriminatedUnion("kind", [
     x: coordinate,
     y: coordinate,
     button: z.enum(["none", "left", "middle", "right"]).default("left"),
+    /**
+     * The buttons held during the event, as a bit mask (left 1, right 2, middle 4); absent: the
+     * one `button` names, none on release.
+     */
+    buttons: z.number().int().min(0).max(7).optional(),
     clickCount: z.number().int().min(0).max(3).default(1),
+    /** Keys held during the event: Alt 1, Ctrl 2, Meta 4, Shift 8. */
+    modifiers: z.number().int().min(0).max(15).default(0),
   }),
   z.object({
     kind: z.literal("key"),
@@ -325,6 +348,8 @@ export const BrowserInput = z.discriminatedUnion("kind", [
     y: coordinate,
     deltaX: coordinate,
     deltaY: coordinate,
+    /** Keys held during the event: Alt 1, Ctrl 2, Meta 4, Shift 8. */
+    modifiers: z.number().int().min(0).max(15).default(0),
   }),
   z.object({
     kind: z.literal("touch"),
@@ -332,6 +357,25 @@ export const BrowserInput = z.discriminatedUnion("kind", [
     points: z
       .array(z.object({ x: coordinate, y: coordinate, id: z.number().int().min(0).max(9) }))
       .max(10),
+  }),
+  /**
+   * IME text being composed, shown marked in the focused field (`Input.imeSetComposition`);
+   * an empty `text` cancels it. A `char` key event commits it.
+   */
+  z.object({
+    kind: z.literal("ime"),
+    text: z.string().max(4096),
+    selectionStart: z.number().int().min(0).max(4096),
+    selectionEnd: z.number().int().min(0).max(4096),
+  }),
+  /**
+   * The person's choice in the page's open picker (`BrowserPagePicker`): the value is set on the
+   * element and its `input` and `change` events fire. Without `values` the picker is dismissed.
+   */
+  z.object({
+    kind: z.literal("pick"),
+    pickerId: short,
+    values: z.array(z.string().max(4096)).max(1000).optional(),
   }),
 ]);
 export type BrowserInput = z.infer<typeof BrowserInput>;
@@ -416,11 +460,28 @@ export const BrowserCaptureViewport = z.object({
    * accent, `outline` the colour that reads on it. The last viewer to report one sets it.
    */
   cursor: z.object({ fill: hexColour, outline: hexColour }).optional(),
+  /**
+   * The person unmuted this view (ADR 0088, Audio): while true, a viewer that plays video also
+   * gets the page's sound as stream kind `browserAudio`. Absent or false: muted, no audio bytes.
+   */
+  audio: z.boolean().optional(),
   width: dimension,
   height: dimension,
   devicePixelRatio: z.number().finite().min(1).max(4),
 });
 export type BrowserCaptureViewport = z.infer<typeof BrowserCaptureViewport>;
+/** A WebCodecs codec string (`avc1.42E033`, `vp8`, `vp09.00.10.08`). */
+export const BrowserVideoCodec = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[A-Za-z0-9.]+$/);
+/**
+ * A viewer that plays video (ADR 0088): the codecs its decoder supports, best first. The daemon
+ * encodes the first one its encoder supports and sends JPEG frames otherwise.
+ */
+export const BrowserVideoRequest = z.object({ codecs: z.array(BrowserVideoCodec).min(1).max(8) });
+export type BrowserVideoRequest = z.infer<typeof BrowserVideoRequest>;
 const base = z.object({ requestId: short, threadId: ThreadId });
 export const BrowserClientMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("browser.open"), requestId: short, options: BrowserOpen }),
@@ -461,10 +522,33 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
     url: z.string().max(8192),
   }),
   base.extend({ type: z.literal("browser.execute"), command: BrowserCommand }),
-  base.extend({ type: z.literal("browser.subscribe"), subscriberId: short.optional() }),
+  base.extend({
+    type: z.literal("browser.subscribe"),
+    subscriberId: short.optional(),
+    /**
+     * Send this connection's frames as binary stream messages (an `ACES` envelope with the raw
+     * JPEG) instead of `browser.frame` JSON with base64. Ignored where the transport has no
+     * binary messages.
+     */
+    binaryFrames: z.boolean().optional(),
+    /** What this viewer shows, as `browser.capture` reports it, so its first frame fits it. */
+    viewport: BrowserCaptureViewport.optional(),
+    /**
+     * Send this connection's view as encoded video (stream kind `browserVideo`) in one of these
+     * codecs, with JPEG frames until its first keyframe. Needs `binaryFrames`.
+     */
+    video: BrowserVideoRequest.optional(),
+  }),
   base.extend({ type: z.literal("browser.capture"), viewport: BrowserCaptureViewport }),
   base.extend({ type: z.literal("browser.unsubscribe"), subscriberId: short.optional() }),
-  base.extend({ type: z.literal("browser.ack"), sequence: z.number().int().nonnegative() }),
+  base.extend({
+    type: z.literal("browser.ack"),
+    sequence: z.number().int().nonnegative(),
+    /** `sequence` is a video chunk's (acked cumulatively), not a JPEG frame's. */
+    video: z.literal(true).optional(),
+    /** The viewer's decoder lost its place (a decode error): send it a keyframe. */
+    keyframe: z.literal(true).optional(),
+  }),
   /**
    * The person's files for the tab's `file_chooser`, uploaded first as thread attachments
    * (`upload.begin` … `upload.commit`). No files cancels the picker.
@@ -475,6 +559,8 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
     chooserId: short,
     files: z.array(z.object({ sha256: BlobHash, name: z.string().min(1).max(255) })).max(16),
   }),
+  BrowserFilesDropMessage,
+  BrowserDownloadReadMessage,
   /** The person turns a tab's sound off or on; it stays that way until they change it. */
   base.extend({ type: z.literal("browser.tabs.mute"), tabId: short, muted: z.boolean() }),
   /** "Keep agents out of this tab": agents can neither read nor drive a private tab. */
@@ -517,5 +603,6 @@ export const BrowserServerMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("browser.state"), state: BrowserState }),
   z.object({ type: z.literal("browser.frame"), threadId: ThreadId, frame: BrowserFrame }),
   BrowserAnnotationMessage,
+  BrowserPageMessage,
 ]);
 export type BrowserServerMessage = z.infer<typeof BrowserServerMessage>;

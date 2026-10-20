@@ -17,6 +17,7 @@ import { RecoverySettings } from "./recovery-settings.tsx";
 import { DaemonSlot, useNotConnectedNote } from "./setting-control.tsx";
 import { settingRow } from "./settings-index.ts";
 import { SettingSwitch } from "./setting-switch.tsx";
+import { TerminalSettings } from "./terminal-settings.tsx";
 import { GenerationSettings } from "./utility-model.tsx";
 
 const autoSettleOptions: { value: AutoSettle; label: string }[] = [
@@ -39,8 +40,9 @@ const sortByOptions: { value: SortBy; label: string }[] = [
 ];
 
 /**
- * This computer's login item, your name, defaults for new threads, settling, and the daemon this
- * window uses. The in-page development daemon is listed under Advanced instead.
+ * This computer's login item, your name, where its terminals open, defaults for new threads,
+ * settling, and the daemon this window uses. The in-page development daemon is listed under
+ * Advanced instead.
  */
 export function GeneralSettings() {
   const autoSettle = useSettingControl(
@@ -55,6 +57,7 @@ export function GeneralSettings() {
       <SettingSection label="You" card scope="device">
         <ProfileNameRow />
       </SettingSection>
+      <TerminalSettings />
       <SettingSection label="Threads" card scope="daemon" note={note}>
         <DefaultProvider />
         <AccessDefaultRow />
