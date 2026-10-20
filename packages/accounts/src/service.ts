@@ -447,6 +447,9 @@ export class AccountService {
             : {}),
           ...(session.setGoal ? { setGoal: session.setGoal.bind(session) } : {}),
           ...(session.clearGoal ? { clearGoal: session.clearGoal.bind(session) } : {}),
+          ...(session.backgroundTools
+            ? { backgroundTools: session.backgroundTools.bind(session) }
+            : {}),
           ...(session.mcp ? { mcp: session.mcp } : {}),
           get sessionConfirmed() {
             return session.sessionConfirmed ?? true;
