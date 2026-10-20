@@ -28,6 +28,7 @@ import { HumanInputReports } from "./human-input.ts";
 import { UnloadGuard } from "./unload.ts";
 import type { CertificateExceptions } from "./certificates.ts";
 import { audioMuted } from "./audio.ts";
+import { cookieExport } from "./cookie-export.ts";
 const throttleIdleMs = 30_000;
 /** The longest the view keeps keys for the app before giving them up. */
 const handoffMs = 1_000;
@@ -596,6 +597,8 @@ export class EmbeddedPage implements ViewPage {
     }
     if (this.popups.command(method, params) || this.dialogs.answer(method, params)) return {};
     if (this.downloads.command(method, params)) return {};
+    // The partition's sign-ins, for the daemon to carry to ace's Chromium (a locked screen).
+    if (method === "ace.cookies") return cookieExport(await this.contents.session.cookies.get({}));
     if (method === "ace.findText") {
       const { text, forward } = z
         .object({ text: z.string().max(4096), forward: z.boolean().default(true) })
