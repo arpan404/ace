@@ -213,6 +213,26 @@ Example:
 }
 ```
 
+### avatars.resolve
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"avatars.resolve"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| urls | yes | array | {"minItems":1,"maxItems":32,"items":{"type":"string","maxLength":2048}} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "avatars.resolve",
+  "urls": [
+    "example"
+  ]
+}
+```
+
 ### thread.search
 
 | Field | Required | Type | Constraints |
@@ -804,7 +824,7 @@ Example:
 }
 ```
 
-### Variant 39
+### Variant 40
 
 Type: union. See JSON Schema for constraints.
 
@@ -1226,7 +1246,7 @@ Example:
 }
 ```
 
-### Variant 60
+### Variant 61
 
 Type: union. See JSON Schema for constraints.
 

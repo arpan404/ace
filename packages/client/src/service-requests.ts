@@ -78,6 +78,7 @@ type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
   | "turn.steps"
   | "icons.resolve"
   | "icons.read"
+  | "avatars.resolve"
   | "thread.search"
   | "thread.catchUp"
   | "thread.readState"
@@ -170,6 +171,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "turn.steps": ["turn.steps"],
   "icons.resolve": ["icons.resolve"],
   "icons.read": ["icons.read"],
+  "avatars.resolve": ["avatars.resolve"],
   "thread.search": ["thread.search"],
   "thread.catchUp": ["thread.catchUp"],
   "thread.readState": ["thread.readState"],

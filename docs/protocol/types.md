@@ -3271,6 +3271,48 @@ Example:
 }
 ```
 
+## AvatarsResolveRequest
+
+[JSON Schema](schema/AvatarsResolveRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"avatars.resolve"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| urls | yes | array | {"minItems":1,"maxItems":32,"items":{"type":"string","maxLength":2048}} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "avatars.resolve",
+  "urls": [
+    "example"
+  ]
+}
+```
+
+## AvatarsResolveResponse
+
+[JSON Schema](schema/AvatarsResolveResponse.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"avatars.resolve"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| icons | yes | array | {"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/IconResult.json"}} |
+
+Example:
+
+```json
+{
+  "icons": [],
+  "requestId": "example",
+  "type": "avatars.resolve"
+}
+```
+
 ## BackgroundTask
 
 [JSON Schema](schema/BackgroundTask.json), input validation.
