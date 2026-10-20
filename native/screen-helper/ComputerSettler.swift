@@ -50,6 +50,8 @@ struct CUSettleNoise {
     private(set) var events: UInt64 = 0
     /// True once every notification is registered, so silence means no change.
     var observingEverything: Bool { observer != nil && pending.isEmpty }
+    /// Told about every notification, for caches that a change on an element invalidates.
+    var observed: ((AXUIElement, String) -> Void)?
     /// Uptime after which settling stops waiting, set per request so a long batch stays bounded.
     var deadline: UInt64?
 
@@ -90,6 +92,7 @@ struct CUSettleNoise {
 
     private func received(_ notification: String, from element: AXUIElement) {
         events &+= 1
+        observed?(element, notification)
         if notification == "AXWindowCreated" || notification == "AXSheetCreated" { windowEvents += 1 }
         let key = Int(bitPattern: UInt(CFHash(element)))
         var role: String?

@@ -84,13 +84,19 @@ struct CUWalkContext {
         guard seen.insert(CUElementKey(element: element)).inserted else { return .visible }
         visited += 1
         tree.visited = visited
-        // Two reads: geometry first, so what is scrolled away or pure chrome costs five
-        // attributes; then only the attributes this role can use.
+        // Geometry first, so what is scrolled away or pure chrome costs few attributes; then
+        // only the attributes this role can use. An element seen before is read in one round
+        // trip: its remembered role predicts the attributes, and the role read with them
+        // confirms the prediction.
+        let key = CUElementKey(element: element)
+        let predicted = registry.facts.role(of: key)
+        let predictedDescription = predicted.flatMap { cuFixedDescriptionRoles.contains($0) ? registry.roleDescriptions[$0] : nil }
         let fetchStarted = cuNow()
-        let (shape, status) = cuFetchStatus(element, cuShapeAttributes)
+        let (shape, status) = cuFetchStatus(element, cuShapeAttributes + (predicted.map { cuDetailAttributes(role: $0, needsRoleDescription: predictedDescription == nil) } ?? []))
         tree.fetchNs += cuNow() - fetchStarted
         if status == .cannotComplete { tree.notResponding = true; tree.truncated = true; return .visible }
         let role = shape["AXRole"] as? String ?? "AXUnknown"
+        if shape["AXRole"] != nil { registry.facts.read(role: role, of: key) }
         if cuNoiseRoles.contains(role) { return .visible }
         let frame = cuFrame(shape)
         if let visible = context.visible, role != "AXWindow" {
@@ -101,11 +107,14 @@ struct CUWalkContext {
         // Hidden or collapsed parts report zero size; they are not on screen to act on.
         if let frame, frame.width <= 0 || frame.height <= 0, children.isEmpty { return .visible }
         let knownDescription = cuFixedDescriptionRoles.contains(role) ? registry.roleDescriptions[role] : nil
-        let detailStarted = cuNow()
-        var (attributes, detailStatus) = cuFetchStatus(element, cuDetailAttributes(role: role, needsRoleDescription: knownDescription == nil))
-        tree.fetchNs += cuNow() - detailStarted
-        if detailStatus == .cannotComplete { tree.notResponding = true; tree.truncated = true; return .visible }
-        attributes.merge(shape) { current, _ in current }
+        var attributes = shape
+        if predicted != role {
+            let detailStarted = cuNow()
+            let (detail, detailStatus) = cuFetchStatus(element, cuDetailAttributes(role: role, needsRoleDescription: knownDescription == nil))
+            tree.fetchNs += cuNow() - detailStarted
+            if detailStatus == .cannotComplete { tree.notResponding = true; tree.truncated = true; return .visible }
+            attributes = detail.merging(shape) { current, _ in current }
+        }
         if let knownDescription { attributes["AXRoleDescription"] = knownDescription as NSString }
         else if cuFixedDescriptionRoles.contains(role), let fetched = attributes["AXRoleDescription"] as? String { registry.roleDescriptions[role] = fetched }
 
@@ -137,7 +146,11 @@ struct CUWalkContext {
         let url = role == "AXLink" || role == "AXWebArea" || role == "AXImage" ? cuClip(cuValueText(attributes["AXURL"]), 300) : nil
         // Plain text never acts on its own; skipping its action list saves a round trip per line.
         let actionStarted = cuNow()
-        let axActions = role == "AXStaticText" ? [] : cuActionNames(element)
+        var axActions: [String] = []
+        if role != "AXStaticText" {
+            if let known = registry.facts.actions(of: key, now: actionStarted) { axActions = known }
+            else { axActions = cuActionNames(element); registry.facts.read(actions: axActions, of: key, at: actionStarted) }
+        }
         tree.actionNs += cuNow() - actionStarted
         var readable: [String] = []
         for action in axActions { if let label = cuReadableAction(action), !readable.contains(label), readable.count < 6 { readable.append(label) } }
