@@ -117,17 +117,9 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
     let received = false;
     let stop = noop;
     expect(() => {
-      stop = f.service.subscribe(
-        "thread",
-        "healthy",
-        {
-          send: () => {
-            received = true;
-            return true;
-          },
-        },
-        () => {},
-      );
+      stop = f.service.subscribe("thread", "healthy", {}, () => {
+        received = true;
+      });
     }).not.toThrow();
     expect(received).toBe(true);
     stop();

@@ -239,44 +239,6 @@ it("link loading, failure, permission denial and Stop appear in public browser s
   await f.service.execute("thread", { action: "history", direction: "stop" });
 });
 
-it("a visible native page reduces Chromium capture and a remote viewer restores live cadence", async () => {
-  let now = 0;
-  const f = await backendFixture({ now: () => now });
-  await f.open();
-  f.service.subscribe(
-    "thread",
-    "viewer",
-    {
-      send: (frame) => {
-        f.service.acknowledge("thread", "viewer", frame.sequence);
-        return true;
-      },
-    },
-    () => {},
-  );
-  const viewport = { width: 800, height: 600, devicePixelRatio: 1 };
-  const warm = once(f.requests, "Page.startScreencast");
-  f.service.configureCapture("thread", "viewer", {
-    viewport: { ...viewport, nativeShown: true },
-    local: true,
-  });
-  now = 2000;
-  const [nativeRequest] = await warm;
-  expect(BrowserBackendRequest.parse(nativeRequest)).toMatchObject({
-    operation: { kind: "cdp", params: { everyNthFrame: 60 } },
-  });
-  const full = once(f.requests, "Page.startScreencast");
-  f.service.configureCapture("thread", "viewer", {
-    viewport: { ...viewport, nativeShown: false },
-    local: false,
-  });
-  now = 4000;
-  const [remoteRequest] = await full;
-  expect(BrowserBackendRequest.parse(remoteRequest)).toMatchObject({
-    operation: { kind: "cdp", params: { everyNthFrame: 1 } },
-  });
-});
-
 it("a read-only paired viewer can Find and read selection without taking control", async () => {
   const f = await native();
   let result: unknown;

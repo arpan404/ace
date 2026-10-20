@@ -11,12 +11,6 @@ function expectReopened(messages: BrowserServerMessage[]): void {
       state: expect.objectContaining({ closed: false }),
     }),
   );
-  expect(messages).toContainEqual(
-    expect.objectContaining({
-      type: "browser.frame",
-      frame: expect.objectContaining({ data: "AA==" }),
-    }),
-  );
 }
 
 test("subscriber IDs retain browser delivery until the final subscriber leaves", async () => {
@@ -55,7 +49,7 @@ test("subscriber IDs retain browser delivery until the final subscriber leaves",
   }
 });
 
-test("Preview rebinds after reopen and every joining subscriber receives state and the latest frame", async () => {
+test("Preview rebinds after reopen and every joining subscriber receives state", async () => {
   const f = await backendFixture();
   await f.open();
   const messages: BrowserServerMessage[] = [];
@@ -81,9 +75,6 @@ test("Preview rebinds after reopen and every joining subscriber receives state a
     expect(messages.slice(before)).toContainEqual(
       expect.objectContaining({ type: "browser.state" }),
     );
-    expect(messages.slice(before)).toContainEqual(
-      expect.objectContaining({ type: "browser.frame" }),
-    );
     await connection.handle({ type: "browser.close", threadId: "thread", requestId: "close" });
     await connection.handle({
       type: "browser.open",
@@ -92,9 +83,6 @@ test("Preview rebinds after reopen and every joining subscriber receives state a
     });
     before = messages.length;
     await subscribe("first");
-    expect(messages.slice(before)).toContainEqual(
-      expect.objectContaining({ type: "browser.frame" }),
-    );
     expect(messages.slice(before)).toContainEqual(
       expect.objectContaining({
         type: "browser.state",
@@ -120,7 +108,7 @@ test("Preview rebinds after reopen and every joining subscriber receives state a
   }
 });
 
-test("every Preview connection retains state and pixels when another connection or the service reopens the browser", async () => {
+test("every Preview connection keeps following state when another connection or the service reopens the browser", async () => {
   const f = await backendFixture({ backendPreference: () => "headless" });
   await f.open();
   const first: BrowserServerMessage[] = [];
@@ -206,19 +194,10 @@ test("closed Preview subscriptions retain bounded admission until an idempotent 
   const f = await backendFixture({ maxSessions: 1, backendPreference: () => "headless" });
   await f.open();
   const stops: (() => void)[] = [];
-  const frames: string[] = [];
+  /** Which viewers were told the browser's state. */
+  const told: string[] = [];
   const subscribe = (threadId: string, connectionId: string) =>
-    f.service.subscribe(
-      threadId,
-      connectionId,
-      {
-        send(frame) {
-          frames.push(frame.data);
-          return true;
-        },
-      },
-      () => {},
-    );
+    f.service.subscribe(threadId, connectionId, {}, () => told.push(connectionId));
   try {
     for (let i = 0; i < 64; i++) stops.push(subscribe("thread", `viewer-${i}`));
     await f.service.closeThread("thread");
@@ -228,41 +207,33 @@ test("closed Preview subscriptions retain bounded admission until an idempotent 
     if (!stop) throw new Error("Subscriber missing");
     stop();
     stop();
-    frames.length = 0;
+    told.length = 0;
     stops.push(subscribe("replacement", "new-viewer"));
-    expect(frames).toEqual(["AA=="]);
+    expect(told).toEqual(["new-viewer"]);
     expect(() => subscribe("replacement", "overflow")).toThrow("Browser subscriber limit");
   } finally {
     for (const stop of stops) stop();
   }
 });
 
-test("a viewer leaving during replacement frame delivery receives no further pixels", async () => {
+test("a viewer leaving while the replacement page's state reaches it is told nothing further", async () => {
   const f = await backendFixture({ backendPreference: () => "headless" });
   await f.open();
   let stop: (() => void) | undefined;
   let leave = false;
-  const frames: string[] = [];
-  stop = f.service.subscribe(
-    "thread",
-    "viewer",
-    {
-      send(frame) {
-        frames.push(frame.data);
-        if (leave) stop?.();
-        return true;
-      },
-    },
-    () => {},
-  );
+  let told = 0;
+  stop = f.service.subscribe("thread", "viewer", {}, () => {
+    told++;
+    if (leave) stop?.();
+  });
   try {
     await f.service.closeThread("thread");
     leave = true;
-    frames.length = 0;
+    told = 0;
     await f.open();
-    expect(frames).toEqual(["AA=="]);
-    f.service.replayFrame("thread", "viewer");
-    expect(frames).toEqual(["AA=="]);
+    expect(told).toBe(1);
+    keepAgentsOut(f.service);
+    expect(told).toBe(1);
   } finally {
     stop();
   }

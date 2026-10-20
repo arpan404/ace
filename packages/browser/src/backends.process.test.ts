@@ -5,7 +5,6 @@ import { z } from "zod";
 import { backendFixture } from "./backend-test-support.ts";
 import {
   BrowserOpen,
-  type BrowserFrame,
   type BrowserState,
   type BrowserBackendLost,
   BrowserBackendRequest,
@@ -163,21 +162,9 @@ it("headless recovery invalidates old refs while reporting lost state", async ()
     ?.ref;
   await f.service.input("thread", { kind: "key", event: "char", key: "x" }, "human");
   const ready = Promise.withResolvers<void>();
-  const frames: BrowserFrame[] = [];
-  f.service.subscribe(
-    "thread",
-    "viewer",
-    {
-      send: (frame) => {
-        frames.push(frame);
-        f.service.acknowledge("thread", "viewer", frame.sequence);
-        return true;
-      },
-    },
-    (state) => {
-      if (state.backend === "headless" && state.status === "ready") ready.resolve();
-    },
-  );
+  f.service.subscribe("thread", "viewer", {}, (state) => {
+    if (state.backend === "headless" && state.status === "ready") ready.resolve();
+  });
   await f.disconnect();
   await ready.promise;
   expect(f.service.state("thread")).toMatchObject({
@@ -194,8 +181,6 @@ it("headless recovery invalidates old refs while reporting lost state", async ()
       { kind: "human", connectionId: "human" },
     ),
   ).rejects.toMatchObject({ code: "browser_restarted" });
-  expect(frames.length).toBeGreaterThan(1);
-  expect(frames.at(-1)?.sequence).toBeGreaterThan(frames[0]?.sequence ?? 0);
 });
 it.each(["embedded", "headless"] as const)(
   "%s sessions let the agent script pages and keep refs, screenshot bytes and console logs",
@@ -227,37 +212,6 @@ it.each(["embedded", "headless"] as const)(
     await expect(f.service.execute("thread", { action: "click", ref })).rejects.toThrow("ref");
   },
 );
-it("acknowledges desktop frames independently of a slow viewer and delivers only its latest pending frame", async () => {
-  let now = 0;
-  const f = await backendFixture({ now: () => (now += 200) });
-  await f.open();
-  const frames: BrowserFrame[] = [];
-  f.service.subscribe(
-    "thread",
-    "slow",
-    {
-      send: (frame) => {
-        frames.push(frame);
-        return true;
-      },
-    },
-    () => {},
-  );
-  const sessionId = [...f.pages.keys()][0];
-  if (!sessionId) throw new Error("Missing session");
-  for (const frameId of [1, 2, 3]) {
-    const ack = once(f.requests, "browser.backend.frameAck");
-    f.sendEvent(sessionId, "Page.screencastFrame", {
-      sessionId: frameId,
-      data: String(frameId),
-      metadata: { deviceWidth: 1280, deviceHeight: 720 },
-    });
-    await ack;
-  }
-  expect(frames).toHaveLength(1);
-  f.service.acknowledge("thread", "slow", frames[0]?.sequence ?? -1);
-  expect(frames.map((frame) => frame.data)).toEqual(["AA==", "3"]);
-});
 it("closes a pressured relay and pauses its session instead of queuing undelivered input", async () => {
   const f = await backendFixture();
   await f.open();
