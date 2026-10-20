@@ -2,8 +2,7 @@ import { afterEach, expect, it } from "vitest";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ScreenManager, type Frame } from "@ace/screen";
-import { ScreenFrameReader } from "@ace/screen/frames-client";
+import { FrameDecoder, ScreenManager, type Frame } from "@ace/screen";
 import { spawnRawSupervised, type RawSupervisedProcess } from "@ace/provider-kit/process";
 import { devicePoint } from "@ace/ui-core";
 import { DevicePlatform, startCapture } from "./index.ts";
@@ -235,7 +234,7 @@ it("fragmented Android JPEGs retain guest scale and the shared binary screen pac
     Buffer.from([255, 216, 255, 192, 0, 8, 8, 2, 128, 1, 64, 1, 255, 217]),
   );
   const decoded: Uint8Array[] = [];
-  const reader = new ScreenFrameReader((value) => decoded.push(value.payload));
+  const reader = new FrameDecoder((value) => decoded.push(value.payload));
   reader.push(frame.packet);
   reader.end();
   expect(Buffer.from(decoded[0] ?? [])).toEqual(frame.payload);

@@ -1,7 +1,8 @@
 import { FrameHub, framePacket } from "@ace/screen";
 import { DeviceLogs } from "../src/index.ts";
 import { performance } from "node:perf_hooks";
-import { ScreenFrameReader } from "@ace/screen/frames-client";
+import { encodePicture, StreamAssembler, streamKinds } from "@ace/browser/stream";
+import { framePicture } from "@ace/screen";
 import { JpegDecoder } from "../src/jpeg.ts";
 const payload = Buffer.alloc(128 * 1024);
 const header = {
@@ -19,7 +20,9 @@ const hub = new FrameHub();
 for (let i = 0; i < 32; i++) hub.subscribe(() => new Promise<void>(() => {}));
 const logs = new DeviceLogs();
 logs.subscribe(() => new Promise<void>(() => {}));
-const reader = new ScreenFrameReader(() => {});
+const assembler = new StreamAssembler();
+const picture = framePicture(frame);
+const pieces = encodePicture(streamKinds.deviceFrame, 1, "android:emulator-5554", picture, payload);
 // Synthetic framing payload measures accumulation and marker parsing, not JPEG encoding.
 const jpegPayload = Buffer.alloc(128 * 1024);
 jpegPayload.set([255, 216, 255, 192, 0, 8, 8, 7, 128, 4, 56, 1]);
@@ -29,10 +32,9 @@ for (const [name, run] of [
   ["frame latest replacement, 32 viewers", () => hub.publish(frame)],
   ["bounded log replacement", () => logs.push("line")],
   [
-    "128 KiB fragmented portable frame decoding",
+    "128 KiB picture stream assembly",
     () => {
-      reader.push(frame.packet.subarray(0, 65536));
-      reader.push(frame.packet.subarray(65536));
+      for (const piece of pieces) assembler.push(piece);
     },
   ],
   [

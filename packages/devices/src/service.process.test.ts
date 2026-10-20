@@ -3,13 +3,8 @@ import { readFile } from "node:fs/promises";
 import { CredentialRegistry, ToolRegistry } from "@ace/mcp-server";
 import { AgentId, ThreadId } from "@ace/protocol";
 import type { DeviceInput } from "@ace/protocol/devices";
-import {
-  devicesToolkit,
-  agentOwner,
-  connectDevices,
-  devicePacketDelivery,
-  sendDeviceFrame,
-} from "./index.ts";
+import { devicesToolkit, agentOwner, connectDevices } from "./index.ts";
+import { decodeStreamMessage, StreamAssembler } from "@ace/browser/stream";
 import {
   agent,
   bind,
@@ -689,29 +684,14 @@ it("recording quota completion restores video without increasing a small viewer'
   expect(h.profiles.at(-1)).toEqual(videoProfile);
 });
 
-for (const relay of [false, true]) {
-  it(`a congested ${relay ? "relay" : "local"} screenshot rejects and can subsequently deliver pixels`, async () => {
+{
+  it("a congested screenshot rejects and can subsequently deliver pixels", async () => {
     const h = await harness();
     await bind(h);
     await h.request({ op: "start", deviceId, fps: 30 });
     let buffered = 192 * 1024;
     const results: import("@ace/protocol/devices").DeviceServerMessage[] = [];
     const packets: Uint8Array[] = [];
-    const delivery = devicePacketDelivery({
-      bufferedBytes: () => buffered,
-      authorize: () => true,
-      write: async (packet) => {
-        if (relay)
-          await sendDeviceFrame(
-            packet,
-            async (bytes) => {
-              packets.push(bytes);
-            },
-            () => true,
-          );
-        else packets.push(packet);
-      },
-    });
     const channel = connectDevices(h.service, "congested", {
       authorize: () => true,
       canReadThread: () => true,
@@ -719,7 +699,12 @@ for (const relay of [false, true]) {
       async send(message) {
         results.push(message);
       },
-      ...delivery,
+      media: {
+        bufferedBytes: () => buffered,
+        write: async (piece) => {
+          packets.push(piece);
+        },
+      },
     });
     const screenshot = (requestId: string) =>
       channel.request({
@@ -736,7 +721,13 @@ for (const relay of [false, true]) {
     });
     buffered = 0;
     await screenshot("ready");
-    expect(Buffer.concat(packets).includes(Buffer.from("jpeg-0"))).toBe(true);
+    const assembler = new StreamAssembler();
+    const stills = packets.flatMap((piece) => {
+      const envelope = assembler.push(piece);
+      const message = envelope && decodeStreamMessage(envelope);
+      return message?.kind === "device.frame" && message.frame.still ? [message.frame] : [];
+    });
+    expect(Buffer.from(stills[0]?.bytes ?? []).toString()).toBe("jpeg-0");
     expect(results.at(-1)).toMatchObject({ type: "devices.result", requestId: "ready", ok: true });
     channel.close();
   });

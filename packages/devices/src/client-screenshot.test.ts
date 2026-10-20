@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { framePacket } from "@ace/screen";
+import { encodePicture, streamKinds } from "@ace/browser/stream";
 import { DeviceClient, type DeviceTransportEvents } from "./client.ts";
 import type { DeviceClientMessage } from "@ace/protocol/devices";
 
@@ -7,15 +7,9 @@ function setup() {
   let id = 0;
   let events: DeviceTransportEvents | undefined;
   const sent: DeviceClientMessage[] = [];
-  const deadlines = new Set<() => void>();
   const client = new DeviceClient({
     id: () => `image_${id++}`,
-    schedule(callback) {
-      deadlines.add(callback);
-      return () => {
-        deadlines.delete(callback);
-      };
-    },
+    schedule: () => () => {},
   });
   client.connect({
     open(next) {
@@ -37,68 +31,59 @@ function setup() {
 }
 const deviceId = "android:Pixel";
 const header = {
-  version: 2,
-  sessionId: "snapshot",
-  seq: 5,
-  ts: 10,
+  sequence: 5,
+  timestamp: 10,
   width: 100,
   height: 200,
   scale: 1,
+  rotation: 0,
   codec: "jpeg",
-  bytes: 1,
+  key: true,
+  streamId: "snapshot",
 } as const;
+const result = { streamId: "snapshot", sequence: 5, width: 100, height: 200, bytes: 1 };
+let ids = 0;
+/** The daemon's still picture for a screenshot (or a live one), as its stream pieces. */
+const picture = (byte: number, options: { still?: boolean; sequence?: number } = {}) =>
+  encodePicture(
+    streamKinds.deviceFrame,
+    ++ids,
+    deviceId,
+    {
+      ...header,
+      sequence: options.sequence ?? header.sequence,
+      ...(options.still === false ? {} : { still: true as const }),
+    },
+    new Uint8Array([byte]),
+  );
 
-it("renders screenshot pixels preceding metadata before device state is loaded", async () => {
+it("a screenshot resolves with the still picture its result names, without a subscription", async () => {
   const host = setup();
-  let draw: (value: number) => void = () => {
-    throw new Error(`Missing draw promise ${host.sent.length}`);
-  };
-  const drawn = new Promise<number>((resolve) => {
-    draw = resolve;
-  });
-  host.client.watchFrames(deviceId, async (frame) => {
-    draw(frame.payload[0] ?? -1);
-  });
-  const request = host.client.request({ op: "screenshot", deviceId });
+  const shot = host.client.screenshot(deviceId);
   const sent = host.sent[0];
   if (!sent) throw new Error("Missing screenshot request");
-  host.receive(framePacket(header, Buffer.from([5])));
-  host.receive({ type: "devices.result", requestId: sent.requestId, ok: true, data: header });
-  expect(await drawn).toBe(5);
-  await expect(request).resolves.toEqual(header);
+  for (const piece of picture(5)) host.receive(piece);
+  host.receive({ type: "devices.result", requestId: sent.requestId, ok: true, data: result });
+  const image = await shot;
+  expect([...image.bytes]).toEqual([5]);
+  expect(image).toMatchObject({ sourceId: deviceId, width: 100, height: 200, still: true });
   expect(host.sent.map((message) => message.operation.op)).toEqual(["screenshot"]);
   host.client.disconnect();
 });
 
-it("renders a screenshot without requiring a stream subscription", async () => {
+it("a screenshot's still never reaches the live view, which only draws paced pictures", async () => {
   const host = setup();
-  host.receive({
-    type: "devices.state",
-    state: {
-      device: { id: deviceId, platform: "android", name: "Pixel", state: "booted" },
-      enabled: true,
-      lifecycle: "live",
-      streamId: "snapshot",
-      controller: "none",
-    },
-  });
-  let draw: (value: number) => void = () => {
-    throw new Error(`Missing draw promise ${host.sent.length}`);
-  };
-  const drawn = new Promise<number>((resolve) => {
-    draw = resolve;
-  });
-  host.client.watchFrames(deviceId, async (frame) => {
-    draw(frame.payload[0] ?? -1);
-  });
-  const request = host.client.request({ op: "screenshot", deviceId });
+  const drawn: number[] = [];
+  host.client.watchPictures(deviceId, async (next) => void drawn.push(next.bytes[0] ?? -1));
+  const shot = host.client.screenshot(deviceId);
   const sent = host.sent[0];
   if (!sent) throw new Error("Missing screenshot request");
-  host.receive(framePacket(header, Buffer.from([5])));
-  host.receive({ type: "devices.result", requestId: sent.requestId, ok: true, data: header });
-  expect(await drawn).toBe(5);
-  await request;
-  expect(host.sent.map((message) => message.operation.op)).toEqual(["screenshot"]);
+  for (const piece of picture(5)) host.receive(piece);
+  for (const piece of picture(6, { still: false, sequence: 6 })) host.receive(piece);
+  host.receive({ type: "devices.result", requestId: sent.requestId, ok: true, data: result });
+  expect([...(await shot).bytes]).toEqual([5]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(drawn).toEqual([6]);
   host.client.disconnect();
 });
 
@@ -116,36 +101,27 @@ it("bounds unsettled screenshots separately from ordinary device requests", asyn
     expect(error).toMatchObject({ code: "disconnected" });
 });
 
-// Not executed: tests run at merge. A success envelope must never conceal dropped pixels.
-it("rejects screenshot metadata when its binary pixels were dropped", async () => {
+it("rejects a screenshot result whose still picture never arrived", async () => {
   const host = setup();
-  const result = host.client.request({ op: "screenshot", deviceId });
+  const shot = host.client.screenshot(deviceId);
   const sent = host.sent[0];
   if (!sent) throw new Error("Missing request");
-  host.receive({ type: "devices.result", requestId: sent.requestId, ok: true, data: header });
-  await expect(result).rejects.toThrow("Screenshot pixels missing");
+  // A live picture with the same sequence is not the screenshot.
+  for (const piece of picture(5, { still: false })) host.receive(piece);
+  host.receive({ type: "devices.result", requestId: sent.requestId, ok: true, data: result });
+  await expect(shot).rejects.toThrow("Screenshot pixels missing");
   host.client.disconnect();
 });
 
-it("a later video frame cannot replace pending screenshot pixels", async () => {
+it("concurrent screenshots of the same unchanged image both get its pixels", async () => {
   const host = setup();
-  const result = host.client.request({ op: "screenshot", deviceId });
-  const sent = host.sent[0];
-  if (!sent) throw new Error("Missing request");
-  host.receive(framePacket(header, Buffer.from([5])));
-  host.receive(framePacket({ ...header, seq: 6, codec: "h264" }, Buffer.from([6])));
-  host.receive({ type: "devices.result", requestId: sent.requestId, ok: true, data: header });
-  await expect(result).resolves.toEqual(header);
-  host.client.disconnect();
-});
-it("concurrent screenshots of the same unchanged image retain matching pixels for both results", async () => {
-  const host = setup();
-  const first = host.client.request({ op: "screenshot", deviceId });
-  const second = host.client.request({ op: "screenshot", deviceId });
-  host.receive(framePacket(header, Buffer.from([5])));
-  host.receive(framePacket(header, Buffer.from([5])));
+  const first = host.client.screenshot(deviceId);
+  const second = host.client.screenshot(deviceId);
+  for (const piece of picture(5)) host.receive(piece);
+  for (const piece of picture(5)) host.receive(piece);
   for (const sent of host.sent)
-    host.receive({ type: "devices.result", requestId: sent.requestId, ok: true, data: header });
-  await expect(Promise.all([first, second])).resolves.toEqual([header, header]);
+    host.receive({ type: "devices.result", requestId: sent.requestId, ok: true, data: result });
+  const images = await Promise.all([first, second]);
+  expect(images.map((image) => [...image.bytes])).toEqual([[5], [5]]);
   host.client.disconnect();
 });
