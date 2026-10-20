@@ -40,6 +40,7 @@ Example:
       "pendingCount": 0,
       "phase": "plan",
       "revision": "example",
+      "roles": [],
       "updatedAt": 5,
       "version": 7
     },
@@ -2758,6 +2759,7 @@ Example:
       "pendingCount": 1,
       "phase": "delivery",
       "revision": "example",
+      "roles": [],
       "updatedAt": 8,
       "version": 4
     },

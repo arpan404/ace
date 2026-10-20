@@ -44,22 +44,7 @@
     },
     "pending": {
       "items": {
-        "properties": {
-          "criterionId": {
-            "maxLength": 128,
-            "minLength": 1,
-            "pattern": "^[a-zA-Z0-9_.-]+$",
-            "type": "string"
-          },
-          "kind": {
-            "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceKind.json"
-          }
-        },
-        "required": [
-          "criterionId",
-          "kind"
-        ],
-        "type": "object"
+        "$ref": "https://ace.local/protocol/v1/OffshiftPending.json"
       },
       "maxItems": 16,
       "type": "array"
@@ -74,6 +59,40 @@
     },
     "revision": {
       "$ref": "https://ace.local/protocol/v1/OffshiftRevision.json"
+    },
+    "roles": {
+      "items": {
+        "properties": {
+          "effort": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "model": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+          },
+          "role": {
+            "$ref": "https://ace.local/protocol/v1/OffshiftRole.json"
+          },
+          "source": {
+            "enum": [
+              "run",
+              "project"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "source"
+        ],
+        "type": "object"
+      },
+      "maxItems": 4,
+      "type": "array"
     },
     "updatedAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
@@ -97,7 +116,8 @@
     "criteria",
     "criteriaCount",
     "pending",
-    "pendingCount"
+    "pendingCount",
+    "roles"
   ],
   "type": "object"
 }

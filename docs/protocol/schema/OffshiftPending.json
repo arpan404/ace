@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftPending.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "criterionId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceKind.json"
+    },
+    "needs": {
+      "const": "independent",
+      "type": "string"
+    }
+  },
+  "required": [
+    "criterionId",
+    "kind"
+  ],
+  "type": "object"
+}

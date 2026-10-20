@@ -16,6 +16,10 @@
       "pattern": "^[a-zA-Z0-9_.-]+$",
       "type": "string"
     },
+    "independent": {
+      "description": "Passes count only from another provider or model than the run owner's.",
+      "type": "boolean"
+    },
     "requiredKinds": {
       "description": "Evidence kinds that must each have a current pass.",
       "items": {

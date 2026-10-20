@@ -48,8 +48,14 @@
       "minLength": 1,
       "type": "string"
     },
+    "owner": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftAuthor.json"
+    },
     "phase": {
       "$ref": "https://ace.local/protocol/v1/OffshiftPhase.json"
+    },
+    "roles": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftRoles.json"
     },
     "threadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
@@ -69,6 +75,8 @@
     "outcome",
     "endpoint",
     "criteria",
+    "owner",
+    "roles",
     "phase",
     "version",
     "blocker",

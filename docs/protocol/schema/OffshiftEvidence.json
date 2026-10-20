@@ -15,6 +15,9 @@
       "minLength": 1,
       "type": "string"
     },
+    "by": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftAuthor.json"
+    },
     "criterionId": {
       "description": "The criterion this observation checks.",
       "maxLength": 128,
@@ -65,7 +68,8 @@
     "action",
     "artifact",
     "note",
-    "recordedAt"
+    "recordedAt",
+    "by"
   ],
   "type": "object"
 }

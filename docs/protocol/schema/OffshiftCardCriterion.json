@@ -9,6 +9,36 @@
     "evidence": {
       "items": {
         "properties": {
+          "by": {
+            "anyOf": [
+              {
+                "properties": {
+                  "model": {
+                    "anyOf": [
+                      {
+                        "maxLength": 64,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "provider": {
+                    "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+                  }
+                },
+                "required": [
+                  "provider",
+                  "model"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "kind": {
             "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceKind.json"
           },
@@ -29,7 +59,8 @@
         "required": [
           "kind",
           "state",
-          "recordedAt"
+          "recordedAt",
+          "by"
         ],
         "type": "object"
       },
@@ -41,11 +72,15 @@
       "minLength": 1,
       "pattern": "^[a-zA-Z0-9_.-]+$",
       "type": "string"
+    },
+    "independent": {
+      "type": "boolean"
     }
   },
   "required": [
     "id",
     "description",
+    "independent",
     "evidence"
   ],
   "type": "object"

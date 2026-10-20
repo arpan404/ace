@@ -816,6 +816,7 @@ Example:
     "pendingCount": 8,
     "phase": "verify",
     "revision": "example",
+    "roles": [],
     "updatedAt": 4,
     "version": 6
   },

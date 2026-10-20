@@ -1042,7 +1042,10 @@
           "type": "string"
         },
         "request": {
-          "$ref": "https://ace.local/protocol/v1/OffshiftRequest.json"
+          "$ref": "https://ace.local/protocol/v1/OffshiftCall.json"
+        },
+        "runOwner": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         }
       },
       "required": [

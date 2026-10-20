@@ -148,7 +148,7 @@ Required capability: agents. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| tasks | yes | array | {"minItems":1,"maxItems":64,"items":{"type":"object","properties":{"requestId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."},"task":{"type":"string","minLength":1,"maxLength":262144,"description":"The whole assignment: goal, files, constraints, project notes that apply, and how to verify. The child sees none of your conversation."},"role":{"$ref":"https://ace.local/protocol/v1/DelegationRole.json"},"provider":{"description":"Provider that runs the child. Default: yours, or the one whose catalog has `model`.","$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"model":{"description":"A model id from `models`. Default: the provider's default model. ace picks the account and instance that serve it.","type":"string","minLength":1,"maxLength":256},"effort":{"description":"Reasoning effort, such as low, medium, high or xhigh. Default inherit: yours on the same model, else the model's default.","type":"string","minLength":1,"maxLength":64},"access":{"description":"The child's access mode. Default inherit (yours); never broader than yours.","$ref":"https://ace.local/protocol/v1/AccessRequest.json"},"workspace":{"description":"Where the child works. Default: this project's checkout. new_worktree starts a Git worktree from base; existing_worktree reuses one by path.","$ref":"https://ace.local/protocol/v1/AgentWorkspace.json"},"machine":{"description":"Run on this paired machine (a name from `machines`). Requires project.","$ref":"https://ace.local/protocol/v1/MachineName.json"},"project":{"description":"The project on that machine, as `machines` lists it.","type":"string","minLength":1,"maxLength":256}},"required":["requestId","task","role"],"additionalProperties":false},"description":"One entry per child. Roles must be unique among your live children."} |
+| tasks | yes | array | {"minItems":1,"maxItems":64,"items":{"type":"object","properties":{"requestId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."},"task":{"type":"string","minLength":1,"maxLength":262144,"description":"The whole assignment: goal, files, constraints, project notes that apply, and how to verify. The child sees none of your conversation."},"role":{"$ref":"https://ace.local/protocol/v1/DelegationRole.json"},"runRole":{"description":"Fill unset fields from your Offshift role.","$ref":"https://ace.local/protocol/v1/OffshiftRole.json"},"provider":{"description":"Provider that runs the child. Default: yours, or the one whose catalog has `model`.","$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"model":{"description":"A model id from `models`. Default: the provider's default model. ace picks the account and instance that serve it.","type":"string","minLength":1,"maxLength":256},"effort":{"description":"Reasoning effort, such as low, medium, high or xhigh. Default inherit: yours on the same model, else the model's default.","type":"string","minLength":1,"maxLength":64},"access":{"description":"The child's access mode. Default inherit (yours); never broader than yours.","$ref":"https://ace.local/protocol/v1/AccessRequest.json"},"workspace":{"description":"Where the child works. Default: this project's checkout. new_worktree starts a Git worktree from base; existing_worktree reuses one by path.","$ref":"https://ace.local/protocol/v1/AgentWorkspace.json"},"machine":{"description":"Run on this paired machine (a name from `machines`). Requires project.","$ref":"https://ace.local/protocol/v1/MachineName.json"},"project":{"description":"The project on that machine, as `machines` lists it.","type":"string","minLength":1,"maxLength":256}},"required":["requestId","task","role"],"additionalProperties":false},"description":"One entry per child. Roles must be unique among your live children."} |
 | waitSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) | {"description":"Wait up to this many seconds for the children before returning, as `wait` does. Omit to return at once."} |
 | waitFor | no | [WaitMode.json](schema/WaitMode.json) | {"default":"all","description":"With waitSeconds: return when all children settle (default) or when any does."} |
 
@@ -158,12 +158,12 @@ Example:
 {
   "tasks": [
     {
+      "project": "example",
       "requestId": "xXxd2cXRW",
       "role": "example",
       "task": "example"
     }
-  ],
-  "waitSeconds": 7
+  ]
 }
 ```
 
@@ -950,7 +950,7 @@ Example:
 
 ## offshift
 
-Keep this thread's durable record of a multi-step coding outcome: criteria, phase (plan, implement, verify, review, delivery), blocker and evidence bound to the workspace's Git revision. It records work and never runs it. Changes take a requestId and the last version. Each action's fields are named in action's description.
+Keep this thread's durable record of a multi-step coding outcome: criteria, phase (plan, implement, verify, review, delivery), blocker, roles and evidence bound to the workspace's Git revision. It records work and never runs it. Changes take the last version. Every result's next says what to do now. Each action's fields are named in action's description.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -958,13 +958,13 @@ Required capability: thread_control. Timeout: 630000 ms.
 
 [JSON Schema](schema/offshift.input.json), input validation.
 
-Semantic rule: start needs runId, requestId, outcome, endpoint and criteria; get needs runId; advance needs runId, requestId, version, phase and note; block and resume need runId, requestId, version and note; evidence needs runId, requestId, version and evidence; revise needs runId, requestId, version, criterion and note.
+Semantic rule: start needs runId, outcome, endpoint and criteria; get needs runId; advance needs runId, version, phase and note; block and resume need runId, version and note; evidence needs runId, version and evidence; revise needs runId, version, criterion and note; roles needs roles, plus runId and version unless scope is project.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| action | yes | ["start","get","list","advance","block","resume","evidence","revise"] | {"description":"start: open a run with its outcome, endpoint and criteria. get: the run, the current revision and pending evidence. list: this thread's runs. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record one check's result. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked."} |
+| action | yes | ["start","get","list","advance","block","resume","evidence","revise","roles"] | {"description":"start: open a run with its outcome, endpoint, criteria and optional roles. get: the run, revision, pending evidence and next. list: this thread's runs. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record one check's result. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked. roles: replace the run's roles (runId, version), or the project default with scope project."} |
 | runId | no | string | {"description":"Every action but list: the run's id, chosen at start (letters, digits, _ . -).","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
+| requestId | no | string | {"description":"Optional on changes; omitted, an identical retry still applies once.","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
 | version | no | integer | {"description":"Every change after start: the version the last result returned. A mismatch means the run changed; get it again.","minimum":0,"maximum":9007199254740991} |
 | outcome | no | string | {"description":"start: the observable result the work delivers.","minLength":1,"maxLength":4096} |
 | endpoint | no | string | {"description":"start: where the work stops, as authorized (local changes, an open PR, ...).","minLength":1,"maxLength":4096} |
@@ -973,18 +973,31 @@ Semantic rule: start needs runId, requestId, outcome, endpoint and criteria; get
 | phase | no | [OffshiftPhase.json](schema/OffshiftPhase.json) | {"description":"advance: plan, implement, verify, review, then delivery."} |
 | note | no | string | {"description":"advance, block, resume and revise: why, in a sentence.","minLength":1,"maxLength":4096} |
 | evidence | no | [OffshiftEvidenceInput.json](schema/OffshiftEvidenceInput.json) | {"description":"evidence: one check, at the revision get returned before it ran."} |
+| roles | no | [OffshiftRoles.json](schema/OffshiftRoles.json) | {"description":"start and roles: who does build, judgment, review and verify work ({provider, model, effort} each)."} |
+| scope | no | ["run","project"] | {"description":"roles: run (default) or project, the default for runs without that role."} |
+| runOwner | no | [ThreadId.json](schema/ThreadId.json) | {"description":"get and evidence only: the ancestor thread whose run you check, as its brief named it."} |
 
 Example:
 
 ```json
 {
   "action": "list",
-  "criterion": {
-    "description": "example",
-    "id": "CwDiZ_",
-    "requiredKinds": [
-      "manual"
-    ]
+  "evidence": {
+    "action": "example",
+    "artifact": "example",
+    "criterionId": "Ea7CtnK0F",
+    "kind": "human",
+    "note": "example",
+    "result": "fail",
+    "revision": "example"
+  },
+  "outcome": "example",
+  "phase": "delivery",
+  "requestId": "6sGj8",
+  "roles": {
+    "judgment": {
+      "model": "example"
+    }
   }
 }
 ```
@@ -998,14 +1011,13 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | union | {"anyOf":[{"type":"object","properties":{"run":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","minLength":1,"maxLength":4096},"endpoint":{"type":"string","minLength":1,"maxLength":4096},"criteria":{"minItems":1,"maxItems":64,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"A stable id for the criterion (letters, digits, _ . -)."},"description":{"type":"string","minLength":1,"maxLength":4096,"description":"The observable behaviour that must hold."},"requiredKinds":{"minItems":1,"maxItems":5,"type":"array","items":{"type":"string","enum":["automated","source","ui","human","manual"]},"description":"Evidence kinds that must each have a current pass."}},"required":["id","description","requiredKinds"],"additionalProperties":false},"x-ace-constraint":"Criterion IDs must be unique."},"phase":{"type":"string","enum":["plan","implement","verify","review","delivery"]},"version":{"type":"integer","minimum":0,"maximum":9007199254740991},"blocker":{"anyOf":[{"type":"string","minLength":1,"maxLength":4096},{"type":"null"}]},"note":{"type":"string","minLength":1,"maxLength":4096},"evidence":{"maxItems":320,"type":"array","items":{"type":"object","properties":{"criterionId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"The criterion this observation checks."},"kind":{"type":"string","enum":["automated","source","ui","human","manual"],"description":"Which required kind this observation satisfies."},"result":{"type":"string","enum":["pass","fail"],"description":"What the check observed."},"revision":{"type":"string","minLength":1,"maxLength":512,"description":"The revision from get, read before the check ran."},"action":{"type":"string","minLength":1,"maxLength":4096,"description":"The command or interaction actually performed."},"artifact":{"type":"string","minLength":1,"maxLength":4096,"description":"Where the full output is kept: a path, URL or report reference."},"note":{"type":"string","minLength":1,"maxLength":4096,"description":"The observed result and environment, in a sentence or two."},"recordedAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["criterionId","kind","result","revision","action","artifact","note","recordedAt"],"additionalProperties":false}},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"updatedAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","threadId","outcome","endpoint","criteria","phase","version","blocker","note","evidence","createdAt","updatedAt"],"additionalProperties":false},"revision":{"type":"string","minLength":1,"maxLength":512},"state":{"type":"string","enum":["active","blocked","needs_evidence","waiting_on_tree","complete"]},"pending":{"maxItems":320,"type":"array","items":{"type":"object","properties":{"criterionId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"kind":{"type":"string","enum":["automated","source","ui","human","manual"]}},"required":["criterionId","kind"],"additionalProperties":false}},"treeState":{"type":"string","enum":["working","waiting","needs_you","failed","done","unknown"]}},"required":["run","revision","state","pending","treeState"],"additionalProperties":false},{"maxItems":32,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"phase":{"type":"string","enum":["plan","implement","verify","review","delivery"]},"outcome":{"type":"string","maxLength":512},"outcomeTruncated":{"type":"boolean"}},"required":["id","phase","outcome","outcomeTruncated"],"additionalProperties":false}}]} |
+| data | no | union | {"anyOf":[{"type":"object","properties":{"run":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","minLength":1,"maxLength":4096},"endpoint":{"type":"string","minLength":1,"maxLength":4096},"criteria":{"minItems":1,"maxItems":64,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"A stable id for the criterion (letters, digits, _ . -)."},"description":{"type":"string","minLength":1,"maxLength":4096,"description":"The observable behaviour that must hold."},"requiredKinds":{"minItems":1,"maxItems":5,"type":"array","items":{"type":"string","enum":["automated","source","ui","human","manual"]},"description":"Evidence kinds that must each have a current pass."},"independent":{"description":"Passes count only from another provider or model than the run owner's.","type":"boolean"}},"required":["id","description","requiredKinds"],"additionalProperties":false},"x-ace-constraint":"Criterion IDs must be unique."},"owner":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"anyOf":[{"type":"string","minLength":1,"maxLength":256},{"type":"null"}]}},"required":["threadId","provider","model"],"additionalProperties":false},"roles":{"type":"object","properties":{"build":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"effort":{"type":"string","minLength":1,"maxLength":64}},"additionalProperties":false,"x-ace-constraint":"A role names at least a provider, model or effort."},"judgment":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"effort":{"type":"string","minLength":1,"maxLength":64}},"additionalProperties":false,"x-ace-constraint":"A role names at least a provider, model or effort."},"review":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"effort":{"type":"string","minLength":1,"maxLength":64}},"additionalProperties":false,"x-ace-constraint":"A role names at least a provider, model or effort."},"verify":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"effort":{"type":"string","minLength":1,"maxLength":64}},"additionalProperties":false,"x-ace-constraint":"A role names at least a provider, model or effort."}},"additionalProperties":false},"phase":{"type":"string","enum":["plan","implement","verify","review","delivery"]},"version":{"type":"integer","minimum":0,"maximum":9007199254740991},"blocker":{"anyOf":[{"type":"string","minLength":1,"maxLength":4096},{"type":"null"}]},"note":{"type":"string","minLength":1,"maxLength":4096},"evidence":{"maxItems":320,"type":"array","items":{"type":"object","properties":{"criterionId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"The criterion this observation checks."},"kind":{"type":"string","enum":["automated","source","ui","human","manual"],"description":"Which required kind this observation satisfies."},"result":{"type":"string","enum":["pass","fail"],"description":"What the check observed."},"revision":{"type":"string","minLength":1,"maxLength":512,"description":"The revision from get, read before the check ran."},"action":{"type":"string","minLength":1,"maxLength":4096,"description":"The command or interaction actually performed."},"artifact":{"type":"string","minLength":1,"maxLength":4096,"description":"Where the full output is kept: a path, URL or report reference."},"note":{"type":"string","minLength":1,"maxLength":4096,"description":"The observed result and environment, in a sentence or two."},"recordedAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"by":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"anyOf":[{"type":"string","minLength":1,"maxLength":256},{"type":"null"}]}},"required":["threadId","provider","model"],"additionalProperties":false}},"required":["criterionId","kind","result","revision","action","artifact","note","recordedAt","by"],"additionalProperties":false}},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"updatedAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","threadId","outcome","endpoint","criteria","owner","roles","phase","version","blocker","note","evidence","createdAt","updatedAt"],"additionalProperties":false},"revision":{"type":"string","minLength":1,"maxLength":512},"state":{"type":"string","enum":["active","blocked","needs_evidence","waiting_on_tree","complete"]},"pending":{"maxItems":320,"type":"array","items":{"type":"object","properties":{"criterionId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"kind":{"type":"string","enum":["automated","source","ui","human","manual"]},"needs":{"type":"string","const":"independent"}},"required":["criterionId","kind"],"additionalProperties":false}},"treeState":{"type":"string","enum":["working","waiting","needs_you","failed","done","unknown"]},"next":{"type":"string","minLength":1,"maxLength":1024}},"required":["run","revision","state","pending","treeState","next"],"additionalProperties":false},{"maxItems":32,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"phase":{"type":"string","enum":["plan","implement","verify","review","delivery"]},"outcome":{"type":"string","maxLength":512},"outcomeTruncated":{"type":"boolean"}},"required":["id","phase","outcome","outcomeTruncated"],"additionalProperties":false}},{"type":"object","properties":{"scope":{"type":"string","const":"project"},"roles":{"type":"object","properties":{"build":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"effort":{"type":"string","minLength":1,"maxLength":64}},"additionalProperties":false,"x-ace-constraint":"A role names at least a provider, model or effort."},"judgment":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"effort":{"type":"string","minLength":1,"maxLength":64}},"additionalProperties":false,"x-ace-constraint":"A role names at least a provider, model or effort."},"review":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"effort":{"type":"string","minLength":1,"maxLength":64}},"additionalProperties":false,"x-ace-constraint":"A role names at least a provider, model or effort."},"verify":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"effort":{"type":"string","minLength":1,"maxLength":64}},"additionalProperties":false,"x-ace-constraint":"A role names at least a provider, model or effort."}},"additionalProperties":false}},"required":["scope","roles"],"additionalProperties":false}]} |
 
 Example:
 
 ```json
 {
-  "code": "unsupported",
-  "hint": "example",
+  "code": "not_found",
   "ok": true
 }
 ```
@@ -1030,7 +1042,9 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 Example:
 
 ```json
-{}
+{
+  "automationId": "example"
+}
 ```
 
 ## automations_list.output
@@ -1048,8 +1062,7 @@ Example:
 
 ```json
 {
-  "code": "forbidden",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -1080,7 +1093,14 @@ Example:
 ```json
 {
   "id": "example",
+  "missedRun": "run_once",
   "prompt": "example",
+  "schedule": {
+    "expression": "example",
+    "kind": "cron",
+    "startAt": 0,
+    "timezone": "example"
+  },
   "title": "example"
 }
 ```
@@ -1100,7 +1120,7 @@ Example:
 
 ```json
 {
-  "hint": "example",
+  "data": null,
   "ok": true
 }
 ```
@@ -1126,7 +1146,7 @@ Example:
 ```json
 {
   "id": "example",
-  "requestId": "cNeB"
+  "requestId": "_739VEhbp"
 }
 ```
 
@@ -1145,8 +1165,6 @@ Example:
 
 ```json
 {
-  "code": "invalid",
-  "data": null,
   "ok": true
 }
 ```
@@ -1187,7 +1205,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "code": "forbidden",
+  "ok": false
 }
 ```
 
@@ -1214,9 +1233,6 @@ Example:
 
 ```json
 {
-  "before": 7,
-  "limit": 7,
-  "offset": 1,
   "sourceThreadId": "example"
 }
 ```
@@ -1240,8 +1256,10 @@ Example:
 
 ```json
 {
-  "bytes": "example",
-  "eof": false
+  "eof": true,
+  "itemsBefore": null,
+  "nextOffset": 6,
+  "omitted": []
 }
 ```
 
@@ -1282,7 +1300,12 @@ Example:
 
 ```json
 {
-  "recent": []
+  "changes": null,
+  "diagnostics": {
+    "blocking": [],
+    "failures": []
+  },
+  "notes": []
 }
 ```
 
@@ -1322,7 +1345,7 @@ Example:
 ```json
 {
   "noteId": "example",
-  "notes": 6
+  "notes": 7
 }
 ```
 
@@ -1385,9 +1408,8 @@ Example:
 
 ```json
 {
-  "allowOther": true,
-  "question": "example",
-  "timeoutSeconds": 13
+  "allowOther": false,
+  "question": "example"
 }
 ```
 
@@ -1405,8 +1427,9 @@ Example:
 
 ```json
 {
+  "answer": [],
   "askId": "example",
-  "status": "declined"
+  "status": "answered"
 }
 ```
 
@@ -1430,8 +1453,6 @@ Example:
 
 ```json
 {
-  "family": "ace-threads",
-  "limit": 2,
   "query": "example"
 }
 ```
@@ -1491,6 +1512,6 @@ Example:
 ```json
 {
   "content": [],
-  "isError": true
+  "isError": false
 }
 ```

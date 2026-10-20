@@ -5,7 +5,8 @@
     "pass",
     "fail",
     "stale",
-    "missing"
+    "missing",
+    "not_independent"
   ],
   "type": "string"
 }

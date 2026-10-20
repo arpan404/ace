@@ -1,0 +1,11 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftRole.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "build",
+    "judgment",
+    "review",
+    "verify"
+  ],
+  "type": "string"
+}

@@ -11,6 +11,9 @@
       },
       "maxItems": 32,
       "type": "array"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/OffshiftProjectRoles.json"
     }
   ]
 }

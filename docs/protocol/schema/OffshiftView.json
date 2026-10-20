@@ -2,24 +2,14 @@
   "$id": "https://ace.local/protocol/v1/OffshiftView.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "next": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "type": "string"
+    },
     "pending": {
       "items": {
-        "properties": {
-          "criterionId": {
-            "maxLength": 128,
-            "minLength": 1,
-            "pattern": "^[a-zA-Z0-9_.-]+$",
-            "type": "string"
-          },
-          "kind": {
-            "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceKind.json"
-          }
-        },
-        "required": [
-          "criterionId",
-          "kind"
-        ],
-        "type": "object"
+        "$ref": "https://ace.local/protocol/v1/OffshiftPending.json"
       },
       "maxItems": 320,
       "type": "array"
@@ -57,7 +47,8 @@
     "revision",
     "state",
     "pending",
-    "treeState"
+    "treeState",
+    "next"
   ],
   "type": "object"
 }

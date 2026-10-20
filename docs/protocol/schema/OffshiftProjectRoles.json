@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftProjectRoles.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "roles": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftRoles.json"
+    },
+    "scope": {
+      "const": "project",
+      "type": "string"
+    }
+  },
+  "required": [
+    "scope",
+    "roles"
+  ],
+  "type": "object"
+}
