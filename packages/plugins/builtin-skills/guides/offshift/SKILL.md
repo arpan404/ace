@@ -5,7 +5,7 @@ description: Own a multi-step coding outcome through verified delivery, keeping 
 
 # Offshift
 
-`offshift` keeps this thread's record of the outcome: criteria, phase, blocker and evidence bound to the workspace's Git revision. It survives restarts. It records work and never runs it; do the work with your own tools and ace's. If `offshift` is not in your tool list, call `guide` with topic `ace-threads` first.
+`offshift` keeps this thread's record of the outcome: criteria, phase, blocker and evidence bound to the workspace's Git revision. It survives restarts. It records work and never runs it; do the work with your own tools and ace's. Reading this guide (`guide` with topic `offshift`) loads the `offshift` tool.
 
 1. **Start or resume.** Call `context` with `topics: ["recent", "notes", "changes"]`. Then `offshift` `list`, and `get` any run for this assignment: resume from its phase, blocker and pending evidence. For new work, `start` with a `runId`, a `requestId`, the observable `outcome`, the authorized `endpoint` (local changes, an open PR, ...) and `criteria`, each with the evidence kinds it needs: `automated`, `source`, `ui`, `human` or `manual`.
 2. **Every change** after `start` takes a fresh `requestId` and the last returned `version`. After a lost response, repeat the identical call. On a version conflict, `get` and reconcile before you retry.

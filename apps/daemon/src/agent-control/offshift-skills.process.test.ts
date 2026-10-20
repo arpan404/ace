@@ -1,9 +1,10 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, onTestFinished, test } from "vitest";
 import { McpScope } from "@ace/protocol";
-import { builtinGuides, prepareBuiltinSkills } from "@ace/plugins";
+import { z } from "zod";
+import { builtinGuides, builtinSkillsDirectory, prepareBuiltinSkills } from "@ace/plugins";
 import {
   agentControlToolkit,
   CredentialRegistry,
@@ -12,7 +13,7 @@ import {
   ToolRegistry,
 } from "@ace/mcp-server";
 
-test("providers receive the shipped Offshift workflow as a native skill, and the threads guide reveals its tool", async () => {
+test("Offshift reaches no provider as a native skill and loads only through its own guide", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-offshift-skills-"));
   onTestFinished(() => rm(root, { recursive: true, force: true }));
   const guides = await builtinGuides();
@@ -36,29 +37,21 @@ test("providers receive the shipped Offshift workflow as a native skill, and the
   );
   const read = (topic: string) =>
     registry.call("guide", { topic }, lease.principal, new AbortController().signal);
-  expect(await read("ace-threads")).toMatchObject({
-    structuredContent: { topic: "ace-threads", tools: expect.arrayContaining(["offshift"]) },
-  });
+  const threads = z
+    .object({ tools: z.array(z.string()) })
+    .parse((await read("ace-threads")).structuredContent);
+  expect(threads.tools).not.toContain("offshift");
   expect(await read("offshift")).toMatchObject({
-    structuredContent: {
-      topic: "offshift",
-      guide: expect.stringContaining("call `guide` with topic `ace-threads`"),
-    },
+    structuredContent: { topic: "offshift", tools: ["offshift"] },
   });
-  const guide = guides.find((entry) => entry.name === "offshift");
-  if (!guide) throw new Error("Shipped Offshift guide missing");
+  expect(await readdir(builtinSkillsDirectory())).not.toContain("offshift");
   for (const provider of ["claude", "codex"] as const) {
     const sessionRoot = join(root, provider);
     const session = await prepareBuiltinSkills(provider, sessionRoot);
     try {
-      const skill = await readFile(
-        join(sessionRoot, "generated/plugins/ace-builtins/skills/offshift/SKILL.md"),
-        "utf8",
-      );
-      expect(skill).toContain(guide.body);
-      if (provider === "claude")
-        expect(session.directories).toEqual([join(sessionRoot, "generated/plugins/ace-builtins")]);
-      else expect(session.args.join(" ")).toContain("ace-builtins@ace");
+      const skills = await readdir(join(sessionRoot, "generated/plugins/ace-builtins/skills"));
+      expect(skills).toContain("plan-and-delegate");
+      expect(skills).not.toContain("offshift");
     } finally {
       await session.close();
     }

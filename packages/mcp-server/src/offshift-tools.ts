@@ -123,7 +123,7 @@ function request(input: Input): OffshiftRequest {
  * revision-bound evidence. It records work; other tools do it.
  */
 export const offshift = controlTool({
-  toolset: "ace-threads",
+  toolset: "offshift",
   timeoutMs: controlToolTimeoutMs,
   name: "offshift",
   title: "Record an Offshift run",

@@ -18,7 +18,7 @@ synchronous SQLite journal shares the daemon's transaction boundary, so state an
 receipts commit together. Optimistic versions reject conflicting updates; an identical retry
 returns a fresh view without repeating the mutation.
 
-Agents reach it through one control tool, `offshift`, in the `ace-threads` family (ADR 0086). Its
+Agents reach it through one control tool, `offshift`, in its own `offshift` family (ADR 0086). Its
 `action` is one of `start`, `get`, `list`, `advance`, `block`, `resume`, `evidence` or `revise`.
 The input is one flat object, with each action's required fields checked before anything runs.
 It sits behind the `thread_control` capability, like the other tools that write to the caller's
@@ -32,8 +32,13 @@ work stays with `DelegationService`.
 evidence is dropped, since it checked the old requirement. The 64-criteria bound holds, and
 revising is refused while the run is blocked.
 
-A freshly written `offshift` skill ships through the built-in skill projection and the `guide`
-fallback. It records; it does not repeat ace's other skills. It sends delegation to
+Offshift loads only on request. Its procedure is a guide-only topic (`guides/offshift`, outside
+the projected `skills/` directory), so no provider receives it as a native skill and nothing
+loads it into a session upfront. The always-on MCP instructions name it in one line, so an agent
+that owns a multi-step outcome can load it itself with `guide` topic `offshift`. Reading that
+guide opens the `offshift` family: core-mode clients then list the tool, static clients reach it
+through `tools_call`, and Claude Code and Codex keep it deferred behind their tool search until
+used. The guide records; it does not repeat ace's other skills. It sends delegation to
 `plan-and-delegate`, review to `review-changes`, the PR endpoint to `prepare-pr`, failures to
 `fix-failing-tests` and `investigate-bug`, UI evidence to `ace-browser`, and handoff and thread
 changes to `ace-threads`. Durable project facts go to project notes (`note_add`). A blocker is a

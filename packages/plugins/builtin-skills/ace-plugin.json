@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "name": "ace-builtins",
-  "version": "1.2.0",
+  "version": "1.1.0",
   "description": "Skills shipped with ace",
   "skills": [
     { "name": "ace-agents", "path": "skills/ace-agents" },
@@ -13,7 +13,6 @@
     { "name": "fix-failing-tests", "path": "skills/fix-failing-tests" },
     { "name": "plan-and-delegate", "path": "skills/plan-and-delegate" },
     { "name": "investigate-bug", "path": "skills/investigate-bug" },
-    { "name": "prepare-pr", "path": "skills/prepare-pr" },
-    { "name": "offshift", "path": "skills/offshift" }
+    { "name": "prepare-pr", "path": "skills/prepare-pr" }
   ]
 }

@@ -28,8 +28,7 @@ and automations is 27 tools (ask included), down from 56:
   browser's entry point and `html_render`.
 - Agents: `agents_status`, `agent_message`, `agent_cancel`, `machines`, `models`, `ask`.
 - Threads: `threads_find`, `thread_read`, `thread_start`, `thread_control`, `thread_merge`,
-  `queue_edit`, `question_answer`, `thread_link_pr`, `handoff_read`, `notify`, and `offshift`
-  (the calling thread's durable outcome record, added by ADR 0090).
+  `queue_edit`, `question_answer`, `thread_link_pr`, `handoff_read`, `notify`.
 - Knowledge: `note_add`, `note_retire`. Automations: `automations_list`, `automation_put`,
   `automation_run`, `automation_remove`.
 

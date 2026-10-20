@@ -1,9 +1,9 @@
 # Offshift
 
 `@ace/offshift` owns the local coding workflow record ([ADR 0090](../../docs/adr/0090-native-offshift.md)).
-Agents reach it through the `offshift` tool in the `ace-threads` family, scoped to the
-authenticated caller's thread. The bundled `offshift` skill supplies the procedure to native skill
-loaders and to `guide`. No Python installation, control-panel process or user-installed skill is
+Agents reach it through the `offshift` tool in its own `offshift` family, scoped to the
+authenticated caller's thread. Nothing loads it upfront: ace's MCP instructions mention it, and an
+agent loads the procedure and the tool with `guide` topic `offshift`. No Python installation, control-panel process or user-installed skill is
 required.
 
 The agent does the work with ace's other tools and its installed provider CLI. This package
