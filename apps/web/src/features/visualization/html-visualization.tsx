@@ -17,7 +17,7 @@ import { visualizationTab } from "./visualization-tab.ts";
  * A published HTML page, inline in the agent's reply at the message column's full width: no
  * card, no title bar, so it reads as part of the conversation. It shows its whole content height,
  * follows the app theme live, and runs its own scripts in a sandbox that cannot reach the app or
- * the network. Full screen, copy and download float over its top corner on hover or focus; Full
+ * the network. Full screen, copy and download sit in a row below it on hover or focus; Full
  * screen opens it at the side panel's full size, whose strip adds open in window.
  */
 export function HtmlVisualizationView(props: {
@@ -48,11 +48,7 @@ export function HtmlVisualizationView(props: {
   // The page is shown whole; the agent's height only holds its place until it measures itself.
   const initialHeight = visualization.height ?? 160;
   return (
-    <section
-      ref={attach}
-      aria-label={title}
-      className="group/visualization relative w-full min-w-0"
-    >
+    <section ref={attach} aria-label={title} className="group/visualization w-full min-w-0">
       <div className="w-full min-w-0">
         {!available ? (
           <p className="text-ui text-muted-foreground">{title}</p>
@@ -89,7 +85,7 @@ export function HtmlVisualizationView(props: {
         <div
           role="toolbar"
           aria-label={`${title} actions`}
-          className="ace-floating-solid absolute top-1 right-1 flex items-center gap-0.5 rounded-lg p-0.5 opacity-0 transition-opacity duration-150 group-hover/visualization:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100"
+          className="flex h-6 items-center justify-end gap-2 opacity-0 transition-opacity duration-150 group-hover/visualization:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100"
         >
           <IconButton
             size="sm"
