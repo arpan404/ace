@@ -94,6 +94,22 @@ test("a browser accepting only gzip receives a gzip body matching the file", asy
   expect(gunzipSync(response.body).toString("utf8")).toBe(script);
 });
 
+test("built assets are cached for good while the page and icons are always fetched again", async ({
+  onTestFinished,
+}) => {
+  const { port, root } = await serveRenderer(onTestFinished);
+  await writeFile(join(root, "favicon.svg"), "<svg/>");
+  const script = await fetchRaw(port, "/assets/app.js");
+  expect(script.headers["cache-control"]).toBe("public, max-age=31536000, immutable");
+  const page = await fetchRaw(port, "/t/some-thread");
+  expect(page.headers["cache-control"]).toBe("no-store");
+  const icon = await fetchRaw(port, "/favicon.svg");
+  expect(icon.headers["cache-control"]).toBe("no-store");
+  const missing = await fetchRaw(port, "/assets/missing-0123.js");
+  expect(missing.status).toBe(404);
+  expect(missing.headers["cache-control"]).toBeUndefined();
+});
+
 test("a browser sending no accept-encoding receives the raw bytes", async ({ onTestFinished }) => {
   const { port, script } = await serveRenderer(onTestFinished);
   const response = await fetchRaw(port, "/assets/app.js");

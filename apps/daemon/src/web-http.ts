@@ -18,6 +18,12 @@ const types: Record<string, string> = {
 /** The web app's icons, copied to the build's root from `apps/web/public`. */
 const icons = new Set(["/favicon.svg", "/favicon.png", "/apple-touch-icon.png"]);
 const compressible = new Set([".html", ".js", ".css", ".svg"]);
+/**
+ * Built files under `/assets/` carry a hash of their content in their name, so a browser keeps
+ * them for good: a remote device then downloads a lazy screen's code once, not on every visit.
+ * The page and the icons keep their names across builds, so they are always asked for again.
+ */
+const hashedAssetCache = "public, max-age=31536000, immutable";
 /** Serve only the shipped renderer. No workspace or user-home files are reachable. */
 export function webHttp(root: string | undefined, next: RequestListener): RequestListener {
   const compressed = compressedFiles(32 * 1024 * 1024);
@@ -34,7 +40,8 @@ export function webHttp(root: string | undefined, next: RequestListener): Reques
       }
       const name = decodeURIComponent(new URL(path, "http://localhost").pathname);
       const directory = await realpath(root);
-      const asset = name.startsWith("/assets/") || icons.has(name);
+      const hashed = name.startsWith("/assets/");
+      const asset = hashed || icons.has(name);
       const file = await realpath(resolve(directory, asset ? `.${name}` : "index.html"));
       if (!file.startsWith(directory + sep)) throw new Error("Outside renderer");
       const info = await stat(file);
@@ -45,7 +52,7 @@ export function webHttp(root: string | undefined, next: RequestListener): Reques
           ? negotiateContentEncoding(request.headers["accept-encoding"])
           : undefined;
       response.setHeader("Content-Type", types[extension] ?? "application/octet-stream");
-      response.setHeader("Cache-Control", "no-store");
+      response.setHeader("Cache-Control", hashed ? hashedAssetCache : "no-store");
       response.setHeader("Referrer-Policy", "no-referrer");
       response.setHeader("X-Content-Type-Options", "nosniff");
       if (compressible.has(extension)) response.setHeader("Vary", "Accept-Encoding");
