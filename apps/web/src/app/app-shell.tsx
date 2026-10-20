@@ -51,8 +51,8 @@ export function AppShell() {
             data-live-held={liveIndicatorsHeld(connection) ? "" : undefined}
             className={cn(
               // Focus belongs to the inner panes; the shell must never become a scrollport.
-              // iOS lays its keyboard over the page: the shell ends above it (--kb-inset).
-              "relative flex h-[calc(100dvh-var(--kb-inset,0px))] min-h-0 overflow-clip",
+              // iOS lays its keyboard over the page: the shell ends above it (--visible-height).
+              "relative flex h-[var(--visible-height,100dvh)] min-h-0 overflow-clip",
               "[&[data-live-held]_:is([data-slot=spinner],[data-live])]:[animation-play-state:paused]",
               "[&[data-live-held]_:is([data-slot=spinner],[data-live])]:opacity-60",
             )}
