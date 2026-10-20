@@ -13,7 +13,7 @@ export {
   type ToolMetadata,
 } from "./registry.ts";
 export { aceToolDispatch, aceToolSearch, bareToolName, toolNamePattern } from "./tool-names.ts";
-export { startMcpServer, type McpServerOptions } from "./http.ts";
+export { startMcpServer, type McpServerOptions, type NotificationStreamLimits } from "./http.ts";
 export { registerBuiltins, type McpIntentPort } from "./builtins.ts";
 export {
   registerAutomationTool,
