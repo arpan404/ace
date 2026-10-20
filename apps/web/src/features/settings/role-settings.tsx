@@ -45,7 +45,7 @@ export function RoleSettings() {
       anchor="roles"
       card
       scope="daemon"
-      note={note ?? "Agents delegate by role. New sessions pick up changes."}
+      note={note}
     >
       {runRoles.map((role) => (
         <RoleRow key={role} role={role} />
