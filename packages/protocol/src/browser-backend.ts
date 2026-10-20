@@ -78,9 +78,19 @@ export const BrowserBackendEvent = session.extend({
 });
 /** The desktop's computer woke from sleep: the daemon checks every browser engine (#947). */
 export const BrowserBackendResumed = z.object({ type: z.literal("browser.backend.resumed") });
+/**
+ * Whether the desktop's screen can draw its views now: false while it is locked (a locked Mac
+ * draws no frames). Sent on registration and on every change. While false, the daemon moves
+ * the desktop's `auto` pages to ace's own Chromium, so their viewers keep a live picture.
+ */
+export const BrowserBackendDrawable = z.object({
+  type: z.literal("browser.backend.drawable"),
+  drawable: z.boolean(),
+});
 export const BrowserBackendClientMessage = z.discriminatedUnion("type", [
   BrowserBackendRegister,
   BrowserBackendResumed,
+  BrowserBackendDrawable,
   BrowserBackendResponse,
   BrowserBackendEvent,
 ]);
