@@ -441,8 +441,8 @@
       "sha256": "a743e4ce31adcbad421beab360ec0297c2b61f77eef5fb10ba1d8bb17fc05298"
     },
     "schema/BrowserBackendCapabilities.json": {
-      "bytes": 630,
-      "sha256": "bf3c298763ae5a8f456697c535557300b61cb95470807a066c841ade50f9155f"
+      "bytes": 697,
+      "sha256": "75d91864120b37348bfeeba1290348e73cc0b0f2244ff63d2afc4f56c1e13d15"
     },
     "schema/BrowserBackendClientMessage.json": {
       "bytes": 500,
@@ -3865,10 +3865,10 @@
       "sha256": "3c00a18ea5c34e708a57c9d0f5d0cdba097745d6b5fc80bd543053d4c1079efc"
     },
     "types.md": {
-      "bytes": 819920,
-      "sha256": "649c34af7fd8dd6a3039f6d0cf0c135a50604df54dba03a06c3e1450c414e131"
+      "bytes": 821374,
+      "sha256": "78acd21b66b7836ad7eff8e13c8e87f5ddf3b4585ea19b335b6ad0ec779074f3"
     }
   },
-  "input": "a115f1ce363c419ab5eec96b5714aeeb5e35e5c2a95a161f9fc058c610b5fab6",
+  "input": "f18068be1dee0e924867061e25a18380506cf074b203324623edc06f6ec24472",
   "version": 1
 }

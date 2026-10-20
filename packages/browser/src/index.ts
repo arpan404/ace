@@ -41,6 +41,10 @@ export type {
   BrowserBackendTabs,
   BrowserCdp,
   BackendOpen,
+  CaptureEvents,
+  EncodedAudio,
+  EncodedChunk,
+  VideoHost,
 } from "./backend.ts";
 export type { BrowserTabRecord, BrowserTabStore } from "./tab-store.ts";
 export { agentTabLimit, daemonTabLimit, threadTabLimit } from "./tab-limits.ts";

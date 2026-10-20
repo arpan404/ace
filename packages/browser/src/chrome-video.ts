@@ -3,6 +3,7 @@ import { BrowserVideoCodec } from "@ace/protocol";
 import type { BrowserCdp, CaptureEvents, VideoCaptureHandle, VideoHost } from "./backend.ts";
 import type { CdpConnection } from "./cdp-connection.ts";
 import { videoExtensionId, writeVideoExtension } from "./video-extension.ts";
+import { deliverVideoEvent, VideoEncoderEvent } from "./video-events.ts";
 
 /*
  * ace's Chrome as a video encoder (ADR 0088): loads the video extension, keeps CDP sessions on
@@ -26,29 +27,6 @@ const Evaluated = z.object({
     .optional(),
 });
 const Binding = z.object({ name: z.string(), payload: z.string() });
-const Event = z.discriminatedUnion("t", [
-  z.object({
-    t: z.literal("chunk"),
-    capture: z.string(),
-    encode: z.string().max(256),
-    key: z.boolean(),
-    codec: BrowserVideoCodec,
-    codedWidth: z.number().int().min(2).max(8192),
-    codedHeight: z.number().int().min(2).max(8192),
-    description: z.base64().max(4096).optional(),
-    age: z.number().finite().min(0).max(60_000).optional(),
-  }),
-  z.object({
-    t: z.literal("audio"),
-    capture: z.string(),
-    codec: BrowserVideoCodec,
-    sampleRate: z.number().int().min(8_000).max(192_000),
-    channels: z.number().int().min(1).max(8),
-    age: z.number().finite().min(0).max(60_000),
-  }),
-  z.object({ t: z.literal("failed"), capture: z.string(), encode: z.string().max(256) }),
-  z.object({ t: z.literal("ended"), capture: z.string() }),
-]);
 
 const origin = `chrome-extension://${videoExtensionId}/`;
 
@@ -172,28 +150,11 @@ export class ChromeVideo implements VideoHost {
     } catch {
       return;
     }
-    const event = Event.safeParse(json);
+    const event = VideoEncoderEvent.safeParse(json);
     if (!event.success) return;
-    const events = this.captures.get(event.data.capture);
-    if (!events) return;
-    if (event.data.t === "ended") {
-      this.captures.delete(event.data.capture);
-      events.ended();
-      return;
-    }
-    if (event.data.t === "failed") return events.failed(event.data.encode);
-    if (split === -1) return;
-    const bytes = new Uint8Array(Buffer.from(payload.slice(split + 1), "base64"));
-    if (event.data.t === "audio") {
-      const { capture: _capture, t: _t, ...audio } = event.data;
-      return events.audio?.({ ...audio, bytes });
-    }
-    const { description, capture: _capture, t: _t, ...chunk } = event.data;
-    events.chunk({
-      ...chunk,
-      ...(description ? { description: new Uint8Array(Buffer.from(description, "base64")) } : {}),
-      bytes,
-    });
+    const bytes =
+      split === -1 ? undefined : new Uint8Array(Buffer.from(payload.slice(split + 1), "base64"));
+    deliverVideoEvent(this.captures, event.data, bytes);
   }
 }
 

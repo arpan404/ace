@@ -6,6 +6,8 @@ import { TabAudio } from "./audio.ts";
  * WebCodecs, once per encode the daemon asks for, and its sound as Opus while asked (`audio.ts`).
  * The daemon drives it over CDP (`Runtime.evaluate` on this document) and receives every chunk
  * through the CDP binding `aceVideoEvent`: a JSON line, then for a chunk its bytes in base64.
+ * The desktop app loads the same code in its own encoder page and receives events through
+ * `aceVideoEmit` instead (`apps/desktop/src/main/browser/video-encoder.ts`).
  * Every chunk says how long ago (`age`, ms) its picture or sound was captured, so the daemon
  * stamps video and audio on one clock.
  */
@@ -56,6 +58,13 @@ const captures = new Map<string, Capture>();
 const now = () => performance.now();
 
 function emit(event: Record<string, unknown>, bytes?: Uint8Array): void {
+  // The desktop's encoder page (ADR 0088, embedded backend) takes the event and the chunk's
+  // bytes as they are, with no base64 step; the extension has only the CDP binding.
+  const direct: unknown = Reflect.get(globalThis, "aceVideoEmit");
+  if (typeof direct === "function") {
+    Reflect.apply(direct, globalThis, bytes ? [event, bytes] : [event]);
+    return;
+  }
   const send: unknown = Reflect.get(globalThis, "aceVideoEvent");
   if (typeof send !== "function") return;
   const line = JSON.stringify(event);
