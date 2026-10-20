@@ -1,6 +1,12 @@
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { codexClientHeader, coreToolsHeader, staticToolsHeader } from "./toolsets.ts";
+import {
+  codexClientHeader,
+  coreToolsHeader,
+  staticToolsHeader,
+  toolListingHeader,
+  type ToolListing,
+} from "./toolsets.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
 import { destructiveAceTools } from "./agent-control.ts";
 import { developerInstructions, type SessionGuidance } from "./session-guidance.ts";
@@ -89,20 +95,27 @@ export function openCodeInjection(input: Injected) {
     developerInstructions: developerInstructions("opencode", input.session?.()),
   };
 }
-export function acpInjection(input: Injected, provider: "cursor" | "antigravity" | "acp" = "acp") {
+/** An ACP lease, with the listing its agent's tool refresh supports (`acpToolListing`). */
+type AcpInjected = Injected & { listing?: ToolListing | undefined };
+export function acpInjection(
+  input: AcpInjected,
+  provider: "cursor" | "antigravity" | "acp" = "acp",
+) {
   const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
+  // ACP leaves tools/list_changed to each agent. Without a known agent the list stays the core
+  // tools, tools_find and tools_call, the one listing every agent can use.
+  const listing = input.listing ?? "static";
+  const header = toolListingHeader(listing);
   return {
     mcpServers: [
       {
         type: "http" as const,
         name: "ace",
         url,
-        // ACP leaves tools/list_changed to each agent and most never refresh, so the list stays
-        // the core tools plus tools_find, and every other tool is reached through tools_call.
         headers: [
           { name: "Authorization", value: `Bearer ${bearer}` },
           { name: "X-Ace-Notifications", value: "stream" },
-          staticToolsHeader,
+          ...(header ? [header] : []),
         ],
       },
     ],
@@ -139,7 +152,7 @@ export function redactMcpCredential(encoded: string, input?: AceMcpConnection): 
 }
 /** The provider starts this child inside its supervised process group. Lease travels in env. */
 export function acpStdioInjection(
-  input: AceMcpConnection,
+  input: AceMcpConnection & { listing?: ToolListing | undefined },
   runtime: { command: string; entrypoint: string } = {
     command: process.execPath,
     entrypoint: fileURLToPath(new URL("./stdio-entry.ts", import.meta.url)),
@@ -155,6 +168,7 @@ export function acpStdioInjection(
         env: [
           { name: "ACE_MCP_BRIDGE_URL", value: url },
           { name: "ACE_MCP_BRIDGE_BEARER", value: bearer },
+          { name: "ACE_MCP_BRIDGE_TOOLS", value: input.listing ?? "static" },
         ],
       },
     ],

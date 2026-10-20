@@ -34,6 +34,29 @@ export function toolListing(header: string | null | undefined): ToolListing {
   if (header === coreToolsHeader.value) return "core";
   return header === staticToolsHeader.value ? "static" : "all";
 }
+/** The header that asks for a listing; listing every tool needs none. */
+export function toolListingHeader(
+  listing: ToolListing,
+): typeof coreToolsHeader | typeof staticToolsHeader | undefined {
+  if (listing === "core") return coreToolsHeader;
+  return listing === "static" ? staticToolsHeader : undefined;
+}
+
+/**
+ * The listing for an ACP agent, by the reviewed CLI behind it (`acpAgentCli`). ACP leaves tool
+ * refresh to each agent:
+ * - Gemini CLI (0.43, ace's floor for it) sends every tool upfront and reloads on
+ *   `tools/list_changed`, so it starts with the core tools and grows.
+ * - claude-agent-acp runs the Claude Agent SDK, which defers MCP tools behind its own tool
+ *   search and honours `anthropic/alwaysLoad`, as Claude Code does.
+ * - Every other agent, Antigravity included, stays static: a conservative default for agents
+ *   not verified to reload, not a claim that they never refresh. Antigravity defers behind its
+ *   own tool search and reloads, but switching it needs a live check first.
+ */
+export function acpToolListing(cli: string | undefined): ToolListing {
+  if (cli === "gemini") return "core";
+  return cli === "claude-acp" ? "all" : "static";
+}
 
 /**
  * What a core-mode session lists before it opens a family: the entry points the instructions
