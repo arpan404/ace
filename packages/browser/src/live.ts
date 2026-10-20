@@ -12,6 +12,8 @@ const Ack = z.object({ sessionId: z.number().int() });
 const lingerMs = 5000;
 /** How often the live video re-plans its encodes and retries chunks a transport refused. */
 const videoTickMs = 50;
+/** The scale of the screenshot that proves a page draws, when nothing records it. */
+const probeScale = 0.05;
 /** The largest screencast a capture fed by pictures takes, on its long side. */
 const picturesLongSide = 1920;
 /**
@@ -275,8 +277,10 @@ export class LiveCapture {
     this.tickVideo();
   }
   /**
-   * The page's size and scale, for the video; and while a recording runs, its first frame, as
-   * a static page may emit no screencast event.
+   * The page's size and scale, for the video, and one screenshot: proof the page can draw at
+   * all (a desktop view on a locked screen never answers, and the open moves to another
+   * backend), and while a recording runs its first frame, as a static page may emit no
+   * screencast event. Without a recording the screenshot is a tiny one.
    */
   private async seed(
     generation: number,
@@ -293,7 +297,7 @@ export class LiveCapture {
         }),
       );
     const dpr = ratio.success ? ratio.data.result.value : 1;
-    if (!this.needed()) return { viewport, dpr };
+    const recording = this.needed();
     const initial = z.object({ data: z.string().max(4 * 1024 * 1024) }).parse(
       await this.cdp.send("Page.captureScreenshot", {
         format: "jpeg",
@@ -302,16 +306,18 @@ export class LiveCapture {
           x: 0,
           y: 0,
           ...viewport,
-          scale: Math.min(
-            1,
-            this.settings.maxWidth / (viewport.width * dpr),
-            this.settings.maxHeight / (viewport.height * dpr),
-          ),
+          scale: recording
+            ? Math.min(
+                1,
+                this.settings.maxWidth / (viewport.width * dpr),
+                this.settings.maxHeight / (viewport.height * dpr),
+              )
+            : probeScale,
         },
       }),
     );
     if (this.closed || generation !== this.generation) throw new Error("Browser capture closed");
-    if (this.sequence === sequence && epoch === this.privacy().epoch)
+    if (recording && this.sequence === sequence && epoch === this.privacy().epoch)
       this.onFrame(
         {
           sequence: ++this.sequence,
