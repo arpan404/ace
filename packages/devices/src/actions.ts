@@ -4,6 +4,7 @@ import type { DeviceSession } from "./session.ts";
 import type { Actor } from "./lease.ts";
 import { DeviceError } from "./sdk.ts";
 import { boundedClipboard } from "./clipboard.ts";
+import { keyRefusal } from "./key-support.ts";
 
 /** All mutations share the queue's dispatch guard, including SDK lookups. */
 export async function performDeviceAction(
@@ -38,16 +39,10 @@ export async function performDeviceAction(
       await platform.configure(session.device, operation.settings, guard);
       break;
     case "input":
-      if (
-        session.device.platform === "ios" &&
-        operation.input.kind === "key" &&
-        operation.input.key === "recents"
-      )
-        throw new DeviceError(
-          "not_supported",
-          "iOS Simulator has no Recents key",
-          "A slow swipe up from the bottom edge opens the app switcher; or open_app the app you want.",
-        );
+      if (operation.input.kind === "key") {
+        const refusal = keyRefusal(session.device.platform, operation.input.key);
+        if (refusal) throw refusal;
+      }
       if (
         operation.input.kind === "pointer" &&
         operation.input.pointerId &&

@@ -6,6 +6,7 @@ import {
 } from "@ace/protocol/devices";
 import type { ScreenInput } from "@ace/protocol";
 import type { Simulator } from "@ace/screen";
+import { refuseKey } from "./key-support.ts";
 import { DeviceError } from "./sdk.ts";
 
 const AVD = z
@@ -112,7 +113,16 @@ export function androidInput(input: DeviceInput): string[] {
           "Rotate requires emulator configuration",
           "Use the rotate operation on the device service.",
         );
-      const codes = { home: "3", back: "4", enter: "66", power: "26", recents: "187" };
+      if (input.key === "action") return refuseKey("android", input.key);
+      const codes = {
+        home: "3",
+        back: "4",
+        enter: "66",
+        power: "26",
+        recents: "187",
+        volumeUp: "24",
+        volumeDown: "25",
+      };
       return adbShell(["input", "keyevent", codes[input.key]]);
     }
   }
@@ -151,6 +161,9 @@ const simulatorButtons: Partial<Record<Extract<DeviceInput, { kind: "key" }>["ke
   home: "Home",
   rotate: "Rotate",
   power: "Sleep/Wake",
+  volumeUp: "Volume Up",
+  volumeDown: "Volume Down",
+  action: "Action",
 };
 export function simulatorButton(input: DeviceInput): string | undefined {
   return input.kind === "key" ? simulatorButtons[input.key] : undefined;

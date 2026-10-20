@@ -13,6 +13,8 @@ export const keyAction = { down: 0, up: 1 } as const;
 export const keycode = {
   home: 3,
   back: 4,
+  volumeUp: 24,
+  volumeDown: 25,
   power: 26,
   enter: 66,
   appSwitch: 187,
