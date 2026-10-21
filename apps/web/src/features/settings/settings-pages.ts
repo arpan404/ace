@@ -68,7 +68,7 @@ export const settingsPages: readonly SettingsPage[] = [
   { to: "/settings/appearance", title: "Appearance", icon: PaletteIcon, group: "device" },
   { to: "/settings/notifications", title: "Notifications", icon: BellSimpleIcon, group: "device" },
   { to: "/settings/keyboard", title: "Keyboard", icon: KeyboardIcon, group: "device" },
-  { to: "/settings/remote", title: "Machines and devices", icon: DevicesIcon, group: "network" },
+  { to: "/settings/remote", title: "Fleet", icon: DevicesIcon, group: "network" },
 ];
 
 export function visibleSettingsPages(): readonly SettingsPage[] {

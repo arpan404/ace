@@ -102,7 +102,7 @@ export function MachineScope(props: {
 /** Why a machine's settings can't show right now, in one line. */
 export function machineUnavailableText(machine: Machine): string {
   if (machine.status === "auth_failed")
-    return "This device's access was refused. Pair it again from Machines and devices.";
+    return "This device's access was refused. Pair it again from Settings › Fleet.";
   if (machine.status === "connecting") return "Connecting. Its settings appear once it answers.";
   return "Its settings appear when it's back online.";
 }

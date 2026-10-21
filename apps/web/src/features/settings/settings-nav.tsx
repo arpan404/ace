@@ -23,7 +23,7 @@ const groupOrder: readonly SettingsGroup[] = ["machine", "device", "network"];
 
 /**
  * Settings' pages as links, the current one marked: the pages a machine keeps, then under
- * "This device" the pages this screen keeps, then Machines and devices. Also the phone's
+ * "This device" the pages this screen keeps, then Fleet. Also the phone's
  * Settings page.
  */
 export function SettingsPageLinks(props: { pages?: readonly SettingsPath[] }) {

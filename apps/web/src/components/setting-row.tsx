@@ -137,7 +137,7 @@ export function SettingSummaryRow(props: {
 }
 
 /** Scroll a row into view and flash it once when the location's hash names it. */
-function useHashFlash(id: string | undefined, ref: RefObject<HTMLElement | null>): boolean {
+export function useHashFlash(id: string | undefined, ref: RefObject<HTMLElement | null>): boolean {
   const hash = useLocation({ select: (location) => location.hash });
   const [on, setOn] = useState(false);
   const target = id !== undefined && hash === id;

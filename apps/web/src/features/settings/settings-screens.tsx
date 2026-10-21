@@ -9,8 +9,11 @@ import { AppearanceSettings } from "./appearance-page.tsx";
 import { KeyboardShortcuts } from "./keyboard-page.tsx";
 import { NotificationSettings } from "./notifications-page.tsx";
 import { ViewListPage } from "@/features/shell/index.ts";
-const RemoteDevices = lazy(() =>
-  import("./remote-page.tsx").then((module) => ({ default: module.RemoteDevices })),
+const FleetPage = lazy(() =>
+  import("./fleet-page.tsx").then((module) => ({ default: module.FleetPage })),
+);
+const FleetMachinePage = lazy(() =>
+  import("./fleet-machine-page.tsx").then((module) => ({ default: module.FleetMachinePage })),
 );
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { settingRow } from "./settings-index.ts";
@@ -110,11 +113,26 @@ export function ProviderDetailScreen(props: { id: string }) {
 
 export function RemoteSettingsScreen() {
   return (
-    <SettingsBody page="Machines and devices">
-      <Suspense fallback={<ListSkeleton label="remote settings" shape="row" rows={4} />}>
-        <RemoteDevices />
+    <SettingsBody page="Fleet">
+      <Suspense fallback={<ListSkeleton label="fleet" shape="row" rows={4} />}>
+        <FleetPage />
       </Suspense>
     </SettingsBody>
+  );
+}
+
+/** One machine's page in the fleet; it names itself, so the fallback keeps the section's name. */
+export function FleetMachineScreen(props: { id: string }) {
+  return (
+    <Suspense
+      fallback={
+        <SettingsBody page="Fleet">
+          <ListSkeleton label="machine" shape="row" rows={4} />
+        </SettingsBody>
+      }
+    >
+      <FleetMachinePage id={props.id} />
+    </Suspense>
   );
 }
 
