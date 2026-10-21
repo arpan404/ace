@@ -54,7 +54,9 @@ export function createAutomationsSession({
       const result = options.automations.handle(request.data);
       if (
         result.ok &&
-        ["automation.put", "automation.remove", "automation.setEnabled"].includes(request.data.type)
+        ["automation.put", "automation.remove", "automation.setEnabled", "automation.retry"].includes(
+          request.data.type,
+        )
       )
         options.commands?.invalidateExtras?.();
       send(AutomationResponse.parse(result));

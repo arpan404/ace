@@ -34,6 +34,10 @@ export interface WorkspaceChanges {
     workspace: string,
     paths: readonly string[],
     receive: (event: AutomationEvent) => Promise<void>,
+    hooks?: {
+      onReady?: () => void;
+      onError?: (error: unknown) => void;
+    },
   ): () => void;
 }
 export interface Dependencies {

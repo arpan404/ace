@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   type Automation,
   AutomationEvent,
@@ -19,6 +20,16 @@ import type { GhClient } from "./gh-process.ts";
 
 function message(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 8192);
+}
+/**
+ * Deterministic manual idempotency keys survive run-history eviction: the same
+ * automation id plus event key always maps to the same key, so the executor's
+ * command-receipt dedup holds even after the run row is pruned. Length-prefixed
+ * scoping keeps automation/event boundaries unambiguous before hashing.
+ */
+function manualId(automationId: string, eventKey: string): string {
+  const scoped = `${automationId.length}:${automationId}:${eventKey}`;
+  return `manual-${createHash("sha256").update(scoped).digest("hex")}`;
 }
 export class AutomationService {
   private store: AutomationStore;
@@ -59,45 +70,48 @@ export class AutomationService {
   start(): void {
     if (!this.lifecycle.beginStart()) return;
     this.generation++;
+    const generation = this.generation;
     this.controller = new AbortController();
     try {
       for (const job of this.store.jobs()) {
-        this.runtime.install(this.runtime.prepare(job.automation));
+        try {
+          const ready = { fired: false };
+          const prepared = this.runtime.prepare(job.automation, this.hooks(generation, ready));
+          this.runtime.install(prepared);
+          if (prepared.watchError !== undefined)
+            this.persistWatchError(
+              job.automation.id,
+              prepared.revision,
+              generation,
+              prepared.watchError,
+            );
+          else if (job.automation.trigger.kind === "file")
+            this.clearIfReady(job.automation.id, prepared.revision, generation, ready);
+        } catch (error) {
+          this.isolateJob(job, generation, error);
+        }
         if (!this.live) break;
         if (
           job.automation.trigger.kind === "schedule" &&
           job.nominal !== null &&
           job.due !== null
         ) {
-          const recurrence = this.runtime.recurrence(job.automation.id);
-          if (!recurrence) throw new Error("Missing recurrence");
-          const cursor = Occurrence.parse(this.store.readState(job.automation.id));
-          const occurrence = recoverOccurrence(
-            job.automation,
-            recurrence,
-            cursor,
-            job.due,
-            this.deps.now(),
-          );
-          if (occurrence?.at !== job.nominal)
-            this.store.transaction(() => {
-              this.store.advance(
-                job.automation.id,
-                occurrence?.at,
-                scheduledDeadline(
-                  occurrence,
-                  recurrence,
-                  job.automation.jitterMs,
-                  this.deps.random(),
-                ),
-              );
-              this.store.savePoll(job.automation.id, occurrence ?? {});
-            });
+          try {
+            this.recoverSchedule(job);
+          } catch (error) {
+            this.isolateJob(job, generation, error);
+          }
+          if (!this.live) break;
         }
       }
       for (const { run, input } of this.store.active()) {
         if (!this.live) break;
-        this.executions.restore(run, input);
+        try {
+          this.executions.restore(run, input);
+        } catch (error) {
+          this.report(error);
+          if (!this.live) break;
+        }
       }
       this.arm();
     } catch (error) {
@@ -106,6 +120,44 @@ export class AutomationService {
     } finally {
       if (this.lifecycle.endStart()) this.stop();
     }
+  }
+  private isolateJob(job: JobMetadata, generation: number, error: unknown): void {
+    if (!this.live || generation !== this.generation) return;
+    try {
+      this.store.saveTriggerError(job.automation.id, {
+        message: message(error),
+        at: this.deps.now(),
+      });
+    } catch (persistError) {
+      this.report(persistError);
+    }
+    try {
+      this.store.advance(job.automation.id, job.nominal ?? undefined, undefined);
+    } catch (persistError) {
+      this.report(persistError);
+    }
+    this.report(error);
+  }
+  private recoverSchedule(job: JobMetadata): void {
+    const recurrence = this.runtime.recurrence(job.automation.id);
+    if (!recurrence) throw new Error("Missing recurrence");
+    const cursor = Occurrence.parse(this.store.readState(job.automation.id));
+    const occurrence = recoverOccurrence(
+      job.automation,
+      recurrence,
+      cursor,
+      job.due ?? 0,
+      this.deps.now(),
+    );
+    if (occurrence?.at !== job.nominal)
+      this.store.transaction(() => {
+        this.store.advance(
+          job.automation.id,
+          occurrence?.at,
+          scheduledDeadline(occurrence, recurrence, job.automation.jitterMs, this.deps.random()),
+        );
+        this.store.savePoll(job.automation.id, occurrence ?? {});
+      });
   }
   stop(): void {
     if (!this.lifecycle.beginStop()) return;
@@ -152,15 +204,35 @@ export class AutomationService {
     const existing = this.store.definition(automation.id);
     if (expectedRevision === null && existing) throw new Error("Automation already exists");
     if (typeof expectedRevision === "number") {
+      if (!existing) throw new Error("Automation is missing");
       const current = this.store.revision(automation.id);
       if (current !== expectedRevision) throw new Error("Automation revision conflict");
     }
     if (existing && JSON.stringify(existing) === JSON.stringify(automation)) {
-      if (this.runtime.needsWatch(automation))
-        this.runtime.install(this.runtime.prepare(automation));
+      if (this.runtime.needsWatch(automation)) this.healWatch(automation);
       return automation;
     }
-    const prepared = this.runtime.prepare(automation);
+    const generation = this.generation;
+    const ready = { fired: false };
+    const prepared = this.runtime.prepare(automation, this.hooks(generation, ready));
+    if (prepared.watchError !== undefined) {
+      // Replacement failures preserve the previous definition and watcher;
+      // new ids persist as unhealthy so one stale workspace cannot block saves.
+      if (existing) {
+        this.runtime.discard(prepared);
+        throw prepared.watchError;
+      }
+      try {
+        this.store.put(automation, undefined, undefined, {}, expectedRevision);
+      } catch (error) {
+        this.runtime.discard(prepared);
+        throw error;
+      }
+      this.runtime.install(prepared);
+      this.persistWatchError(automation.id, prepared.revision, generation, prepared.watchError);
+      this.arm();
+      return automation;
+    }
     const recurrence = prepared.recurrence;
     const occurrence =
       automation.enabled && recurrence ? recurrence.seek(this.deps.now() - 1) : undefined;
@@ -173,14 +245,86 @@ export class AutomationService {
           ? scheduledDeadline(occurrence, recurrence, automation.jitterMs, this.deps.random())
           : undefined;
     try {
-      this.store.put(automation, nominal, due, occurrence ?? {}, expectedRevision ?? undefined);
+      this.store.put(automation, nominal, due, occurrence ?? {}, expectedRevision);
     } catch (error) {
       this.runtime.discard(prepared);
       throw error;
     }
     this.runtime.install(prepared);
+    // File health clears only on confirmed watcher readiness; other triggers
+    // are healthy immediately after a successful save.
+    if (automation.trigger.kind === "file")
+      this.clearIfReady(automation.id, prepared.revision, generation, ready);
     this.arm();
     return automation;
+  }
+  private hooks(generation: number, ready?: { fired: boolean }) {
+    return {
+      onReady: (id: string, revision: number) => {
+        if (ready) ready.fired = true;
+        if (!this.live || generation !== this.generation) return;
+        if (this.runtime.current(id) !== revision) return;
+        try {
+          this.store.clearTriggerError(id);
+        } catch (error) {
+          this.report(error);
+        }
+      },
+      onError: (id: string, revision: number, error: unknown) => {
+        this.persistWatchError(id, revision, generation, error);
+      },
+    };
+  }
+  private clearIfReady(
+    id: string,
+    revision: number,
+    generation: number,
+    ready: { fired: boolean },
+  ): void {
+    if (!ready.fired) return;
+    if (!this.live || generation !== this.generation) return;
+    if (this.runtime.current(id) !== revision) return;
+    try {
+      this.store.clearTriggerError(id);
+    } catch (error) {
+      this.report(error);
+    }
+  }
+  private persistWatchError(
+    id: string,
+    revision: number,
+    generation: number,
+    error: unknown,
+  ): void {
+    if (!this.live || generation !== this.generation) return;
+    if (this.runtime.current(id) !== revision) return;
+    try {
+      this.store.saveTriggerError(id, { message: message(error), at: this.deps.now() });
+    } catch (persistError) {
+      this.report(persistError);
+    }
+    this.runtime.failed(id, revision);
+    this.report(error);
+  }
+  private saveWatchError(id: string, error: unknown): void {
+    try {
+      this.store.saveTriggerError(id, { message: message(error), at: this.deps.now() });
+    } catch (persistError) {
+      this.report(persistError);
+    }
+    this.report(error);
+  }
+  private healWatch(automation: Automation): void {
+    const generation = this.generation;
+    const ready = { fired: false };
+    const prepared = this.runtime.prepare(automation, this.hooks(generation, ready));
+    if (prepared.watchError !== undefined) {
+      this.saveWatchError(automation.id, prepared.watchError);
+      return;
+    }
+    this.runtime.install(prepared);
+    this.clearIfReady(automation.id, prepared.revision, generation, ready);
+    this.arm();
   }
   remove(id: string, expectedRevision?: number | null): void {
     this.store.remove(id, expectedRevision ?? undefined);
@@ -215,7 +359,7 @@ export class AutomationService {
     return admission.run;
   }
   private admit(automation: Automation, event: AutomationEvent, kind: AutomationRun["trigger"]) {
-    const id = this.deps.id();
+    const id = kind === "manual" ? manualId(automation.id, event.key) : this.deps.id();
     let input: ExecutionInput | undefined;
     let failure: string | undefined;
     try {
@@ -281,7 +425,13 @@ export class AutomationService {
               }
             }),
           );
-        } else this.scheduled(job);
+        } else {
+          try {
+            this.scheduled(job);
+          } catch (error) {
+            this.isolateJob(job, this.generation, error);
+          }
+        }
       }
     } finally {
       this.ticking = false;
@@ -291,7 +441,10 @@ export class AutomationService {
   private scheduled(job: JobMetadata): void {
     const generation = this.generation;
     const recurrence = this.runtime.recurrence(job.automation.id);
-    if (!recurrence || job.nominal === null) throw new Error("Invalid scheduled job");
+    if (!recurrence || job.nominal === null) {
+      this.isolateJob(job, generation, new Error("Invalid scheduled job"));
+      return;
+    }
     // Compute before admission so any evaluation error cannot partially advance the cursor.
     let occurrence: Occurrence | undefined;
     try {
@@ -300,8 +453,23 @@ export class AutomationService {
         Occurrence.parse(this.store.readState(job.automation.id)),
       );
     } catch (error) {
-      this.store.advance(job.automation.id, undefined, undefined);
-      throw error;
+      // Evaluation failure parks the schedule without hot-loop retries;
+      // exhaustion returns undefined below and finishes cleanly without an error.
+      try {
+        this.store.saveTriggerError(job.automation.id, {
+          message: message(error),
+          at: this.deps.now(),
+        });
+      } catch (persistError) {
+        this.report(persistError);
+      }
+      try {
+        this.store.advance(job.automation.id, job.nominal ?? undefined, undefined);
+      } catch (persistError) {
+        this.report(persistError);
+      }
+      this.report(error);
+      return;
     }
     const nominal = occurrence?.at;
     const due = scheduledDeadline(
@@ -364,18 +532,124 @@ export class AutomationService {
         this.store.transaction(() => {
           if (result.changed) this.store.savePoll(job.automation.id, result.state);
           this.store.clearPollError(job.automation.id);
+          this.store.clearTriggerError(job.automation.id);
         });
     } catch (error) {
       if (
         this.live &&
         generation === this.generation &&
         this.runtime.current(job.automation.id) === revision
-      )
-        this.store.savePollError(job.automation.id, {
-          message: message(error),
-          at: this.deps.now(),
-        });
+      ) {
+        const failure = { message: message(error), at: this.deps.now() };
+        try {
+          this.store.savePollError(job.automation.id, failure);
+        } catch (persistError) {
+          this.report(persistError);
+        }
+        try {
+          this.store.saveTriggerError(job.automation.id, failure);
+        } catch (persistError) {
+          this.report(persistError);
+        }
+      }
       this.report(error);
+    }
+  }
+  retry(id: string, expectedRevision?: number): void {
+    if (!this.live) throw new Error("Automation service is stopped");
+    const automation = this.store.definition(id);
+    if (!automation) throw new Error("Automation is missing");
+    if (typeof expectedRevision === "number") {
+      const current = this.store.revision(id);
+      if (current !== expectedRevision) throw new Error("Automation revision conflict");
+    }
+    if (!automation.enabled) throw new Error("Automation is disabled or missing");
+    const generation = this.generation;
+    const trigger = automation.trigger;
+    if (trigger.kind === "file") {
+      const ready = { fired: false };
+      const prepared = this.runtime.prepare(automation, this.hooks(generation, ready));
+      if (prepared.watchError !== undefined) {
+        this.saveWatchError(id, prepared.watchError);
+        throw prepared.watchError;
+      }
+      this.runtime.install(prepared);
+      this.clearIfReady(id, prepared.revision, generation, ready);
+      this.arm();
+      return;
+    }
+    if (trigger.kind === "schedule") {
+      if (this.store.metadata(id)?.triggerError === undefined) return;
+      let prepared: ReturnType<AutomationRuntime["prepare"]>;
+      try {
+        prepared = this.runtime.prepare(automation, this.hooks(generation));
+      } catch (error) {
+        try {
+          this.store.saveTriggerError(id, { message: message(error), at: this.deps.now() });
+        } catch (persistError) {
+          this.report(persistError);
+        }
+        try {
+          this.store.advance(id, this.store.metadata(id)?.nominal ?? undefined, undefined);
+        } catch (persistError) {
+          this.report(persistError);
+        }
+        this.report(error);
+        throw error;
+      }
+      const recurrence = prepared.recurrence;
+      if (!recurrence) {
+        this.runtime.discard(prepared);
+        throw new Error("Invalid scheduled job");
+      }
+      let occurrence: Occurrence | undefined;
+      try {
+        occurrence = recurrence.seek(
+          this.deps.now() - 1,
+          Occurrence.parse(this.store.readState(id)),
+        );
+      } catch (error) {
+        this.runtime.discard(prepared);
+        try {
+          this.store.saveTriggerError(id, { message: message(error), at: this.deps.now() });
+        } catch (persistError) {
+          this.report(persistError);
+        }
+        try {
+          const nominal = this.store.metadata(id)?.nominal ?? undefined;
+          this.store.advance(id, nominal, undefined);
+        } catch (persistError) {
+          this.report(persistError);
+        }
+        this.report(error);
+        throw error;
+      }
+      const due = occurrence
+        ? scheduledDeadline(occurrence, recurrence, automation.jitterMs, this.deps.random())
+        : undefined;
+      try {
+        this.store.transaction(() => {
+          this.store.advance(id, occurrence?.at, due);
+          this.store.savePoll(id, occurrence ?? {});
+          this.store.clearTriggerError(id);
+        });
+      } catch (error) {
+        this.runtime.discard(prepared);
+        throw error;
+      }
+      this.runtime.install(prepared);
+      this.arm();
+      return;
+    }
+    if (trigger.kind === "github") {
+      try {
+        this.store.advance(id, this.store.metadata(id)?.nominal ?? undefined, this.deps.now());
+      } catch (error) {
+        this.report(error);
+        throw error;
+      }
+      this.arm();
+      return;
     }
   }
   handle(input: unknown): AutomationResponse {
@@ -391,6 +665,9 @@ export class AutomationService {
           return base;
         case "automation.setEnabled":
           this.setEnabled(request.id, request.enabled, request.expectedRevision);
+          return base;
+        case "automation.retry":
+          this.retry(request.id, request.expectedRevision);
           return base;
         case "automation.run":
           return {
@@ -409,6 +686,7 @@ export class AutomationService {
               nextRunAt: this.live ? job.due : null,
               revision: job.revision,
               lastPollError: job.lastPollError,
+              triggerError: job.triggerError,
             })),
           };
         case "automation.inbox":

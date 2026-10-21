@@ -33,7 +33,7 @@ it("a stale revision cannot resurrect a removed id, while blind writes can", () 
   expect(first).toBe(1);
   h.service.remove("triage");
   expect(h.store.revision("triage")).toBe(2);
-  expect(() => h.service.put(definition(), 1)).toThrow("revision conflict");
+  expect(() => h.service.put(definition(), 1)).toThrow("Automation is missing");
   expect(
     h.service.handle({
       type: "automation.put",
@@ -41,7 +41,7 @@ it("a stale revision cannot resurrect a removed id, while blind writes can", () 
       automation: definition(),
       expectedRevision: 1,
     }),
-  ).toMatchObject({ ok: false, error: "Automation revision conflict" });
+  ).toMatchObject({ ok: false, error: "Automation is missing" });
   h.service.put(definition({ title: "Fresh" }));
   expect(h.store.revision("triage")).toBe(3);
   expect(h.service.list()).toMatchObject([{ title: "Fresh" }]);
@@ -129,7 +129,7 @@ it("revisions survive restart and removals preserve run history", async () => {
   h.restart();
   expect(h.store.revision("triage")).toBe((before ?? 0) + 1);
   expect(h.service.inbox().runs).toHaveLength(1);
-  expect(() => h.service.put(definition(), before)).toThrow("revision conflict");
+  expect(() => h.service.put(definition(), before)).toThrow("Automation is missing");
   h.service.put(definition({ title: "After history" }));
   expect(h.service.inbox().runs).toHaveLength(1);
   await h.service.settled();

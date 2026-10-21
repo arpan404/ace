@@ -86,8 +86,9 @@ export function harness(gh?: import("./index.ts").GhClient) {
   const changes: import("@ace/protocol").AutomationRun[] = [];
   const watches = new Map<string, (event: AutomationEvent) => Promise<void>>();
   const workspace: WorkspaceChanges = {
-    subscribe(path, _paths, receive) {
+    subscribe(path, _paths, receive, hooks) {
       watches.set(path, receive);
+      hooks?.onReady?.();
       return () => {
         watches.delete(path);
       };

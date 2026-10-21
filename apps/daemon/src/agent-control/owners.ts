@@ -155,6 +155,8 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
           }
           const automationId =
             request.type === "automation.put" ? request.automation.id : request.id;
+          // Owner confinement covers pause/resume and retry: setEnabled and retry
+          // carry only an id, so the same lookup/authorize gate applies as remove/run.
           const identity = lookup(automationId);
           if (identity && !delegations.authorize(caller, identity.thread_id, true))
             return { ok: false, code: "forbidden" };

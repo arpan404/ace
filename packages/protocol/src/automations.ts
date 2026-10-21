@@ -120,6 +120,12 @@ export const AutomationRequest = z.discriminatedUnion("type", [
     enabled: z.boolean(),
     expectedRevision: AutomationRevision.optional(),
   }),
+  z.object({
+    type: z.literal("automation.retry"),
+    requestId: text,
+    id: text,
+    expectedRevision: AutomationRevision.optional(),
+  }),
 ]);
 export type AutomationRequest = z.infer<typeof AutomationRequest>;
 export const AutomationPollError = z.object({
@@ -127,6 +133,11 @@ export const AutomationPollError = z.object({
   at: instant,
 });
 export type AutomationPollError = z.infer<typeof AutomationPollError>;
+export const AutomationTriggerError = z.object({
+  message: z.string().max(8192),
+  at: instant,
+});
+export type AutomationTriggerError = z.infer<typeof AutomationTriggerError>;
 export const AutomationResponse = z.object({
   type: z.literal("automation.result"),
   requestId: text,
@@ -140,6 +151,7 @@ export const AutomationResponse = z.object({
         nextRunAt: instant.nullable(),
         revision: AutomationRevision.optional(),
         lastPollError: AutomationPollError.optional(),
+        triggerError: AutomationTriggerError.optional(),
       }),
     )
     .max(1000)

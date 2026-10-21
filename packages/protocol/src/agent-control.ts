@@ -235,11 +235,14 @@ export const AgentAutomationRequest = z.discriminatedUnion("type", [
     type: z.literal("automation.put"),
     requestId: AutomationRequest.options[0].shape.requestId,
     automation: AgentAutomation,
+    expectedRevision: AutomationRequest.options[0].shape.expectedRevision,
   }),
   AutomationRequest.options[1],
   AutomationRequest.options[2],
   AutomationRequest.options[3],
   AutomationRequest.options[4],
+  AutomationRequest.options[5],
+  AutomationRequest.options[6],
 ]);
 export type AgentAutomationRequest = z.infer<typeof AgentAutomationRequest>;
 export const AgentControlOperation = z.discriminatedUnion("op", [

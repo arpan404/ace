@@ -1,7 +1,9 @@
 import { compileSchedule } from "@ace/automations/recurrence";
 import {
   type AutomationRun,
+  type AutomationTriggerError,
   AutomationPollError,
+  AutomationTriggerError as TriggerErrorSchema,
   ServerMessage,
   Automation,
   type ClientMessage,
@@ -13,6 +15,7 @@ export interface AutomationSeed {
   automations?: Automation[];
   runs?: AutomationRun[];
   pollErrors?: Record<string, AutomationPollError>;
+  triggerErrors?: Record<string, AutomationTriggerError>;
   revisions?: Record<string, number>;
 }
 export class FakeAutomationWire {
@@ -21,6 +24,7 @@ export class FakeAutomationWire {
   private runs = new Map<string, AutomationRun>();
   private automations = new Map<string, Automation>();
   private pollErrors = new Map<string, AutomationPollError>();
+  private triggerErrors = new Map<string, AutomationTriggerError>();
   private revisions = new Map<string, number>();
   private enabled: () => boolean;
   constructor(now: () => number, enabled: () => boolean, host?: FakeServiceContext) {
@@ -38,6 +42,8 @@ export class FakeAutomationWire {
       this.runs.set(run.id, run);
     for (const [id, error] of Object.entries(seed.pollErrors ?? {}))
       this.pollErrors.set(id, AutomationPollError.parse(error));
+    for (const [id, error] of Object.entries(seed.triggerErrors ?? {}))
+      this.triggerErrors.set(id, TriggerErrorSchema.parse(error));
     for (const [id, revision] of Object.entries(seed.revisions ?? {}))
       if (Number.isInteger(revision) && (revision as number) > 0)
         this.revisions.set(id, revision as number);
@@ -52,16 +58,21 @@ export class FakeAutomationWire {
         const live = this.automations.has(id);
         if (message.expectedRevision === null && live)
           return ServerMessage.parse({ ...base, ok: false, error: "Automation already exists" });
-        if (typeof message.expectedRevision === "number" && stored !== message.expectedRevision)
-          return ServerMessage.parse({
-            ...base,
-            ok: false,
-            error: "Automation revision conflict",
-          });
+        if (typeof message.expectedRevision === "number") {
+          if (!live)
+            return ServerMessage.parse({ ...base, ok: false, error: "Automation is missing" });
+          if (stored !== message.expectedRevision)
+            return ServerMessage.parse({
+              ...base,
+              ok: false,
+              error: "Automation revision conflict",
+            });
+        }
         if (!live && this.automations.size >= 64) throw new Error("automation_limit");
         this.automations.set(id, message.automation);
         this.revisions.set(id, (stored ?? 0) + 1);
         if (message.automation.trigger.kind !== "github") this.pollErrors.delete(id);
+        this.triggerErrors.delete(id);
         return ServerMessage.parse(base);
       }
       case "automation.remove": {
@@ -75,6 +86,7 @@ export class FakeAutomationWire {
         if (this.automations.has(message.id)) {
           this.automations.delete(message.id);
           this.pollErrors.delete(message.id);
+          this.triggerErrors.delete(message.id);
           this.revisions.set(message.id, (stored ?? 0) + 1);
         }
         return ServerMessage.parse(base);
@@ -94,6 +106,28 @@ export class FakeAutomationWire {
         this.revisions.set(message.id, (stored ?? 0) + 1);
         return ServerMessage.parse(base);
       }
+      case "automation.retry": {
+        const automation = this.automations.get(message.id);
+        if (!automation)
+          return ServerMessage.parse({ ...base, ok: false, error: "Automation is missing" });
+        const stored = this.revisions.get(message.id);
+        if (typeof message.expectedRevision === "number" && stored !== message.expectedRevision)
+          return ServerMessage.parse({
+            ...base,
+            ok: false,
+            error: "Automation revision conflict",
+          });
+        if (!automation.enabled)
+          return ServerMessage.parse({
+            ...base,
+            ok: false,
+            error: "Automation is disabled or missing",
+          });
+        // The fake daemon reinitializes synchronously and clears health on success.
+        this.triggerErrors.delete(message.id);
+        if (automation.trigger.kind === "github") this.pollErrors.delete(message.id);
+        return ServerMessage.parse(base);
+      }
       case "automation.list":
         return ServerMessage.parse({
           ...base,
@@ -102,6 +136,11 @@ export class FakeAutomationWire {
             id: automation.id,
             revision: this.revisions.get(automation.id) ?? 1,
             lastPollError: this.pollErrors.get(automation.id),
+            triggerError:
+              this.triggerErrors.get(automation.id) ??
+              (automation.trigger.kind === "github"
+                ? this.pollErrors.get(automation.id)
+                : undefined),
             nextRunAt:
               this.enabled() && automation.enabled && automation.trigger.kind === "schedule"
                 ? (compileSchedule(automation.trigger.schedule).next(this.now() - 1) ?? null)
