@@ -1,4 +1,3 @@
-import { DoctorTriage } from "@/features/triage/index.ts";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";
 import type { ReadinessTone } from "@ace/ui-core";
@@ -164,7 +163,6 @@ export function RunChecks(props: {
           >
             Run safe repairs
           </Button>
-          <DoctorTriage report={report} />
         </div>
       )}
     </>

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { SqliteSpace } from "./sqlite-space.ts";
 import type { DiscoveryResult, Provider } from "@ace/provider-kit/discovery";
 export { DiagnosticReport as DoctorReport } from "@ace/protocol";
 import {
@@ -21,7 +22,27 @@ export interface DoctorProbes {
   chromium(signal: AbortSignal): Promise<string | undefined>;
   disk(signal: AbortSignal): Promise<{ writable: boolean; freeBytes: number }>;
   integrity(signal: AbortSignal): Promise<"ok" | "corrupt" | "missing" | "unavailable">;
+  databaseSpace?(signal: AbortSignal): Promise<SqliteSpace | null>;
   port(signal: AbortSignal): Promise<boolean>;
+}
+export function databaseSpaceVerdict(space: SqliteSpace | null): Verdict {
+  if (!space) return verdict("ok", "No SQLite database yet; no space to reclaim", "");
+  const free = (space.reclaimableBytes / 1024 / 1024).toFixed(2);
+  const allocated = (space.pageBytes / 1024 / 1024).toFixed(2);
+  return verdict(
+    space.reclaimableBytes >= 1024 * 1024 ? "warn" : "ok",
+    `SQLite: ${allocated} MiB allocated, ${free} MiB reusable; auto_vacuum=${space.autoVacuum}`,
+    space.autoVacuum === 0
+      ? "Legacy database: free pages are reused, but shrinking requires a rowid-preserving migration. Do not run plain VACUUM."
+      : "Run ace doctor --fix with the local daemon running to reclaim deleted-row space.",
+  );
+}
+export function walSpaceVerdict(space: SqliteSpace | null): Verdict {
+  return verdict(
+    space && space.walBytes >= 32 * 1024 * 1024 ? "warn" : "ok",
+    `SQLite WAL: ${((space?.walBytes ?? 0) / 1024 / 1024).toFixed(2)} MiB`,
+    "Run ace doctor --fix with the local daemon running. A reader can delay checkpointing; retry after it finishes.",
+  );
 }
 const verdict = (status: Verdict["status"], message: string, fix: string): Verdict => ({
   status,
@@ -161,6 +182,22 @@ export function createDoctorChecks(probes: DoctorProbes): Check[] {
       fix: "Stop ace and preserve the database before restoring a backup.",
       run: async (signal) => integrityVerdict(await probes.integrity(signal)),
     },
+    ...(probes.databaseSpace
+      ? [
+          {
+            id: "sqlite.space",
+            fix: "Check database free pages and run ace doctor --fix.",
+            run: async (signal: AbortSignal) =>
+              databaseSpaceVerdict((await probes.databaseSpace?.(signal)) ?? null),
+          },
+          {
+            id: "sqlite.wal",
+            fix: "Check the SQLite WAL and run ace doctor --fix.",
+            run: async (signal: AbortSignal) =>
+              walSpaceVerdict((await probes.databaseSpace?.(signal)) ?? null),
+          },
+        ]
+      : []),
     {
       id: "port",
       fix: "Stop the existing daemon or set ACE_PORT to an unused port.",

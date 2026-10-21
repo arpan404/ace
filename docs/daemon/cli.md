@@ -306,15 +306,16 @@ conversations and credential files. Run the command on the affected computer;
 `--remote` is refused.
 
 `doctor --fix` creates missing ace/log folders and restores their owner-only access.
-It refuses symlinks, foreign ownership and non-directory paths. Checks run again
-after repair; unresolved failures keep a nonzero exit status. Interactive runs offer
-a coding CLI for further investigation. JSON includes `repairs` and, when findings
-remain, a ready-to-use `prompt`. `--print` also prints that prompt. Database recovery,
-CLI installation and login remain manual or agent-assisted work.
+It refuses symlinks, foreign ownership and non-directory paths. Doctor also reports
+allocated and reusable SQLite pages and WAL size. When at least 1 MiB is reusable or
+the WAL reaches 32 MiB, `--fix` asks the running local daemon to perform its journaled
+incremental compaction and WAL checkpoint. Offline databases are left unchanged.
+Legacy `auto_vacuum=NONE` files retain reusable pages; shrinking them requires a
+rowid-preserving migration. No full VACUUM, WAL deletion or corrupt-file rebuild runs.
+See [Compaction](storage-cleanup.md#compaction).
 
-In the app, open **ace triage** from the profile menu or Settings > Advanced. Select
-a template, describe the issue, then generate, edit or copy the prompt. Opening a
-CLI uses an embedded terminal on the connected computer and requires administrator
-access. Its working folder is that computer's home; closing the view ends the session.
-Settings > Advanced also offers **Run safe repairs** and **Investigate with a CLI**
-after checks find an issue.
+Checks run again after repair; unresolved failures keep a nonzero exit status.
+Interactive runs offer a coding CLI for further investigation. JSON includes `repairs`
+and, when findings remain, a ready-to-use `prompt`. `--print` also prints that prompt.
+Corruption recovery, CLI installation and login remain manual or agent-assisted work.
+Triage is available only in the CLI.

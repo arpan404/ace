@@ -1,6 +1,6 @@
 import type { DiagnosticReport, TriageKind, TriageProvider } from "@ace/protocol";
 
-/** Portable prompt policy shared by the terminal wizard and app. No machine reads. */
+/** Portable prompt policy for the terminal wizard. No machine reads. */
 export const triageTemplates: readonly { value: TriageKind; label: string; instruction: string }[] =
   [
     {

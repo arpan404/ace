@@ -9,7 +9,7 @@ import {
 } from "@ace/provider-kit/discovery";
 import { probeOutput } from "@ace/provider-kit/process";
 import type { DoctorProbes } from "./doctor.ts";
-import { checkIntegrity } from "./sqlite.ts";
+import { checkIntegrity, sqliteSpace } from "./sqlite.ts";
 export function portAvailable(port: number, signal: AbortSignal): Promise<boolean> {
   if (signal.aborted) return Promise.reject(new Error("Aborted"));
   const server = createServer();
@@ -43,6 +43,7 @@ export function createSystemProbes(
 ): DoctorProbes {
   const timeoutMs = options.timeoutMs ?? 4000;
   let discovery: ReturnType<typeof discoverProviders> | undefined;
+  let databaseSpace: ReturnType<typeof sqliteSpace> | undefined;
   return {
     node: async () => process.version,
     provider: async (provider, signal) => {
@@ -128,6 +129,8 @@ export function createSystemProbes(
       }
     },
     integrity: (signal) => checkIntegrity(join(options.dataDir, "events.sqlite"), signal),
+    databaseSpace: (signal) =>
+      (databaseSpace ??= sqliteSpace(join(options.dataDir, "events.sqlite"), signal)),
     port: (signal) => portAvailable(options.port, signal),
   };
 }

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Check } from "@ace/diagnostics";
 import type { DiagnosticRepair, DiagnosticReport } from "@ace/protocol";
 
-/** The complete repair allowlist: owner permissions and the log directory, never database data. */
+/** Folder repair allowlist. Database reclamation belongs to the storage owner. */
 const targets = [
   { id: "home.permissions", child: "", label: "ace data folder" },
   { id: "logs.directory", child: "logs", label: "Log folder" },

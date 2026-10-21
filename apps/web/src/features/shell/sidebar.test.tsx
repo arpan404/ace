@@ -140,7 +140,6 @@ test("the sidebar shows a plain ace label and profile connection actions", async
     "Usage",
     "Archived threads",
     expect.stringMatching(/^Keyboard shortcuts/),
-    "ace triage",
     "Connection",
   ]);
   await userEvent.click(within(account).getByRole("menuitem", { name: "Usage" }));

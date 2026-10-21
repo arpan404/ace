@@ -3,31 +3,23 @@ export function createDiagnosticsSession({
   options,
   send,
   authorize,
-  sessionId,
 }: SocketContext): SocketService {
   let pending = false;
   let closed = false;
-  const terminals = new Set<string>();
   return {
     close() {
       closed = true;
-      for (const id of terminals)
-        void options.accountManagement?.stop(id, sessionId).catch(() => {});
-      terminals.clear();
     },
     healthPending: () => Number(pending),
     handle(message) {
       if (message.type === "diagnostics.request") {
-        const scope =
-          message.operation === "fix" || message.operation === "launch" ? "admin" : "read";
+        const scope = message.operation === "fix" ? "admin" : "read";
         const run =
           message.operation === "doctor"
             ? options.doctor
             : message.operation === "fix"
               ? options.doctorFix
-              : message.operation === "launch"
-                ? options.triageLaunch
-                : options.toolchains;
+              : options.toolchains;
         const error = !authorize(scope)
           ? "forbidden"
           : pending
@@ -46,32 +38,12 @@ export function createDiagnosticsSession({
             const assertAuthorized = () => {
               if (closed || !authorize(scope)) throw new Error("forbidden");
             };
-            for (const id of terminals)
-              if (!options.accountManagement?.owns(id, sessionId)) terminals.delete(id);
-            if (message.operation === "launch" && terminals.size >= 8)
-              throw new Error("terminal limit");
             const result =
               message.operation === "doctor"
                 ? { report: await options.doctor?.() }
                 : message.operation === "fix"
                   ? await options.doctorFix?.(assertAuthorized)
-                  : message.operation === "launch"
-                    ? {
-                        terminalId: await options.triageLaunch?.(
-                          message.provider,
-                          message.prompt,
-                          sessionId,
-                          assertAuthorized,
-                        ),
-                      }
-                    : { toolchains: await options.toolchains?.() };
-            if (result && "terminalId" in result && result.terminalId) {
-              if (closed || !authorize(scope)) {
-                await options.accountManagement?.stop(result.terminalId, sessionId);
-                return;
-              }
-              terminals.add(result.terminalId);
-            }
+                  : { toolchains: await options.toolchains?.() };
             if (!closed && authorize(scope))
               send({ type: "diagnostics.result", requestId: message.requestId, ...result });
           })

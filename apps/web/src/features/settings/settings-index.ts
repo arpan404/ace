@@ -376,7 +376,6 @@ const entries = [
       "checks",
       "support",
       "export",
-      "triage",
       "fix",
       "repair",
     ],

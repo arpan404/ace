@@ -1,21 +1,25 @@
-# Triage verification
+# CLI triage verification
 
-The app was checked against the fake daemon at 390, 768, 1440 and 1920 CSS pixels
-in light and dark schemes. Prompt generation, provider selection, editing, copying
-and the launch-failure fallback were exercised. Settings > Advanced was checked
-through checks, repairs and a prompt containing the fresh doctor results. The
-browser console reported no errors.
+Triage is CLI-only. The screenshots show the actual `ace triage` process in a
+PTY-backed browser terminal, using a temporary ACE_HOME. No provider session was
+launched. Native Terminal access was unavailable in this session.
 
-![Prompt preview on desktop in light mode](preview-light.jpg)
+![Selecting a template and entering a multiline description](terminal-wizard.jpg)
 
-![Prompt preview on a phone in dark mode](preview-dark-phone.jpg)
+![Reviewing the generated prompt](terminal-preview.jpg)
 
-The CLI and socket process tests use temporary homes and local stub executables.
-They cover literal prompt arguments, terminal input and exit status, repairs that
-preserve existing data, refusal of linked repair targets, access control and the
-absence of durable command records. They do not launch a real provider session.
+![Choosing an installed CLI after review](terminal-handoff.jpg)
 
-The full-daemon terminal test found that passing Node's `process.env` object into
-the terminal schema failed validation. The launch now passes a plain environment
-copy. The support-export test also subscribed to the socket's open event after
-an asynchronous token read; reading the token first removes that event race.
+Process tests use temporary homes and local stub executables. They cover literal
+prompt arguments, terminal input and exit status, prompt generation without a daemon,
+folder repairs that preserve data, refusal of linked targets and admin-only app folder
+repairs. Triage has no app route, profile entry or diagnostics launch operation.
+
+Database tests exercise real SQLite files. Doctor detects deleted-row free pages and
+reclaims over 2 MiB through the running daemon while preserving surviving row IDs and
+payloads, even when a remote CLI profile is selected. Legacy databases retain
+reusable pages and row IDs. Offline and corrupt
+files remain byte-identical after `doctor --fix`. A pinned reader keeps its WAL and
+snapshot; after it closes, a second repair truncates the WAL without losing rows.
+Existing storage tests also cover
+write fencing, interrupted compaction recovery, pending work and legacy row IDs.

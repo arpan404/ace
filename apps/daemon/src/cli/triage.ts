@@ -16,7 +16,8 @@ With a terminal, choose a prompt template, describe the issue and review the pro
 --print, --json and --jq generate without launching. Pipe a description using -.
 The wizard runs locally without a daemon. Provider CLIs keep their own login and permission settings.
 ace doctor [--fix] [--provider claude|codex|cursor] [--print] [--json]
---fix repairs ace folder permissions and a missing log folder, reruns checks and offers a triage handoff for unresolved checks.`;
+--fix repairs ace folders and reclaims database space through the running local daemon, reruns checks and offers a triage handoff for unresolved checks.
+Legacy databases and corrupt files are not rebuilt.`;
 
 export async function triageCommand(args: Args, config: Config): Promise<void> {
   validateArgs(args, ["kind", "provider", "print"], 1, 2);

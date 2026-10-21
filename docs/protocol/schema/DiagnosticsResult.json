@@ -21,11 +21,6 @@
       "minLength": 1,
       "type": "string"
     },
-    "terminalId": {
-      "maxLength": 128,
-      "minLength": 1,
-      "type": "string"
-    },
     "toolchains": {
       "items": {
         "$ref": "https://ace.local/protocol/v1/Toolchain.json"

@@ -123,12 +123,6 @@ export interface ServerOptions {
     report: import("@ace/protocol").DiagnosticReport;
     repairs: import("@ace/protocol").DiagnosticRepair[];
   }>;
-  triageLaunch?: (
-    provider: import("@ace/protocol").TriageProvider,
-    prompt: string,
-    owner: string,
-    assertAuthorized: () => void,
-  ) => Promise<string>;
   supportFiles?: FilesService;
   context?: {
     downloadAttachment?: import("@ace/context").ContextService["downloadAttachment"];

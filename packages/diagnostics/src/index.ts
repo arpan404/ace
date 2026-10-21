@@ -29,6 +29,7 @@ export {
 } from "./doctor.ts";
 export { createSystemProbes, portAvailable, type SystemProbeRuntime } from "./probes.ts";
 export { checkIntegrity, sqliteSizes } from "./sqlite.ts";
+export { readSqlitePageSpace, type SqliteSpace } from "./sqlite-space.ts";
 export { writeSupportBundle, type BundleOptions } from "./bundle.ts";
 export { recentThreadEvents } from "./threads.ts";
 

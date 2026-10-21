@@ -15,7 +15,6 @@ import { Route as PairRouteImport } from "./routes/pair"
 import { Route as SettingsRouteImport } from "./routes/settings"
 import { Route as SetupRouteImport } from "./routes/setup"
 import { Route as SkillsRouteImport } from "./routes/skills"
-import { Route as TriageRouteImport } from "./routes/triage"
 import { Route as UsageRouteImport } from "./routes/usage"
 import { Route as HomeIndexRouteImport } from "./routes/_home.index"
 import { Route as HomeArchivedRouteImport } from "./routes/_home.archived"
@@ -71,11 +70,6 @@ const SetupRoute = SetupRouteImport.update({
 const SkillsRoute = SkillsRouteImport.update({
   id: "/skills",
   path: "/skills",
-  getParentRoute: () => rootRouteImport,
-} as any)
-const TriageRoute = TriageRouteImport.update({
-  id: "/triage",
-  path: "/triage",
   getParentRoute: () => rootRouteImport,
 } as any)
 const UsageRoute = UsageRouteImport.update({
@@ -225,7 +219,6 @@ export interface FileRoutesByFullPath {
   "/settings": typeof SettingsRouteWithChildren
   "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
-  "/triage": typeof TriageRoute
   "/usage": typeof UsageRoute
   "/archived": typeof HomeArchivedRoute
   "/new": typeof HomeNewRoute
@@ -256,7 +249,6 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   "/pair": typeof PairRoute
   "/setup": typeof SetupRoute
-  "/triage": typeof TriageRoute
   "/usage": typeof UsageRoute
   "/archived": typeof HomeArchivedRoute
   "/new": typeof HomeNewRoute
@@ -293,7 +285,6 @@ export interface FileRoutesById {
   "/settings": typeof SettingsRouteWithChildren
   "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
-  "/triage": typeof TriageRoute
   "/usage": typeof UsageRoute
   "/_home/archived": typeof HomeArchivedRoute
   "/_home/new": typeof HomeNewRoute
@@ -331,7 +322,6 @@ export interface FileRouteTypes {
     | "/settings"
     | "/setup"
     | "/skills"
-    | "/triage"
     | "/usage"
     | "/archived"
     | "/new"
@@ -362,7 +352,6 @@ export interface FileRouteTypes {
   to:
     | "/pair"
     | "/setup"
-    | "/triage"
     | "/usage"
     | "/archived"
     | "/new"
@@ -398,7 +387,6 @@ export interface FileRouteTypes {
     | "/settings"
     | "/setup"
     | "/skills"
-    | "/triage"
     | "/usage"
     | "/_home/archived"
     | "/_home/new"
@@ -435,7 +423,6 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRouteWithChildren
   SetupRoute: typeof SetupRoute
   SkillsRoute: typeof SkillsRouteWithChildren
-  TriageRoute: typeof TriageRoute
   UsageRoute: typeof UsageRoute
 }
 
@@ -481,13 +468,6 @@ declare module "@tanstack/react-router" {
       path: "/skills"
       fullPath: "/skills"
       preLoaderRoute: typeof SkillsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    "/triage": {
-      id: "/triage"
-      path: "/triage"
-      fullPath: "/triage"
-      preLoaderRoute: typeof TriageRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/usage": {
@@ -778,7 +758,6 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRouteWithChildren,
   SetupRoute: SetupRoute,
   SkillsRoute: SkillsRouteWithChildren,
-  TriageRoute: TriageRoute,
   UsageRoute: UsageRoute,
 }
 export const routeTree = rootRouteImport

@@ -218,6 +218,9 @@ explicit INTEGER PRIMARY KEYs on every rowid-addressed table.
 A kill at any point leaves an intact file: every chunk is atomic, and the only trace
 is a `running` journal entry, which resumes on startup. Settings → Storage offers
 Compact database. The CLI equivalent is `ace clean --compact [--abandon ID]`.
+`ace doctor` reports reusable database pages and WAL size; `ace doctor --fix` reuses
+this operation on the local running daemon when its read-only integrity check passes.
+It reports legacy, reader-blocked and pending results instead of rebuilding the file.
 
 ## Scheduling and verification
 

@@ -6,6 +6,7 @@ import { option, validateArgs, type Args } from "./args.ts";
 import { print } from "./io.ts";
 import { CliFailure } from "./output.ts";
 import { doctorPrompt, offerDoctorHandoff } from "./triage.ts";
+import { repairDoctorDatabase } from "./doctor-database.ts";
 export async function doctorCommand(args: Args, config: Config): Promise<void> {
   validateArgs(args, ["fix", "provider", "print"], 1);
   if (args.flags.remote)
@@ -18,7 +19,9 @@ export async function doctorCommand(args: Args, config: Config): Promise<void> {
   if (provider && !args.flags.fix)
     throw new CliFailure("refused", "Use --fix with --provider for a diagnostic handoff.");
   const result = args.flags.fix
-    ? await fixDoctorReport(config, process.env, Date.now)
+    ? await fixDoctorReport(config, process.env, Date.now, {
+        repairDatabase: (report) => repairDoctorDatabase(config.dataDir, args, report),
+      })
     : { report: await collectDoctorReport(config, process.env, Date.now), repairs: [] };
   const { report, repairs } = result;
   const remaining = report.checks.some((check) => check.status !== "ok");

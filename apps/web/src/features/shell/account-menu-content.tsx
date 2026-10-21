@@ -3,7 +3,6 @@ import {
   ArchiveIcon,
   ChartBarIcon,
   InfoIcon,
-  FirstAidIcon,
   KeyboardIcon,
   PlugsIcon,
 } from "@phosphor-icons/react";
@@ -74,12 +73,6 @@ export function AccountMenuContent() {
         onClick={() => layout.setShortcutsOpen(true)}
       >
         Keyboard shortcuts
-      </MenuItem>
-      <MenuItem
-        icon={<FirstAidIcon aria-hidden />}
-        onClick={() => void navigate({ to: "/triage" })}
-      >
-        ace triage
       </MenuItem>
       <MenuSeparator />
       <MenuSub>

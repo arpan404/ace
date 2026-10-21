@@ -1,5 +1,3 @@
-import { requireService } from "./services/composition.ts";
-import { triageLaunch } from "./triage-launch.ts";
 import { ProcessInventory } from "@ace/provider-kit/process-inventory";
 import { observeProcessGroups, stopOwnedGroups } from "@ace/provider-kit/process";
 import { forceStopAfterPoliteWindow } from "./shutdown-processes.ts";
@@ -385,7 +383,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       ...(options.preview ? { preview: options.preview } : {}),
       health: health.collect,
       doctorFix: async (assertAuthorized) => {
-        const result = await fixDoctorReport(config, process.env, now, assertAuthorized);
+        const result = await fixDoctorReport(config, process.env, now, { assertAuthorized });
         return {
           ...result,
           report: {
@@ -393,24 +391,6 @@ export async function startDaemon(options: DaemonOptions = {}) {
             checks: result.report.checks.filter((check) => check.id !== "port"),
           },
         };
-      },
-      triageLaunch: async (provider, prompt, owner, assertAuthorized) => {
-        const launch = await triageLaunch(provider, prompt, process.env);
-        lifetime.signal.throwIfAborted();
-        assertAuthorized();
-        const management = requireService(
-          serviceContext.services.accountManagement,
-          "accountManagement",
-        );
-        return management.openInteractiveTerminal(owner, {
-          shell: launch.command,
-          args: launch.args,
-          cwd: home,
-          env: { ...process.env },
-          cols: 100,
-          rows: 30,
-          name: "ace triage",
-        }).id;
       },
       doctor: sharedDiagnostics.doctor,
       toolchains: sharedDiagnostics.toolchains,

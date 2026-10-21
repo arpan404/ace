@@ -980,15 +980,19 @@ Example:
 }
 ```
 
-### Variant 49
+### diagnostics.request
 
-Type: union. See JSON Schema for constraints.
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"diagnostics.request"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| operation | yes | ["doctor","toolchains","fix"] |  |
 
 Example:
 
 ```json
 {
-  "operation": "doctor",
+  "operation": "toolchains",
   "requestId": "example",
   "type": "diagnostics.request"
 }
@@ -1008,9 +1012,9 @@ Example:
 
 ```json
 {
-  "backend": "acp",
+  "backend": "cli",
   "instanceId": "example",
-  "provider": "codex",
+  "provider": "claude",
   "requestId": "example",
   "type": "permissions.capabilities"
 }
@@ -1032,7 +1036,7 @@ Example:
     "op": "upload.cancel",
     "uploadId": "NpoK"
   },
-  "requestId": "Qy-l",
+  "requestId": "vQy-l",
   "type": "context.request"
 }
 ```

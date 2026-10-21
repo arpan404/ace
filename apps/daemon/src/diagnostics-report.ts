@@ -1,6 +1,6 @@
 import { createDoctorChecks, createSystemProbes, runDoctor } from "@ace/diagnostics";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
-import { DiagnosticReport } from "@ace/protocol";
+import { DiagnosticReport, type DiagnosticRepair } from "@ace/protocol";
 import { homedir } from "node:os";
 import { remoteDoctorChecks } from "./doctor.ts";
 import type { Config } from "./config.ts";
@@ -36,11 +36,15 @@ export async function fixDoctorReport(
   config: Config,
   env: NodeJS.ProcessEnv,
   now: () => number,
-  assertAuthorized: () => void = () => {},
+  options: {
+    assertAuthorized?: () => void;
+    repairDatabase?: (report: DiagnosticReport) => Promise<DiagnosticRepair[]>;
+  } = {},
 ) {
   const before = await collectDoctorReport(config, env, now);
-  assertAuthorized();
+  options.assertAuthorized?.();
   const repairs = await repairDoctor(config.dataDir, before, process.getuid?.());
+  if (options.repairDatabase) repairs.push(...(await options.repairDatabase(before)));
   return { report: await collectDoctorReport(config, env, now), repairs };
 }
 

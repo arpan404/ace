@@ -196,7 +196,6 @@
         "@ace/commands": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/design-tokens": "workspace:*",
-        "@ace/diagnostics": "workspace:*",
         "@ace/forge": "workspace:*",
         "@ace/html": "workspace:*",
         "@ace/project-picker": "workspace:*",

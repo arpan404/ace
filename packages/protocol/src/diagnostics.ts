@@ -92,24 +92,16 @@ export const Toolchain = z.object({
   version: z.string().max(64).optional(),
 });
 export type Toolchain = z.infer<typeof Toolchain>;
-const diagnosticsRequest = z.object({
+export const DiagnosticsRequest = z.object({
   type: z.literal("diagnostics.request"),
   requestId: z.string().min(1).max(128),
+  operation: z.enum(["doctor", "toolchains", "fix"]),
 });
-export const DiagnosticsRequest = z.discriminatedUnion("operation", [
-  diagnosticsRequest.extend({ operation: z.enum(["doctor", "toolchains", "fix"]) }),
-  diagnosticsRequest.extend({
-    operation: z.literal("launch"),
-    provider: TriageProvider,
-    prompt: z.string().min(1).max(48_000),
-  }),
-]);
 export const DiagnosticsResult = z.object({
   type: z.literal("diagnostics.result"),
   requestId: z.string().min(1).max(128),
   report: DiagnosticReport.optional(),
   repairs: z.array(DiagnosticRepair).max(8).optional(),
-  terminalId: z.string().min(1).max(128).optional(),
   toolchains: z.array(Toolchain).max(4).optional(),
   error: z.string().max(256).optional(),
 });
