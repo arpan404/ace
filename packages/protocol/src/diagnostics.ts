@@ -73,6 +73,16 @@ export const DiagnosticReport = z.object({
   checks: z.array(DiagnosticCheck).max(64),
 });
 export type DiagnosticReport = z.infer<typeof DiagnosticReport>;
+export const TriageProvider = z.enum(["claude", "codex", "cursor"]);
+export type TriageProvider = z.infer<typeof TriageProvider>;
+export const TriageKind = z.enum(["bug", "feature", "performance", "doctor"]);
+export type TriageKind = z.infer<typeof TriageKind>;
+export const DiagnosticRepair = z.object({
+  id: z.string().max(128),
+  status: z.enum(["fixed", "failed", "skipped"]),
+  message: z.string().max(2048),
+});
+export type DiagnosticRepair = z.infer<typeof DiagnosticRepair>;
 export const Toolchain = z.object({
   id: z.enum(["git", "xcode", "android", "serve-sim"]),
   available: z.boolean(),
@@ -82,15 +92,24 @@ export const Toolchain = z.object({
   version: z.string().max(64).optional(),
 });
 export type Toolchain = z.infer<typeof Toolchain>;
-export const DiagnosticsRequest = z.object({
+const diagnosticsRequest = z.object({
   type: z.literal("diagnostics.request"),
   requestId: z.string().min(1).max(128),
-  operation: z.enum(["doctor", "toolchains"]),
 });
+export const DiagnosticsRequest = z.discriminatedUnion("operation", [
+  diagnosticsRequest.extend({ operation: z.enum(["doctor", "toolchains", "fix"]) }),
+  diagnosticsRequest.extend({
+    operation: z.literal("launch"),
+    provider: TriageProvider,
+    prompt: z.string().min(1).max(48_000),
+  }),
+]);
 export const DiagnosticsResult = z.object({
   type: z.literal("diagnostics.result"),
   requestId: z.string().min(1).max(128),
   report: DiagnosticReport.optional(),
+  repairs: z.array(DiagnosticRepair).max(8).optional(),
+  terminalId: z.string().min(1).max(128).optional(),
   toolchains: z.array(Toolchain).max(4).optional(),
   error: z.string().max(256).optional(),
 });

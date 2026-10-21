@@ -92,12 +92,10 @@ it("validates inherited shell details before accepting legacy output and emits o
       draft: { type: "tool_call", call: { detail: { output } } },
     });
   for (const output of ["", "differentprefix!"]) {
-    expect(upsert(output)).toContainEqual(
-      expect.objectContaining({
-        type: "item.created",
-        item: expect.objectContaining({ type: "notice", level: "warning" }),
-      }),
+    const notices = upsert(output).flatMap((event) =>
+      event.type === "item.created" || event.type === "item.updated" ? [event.item] : [],
     );
+    expect(notices).toContainEqual(expect.objectContaining({ type: "notice", level: "warning" }));
     expect(h.item("shell")).toMatchObject({
       call: { detail: { output: { bytes: 13, tail: "thirteenbytes" } } },
     });

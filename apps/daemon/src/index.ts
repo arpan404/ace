@@ -1,3 +1,5 @@
+import { requireService } from "./services/composition.ts";
+import { triageLaunch } from "./triage-launch.ts";
 import { ProcessInventory } from "@ace/provider-kit/process-inventory";
 import { observeProcessGroups, stopOwnedGroups } from "@ace/provider-kit/process";
 import { forceStopAfterPoliteWindow } from "./shutdown-processes.ts";
@@ -6,7 +8,7 @@ export { StorageService } from "./storage/service.ts";
 export { planStorageItem, type StorageCandidate } from "./storage/planner.ts";
 import { shutdownDeadline } from "./shutdown.ts";
 import { shutdownControl } from "./shutdown-receipt.ts";
-import { connectedDoctorReport } from "./diagnostics-report.ts";
+import { connectedDoctorReport, fixDoctorReport } from "./diagnostics-report.ts";
 import { daemonToolchains, daemonServeSim } from "./toolchains.ts";
 export { runDaemonProcess } from "./process-daemon.ts";
 export { NewerDataError, HOME_FORMAT_VERSION } from "@ace/service";
@@ -382,6 +384,34 @@ export async function startDaemon(options: DaemonOptions = {}) {
       cliControl: cliControl(serviceContext),
       ...(options.preview ? { preview: options.preview } : {}),
       health: health.collect,
+      doctorFix: async (assertAuthorized) => {
+        const result = await fixDoctorReport(config, process.env, now, assertAuthorized);
+        return {
+          ...result,
+          report: {
+            ...result.report,
+            checks: result.report.checks.filter((check) => check.id !== "port"),
+          },
+        };
+      },
+      triageLaunch: async (provider, prompt, owner, assertAuthorized) => {
+        const launch = await triageLaunch(provider, prompt, process.env);
+        lifetime.signal.throwIfAborted();
+        assertAuthorized();
+        const management = requireService(
+          serviceContext.services.accountManagement,
+          "accountManagement",
+        );
+        return management.openInteractiveTerminal(owner, {
+          shell: launch.command,
+          args: launch.args,
+          cwd: home,
+          env: { ...process.env },
+          cols: 100,
+          rows: 30,
+          name: "ace triage",
+        }).id;
+      },
       doctor: sharedDiagnostics.doctor,
       toolchains: sharedDiagnostics.toolchains,
       log: (error) => log.log("error", "WebSocket failure", logError(error)),

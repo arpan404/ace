@@ -420,6 +420,10 @@ export class AccountManagement {
   }
   /** A protocol-advertised login invocation: live, owner-scoped, never recorded. */
   openLoginTerminal(owner: string, launch: OpenTerminalOptions) {
+    return this.openInteractiveTerminal(owner, launch);
+  }
+  /** A user-requested CLI session, live and owner-scoped, without thread history. */
+  openInteractiveTerminal(owner: string, launch: OpenTerminalOptions) {
     if (this.closed || this.terminals.size >= 8) throw new Error("Auth terminal unavailable");
     const terminalId = this.options.id();
     const { promise: exited, resolve: complete } = Promise.withResolvers<boolean>();
@@ -432,6 +436,12 @@ export class AccountManagement {
       complete,
       release: () => complete(false),
     });
+    const timer = setTimeout(() => {
+      void this.stop(terminalId, owner).catch(() => {});
+    }, 60_000);
+    timer.unref();
+    const entry = this.terminals.get(terminalId);
+    if (entry) entry.cancelTimer = () => clearTimeout(timer);
     return { id: terminalId, exited, stop: () => this.stop(terminalId, owner) };
   }
   terminalScope(id: string): "accounts" | "operate" {
@@ -459,6 +469,7 @@ export class AccountManagement {
       : entry.controller.signal;
     signal.throwIfAborted();
     if (entry.launch) {
+      entry.cancelTimer?.();
       const terminal = this.manager.openLiveTerminal(entry.launch, emit);
       entry.terminal = terminal;
       entry.starting = false;

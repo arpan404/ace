@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { useProviderEntries, entryStatus } from "./provider-entries.ts";
 import { RunChecks } from "@/features/diagnostics/index.ts";
 import { SupportExport } from "@/features/diagnostics/index.ts";
@@ -38,6 +39,11 @@ export function AdvancedSettings() {
     <>
       <SettingSection label="Health">
         <RunChecks providers={providers} />
+        <SettingRow title="ace triage" inline>
+          <Button variant="secondary" size="sm" nativeButton={false} render={<Link to="/triage" />}>
+            Create a prompt
+          </Button>
+        </SettingRow>
         <SupportExport />
         <DaemonDiagnostics />
       </SettingSection>

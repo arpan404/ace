@@ -279,3 +279,42 @@ and is never part of a cleanup plan. A run that hits its chunk limit returns
 `--abandon` to stop it. A database created before incremental vacuum reports
 `incrementalUnavailable` and is left unchanged. There is no full rebuild; see
 [Compaction](storage-cleanup.md#compaction).
+
+## Triage and doctor repairs
+
+Run `ace triage` in a terminal to select a prompt template, enter a multiline
+description (finish with a line containing only `.`), review it, then choose Claude
+Code, Codex or Cursor CLI. The selected provider opens interactively in the current
+folder with your prompt. Its installed CLI owns login, permissions and session history.
+No daemon is needed. Prompt generation itself makes no model call.
+
+```sh
+ace triage
+ace triage 'Thread switching freezes for four seconds' --kind performance
+ace triage 'Add project filtering' --kind feature --print
+printf '%s\n' 'The composer loses my draft' | ace triage - --json
+ace doctor
+ace doctor --fix
+ace doctor --fix --provider codex
+ace doctor --fix --json
+```
+
+Templates are `bug` (default for noninteractive input), `feature`, `performance` and
+`doctor`. JSON, jq, print and piped invocations generate a prompt without starting a
+provider. Diagnostics include bounded, redacted machine checks; they exclude
+conversations and credential files. Run the command on the affected computer;
+`--remote` is refused.
+
+`doctor --fix` creates missing ace/log folders and restores their owner-only access.
+It refuses symlinks, foreign ownership and non-directory paths. Checks run again
+after repair; unresolved failures keep a nonzero exit status. Interactive runs offer
+a coding CLI for further investigation. JSON includes `repairs` and, when findings
+remain, a ready-to-use `prompt`. `--print` also prints that prompt. Database recovery,
+CLI installation and login remain manual or agent-assisted work.
+
+In the app, open **ace triage** from the profile menu or Settings > Advanced. Select
+a template, describe the issue, then generate, edit or copy the prompt. Opening a
+CLI uses an embedded terminal on the connected computer and requires administrator
+access. Its working folder is that computer's home; closing the view ends the session.
+Settings > Advanced also offers **Run safe repairs** and **Investigate with a CLI**
+after checks find an issue.

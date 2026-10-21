@@ -6,10 +6,22 @@
       "maxLength": 256,
       "type": "string"
     },
+    "repairs": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/DiagnosticRepair.json"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
     "report": {
       "$ref": "https://ace.local/protocol/v1/DiagnosticReport.json"
     },
     "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "terminalId": {
       "maxLength": 128,
       "minLength": 1,
       "type": "string"

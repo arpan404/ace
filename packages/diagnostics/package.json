@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./toolchains": "./src/toolchains.ts",
-    "./log-policy": "./src/log-policy.ts"
+    "./log-policy": "./src/log-policy.ts",
+    "./triage": "./src/triage.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

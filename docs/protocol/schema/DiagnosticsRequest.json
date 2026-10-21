@@ -1,28 +1,66 @@
 {
   "$id": "https://ace.local/protocol/v1/DiagnosticsRequest.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "properties": {
-    "operation": {
-      "enum": [
-        "doctor",
-        "toolchains"
+  "oneOf": [
+    {
+      "properties": {
+        "operation": {
+          "enum": [
+            "doctor",
+            "toolchains",
+            "fix"
+          ],
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "diagnostics.request",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "operation"
       ],
-      "type": "string"
+      "type": "object"
     },
-    "requestId": {
-      "maxLength": 128,
-      "minLength": 1,
-      "type": "string"
-    },
-    "type": {
-      "const": "diagnostics.request",
-      "type": "string"
+    {
+      "properties": {
+        "operation": {
+          "const": "launch",
+          "type": "string"
+        },
+        "prompt": {
+          "maxLength": 48000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/TriageProvider.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "diagnostics.request",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "operation",
+        "provider",
+        "prompt"
+      ],
+      "type": "object"
     }
-  },
-  "required": [
-    "type",
-    "requestId",
-    "operation"
-  ],
-  "type": "object"
+  ]
 }

@@ -1,3 +1,5 @@
+import { triageCommand, triageHelp } from "./triage.ts";
+import { doctorCommand } from "./doctor.ts";
 import { remoteCommand, redeemCommand } from "./remote.ts";
 import { logsCommand } from "./logs.ts";
 import { cloudCommand } from "./cloud.ts";
@@ -33,7 +35,9 @@ ace task wait ID... [--any|--all]
 ace start|status|token|pair [SCOPES]|devices list|revoke ID
 ace service install|uninstall|start|stop|status
 ace accounts add|list|status|discover
-ace doctor|support-bundle PATH
+ace triage [DESCRIPTION|-] [--kind bug|feature|performance|doctor] [--provider claude|codex|cursor] [--print]
+ace doctor [--fix] [--provider claude|codex|cursor] [--print]
+ace support-bundle PATH
 ace stop|kill-all [--thread ID|--provider PROVIDER|--project ID]
 ace mcp enroll --scope read|operate --ttl DURATION [--project ID]
 ace mcp list|revoke ID
@@ -67,7 +71,12 @@ export async function main(input: string[]): Promise<void> {
     args = parseArgs(input);
     await validateOutput(args);
     if (args.flags.help) {
-      const text = args.words[0] === "sim" ? simHelp : help.trimEnd();
+      const text =
+        args.words[0] === "sim"
+          ? simHelp
+          : ["triage", "doctor"].includes(args.words[0] ?? "")
+            ? triageHelp
+            : help.trimEnd();
       await print(args, args.flags.json || args.flags.jq ? { help: text } : text);
       return;
     }
@@ -101,23 +110,17 @@ export async function main(input: string[]): Promise<void> {
       } else process.stdout.write(lines.join(""));
       return;
     }
-    if (["doctor", "support-bundle"].includes(command)) {
+    if (command === "triage") return await triageCommand(args, config);
+    if (command === "doctor") return await doctorCommand(args, config);
+    if (command === "support-bundle") {
       const { diagnosticsCli } = await import("../diagnostics-cli.ts");
       const output: string[] = [];
       await diagnosticsCli(
-        [
-          ...args.words,
-          ...(command === "doctor" && (args.flags.json || args.flags.jq) ? ["--json"] : []),
-          ...(args.flags["include-threads"] ? ["--include-threads"] : []),
-        ],
+        [...args.words, ...(args.flags["include-threads"] ? ["--include-threads"] : [])],
         config,
         (text) => output.push(text),
       );
-      if (args.flags.json || args.flags.jq)
-        await print(
-          args,
-          command === "doctor" ? JSON.parse(output.join("")) : { path: args.words[1] },
-        );
+      if (args.flags.json || args.flags.jq) await print(args, { path: args.words[1] });
       else process.stdout.write(output.join(""));
       return;
     }

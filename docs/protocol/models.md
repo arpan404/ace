@@ -58,33 +58,26 @@ Example:
 
 ```json
 {
-  "contextWindow": 6,
-  "custom": false,
-  "defaultTier": "example",
-  "deprecated": false,
-  "detail": "example",
+  "defaultEffort": "example",
+  "deprecated": true,
   "displayName": "example",
   "efforts": [],
-  "free": false,
+  "group": "current",
   "hidden": false,
   "id": "example",
   "inputModalities": [],
-  "installationId": "example",
   "instance": "example",
-  "instanceId": "example",
-  "isDefault": true,
-  "isNew": false,
+  "isDefault": false,
   "modelConfigId": "example",
   "nativeModelId": "example",
-  "provider": "opencode",
-  "providerEnabled": false,
+  "provider": "codex",
   "raw": {
     "json": "example",
-    "truncated": true
+    "truncated": false
   },
+  "selectorMethod": "session/set_config_option",
   "serviceTiers": [],
-  "version": "example",
-  "visibilityReason": "group_hidden"
+  "tier": "current"
 }
 ```
 
@@ -105,7 +98,7 @@ Example:
 ```json
 {
   "actionId": "provider.sign_in",
-  "code": "discovery_failed",
+  "code": "timeout",
   "hint": "example",
   "message": "example",
   "severity": "warning"
@@ -128,7 +121,7 @@ Example:
 {
   "id": "example",
   "label": "example",
-  "level": "minimal"
+  "level": null
 }
 ```
 
@@ -147,9 +140,7 @@ Example:
 Example:
 
 ```json
-{
-  "installationId": "example"
-}
+{}
 ```
 
 ## ModelInstanceStatus
@@ -179,15 +170,19 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
-  "enabled": false,
-  "installationId": "example",
+  "errorDetail": {
+    "actionId": "provider.sign_in",
+    "code": "not_configured",
+    "hint": "example",
+    "message": "example"
+  },
   "instance": "example",
-  "permissionModes": [],
-  "provider": "cursor",
-  "refreshedAt": 3,
-  "refreshing": true,
-  "stale": true
+  "instanceId": "example",
+  "provider": "pi",
+  "refreshedAt": 1,
+  "refreshing": false,
+  "sources": [],
+  "stale": false
 }
 ```
 
@@ -209,7 +204,8 @@ Example:
 
 ```json
 {
-  "installationId": "example"
+  "instance": "example",
+  "provider": "antigravity"
 }
 ```
 
@@ -252,35 +248,36 @@ Example:
 ```json
 {
   "model": {
-    "defaultSource": "user",
+    "acpAgentId": "example",
+    "contextWindow": 8,
+    "defaultEffort": "example",
+    "defaultSource": "built-in",
     "defaultTier": "example",
     "deprecated": false,
     "displayName": "example",
     "efforts": [],
-    "family": "example",
-    "free": true,
-    "hidden": true,
+    "free": false,
+    "hidden": false,
     "id": "example",
     "inputModalities": [],
     "instance": "example",
     "isDefault": false,
-    "modelConfigId": "example",
+    "legacy": true,
     "nativeModelId": "example",
-    "provider": "antigravity",
-    "providerEnabled": true,
+    "provider": "codex",
     "raw": {
       "json": "example",
       "truncated": true
     },
-    "selectorMethod": "session/set_model",
-    "serviceTiers": [],
-    "tier": "legacy",
-    "version": "example",
-    "visibilityReason": "model_hidden"
+    "serviceTiers": []
   },
   "ok": true,
   "reason": "example",
-  "stale": true
+  "stale": true,
+  "tier": {
+    "id": "example",
+    "name": "example"
+  }
 }
 ```
 
@@ -323,9 +320,8 @@ Example:
 
 ```json
 {
-  "imageInput": false,
-  "installationId": "example",
-  "instance": "example",
+  "acpAgentId": "example",
+  "effort": "example",
   "model": "example",
   "role": "example"
 }
@@ -385,7 +381,7 @@ Example:
 ```json
 {
   "id": "example",
-  "kind": "api_key",
+  "kind": "subscription",
   "label": "example"
 }
 ```
@@ -407,9 +403,9 @@ Example:
 {
   "source": {
     "id": "example",
-    "kind": "account",
+    "kind": "api_key",
     "label": "example",
-    "service": "opencode_go"
+    "service": "opencode_zen"
   },
   "status": "stale"
 }
@@ -429,9 +425,6 @@ Example:
 
 ```json
 {
-  "filter": {
-    "instanceId": "example"
-  },
   "requestId": "example",
   "type": "models.refresh"
 }
@@ -453,11 +446,10 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "instance": "example",
-    "model": "example",
-    "role": "example",
-    "selection": "strongest",
-    "tier": "example"
+    "acpAgentId": "example",
+    "imageInput": false,
+    "instanceId": "example",
+    "role": "example"
   },
   "type": "models.resolve"
 }
@@ -502,8 +494,6 @@ Example:
 ```json
 {
   "id": "example",
-  "name": "example",
-  "parameters": {},
-  "speed": "standard"
+  "name": "example"
 }
 ```

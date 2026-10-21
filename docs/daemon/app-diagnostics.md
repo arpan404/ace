@@ -34,3 +34,11 @@ review against the source hash; saving never activates an edited version. The sh
 review accepts its exact commit and content hash through `plugins.accept`. Back, closing the
 review and leaving the page cancel pending reviews. A changed source keeps the draft and
 offers reload instead of overwriting the accepted file.
+
+Triage extends `diagnostics.request` with `fix` and `launch`. Both require admin scope;
+read-only checks retain read scope. `fix` returns a fresh `report` and `repairs` array.
+`launch` accepts `provider: "claude" | "codex" | "cursor"` and a reviewed `prompt`,
+returning an owner-scoped `terminalId` for the existing live terminal transport. Launch
+uses the installed executable directly and keeps the provider's own permission mode.
+No durable command, thread or ace transcript is created. See
+[ADR 0092](../adr/0092-triage-and-doctor-repairs.md) for repair and lifetime limits.

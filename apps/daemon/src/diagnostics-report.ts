@@ -1,9 +1,10 @@
 import { createDoctorChecks, createSystemProbes, runDoctor } from "@ace/diagnostics";
-import { createRedactor } from "@ace/redaction";
+import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import { DiagnosticReport } from "@ace/protocol";
 import { homedir } from "node:os";
 import { remoteDoctorChecks } from "./doctor.ts";
 import type { Config } from "./config.ts";
+import { localDoctorChecks, repairDoctor } from "./doctor-repairs.ts";
 
 /** The CLI and authenticated app run the same bounded, read-only probes. */
 export async function collectDoctorReport(
@@ -22,12 +23,25 @@ export async function collectDoctorReport(
         }),
       ),
       ...remoteDoctorChecks(config, env),
+      ...localDoctorChecks(config.dataDir, process.getuid?.()),
     ],
     { now },
   );
   return DiagnosticReport.parse(
-    JSON.parse(createRedactor({ home: homedir(), env })(JSON.stringify(report))),
+    JSON.parse(createDiagnosticRedactor({ home: homedir(), env })(JSON.stringify(report))),
   );
+}
+
+export async function fixDoctorReport(
+  config: Config,
+  env: NodeJS.ProcessEnv,
+  now: () => number,
+  assertAuthorized: () => void = () => {},
+) {
+  const before = await collectDoctorReport(config, env, now);
+  assertAuthorized();
+  const repairs = await repairDoctor(config.dataDir, before, process.getuid?.());
+  return { report: await collectDoctorReport(config, env, now), repairs };
 }
 
 export async function connectedDoctorReport(

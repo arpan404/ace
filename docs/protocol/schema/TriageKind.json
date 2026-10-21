@@ -1,0 +1,11 @@
+{
+  "$id": "https://ace.local/protocol/v1/TriageKind.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "bug",
+    "feature",
+    "performance",
+    "doctor"
+  ],
+  "type": "string"
+}
