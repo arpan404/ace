@@ -8,6 +8,7 @@ import {
   FolderOpenIcon,
   WarningIcon,
 } from "@phosphor-icons/react";
+import { downloadStateLabels } from "@ace/ui-core";
 import { revealer } from "@/boot/open-external.ts";
 import { formatBytes } from "@/components/format-bytes.ts";
 import { Icon } from "@/components/icon.tsx";
@@ -22,13 +23,7 @@ import type { BrowserDownloadView } from "../sources.ts";
 import { toolbarButton } from "./page-toolbar.tsx";
 import { useSaveDownload } from "./use-save-download.ts";
 
-const states: Record<BrowserDownloadView["state"], string> = {
-  pending: "Downloading",
-  complete: "Downloaded",
-  denied: "Blocked",
-  failed: "Failed",
-  too_large: "Too large",
-};
+const states: Record<BrowserDownloadView["state"], string> = downloadStateLabels;
 
 /** Show in Finder, when the files are on this computer (the desktop app, a local daemon). */
 function useReveal() {

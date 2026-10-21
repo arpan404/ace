@@ -6,17 +6,13 @@ import Testing
     private let now = Date(timeIntervalSince1970: 1_000_000)
     private let english = Locale(identifier: "en_US")
 
-    @Test func aDaemonClockAheadOfThePhoneReadsNowRatherThanTheFuture() {
-        #expect(ActivityTime.text(now.addingTimeInterval(0.3), now: now, locale: english) == "now")
-        #expect(ActivityTime.text(now.addingTimeInterval(4), now: now, locale: english) == "now")
-        #expect(ActivityTime.text(now.addingTimeInterval(90), now: now, locale: english) == "now")
+    @Test func aWorkingStretchUnderAMinuteOrAheadOfThePhoneShowsNoAge() {
+        #expect(ActivityTime.elapsed(since: now.addingTimeInterval(-30), now: now, locale: english) == nil)
+        #expect(ActivityTime.elapsed(since: now.addingTimeInterval(5), now: now, locale: english) == nil)
     }
-    @Test func activityThisInstantReadsNow() {
-        #expect(ActivityTime.text(now, now: now, locale: english) == "now")
-        #expect(ActivityTime.text(now.addingTimeInterval(-0.4), now: now, locale: english) == "now")
-    }
-    @Test func pastActivityReadsHowLongAgo() {
-        #expect(ActivityTime.text(now.addingTimeInterval(-120), now: now, locale: english) == "2m ago")
-        #expect(ActivityTime.text(now.addingTimeInterval(-3 * 3600), now: now, locale: english) == "3h ago")
+    @Test func aWorkingStretchReadsItsLargestWholeUnit() {
+        #expect(ActivityTime.elapsed(since: now.addingTimeInterval(-12 * 60 - 50), now: now, locale: english) == "12m")
+        #expect(ActivityTime.elapsed(since: now.addingTimeInterval(-3 * 3600 - 59 * 60), now: now, locale: english) == "3h")
+        #expect(ActivityTime.elapsed(since: now.addingTimeInterval(-2 * 86_400 - 3600), now: now, locale: english) == "2d")
     }
 }

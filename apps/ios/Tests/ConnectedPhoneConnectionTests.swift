@@ -122,7 +122,7 @@ import Testing
         struct Directory: Decodable { let machines: [MachineEntry] }
         struct ProjectReply: Decodable { struct Result: Decodable { let kind: String; let projects: [NativeProject]?; let code: String? }; let result: Result }
         struct AccountReply: Decodable { struct Result: Decodable { let ok: Bool }; let result: Result }
-        struct Inventory: Decodable { let devices: [RemoteDevice] }
+        struct Inventory: Decodable { struct Device: Decodable { let id: String }; let devices: [Device] }
         let directory = try ProductionApp.storageDirectory()
         let saved = try JSONDecoder().decode(Directory.self, from: Data(contentsOf: ProductionApp.machineDirectory(in: directory)))
         let target = try #require(saved.machines.first?.connectionTarget)

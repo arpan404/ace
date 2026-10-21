@@ -1,76 +1,28 @@
 import { useEffect, useState } from "react";
 import { SettingsValues, type SettingsProvenance } from "@ace/protocol";
+import { useClient } from "@ace/client-react";
 import { SettingNote, SettingRow, SettingSection } from "@/components/setting-row.tsx";
-import { FilterMenu } from "@/components/ui/filter-menu.tsx";
-import { MachineLabel } from "@/components/ui/machine-label.tsx";
 import { fieldClassName } from "@/components/ui/input.tsx";
 import { cn } from "@/lib/cn.ts";
-import { useMachines, type Machine } from "@/lib/machines.ts";
 import { subscribeSettings } from "@/lib/settings-subscription.ts";
 import { settingRow } from "./settings-index.ts";
 
-const all = "all";
 const msPerMinute = 60_000;
 
 /**
- * Worktree preparation deadline, per environment (machine). Each daemon enforces its own
- * `worktree.preparationTimeoutMs` (10 minutes by default); `ACE_WORKTREE_PREPARATION_TIMEOUT_MS`
- * pins it with `environment` provenance. The environment filter mirrors Usage/Limits.
+ * The worktree preparation deadline of the machine Settings edits (`SettingsOutlet` renders the
+ * page against it). Each daemon enforces its own `worktree.preparationTimeoutMs` (10 minutes by
+ * default); `ACE_WORKTREE_PREPARATION_TIMEOUT_MS` pins it with `environment` provenance.
  */
 export function WorktreePreparationSettings() {
-  const machines = useMachines();
-  const online = machines.filter((machine) => machine.client !== undefined);
-  const [environmentId, setEnvironmentId] = useState<string>(all);
-  const selected =
-    environmentId === all
-      ? online
-      : online.filter((machine) =>
-          environmentId === "primary" ? machine.primary : machine.id === environmentId,
-        );
-  const options = [
-    { value: all, label: "All environments" },
-    ...online.map((machine) => ({ value: machine.id, label: machine.name })),
-  ];
+  const client = useClient();
   const row = settingRow("advanced.worktreeTimeout");
-  return (
-    <SettingSection
-      label="Worktree"
-      scope="daemon"
-      actions={
-        <FilterMenu
-          label="Environment"
-          value={environmentId}
-          options={options}
-          onValueChange={setEnvironmentId}
-        />
-      }
-    >
-      {selected.length === 0 ? (
-        <SettingNote>No environments online. Connect to a machine to see its timeout.</SettingNote>
-      ) : (
-        selected.map((machine) => (
-          // The primary machine's id arrives with its identity; its key stays stable so its
-          // row (and its input's focus) survives that load.
-          <MachineTimeoutRow
-            key={machine.primary ? "primary" : machine.id}
-            machine={machine}
-            anchor={row.id}
-          />
-        ))
-      )}
-    </SettingSection>
-  );
-}
-
-function MachineTimeoutRow(props: { machine: Machine; anchor: string }) {
-  const { machine } = props;
-  const rowKey = machine.primary ? "primary" : machine.id;
   const [minutes, setMinutes] = useState<number>();
   const [provenance, setProvenance] = useState<SettingsProvenance>();
   const [error, setError] = useState<string>();
+  const [draft, setDraft] = useState<string>();
+  const [saving, setSaving] = useState(false);
   useEffect(() => {
-    const client = machine.client;
-    if (!client) return;
     const subscription = subscribeSettings(
       client,
       ["worktree.preparationTimeoutMs"],
@@ -85,12 +37,10 @@ function MachineTimeoutRow(props: { machine: Machine; anchor: string }) {
       () => {},
     );
     return () => subscription.stop();
-  }, [machine.client]);
+  }, [client]);
   const pinned = provenance === "environment";
-  const [draft, setDraft] = useState<string>();
-  const [saving, setSaving] = useState(false);
   const commit = async () => {
-    if (draft === undefined || !machine.client) return;
+    if (draft === undefined) return;
     const value = Number(draft);
     if (draft === "" || value === minutes) {
       setDraft(undefined);
@@ -101,7 +51,7 @@ function MachineTimeoutRow(props: { machine: Machine; anchor: string }) {
       const ms = Math.round(value * msPerMinute);
       const parsed = SettingsValues.shape["worktree.preparationTimeoutMs"].safeParse(ms);
       if (!parsed.success) throw new Error("Use 1 to 60 minutes.");
-      const reply = await machine.client.request({
+      const reply = await client.request({
         type: "settings.set",
         key: "worktree.preparationTimeoutMs",
         value: parsed.data,
@@ -117,32 +67,31 @@ function MachineTimeoutRow(props: { machine: Machine; anchor: string }) {
     }
   };
   return (
-    <>
+    <SettingSection label="Worktrees" scope="daemon">
       <SettingRow
-        id={`${props.anchor}-${rowKey}`}
-        title={<MachineLabel name={machine.name} icon={machine.icon} primary={machine.primary} />}
+        {...row}
         description={
           pinned
-            ? `Preparation timeout is set by ACE_WORKTREE_PREPARATION_TIMEOUT_MS on this machine.`
-            : `How long read-only Git work before git worktree add may take.`
+            ? "Set by ACE_WORKTREE_PREPARATION_TIMEOUT_MS on this machine."
+            : "How long setting up a new worktree may take before it fails."
         }
       >
         <span className="flex items-center gap-2 text-sm text-muted-foreground">
           <input
-            aria-label={`Preparation timeout in minutes on ${machine.name}`}
+            aria-label="Preparation timeout in minutes"
             type="number"
             inputMode="numeric"
             min={1}
             max={60}
             className={cn(
               fieldClassName,
-              "h-8 w-24 tabular-nums",
+              "h-8 w-20 tabular-nums",
               "[appearance:textfield]",
               "[&::-webkit-inner-spin-button]:appearance-none",
               "[&::-webkit-outer-spin-button]:appearance-none",
             )}
             value={draft ?? minutes ?? ""}
-            disabled={!machine.client || saving || minutes === undefined || pinned}
+            disabled={saving || minutes === undefined || pinned}
             onChange={(event) => setDraft(event.target.value)}
             onBlur={() => void commit()}
             onKeyDown={(event) => {
@@ -158,6 +107,6 @@ function MachineTimeoutRow(props: { machine: Machine; anchor: string }) {
           {error}
         </SettingNote>
       )}
-    </>
+    </SettingSection>
   );
 }

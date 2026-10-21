@@ -30,9 +30,14 @@ struct StateLabel: View {
     let status: StatusDisplay
     var body: some View {
         HStack(spacing: AceTheme.Spacing.xs) {
-            Circle().fill(StateStyle.marker(status.token)).frame(width: AceTheme.Dimensions.statusDot, height: AceTheme.Dimensions.statusDot)
-            Text(status.label).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(StateStyle.text(status.token))
+            if let symbol = StatusSymbol.name(status.token) {
+                Image(systemName: symbol).font(.footnote.weight(.semibold)).foregroundStyle(StateStyle.marker(status.token))
+            }
+            Text(status.label).aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                .fontWeight(StatusSymbol.isLoud(status.token) ? .semibold : .medium)
+                .foregroundStyle(StateStyle.text(status.token))
         }
+        .lineLimit(1)
         .accessibilityElement(children: .combine)
     }
 }

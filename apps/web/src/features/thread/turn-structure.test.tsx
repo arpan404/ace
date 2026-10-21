@@ -228,13 +228,14 @@ function stopped(withWork: boolean): Scenario {
   };
 }
 
-test("a stopped turn keeps its partial answer and stopped summary", async () => {
+test("a stopped turn keeps its partial answer, its worked time and its Interrupted by you break", async () => {
   const app = harness();
   app.play(stopped(true)).runUntilBlocked();
   await app.open("/t/thread-stopped");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const note = await within(feed).findByRole("button", { name: /^Stopped/ });
-  expect(note.textContent).toMatch(/^Stopped after/);
+  const head = await within(feed).findByRole("button", { name: /^Worked for/ });
+  expect(head.textContent).toMatch(/^Worked for/);
+  expect(within(feed).getByRole("note", { name: "Interrupted by you" })).toBeTruthy();
   expect(within(feed).getByText("Building the web bundle first")).toBeTruthy();
   // What it had written stays, but no longer looks like it is still being written.
   expect(within(feed).queryByRole("status", { name: "Streaming" })).toBeNull();
@@ -245,7 +246,7 @@ test("a turn stopped before any reply keeps saying so under its ask after the ne
   app.play(stopped(false)).runUntilBlocked();
   await app.open("/t/thread-stopped");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const note = await within(feed).findByRole("button", { name: /^Stopped/ });
+  const note = await within(feed).findByRole("note", { name: "Interrupted by you" });
   expect(follows(within(feed).getByText("Build the release bundle."), note)).toBe(true);
 
   act(() =>
@@ -255,9 +256,29 @@ test("a turn stopped before any reply keeps saying so under its ask after the ne
     ]),
   );
   const next = await within(feed).findByText("Build only the web bundle.");
-  const kept = within(feed).getByRole("button", { name: /^Stopped/ });
+  const kept = within(feed).getByRole("note", { name: "Interrupted by you" });
   expect(follows(within(feed).getByText("Build the release bundle."), kept)).toBe(true);
   expect(follows(kept, next)).toBe(true);
+});
+
+test("the person's Stop closes the turn with an Interrupted by you break; the next ask starts below it", async () => {
+  const app = harness();
+  app.play(stopped(true)).runUntilBlocked();
+  await app.open("/t/thread-stopped");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  const partial = await within(feed).findByText("Building the web bundle first");
+  const divider = await within(feed).findByRole("note", { name: "Interrupted by you" });
+  expect(within(feed).getAllByRole("note", { name: "Interrupted by you" })).toHaveLength(1);
+  expect(follows(partial, divider)).toBe(true);
+
+  act(() =>
+    app.daemon.apply("thread-stopped", [
+      { type: "turn.started", agent: "root", nativeTurnId: "turn-2", trigger: "user" },
+      message("root", "ask-2", "user", "Build only the web bundle."),
+    ]),
+  );
+  const next = await within(feed).findByText("Build only the web bundle.");
+  expect(follows(divider, next)).toBe(true);
 });
 
 test("the subagent card deduplicates a launch and its spawn call and opens the child thread", async () => {
@@ -277,16 +298,16 @@ test("the subagent card deduplicates a launch and its spawn call and opens the c
   expect(await screen.findByText(/Drafted the frame table/)).toBeTruthy();
 });
 
-test("a usage-limit pause marks where the turn stopped, and stays there after the resume", async () => {
+test("a usage-limit pause keeps the turn's work where it stopped, and there after the resume", async () => {
   const app = harness();
   app
     .play(accountLimit("thread-limit-flags", "Remove the legacy feature-flag reader"))
     .runUntilBlocked();
   await app.open("/t/thread-limit-flags");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const pause = await within(feed).findByRole("note", {
-    name: "Paused · Codex usage limit",
-  });
+  // The work keeps its place; the limit itself is said only in the composer's strip.
+  const pause = await within(feed).findByRole("note", { name: /^Worked/ });
+  expect(within(feed).queryByText(/usage limit/)).toBeNull();
   const ask = within(feed).getByText("Remove the legacy feature-flag reader");
   expect(follows(ask, pause)).toBe(true);
   // One marker: the live line doesn't repeat it.
@@ -294,7 +315,7 @@ test("a usage-limit pause marks where the turn stopped, and stays there after th
 
   act(() => app.daemon.apply("thread-limit-flags", resumeAfterLimit));
   const resumed = await within(feed).findByText("Picking the flag removal back up.");
-  const kept = within(feed).getByRole("note", { name: "Paused · Codex usage limit" });
+  const kept = within(feed).getByRole("note", { name: /^Worked/ });
   expect(follows(ask, kept) && follows(kept, resumed)).toBe(true);
 });
 
@@ -313,7 +334,7 @@ test("a pause in history is rebuilt from the resume, after a reload", async () =
   app.daemon.apply("thread-limit-flags", resumeAfterLimit);
   await app.open("/t/thread-limit-flags");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const pause = await within(feed).findByRole("note", { name: "Paused · Codex usage limit" });
+  const pause = await within(feed).findByRole("note", { name: /^Worked/ });
   expect(follows(pause, within(feed).getByText("Picking the flag removal back up."))).toBe(true);
   // The resume interrupted the paused turn; the pause already says why it stopped.
   expect(within(feed).queryByRole("note", { name: /^Stopped/ })).toBeNull();

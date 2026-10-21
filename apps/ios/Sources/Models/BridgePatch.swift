@@ -33,6 +33,16 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     var badge: String? = nil
     var diff: Diff? = nil
     var testsRunning: Bool? = nil
+    /// The pull request the thread's card names, and whether it is still in review.
+    var pr: PullRequestRef? = nil
+    /// Start of the current working stretch (ms) while the tree works; nil otherwise.
+    var workingSince: Double? = nil
+}
+struct PullRequestRef: Codable, Sendable, Equatable {
+    let number: Int
+    /// open, draft, merged or closed.
+    let state: String
+    var inReview: Bool { state == "open" || state == "draft" }
 }
 struct TranscriptRow: Codable, Sendable, Identifiable, Equatable {
     let id: String
@@ -155,6 +165,8 @@ enum BridgePatch: Decodable, Sendable {
     case screen(String, Int, ScreenPatch)
     /// The thread's live browser view (`bridge/browser-live.ts`).
     case browser(BrowserPatch)
+    /// A thread's Devices screen and its logs (`bridge/native-devices.ts`).
+    case devices(DevicesPatch)
 
     private enum Keys: String, CodingKey { case type, id, row, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation }
     init(from decoder: any Decoder) throws {
@@ -215,6 +227,7 @@ enum BridgePatch: Decodable, Sendable {
         case "git.draft": self = .gitDraft(try GitDraft(from: decoder))
         case "archive.list": self = .archiveList(try ArchiveList(from: decoder))
         case let kind where BrowserPatch.types.contains(kind): self = .browser(try BrowserPatch(from: decoder))
+        case let kind where DevicesPatch.types.contains(kind): self = .devices(try DevicesPatch(from: decoder))
         case let kind where ScreenPatch.types.contains(kind):
             let (id, epoch) = try scope()
             self = .screen(id, epoch, try ScreenPatch(type: kind, from: decoder))

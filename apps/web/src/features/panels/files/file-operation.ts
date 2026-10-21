@@ -4,9 +4,4 @@ export type FileOperationDialog =
   | { kind: "archive"; path: string }
   | { kind: "trash" };
 
-export const cleanPath = (path: string) => path.replace(/\/+$/, "");
-export const parentPath = (path: string) => {
-  const clean = cleanPath(path);
-  const slash = clean.lastIndexOf("/");
-  return slash < 0 ? "" : clean.slice(0, slash + 1);
-};
+export { cleanPath, parentPath } from "@ace/ui-core";

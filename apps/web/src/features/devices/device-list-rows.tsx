@@ -4,7 +4,7 @@ import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { cn } from "@/lib/cn.ts";
-import { deviceKind, type DeviceGroup, type DeviceKind } from "./device-catalog.ts";
+import { deviceKind, type DeviceGroup, type DeviceKind } from "@ace/ui-core/devices";
 import { deviceGlyphs } from "./device-frame.tsx";
 
 const rowBox =

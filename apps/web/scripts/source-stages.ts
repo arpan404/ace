@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { contentHash } from "../../../packages/ui-core/src/content-hash.ts";
-import { sourceHighlight } from "../src/components/markdown/source-highlight.ts";
+import { sourceHighlight } from "../../../packages/ui-core/src/source-highlight.ts";
 import { codeLines } from "../src/components/markdown/code-lines.ts";
 
 // Isolate CPU stages without attributing Node timings to browser presentation or worker transport.

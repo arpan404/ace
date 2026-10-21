@@ -212,6 +212,24 @@ export class FakeFilesWire {
       });
       return;
     };
+    /** A `read`: the file's details and one part of its bytes, never compressed. */
+    const readPart = (
+      op: Extract<FileOperation, { op: "read" }>,
+      key: string,
+      requestId: string,
+    ) => {
+      const file = this.files.get(key);
+      const reply = (value: unknown) => emit({ type: "files.result", requestId, value });
+      if (!file) return reply({ path: op.path, version: null });
+      if (file.folder) return reply({ path: op.path, version: file.version, type: "directory" });
+      if (op.validator !== undefined && op.validator !== file.version) throw new Error("CONFLICT");
+      const size = file.bytes.length;
+      const base = { path: op.path, version: file.version, type: "file", size };
+      if (op.maxSize !== undefined && size > op.maxSize) return reply(base);
+      if (op.offset > size) throw new Error("CONFLICT");
+      const bytes = file.bytes.subarray(op.offset, op.offset + op.length);
+      return reply({ ...base, offset: op.offset, encoding: "identity", data: encode(bytes) });
+    };
     return {
       close() {
         closed = true;
@@ -317,7 +335,7 @@ export class FakeFilesWire {
             // As the daemon: a project's own folder is read-only and needs a registered project.
             const workspaceId = message.workspaceId;
             if (message.threadId || message.scope) throw new Error("INVALID_MESSAGE");
-            if (op.op !== "list" && op.op !== "stat" && op.op !== "download")
+            if (op.op !== "list" && op.op !== "stat" && op.op !== "read" && op.op !== "download")
               throw new Error("FORBIDDEN");
             if (!this.registered(workspaceId)) throw new Error("NOT_FOUND");
             if (op.op === "list") {
@@ -325,7 +343,9 @@ export class FakeFilesWire {
               emit({ type: "files.result", requestId: message.requestId, value });
               return;
             }
-            read(op, "", this.checkout.projectKey(workspaceId, op.path), message.requestId);
+            const key = this.checkout.projectKey(workspaceId, op.path);
+            if (op.op === "read") readPart(op, key, message.requestId);
+            else read(op, "", key, message.requestId);
             return;
           }
           if (!message.threadId) throw new Error("INVALID_MESSAGE");
@@ -333,6 +353,10 @@ export class FakeFilesWire {
           if (op.op === "link.download") {
             // Not a checkout path, so pulls skip the checkout re-check (as support reads do).
             read(op, "", linkedKey(threadId, op.itemId, op.reference), message.requestId);
+            return;
+          }
+          if (op.op === "read") {
+            readPart(op, this.key(threadId, op.path), message.requestId);
             return;
           }
           if (op.op === "download" || op.op === "stat" || op.op === "artifact.download") {

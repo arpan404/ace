@@ -6,9 +6,11 @@ import { harness } from "@/test/harness.tsx";
 test("machines and paired devices are listed; revoking a device removes it after confirming", async () => {
   const app = harness({ machines: [{ hostId: "build-box", name: "Build server" }] });
   await app.open("/settings/remote");
-  const machines = await screen.findByRole("region", { name: "Machines" });
-  expect(await within(machines).findByText("This Mac")).toBeTruthy();
+  const thisMachine = await screen.findByRole("region", { name: "This machine" });
+  expect(await within(thisMachine).findByText("This Mac")).toBeTruthy();
+  const machines = screen.getByRole("region", { name: "Machines" });
   expect(await within(machines).findByText("Build server")).toBeTruthy();
+  expect(within(machines).queryByText("This Mac")).toBeNull();
 
   const devices = screen.getByRole("region", { name: "Paired devices" });
   expect(await within(devices).findByText("iPhone 16 Pro")).toBeTruthy();
@@ -37,11 +39,13 @@ test("pairing shows a one-time QR code, its code and a link that can be copied i
   await harness({ clock: () => Date.now() }).open("/settings/remote");
   await user.click(await screen.findByRole("button", { name: "Pair a device" }));
   const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
-  await user.click(within(dialog).getByRole("button", { name: "View only" }));
+  await user.click(within(dialog).getByRole("radio", { name: "View only" }));
   await user.click(within(dialog).getByRole("button", { name: "Show pairing code" }));
 
   expect(await within(dialog).findByRole("img", { name: "Pairing QR code" })).toBeTruthy();
-  expect(within(dialog).getByText(/^Expires in (5:00|4:5\d)$/)).toBeTruthy();
+  expect(within(dialog).getByText(/Expires in (5:00|4:5\d)$/)).toBeTruthy();
+  // The short code is on screen for a device that can't scan.
+  expect(within(dialog).getByLabelText(/^Pairing code \S+$/)).toBeTruthy();
 
   await user.click(within(dialog).getByRole("button", { name: "Copy link" }));
   expect(await within(dialog).findByRole("button", { name: "Copied" })).toBeTruthy();
@@ -58,8 +62,7 @@ test("an offline machine explains the failure, reconnects, and can be forgotten"
   await waitFor(() => expect(app.pool().machine("build-box")?.status).toBe("online"));
   app.crashMachine("build-box");
   await within(region).findByText("Offline");
-  await userEvent.hover(within(region).getByText("Build server"));
-  expect(await screen.findByText(/Couldn't reach this machine/)).toBeTruthy();
+  expect(await within(region).findByText(/Couldn't reach this machine/)).toBeTruthy();
   await userEvent.click(within(region).getByRole("button", { name: "Actions for Build server" }));
   const reconnect = await screen.findByRole("menuitem", { name: "Reconnect" });
   expect(reconnect.hasAttribute("data-disabled")).toBe(false);

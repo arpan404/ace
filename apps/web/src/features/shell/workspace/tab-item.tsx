@@ -246,6 +246,7 @@ export function TabItem(props: {
         <MenuItem onClick={() => actions.setPinned(tab.key, !tab.pinned)}>
           {tab.pinned ? "Unpin tab" : "Pin tab"}
         </MenuItem>
+        {kind?.MenuItems && <kind.MenuItems scope={props.scope} tab={tab} />}
         <MenuItem
           disabled={props.index === 0}
           onClick={() => actions.move(tab.key, props.index - 1)}

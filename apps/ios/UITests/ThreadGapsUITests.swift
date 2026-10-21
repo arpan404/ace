@@ -16,12 +16,15 @@ import XCTest
         feedback.tap()
         feedback.typeText("Also cover zombie processes")
         screenshot("plan-revise")
+        XCTAssertTrue(app.buttons["composer.model"].waitForExistence(timeout: 25))
+        app.buttons["composer.model"].tap()
         let tune = app.buttons["composer.tune"]
         XCTAssertTrue(tune.waitForExistence(timeout: 25))
         tune.tap()
         XCTAssertTrue(app.buttons["High"].waitForExistence(timeout: 10))
         screenshot("tune-menu")
         app.buttons["High"].tap()
+        app.buttons["modelSheet.close"].tap()
         XCTAssertTrue(app.buttons["composer.attach"].waitForExistence(timeout: 10))
         app.buttons["composer.attach"].tap()
         XCTAssertTrue(app.buttons["Photo Library"].waitForExistence(timeout: 10))
@@ -42,6 +45,7 @@ import XCTest
         worked.tap()
         XCTAssertTrue(app.staticTexts["Ran"].waitForExistence(timeout: 15))
         screenshot("worked-full-steps")
+        app.buttons["subagents.rollup"].firstMatch.tap()
         let review = app.buttons["subagent.Review PID-reuse safety"]
         XCTAssertTrue(review.waitForExistence(timeout: 10))
         review.tap()

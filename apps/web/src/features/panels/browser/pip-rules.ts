@@ -72,3 +72,59 @@ export function clampPip(
   );
   return { right, bottom, width };
 }
+
+/** Space between stacked floating windows. */
+const stackGap = 8;
+
+/** A floating window's box: its distances from the window's right and bottom, and its size. */
+export interface PipBox {
+  right: number;
+  bottom: number;
+  width: number;
+  height: number;
+}
+
+const overlaps = (a: PipBox, b: PipBox) =>
+  a.right < b.right + b.width &&
+  b.right < a.right + a.width &&
+  a.bottom < b.bottom + b.height &&
+  b.bottom < a.bottom + a.height;
+
+/**
+ * Where a new floating window starts while others are open (`open`): at `base` (where the
+ * person last put one) when that is free, else the first free place stacked upward from it,
+ * then in columns leftward once a column reaches the top. Always inside the app window
+ * (`clampPip`); when nothing is free, at `base`.
+ */
+export function placePip(
+  base: PipGeometry,
+  open: readonly PipBox[],
+  window: { width: number; height: number },
+  aspect: number,
+): PipGeometry {
+  const first = clampPip(base, window, aspect);
+  const height = Math.round(first.width * aspect) + pipLimits.header;
+  const room = window.height - first.bottom - pipLimits.margin + stackGap;
+  const perColumn = Math.max(1, Math.floor(room / (height + stackGap)));
+  const columns = Math.max(
+    1,
+    Math.floor(
+      (window.width - first.right - pipLimits.margin + stackGap) / (first.width + stackGap),
+    ),
+  );
+  for (let slot = 0; slot < perColumn * columns; slot++) {
+    const column = Math.floor(slot / perColumn);
+    const row = slot % perColumn;
+    const place = clampPip(
+      {
+        width: first.width,
+        right: first.right + column * (first.width + stackGap),
+        bottom: first.bottom + row * (height + stackGap),
+      },
+      window,
+      aspect,
+    );
+    if (!open.some((box) => overlaps(box, { ...place, height }))) return place;
+  }
+  return first;
+}

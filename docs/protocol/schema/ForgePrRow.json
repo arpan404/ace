@@ -2,11 +2,31 @@
   "$id": "https://ace.local/protocol/v1/ForgePrRow.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "additions": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "assignees": {
+      "items": {
+        "maxLength": 65536,
+        "type": "string"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
     "author": {
       "maxLength": 65536,
       "type": "string"
     },
     "authorAvatarUrl": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "avatars": {
+      "$ref": "https://ace.local/protocol/v1/ForgeAvatars.json"
+    },
+    "baseBranch": {
       "maxLength": 65536,
       "type": "string"
     },
@@ -25,6 +45,25 @@
       "minimum": 0,
       "type": "integer"
     },
+    "conflicting": {
+      "type": "boolean"
+    },
+    "createdAt": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "deletions": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "headBranch": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "labelColors": {
+      "$ref": "https://ace.local/protocol/v1/ForgeLabelColors.json"
+    },
     "labels": {
       "items": {
         "maxLength": 65536,
@@ -41,6 +80,29 @@
       "maximum": 9007199254740991,
       "minimum": 0,
       "type": "integer"
+    },
+    "reviewDecision": {
+      "anyOf": [
+        {
+          "enum": [
+            "APPROVED",
+            "CHANGES_REQUESTED",
+            "REVIEW_REQUIRED"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reviewers": {
+      "items": {
+        "maxLength": 65536,
+        "type": "string"
+      },
+      "maxItems": 100,
+      "type": "array"
     },
     "state": {
       "enum": [

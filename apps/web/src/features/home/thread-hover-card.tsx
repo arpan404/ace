@@ -1,18 +1,33 @@
 import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { currentAttention, modelLabel, providerDisplayName, type ThreadCard } from "@ace/ui-core";
-import { GitBranchIcon } from "@phosphor-icons/react";
+import { GitBranchIcon, TreeStructureIcon } from "@phosphor-icons/react";
 import { HoverCardContent } from "@/components/ui/hover-card.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { ProjectMark, PullRequest, RowStatus } from "./row-parts.tsx";
-import { ThreadHoverPrs } from "./thread-hover-prs.tsx";
+import { ExternalLink, ThreadHoverPrs } from "./thread-hover-prs.tsx";
 import { onScrollMove, scrolledRecently } from "./scroll-rest.ts";
 
 /** One compact line of the card: a glyph and its fact. */
 function Fact(props: { children: ReactNode }) {
   return <div className="flex h-5 min-w-0 items-center gap-1.5">{props.children}</div>;
+}
+
+/** Running subagents: a tree glyph and how many. */
+export function SubagentCount(props: { count: number }) {
+  const label = `${props.count} ${props.count === 1 ? "subagent" : "subagents"} running`;
+  return (
+    <span
+      role="img"
+      aria-label={label}
+      className="ml-auto inline-flex shrink-0 items-center gap-1 tabular-nums"
+    >
+      <TreeStructureIcon aria-hidden size={14} />
+      {props.count}
+    </span>
+  );
 }
 
 /** Metadata already in the row and shared account cache; no history or per-thread fetch. */
@@ -27,6 +42,7 @@ export function ThreadHoverContent(props: {
     ? accounts.data?.find((candidate) => candidate.id === props.instance)
     : undefined;
   const model = entry.live?.model ?? entry.execution?.model;
+  const prUrl = card.prs?.[0]?.url;
   const queued =
     entry.switch?.state === "queued" && entry.switch.selection.instanceId === account?.id;
   return (
@@ -38,7 +54,7 @@ export function ThreadHoverContent(props: {
       align="start"
       collisionAvoidance={{ side: "flip", align: "shift", fallbackAxisSide: "none" }}
       aria-label={`Details for ${card.title}`}
-      className="w-64 max-w-[calc(100vw-24px)] max-h-[min(var(--available-height),400px,calc(100dvh-24px))] overflow-y-auto px-3 py-2 break-words"
+      className="w-80 max-w-[calc(100vw-24px)] max-h-[min(var(--available-height),400px,calc(100dvh-24px))] overflow-y-auto px-3 py-2 break-words"
     >
       <p className="truncate text-ui leading-5 font-medium text-foreground" title={card.title}>
         {card.title}
@@ -60,9 +76,13 @@ export function ThreadHoverContent(props: {
         {card.branch && (
           <Fact>
             <GitBranchIcon aria-hidden size={14} className="shrink-0" />
-            <span className="min-w-0 truncate" title={card.branch.name}>
-              {card.branch.name}
-            </span>
+            {prUrl ? (
+              <ExternalLink href={prUrl} label={`Open pull request for ${card.branch.name}`}>
+                {card.branch.name}
+              </ExternalLink>
+            ) : (
+              <span className="min-w-0 truncate">{card.branch.name}</span>
+            )}
           </Fact>
         )}
         <Fact>
@@ -74,32 +94,20 @@ export function ThreadHoverContent(props: {
             decorative
             className="text-muted-foreground"
           />
+          {/* The account and the model; the icon already names the provider. */}
           <span className="min-w-0 truncate">
-            {providerDisplayName(card.provider, card.acpAgentId)}
-            {account ? ` · ${account.label}${queued ? " (queued)" : ""}` : ""}
+            {account ? `${account.label}${queued ? " (queued)" : ""}` : ""}
+            {account && model ? " · " : ""}
+            {model ? (
+              <span data-model={model} aria-label={`Model: ${modelLabel(model)}`}>
+                {modelLabel(model)}
+              </span>
+            ) : account ? null : (
+              providerDisplayName(card.provider, card.acpAgentId)
+            )}
           </span>
-          {card.subagents > 0 && (
-            <span
-              className="ml-auto shrink-0 tabular-nums"
-              aria-label={`${card.subagents} subagents running`}
-            >
-              ⑂ {card.subagents}
-            </span>
-          )}
+          {card.subagents > 0 && <SubagentCount count={card.subagents} />}
         </Fact>
-        {model && (
-          <Fact>
-            <span aria-hidden className="w-3.5 shrink-0" />
-            <span
-              className="min-w-0 truncate"
-              data-model={model}
-              title={modelLabel(model)}
-              aria-label={`Model: ${modelLabel(model)}`}
-            >
-              {modelLabel(model)}
-            </span>
-          </Fact>
-        )}
       </div>
       {(card.pr !== undefined || card.diff) && (
         <div className="mt-1 border-t border-border pt-1 text-ui text-muted-foreground">

@@ -1,0 +1,14 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeImageType.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "image/bmp",
+    "image/x-icon",
+    "image/avif"
+  ],
+  "type": "string"
+}

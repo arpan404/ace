@@ -1,0 +1,38 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeCheckAction.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "attempt": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "jobs": {
+          "enum": [
+            "failed",
+            "all"
+          ],
+          "type": "string"
+        },
+        "kind": {
+          "const": "rerun",
+          "type": "string"
+        },
+        "runId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "runId",
+        "attempt",
+        "jobs"
+      ],
+      "type": "object"
+    }
+  ]
+}

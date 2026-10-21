@@ -52,6 +52,25 @@ test("a finished root whose child still works stays Working, even once settled",
   expect(inboxStatus(thread, now)).toEqual({ label: "Working", token: "working" });
 });
 
+test("a settled thread leaves Done for Settled, below Snoozed, while unsettled work stays put", () => {
+  const result = sections([
+    on("mac", entry("fresh", { state: "done" }, now)),
+    on(
+      "mac",
+      entry("put-away", { state: "done" }, now, { settledAt: now, settledReason: "manual" }),
+    ),
+    on("mac", entry("nap", { state: "done" }, now, { snoozedUntil: now + minute })),
+    on("mac", entry("asks", { state: "needs_you", interactions: 1 }, now, { settledAt: now })),
+  ]);
+  expect(result).toEqual({
+    "Needs you": ["mac/asks"],
+    Done: ["mac/fresh"],
+    Snoozed: ["mac/nap"],
+    Settled: ["mac/put-away"],
+  });
+  expect(Object.keys(result)).toEqual(["Needs you", "Done", "Snoozed", "Settled"]);
+});
+
 test("requests lead, a snoozed request stays exposed and a failure asks the person to look", () => {
   const result = sections([
     on("mac", entry("busy", { state: "working", agents: 1 }, now)),

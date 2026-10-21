@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/GitConflictsResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "conflicts": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/GitConflicts.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "kind": {
+      "const": "gitConflicts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "conflicts"
+  ],
+  "type": "object"
+}

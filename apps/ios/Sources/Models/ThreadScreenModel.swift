@@ -26,6 +26,8 @@ import Observation
     @ObservationIgnored var stopRequest: String?
     /// Finished turns' steps read on demand, by turn ordinal.
     var steps: [Int: TurnStepsModel] = [:]
+    /// The live line the capsule above the composer shows; nil when nothing is live.
+    var activity: ActivityRow?
     /// Effort and speed for the next message.
     var tune: TuneRow?
     /// Files on the next message and their uploads.
@@ -41,6 +43,7 @@ import Observation
         blockOrder = []
         controls = nil
         queue = nil
+        activity = nil
         steps = [:]
         tune = nil
         attachments = []

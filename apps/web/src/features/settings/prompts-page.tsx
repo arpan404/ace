@@ -4,9 +4,15 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Select } from "@/components/ui/select.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { promptProblem } from "./prompt-copy.ts";
-import { SettingCard, SettingList, SettingRow } from "@/components/setting-row.tsx";
+import {
+  SettingAddRow,
+  SettingCard,
+  SettingList,
+  SettingNote,
+  SettingRow,
+} from "@/components/setting-row.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { SettingsBody } from "./settings-body.tsx";
@@ -67,31 +73,6 @@ export function PromptsSettingsScreen() {
         />
       }
     >
-      {!editing && (
-        <div className="mt-6">
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={!online}
-            onClick={() => {
-              setSaved(undefined);
-              setEditing({ scope });
-            }}
-          >
-            + New prompt
-          </Button>
-        </div>
-      )}
-      {!online && (
-        <p role="status" className="mt-3 text-ui text-muted-foreground">
-          Reconnect to load and edit your prompts.
-        </p>
-      )}
-      {saved && (
-        <p role="status" className="mt-3 text-ui text-muted-foreground">
-          {saved}
-        </p>
-      )}
       {editing ? (
         <PromptEditor
           key={`${editing.file?.name ?? "new"}:${JSON.stringify(editing.scope)}`}
@@ -108,54 +89,70 @@ export function PromptsSettingsScreen() {
             void files.refetch();
           }}
         />
-      ) : files.isPending ? (
-        online && <Spinner label="Loading prompts" />
-      ) : files.isError ? (
-        <p role="alert" className="mt-3 text-ui">
-          {files.error.message}{" "}
-          <Button size="sm" variant="ghost" onClick={() => void files.refetch()}>
-            Try again
-          </Button>
-        </p>
-      ) : !files.data.length ? (
-        <p className="mt-6 text-ui text-muted-foreground">No prompts yet.</p>
       ) : (
-        <SettingCard className="mt-4">
-          <SettingList aria-label="Prompt files">
-            {files.data.map((file) => (
-              <li key={`${file.scope.kind}:${file.name}`}>
-                <SettingRow
-                  title={
-                    <button
-                      type="button"
-                      className="block w-full rounded-sm text-left focus-ring hover:text-foreground"
-                      onClick={() => {
-                        setEditing({ file, scope: file.scope });
-                        setSaved(undefined);
-                      }}
-                    >
-                      {file.title}
-                    </button>
-                  }
-                  description={file.description || undefined}
-                  inline
-                >
-                  {!!file.diagnostics.length && (
-                    <Tip label={file.diagnostics.map((d) => promptProblem(d.message)).join(" ")}>
-                      <span
-                        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard
-                        tabIndex={0}
-                        role="status"
-                        className="rounded-sm text-xs text-status-failed focus-ring"
+        // One ruled list for the chosen location: its prompts (or why there are none), then the
+        // add row, as every list in Settings ends.
+        <SettingCard>
+          {saved && <SettingNote role="status">{saved}</SettingNote>}
+          {!online ? (
+            <SettingNote role="status">Reconnect to load and edit your prompts.</SettingNote>
+          ) : files.isPending ? (
+            <ListSkeleton label="prompts" shape="row" rows={3} />
+          ) : files.isError ? (
+            <SettingNote role="alert" className="text-foreground">
+              {files.error.message}{" "}
+              <Button size="sm" variant="ghost" onClick={() => void files.refetch()}>
+                Try again
+              </Button>
+            </SettingNote>
+          ) : !files.data.length ? (
+            <SettingNote>No prompts yet.</SettingNote>
+          ) : (
+            <SettingList aria-label="Prompt files">
+              {files.data.map((file) => (
+                <li key={`${file.scope.kind}:${file.name}`}>
+                  <SettingRow
+                    title={
+                      <button
+                        type="button"
+                        className="block w-full rounded-sm text-left focus-ring hover:text-foreground"
+                        onClick={() => {
+                          setEditing({ file, scope: file.scope });
+                          setSaved(undefined);
+                        }}
                       >
-                        Invalid frontmatter
-                      </span>
-                    </Tip>
-                  )}
-                </SettingRow>
-              </li>
-            ))}
-          </SettingList>
+                        {file.title}
+                      </button>
+                    }
+                    description={file.description || undefined}
+                    inline
+                  >
+                    {!!file.diagnostics.length && (
+                      <Tip label={file.diagnostics.map((d) => promptProblem(d.message)).join(" ")}>
+                        <span
+                          // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard
+                          tabIndex={0}
+                          role="status"
+                          className="rounded-sm text-xs text-status-failed focus-ring"
+                        >
+                          Invalid frontmatter
+                        </span>
+                      </Tip>
+                    )}
+                  </SettingRow>
+                </li>
+              ))}
+            </SettingList>
+          )}
+          <SettingAddRow
+            disabled={!online}
+            onClick={() => {
+              setSaved(undefined);
+              setEditing({ scope });
+            }}
+          >
+            New prompt
+          </SettingAddRow>
         </SettingCard>
       )}
     </SettingsBody>

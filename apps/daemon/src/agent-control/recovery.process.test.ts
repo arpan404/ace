@@ -59,7 +59,7 @@ test("daemon crash holds a live delegation until explicit native recovery withou
   expect(recovered.contexts.get(edge.childId)?.resume).toEqual({
     nativeSessionId,
   });
-  expect(recovered.inputs.get(edge.childId)).toEqual(["continue"]);
+  expect(recovered.inputs.get(edge.childId)).toEqual(["Continue where you left off."]);
   await recovered.complete(edge.childId, "recovered completion");
   recovered.clock.advance(1100);
   await recovered.engine.flush();

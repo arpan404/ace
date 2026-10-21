@@ -9,7 +9,7 @@ import {
   type QueuePage,
   type QueuedMessage,
 } from "@ace/protocol";
-import { type QueueAction } from "@ace/ui-core";
+import { continueMessage, type QueueAction } from "@ace/ui-core";
 import { useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { failureMessage, runCommand } from "@/lib/daemon-command.ts";
@@ -275,19 +275,30 @@ export function useQueue(threadId: string): QueueControls {
           limit: 1,
         });
         const fresh = { threadId: ThreadId.parse(threadId), expectedRevision: queue.revision };
+        // Continue carries the turn on in the person's words: a restart resumes its native
+        // session (the daemon sends them), anything else is simply their next message.
         const payload: CommandPayload =
-          action.id === "resume"
-            ? { type: queue.reason === "restart" ? "thread.resume" : "queue.resume", ...fresh }
-            : action.id === "hold"
-              ? { type: "queue.pause", ...fresh }
+          action.id === "continue"
+            ? queue.paused && queue.reason === "restart"
+              ? { type: "thread.resume", ...fresh }
               : {
-                  type: "thread.limit",
-                  ...fresh,
-                  action: action.id,
-                  ...("instanceId" in action && action.instanceId
-                    ? { instanceId: action.instanceId }
-                    : {}),
-                };
+                  type: "thread.send",
+                  threadId: fresh.threadId,
+                  input: [{ type: "text", text: continueMessage }],
+                  delivery: "queue",
+                }
+            : action.id === "resume"
+              ? { type: queue.reason === "restart" ? "thread.resume" : "queue.resume", ...fresh }
+              : action.id === "hold"
+                ? { type: "queue.pause", ...fresh }
+                : {
+                    type: "thread.limit",
+                    ...fresh,
+                    action: action.id,
+                    ...("instanceId" in action && action.instanceId
+                      ? { instanceId: action.instanceId }
+                      : {}),
+                  };
         await runCommand(client, payload, crypto.randomUUID());
       })()
         .catch((error: unknown) => {

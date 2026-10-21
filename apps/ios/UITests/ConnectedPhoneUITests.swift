@@ -24,31 +24,26 @@ import XCTest
         }
         capture("send-during-incoming-rows", app)
     }
-    func testLiveToolsAndNarrationStayInsideWorkingUntilExpanded() {
+    func testLiveWorkShowsItsGroupsInPlaceAndAGroupOpensItsSteps() {
         let app = XCUIApplication()
         app.launchArguments = ["--chat-render-fixture", "--chat-work-fixture"]
         app.launch()
-        let work = app.buttons["work.toggle"].firstMatch
-        XCTAssertTrue(work.waitForExistence(timeout: 20))
-        XCTAssertEqual(work.value as? String, "Collapsed")
-        XCTAssertTrue(work.label.contains("Working"))
-        XCTAssertFalse(app.buttons["work.group.fixture-tools"].exists)
-        XCTAssertFalse(app.staticTexts["Checking the phone result."].exists)
-        XCTAssertFalse(app.staticTexts["Ran physical phone build"].exists)
-        capture("working-collapsed", app)
-        work.tap()
-        XCTAssertTrue(app.buttons["work.group.fixture-tools"].waitForExistence(timeout: 5))
+        let group = app.buttons["work.group.fixture-tools"]
+        XCTAssertTrue(group.waitForExistence(timeout: 20))
+        // A running turn has no fold of its own: the live capsule carries its timer.
+        XCTAssertFalse(app.buttons["work.toggle"].exists)
         XCTAssertTrue(app.staticTexts["Checking the phone result."].exists)
-        app.buttons["work.group.fixture-tools"].tap()
+        XCTAssertFalse(app.staticTexts["Ran physical phone build"].exists)
+        capture("working-in-place", app)
+        group.tap()
         XCTAssertTrue(app.staticTexts["Ran physical phone build"].waitForExistence(timeout: 5))
-        capture("working-expanded", app)
-        work.tap()
-        XCTAssertFalse(app.buttons["work.group.fixture-tools"].exists)
-        XCTAssertFalse(app.staticTexts["Checking the phone result."].exists)
+        capture("working-group-open", app)
+        group.tap()
+        XCTAssertFalse(app.staticTexts["Ran physical phone build"].exists)
     }
     func testBrowseShowsProjectsAndMachineTools() {
         let app = launch()
-        app.buttons["inbox.library"].tap()
+        app.openSettings()
         XCTAssertTrue(app.buttons["library.projects"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["Automations"].exists)
         XCTAssertTrue(app.buttons["Usage"].exists)
@@ -78,11 +73,10 @@ import XCTest
     }
     func testNewTaskKeepsMessageAndChoicesReachableAboveTheKeyboard() {
         let app = launch()
-        let start = app.buttons["inbox.startTask"]
+        let start = app.newThreadButton
         let filter = app.buttons["inbox.projects"]
-        XCTAssertLessThan(abs(start.frame.midY - filter.frame.midY), 8)
-        XCTAssertGreaterThan(start.frame.midX, filter.frame.midX)
-        XCTAssertLessThan(start.frame.maxY, app.frame.midY)
+        XCTAssertLessThan(filter.frame.maxY, app.frame.midY)
+        XCTAssertGreaterThan(start.frame.minY, app.frame.midY)
         start.tap()
         capture("new-task-idle", app)
         let message = app.textFields["newThread.message"]
@@ -122,7 +116,7 @@ import XCTest
         app.buttons["composer.model"].tap()
         XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 15))
         capture("thread-model-picker", app)
-        app.buttons["Done"].tap()
+        app.closeSheet()
         let latest = app.buttons["transcript.latest"]
         // The first downward gesture can dismiss the keyboard. Continue into older messages.
         for _ in 0..<3 where !latest.exists { app.scrollViews["transcript"].swipeDown() }
@@ -179,7 +173,7 @@ import XCTest
     }
     func testMachineToolsLoadWithoutStartingAgentsOrDevices() {
         let app = launch()
-        app.buttons["inbox.library"].tap()
+        app.openSettings()
         let destinations = ["Skills and plugins", "Automations", "Usage", "Simulators and devices"]
         for title in destinations {
             let destination = app.buttons[title]
@@ -197,7 +191,7 @@ import XCTest
         let app = launch()
         let current = app.buttons["thread.01a15b0e-7eef-705b-a011-fde54ae8afd1"]
         XCTAssertTrue(current.waitForExistence(timeout: 30)); current.tap()
-        XCTAssertTrue(app.buttons["thread.work"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["thread.agents"].waitForExistence(timeout: 20))
         waitForConversation(app)
         let work = app.buttons["work.toggle"].firstMatch
         XCTAssertTrue(work.waitForExistence(timeout: 20))
@@ -209,7 +203,7 @@ import XCTest
     }
     func testSourceControlAndCliSkillDiscoveryLoadFromTheSelectedMachine() {
         let app = launch()
-        app.buttons["inbox.library"].tap()
+        app.openSettings()
         let source = app.buttons["Source control"]
         if !source.isHittable { app.swipeUp() }
         XCTAssertTrue(source.waitForExistence(timeout: 10)); source.tap()
@@ -228,7 +222,7 @@ import XCTest
     }
     func testComputerUseShowsMacPermissionsWithoutStartingCapture() {
         let app = launch()
-        app.buttons["inbox.library"].tap()
+        app.openSettings()
         let computer = app.buttons["library.computer"]
         if !computer.isHittable { app.swipeUp() }
         XCTAssertTrue(computer.waitForExistence(timeout: 10)); computer.tap()
@@ -246,7 +240,7 @@ import XCTest
     }
     func testProjectCreationAndCloneReadHostDefaultsWithoutCreatingAnything() {
         let app = launch()
-        app.buttons["inbox.library"].tap()
+        app.openSettings()
         app.buttons["library.projects"].tap()
         let add = app.buttons["Add project"]
         if !add.isHittable { app.swipeUp() }
@@ -281,7 +275,7 @@ import XCTest
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launch()
-        if !app.buttons["inbox.library"].waitForExistence(timeout: 45) {
+        if !app.buttons["inbox.settings"].waitForExistence(timeout: 45) {
             capture("launch-needs-attention", app)
             XCTFail("Unlock ace on the connected iPhone and check its paired-machine connection")
         }

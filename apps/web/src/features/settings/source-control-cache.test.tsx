@@ -120,7 +120,7 @@ test("saving source control preferences and rescanning replace cached PR results
   try {
     await screen.findByText("Account A's result");
     await screen.findByText("Other daemon's cached result");
-    await screen.findByText(/GitHub API access verified as ada/);
+    await screen.findByText("Signed in as ada");
     await shown(false);
     act(() => {
       seed(own, "own-pr", "Account B's result");
@@ -177,7 +177,7 @@ test("switching the expected GitHub account re-reads the PR panel instead of sho
   const view = render(<RouterProvider router={router} />);
   try {
     await screen.findByText("Seen as ada");
-    await screen.findByText(/GitHub API access verified as ada/);
+    await screen.findByText("Signed in as ada");
     act(() => titled("Seen as octo"));
     await userEvent.type(screen.getByRole("textbox", { name: "Expected account" }), "octo");
     await userEvent.click(screen.getByRole("button", { name: "Save preferences" }));
@@ -185,6 +185,69 @@ test("switching the expected GitHub account re-reads the PR panel instead of sho
     expect(screen.queryByText("Seen as ada")).toBeNull();
     // The page names both accounts, so the person knows which one to switch to.
     expect(await screen.findByText("Signed in as ada, expected octo")).toBeTruthy();
+  } finally {
+    view.unmount();
+    queries.clear();
+    await client.close();
+  }
+});
+
+test("a kept PR read survives a reconnect with unchanged preferences, and is dropped when preferences change", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  const titled = (title: string) =>
+    daemon.workspace.setForgeRead(forgeRead, {
+      resource: "prDetail",
+      value: { ...detail, status: { ...detail.status, title } },
+    });
+  titled("Kept");
+  const client = fakeClient(daemon);
+  await client.start();
+  await waitFor(() => expect(client.state).toBe("ready"));
+  const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const storage = memoryKeyValue();
+  const router = createRouter({
+    routeTree: createRootRoute({
+      component: () => (
+        <AppFrame environment={{ storage, root: document.documentElement }}>
+          <QueryClientProvider client={queries}>
+            <ClientProvider client={client}>
+              <Watch client={client} />
+              <ForgeTitle />
+            </ClientProvider>
+          </QueryClientProvider>
+        </AppFrame>
+      ),
+    }),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+  });
+  const view = render(<RouterProvider router={router} />);
+  try {
+    await screen.findByText("Kept");
+    const held = daemon.workspace.holdForgeRead(forgeRead);
+    daemon.refuseConnections(true);
+    act(() => daemon.disconnectAll());
+    await waitFor(() => expect(client.state).not.toBe("ready"));
+    daemon.refuseConnections(false);
+    act(() => client.reconnectNow());
+    await waitFor(() => expect(client.state).toBe("ready"));
+    await waitFor(() => expect(daemon.workspace.forgeReadCount(forgeRead)).toBeGreaterThan(1));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(screen.getByText("Kept")).toBeTruthy();
+    expect(screen.queryByText("Reading PR panel")).toBeNull();
+    held();
+    const changing = daemon.workspace.holdForgeRead(forgeRead);
+    act(() => {
+      titled("New");
+      daemon.services.settings.write("sourceControl.preferences", {
+        hosts: [{ host: "github.com", account: "other" }],
+        host: "github.com",
+        remote: "origin",
+      });
+    });
+    await screen.findByText("Reading PR panel");
+    changing();
+    await screen.findByText("New");
+    expect(screen.queryByText("Kept")).toBeNull();
   } finally {
     view.unmount();
     queries.clear();

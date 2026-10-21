@@ -20,3 +20,9 @@ export function acceptsPersonInput(state: ThreadState, now: number): boolean {
   if (root.wakeUntil !== undefined && root.wakeUntil > now) return false;
   return pendingInteractionKeys(state, root.agent.id).length === 0;
 }
+
+/**
+ * What Continue sends after a Stop, a restart or a usage limit. It is the person's go-ahead, so
+ * it is written as their own words and shows as their message.
+ */
+export const continueMessage = "Continue where you left off.";

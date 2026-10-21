@@ -1,6 +1,7 @@
 import { ClockCounterClockwiseIcon, GlobeSimpleIcon } from "@phosphor-icons/react";
 import {
   addressHost,
+  addressProblems as reasons,
   displayAddress,
   parseAddress,
   suggestAddresses,
@@ -11,12 +12,6 @@ import { desktopBrowserViews } from "@/boot/desktop-browser.ts";
 import { Icon } from "@/components/icon.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
-
-const reasons = {
-  empty: "Type an address, like localhost:3000 or example.com.",
-  not_address: "That isn't an address. Try one like localhost:3000 or example.com.",
-  scheme: "ace's browser opens web pages (http and https) only.",
-} as const;
 
 /**
  * The browser's address: shows the page at rest, edits in place, suggests addresses this thread

@@ -101,8 +101,13 @@ export { isToolSearch, toolSearchRow, type ToolSearchRow } from "./tool-search.t
 export * from "./step-groups.ts";
 export * from "./explore-command.ts";
 export * from "./browser-address.ts";
+export * from "./browser-logs.ts";
+export * from "./browser-zoom.ts";
+export * from "./browsing-history.ts";
+export * from "./browser-words.ts";
 export * from "./browser-help.ts";
 export * from "./checkout-files.ts";
+export * from "./checkout-errors.ts";
 export * from "./projects.ts";
 export * from "./folder-search.ts";
 export * from "./path-picker.ts";
@@ -204,3 +209,6 @@ export {
   type JumpSnapshot,
   type LiveTail,
 } from "./jump-controller.ts";
+export * from "./person-message.ts";
+export * from "./held-turn.ts";
+export { continueMessage } from "@ace/core";

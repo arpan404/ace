@@ -75,7 +75,10 @@ export interface CardDetails {
  * A card's details from the entry. `home` is the machine most threads run on (see
  * `homeMachine`); a card names its machine only when it is a different one.
  */
-export function cardDetails(entry: ThreadListEntry, home: string | undefined): CardDetails {
+export function cardDetails(
+  entry: Pick<ThreadListEntry, "details">,
+  home: string | undefined,
+): CardDetails {
   const details = entry.details;
   if (!details) return {};
   const machine = details.machine;

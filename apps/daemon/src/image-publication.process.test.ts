@@ -130,6 +130,8 @@ test("an image posted from a relative path is shown in the reply and its bytes r
   const [first] = shown;
   if (!first) throw new Error("Missing image");
   expect([first.attachment.width, first.attachment.height]).toEqual([2, 2]);
+  // Posting copies the bytes: a tool-result file the agent's CLI later rotates away is not read.
+  await rm(join(world.home, "chart.jpg"));
 
   await restart();
   const context = world.context;

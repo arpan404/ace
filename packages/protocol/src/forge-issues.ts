@@ -3,11 +3,19 @@ import { ForgeRepository } from "./forge.ts";
 import { CommandId, ThreadId, WorkspaceId } from "./ids.ts";
 
 const text = z.string().max(65_536);
-const login = z
+/** A search filter's login, or `@me`, which GitHub resolves to the account `gh` signed in as. */
+export const ForgeSearchLogin = z
   .string()
-  .regex(/^[\w-]*$/)
+  .regex(/^(@me|[\w-]*)$/)
   .max(100)
   .default("");
+const login = ForgeSearchLogin;
+/** A label's colour as GitHub keeps it: six hex digits without `#`. */
+export const ForgeLabelColor = z.string().regex(/^[0-9a-fA-F]{6}$/);
+/** The colour of each label a row names, by label name; a label with none is missing. */
+export const ForgeLabelColors = z.record(z.string().max(256), ForgeLabelColor);
+/** Avatars by login, as GitHub links them; the client loads them through the daemon. */
+export const ForgeAvatars = z.record(z.string().max(100), text);
 export const ForgeIssueRef = z.object({
   repository: ForgeRepository,
   number: z.number().int().positive(),
@@ -36,6 +44,11 @@ export const ForgeIssueRow = z.object({
   milestone: text.nullable(),
   createdAt: text,
   updatedAt: text,
+  authorAvatarUrl: text.optional(),
+  labelColors: ForgeLabelColors.optional(),
+  commentCount: z.number().int().nonnegative().optional(),
+  /** The author's and assignees' avatars. */
+  avatars: ForgeAvatars.optional(),
   raw: z.unknown().optional(),
 });
 export type ForgeIssueRow = z.infer<typeof ForgeIssueRow>;
@@ -63,6 +76,8 @@ export const ForgeIssueList = z.object({
   }),
   canCreate: z.boolean(),
   unavailableReason: z.string().max(256),
+  /** The login `gh` is signed in as, when GitHub said, so rows can be grouped as yours. */
+  viewer: text.optional(),
   incomplete: z.boolean(),
   truncated: z.boolean(),
 });

@@ -61,8 +61,9 @@ test("an admitted switched recovery does not repeat its portable handoff after a
     h.command({ type: "thread.switch", threadId: id, selection: { provider: "claude" } }).ok,
   ).toBe(true);
   await h.engine.flush();
-  expect(h.command({ type: "thread.send", threadId: id, input: text("following") }).ok).toBe(true);
+  // Resume first: a message sent before it would go at once on the new provider instead.
   expect(resume(h, h.engine, id).ok).toBe(true);
+  expect(h.command({ type: "thread.send", threadId: id, input: text("following") }).ok).toBe(true);
   await h.engine.flush();
   const admitted = destination.commands.find((command) => command.type === "send");
   expect(JSON.stringify(admitted)).toContain("sourceThreadId");

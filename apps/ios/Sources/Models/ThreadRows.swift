@@ -11,6 +11,10 @@ struct StepLine: Codable, Sendable, Equatable {
     let needsYou: Bool
     let added: Int?
     let removed: Int?
+    /// An agent opened a page in the thread's browser; the row opens it.
+    var browser: Bool? = nil
+    /// `device:<id>` or `computer`: where tapping the step goes; empty or nil for nowhere.
+    var opens: String? = nil
 }
 struct AttachmentLine: Codable, Sendable, Equatable, Hashable {
     let kind: String
@@ -85,6 +89,8 @@ struct ControlsRow: Codable, Sendable, Equatable {
     let alternate: String?
     let canStop: Bool
     let provider: String
+    /// The provider's display name, for the model sheet's header.
+    var providerName: String?
     let model: String
     let switching: String
 }

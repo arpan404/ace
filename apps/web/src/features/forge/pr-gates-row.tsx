@@ -15,7 +15,8 @@ function useEnding(actions: PrActions) {
   // Only a finished PR's gates read its activity; an open one never waits on it.
   const activity = usePrActivityEvents({ workspaceId, detail, enabled: finished });
   const now = useNow();
-  if (!finished || !activity.data) return { ended: undefined, branchDeleted: undefined };
+  // A history still arriving may lack the ending; the gates wait for all of it.
+  if (!finished || !activity.data?.complete) return { ended: undefined, branchDeleted: undefined };
   const events = activity.data.events;
   const end = events.findLast((event) => event.event === detail.status.state);
   const at = end?.at ? Date.parse(end.at) : NaN;

@@ -4,6 +4,7 @@ import { resolveHtmlMode, visualizationWindow, type HtmlTheme } from "@ace/html"
 import { ItemId, ThreadId } from "@ace/protocol";
 import { z } from "zod";
 
+import { base64 } from "./bytes.ts";
 import { readNativeItem } from "./native-item.ts";
 
 export const NativeMediaRequest = z.object({
@@ -60,8 +61,5 @@ export async function readNativeMedia(
   }
   if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(result.mimeType))
     throw new Error("Unsupported image");
-  const parts: string[] = [];
-  for (let offset = 0; offset < result.bytes.length; offset += 8192)
-    parts.push(String.fromCharCode(...result.bytes.subarray(offset, offset + 8192)));
-  return { kind: "image", data: btoa(parts.join("")) };
+  return { kind: "image", data: base64(result.bytes) };
 }

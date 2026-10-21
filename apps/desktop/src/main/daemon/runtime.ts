@@ -236,6 +236,16 @@ export class DaemonRuntime {
     return providerSummaries(await this.diagnose());
   }
 
+  /**
+   * Before the app restarts into an update: close admission on the daemon this app started
+   * and wait up to `deadlineMs` for running work to finish. Any other daemon (the CLI's, the
+   * login service's, a remote one) keeps running through the app's restart, so nothing waits.
+   */
+  async drainForUpdate(deadlineMs: number, waiting: (count: number) => void): Promise<boolean> {
+    if (!this.supervisor || this.target.kind !== "managed") return true;
+    return this.supervisor.drain(deadlineMs, 1_000, waiting);
+  }
+
   /** Stop only a daemon this app started. */
   async stop(): Promise<void> {
     await this.supervisor?.stop();

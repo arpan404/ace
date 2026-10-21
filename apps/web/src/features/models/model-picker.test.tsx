@@ -299,7 +299,7 @@ test("search finds models across every provider, older ones last and marked", as
   expect(within(popover).getByText("No models match “sonnetzzz”")).toBeTruthy();
 });
 
-test("a starred model is kept under Favorites, also the next time the picker opens", async () => {
+test("a starred model is kept under Favorites, and the picker opens there next time", async () => {
   const { popover, list } = await openPicker();
   await userEvent.click(
     within(group(list, "Personal")).getByRole("button", { name: "Add Haiku 4.5 to favorites" }),
@@ -311,7 +311,8 @@ test("a starred model is kept under Favorites, also the next time the picker ope
   await closeModelControl();
 
   const again = await openModelPicker(await openModelControl(/^Model: Opus 5\.5/));
-  await userEvent.click(screen.getByRole("tab", { name: "Favorites" }));
+  // With favorites, it opens on them rather than on the current account.
+  expect(screen.getByRole("tab", { name: "Favorites" }).getAttribute("aria-selected")).toBe("true");
   expect(names(again)).toEqual([
     "Haiku 4.5, Claude Code · Personal",
     "GPT-6 Luna, Codex · Personal",

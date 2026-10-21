@@ -1,6 +1,6 @@
 import { coldStartReplay } from "@ace/fake-daemon";
 import { Command } from "@ace/protocol";
-import { act, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import * as z from "zod/mini";
@@ -130,3 +130,22 @@ test.each(cases)(
     expect(commands.size).toBe(1);
   },
 );
+
+test("a refused Stop in a subagent's status bar says so in a toast, keeping the bar's layout", async () => {
+  const app = harness();
+  const { row } = await open(app, cases[0]);
+  await userEvent.click(within(row).getByText("resume-sweep"));
+  await screen.findByRole("heading", { level: 1, name: "resume-sweep" });
+  const bar = screen.getByRole("group", { name: "Subagent" });
+  app.daemon.refuseCommands("private_interrupt_detail", "thread.interrupt");
+  const stop = within(bar).getByRole("button", { name: "Stop resume-sweep" });
+  await userEvent.click(stop);
+  await screen.findByRole("heading", { name: "Couldn't stop this agent" });
+  // The bar holds no sentence that would squeeze its name and push its buttons out.
+  expect(within(bar).queryByRole("alert")).toBeNull();
+  expect(bar.textContent).not.toContain("Couldn't");
+  expect(stop).toHaveProperty("disabled", false);
+  app.daemon.restoreRequests();
+  await userEvent.click(stop);
+  expect(await within(bar).findByText(/^Stopped after/)).toBeTruthy();
+});

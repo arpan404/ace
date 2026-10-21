@@ -31,10 +31,19 @@ export function splitLines(text: string): string[] {
   return lines;
 }
 
-/** Line diff of two texts: common prefix and suffix, then an LCS of the middle. */
+/**
+ * Line diff of two texts: common prefix and suffix, then an LCS of the middle. A middle too big
+ * for an LCS is split at the lines that occur once on each side and match in order (as patience
+ * diff does), and each piece between them is diffed the same way; only a piece with no such line
+ * that is still too big shows as replaced.
+ */
 export function diffTexts(before: string, after: string): DiffLine[] {
-  const a = splitLines(before);
-  const b = splitLines(after);
+  const out: DiffLine[] = [];
+  span(splitLines(before), splitLines(after), 0, 0, out);
+  return out;
+}
+
+function span(a: string[], b: string[], oldBase: number, newBase: number, out: DiffLine[]) {
   let head = 0;
   while (head < a.length && head < b.length && a[head] === b[head]) head++;
   let tail = 0;
@@ -44,24 +53,94 @@ export function diffTexts(before: string, after: string): DiffLine[] {
     a[a.length - 1 - tail] === b[b.length - 1 - tail]
   )
     tail++;
-  const out: DiffLine[] = [];
   for (let i = 0; i < head; i++)
-    out.push({ kind: "context", old: i + 1, new: i + 1, text: a[i] ?? "" });
-  middle(a.slice(head, a.length - tail), b.slice(head, b.length - tail), head, head, out);
+    out.push({ kind: "context", old: oldBase + i + 1, new: newBase + i + 1, text: a[i] ?? "" });
+  middle(
+    a.slice(head, a.length - tail),
+    b.slice(head, b.length - tail),
+    oldBase + head,
+    newBase + head,
+    out,
+  );
   for (let i = tail; i > 0; i--) {
     const oldIndex = a.length - i;
     const newIndex = b.length - i;
-    out.push({ kind: "context", old: oldIndex + 1, new: newIndex + 1, text: a[oldIndex] ?? "" });
+    out.push({
+      kind: "context",
+      old: oldBase + oldIndex + 1,
+      new: newBase + newIndex + 1,
+      text: a[oldIndex] ?? "",
+    });
   }
-  return out;
+}
+
+/**
+ * Index pairs of lines that occur exactly once in `a` and once in `b`: the longest run of them
+ * in the same order on both sides (patience sorting).
+ */
+function anchors(a: readonly string[], b: readonly string[]): [number, number][] {
+  const counts = new Map<string, { a: number; b: number; at: number; bt: number }>();
+  a.forEach((line, i) => {
+    const seen = counts.get(line);
+    if (seen) seen.a++;
+    else counts.set(line, { a: 1, b: 0, at: i, bt: -1 });
+  });
+  b.forEach((line, j) => {
+    const seen = counts.get(line);
+    if (!seen) return;
+    seen.b++;
+    seen.bt = j;
+  });
+  const pairs: [number, number][] = [];
+  for (const seen of counts.values())
+    if (seen.a === 1 && seen.b === 1) pairs.push([seen.at, seen.bt]);
+  pairs.sort((x, y) => x[0] - y[0]);
+  // The longest increasing run of new-side indexes: `tails` holds each length's smallest end.
+  const tails: number[] = [];
+  const previous = new Int32Array(pairs.length).fill(-1);
+  pairs.forEach((pair, index) => {
+    let low = 0;
+    let high = tails.length;
+    while (low < high) {
+      const mid = (low + high) >> 1;
+      if ((pairs[tails[mid] ?? 0]?.[1] ?? 0) < pair[1]) low = mid + 1;
+      else high = mid;
+    }
+    if (low > 0) previous[index] = tails[low - 1] ?? -1;
+    tails[low] = index;
+  });
+  const run: [number, number][] = [];
+  for (let index = tails.at(-1) ?? -1; index >= 0; index = previous[index] ?? -1) {
+    const pair = pairs[index];
+    if (pair) run.push(pair);
+  }
+  return run.toReversed();
 }
 
 function middle(a: string[], b: string[], oldBase: number, newBase: number, out: DiffLine[]) {
   const n = a.length;
   const m = b.length;
   if (n * m > maxCells) {
-    a.forEach((text, i) => out.push({ kind: "del", old: oldBase + i + 1, text }));
-    b.forEach((text, j) => out.push({ kind: "add", new: newBase + j + 1, text }));
+    const run = anchors(a, b);
+    if (!run.length) {
+      a.forEach((text, i) => out.push({ kind: "del", old: oldBase + i + 1, text }));
+      b.forEach((text, j) => out.push({ kind: "add", new: newBase + j + 1, text }));
+      return;
+    }
+    let i = 0;
+    let j = 0;
+    for (const [ai, bj] of run) {
+      span(a.slice(i, ai), b.slice(j, bj), oldBase + i, newBase + j, out);
+      out.push({
+        kind: "context",
+        old: oldBase + ai + 1,
+        new: newBase + bj + 1,
+        text: a[ai] ?? "",
+      });
+      i = ai + 1;
+      j = bj + 1;
+    }
+    span(a.slice(i), b.slice(j), oldBase + i, newBase + j, out);
     return;
   }
   // lengths[i][j] = LCS of a[i..] and b[j..], flattened.
