@@ -34,7 +34,7 @@ description: Own a multi-step coding outcome through verified delivery, keeping 
 6. **Record evidence.** `get` and keep its `revision`, run the real check, then send `evidence` with that revision, the `action` you performed, an `artifact` reference and a short `note`. A failed check replaces an earlier pass. If the source changed, repeat the check.
 7. **Deliver** only when nothing is pending. `waiting_on_tree` means a child or this turn still works or waits on the person: `wait` for children; when only your turn is left, report and end it.
 
-Every change after `start` takes the last returned `version`; on a conflict, `get` and reconcile. `requestId` is optional: an identical retry applies once either way.
+Every change after `start` takes the run's current `version`, which `next` names; on a conflict, `get` and reconcile. `requestId` is optional: an identical retry applies once either way.
 
 ## Quality bar
 
