@@ -144,7 +144,13 @@ async function answer(request: Request): Promise<unknown> {
       return {
         id: request.id,
         ok: true,
-        result: { apps: Object.values(apps).map((entry) => ({ ...entry, running: true })) },
+        result: {
+          apps: Object.values(apps).map(({ bundleId, name }) => ({
+            bundleId,
+            name,
+            running: true,
+          })),
+        },
       };
     case "resolve":
       return app ? { id: request.id, ok: true, result: { ...app, running: true } } : missing;
