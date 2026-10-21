@@ -78,6 +78,8 @@ export function prNextStep(input: PrNextStepInput): PrNextStep {
   return "wait";
 }
 
+const repoKey = (owner: string, name: string) => `${owner}/${name}`.toLowerCase();
+
 /** The latest local check of `headSha` among a project's runs, as a next-step input. */
 export function localCheckOf(
   runs: readonly VerifyRun[],
@@ -85,15 +87,14 @@ export function localCheckOf(
   headSha: string | undefined,
 ): LocalCheckResult {
   if (!headSha) return undefined;
-  const key = (owner: string, name: string) => `${owner}/${name}`.toLowerCase();
-  const wanted = key(pr.owner, pr.name);
+  const wanted = repoKey(pr.owner, pr.name);
   let latest: VerifyRun | undefined;
   for (const run of runs) {
     if (run.target.kind !== "check") continue;
     const target = run.target.pr;
     if (target.pr.number !== pr.number || target.headSha.toLowerCase() !== headSha.toLowerCase())
       continue;
-    if (key(target.pr.repository.owner, target.pr.repository.name) !== wanted) continue;
+    if (repoKey(target.pr.repository.owner, target.pr.repository.name) !== wanted) continue;
     if (!latest || run.createdAt > latest.createdAt) latest = run;
   }
   if (!latest) return undefined;
