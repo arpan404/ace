@@ -70,7 +70,7 @@ function filterSections(
 
 /**
  * A project's issues across the main column, grouped as assigned to you, opened by you and the
- * rest; the chosen one opens beside the list. Every filter lives in the address.
+ * rest; a row opens its issue as a page. Every filter lives in the address.
  */
 export function IssuesPage(props: {
   search: IssuesSearch;

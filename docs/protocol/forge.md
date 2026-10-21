@@ -548,8 +548,9 @@ Example:
     "baseBranch": "example",
     "baseSha": "7dF77BcABddcec8Bbd2984fAe2DAAc9D18dACbCbaaadF7ff1188Cf85",
     "body": "example",
-    "changedFiles": 8,
-    "commits": 1,
+    "changedFiles": 9,
+    "commits": 8,
+    "files": [],
     "headBranch": "example",
     "headRepository": {
       "forge": "github",
@@ -559,8 +560,8 @@ Example:
     },
     "labels": [],
     "relatedThreads": [],
-    "relatedThreadsTruncated": true,
-    "reviewDecision": null,
+    "relatedThreadsTruncated": false,
+    "reviewDecision": "example",
     "reviewerAvatars": {},
     "reviewers": [],
     "status": {
@@ -603,9 +604,9 @@ Example:
 
 ```json
 {
+  "alongside": [],
   "commits": [],
   "resource": "prCommits",
-  "total": 5,
   "truncated": true
 }
 ```
@@ -2599,6 +2600,7 @@ Example:
 | baseSha | yes | string | {"pattern":"^[a-fA-F0-9]{40,64}$"} |
 | headRepository | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/ForgeRepository.json"},{"type":"null"}]} |
 | labels | yes | array | {"maxItems":100,"items":{"type":"string","maxLength":65536}} |
+| labelColors | no | [ForgeLabelColors.json](schema/ForgeLabelColors.json) |  |
 | reviewers | yes | array | {"maxItems":100,"items":{"type":"string","maxLength":65536}} |
 | reviewDecision | yes | union | {"anyOf":[{"type":"string","maxLength":100},{"type":"null"}]} |
 | commits | yes | integer | {"minimum":0,"maximum":9007199254740991} |
@@ -2616,8 +2618,8 @@ Example:
   "baseBranch": "example",
   "baseSha": "43Dc7b142FBeaC3Ca9cA3E2B9F5714baf20E94EE189Fda6149d8Ecb9d3A",
   "body": "example",
-  "changedFiles": 2,
-  "commits": 9,
+  "changedFiles": 6,
+  "commits": 2,
   "createdAt": "example",
   "headBranch": "example",
   "headRepository": {
@@ -2626,10 +2628,11 @@ Example:
     "name": "h",
     "owner": "WK/8j6Y/N.xTZ/ZpgL6/Du5GOOainpW/1hx1sUJuP/G7F8F/h1"
   },
+  "labelColors": {},
   "labels": [],
   "relatedThreads": [],
-  "relatedThreadsTruncated": false,
-  "reviewDecision": "example",
+  "relatedThreadsTruncated": true,
+  "reviewDecision": null,
   "reviewers": [],
   "status": {
     "checks": [],
@@ -2697,7 +2700,7 @@ Example:
 ```json
 {
   "additions": 2,
-  "deletions": 2,
+  "deletions": 5,
   "path": "example",
   "status": "example"
 }
@@ -2721,21 +2724,20 @@ Example:
 
 ```json
 {
-  "baseSha": "7b0Bc7db8eeB0EaaAb15543F18152E6758B3AA0CF",
-  "commit": "BFe6aEadA8445CEBC99ECFD2EF11EEf1fD7AEd87A308a72c5Ea8D",
+  "baseSha": "A2DfC13fE758eACFDCa75b7b0Bc7db8eeB0EaaAb15543F18152E6758B3AA0CFF",
+  "commit": "309640dFBFe6aEadA8445CEBC99ECFD2EF11EEf1fD7AEd87A308a72c5",
   "files": [],
-  "headSha": "eD24c9dEE5301d7Ba71bdCDEe73CBf34ABb88cb5fdB6cc3309640",
-  "nextPage": 3,
+  "headSha": "D24c9dEE5301d7Ba71bdCDEe73CBf34ABb88cb5fdB6c",
   "ref": {
-    "number": 9,
+    "number": 3,
     "repository": {
       "forge": "gitlab",
-      "host": "wWxd1cXQV",
-      "name": "4",
-      "owner": "RQA2AWoQJ/_/PSqnUVpp/J/F5UHWh5v/-X/re01MGxc/Tihq./QBqz/TpD3Y8l/zHAx"
+      "host": "Wxd1",
+      "name": "xcCTih",
+      "owner": "W/XRQA2AWoQ/7e_SPSq/UVp/dJS/5UHWh5/g-XP/e01M"
     }
   },
-  "truncated": false
+  "truncated": true
 }
 ```
 
@@ -2768,9 +2770,9 @@ Example:
   "items": [],
   "repository": {
     "forge": "gitlab",
-    "host": "NVh6s2",
+    "host": "tnKZF",
     "name": "kNPrjPwN",
-    "owner": "-/CDsezS/AnC2gUx3tI2/DFAbGB/ChY9/28UDgaoDE0P/5bm4wUV/M.Kp/e9wbMdA/yqWIg_XYi"
+    "owner": "Ug5s2c-/CDsezS/AnC2gUx3tI2/DFAbGB/ChY9/28UDgaoDE0P/5bm4wUV/M.Kp/e9wbMdA/yqWIg_XYi"
   },
   "total": 8,
   "truncated": true
