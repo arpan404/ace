@@ -296,3 +296,117 @@ test("a scrolled strip stays where it was scrolled while the pointer moves over 
   });
   expect(strip.scrollLeft).toBe(120);
 });
+
+/** A drag's data, as jsdom has no DataTransfer. */
+function dragData() {
+  const store = new Map<string, string>();
+  return {
+    get types() {
+      return [...store.keys()];
+    },
+    setData: (type: string, value: string) => void store.set(type, value),
+    getData: (type: string) => store.get(type) ?? "",
+    dropEffect: "none",
+    effectAllowed: "all",
+  };
+}
+
+/** A drag event at `clientX` (jsdom has no DragEvent, so a mouse event carries the point). */
+function drag(type: string, target: Element, data: ReturnType<typeof dragData>, clientX = 0) {
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX });
+  Object.defineProperty(event, "dataTransfer", { value: data });
+  fireEvent(target, event);
+}
+
+/** A layout box, for the fake layout below. */
+const rect = (left: number, width: number) =>
+  ({
+    left,
+    right: left + width,
+    width,
+    top: 0,
+    bottom: 28,
+    height: 28,
+    x: left,
+    y: 0,
+  }) as DOMRect;
+
+/** Three 120px tabs from x 10, in a strip from x 0 to 300 that scrolls (jsdom has no layout). */
+async function laidOutStrip() {
+  const original = Object.getOwnPropertyDescriptor(Element.prototype, "getBoundingClientRect");
+  Object.defineProperty(Element.prototype, "getBoundingClientRect", {
+    configurable: true,
+    value(this: Element) {
+      const boxes = [...(this.parentElement?.querySelectorAll(":scope > [data-tab-key]") ?? [])];
+      const at = boxes.indexOf(this);
+      if (at >= 0) return rect(10 + at * 120, 120);
+      return this.getAttribute("role") === "tablist" ? rect(0, 300) : rect(0, 0);
+    },
+  });
+  afterEach(() => {
+    if (original) Object.defineProperty(Element.prototype, "getBoundingClientRect", original);
+  });
+  Object.defineProperty(HTMLElement.prototype, "scrollBy", { configurable: true, value: () => {} });
+  Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.getAttribute("role") === "tablist"
+        ? 900
+        : (this.textContent?.length ?? 0) * charWidth;
+    },
+  });
+  const definition = defineWorkspace({
+    label: "Side panel",
+    launcher: "file",
+    initial: [
+      { kind: "file", id: "a", title: "notes.md" },
+      { kind: "file", id: "b", title: "todo.md" },
+      { kind: "file", id: "c", title: "plan.md" },
+    ],
+    kinds: () => Promise.resolve({ default: [changes, file] }),
+  });
+  await definition.load();
+  render(
+    <LayoutProvider>
+      <Strip definition={definition} />
+    </LayoutProvider>,
+  );
+  return screen.getByRole("tablist", { name: "Tabs" });
+}
+
+test("a tab dropped at the strip's far left goes first, not last", async () => {
+  const strip = await laidOutStrip();
+  const data = dragData();
+  drag("dragstart", tabBox("plan.md"), data);
+  // Over the strip's own padding, left of the first tab.
+  drag("dragover", strip, data, 4);
+  drag("drop", strip, data, 4);
+  expect(names()).toEqual(["plan.md", "notes.md", "todo.md"]);
+});
+
+test("holding a dragged tab at the strip's edge scrolls the strip toward it", async () => {
+  const strip = await laidOutStrip();
+  const data = dragData();
+  drag("dragstart", tabBox("notes.md"), data);
+  strip.scrollLeft = 100;
+  drag("dragover", strip, data, 150);
+  expect(strip.scrollLeft).toBe(100);
+  drag("dragover", strip, data, 296);
+  const right = strip.scrollLeft;
+  expect(right).toBeGreaterThan(100);
+  // Dragover repeats while the pointer holds still, so the strip keeps going.
+  drag("dragover", strip, data, 296);
+  const further = strip.scrollLeft;
+  expect(further).toBeGreaterThan(right);
+  drag("dragover", strip, data, 3);
+  expect(strip.scrollLeft).toBeLessThan(further);
+});
+
+test("a trackpad's sideways swipe keeps its vertical drift from moving the strip", async () => {
+  const strip = await laidOutStrip();
+  strip.scrollLeft = 50;
+  fireEvent.wheel(strip, { deltaX: 30, deltaY: 0 });
+  // Drift within the same swipe: left to the browser, not turned into sideways movement.
+  expect(fireEvent.wheel(strip, { deltaX: 0, deltaY: 4 })).toBe(true);
+  expect(strip.scrollLeft).toBe(50);
+});
