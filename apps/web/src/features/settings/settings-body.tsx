@@ -82,6 +82,7 @@ function MachineFilter() {
     <div className="-ml-2">
       <FilterMenu
         label="Machine"
+        align="start"
         value={machine?.id ?? ""}
         options={machines.map((entry) => ({
           value: entry.id,

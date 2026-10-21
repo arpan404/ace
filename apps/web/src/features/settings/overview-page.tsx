@@ -154,15 +154,20 @@ function ProviderLine(props: { machine: Machine; entry: ProviderEntry }) {
         view={view}
         updateAvailable={updateAvailable(props.entry)}
         title={
-          <span className="inline-flex items-baseline gap-2">
+          <button
+            type="button"
+            className="inline-flex items-baseline gap-2 rounded-xs text-left focus-ring hover:underline"
+            onClick={() => open(props.machine, "/settings/providers", props.entry.id)}
+          >
             {install.name}
             <span className="text-xs text-subtle-foreground">
               {row?.version ?? install.version}
             </span>
-          </span>
+          </button>
         }
         secondary={
-          <span className="ml-auto -mr-1.5">
+          // Narrow, the name opens the page and the arrow would only wrap onto its own line.
+          <span className="ml-auto -mr-1.5 hidden @[34rem]:inline-flex">
             <IconButton
               icon={CaretRightIcon}
               size="sm"
