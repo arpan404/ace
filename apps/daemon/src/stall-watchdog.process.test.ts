@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { pbkdf2 } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,9 +10,17 @@ import { systemLoopClock } from "./loop-monitor.ts";
 import type { StallReport } from "./stall-report.ts";
 import { startStallWatchdog, takePreviousStallReports } from "./stall-watchdog.ts";
 
-const timing = { beatMs: 50, checkMs: 50, thresholdMs: 400, repeatMs: 10_000, cooldownMs: 0 };
+const timing = {
+  beatMs: 50,
+  checkMs: 50,
+  thresholdMs: 400,
+  repeatMs: 10_000,
+  cooldownMs: 0,
+  ioEveryMs: 50,
+  ioThresholdMs: 400,
+};
 
-async function watched(run: () => void): Promise<StallReport[]> {
+async function watched(run: () => unknown): Promise<StallReport[]> {
   const directory = mkdtempSync(join(tmpdir(), "stall-watchdog-"));
   const reports: StallReport[] = [];
   const errors: unknown[] = [];
@@ -53,8 +62,9 @@ test("a main thread stuck in JavaScript is reported with the function it was stu
   });
   expect(reports).toHaveLength(1);
   const [report] = reports;
-  expect(report).toMatchObject({ pid: process.pid, caught: true, ended: true });
+  expect(report).toMatchObject({ pid: process.pid, kind: "main", caught: true, ended: true });
   expect(report?.silentMs).toBeGreaterThanOrEqual(1_000);
+  expect(report?.cpuMs).toBeGreaterThan(200);
   expect(report?.stack.map((frame) => frame.fn)).toContain("busyLoopFor");
   expect(report?.stack.map((frame) => frame.fn)).toContain("freezeInJavaScript");
 });
@@ -83,6 +93,39 @@ test("a main thread stuck in one long SQLite statement is reported with the call
   } finally {
     db.close();
   }
+});
+
+test("a main thread asleep in a wait is reported as waiting, not computing", async () => {
+  const reports = await watched(function freezeInWait() {
+    // Like a SQLite busy wait for another connection's lock: blocked, using no CPU.
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1_500);
+    return describeCount({ waited: 1 });
+  });
+  expect(reports).toHaveLength(1);
+  const [report] = reports;
+  expect(report).toMatchObject({ kind: "main", caught: true, ended: true });
+  expect(report?.stack.map((frame) => frame.fn)).toContain("freezeInWait");
+  expect(report?.cpuMs).toBeLessThan((report?.silentMs ?? 0) / 2);
+});
+
+test("a thread pool that stops answering while the main thread runs is reported", async () => {
+  const pool = Number(process.env.UV_THREADPOOL_SIZE) || 4;
+  const started = performance.now();
+  await new Promise((resolve) => pbkdf2("calibrate", "salt", 20_000, 32, "sha256", resolve));
+  // Enough work queued on the pool to keep every pool thread busy for about 1.5 s.
+  const iterations = Math.ceil((20_000 * 400) / Math.max(1, performance.now() - started));
+  const reports = await watched(() =>
+    Promise.all(
+      Array.from(
+        { length: pool * 4 },
+        () => new Promise((resolve) => pbkdf2("busy", "salt", iterations, 32, "sha256", resolve)),
+      ),
+    ),
+  );
+  expect(reports.map((report) => report.kind)).toContain("io");
+  const io = reports.find((report) => report.kind === "io");
+  expect(io?.ended).toBe(true);
+  expect(io?.silentMs).toBeGreaterThanOrEqual(400);
 });
 
 test("a run killed while frozen leaves its stall for the next start to report once", async () => {

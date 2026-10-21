@@ -8,13 +8,29 @@ export const StallFrame = z.object({
   column: z.number().int().nonnegative(),
 });
 export type StallFrame = z.infer<typeof StallFrame>;
-/** What the watchdog knows about one main-thread stall. Written to disk while it lasts. */
+/** What the watchdog knows about one stall. Written to disk while it lasts. */
 export const StallReport = z.object({
   pid: z.number().int().positive(),
-  /** Epoch milliseconds when the main thread was last seen running. */
+  /**
+   * `main`: the main thread ran no timer. `io`: a file-system call on Node's shared thread pool
+   * (async fs, dns, zlib; the log writes there) went unanswered while the main thread ran.
+   */
+  kind: z.enum(["main", "io"]).default("main"),
+  /** Epoch milliseconds when the stalled side was last seen making progress. */
   silentSince: z.number().nonnegative(),
-  /** How long the main thread had been silent at the latest update. */
+  /** How long it had been stalled at the latest update. */
   silentMs: z.number().int().nonnegative(),
+  /**
+   * Process CPU time used meanwhile. Close to `silentMs`: the thread was computing. Far below:
+   * it was waiting (a SQLite lock's busy wait, sync I/O) or the machine gave it no CPU.
+   */
+  cpuMs: z.number().int().nonnegative().optional(),
+  /** How late the watchdog's own checks ran: large when the whole process got no CPU. */
+  watchdogLateMs: z.number().int().nonnegative().optional(),
+  /** The machine's one-minute load average. */
+  load: z.number().nonnegative().optional(),
+  /** Age of the thread pool probe still unanswered, when there is one. */
+  ioWaitMs: z.number().int().nonnegative().optional(),
   /**
    * The main thread ran JavaScript again while the stall still lasted, so `stack` is where it
    * was stuck. False with an empty stack: it never left native code (SQLite, sync I/O) while
@@ -78,9 +94,18 @@ export function describeFrame(frame: StallFrame): string {
 
 /** Log fields naming where a stall happened. */
 export function stallFields(report: StallReport): Array<readonly [string, unknown]> {
-  return [
+  const context: Array<readonly [string, unknown]> = [
     ["silentMs", report.silentMs],
     ["ended", report.ended],
+    ["cpuMs", report.cpuMs ?? null],
+    ["watchdogLateMs", report.watchdogLateMs ?? null],
+    ["load", report.load ?? null],
+    ["ioWaitMs", report.ioWaitMs ?? null],
+  ];
+  if (report.kind === "io") return [["kind", "io"], ...context];
+  return [
+    ["kind", "main"],
+    ...context,
     ["caught", report.caught],
     ["answerMs", report.answerMs ?? null],
     [

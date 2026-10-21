@@ -16,6 +16,10 @@ export interface StallWatchdogTiming {
   maxCaptures: number;
   /** A new short stall right after a look is not looked at again within this window. */
   cooldownMs: number;
+  /** How often the watchdog sends one file-system call through Node's shared thread pool. */
+  ioEveryMs: number;
+  /** A thread pool call unanswered this long is a stall of its own. */
+  ioThresholdMs: number;
 }
 export const defaultStallTiming: StallWatchdogTiming = {
   beatMs: 250,
@@ -24,6 +28,8 @@ export const defaultStallTiming: StallWatchdogTiming = {
   repeatMs: 15_000,
   maxCaptures: 4,
   cooldownMs: 60_000,
+  ioEveryMs: 1_000,
+  ioThresholdMs: 10_000,
 };
 export type StallWorkerFactory = (url: URL, workerData: unknown) => Worker;
 export interface StallWatchdogOptions {

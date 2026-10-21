@@ -34,7 +34,11 @@ export function watchStalls(
       clock: systemLoopClock,
       ...(timing ? { timing } : {}),
       onStall: (report) =>
-        log.log("warn", "Event loop stall cause", logFields(stallFields(report))),
+        log.log(
+          "warn",
+          report.kind === "io" ? "Thread pool stalled" : "Event loop stall cause",
+          logFields(stallFields(report)),
+        ),
       onError: (error) => log.log("warn", "Stall watchdog failed", logError(error)),
     });
   } catch (error) {
