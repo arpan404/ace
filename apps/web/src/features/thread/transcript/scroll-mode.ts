@@ -3,7 +3,8 @@
  * scroll, a jump, a disclosure toggled) it says which mode the view is in, and given how the
  * rows moved it says how the view corrects. `use-feed-scroll.ts` is its I/O shell.
  *
- * - following: pinned to the live end; new content keeps the end in view.
+ * - following: pinned to the live end; new content keeps the end in view, except while the
+ *   reader is still moving up from it (`until`), so a slow scroll up is not pulled back.
  * - anchoring: code placed the view (a jump) or the reader opened or closed something: that row
  *   holds still, and following waits until the reader returns to the end themselves.
  * - free: the reader scrolled away; the row at the top of the view holds still while rows above
@@ -13,7 +14,7 @@
  */
 
 export type ScrollMode =
-  | { kind: "following" }
+  | { kind: "following"; until?: number }
   | {
       kind: "anchoring";
       /** The row that holds still, and an item it shows to find it again under a new key. */
@@ -51,6 +52,8 @@ export interface Transition {
 
 /** How long a jump keeps re-aiming while the rows around its target measure (the virtualizer's own limit). */
 export const aimWindow = 5_000;
+/** How long after an upward gesture at the end new content leaves the view where the reader put it. */
+export const nudgeWindow = 300;
 
 const following: ScrollMode = { kind: "following" };
 const free: ScrollMode = { kind: "free" };
@@ -61,6 +64,11 @@ export function transition(mode: ScrollMode, event: ScrollEvent): Transition {
   switch (event.type) {
     case "gesture": {
       const cancelAim = aiming(mode, event.at);
+      if (mode.kind === "following" && event.atEnd && !event.detached)
+        return {
+          mode: event.upward ? { kind: "following", until: event.at + nudgeWindow } : following,
+          cancelAim,
+        };
       if (!event.upward && event.atEnd && !event.detached) return { mode: following, cancelAim };
       if (mode.kind === "following" && !event.upward) return { mode, cancelAim };
       return { mode: free, cancelAim };
@@ -127,10 +135,10 @@ export type Correction =
 
 /**
  * How the view corrects after rows were added, removed or replaced. Following keeps the end in
- * view. Otherwise the view moves by however far the held row drifted from where the reader saw
- * it (`now.top`: its top below the view's top now, by its measured position), so it sits there
- * again (whatever sat at its index before), and a jump still landing aims again at its row's new
- * index rather than at whatever row now has the old one.
+ * view, once the reader stops moving up from it. Otherwise the view moves by however far the
+ * held row drifted from where the reader saw it (`now.top`: its top below the view's top now, by
+ * its measured position), so it sits there again (whatever sat at its index before), and a jump
+ * still landing aims again at its row's new index rather than at whatever row now has the old one.
  */
 export function correction(
   mode: ScrollMode,
@@ -138,7 +146,7 @@ export function correction(
   now: { index: number; top: number } | undefined,
   at: number,
 ): Correction {
-  if (mode.kind === "following") return { kind: "end" };
+  if (mode.kind === "following") return at < (mode.until ?? 0) ? { kind: "none" } : { kind: "end" };
   if (!held || !now) return { kind: "none" };
   if (mode.kind === "anchoring" && aiming(mode, at))
     return { kind: "aim", index: now.index, align: mode.align };
