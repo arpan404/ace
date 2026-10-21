@@ -624,9 +624,12 @@ Example:
 ```json
 {
   "action": {
+    "commentIds": [
+      10
+    ],
     "headSha": "2d5CB763A1ddb4e5E23cb046BC9A5e8ABA75A2Cba7FE7C6cDEe7A",
-    "kind": "file.unview",
-    "path": "example"
+    "kind": "suggestions.apply",
+    "message": "@"
   },
   "pr": {
     "number": 8,
@@ -665,7 +668,7 @@ Example:
     "number": 6,
     "repository": {
       "forge": "gitlab",
-      "host": "MgeY",
+      "host": "eY",
       "name": "vyvI9w",
       "owner": "4U/ocuXB/dJ/vd3d-T4/pKhJORCmM/56teE24/LuXZXVv/Sxvk2"
     }

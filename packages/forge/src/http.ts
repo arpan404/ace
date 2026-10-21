@@ -48,7 +48,8 @@ function assertGraphqlResult(
     error = new ForgeError("forbidden", undefined, false);
   else if (refused && codes.every((code) => code === "NOT_FOUND"))
     error = new ForgeError("not_found", undefined, false);
-  else if (refused && codes.every((code) => code === "UNPROCESSABLE"))
+  // STALE_DATA: a guarded write's expected state (such as a branch head) no longer holds.
+  else if (refused && codes.every((code) => code === "UNPROCESSABLE" || code === "STALE_DATA"))
     error = new ForgeError("conflict", undefined, false);
   else if (refused && codes.every((code) => code === "GRAPHQL_VALIDATION_FAILED"))
     error = new ForgeError("invalid_data", undefined, false);

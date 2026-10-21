@@ -8,15 +8,14 @@ import { failureCode } from "@/lib/forge-read.ts";
 
 const titles: Partial<Record<CommandPayload["type"], string>> = {
   "forge.pr.merge": "Couldn't merge this pull request",
-  "forge.review.request": "Couldn't request a review",
   "forge.pr.link": "Couldn't link the task",
   "forge.pr.unlink": "Couldn't unlink the task",
 };
 
 /**
- * Writes that act through a task linked to the PR: merge, review requests, link and unlink.
- * A merge or review request holds every later write until a successful read shows what GitHub
- * did; the daemon's `writeState` keeps that hold across reloads.
+ * Writes that act through a task linked to the PR: merge, link and unlink. A merge holds every
+ * later write until a successful read shows what GitHub did; the daemon's `writeState` keeps
+ * that hold across reloads. Review requests go through the PR's hosted review writes instead.
  */
 export function usePrLinkWrites(props: {
   detail: ForgePrDetail;
@@ -32,7 +31,7 @@ export function usePrLinkWrites(props: {
   const ref = props.detail.status.ref;
   const fenced = reconciling || props.detail.writeState !== undefined;
   const run = async (payload: CommandPayload) => {
-    const remote = payload.type === "forge.pr.merge" || payload.type === "forge.review.request";
+    const remote = payload.type === "forge.pr.merge";
     if (!ready || pending || !props.writeReady || (remote && fenced)) return;
     setPending(true);
     if (remote) setReconciling(true);
@@ -69,10 +68,6 @@ export function usePrLinkWrites(props: {
         method,
         headSha: props.detail.status.headSha,
       });
-    },
-    requestReview(reviewers: string[]) {
-      if (!props.threadId || !reviewers.length) return Promise.resolve();
-      return run({ type: "forge.review.request", link: link(props.threadId), reviewers });
     },
     link: (threadId: string) => run({ type: "forge.pr.link", link: link(threadId) }),
     unlink: (threadId: string) =>
