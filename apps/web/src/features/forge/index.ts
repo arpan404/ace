@@ -1,6 +1,7 @@
 /** A pull request's view in a thread's side panel tab (the panel's `pull-request` kind). */
 export const loadPullRequestTab = () => import("./pr-panel-tab.tsx");
 export { usePrSource } from "./pr-source.ts";
+export { usePrPrefetch } from "./pr-detail-query.ts";
 export { useIssueSource } from "./issue-source.ts";
 export { useFailingPullRequests, useOpenIssues, useOpenPullRequests } from "./open-work.ts";
 export type {

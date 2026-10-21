@@ -3,6 +3,7 @@ import { mergeGate, mergeMethods, type MergeMethod } from "@ace/ui-core";
 import { useMergeMethod } from "./merge-method.ts";
 import { useState } from "react";
 import { pullRequestTab, useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { usePrPrefetch } from "@/features/forge/index.ts";
 import { PullRequestGlyph } from "@/components/pull-request-state.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { WorkspaceError } from "../sources/workspace-source.ts";
@@ -47,6 +48,7 @@ export function PrLine(props: {
   const { git } = props;
   const pr = git.checkout?.pr;
   const panel = useWorkspaceActions(props.threadId);
+  const prefetch = usePrPrefetch(props.workspaceId);
   const method = useMergeMethod();
   const { merge, checking } = useMergePr(git);
   if (!pr) return null;
@@ -65,6 +67,9 @@ export function PrLine(props: {
           aria-label={`Open pull request #${pr.number}${pr.title ? `: ${pr.title}` : ""}, ${summary}`}
           title={pr.title}
           disabled={!repository}
+          // Pointing at the number starts reading the PR, so its panel opens on it.
+          onPointerEnter={() => repository && prefetch(repository, pr.number)}
+          onFocus={() => repository && prefetch(repository, pr.number)}
           onClick={() => {
             if (!repository) return;
             props.onClose();

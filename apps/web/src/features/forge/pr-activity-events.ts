@@ -1,6 +1,7 @@
 import type { ForgeActivity, ForgePrDetail } from "@ace/protocol";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { readForge } from "./source.ts";
+import { prContentStaleMs } from "./pr-detail-query.ts";
 
 /**
  * Every activity event of a pull request (up to 120 pages), read once and shared by the
@@ -23,6 +24,7 @@ export function usePrActivityEvents(props: {
     ],
     enabled: props.enabled ?? true,
     retry: false,
+    staleTime: prContentStaleMs,
     read: async (client, signal) => {
       const events: ForgeActivity[] = [];
       let page: number | undefined = 1;

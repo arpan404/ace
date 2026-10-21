@@ -1,5 +1,6 @@
 import type { ForgePrRef, ForgeRepository } from "@ace/protocol";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
+import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { readForge } from "./source.ts";
 
@@ -12,6 +13,7 @@ export function useStackMemberships(
     queryKey: ["forge", workspaceId, repository, "stack-memberships", numbers],
     enabled: numbers.length > 0,
     retry: false,
+    gcTime: keptForgeMs,
     staleTime: 0,
     refetchOnReconnect: "always",
     refetchInterval: 30_000,

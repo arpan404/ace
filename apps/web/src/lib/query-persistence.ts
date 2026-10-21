@@ -28,12 +28,74 @@ const keptKeys: readonly { prefix: readonly string[]; exact?: true }[] = [
   { prefix: ["automations", "list"], exact: true },
 ];
 
-const KeyPart = z.union([z.string(), z.number(), z.boolean(), z.null()]);
-const PlainKey = z.array(KeyPart);
+/*
+ * A pull request panel's reads are kept too, so a PR opened again after a reload paints its
+ * last-known header, gates, reviewers and commits at once and is read again behind them. Their
+ * keys are `["forge", workspaceId, subject, kind, ...]`, where the subject is the PR's ref or
+ * repository. Provider payloads (`raw`) are dropped from what is kept, and diffs and timelines
+ * are never kept.
+ */
+const keptForgeKinds = new Set([
+  "pr",
+  "lifecycle",
+  "merge-state",
+  "review-state",
+  "stack",
+  "stack-memberships",
+  "workspace-commits",
+]);
+/** At most this many PR panel reads are kept; the newest win. */
+export const keptForgeLimit = 64;
+/** How long a PR panel's reads stay in memory unwatched, and so in what is kept. */
+export const keptForgeMs = 2 * 60 * 60_000;
+
+/** Whether `key` names a PR panel read that is kept between sessions. */
+export function keptForgeQuery(key: QueryKey): boolean {
+  return key[0] === "forge" && typeof key[3] === "string" && keptForgeKinds.has(key[3]);
+}
+
+type KeyValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | KeyValue[]
+  | { [k: string]: KeyValue };
+/** Plain JSON a key may hold (a PR ref is an object), never a class instance or function. */
+function plainKeyValue(value: unknown, depth = 0): value is KeyValue {
+  if (value === null || value === undefined) return true;
+  const type = typeof value;
+  if (type === "string" || type === "number" || type === "boolean") return true;
+  if (depth > 3 || type !== "object") return false;
+  if (Array.isArray(value))
+    return value.length <= 100 && value.every((v) => plainKeyValue(v, depth + 1));
+  if (Object.getPrototypeOf(value) !== Object.prototype) return false;
+  return Object.values(value).every((v) => plainKeyValue(v, depth + 1));
+}
+const PlainKey = z.array(z.custom<KeyValue>((value) => plainKeyValue(value)));
+
+/** A kept PR read without its provider payloads, which no view shows. Same data, same copy. */
+const slimmed = new WeakMap<object, unknown>();
+function withoutRaw(value: unknown): unknown {
+  if (typeof value !== "object" || value === null) return value;
+  const known = slimmed.get(value);
+  if (known !== undefined) return known;
+  const copy = Array.isArray(value)
+    ? value.map(withoutRaw)
+    : Object.fromEntries(
+        Object.entries(value).flatMap(([key, entry]) =>
+          key === "raw" ? [] : [[key, withoutRaw(entry)]],
+        ),
+      );
+  slimmed.set(value, copy);
+  return copy;
+}
 
 /** Whether a query with `key` is kept between sessions. */
 export function keptQuery(key: QueryKey): boolean {
   if (!PlainKey.safeParse(key).success) return false;
+  if (keptForgeQuery(key)) return true;
   return keptKeys.some(
     ({ prefix, exact }) =>
       (exact ? key.length === prefix.length : key.length >= prefix.length) &&
@@ -83,16 +145,17 @@ export function queryRecord(
         query.state.data !== undefined &&
         keptQuery(query.queryKey),
     })
-    .toSorted((a, b) => b.state.dataUpdatedAt - a.state.dataUpdatedAt)
-    .slice(0, keptQueryLimit);
+    .toSorted((a, b) => b.state.dataUpdatedAt - a.state.dataUpdatedAt);
+  // PR reads have their own allowance, so opening many PRs never pushes the app's lookups out.
+  const forge = kept.filter((query) => keptForgeQuery(query.queryKey)).slice(0, keptForgeLimit);
+  const other = kept.filter((query) => !keptForgeQuery(query.queryKey)).slice(0, keptQueryLimit);
   return {
     version: 1,
     ...stamp,
-    queries: kept.flatMap((query) => {
+    queries: [...other, ...forge].flatMap((query) => {
       const key = PlainKey.safeParse(query.queryKey);
-      return key.success
-        ? [{ key: key.data, data: query.state.data, at: query.state.dataUpdatedAt }]
-        : [];
+      const data = keptForgeQuery(query.queryKey) ? withoutRaw(query.state.data) : query.state.data;
+      return key.success ? [{ key: key.data, data, at: query.state.dataUpdatedAt }] : [];
     }),
   };
 }
@@ -106,6 +169,9 @@ export function restoreQueries(queries: QueryClient, kept: QueryRecord["queries"
   for (const entry of kept) {
     const state = queries.getQueryState(entry.key);
     if (state && state.data !== undefined && state.dataUpdatedAt >= entry.at) continue;
+    // A restored PR read outlives the default collection window until its panel opens again.
+    if (keptForgeQuery(entry.key))
+      queries.getQueryCache().build(queries, { queryKey: entry.key, gcTime: keptForgeMs });
     queries.setQueryData(entry.key, entry.data, { updatedAt: entry.at });
     const hash = queries.getQueryCache().find({ queryKey: entry.key, exact: true })?.queryHash;
     if (hash) restored.add(hash);

@@ -5,6 +5,7 @@ import type { ForgePrDetail, ForgePrFiles, ForgeRepository } from "@ace/protocol
 import { refreshOnReconnect } from "@/lib/daemon-query-reconnect.ts";
 import { joinFilePages } from "./pr-code-model.ts";
 import { readForge } from "./source.ts";
+import { prContentStaleMs } from "./pr-detail-query.ts";
 
 /**
  * A pull request's changed files (all commits, or one commit against its parent), read page by
@@ -35,6 +36,7 @@ export function usePrFilePages(props: {
     meta: { daemonClient: client },
     enabled: ready,
     retry: false,
+    staleTime: prContentStaleMs,
     initialPageParam: 1,
     getNextPageParam: (page: ForgePrFiles, _pages, current: number) =>
       page.nextPage && page.nextPage > current ? page.nextPage : undefined,

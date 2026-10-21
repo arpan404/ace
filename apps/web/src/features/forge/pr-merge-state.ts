@@ -3,6 +3,7 @@ import { useClient } from "@ace/client-react";
 import type { ForgePrDetail } from "@ace/protocol";
 import { actionErrorText, autoMergeBlocker, type MergeMethod } from "@ace/ui-core";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
+import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { runCommand } from "@/lib/daemon-command.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { readForge, writeFailure } from "./source.ts";
@@ -39,6 +40,7 @@ export function usePrMergeState(props: {
     queryKey: ["forge", props.workspaceId, ref, "merge-state", props.detail.status.headSha],
     enabled: active,
     retry: false,
+    gcTime: keptForgeMs,
     staleTime: 0,
     refetchOnMount: "always",
     refetchOnReconnect: "always",
