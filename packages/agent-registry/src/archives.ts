@@ -65,7 +65,7 @@ export async function extractTar(
         );
       } else if (header.type === "symlink") {
         if (!header.linkname) throw new Error("Archive link is missing its target");
-        links.push({ linkPath: destination, target: header.linkname, normalizeBackslash: false });
+        links.push({ linkPath: destination, target: header.linkname });
         stream.resume();
       } else throw new Error("Archive links and special files are unsupported");
       next();
@@ -156,8 +156,7 @@ export async function extractZip(
             }
             links.push({
               linkPath: destination,
-              target: Buffer.concat(chunks).toString("utf8"),
-              normalizeBackslash: true,
+              target: Buffer.concat(chunks).toString("utf8").replaceAll("\\", "/"),
             });
             zip.readEntry();
             return;
