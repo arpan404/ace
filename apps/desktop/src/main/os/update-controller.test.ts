@@ -318,9 +318,10 @@ it("a build without the release feed never asks it", async () => {
   expect(reported).toEqual([]);
 });
 
-it("background checks ask the feed after launch settles and then periodically", async () => {
+it("background checks ask the feed after launch settles and then periodically, each wait offset at random", async () => {
   const app = setup();
   const pending: { delayMs: number; callback: () => void }[] = [];
+  const draws = [0, 0.5, 1];
   scheduleChecks(
     app.controller,
     {
@@ -329,14 +330,16 @@ it("background checks ask the feed after launch settles and then periodically", 
         return () => {};
       },
     },
-    { firstMs: 15_000, everyMs: 1_800_000 },
+    () => draws.shift() ?? 0,
+    { firstMs: 10_000, everyMs: 1_800_000, spread: 0.5 },
   );
-  expect(pending.map((timer) => timer.delayMs)).toEqual([15_000]);
+  expect(pending.map((timer) => timer.delayMs)).toEqual([10_000]);
   expect(app.feedRequests()).toBe(0);
   pending[0]?.callback();
   await settle();
   pending[1]?.callback();
   await settle();
   expect(app.feedRequests()).toBe(2);
-  expect(pending.map((timer) => timer.delayMs)).toEqual([15_000, 1_800_000, 1_800_000]);
+  // Each wait is its base plus up to half again, by the random draw.
+  expect(pending.map((timer) => timer.delayMs)).toEqual([10_000, 2_250_000, 2_700_000]);
 });

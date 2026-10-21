@@ -89,6 +89,13 @@ test("the update button checks for updates, and says when the check failed", asy
   expect(toast.textContent).toContain("getaddrinfo ENOTFOUND");
 });
 
+test("a check that finds no update says ace is up to date", async () => {
+  const app = desktop(status(), status({ state: "current" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Check for updates" }));
+  expect(app.calls).toEqual(["check"]);
+  expect(await screen.findByText("ace is up to date (1.0.0)")).toBeTruthy();
+});
+
 test("a found update downloads on click, showing its progress", async () => {
   const app = desktop(offer());
   await userEvent.click(
