@@ -288,6 +288,22 @@
         "value"
       ],
       "type": "object"
+    },
+    {
+      "properties": {
+        "resource": {
+          "const": "prCheck",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "https://ace.local/protocol/v1/ForgeCheckRun.json"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
     }
   ]
 }
