@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DeviceId, DeviceToken } from "@ace/protocol";
+import { DeviceId, DeviceToken, HostId } from "@ace/protocol";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -25,6 +25,10 @@ export const RemoteProfile = z.object({
   fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
   deviceId: DeviceId,
   token: DeviceToken,
+  /** The other machine's host id, when the profile was linked from Settings. */
+  hostId: HostId.optional(),
+  /** The other machine's display name when it was linked. */
+  label: z.string().min(1).max(256).optional(),
 });
 export type RemoteProfile = z.infer<typeof RemoteProfile>;
 export class Profiles {
@@ -59,6 +63,23 @@ export class Profiles {
     if (this.list().length >= 64) throw new Error("Remote profile capacity");
     const value = RemoteProfile.parse({ ...input, id: this.id() });
     this.db.prepare("INSERT INTO profiles VALUES (?,?)").run(value.name, JSON.stringify(value));
+    return value;
+  }
+  /** Swap `previous` for a new profile in one step (a machine linked again). */
+  replace(previous: string, input: Omit<RemoteProfile, "id">): RemoteProfile {
+    const value = RemoteProfile.parse({ ...input, id: this.id() });
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.prepare("DELETE FROM profiles WHERE name=?").run(name.parse(previous));
+      this.db.prepare("INSERT INTO profiles VALUES (?,?)").run(value.name, JSON.stringify(value));
+      this.db
+        .prepare("UPDATE selection SET name=? WHERE name=?")
+        .run(value.name, name.parse(previous));
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
     return value;
   }
   use(selected: string): void {

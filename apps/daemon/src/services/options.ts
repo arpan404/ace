@@ -60,6 +60,8 @@ export type DaemonOptions = {
   machines?: {
     transport?: import("../machines/transport.ts").MachineTransport;
     pollMs?: number;
+    /** Redeems another machine's pairing link when Settings links to it. */
+    redeem?: import("../machines/fleet-links.ts").FleetLinkDeps["redeem"];
   };
   claude?: DaemonClaudeOptions;
   pi?: import("./pi.ts").PiDaemonOptions;

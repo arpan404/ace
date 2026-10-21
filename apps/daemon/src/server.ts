@@ -14,7 +14,7 @@ import { createServer as httpsServer } from "node:https";
 import { httpChains } from "./server-http.ts";
 import { webOriginAllowlist } from "./web-origins.ts";
 import { PreAuthAdmission } from "./socket-admission.ts";
-import { allows, type Device } from "./devices.ts";
+import { activeDevice, allows, type Device } from "./devices.ts";
 import { RemoteAuth } from "./remote-auth.ts";
 import { urlHost } from "./network.ts";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
@@ -65,6 +65,7 @@ export async function startServer(options: ServerOptions): Promise<{
     {
       now: runtime.now,
       secret: () => generateSecret(options.entropy ?? systemCredentials.randomBytes),
+      id: () => runtime.id(),
     },
     z
       .object({
@@ -221,7 +222,7 @@ export async function startServer(options: ServerOptions): Promise<{
     const authorize = (scope: import("@ace/protocol").DeviceScope) => {
       const actor = authenticated.get(socket);
       const current = actor?.revocable ? options.store.devices.get(actor.id) : actor;
-      return current?.revokedAt === null && allows(current, scope);
+      return activeDevice(current, auth.now()) && allows(current, scope);
     };
     const sessions = createServiceSessions({
       options,
@@ -243,12 +244,13 @@ export async function startServer(options: ServerOptions): Promise<{
         const actor = authenticated.get(socket);
         return () => {
           const current = actor?.revocable ? options.store.devices.get(actor.id) : actor;
-          return current?.revokedAt === null && allows(current, scope);
+          return activeDevice(current, auth.now()) && allows(current, scope);
         };
       },
       canReadThread: (thread) =>
         device !== undefined && options.canReadThread?.(device, thread) !== false,
       hostCredential: () => authenticated.get(socket)?.revocable === false,
+      access: { auth, pairing },
       connected: () => socket.readyState === WebSocket.OPEN && authenticated.has(socket),
       send,
       fail,

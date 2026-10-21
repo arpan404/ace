@@ -85,76 +85,78 @@ type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
   ? Extract<Reply, { type: Q["type"] }>
   : Q["type"] extends "machines.request"
     ? Replies<"machines.result">
-    : Q["type"] extends "files.pull"
-      ? Replies<"files.data" | "files.error">
-      : Q["type"] extends "files.chunk"
-        ? Replies<"files.upload" | "files.error">
-        : Q["type"] extends
-              | "history.list"
-              | "history.release"
-              | "history.import"
-              | "history.continue"
-          ? Extract<Reply, { type: Q["type"] }>
-          : Q["type"] extends "devices.request"
-            ? Replies<"devices.result">
-            : Q["type"] extends "pi.control"
-              ? Replies<"pi.result">
-              : Q["type"] extends "preview.request"
-                ? Replies<"preview.result">
-                : Q["type"] extends `automation.${string}`
-                  ? Replies<"automation.result">
-                  : Q["type"] extends "terminal.request"
-                    ? Replies<"terminal.result">
-                    : Q["type"] extends "workspace.request"
-                      ? Replies<"workspace.result">
-                      : Q["type"] extends "context.request"
-                        ? Replies<"context.result">
-                        : Q["type"] extends `models.${string}`
-                          ? Replies<"models.result">
-                          : Q["type"] extends `settings.${string}`
-                            ? Replies<"settings.result">
-                            : Q["type"] extends "usage.session_totals"
-                              ? Replies<"usage.session_totals.result">
-                              : Q["type"] extends `usage.${string}`
-                                ? Replies<"usage.result">
-                                : Q["type"] extends "search.query"
-                                  ? Replies<"search.results" | "search.error">
-                                  : Q["type"] extends "search.status"
-                                    ? Replies<"search.progress" | "search.error">
-                                    : Q["type"] extends "accounts.refreshLimits"
-                                      ? Replies<"accounts.list">
-                                      : Q["type"] extends `accounts.${string}`
-                                        ? Extract<Reply, { type: Q["type"] }>
-                                        : Q["type"] extends "files.request"
-                                          ? Replies<
-                                              | "files.result"
-                                              | "files.ready"
-                                              | "files.error"
-                                              | "files.upload"
-                                            >
-                                          : Q["type"] extends "catalog.list"
-                                            ? Replies<"catalog.list.result">
-                                            : Q["type"] extends "commands.list"
-                                              ? Replies<"commands.list.result">
-                                              : Q["type"] extends "commands.resolve"
-                                                ? Replies<"commands.resolve.result">
-                                                : Q["type"] extends `registry.${string}`
-                                                  ? Replies<"registry.result">
-                                                  : Q["type"] extends `mcp.${string}`
-                                                    ? Replies<"mcp.result">
-                                                    : Q["type"] extends "pluginRequest"
-                                                      ? Replies<"pluginResult">
-                                                      : Q["type"] extends `browser.${string}`
-                                                        ? Replies<"browser.result">
-                                                        : Q["type"] extends "screen.request"
-                                                          ? Replies<"screen.result">
-                                                          : Q["type"] extends "diagnostics.health"
-                                                            ? Replies<"diagnostics.health.result">
-                                                            : Q["type"] extends "items.page"
-                                                              ? Replies<"items.page">
-                                                              : Q["type"] extends "output.read"
-                                                                ? Replies<"output.data">
-                                                                : Reply;
+    : Q["type"] extends "fleet.request"
+      ? Replies<"fleet.result">
+      : Q["type"] extends "files.pull"
+        ? Replies<"files.data" | "files.error">
+        : Q["type"] extends "files.chunk"
+          ? Replies<"files.upload" | "files.error">
+          : Q["type"] extends
+                | "history.list"
+                | "history.release"
+                | "history.import"
+                | "history.continue"
+            ? Extract<Reply, { type: Q["type"] }>
+            : Q["type"] extends "devices.request"
+              ? Replies<"devices.result">
+              : Q["type"] extends "pi.control"
+                ? Replies<"pi.result">
+                : Q["type"] extends "preview.request"
+                  ? Replies<"preview.result">
+                  : Q["type"] extends `automation.${string}`
+                    ? Replies<"automation.result">
+                    : Q["type"] extends "terminal.request"
+                      ? Replies<"terminal.result">
+                      : Q["type"] extends "workspace.request"
+                        ? Replies<"workspace.result">
+                        : Q["type"] extends "context.request"
+                          ? Replies<"context.result">
+                          : Q["type"] extends `models.${string}`
+                            ? Replies<"models.result">
+                            : Q["type"] extends `settings.${string}`
+                              ? Replies<"settings.result">
+                              : Q["type"] extends "usage.session_totals"
+                                ? Replies<"usage.session_totals.result">
+                                : Q["type"] extends `usage.${string}`
+                                  ? Replies<"usage.result">
+                                  : Q["type"] extends "search.query"
+                                    ? Replies<"search.results" | "search.error">
+                                    : Q["type"] extends "search.status"
+                                      ? Replies<"search.progress" | "search.error">
+                                      : Q["type"] extends "accounts.refreshLimits"
+                                        ? Replies<"accounts.list">
+                                        : Q["type"] extends `accounts.${string}`
+                                          ? Extract<Reply, { type: Q["type"] }>
+                                          : Q["type"] extends "files.request"
+                                            ? Replies<
+                                                | "files.result"
+                                                | "files.ready"
+                                                | "files.error"
+                                                | "files.upload"
+                                              >
+                                            : Q["type"] extends "catalog.list"
+                                              ? Replies<"catalog.list.result">
+                                              : Q["type"] extends "commands.list"
+                                                ? Replies<"commands.list.result">
+                                                : Q["type"] extends "commands.resolve"
+                                                  ? Replies<"commands.resolve.result">
+                                                  : Q["type"] extends `registry.${string}`
+                                                    ? Replies<"registry.result">
+                                                    : Q["type"] extends `mcp.${string}`
+                                                      ? Replies<"mcp.result">
+                                                      : Q["type"] extends "pluginRequest"
+                                                        ? Replies<"pluginResult">
+                                                        : Q["type"] extends `browser.${string}`
+                                                          ? Replies<"browser.result">
+                                                          : Q["type"] extends "screen.request"
+                                                            ? Replies<"screen.result">
+                                                            : Q["type"] extends "diagnostics.health"
+                                                              ? Replies<"diagnostics.health.result">
+                                                              : Q["type"] extends "items.page"
+                                                                ? Replies<"items.page">
+                                                                : Q["type"] extends "output.read"
+                                                                  ? Replies<"output.data">
+                                                                  : Reply;
 
 const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage["type"][]>> = {
   "cli.request": ["cli.result"],
@@ -177,6 +179,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "thread.readState": ["thread.readState"],
   "permissions.capabilities": ["permissions.capabilities.result"],
   "machines.request": ["machines.result"],
+  "fleet.request": ["fleet.result"],
   "pi.control": ["pi.result"],
   "history.list": ["history.list"],
   "history.release": ["history.release"],

@@ -1,0 +1,58 @@
+{
+  "$id": "https://ace.local/protocol/v1/PendingPairing.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "deviceTtlMs": {
+      "anyOf": [
+        {
+          "const": 86400000,
+          "type": "number"
+        },
+        {
+          "const": 604800000,
+          "type": "number"
+        },
+        {
+          "const": 2592000000,
+          "type": "number"
+        }
+      ]
+    },
+    "expiresAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "label": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    },
+    "scopes": {
+      "items": {
+        "enum": [
+          "read",
+          "operate",
+          "admin",
+          "projects",
+          "accounts"
+        ],
+        "type": "string"
+      },
+      "maxItems": 5,
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "scopes",
+    "expiresAt"
+  ],
+  "type": "object"
+}

@@ -54,6 +54,11 @@ export interface SocketContext {
    * only, never revocable), not by a paired device.
    */
   hostCredential?(): boolean;
+  /** Pairing and paired devices on this daemon (`fleet.request`). */
+  access?: {
+    auth: import("../remote-auth.ts").RemoteAuth;
+    pairing(): import("../pairing-issue.ts").PairingConnection | undefined;
+  };
   connected(): boolean;
   send(message: ServerMessage | PluginServerMessage): void;
   fail(

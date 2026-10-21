@@ -27,6 +27,8 @@ import { listModels, resolveModel } from "./models.ts";
 import { FakeSettings, type Push } from "./settings.ts";
 import { FakeActivityReads } from "./activity-reads.ts";
 import { FakeRegistry } from "./registry.ts";
+import { FakeAccess } from "../access.ts";
+import { FakeFleet } from "../fleet.ts";
 import { fakeAccessModes, fakeProviderPermissions } from "../permissions.ts";
 
 type AccountSummary = z.infer<typeof Summary>;
@@ -38,6 +40,8 @@ export interface ServiceHost {
   broadcast?(message: ServerMessage): void;
   /** The thread's project and provider, or undefined when the thread doesn't exist. */
   thread(threadId: string): { workspaceId: string; provider: ProviderKind } | undefined;
+  /** Pairing links and paired devices; `fleet.request` shares them with the HTTP routes. */
+  access?: FakeAccess;
 }
 
 /** Where discovery found each CLI on the fake machine, and its version. */
@@ -91,6 +95,8 @@ export class FakeServices {
   readonly activityReads: FakeActivityReads;
   /** The ACP registry: its cached index, installations and installs in progress. */
   readonly registry: FakeRegistry;
+  /** `fleet.request`: links to other machines, pairing links and paired devices. */
+  readonly fleet: FakeFleet;
   /**
    * The provider CLIs discovery found on this machine. Like the daemon, only these have an
    * adapter, so `permissions.capabilities` for any other answers `provider_unavailable`.
@@ -103,6 +109,7 @@ export class FakeServices {
   private refreshedModels = new Map<string, number>();
   constructor(host: ServiceHost) {
     this.host = host;
+    this.fleet = new FakeFleet(host.access ?? new FakeAccess(host.clock));
     const now = host.clock();
     // Quota resets are wall-clock facts the client compares with its own clock, as a real
     // daemon's are; the injected clock may be a counter.
@@ -308,6 +315,7 @@ export class FakeServices {
     if (this.providerInstalls.handle(message, device, push)) return true;
     if (this.providerLogin.handle(message, device, push)) return true;
     if (this.registry.handle(message, push)) return true;
+    if (this.fleet.handle(message, push, device)) return true;
     if (message.type === "models.refresh") {
       const instances = this.modelResult({
         ...message.filter,

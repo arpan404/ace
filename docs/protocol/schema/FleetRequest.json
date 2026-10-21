@@ -1,0 +1,230 @@
+{
+  "$id": "https://ace.local/protocol/v1/FleetRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "operation": {
+      "oneOf": [
+        {
+          "properties": {
+            "op": {
+              "const": "links",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "hostId": {
+              "$ref": "https://ace.local/protocol/v1/HostId.json"
+            },
+            "name": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "op": {
+              "const": "link",
+              "type": "string"
+            },
+            "pairingUrl": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "pairingUrl",
+            "hostId",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "hostId": {
+              "$ref": "https://ace.local/protocol/v1/HostId.json"
+            },
+            "op": {
+              "const": "unlink",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "hostId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "deviceTtlMs": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "const": 86400000,
+                      "type": "number"
+                    },
+                    {
+                      "const": 604800000,
+                      "type": "number"
+                    },
+                    {
+                      "const": 2592000000,
+                      "type": "number"
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "label": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "op": {
+              "const": "pairing",
+              "type": "string"
+            },
+            "scopes": {
+              "default": [
+                "read",
+                "operate"
+              ],
+              "items": {
+                "enum": [
+                  "read",
+                  "operate",
+                  "admin",
+                  "projects",
+                  "accounts"
+                ],
+                "type": "string"
+              },
+              "maxItems": 5,
+              "minItems": 1,
+              "type": "array"
+            },
+            "ttlMs": {
+              "anyOf": [
+                {
+                  "const": 300000,
+                  "type": "number"
+                },
+                {
+                  "const": 3600000,
+                  "type": "number"
+                },
+                {
+                  "const": 86400000,
+                  "type": "number"
+                },
+                {
+                  "const": 604800000,
+                  "type": "number"
+                }
+              ]
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "pairings",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "op": {
+              "const": "cancelPairing",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "id"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "devices",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "deviceId": {
+              "$ref": "https://ace.local/protocol/v1/DeviceId.json"
+            },
+            "op": {
+              "const": "revoke",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "deviceId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "revokeOthers",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "fleet.request",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "operation"
+  ],
+  "type": "object"
+}
