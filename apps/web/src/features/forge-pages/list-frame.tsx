@@ -82,7 +82,7 @@ export function ListFrame(props: {
             void navigate({ to: value === "issues" ? "/issues" : "/pulls" })
           }
         >
-          <TabsList aria-label="Pull requests and issues" className="-ml-3 gap-1">
+          <TabsList aria-label="Pull requests and issues" className="-ml-2.5 gap-1">
             <TabsTab value="pulls" className={titleTab}>
               Pull requests
             </TabsTab>
@@ -140,9 +140,9 @@ function useSteadyHeader(scroller: { current: HTMLDivElement | null }) {
 /** The page's one gutter: 16px in a narrow column, 32px beside it. */
 export const forgeGutter = "[--forge-gutter:1rem] sm:[--forge-gutter:2rem]";
 
-/** Pull requests / Issues in large type, the current one on the flat selected fill. */
+/** Pull requests / Issues, the current one on the flat selected fill. */
 const titleTab =
-  "h-9 rounded-md px-3 text-lg font-semibold tracking-title text-subtle-foreground hover:not-data-active:bg-hover hover:text-muted-foreground data-active:bg-active data-active:text-foreground";
+  "h-8 rounded-md px-2.5 text-md font-medium text-muted-foreground hover:not-data-active:bg-hover hover:text-foreground data-active:bg-active data-active:text-foreground";
 
 /** A thin rule between two groups of word choices in a toolbar. */
 export function ToolbarRule() {
