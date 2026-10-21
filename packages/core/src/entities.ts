@@ -145,6 +145,7 @@ export function startBackground(
     title: fact.title,
     status: "running",
     ambient: fact.ambient ?? false,
+    ...(fact.internal ? { internal: true as const } : {}),
     stoppable: fact.stoppable,
     startedAt: ctx.now,
     raw: structuredClone(fact.raw ?? []),

@@ -9,7 +9,7 @@ import type { TerminalSessions } from "./sessions.ts";
 const readAgentShells = (reader: ThreadReader) =>
   reader.taskIds().flatMap((id) => {
     const task = reader.task(id);
-    return task && task.kind === "shell" ? [task] : [];
+    return task && task.kind === "shell" && !task.internal ? [task] : [];
   });
 const readShells = (reader: ThreadReader) =>
   readAgentShells(reader).filter((task) => !task.ambient);

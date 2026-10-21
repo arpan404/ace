@@ -121,7 +121,8 @@ export function threadLog(
   }
   for (const id of reader.taskIds()) {
     const task = reader.task(id);
-    if (!task) continue;
+    // ace's own bookkeeping goes to the daemon's log, not this one.
+    if (!task || task.internal) continue;
     const source = task.kind === "shell" ? "shell" : "task";
     push({
       key: `task:${id}`,

@@ -176,13 +176,14 @@ export class PendingTranscripts {
     }
     entry.task = state.key("unbound", spawn);
     entry.until = state.active.has(state.root) ? undefined : now + unboundGraceMs;
-    // Conservative live work prevents a false done state before registration.
+    // Conservative live work prevents a false done state before registration. It stands for
+    // the subagent itself, so every surface counts it as one.
     state.emit({
       type: "background.started",
       agent: state.root,
       task: entry.task,
       kind: "subagent",
-      title: "Claude child awaiting task registration",
+      title: "Subagent",
       stoppable: false,
     });
   }
@@ -211,24 +212,20 @@ export class PendingTranscripts {
       task: state.key("unbound", "overflow"),
       until: state.active.has(state.root) ? undefined : now + unboundGraceMs,
     };
+    // Bookkeeping: it holds the thread open, but no surface shows it. Its detail goes to the
+    // daemon's log.
     state.emit({
       type: "background.started",
       agent: state.root,
       task: this.#overflow.task,
-      kind: "subagent",
-      title: "Claude child transcript recovery exceeded its limit",
+      kind: "other",
+      title: "Unregistered subagent transcripts",
+      internal: true,
       stoppable: false,
     });
-    state.emit({
-      type: "item.upsert",
-      agent: state.root,
-      item: state.key("notice", "transcript-overflow"),
-      draft: {
-        type: "notice",
-        complete: true,
-        level: "warning",
-        text: "Claude deferred child transcript limit exceeded. Unregistered child work stays unresolved until the main turn ends and the child goes quiet, or the provider session exits.",
-      },
+    state.warn("deferred-transcripts-overflow", {
+      detail:
+        "Deferred subagent transcripts exceeded their limit and were dropped. Unregistered subagent work holds the thread until the main turn ends and the subagent goes quiet, or the provider session exits.",
     });
   }
 }

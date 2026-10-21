@@ -420,6 +420,12 @@ export type { SettlePolicy } from "./organization.ts";
 
 export { liveMetadata, boundedLiveModel } from "./live-metadata.ts";
 export { isTestCommand } from "./step-purpose.ts";
+export {
+  isInternalTask,
+  listedBackgroundWork,
+  shellCommandOf,
+  standsForSubagent,
+} from "./task-presentation.ts";
 export { digestFromCounters, digestContributions, mergeTurnDigests } from "./long-thread-merge.ts";
 
 export { threadMoveError, movedThreadDetails, threadMoveEvents } from "./thread-move.ts";

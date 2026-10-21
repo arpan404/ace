@@ -77,6 +77,31 @@ test("the hints name the background command still running, and forget it once it
   ).toBeUndefined();
 });
 
+test("a task standing for a subagent counts as a running subagent, bookkeeping as nothing", () => {
+  const target = thread();
+  const standIn = BackgroundTask.parse({
+    ...task("unbound", "Claude child awaiting task registration"),
+    kind: "subagent",
+  });
+  const bookkeeping = BackgroundTask.parse({
+    ...task("overflow", "Claude child transcript recovery exceeded its limit"),
+    kind: "other",
+    internal: true,
+  });
+  const live = fold(target, [
+    { type: "background_task.started", task: standIn },
+    { type: "background_task.started", task: bookkeeping },
+  ]);
+  expect(live?.runningSubagentCount).toBe(1);
+  expect(live?.backgroundTaskCount ?? 0).toBe(0);
+  expect(live?.watching).toBeUndefined();
+  // Once the provider registers the subagent, its stand-in ends and stops counting.
+  expect(
+    fold(target, [{ type: "background_task.updated", taskId: "unbound", status: "completed" }])
+      ?.runningSubagentCount,
+  ).toBe(0);
+});
+
 test("the hints say what each open request asks for until it closes", () => {
   const target = thread();
   const asked = Interaction.parse({

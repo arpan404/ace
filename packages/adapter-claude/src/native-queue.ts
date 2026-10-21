@@ -33,7 +33,8 @@ export class NativeQueue {
             agent: state.root,
             task: state.key("queue-correlation", "overflow"),
             kind: "other",
-            title: "Claude queued work cannot be fully correlated",
+            title: "Queued work correlation",
+            internal: true,
             stoppable: false,
           });
         }

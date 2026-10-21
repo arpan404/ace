@@ -50,7 +50,7 @@ test("a thread whose turn ended with a background command reads Background, its 
   expect(
     within(feed).queryByRole("status", { name: /^Working|^Running in background/ }),
   ).toBeNull();
-  const waiting = await strip(/^Waiting for bun run dev:relay/);
+  const waiting = await strip(/^Running bun run dev:relay/);
   expect(within(waiting).getByRole("button", { name: "Stop the background command" })).toBeTruthy();
   expect(within(row).getByText("Background · 1", { exact: true })).toBeTruthy();
   expect(within(row).queryByText("Working", { exact: true })).toBeNull();

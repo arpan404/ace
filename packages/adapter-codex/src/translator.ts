@@ -5,7 +5,7 @@ import { codexGoal } from "./goal.ts";
 import { unknownBuffers, RecentSet } from "./retention.ts";
 import type { Fact, Key } from "@ace/core";
 import type { ThreadId, RunTrigger } from "@ace/protocol";
-import type { Frame, Translator } from "@ace/engine-api";
+import { adapterWarning, type Frame, type Translator } from "@ace/engine-api";
 import type { Agent, TranslationContext } from "./translator-state.ts";
 import { createAgentRegistry } from "./agent-registry.ts";
 import { historyAssembly, metadataOnly } from "./history-assembly.ts";
@@ -86,6 +86,11 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       draft: { type: "notice", level: "info", text, complete: true, raw: raw(type, data) },
     };
   };
+  /** The adapter's own bookkeeping hit a limit: a warning in the daemon's log, not the transcript. */
+  const warning = (agent: Key, event: string, detail: string): Fact => {
+    diagnostics.push({ type: adapterWarning, data: { event, detail } });
+    return { type: "signal", agent };
+  };
   function title(value: unknown, data: unknown): Fact[] {
     const text = str(value).trim();
     return text
@@ -146,7 +151,8 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
           agent: init.rootKey,
           task: str(message["task"], "codex:discovery"),
           kind: "other",
-          title: "Discovering loaded descendants",
+          title: "Subagent discovery",
+          internal: true,
           stoppable: false,
         });
       if (message["event"] === "discovery-finished") {
@@ -317,7 +323,8 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
           agent: init.rootKey,
           task: "codex:unknown-threads",
           kind: "other",
-          title: "Discovering unknown Codex threads",
+          title: "Thread discovery",
+          internal: true,
           stoppable: false,
         });
       }
@@ -393,16 +400,16 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
             agent: agent.key,
             task: held.task,
             kind: "other",
-            title: "Correlating a Codex turn completion",
+            title: "Turn completion",
+            internal: true,
             stoppable: false,
           });
         if (held.overflow)
           facts.push(
-            note(
+            warning(
               agent.key,
               "turn-correlation-overflow",
-              frame.data,
-              "Codex turn correlation limit exceeded. Execution remains unresolved until session exit.",
+              "Codex turn correlation exceeded its limit. Execution stays unresolved until the session exits.",
             ),
           );
         return facts;

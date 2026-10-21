@@ -18,6 +18,10 @@
     "id": {
       "$ref": "https://ace.local/protocol/v1/BackgroundTaskId.json"
     },
+    "internal": {
+      "const": true,
+      "type": "boolean"
+    },
     "kind": {
       "enum": [
         "shell",
