@@ -13,6 +13,7 @@ import {
   type CommandPayload,
 } from "@ace/protocol";
 import type { Store } from "../store.ts";
+import { wakeFor } from "./snooze-wake.ts";
 
 export const RecoveryRecord = QueueState.extend({
   holdToken: z.number().int().nonnegative(),
@@ -131,18 +132,13 @@ export class QueueStore {
         value.lastFailure ? JSON.stringify(value.lastFailure) : null,
         id,
       );
+      const queue = QueueState.parse({
+        ...value,
+        pendingCount: this.count(id) + (value.continuation && !this.uncertainRecovery(id) ? 1 : 0),
+      });
       this.store.appendEvents(
         id,
-        [
-          {
-            type: "queue.updated",
-            ...QueueState.parse({
-              ...value,
-              pendingCount:
-                this.count(id) + (value.continuation && !this.uncertainRecovery(id) ? 1 : 0),
-            }),
-          },
-        ],
+        [...wakeFor(this.store, id, queue, at), { type: "queue.updated", ...queue }],
         at,
       );
     });
