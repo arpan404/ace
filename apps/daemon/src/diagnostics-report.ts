@@ -6,6 +6,7 @@ import {
   runDoctor,
 } from "@ace/diagnostics";
 import { createRedactor } from "@ace/redaction";
+import { checkBrowserEngine } from "@ace/browser/engine-check";
 import { DiagnosticReport } from "@ace/protocol";
 import { homedir } from "node:os";
 import { remoteDoctorChecks } from "./doctor.ts";
@@ -25,12 +26,14 @@ export async function collectDoctorReport(
           dataDir: config.dataDir,
           port: config.port,
           env,
+          browserEngine: (signal) => checkBrowserEngine({ dataDir: config.dataDir, env, signal }),
         }),
       ),
       ...(process.platform === "linux" ? linuxHostChecks(linuxHost(env)) : []),
       ...remoteDoctorChecks(config, env),
     ],
-    { now },
+    // A real Chrome start (version, then a headless launch) needs more than the 5 s default.
+    { now, timeoutMs: 25_000 },
   );
   return DiagnosticReport.parse(
     JSON.parse(createRedactor({ home: homedir(), env })(JSON.stringify(report))),

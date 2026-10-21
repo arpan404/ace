@@ -156,8 +156,11 @@ async function configure(capture: Capture, entry: Encoder, reason: string): Prom
             encode: entry.spec.key,
             key,
             codec: entry.spec.codec,
-            codedWidth: metadata?.decoderConfig?.codedWidth ?? entry.spec.width,
-            codedHeight: metadata?.decoderConfig?.codedHeight ?? entry.spec.height,
+            // The picture's size is the size the encoder was configured with. A decoder config's
+            // coded size may include padding: Linux's software H.264 reports 1280 × 802 for an
+            // 800-row picture, and viewers size their canvas from this.
+            codedWidth: entry.spec.width,
+            codedHeight: entry.spec.height,
             // Frames are stamped with `now()` as they go in (`encode`).
             age: Math.max(0, now() - chunk.timestamp / 1000),
             ...(key && entry.description ? { description: entry.description } : {}),

@@ -1,4 +1,5 @@
 import { PublicToolError, type PublicToolCode } from "@ace/mcp-server/errors";
+import { ChromeLaunchError, launchProblemDetail } from "./launch-failure.ts";
 
 /**
  * Raw failures from the browser engines that have a public meaning. Their messages are ours or
@@ -22,6 +23,15 @@ const known: [RegExp, PublicToolCode][] = [
   [/^Browser evaluate failed|^Read-only evaluation refused/, "evaluate_failed"],
   [/timed out|^The page did not reopen in time/, "timeout"],
 ];
+/** A failed start of ace's Chrome, however deep a recovery or open wrapped it. */
+function launchError(error: Error): ChromeLaunchError | undefined {
+  let current: unknown = error;
+  for (let depth = 0; depth < 8 && current instanceof Error; depth++) {
+    if (current instanceof ChromeLaunchError) return current;
+    current = current.cause;
+  }
+  return undefined;
+}
 /** Chromium's network error name, as CDP (`net::ERR_…`) or Electron (`ERR_… (-N)`) word it. */
 const netError = /\bnet::(ERR_[A-Z0-9_]+)|\b(ERR_[A-Z0-9_]+) \(-\d+\)/;
 
@@ -32,6 +42,18 @@ const netError = /\bnet::(ERR_[A-Z0-9_]+)|\b(ERR_[A-Z0-9_]+) \(-\d+\)/;
  */
 export function agentBrowserError(error: unknown): unknown {
   if (error instanceof PublicToolError || !(error instanceof Error)) return error;
+  const launch = launchError(error);
+  if (launch) {
+    const problem = launch.problem;
+    const detail = launchProblemDetail(problem);
+    const code: PublicToolCode =
+      problem.kind === "missing_libraries"
+        ? "browser_missing_libraries"
+        : problem.kind === "sandbox_blocked" || problem.kind === "running_as_root"
+          ? "browser_sandbox_blocked"
+          : "browser_unavailable";
+    return new PublicToolError(code, undefined, undefined, undefined, detail);
+  }
   const net = netError.exec(error.message);
   const name = net?.[1] ?? net?.[2];
   if (name)

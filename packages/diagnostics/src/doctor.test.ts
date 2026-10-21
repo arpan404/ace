@@ -18,7 +18,7 @@ function healthy(): DoctorProbes {
     }),
     git: async () => "git version 2.49.0",
     pty: async () => true,
-    chromium: async () => "/bin/chromium",
+    chromium: async () => ({ status: "ok", message: "Chrome starts", fix: "No action needed." }),
     disk: async () => ({ writable: true, freeBytes: 2 * 1024 ** 3 }),
     integrity: async () => "ok",
     port: async () => true,
@@ -54,7 +54,6 @@ const unhealthy: readonly (readonly [
   ["node", { node: async () => "not a version" }, "fail", "not a version", "Node 24"],
   ["git", { git: async () => undefined }, "fail", "git not found", "Install git"],
   ["node-pty", { pty: async () => false }, "fail", "cannot load", "Reinstall/rebuild node-pty"],
-  ["chromium", { chromium: async () => undefined }, "warn", "not found", "Install Chrome/Chromium"],
   [
     "disk",
     { disk: async () => ({ writable: false, freeBytes: 2 * 1024 ** 3 }) },

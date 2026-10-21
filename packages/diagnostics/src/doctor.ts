@@ -18,7 +18,8 @@ export interface DoctorProbes {
   antigravity?(signal: AbortSignal): Promise<DiscoveryResult>;
   git(signal: AbortSignal): Promise<string | undefined>;
   pty(signal: AbortSignal): Promise<boolean>;
-  chromium(signal: AbortSignal): Promise<string | undefined>;
+  /** ace's browser engine: whether the Chromium ace runs starts on this machine. */
+  chromium(signal: AbortSignal): Promise<Verdict>;
   disk(signal: AbortSignal): Promise<{ writable: boolean; freeBytes: number }>;
   integrity(signal: AbortSignal): Promise<"ok" | "corrupt" | "missing" | "unavailable">;
   port(signal: AbortSignal): Promise<boolean>;
@@ -141,15 +142,8 @@ export function createDoctorChecks(probes: DoctorProbes): Check[] {
     },
     {
       id: "chromium",
-      fix: "Install Chrome/Chromium or set ACE_CHROMIUM to its executable.",
-      run: async (signal) => {
-        const browser = await probes.chromium(signal);
-        return verdict(
-          browser ? "ok" : "warn",
-          browser ? "Chromium executable found" : "Chromium executable not found",
-          "Install Chrome/Chromium or set ACE_CHROMIUM to its executable.",
-        );
-      },
+      fix: "Check ace's browser: the daemon log has why it did not start, or set ACE_CHROMIUM_PATH to a working Chromium.",
+      run: (signal) => probes.chromium(signal),
     },
     {
       id: "disk",

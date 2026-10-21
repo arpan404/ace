@@ -65,6 +65,18 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
   const tabBudget = new TabBudget(options.browser?.maxTabs ?? daemonTabLimit);
   const browser = new BrowserService({
     ...options.browser,
+    ...(config.chromiumPath && !options.browser?.executablePath
+      ? { executablePath: config.chromiumPath }
+      : {}),
+    ...(config.chromiumNoSandbox ? { sandbox: false } : {}),
+    // Why ace's browser would not start (a missing library, a blocked sandbox) is in the log.
+    onError(error) {
+      context.log.log(
+        "warn",
+        `ace's browser: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      options.browser?.onError?.(error);
+    },
     tabBudget,
     dataDir: config.dataDir,
     tabStore: options.browser?.tabStore ?? new SqliteBrowserTabStore((sql) => store.statement(sql)),

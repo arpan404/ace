@@ -20,6 +20,10 @@ const Environment = z.object({
   /** Development only: "1" keeps macOS permissions with the launching terminal. */
   ACE_SCREEN_HELPER_INHERIT_RESPONSIBILITY: z.enum(["0", "1"]).optional(),
   ACE_HOME: z.string().optional(),
+  /** A Chromium for ace's headless browser instead of its pinned Chrome for Testing. */
+  ACE_CHROMIUM_PATH: z.string().min(1).optional(),
+  /** "1" runs ace's Chrome without its sandbox: the person's explicit choice (ADR 0093). */
+  ACE_CHROMIUM_NO_SANDBOX: z.enum(["0", "1"]).optional(),
   ACE_ATTACHMENT_FILE_BYTES: z.coerce
     .number()
     .int()
@@ -93,6 +97,10 @@ export interface Config {
   >;
   /** How long worktree preparation may take when settings are unavailable (ACE_WORKTREE_PREPARATION_TIMEOUT_MS). */
   worktreePreparationTimeoutMs?: number;
+  /** ACE_CHROMIUM_PATH, absolute. */
+  chromiumPath?: string;
+  /** ACE_CHROMIUM_NO_SANDBOX=1. */
+  chromiumNoSandbox?: boolean;
   screenHelper?: string;
   /** The helper manifest when it does not sit beside the app (the desktop bundle). */
   screenHelperManifest?: string;
@@ -113,6 +121,8 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env, home = homedir(
       ? { screenHelperInheritsResponsibility: true }
       : {}),
     dataDir: resolveDaemonHome(home, settings.ACE_HOME),
+    ...(settings.ACE_CHROMIUM_PATH ? { chromiumPath: resolve(settings.ACE_CHROMIUM_PATH) } : {}),
+    ...(settings.ACE_CHROMIUM_NO_SANDBOX === "1" ? { chromiumNoSandbox: true } : {}),
     attachmentLimits: {
       ...(settings.ACE_ATTACHMENT_FILE_BYTES
         ? { fileBytes: settings.ACE_ATTACHMENT_FILE_BYTES }
