@@ -16,6 +16,12 @@ declare const MediaStreamTrackProcessor: new (init: { track: MediaStreamTrack })
 
 /** Speech and music both sound clean at this rate; a silent page sends almost nothing (DTX). */
 const bitrate = 96_000;
+/**
+ * Opus runs at 48 kHz (RFC 6716): Chrome's encoder resamples other capture rates to it, such as
+ * the 44.1 kHz a Linux tab capture delivers. Viewers decode at this rate; a decoder configured
+ * with the capture's 44.1 kHz fails on the stream.
+ */
+const opusSampleRate = 48_000;
 
 interface Running {
   track: MediaStreamTrack;
@@ -104,7 +110,7 @@ export class TabAudio {
           {
             t: "audio",
             codec: "opus",
-            sampleRate: format.sampleRate,
+            sampleRate: opusSampleRate,
             channels: format.channels,
             age: captured === undefined ? 0 : Math.max(0, this.now() - captured),
           },
