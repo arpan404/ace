@@ -75,6 +75,7 @@ async function port(merge: Fixtures[string]) {
         project: root,
         workspaceId,
         runId,
+        attempt: 1,
         pr: { repository, number: 7 },
         headSha: sha,
         method,

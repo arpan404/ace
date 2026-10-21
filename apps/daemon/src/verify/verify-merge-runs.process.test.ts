@@ -168,7 +168,24 @@ test("GitHub refusing a PR mid-batch keeps the merges before it and stops", asyn
     });
     expect(done.failure?.message).toContain("Required reviews are missing");
     expect(steps(done).slice(-3)).toEqual(["merge#1:done", "merge#2:failed", "merge#3:skipped"]);
-    expect(f.forge.merges.map((merge) => merge.pr)).toEqual([1, 2]);
+    // A refusal after another PR merged is tried again before the batch gives up.
+    expect(f.forge.merges.map((merge) => merge.pr)).toEqual([1, 2, 2, 2]);
+  } finally {
+    await f.close();
+  }
+});
+
+test("a PR GitHub refuses while it settles the merge before is tried again and the batch completes", async () => {
+  const f = await verifyFixture();
+  try {
+    f.setCommand("true");
+    const heads = [await f.pr(1, { "a.txt": "one\n" }), await f.pr(2, { "b.txt": "two\n" })];
+    f.forge.refuseOnce.add(2);
+    const done = await f.settled(
+      (await startedRun(f, f.merge(heads.map((head, index) => [index + 1, head] as const)))).id,
+    );
+    expect(done).toMatchObject({ state: "merged", merged: [1, 2] });
+    expect(f.forge.merges.map((merge) => merge.pr)).toEqual([1, 2, 2]);
   } finally {
     await f.close();
   }

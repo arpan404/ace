@@ -42,6 +42,8 @@ export interface VerifyForge {
     project: string;
     workspaceId: WorkspaceId;
     runId: string;
+    /** 1 for the first try; a retry after a refusal is a new write with its own id. */
+    attempt: number;
     pr: ForgePrRef;
     headSha: string;
     method: "merge" | "squash" | "rebase";

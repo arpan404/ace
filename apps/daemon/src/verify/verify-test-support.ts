@@ -36,6 +36,8 @@ export async function inRepo(cwd: string, ...args: string[]) {
 export class FakeVerifyForge implements VerifyForge {
   merges: { pr: number; headSha: string; method: string }[] = [];
   refuse = new Set<number>();
+  /** Refused once (GitHub settling the merge before), then merged. */
+  refuseOnce = new Set<number>();
   lose = new Set<number>();
   stackedPrs = new Set<number>();
   mergedOnGitHub = new Set<number>();
@@ -59,6 +61,8 @@ export class FakeVerifyForge implements VerifyForge {
   async merge(input: Parameters<VerifyForge["merge"]>[0]): Promise<VerifyMergeOutcome> {
     this.merges.push({ pr: input.pr.number, headSha: input.headSha, method: input.method });
     await this.waits.get(input.pr.number);
+    if (this.refuseOnce.delete(input.pr.number))
+      return { outcome: "refused", message: "Base branch was modified" };
     if (this.refuse.has(input.pr.number))
       return { outcome: "refused", message: "Required reviews are missing" };
     if (this.lose.has(input.pr.number)) return { outcome: "uncertain" };
@@ -111,6 +115,7 @@ export async function verifyFixture() {
       id: () => `run-${++ids}`,
       project: (id) => projectCheck(store, id),
       recoveryRetryMs: 10,
+      mergeRetryMs: 1,
     });
     verify.subscribe((change: VerifyChanged) => {
       changes.push(change.run);

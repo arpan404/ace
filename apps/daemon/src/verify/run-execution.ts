@@ -1,4 +1,5 @@
 import type { VerifyPr } from "@ace/protocol";
+import type { VerifyMergeOutcome } from "./ports.ts";
 import { integrationPrefix } from "./check-trees.ts";
 import type { VerifyTree } from "./run-store.ts";
 import { describeError, isHeadMoved } from "./run-errors.ts";
@@ -205,17 +206,8 @@ async function mergeOnGitHub(
     const number = pr.pr.number;
     if (session.stopping.aborted) return { state: "merging" };
     session.report({ type: "step", kind: "merge", pr: number, state: "running" });
-    const result = await ports.forge
-      .merge({
-        project: session.project,
-        workspaceId: session.current().workspaceId,
-        runId: session.current().id,
-        pr: pr.pr,
-        headSha: pr.headSha,
-        method,
-        allowed: session.allowed,
-      })
-      .catch(() => ({ outcome: "uncertain" as const }));
+    const result = await mergeOne(session, ports, pr, method, index > 0);
+    if (result === "stopping") return { state: "merging" };
     if (result.outcome === "merged") {
       session.report({ type: "merged", pr: number });
       session.report({ type: "step", kind: "merge", pr: number, state: "done" });
@@ -239,4 +231,39 @@ async function mergeOnGitHub(
     };
   }
   return { state: "merged" };
+}
+
+/** Tries a merge takes after the first PR: GitHub may refuse while it settles the one before. */
+const mergeAttempts = 3;
+
+/**
+ * Merge one PR on GitHub. Right after an earlier PR of the run merged, GitHub can refuse with
+ * "Base branch was modified" while it recomputes; a definite refusal there is tried again, after
+ * a growing pause, as a new write. A lost answer is never retried.
+ */
+async function mergeOne(
+  session: RunSession,
+  ports: RunPorts,
+  pr: VerifyPr,
+  method: "merge" | "squash" | "rebase",
+  afterAnother: boolean,
+): Promise<VerifyMergeOutcome | "stopping"> {
+  const tries = afterAnother ? mergeAttempts : 1;
+  for (let attempt = 1; ; attempt++) {
+    const result = await ports.forge
+      .merge({
+        project: session.project,
+        workspaceId: session.current().workspaceId,
+        runId: session.current().id,
+        attempt,
+        pr: pr.pr,
+        headSha: pr.headSha,
+        method,
+        allowed: session.allowed,
+      })
+      .catch(() => ({ outcome: "uncertain" as const }));
+    if (result.outcome !== "refused" || attempt >= tries) return result;
+    await ports.pause(ports.mergeRetryMs * 2 ** (attempt - 1), session.stopping);
+    if (session.stopping.aborted) return "stopping";
+  }
 }

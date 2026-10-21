@@ -244,6 +244,16 @@ export class GhApi {
       dispatch.reject();
       throw new ForgeError("conflict", undefined, false);
     }
+    // GitHub answers a merge it will not do (the base was modified, the PR is not mergeable)
+    // with 405: nothing merged, so the write is refused, not uncertain.
+    if (
+      code === 405 &&
+      method === "PUT" &&
+      /^repos\/[\w.-]+\/[\w.-]+\/pulls\/[1-9]\d*\/merge$/.test(path)
+    ) {
+      dispatch.reject();
+      throw new ForgeError("conflict", undefined, false);
+    }
     if (code === 422) {
       dispatch.reject();
       throw new ForgeError(unprocessableKind(text), undefined, false);

@@ -38,6 +38,8 @@ export interface VerifyOptions {
   queueLimit?: number;
   /** How long to wait before asking GitHub again about a run a restart left merging. */
   recoveryRetryMs?: number;
+  /** How long to wait before retrying a merge GitHub refused while it settles the one before. */
+  mergeRetryMs?: number;
   log?(message: string, error: unknown): void;
 }
 
@@ -276,6 +278,8 @@ export class Verify {
         shell: this.options.shell,
         setup: this.options.setup,
         fetchTimeoutMs: this.options.fetchTimeoutMs ?? 120_000,
+        mergeRetryMs: this.options.mergeRetryMs ?? 3_000,
+        pause,
       });
     } catch (error) {
       outcome = active.controller.signal.aborted
@@ -355,4 +359,18 @@ export class Verify {
       }
     }
   }
+}
+
+/** A timer that ends early, quietly, when `signal` aborts. */
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) return resolve();
+    const timer = setTimeout(done, ms);
+    function done() {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    }
+    signal.addEventListener("abort", done, { once: true });
+  });
 }

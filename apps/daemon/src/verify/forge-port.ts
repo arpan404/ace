@@ -27,7 +27,7 @@ export function workspaceVerifyForge(runtime: Runtime): VerifyForge {
     },
     async merge(input): Promise<VerifyMergeOutcome> {
       const command = Command.parse({
-        id: `verify-${input.runId}-${input.pr.number}`,
+        id: `verify-${input.runId}-${input.pr.number}${input.attempt > 1 ? `-${input.attempt}` : ""}`,
         deviceId: "ace-verify",
         payload: {
           type: "forge.hosted.merge",

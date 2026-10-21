@@ -21,6 +21,10 @@ export interface RunPorts {
   shell: CheckShell;
   setup: SetupRunner;
   fetchTimeoutMs: number;
+  /** Wait before asking GitHub again; ends early when `signal` aborts. */
+  pause(ms: number, signal: AbortSignal): Promise<void>;
+  /** The first wait before retrying a refused merge; each retry waits twice as long. */
+  mergeRetryMs: number;
 }
 
 /** One run as the runner drives it. */
