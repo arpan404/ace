@@ -42,7 +42,9 @@ export const Capabilities = z.object({
   steer: z.boolean(),
   /**
    * When a native steer reaches the model. `after_tool`: only once the running tool returns, so
-   * ace interrupts the turn to deliver the person's steer now. Omitted means immediately.
+   * ace interrupts the turn to deliver the person's steer now. Omitted means immediately, or that
+   * the session moves the running tools to the background after a person's steer instead
+   * (`ProviderSession.backgroundTools`, Claude), which stops nothing.
    */
   steerTiming: z.enum(["immediate", "after_tool"]).optional(),
   /** Implemented launch selectors, empty when absent. */

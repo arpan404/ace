@@ -1,10 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import {
-  tabKey,
-  useScopeWorkspace,
-  useWorkspaceActions,
-  useWorkspaceStore,
-} from "@/lib/workspace/index.ts";
+import { useScopeWorkspace, useWorkspaceStore } from "@/lib/workspace/index.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { WithServices } from "../with-services.tsx";
 import { usePanelServices } from "../services.ts";
@@ -16,6 +11,7 @@ import { syncBrowserTabs } from "./tab-sync.ts";
 import { usePhone } from "@/lib/breakpoints.ts";
 import { LocalStore, useLocal } from "../store.ts";
 import { BrowserPip } from "./browser-pip.tsx";
+import { useShowBrowserPanel } from "./reveal-tab.ts";
 import { pipPage } from "./pip-rules.ts";
 import { useAutomaticPip } from "./pip-setting.ts";
 import { useWatchMode } from "./use-watch-mode.ts";
@@ -86,7 +82,8 @@ function ThreadBrowser(props: { threadId: string }) {
   const showingBrowser =
     workspace.open &&
     workspace.tabs.some((tab) => tab.key === workspace.active && tab.kind === "browser");
-  const actions = useWorkspaceActions(threadId);
+  // Restoring always leaves the Browser showing in an open panel: its tab, else any Browser tab.
+  const showBrowser = useShowBrowserPanel(threadId);
   const phone = usePhone();
   useWatchMode(store, threadId, view, workspace);
   const dismissed = useLocal(dismissedPip, (threads) => threads.has(threadId));
@@ -123,7 +120,7 @@ function ThreadBrowser(props: { threadId: string }) {
           threadId={threadId}
           view={view}
           page={floating}
-          onRestore={() => actions.activate(tabKey("browser", floating.tabId))}
+          onRestore={() => showBrowser(floating.tabId)}
           onDismiss={() => dismissedPip.set((threads) => new Set(threads).add(threadId))}
         />
       )}

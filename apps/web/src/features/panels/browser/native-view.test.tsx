@@ -72,6 +72,12 @@ let pageX = 500;
 let suggestionVisible = false;
 /** Times the page asked the desktop to take the keyboard from the native page. */
 let focusRequests = 0;
+/** The renderer's listeners for the desktop's `browser.restore` (a click on a floating page). */
+const restoreListeners = new Set<(event: unknown) => void>();
+/** The person clicks the native page floating in picture-in-picture. */
+const clickFloatingPage = (threadId: string) => {
+  for (const listener of restoreListeners) listener({ threadId });
+};
 /** The desktop's picture of the shown native page. */
 const picture = "data:image/png;base64,iVBORw0KGgo=";
 const box = (x: number, y: number, width: number, height: number) =>
@@ -93,6 +99,10 @@ beforeEach(() => {
         return placement.visible;
       },
       snapshot: async () => picture,
+      onRestore: (listener: (event: unknown) => void) => {
+        restoreListeners.add(listener);
+        return () => restoreListeners.delete(listener);
+      },
     },
   });
   // jsdom has no layout: the browser's page area sits at the right, and an open menu over it.
@@ -456,6 +466,27 @@ test("closing the panel while the agent browses moves the embedded page into pic
   await act(async () => {});
   expect(placed.slice(before).some((placement) => !placement.visible)).toBe(false);
   expect(last()?.visible).toBe(true);
+});
+
+test("clicking the native page floating in picture-in-picture brings it back into the panel", async () => {
+  await openEmbeddedBrowser();
+  await waitFor(() => expect(last()?.visible).toBe(true));
+  await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
+  await screen.findByRole("region", { name: /^Picture in picture/ });
+  // Floating, the page is a picture: the person's clicks don't reach it.
+  await waitFor(() => expect(last()).toMatchObject({ visible: true, picture: true }));
+  // A click on another thread's floating page never restores this one.
+  act(() => clickFloatingPage("another-thread"));
+  expect(screen.getByRole("region", { name: /^Picture in picture/ })).toBeTruthy();
+  act(() => clickFloatingPage("thread-cold-start"));
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  await waitFor(() =>
+    expect(screen.queryByRole("region", { name: /^Picture in picture/ })).toBeNull(),
+  );
+  // Back in the panel it is the page again, over the panel's page area.
+  await waitFor(() => expect(last()).toMatchObject({ visible: true, bounds: { x: 500, y: 100 } }));
+  expect(last()?.picture).toBeUndefined();
+  expect(within(panel).getByRole("tab", { selected: true }).textContent).toBe("Fixture page");
 });
 
 const latest = (tabId: string) => placed.findLast((placement) => placement.tabId === tabId);

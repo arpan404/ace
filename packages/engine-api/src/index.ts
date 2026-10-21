@@ -200,6 +200,15 @@ export interface ProviderSession {
     commandId?: string,
     origin?: "ace",
   ): Promise<void>;
+  /**
+   * Moves the root's running foreground tools (shell commands, subagents) to the background
+   * without stopping them, so a steer already sent reaches the model now instead of when the
+   * tool returns. Each keeps running and reports as a background task. Resolves with what the
+   * provider reports; with nothing in the foreground it backgrounds nothing. Throws when the
+   * provider has backgrounding turned off. Only providers whose native steer waits for the
+   * running tool and that can background it implement this.
+   */
+  backgroundTools?(): Promise<boolean>;
   interrupt(target: { agent?: Key; cascade: boolean }): Promise<void>;
   resolve(interaction: Key, resolution: InteractionResolution): Promise<void>;
   stopTask(task: Key): Promise<void>;

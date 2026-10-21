@@ -72,3 +72,28 @@ test("with picture in picture turned off in Settings › Browser, leaving the Br
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
   expect(pip()).toBeNull();
 });
+
+test("clicking the floating page brings it back into the Browser panel, never just away", async () => {
+  const { panel, browser, thread } = await openThreadBrowser();
+  act(() => browser.agentWorks(thread, { agentId: "worker" }));
+  await togglePanel();
+  const floating = await screen.findByRole("region", { name: /^Picture in picture/ });
+  await userEvent.click(
+    within(floating).getByRole("img", { name: "Live view of localhost:5173/settings/devices" }),
+  );
+  await waitFor(() => expect(pip()).toBeNull());
+  expect(within(panel).getByRole("img", { name: /^Live view of/ })).toBeTruthy();
+});
+
+test("a page that floated while another tool showed comes back over that tool when clicked", async () => {
+  const { panel, browser, thread } = await openThreadBrowser();
+  act(() => browser.agentWorks(thread, { agentId: "worker" }));
+  // Another tool takes the panel: the Browser is out of sight, so its page floats.
+  await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
+  const floating = await screen.findByRole("region", { name: /^Picture in picture/ });
+  await userEvent.click(
+    within(floating).getByRole("img", { name: "Live view of localhost:5173/settings/devices" }),
+  );
+  await waitFor(() => expect(pip()).toBeNull());
+  expect(within(panel).getByRole("img", { name: /^Live view of/ })).toBeTruthy();
+});

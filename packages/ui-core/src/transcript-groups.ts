@@ -3,7 +3,7 @@
  * one run merge into one row: subagents, tool calls (by family, `stepFamily`), background tasks,
  * file edits. Anything the agent says, a person's message, a question or an error ends a group,
  * whatever follows it. A group of one is a plain row. The work log applies it step by step
- * (`groupSteps`); the transcript's blocks apply it to background tasks and launches. Pure.
+ * (`groupSteps`), background tasks among its steps. Pure.
  */
 
 /** What can merge with its neighbour. */
