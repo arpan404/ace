@@ -48,12 +48,12 @@ struct ComposerModelButton: View {
                 if let provider = screen.controls?.provider, !provider.isEmpty { ProviderMark(provider: provider) }
                 Text(name).foregroundStyle(AceTheme.Colours.foreground)
                     .lineLimit(1).truncationMode(.tail)
-                    .frame(maxWidth: AceTheme.Dimensions.touchTarget * 2.5, alignment: .leading)
+                    .frame(maxWidth: AceTheme.Dimensions.touchTarget * 2, alignment: .leading)
                 if let effort {
                     Text("·").foregroundStyle(AceTheme.Colours.subtleForeground).accessibilityHidden(true)
                     Text(effort.short ?? effort.label).lineLimit(1)
                 }
-                Image(systemName: screen.controls?.switching == "queued" ? "clock" : "chevron.down")
+                AceIcon(screen.controls?.switching == "queued" ? .clock : .caretDown, size: 12, relativeTo: .caption)
                     .font(.caption2.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
             }
             .fixedSize(horizontal: true, vertical: false)

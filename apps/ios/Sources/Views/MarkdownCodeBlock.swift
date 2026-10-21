@@ -13,7 +13,7 @@ struct MarkdownCodeBlock: View {
                     UIPasteboard.general.string = text
                     copied = true
                 } label: {
-                    Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+                    Label(copied ? "Copied" : "Copy", ace: copied ? .check : .copy)
                         .frame(minHeight: AceTheme.Dimensions.touchTarget)
                 }
                 .buttonStyle(.plain).accessibilityLabel(copied ? "Code copied" : "Copy code")
@@ -29,8 +29,8 @@ struct MarkdownCodeBlock: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.code))
-        .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.code).stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+        .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.lg))
+        .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.lg).stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
         .task(id: copied) {
             guard copied else { return }
             do { try await Task.sleep(for: .seconds(2)); copied = false } catch { }

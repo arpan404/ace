@@ -57,7 +57,7 @@ struct StripSurface<Content: View>: View {
 
 enum StripMetrics {
     /// The composer and its strip share `rounded-xl`.
-    static let radius = AceTheme.Radii.group
+    static let radius = AceTheme.Radii.xl
     /// How far the strip's lower edge sits behind the composer.
     static let tuck = AceTheme.Spacing.lg
     /// The strip is narrower than the composer by this much on each side.
@@ -119,7 +119,7 @@ struct StripTextButtonStyle: ButtonStyle {
             .foregroundStyle(configuration.isPressed ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
             .padding(.horizontal, AceTheme.Spacing.sm)
             .frame(minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
-            .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: RoundedRectangle(cornerRadius: AceTheme.Radii.small))
+            .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: RoundedRectangle(cornerRadius: AceTheme.Radii.md))
             .contentShape(Rectangle())
     }
 }

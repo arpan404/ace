@@ -23,10 +23,10 @@ struct ComposerActionButton: View {
             Group {
                 if saving { ProgressView().tint(AceTheme.Colours.onAccent) }
                 else if stopping {
-                    RoundedRectangle(cornerRadius: AceTheme.Radii.badge)
+                    RoundedRectangle(cornerRadius: AceTheme.Radii.xs / 2)
                         .frame(width: AceTheme.Spacing.sm + AceTheme.Spacing.xxs, height: AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
                 } else {
-                    Image(systemName: "arrow.up").font(.body.weight(.semibold))
+                    AceIcon(.arrowUp, size: 16, weight: .bold, relativeTo: .body)
                 }
             }
             .frame(width: AceTheme.Spacing.xxxl + AceTheme.Spacing.xs, height: AceTheme.Spacing.xxxl + AceTheme.Spacing.xs)

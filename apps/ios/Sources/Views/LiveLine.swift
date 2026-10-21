@@ -32,10 +32,7 @@ struct LiveLine: View {
             }
         } else if activity.tone == "needs-you" {
             HStack(spacing: AceTheme.Spacing.sm) {
-                Image(systemName: "exclamationmark.circle.fill")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(AceTheme.Status.needsYou)
-                    .accessibilityHidden(true)
+                StatusGlyph(.needsYou, tone: .needsYou)
                 Text(activity.label)
             }
         } else {

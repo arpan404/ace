@@ -29,7 +29,7 @@ struct ModelPickerSheet: View {
             }
             switch screen.modelsState {
             case "ready" where screen.models.isEmpty:
-                ContentUnavailableView("No models listed", systemImage: "cpu", description: Text("Check this account on your machine."))
+                EmptyState(icon: .cpu, title: "No models listed", line: "Check this account on your machine.")
             case "ready":
                 let shown = screen.models.filter { ModelSearch.matches(query, $0.label, screen.controls?.providerName ?? "") }
                 if shown.isEmpty { ContentUnavailableView.search(text: query) }
@@ -43,9 +43,7 @@ struct ModelPickerSheet: View {
                     .insetRowBackground()
                 }
             case "failed":
-                ContentUnavailableView {
-                    Label("Couldn't load models", systemImage: "wifi.exclamationmark")
-                } description: { Text("Your machine didn't answer. Check the connection and try again.") } actions: {
+                EmptyState(icon: .wifiX, title: "Couldn't load models", line: "Your machine didn't answer. Check the connection and try again.", failed: true) {
                     Button("Try again") { model.requestModels() }
                 }
             default:
@@ -85,7 +83,7 @@ struct EffortSlider: View {
                     .foregroundStyle(AceTheme.Colours.foreground)
                 if tune.canReset {
                     Button { set(nil) } label: {
-                        Image(systemName: "arrow.counterclockwise").foregroundStyle(AceTheme.Colours.mutedForeground)
+                        AceIcon(.arrowUUpLeft, size: 16, relativeTo: .subheadline).foregroundStyle(AceTheme.Colours.mutedForeground)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Model default")
@@ -154,7 +152,7 @@ private struct ThreadSpeedOptions: View {
                 ModelOptionMenu(systemImage: "bolt", title: "Speed", value: tune.speeds.first { $0.speed == tune.speed }?.label ?? "") {
                     ForEach(tune.speeds) { tier in
                         Button { Task { _ = await model.setSpeed(tier.speed) } } label: {
-                            if tier.speed == tune.speed { Label(tier.label, systemImage: "checkmark") } else { Text(tier.label) }
+                            if tier.speed == tune.speed { Label(tier.label, ace: .check) } else { Text(tier.label) }
                         }
                     }
                 }

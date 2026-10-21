@@ -131,7 +131,7 @@ private struct ChoiceRow<Content: View>: View {
         HStack(alignment: .center, spacing: AceTheme.Spacing.md) {
             Group {
                 if multiple {
-                    Image(systemName: chosen ? "checkmark.square.fill" : "square")
+                    AceIcon(chosen ? .checkSquare : .square, size: 20)
                 } else {
                     Circle()
                         .strokeBorder(chosen ? AceTheme.Colours.foreground : AceTheme.Colours.decoration,
@@ -146,8 +146,8 @@ private struct ChoiceRow<Content: View>: View {
         .aceFont(AceTheme.Typography.body, relativeTo: .body)
         .padding(.horizontal, AceTheme.Spacing.md + AceTheme.Spacing.xxs).padding(.vertical, AceTheme.Spacing.md)
         .frame(minHeight: AceTheme.Dimensions.touchTarget)
-        .requestInset(cornerRadius: AceTheme.Radii.small)
-        .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.small, style: .continuous)
+        .requestInset(cornerRadius: AceTheme.Radii.md)
+        .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.md, style: .continuous)
             .strokeBorder(chosen ? AceTheme.Colours.foreground : .clear, lineWidth: AceTheme.Dimensions.border * 1.5))
         .contentShape(Rectangle())
     }

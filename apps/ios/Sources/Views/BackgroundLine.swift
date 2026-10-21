@@ -10,7 +10,7 @@ struct BackgroundLine: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
             HStack(spacing: AceTheme.Spacing.sm + AceTheme.Spacing.xxs) {
-                Image(systemName: "apple.terminal").font(.body).foregroundStyle(AceTheme.Colours.decoration)
+                AceIcon(.terminalWindow, size: 16, relativeTo: .subheadline).foregroundStyle(AceTheme.Colours.decoration)
                     .frame(width: AceTheme.Spacing.xxl).accessibilityHidden(true)
                 Text(line.label).lineLimit(1)
                 Spacer(minLength: AceTheme.Spacing.sm)
@@ -19,7 +19,7 @@ struct BackgroundLine: View {
                         stopping = true
                         stopBackground(line.taskId)
                     } label: {
-                        Image(systemName: "stop").font(.footnote)
+                        AceIcon(.stop, size: 14, relativeTo: .footnote)
                             .foregroundStyle(AceTheme.Colours.mutedForeground)
                             .frame(width: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.md, height: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.md)
                             .contentShape(Rectangle())

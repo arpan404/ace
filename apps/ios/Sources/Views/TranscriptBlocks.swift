@@ -32,12 +32,12 @@ struct BlockView: View {
         case "end": if let ending = row.ending { EndingLine(ending: ending) }
         case "files":
             if let openChanges = links.openChanges {
-                QuietLink(icon: "doc.text", title: "Edited files", action: openChanges)
+                QuietLink(icon: .fileText, title: "Edited files", action: openChanges)
                     .accessibilityIdentifier("transcript.changes")
             }
         case "started":
             if let started = row.started {
-                QuietLink(icon: "bubble.left.and.text.bubble.right", title: started.title) { links.openThread(started.threadId) }
+                QuietLink(icon: .chatsTeardrop, title: started.title) { links.openThread(started.threadId) }
             }
         case "question": QuestionLine(interaction: thread.interactions[row.interactionId])
         case "event":
@@ -71,7 +71,7 @@ struct ItemRowView: View {
         case "reasoning": ThoughtRow(row: row, openMessage: openMessage, workEnded: workEnded)
         case "html", "image":
             if let openMedia {
-                QuietLink(icon: row.type == "html" ? "chart.bar.doc.horizontal" : "photo", title: row.text) { openMedia(row) }
+                QuietLink(icon: row.type == "html" ? .chartBarHorizontal : .image, title: row.text) { openMedia(row) }
                     .accessibilityIdentifier("media.\(row.id)")
             } else { VisualizationRow(row: row) }
         default:
@@ -89,7 +89,7 @@ struct UserBubble: View {
             Spacer(minLength: AceTheme.Spacing.xxxl * 2)
             Text(text).aceFont(AceTheme.Typography.body, relativeTo: .body).textSelection(.enabled)
                 .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
-                .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.code, style: .continuous))
+                .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.lg, style: .continuous))
         }
     }
 }
@@ -118,8 +118,8 @@ struct MessageRow: View {
         }
         .frame(maxWidth: .infinity, alignment: user ? .trailing : .leading)
         .contextMenu {
-            Button(row.truncated ? "Copy visible text" : "Copy message", systemImage: "doc.on.doc") { UIPasteboard.general.string = row.text }
-            ShareLink(item: row.text) { Label(row.truncated ? "Share visible text" : "Share message", systemImage: "square.and.arrow.up") }
+            Button(row.truncated ? "Copy visible text" : "Copy message", ace: .copy) { UIPasteboard.general.string = row.text }
+            ShareLink(item: row.text) { Label(row.truncated ? "Share visible text" : "Share message", ace: .export) }
             if row.truncated, let openMessage { Button("Read full message") { openMessage(row) } }
             Text(Date(timeIntervalSince1970: row.createdAt / 1000), format: .dateTime.month().day().hour().minute())
         }
@@ -132,7 +132,7 @@ struct AttachmentChips: View {
     var body: some View {
         HStack(spacing: AceTheme.Spacing.xs) {
             ForEach(Array(attachments.enumerated()), id: \.offset) { _, attachment in
-                Label(attachment.name.isEmpty ? "Attachment" : attachment.name, systemImage: attachment.kind == "image" ? "photo" : attachment.kind == "pdf" ? "doc.richtext" : "doc")
+                Label(attachment.name.isEmpty ? "Attachment" : attachment.name, ace: attachment.kind == "image" ? .image : attachment.kind == "pdf" ? .fileText : .file)
                     .lineLimit(1).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .padding(.horizontal, AceTheme.Spacing.sm).padding(.vertical, AceTheme.Spacing.xs)
                     .background(AceTheme.Colours.fill, in: Capsule())

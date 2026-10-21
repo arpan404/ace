@@ -47,7 +47,7 @@ struct WorkProgressGroup: View {
                             }
                         }
                         .shimmer(group.running)
-                        Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                        AceIcon(.caretRight, size: 12, relativeTo: .caption)
                             .rotationEffect(.degrees(expanded ? 90 : 0))
                             .foregroundStyle(AceTheme.Colours.subtleForeground)
                         Spacer(minLength: AceTheme.Spacing.none)
@@ -95,10 +95,10 @@ struct ThoughtRow: View {
         let settled = row.complete || row.step?.settled == true || workEnded
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { expanded.toggle() } } label: {
-                QuietRow(icon: "brain") {
+                QuietRow(icon: .brain) {
                     Text(settled ? "Thought" : "Thinking…").shimmer(!settled)
                     if !row.text.isEmpty {
-                        Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                        AceIcon(.caretRight, size: 12, relativeTo: .caption)
                             .rotationEffect(.degrees(expanded ? 90 : 0))
                             .foregroundStyle(AceTheme.Colours.subtleForeground)
                     }

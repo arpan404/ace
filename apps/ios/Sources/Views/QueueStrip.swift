@@ -27,22 +27,22 @@ struct QueueStrip<Indicators: View>: View {
                 HStack(spacing: AceTheme.Spacing.sm) {
                     Text(message.text.isEmpty ? "Attachment" : message.text).lineLimit(2)
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.foreground)
-                    if message.attachments > 0 { Image(systemName: "paperclip").foregroundStyle(AceTheme.Colours.decoration) }
+                    if message.attachments > 0 { AceIcon(.paperclip, size: 14, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.decoration) }
                     Spacer(minLength: AceTheme.Spacing.none)
                     if busy == message.id { ProgressView().controlSize(.mini) }
                     if canAct {
                         Menu {
-                            if canSteer { Button("Send now", systemImage: "arrow.turn.down.right") { run(message, ["kind": "steer"]) } }
-                            Button("Edit", systemImage: "pencil") { words = message.text; editing = message }
+                            if canSteer { Button("Send now", ace: .arrowElbowDownRight) { run(message, ["kind": "steer"]) } }
+                            Button("Edit", ace: .pencilSimple) { words = message.text; editing = message }
                             if message.id != queue.messages.first?.id {
-                                Button("Move up", systemImage: "arrow.up") { run(message, ["kind": "move", "step": -1]) }
+                                Button("Move up", ace: .arrowUp) { run(message, ["kind": "move", "step": -1]) }
                             }
                             if message.id != queue.messages.last?.id {
-                                Button("Move down", systemImage: "arrow.down") { run(message, ["kind": "move", "step": 1]) }
+                                Button("Move down", ace: .arrowDown) { run(message, ["kind": "move", "step": 1]) }
                             }
-                            Button("Remove", systemImage: "trash", role: .destructive) { run(message, ["kind": "remove"]) }
+                            Button("Remove", ace: .trash, role: .destructive) { run(message, ["kind": "remove"]) }
                         } label: {
-                            Image(systemName: "ellipsis").frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
+                            AceIcon(.dotsThree, size: 20).frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
                                 .foregroundStyle(AceTheme.Colours.mutedForeground).contentShape(Rectangle())
                         }
                         .disabled(busy != nil)
