@@ -43,7 +43,6 @@ node tools/release/src/publication.ts tools/release/dist https://github.com/arpa
 
 Publication accepts any non-empty subset of the four targets, so Linux can ship before macOS signing is ready. A target is included when its `TARGET.json` is present, and then needs its signature and archive. The installer pins only the included targets and refuses the others by name before downloading anything. The Homebrew formula names all four archives, so it is written only for a full release.
 
-
 Builds write sorted, fixed-metadata tarballs and a file checksum manifest. Repeating a build with identical checkout, lockfile, public key and native inputs must produce identical archive hashes. Sign the exact manifest bytes, including the final newline. Publish the archives, manifests and signatures of every built target, install.sh and install.sh.sha256 together. The desktop app should spawn `bin/node ace.mjs start` from this artifact and pass ACE_HOME. It must not load node-pty into Electron itself.
 
 Publication also emits one `ace-cli-VERSION-TARGET.tgz` npm package per target, their SHA-256
