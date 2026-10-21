@@ -140,7 +140,7 @@ private struct WorkStep: View {
     @Bindable var item: ItemModel
     var body: some View {
         if item.row.type == "message" {
-            MarkdownView(text: item.row.text)
+            MarkdownView(text: item.row.text).stepNarration(true)
         } else { ItemRowView(item: item, workEnded: true) }
     }
 }
@@ -173,6 +173,10 @@ private struct Shimmer: ViewModifier {
 
 extension View {
     func shimmer(_ active: Bool) -> some View { modifier(Shimmer(active: active)) }
+    /// What the agent says between steps stands apart from the step rows around it.
+    func stepNarration(_ narration: Bool) -> some View {
+        padding(.vertical, narration ? AceTheme.Spacing.sm : AceTheme.Spacing.none)
+    }
 }
 
 extension EnvironmentValues {

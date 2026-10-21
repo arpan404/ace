@@ -28,6 +28,7 @@ struct WorkProgressGroup: View {
         if group.single {
             if let item = thread.items[group.id] {
                 ItemRowView(item: item, openMedia: openMedia, openMessage: openMessage, workEnded: !group.running)
+                    .stepNarration(item.row.type == "message")
             }
         } else {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {

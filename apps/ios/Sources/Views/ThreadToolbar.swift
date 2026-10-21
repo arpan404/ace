@@ -51,12 +51,15 @@ struct ThreadMenu: View {
 
     var body: some View {
         Menu {
-            Section {
-                Button("Find in thread", systemImage: "magnifyingglass") { open(.search) }.accessibilityIdentifier("thread.search")
+            // The places opened most share one row of glyphs, so the menu fits without scrolling.
+            ControlGroup {
+                Button("Find", systemImage: "magnifyingglass") { open(.search) }.accessibilityIdentifier("thread.search")
                 Button("Files", systemImage: "folder") { open(.files) }.accessibilityIdentifier("thread.files")
+                Button("Terminal", systemImage: "apple.terminal") { open(.terminal) }.accessibilityIdentifier("thread.terminal")
+            }
+            Section {
                 Button("Browser", systemImage: "safari") { open(.browser) }.accessibilityIdentifier("thread.browser")
                 Button("Devices", systemImage: "iphone") { open(.devices) }.accessibilityIdentifier("thread.devices")
-                Button("Terminal", systemImage: "apple.terminal") { open(.terminal) }.accessibilityIdentifier("thread.terminal")
                 Button("Computer use", systemImage: "macwindow") { open(.computer) }
                 Button("Skills and tools", systemImage: "wrench.and.screwdriver") { open(.tools) }.accessibilityIdentifier("thread.tools")
             }
