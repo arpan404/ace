@@ -45,13 +45,13 @@ function FloatingBrowsers() {
     enabled,
     phone,
   });
-  return threads.map((threadId, slot) => (
-    <FloatingThread key={threadId} threadId={threadId} slot={slot} current={threadId === current} />
+  return threads.map((threadId) => (
+    <FloatingThread key={threadId} threadId={threadId} current={threadId === current} />
   ));
 }
 
 /** One thread's floating window, while its page is one to float (`pipPage`). */
-function FloatingThread(props: { threadId: string; slot: number; current: boolean }) {
+function FloatingThread(props: { threadId: string; current: boolean }) {
   "use no memo";
   const { preview: source } = usePanelServices();
   const { threadId } = props;
@@ -85,7 +85,6 @@ function FloatingThread(props: { threadId: string; slot: number; current: boolea
       frame={source.frame(threadId)}
       page={page}
       threadTitle={title}
-      slot={props.slot}
       onRestore={restore}
       onDismiss={() => addThread(dismissedPip, threadId)}
     />

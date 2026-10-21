@@ -15,7 +15,9 @@ import { pageSize } from "./page-size.ts";
 import {
   clampPip,
   defaultPipGeometry,
-  stackPip,
+  pipLimits,
+  placePip,
+  type PipBox,
   type PipGeometry,
   type PipPage,
 } from "./pip-rules.ts";
@@ -26,6 +28,8 @@ const Stored = z.object({ right: z.number(), bottom: z.number(), width: z.number
 const windowSize = () => ({ width: innerWidth, height: innerHeight });
 /** Where the person moved each thread's window this session; new ones stack from the last. */
 const moved = new Map<string, PipGeometry>();
+/** The floating windows open now, so a new one starts where none of them is. */
+const open = new Map<string, PipBox>();
 /** A press that travels less than this is a click, not a drag. */
 const dragSlop = 4;
 
@@ -52,8 +56,6 @@ export function BrowserPip(props: {
   page: PipPage;
   /** The thread's name, shown first in the bar. */
   threadTitle?: string | undefined;
-  /** Its place among the windows floating now, for where a new one starts. */
-  slot: number;
   onRestore(): void;
   onDismiss(): void;
 }) {
@@ -64,7 +66,14 @@ export function BrowserPip(props: {
     const own = moved.get(props.threadId);
     if (own) return clampPip(own, windowSize(), aspect);
     const base = readJson(storage, storageKey, Stored, defaultPipGeometry);
-    return stackPip(base, props.slot, windowSize(), aspect);
+    const others = [...open].flatMap(([id, box]) => (id === props.threadId ? [] : [box]));
+    const place = placePip(base, others, windowSize(), aspect);
+    // Taken at once, so another window opening in the same commit starts elsewhere.
+    open.set(props.threadId, {
+      ...place,
+      height: Math.round(place.width * aspect) + pipLimits.header,
+    });
+    return place;
   });
   const save = (next: PipGeometry) => {
     moved.set(props.threadId, next);
@@ -130,6 +139,10 @@ export function BrowserPip(props: {
   };
 
   const height = Math.round(geometry.width * aspect);
+  useEffect(() => {
+    open.set(threadId, { ...geometry, height: height + pipLimits.header });
+    return () => void open.delete(threadId);
+  }, [threadId, geometry, height]);
   return createPortal(
     <section
       aria-label={`Picture in picture: ${props.page.title}`}
