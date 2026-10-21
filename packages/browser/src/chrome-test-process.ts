@@ -19,8 +19,17 @@ export async function chromeProcesses(home: string) {
   const browser = rows.find(
     (row) => row.command.includes(`--user-data-dir=${home}`) && !row.command.includes("--type="),
   )?.ids[0];
+  // On Linux renderers are forked by Chrome's zygote, so the browser is an ancestor, not the parent.
+  const parent = new Map(rows.map((row) => [row.ids[0], row.ids[1]]));
+  const descends = (pid: number) => {
+    for (let id = parent.get(pid), depth = 0; id !== undefined && depth < 8; depth++) {
+      if (id === browser) return true;
+      id = parent.get(id);
+    }
+    return false;
+  };
   const renderers = rows
-    .filter((row) => row.ids[1] === browser && row.command.includes("--type=renderer"))
+    .filter((row) => row.command.includes("--type=renderer") && descends(row.ids[0]))
     .map((row) => row.ids[0]);
   return { browser, renderers, commandLine: rows.find((row) => row.ids[0] === browser)?.command };
 }

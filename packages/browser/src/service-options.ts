@@ -13,7 +13,13 @@ import type { ChromeCleanup, ChromeLaunch } from "./chrome-instance.ts";
 
 export interface BrowserServiceOptions {
   dataDir: string;
+  /** A Chromium to run instead of ace's pinned one (`ACE_CHROMIUM_PATH`). */
   executablePath?: string;
+  /**
+   * `false` runs ace's Chrome without its sandbox (`ACE_CHROMIUM_NO_SANDBOX=1`): only by the
+   * person's explicit choice, never as a fallback. Default true.
+   */
+  sandbox?: boolean;
   ffmpeg?: string;
   originPolicy?: OriginPolicy;
   /**

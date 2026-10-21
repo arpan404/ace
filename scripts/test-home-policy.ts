@@ -83,7 +83,12 @@ export function isolatedTestEnvironment(
     ...(ambient.ACE_DEVICE_LIVE_ANDROID_SERIAL !== undefined
       ? { ACE_DEVICE_LIVE_ANDROID_SERIAL: ambient.ACE_DEVICE_LIVE_ANDROID_SERIAL }
       : {}),
-    // Browser binaries are installed once per machine; tests drive them read-only.
+    // Browser binaries are installed once per machine; tests drive them read-only. CI installs
+    // ace's pinned Chrome and names it in ACE_CHROMIUM_PATH; without it Linux has no browser
+    // and every real-Chromium suite would skip.
+    ...(ambient.ACE_CHROMIUM_PATH !== undefined
+      ? { ACE_CHROMIUM_PATH: ambient.ACE_CHROMIUM_PATH }
+      : {}),
     PLAYWRIGHT_BROWSERS_PATH: ambient.PLAYWRIGHT_BROWSERS_PATH ?? playwrightCache(realHome),
   };
 }

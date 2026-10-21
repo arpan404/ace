@@ -8,7 +8,7 @@ import {
   findExecutable,
 } from "@ace/provider-kit/discovery";
 import { probeOutput } from "@ace/provider-kit/process";
-import type { DoctorProbes } from "./doctor.ts";
+import type { DoctorProbes, Verdict } from "./doctor.ts";
 import { checkIntegrity } from "./sqlite.ts";
 export function portAvailable(port: number, signal: AbortSignal): Promise<boolean> {
   if (signal.aborted) return Promise.reject(new Error("Aborted"));
@@ -38,6 +38,8 @@ export function createSystemProbes(
     timeoutMs?: number;
     /** Module origin in the daemon installation, independent of the invoking cwd. */
     moduleOrigin?: URL;
+    /** Starts the Chromium ace's browser runs (`@ace/browser/engine-check`). */
+    browserEngine?: (signal: AbortSignal) => Promise<Verdict>;
   },
   runtime: SystemProbeRuntime = systemProbes,
 ): DoctorProbes {
@@ -85,23 +87,14 @@ export function createSystemProbes(
         ).code === 0
       );
     },
-    chromium: async () => {
-      const candidates = [
-        options.env.ACE_CHROMIUM,
-        "chromium",
-        "chromium-browser",
-        "google-chrome",
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-        "/Applications/Chromium.app/Contents/MacOS/Chromium",
-      ];
-      for (const name of candidates) {
-        if (name) {
-          const path = await findExecutable(name, options.env);
-          if (path) return path;
-        }
-      }
-      return undefined;
-    },
+    chromium: async (signal) =>
+      options.browserEngine
+        ? options.browserEngine(signal)
+        : {
+            status: "warn",
+            message: "ace's browser engine was not checked",
+            fix: "Run ace doctor from the ace installation to check ace's browser.",
+          },
     disk: async () => {
       let directory = options.dataDir;
       for (;;) {
