@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { Readable, Writable } from "node:stream";
+import { z } from "zod";
 import { constants } from "node:fs";
 import { access, mkdtemp, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -32,7 +34,7 @@ export interface EngineCheckOptions {
   platform?: NodeJS.Platform;
   arch?: string;
   home?: string;
-  /** Bound on each Chrome run; the whole check takes at most twice this. Default 6 s. */
+  /** Bound on each Chrome run; the whole check takes at most twice this. Default 10 s. */
   timeoutMs?: number;
   machine?: LinuxMachine;
 }
@@ -62,28 +64,16 @@ interface Run {
   stdout: string;
   stderr: string;
   timedOut: boolean;
+  /** Over the debugging pipe: Chrome opened a page. */
+  pageOpened: boolean;
 }
-function run(
-  executable: string,
-  args: string[],
-  timeoutMs: number,
-  signal: AbortSignal,
-): Promise<Run> {
+type Child = ReturnType<typeof spawn>;
+/** Collects stderr and settles when Chrome exits, killing its process group at the bound. */
+function supervise(child: Child, timeoutMs: number, run: Run): Promise<Run> {
   return new Promise((resolveRun, reject) => {
-    const child = spawn(executable, args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      signal,
-      detached: process.platform !== "win32",
-    });
-    let stdout = "";
-    let stderr = "";
-    let timedOut = false;
-    child.stdout.on(
-      "data",
-      (chunk: Buffer) => (stdout = (stdout + chunk.toString("utf8")).slice(0, 8192)),
-    );
-    child.stderr.on("data", (chunk: Buffer) => {
-      if (stderr.length < 8192) stderr = (stderr + chunk.toString("utf8")).slice(0, 8192);
+    child.stderr?.on("data", (chunk: Buffer) => {
+      if (run.stderr.length < 8192)
+        run.stderr = (run.stderr + chunk.toString("utf8")).slice(0, 8192);
     });
     const kill = () => {
       try {
@@ -95,7 +85,7 @@ function run(
       }
     };
     const timer = setTimeout(() => {
-      timedOut = true;
+      run.timedOut = true;
       kill();
     }, timeoutMs);
     child.once("error", (error) => {
@@ -106,10 +96,80 @@ function run(
       clearTimeout(timer);
       // Helpers Chrome left behind in its group go with it.
       kill();
-      resolveRun({ code, stdout, stderr, timedOut });
+      resolveRun({ ...run, code });
     });
   });
 }
+const emptyRun = (): Run => ({
+  code: null,
+  stdout: "",
+  stderr: "",
+  timedOut: false,
+  pageOpened: false,
+});
+
+/** `chrome --version`: proves the executable and its shared libraries load. */
+function version(executable: string, timeoutMs: number, signal: AbortSignal): Promise<Run> {
+  const child = spawn(executable, ["--version"], {
+    stdio: ["ignore", "pipe", "pipe"],
+    signal,
+    detached: process.platform !== "win32",
+  });
+  const run = emptyRun();
+  child.stdout?.on("data", (chunk: Buffer) => {
+    run.stdout = (run.stdout + chunk.toString("utf8")).slice(0, 8192);
+  });
+  return supervise(child, timeoutMs, run);
+}
+
+/**
+ * Starts Chrome the way ace does, over `--remote-debugging-pipe`, opens a blank page (which
+ * starts a sandboxed renderer) and closes it.
+ */
+function startHeadless(
+  executable: string,
+  args: string[],
+  timeoutMs: number,
+  signal: AbortSignal,
+): Promise<Run> {
+  const child = spawn(executable, [...args, "--remote-debugging-pipe"], {
+    stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"],
+    signal,
+    detached: process.platform !== "win32",
+  });
+  const run = emptyRun();
+  const input = child.stdio[3];
+  const output = child.stdio[4];
+  const send = (id: number, method: string, params?: object) => {
+    if (input instanceof Writable)
+      input.write(`${JSON.stringify({ id, method, ...(params ? { params } : {}) })}\0`);
+  };
+  let pending = "";
+  if (output instanceof Readable)
+    output.on("data", (chunk: Buffer) => {
+      pending = (pending + chunk.toString("utf8")).slice(-1024 * 1024);
+      const messages = pending.split("\0");
+      pending = messages.pop() ?? "";
+      for (const message of messages) {
+        const reply = PipeReply.safeParse(parseJson(message));
+        if (!reply.success || reply.data.id !== 2) continue;
+        run.pageOpened = reply.data.result !== undefined;
+        send(3, "Browser.close");
+      }
+    });
+  if (input instanceof Writable) input.on("error", () => {});
+  send(1, "Browser.getVersion");
+  send(2, "Target.createTarget", { url: "about:blank" });
+  return supervise(child, timeoutMs, run);
+}
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+const PipeReply = z.object({ id: z.number().optional(), result: z.unknown().optional() });
 
 function problemVerdict(
   problem: ChromeLaunchProblem,
@@ -171,7 +231,7 @@ function stderrLine(stderr: string): string {
 export async function checkBrowserEngine(options: EngineCheckOptions): Promise<EngineVerdict> {
   const platform = options.platform ?? process.platform;
   const arch = options.arch ?? process.arch;
-  const timeoutMs = options.timeoutMs ?? 6_000;
+  const timeoutMs = options.timeoutMs ?? 10_000;
   const machine = options.machine ?? linuxMachine;
   let engine: { path: string; pinned?: string };
   try {
@@ -214,12 +274,12 @@ export async function checkBrowserEngine(options: EngineCheckOptions): Promise<E
       sandboxFix,
       stderr,
     );
-  const version = await run(engine.path, ["--version"], timeoutMs, options.signal);
-  if (version.code !== 0) return diagnose(version.stderr);
-  const name = version.stdout.trim().split("\n")[0]?.slice(0, 200) ?? "Chromium";
+  const printed = await version(engine.path, timeoutMs, options.signal);
+  if (printed.code !== 0) return diagnose(printed.stderr);
+  const name = printed.stdout.trim().split("\n")[0]?.slice(0, 200) ?? "Chromium";
   const profile = await mkdtemp(join(tmpdir(), "ace-doctor-chrome-"));
   try {
-    const started = await run(
+    const started = await startHeadless(
       engine.path,
       [
         "--headless=new",
@@ -230,19 +290,17 @@ export async function checkBrowserEngine(options: EngineCheckOptions): Promise<E
         ...(platform === "linux" ? ["--password-store=basic"] : []),
         ...(platform === "linux" && smallSharedMemory() ? ["--disable-dev-shm-usage"] : []),
         ...(sandbox ? [] : ["--no-sandbox"]),
-        "--dump-dom",
-        "about:blank",
       ],
       timeoutMs,
       options.signal,
     );
-    if (started.timedOut)
+    if (!started.pageOpened && started.timedOut)
       return {
         status: "warn",
         message: `${name} did not finish a headless start within ${timeoutMs / 1000} s`,
         fix: "The machine may be busy; run ace doctor again. If it persists, check the daemon log when an agent opens the browser.",
       };
-    if (started.code !== 0 || !started.stdout.includes("<html")) return diagnose(started.stderr);
+    if (!started.pageOpened) return diagnose(started.stderr);
     return sandbox
       ? {
           status: "ok",

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
@@ -23,6 +23,33 @@ async function chromium(body: string) {
   const path = join(dir, "chrome");
   await writeFile(path, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
   return { dataDir: join(dir, "data"), path };
+}
+/**
+ * A stand-in that speaks Chrome's debugging pipe (NUL-separated JSON on fds 3 and 4): it answers
+ * every command, exits on `Browser.close`, and records its arguments for the test.
+ */
+async function pipeChromium() {
+  const fake = await chromium("exit 1");
+  const argv = `${fake.path}.argv`;
+  const script = `#!${process.execPath}
+const fs = require("node:fs");
+if (process.argv.includes("--version")) { console.log("Chromium 153.0.8010.12"); process.exit(0); }
+fs.writeFileSync(${JSON.stringify(argv)}, process.argv.join(" "));
+if (!process.argv.includes("--headless=new") || !process.argv.includes("--remote-debugging-pipe")) process.exit(1);
+const output = fs.createWriteStream(null, { fd: 4 });
+let pending = "";
+fs.createReadStream(null, { fd: 3 }).on("data", (chunk) => {
+  const messages = (pending + chunk).split("\\0");
+  pending = messages.pop();
+  for (const message of messages) {
+    const { id, method } = JSON.parse(message);
+    if (method === "Browser.close") process.exit(0);
+    output.write(JSON.stringify({ id, result: {} }) + "\\0");
+  }
+});
+`;
+  await writeFile(fake.path, script, { mode: 0o755 });
+  return { ...fake, argv };
 }
 const version = 'if [ "$1" = --version ]; then echo "Chromium 153.0.8010.12"; exit 0; fi';
 const check = (dataDir: string, env: NodeJS.ProcessEnv) =>
@@ -52,19 +79,27 @@ describe("ace doctor's browser check", () => {
   });
 
   it("passes a Chromium that starts headless, and warns when it runs without its sandbox", async () => {
-    // Prints a page only when started headless; says whether the sandbox was turned off.
-    const fake = await chromium(
-      `${version}\ncase "$*" in *--headless=new*) ;; *) exit 1;; esac\ncase "$*" in *--no-sandbox*) echo nosandbox >&2;; esac\necho "<html><head></head><body></body></html>"`,
-    );
+    const fake = await pipeChromium();
     const sandboxed = await check(fake.dataDir, { ACE_CHROMIUM_PATH: fake.path });
     expect(sandboxed).toMatchObject({ status: "ok" });
     expect(sandboxed.message).toBe("Chromium 153.0.8010.12 starts headless with its sandbox");
+    expect(await readFile(fake.argv, "utf8")).not.toContain("--no-sandbox");
     const unsandboxed = await check(fake.dataDir, {
       ACE_CHROMIUM_PATH: fake.path,
       ACE_CHROMIUM_NO_SANDBOX: "1",
     });
     expect(unsandboxed.status).toBe("warn");
     expect(unsandboxed.message).toMatch(/without its sandbox/);
+    expect(await readFile(fake.argv, "utf8")).toContain("--no-sandbox");
+  });
+
+  it("fails a Chromium that starts but never opens a page", async () => {
+    const fake = await chromium(
+      `${version}\necho "[1:1:0/0:ERROR:gpu_init.cc(1)] GPU died" >&2; exit 1`,
+    );
+    const verdict = await check(fake.dataDir, { ACE_CHROMIUM_PATH: fake.path });
+    expect(verdict.status).toBe("fail");
+    expect(verdict.message).toBe("ace's browser did not start: ERROR gpu_init.cc(1): GPU died");
   });
 
   it("reports an override that is not an executable", async () => {

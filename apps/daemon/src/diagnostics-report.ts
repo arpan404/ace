@@ -26,7 +26,7 @@ export async function collectDoctorReport(
       ...remoteDoctorChecks(config, env),
     ],
     // A real Chrome start (version, then a headless launch) needs more than the 5 s default.
-    { now, timeoutMs: 15_000 },
+    { now, timeoutMs: 25_000 },
   );
   return DiagnosticReport.parse(
     JSON.parse(createRedactor({ home: homedir(), env })(JSON.stringify(report))),
