@@ -14,6 +14,7 @@ import { GitHubReviews } from "./github-reviews.ts";
 import { GitHubBrowser } from "./github-browser.ts";
 import { ForgePrSearch } from "@ace/protocol/forge-browser";
 import { ForgeListCaches } from "./list-cache.ts";
+import { githubOpenWork } from "./github-open-work.ts";
 import { ForgeMutationOutcome, MutationDispatch, uncertainWriteExpired } from "./mutation.ts";
 import { githubRepositoryMetadata } from "./github-repository.ts";
 import { replyIntent, replyCutoff, reconcileReply, type ReplyReceipts } from "./reply-receipts.ts";
@@ -227,6 +228,11 @@ export class GitHubForge implements Forge, ForgeBrowser {
     const parsed = ForgePrSearch.parse(query);
     return this.#lists.prs.read(JSON.stringify(parsed), signal, (shared) =>
       this.#browser.list(parsed, shared),
+    );
+  }
+  openWork(signal: AbortSignal) {
+    return this.#lists.openWork.read("open", signal, (shared) =>
+      githubOpenWork(this.#api, this.repository, shared),
     );
   }
   async prDetail(number: number, signal: AbortSignal) {

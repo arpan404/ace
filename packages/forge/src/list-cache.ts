@@ -1,5 +1,5 @@
 import type { ForgeIssueList } from "@ace/protocol/forge-issues";
-import type { ForgePrList } from "@ace/protocol/forge-browser";
+import type { ForgeOpenWork, ForgePrList } from "@ace/protocol/forge-browser";
 
 /** How long a list read answers repeats without asking GitHub again. */
 export const listFreshMs = 60_000;
@@ -83,14 +83,17 @@ export class ListCache<T> {
 export class ForgeListCaches {
   readonly prs: ListCache<ForgePrList>;
   readonly issues: ListCache<ForgeIssueList>;
+  readonly openWork: ListCache<ForgeOpenWork>;
   constructor(now: () => number, freshMs = listFreshMs) {
     this.prs = new ListCache(now, freshMs);
     this.issues = new ListCache(now, freshMs);
+    this.openWork = new ListCache(now, freshMs);
   }
   /** A write may have changed any list: the next read of each asks GitHub. */
   invalidate(): void {
     this.prs.invalidate();
     this.issues.invalidate();
+    this.openWork.invalidate();
   }
 }
 

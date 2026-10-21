@@ -293,18 +293,14 @@ test("a failing PR older than the first page leads the list, and drafts are list
   );
 });
 
-test("the open pull requests are loaded before New thread opens, so it shows them without asking again", async () => {
+test("the open work is loaded before New thread opens, in one request, so it shows without asking again", async () => {
   const storage = memoryKeyValue();
   storage.setItem("ace.home.newThread", JSON.stringify({ project: "ace" }));
   const history = createMemoryHistory({ initialEntries: ["/"] });
   const app = withOpenWork({ storage, history });
-  const openPrs = {
-    op: "forge.pr.list",
-    workspaceId,
-    query: ForgePrSearch.parse({ state: "active" }),
-  } as const;
+  const openWork = { op: "forge.open-work", workspaceId } as const;
   await app.open("/");
-  await waitFor(() => expect(app.daemon.workspace.forgeReadCount(openPrs)).toBe(1), {
+  await waitFor(() => expect(app.daemon.workspace.forgeReadCount(openWork)).toBe(1), {
     timeout: 5_000,
   });
   history.push("/new?project=ace");
@@ -317,5 +313,10 @@ test("the open pull requests are loaded before New thread opens, so it shows the
     expect.stringMatching(/^#9Fix reconnect loop/),
     expect.stringMatching(/^#12Tidy the settings page/),
   ]);
-  expect(app.daemon.workspace.forgeReadCount(openPrs)).toBe(1);
+  expect(app.daemon.workspace.forgeReadCount(openWork)).toBe(1);
+  const lists = [
+    { op: "forge.pr.list", workspaceId, query: ForgePrSearch.parse({ state: "active" }) },
+    { op: "forge.issue.list", workspaceId, query: ForgeIssueSearch.parse({}) },
+  ] as const;
+  expect(lists.map((list) => app.daemon.workspace.forgeReadCount(list))).toEqual([0, 0]);
 });
