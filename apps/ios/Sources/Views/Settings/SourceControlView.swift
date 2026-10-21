@@ -35,34 +35,39 @@ struct SourceControlView: View {
     @State private var busy = false
     var body: some View {
         Form {
-            Section("GitHub CLI on your machine") {
-                if let status {
-                    LabeledContent("CLI", value: status.cli == "available" ? "gh \(status.version ?? "")" : "Unavailable")
-                    LabeledContent("GitHub API", value: status.api.replacingOccurrences(of: "_", with: " ").capitalized)
-                    ForEach(status.accounts) { account in LabeledContent(account.login, value: account.active ? "Active" : "") }
-                    Text(status.instructions).textSelection(.enabled)
-                }
-                Button("Rescan") { Task { await read() } }.disabled(busy)
+            Group {
+                Section {
+                    if let status {
+                        LabeledContent("CLI", value: status.cli == "available" ? "gh \(status.version ?? "")" : "Unavailable")
+                        LabeledContent("GitHub API", value: status.api.replacingOccurrences(of: "_", with: " ").capitalized)
+                        ForEach(status.accounts) { account in LabeledContent(account.login, value: account.active ? "Active" : "") }
+                        Text(status.instructions).textSelection(.enabled)
+                    }
+                    Button("Rescan") { Task { await read() } }.disabled(busy)
+                } header: { InsetHeader("GitHub CLI on your machine") }
+                Section {
+                    LabeledContent("GitHub host") { TextField("github.com", text: $host).multilineTextAlignment(.trailing).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                    LabeledContent("Expected account") { TextField("Optional", text: $account).multilineTextAlignment(.trailing).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                    LabeledContent("Git remote") { TextField("origin", text: $remote).multilineTextAlignment(.trailing).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                    Button("Save preferences") { Task { await save() } }.disabled(status == nil || host.isEmpty || remote.isEmpty)
+                } header: { InsetHeader("Host and expected account") }
+                .disabled(busy || !model.canOperate)
+                Section {
+                    Picker("Project", selection: $project) {
+                        Text("Choose project").tag("")
+                        ForEach(projects) { Text($0.name).tag($0.id) }
+                    }
+                    if let status {
+                        LabeledContent("Transport", value: status.transport.replacingOccurrences(of: "_", with: " ").capitalized)
+                        Text(status.transportInstructions).textSelection(.enabled)
+                    }
+                } header: { InsetHeader("Repository transport") }
+                if busy { ProgressView("Checking source control…") }
+                ServiceProblem(message: problem)
             }
-            Section("Host and expected account") {
-                LabeledContent("GitHub host") { TextField("github.com", text: $host).multilineTextAlignment(.trailing).textInputAutocapitalization(.never).autocorrectionDisabled() }
-                LabeledContent("Expected account") { TextField("Optional", text: $account).multilineTextAlignment(.trailing).textInputAutocapitalization(.never).autocorrectionDisabled() }
-                LabeledContent("Git remote") { TextField("origin", text: $remote).multilineTextAlignment(.trailing).textInputAutocapitalization(.never).autocorrectionDisabled() }
-                Button("Save preferences") { Task { await save() } }.disabled(status == nil || host.isEmpty || remote.isEmpty)
-            }.disabled(busy || !model.canOperate)
-            Section("Repository transport") {
-                Picker("Project", selection: $project) {
-                    Text("Choose project").tag("")
-                    ForEach(projects) { Text($0.name).tag($0.id) }
-                }
-                if let status {
-                    LabeledContent("Transport", value: status.transport.replacingOccurrences(of: "_", with: " ").capitalized)
-                    Text(status.transportInstructions).textSelection(.enabled)
-                }
-            }
-            if busy { ProgressView("Checking source control…") }
-            ServiceProblem(message: problem)
+            .insetRowBackground()
         }
+        .insetGroupedList()
         .navigationTitle("Source control").navigationBarTitleDisplayMode(.inline)
         .task(id: model.connection) {
             guard model.connection == "ready" else { return }

@@ -11,8 +11,24 @@ extension View {
             .environment(\.defaultMinListRowHeight, InsetStyle.rowHeight)
             .listSectionSpacing(AceTheme.Spacing.sm)
     }
+    /// Rows pass under the bottom search field behind a firm edge, so none reads through it.
+    @ViewBuilder func searchBarEdge() -> some View {
+        if #available(iOS 26, *) { scrollEdgeEffectStyle(.hard, for: .bottom) } else { self }
+    }
     /// A row's fill inside an inset group.
     func insetRowBackground() -> some View { listRowBackground(AceTheme.Colours.fill).listRowSeparator(.hidden) }
+}
+
+/// On/off switches in the system's own green: the ink accent the sheets tint with would hide an
+/// on switch's knob. Applied to a whole stack, so every page it pushes gets it too.
+struct SystemSwitchStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Toggle(configuration).toggleStyle(.switch).tint(Color(uiColor: .systemGreen))
+    }
+}
+
+extension ToggleStyle where Self == SystemSwitchStyle {
+    static var systemSwitch: SystemSwitchStyle { SystemSwitchStyle() }
 }
 
 /// "Connections", "Options": a 14pt medium muted header in sentence case.

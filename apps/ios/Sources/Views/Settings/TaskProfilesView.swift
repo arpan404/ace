@@ -7,15 +7,26 @@ struct TaskProfilesView: View {
     var body: some View {
         List {
             ServiceProblem(message: problem)
-            ForEach(profiles) { profile in
-                NavigationLink(profile.name) { TaskProfileEditor(store: store, profile: profile) }
-            }.onDelete { indices in
-                do { for index in indices { try store.remove(profiles[index].id) }; profiles = store.load() }
-                catch { problem = error.localizedDescription }
+            if !profiles.isEmpty {
+                Section {
+                    ForEach(profiles) { profile in
+                        NavigationLink { TaskProfileEditor(store: store, profile: profile) } label: { InsetRow(profile.name, systemImage: "person.text.rectangle") }
+                    }.onDelete { indices in
+                        do { for index in indices { try store.remove(profiles[index].id) }; profiles = store.load() }
+                        catch { problem = error.localizedDescription }
+                    }
+                }
+                .insetRowBackground()
             }
-            NavigationLink("New profile") { TaskProfileEditor(store: store, profile: TaskProfile(id: UUID().uuidString, name: "", instructions: "")) }
+            Section {
+                NavigationLink { TaskProfileEditor(store: store, profile: TaskProfile(id: UUID().uuidString, name: "", instructions: "")) } label: {
+                    InsetRow("New profile", systemImage: "plus")
+                }
+            }
+            .insetRowBackground()
         }
-        .navigationTitle("Profiles").navigationBarTitleDisplayMode(.inline)
+        .insetGroupedList()
+        .navigationTitle("Task profiles").navigationBarTitleDisplayMode(.inline)
         .onAppear { profiles = store.load() }
     }
 }
@@ -26,14 +37,25 @@ private struct TaskProfileEditor: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         Form {
-            TextField("Profile name", text: $profile.name)
+            Section { TextField("Profile name", text: $profile.name) }.insetRowBackground()
             Section {
-                TextEditor(text: $profile.instructions).frame(minHeight: AceTheme.Dimensions.touchTarget * 5).accessibilityLabel("Profile instructions")
-            } footer: { Text("Included in the first message of new tasks that use this profile. Existing conversations keep their original instructions.") }
+                TextEditor(text: $profile.instructions).frame(minHeight: AceTheme.Dimensions.touchTarget * 5)
+                    .scrollContentBackground(.hidden).accessibilityLabel("Profile instructions")
+            } header: { InsetHeader("Instructions") } footer: {
+                Text("Included in the first message of new tasks that use this profile. Existing conversations keep their original instructions.")
+            }
+            .insetRowBackground()
             ServiceProblem(message: problem)
-            Button("Save profile") {
-                do { try store.save(profile); dismiss() } catch { problem = error.localizedDescription }
-            }.disabled(profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }.navigationTitle("Profile").navigationBarTitleDisplayMode(.inline)
+            Section {
+                Button("Save profile") {
+                    do { try store.save(profile); dismiss() } catch { problem = error.localizedDescription }
+                }
+                .foregroundStyle(AceTheme.Colours.foreground)
+                .disabled(profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .insetRowBackground()
+        }
+        .insetGroupedList()
+        .navigationTitle("Profile").navigationBarTitleDisplayMode(.inline)
     }
 }

@@ -66,10 +66,14 @@ struct RemoteSettingsView: View {
     let category: RemoteSettingsCategory
     var body: some View {
         Form {
-            Section {
-                ForEach(category.settings) { setting in RemoteSettingRow(model: model, setting: setting) }
-            } footer: { Text("Saved on this machine. A thread or project can override these defaults.") }
+            Group {
+                Section {
+                    ForEach(category.settings) { setting in RemoteSettingRow(model: model, setting: setting) }
+                } footer: { Text("Saved on this machine. A thread or project can override these defaults.") }
+            }
+            .insetRowBackground()
         }
+        .insetGroupedList()
         .navigationTitle(category.title).navigationBarTitleDisplayMode(.inline)
     }
 }
