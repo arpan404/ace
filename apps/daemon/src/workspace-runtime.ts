@@ -6,7 +6,12 @@ import {
   SourceControlDraftInput,
   type SourceControlSelection,
 } from "@ace/protocol";
-import { prBasePreparation, prReviewContext, type PrRemotes } from "./pr-worktree-resolution.ts";
+import {
+  checkoutPrRemote,
+  prBasePreparation,
+  prReviewContext,
+  type PrRemotes,
+} from "./pr-worktree-resolution.ts";
 import { readPrConflicts, runPrConflictStep } from "./pr-conflicts.ts";
 import type { ForgePrStatus, ForgeRepository } from "@ace/protocol";
 import type { CreationWorkspace } from "./creation-workspace.ts";
@@ -167,6 +172,17 @@ export class WorkspaceRuntime {
   }
   root(id: ThreadId): string {
     return this.roots.root(id);
+  }
+  /** The remote in the checkout at `project` that serves `repository`'s pull requests. */
+  prRemote(project: string, repository: ForgeRepository, signal: AbortSignal): Promise<string> {
+    return checkoutPrRemote({
+      git: this.git,
+      cwd: project,
+      repository,
+      signal,
+      remote: this.options.prRemote,
+      hostAliases: this.options.sourceControl?.hostAliases.bind(this.options.sourceControl),
+    });
   }
   /** Late preparation; `runCommands` false (Read-only access) skips the setup script. */
   async prepare(

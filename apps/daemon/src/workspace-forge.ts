@@ -178,6 +178,15 @@ export class WorkspaceForge {
     if (value.headSha !== selection.headSha) throw new ForgeError("head_moved");
     return value;
   }
+  /** GitHub's state for each of `numbers`; null for a PR GitHub no longer has. */
+  async prStates(
+    cwd: string,
+    repository: ForgeRepository,
+    numbers: readonly number[],
+    signal: AbortSignal,
+  ) {
+    return (await this.backends.backend(cwd, repository)).states(numbers, signal);
+  }
   admitCheckout(id: ThreadId, status: ForgePrStatus): void {
     this.store.atomic(() => {
       this.links.link({ threadId: id, pr: status.ref });

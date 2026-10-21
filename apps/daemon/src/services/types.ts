@@ -42,6 +42,8 @@ export interface Services {
   previewSuggestions?: import("../preview-suggestions/tracker.ts").SuggestionTracker;
   automations?: import("@ace/automations").AutomationService;
   activityReads?: import("../activity-reads.ts").ActivityReads;
+  /** Local checks and verified batch merges of pull requests (ADR 0094). */
+  verify?: import("../verify/verify-service.ts").Verify;
   icons?: import("../icons/icon-service.ts").IconService;
   projects?: import("../projects.ts").Projects;
   /** Removed projects' browser profiles, forgotten in ace's Chrome and on the desktop. */
