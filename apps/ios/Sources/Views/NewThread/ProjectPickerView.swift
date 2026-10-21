@@ -36,7 +36,7 @@ struct ProjectPickerView: View {
                     Section { ForEach(rest) { row($0) } } header: { SettingsHeader(recent.isEmpty ? "Projects" : "Other projects") }.settingsRow()
                 }
             default:
-                Section { ForEach(0..<4, id: \.self) { _ in ProjectSkeletonRow() } }.settingsRow()
+                Section { ForEach(0..<4, id: \.self) { _ in SettingsSkeletonRow() } }.settingsRow()
             }
             Section {
                 if canAdd {
@@ -71,18 +71,6 @@ struct ProjectPickerView: View {
         .buttonStyle(.plain)
         .accessibilityAddTraits(project.id == selected ? .isSelected : [])
         .accessibilityIdentifier("project.\(project.id)")
-    }
-}
-
-/// A project row while the list loads: the name and path as skeleton bars.
-private struct ProjectSkeletonRow: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
-            Capsule().fill(AceTheme.Colours.fill).frame(width: 120, height: 12)
-            Capsule().fill(AceTheme.Colours.fill).frame(width: 200, height: 10)
-        }
-        .padding(.vertical, AceTheme.Spacing.xxs)
-        .accessibilityHidden(true)
     }
 }
 

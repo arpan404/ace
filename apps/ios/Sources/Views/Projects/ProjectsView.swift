@@ -10,6 +10,8 @@ struct ProjectListReply: Decodable {
     let result: Result
 }
 
+/// Settings › Projects: the machine's projects as quiet rows (name over its mono path), with
+/// search, paging and one add path at the end.
 struct ProjectsView: View {
     let model: ClientModel
     @State private var projects: [NativeProject] = []
@@ -19,24 +21,68 @@ struct ProjectsView: View {
     @State private var problem: String?
     @State private var query = ""
     @State private var adding = false
+    private var matches: [NativeProject] {
+        projects.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.path.localizedCaseInsensitiveContains(query) }
+    }
     var body: some View {
         List {
-            if model.connection != "ready" { InboxConnectionBanner(connection: model.connection, retry: model.retry) }
-            ForEach(projects.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.path.localizedCaseInsensitiveContains(query) }) { project in
-                NavigationLink { ProjectDetailView(model: model, project: project) } label: {
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                        Text(project.name).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
-                        Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1).truncationMode(.middle)
-                    }.padding(.vertical, AceTheme.Spacing.xs)
-                }.accessibilityIdentifier("projects.row.\(project.id)")
+            if model.connection != "ready" {
+                InboxConnectionBanner(connection: model.connection, retry: model.retry)
+                    .listRowBackground(Color.clear).listRowSeparator(.hidden)
             }
-            if next != nil { Button("Show more projects") { Task { await read(more: true) } }.disabled(loading) }
-            if loading { ProgressView().accessibilityLabel("Loading projects") }
-            ServiceProblem(message: problem)
-            if problem != nil { Button("Retry") { Task { await read() } } }
-            if loaded && !loading && projects.isEmpty && problem == nil { ContentUnavailableView("No projects", systemImage: "folder") }
-            if model.canOperate { Button("Add project", systemImage: "folder.badge.plus") { adding = true } }
+            if let problem, projects.isEmpty {
+                EmptyState(icon: nil, title: "Couldn't read projects", line: problem, failed: true) {
+                    Button("Try again") { Task { await read() } }
+                }
+                .accessibilityIdentifier("service.problem")
+                .padding(.top, AceTheme.Spacing.xxxl).listRowBackground(Color.clear).listRowSeparator(.hidden)
+            } else if loading && projects.isEmpty {
+                Section {
+                    ForEach(0..<4, id: \.self) { index in
+                        SettingsSkeletonRow()
+                            .accessibilityElement(children: .ignore).accessibilityLabel("Loading projects")
+                            .accessibilityHidden(index != 0)
+                    }
+                }
+                .settingsRow()
+            } else if loaded && projects.isEmpty {
+                EmptyState(icon: .folder, title: "No projects yet",
+                           line: model.canOperate ? "Add a folder from your computer to start." : nil)
+                    .padding(.top, AceTheme.Spacing.xxxl).listRowBackground(Color.clear).listRowSeparator(.hidden)
+            }
+            if !projects.isEmpty {
+                Section {
+                    if matches.isEmpty {
+                        Text("No projects match").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                            .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    }
+                    ForEach(matches) { project in
+                        NavigationLink { ProjectDetailView(model: model, project: project) } label: { row(project) }
+                            .accessibilityIdentifier("projects.row.\(project.id)")
+                    }
+                    if next != nil {
+                        Button { Task { await read(more: true) } } label: { SettingsRow(title: "Show more projects") { EmptyView() } }
+                            .buttonStyle(.plain).disabled(loading)
+                    }
+                    if let problem {
+                        ServiceProblem(message: problem)
+                        Button { Task { await read() } } label: { SettingsRow(title: "Try again") { EmptyView() } }
+                            .buttonStyle(.plain)
+                    }
+                }
+                .settingsRow()
+            }
+            if model.canOperate {
+                Section {
+                    Button { adding = true } label: {
+                        SettingsRow(title: "Add project") { AceIcon(.plus, size: 16).foregroundStyle(AceTheme.Colours.subtleForeground) }
+                    }
+                    .buttonStyle(.plain)
+                }
+                .settingsRow()
+            }
         }
+        .settingsList()
         .searchable(text: $query, prompt: "Search projects")
         .navigationTitle("Projects").navigationBarTitleDisplayMode(.inline)
         .task(id: model.connection) { if model.connection == "ready" { await read() } }.refreshable { await read() }
@@ -46,6 +92,15 @@ struct ProjectsView: View {
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { adding = false } } }
             }
         }
+    }
+    private func row(_ project: NativeProject) -> some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+            Text(project.name).aceFont(SettingsStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+            Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
+                .foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1).truncationMode(.middle)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
     private func read(more: Bool = false) async {
         guard !loading else { return }
@@ -64,15 +119,28 @@ struct ProjectsView: View {
     }
 }
 
+/// One project: where it lives on the computer, then its files and the CLI sessions found there.
 private struct ProjectDetailView: View {
     let model: ClientModel
     let project: NativeProject
     var body: some View {
         List {
-            Section { Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).textSelection(.enabled) }
-            NavigationLink { FilesScreen(model: model, scope: .project(project.id), subtitle: project.name, mention: nil) } label: { Label("Files", systemImage: "folder") }
-            NavigationLink { PastSessionsView(model: model, project: project) } label: { Label("Past CLI sessions", systemImage: "clock.arrow.circlepath") }
+            Section {
+                Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
+                    .foregroundStyle(AceTheme.Colours.subtleForeground).textSelection(.enabled)
+            } header: { SettingsHeader("Folder") }
+            .settingsRow()
+            Section {
+                NavigationLink { FilesScreen(model: model, scope: .project(project.id), subtitle: project.name, mention: nil) } label: {
+                    SettingsLinkLabel(title: "Files", icon: .folder)
+                }
+                NavigationLink { PastSessionsView(model: model, project: project) } label: {
+                    SettingsLinkLabel(title: "Past CLI sessions", icon: .clockCounterClockwise)
+                }
+            }
+            .settingsRow()
         }
+        .settingsList()
         .navigationTitle(project.name).navigationBarTitleDisplayMode(.inline)
     }
 }

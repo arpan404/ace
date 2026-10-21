@@ -17,6 +17,8 @@ private struct PastSessionsReply: Decodable {
 }
 private struct HistoryImportReply: Decodable { let status: String; let threadId: String?; let reason: String? }
 
+/// A project's past CLI sessions, newest first: tapping a supported one imports it as a thread
+/// and opens it.
 struct PastSessionsView: View {
     let model: ClientModel
     let project: NativeProject
@@ -28,27 +30,62 @@ struct PastSessionsView: View {
     @State private var importing: String?
     @State private var path: [String] = []
     @State private var loading = false
+    private var scanning: Bool { ["scanning", "retrying"].contains(state) }
     var body: some View {
         List {
-            ForEach(sessions) { session in
-                Button {
-                    importing = session.id
-                    Task { await open(session) }
-                } label: {
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                        Text(session.title.isEmpty ? "Untitled session" : session.title).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
-                        Text("\(session.provider.capitalized) · \(session.messageCount) messages").foregroundStyle(AceTheme.Colours.mutedForeground)
-                        if let reason = session.support.reason { Text(reason).foregroundStyle(AceTheme.Colours.subtleForeground) }
-                    }
-                }.disabled(importing != nil || session.support.status != "supported" || !model.canOperate)
+            if scanning {
+                HStack(spacing: AceTheme.Spacing.sm) {
+                    AceIcon(.clock, size: 16).foregroundStyle(AceTheme.Colours.faintForeground)
+                    Text("Reading CLI history").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                }
+                .accessibilityElement(children: .combine)
+                .listRowBackground(Color.clear).listRowSeparator(.hidden)
             }
-            if loading || importing != nil { ProgressView().accessibilityLabel(importing == nil ? "Loading sessions" : "Opening session") }
-            ServiceProblem(message: problem)
-            if problem != nil { Button("Retry") { Task { await read() } } }
-            if ["scanning", "retrying"].contains(state) { Label("Reading CLI history", systemImage: "clock") }
-            if !loading && sessions.isEmpty && problem == nil { ContentUnavailableView.search(text: query) }
-            if next != nil { Button("Show more sessions") { Task { await read(more: true) } }.disabled(loading) }
+            if let problem, sessions.isEmpty {
+                EmptyState(icon: nil, title: "Couldn't read past sessions", line: problem, failed: true) {
+                    Button("Try again") { Task { await read() } }
+                }
+                .accessibilityIdentifier("service.problem")
+                .padding(.top, AceTheme.Spacing.xxxl).listRowBackground(Color.clear).listRowSeparator(.hidden)
+            } else if loading && sessions.isEmpty {
+                Section {
+                    ForEach(0..<4, id: \.self) { index in
+                        SettingsSkeletonRow(title: 180, line: 120)
+                            .accessibilityElement(children: .ignore).accessibilityLabel("Loading sessions")
+                            .accessibilityHidden(index != 0)
+                    }
+                }
+                .settingsRow()
+            } else if sessions.isEmpty && !scanning {
+                EmptyState(icon: .clockCounterClockwise, title: query.isEmpty ? "No past sessions" : "No sessions match",
+                           line: query.isEmpty ? "CLI sessions run in this folder appear here." : nil)
+                    .padding(.top, AceTheme.Spacing.xxxl).listRowBackground(Color.clear).listRowSeparator(.hidden)
+            }
+            if !sessions.isEmpty {
+                Section {
+                    ForEach(sessions) { session in
+                        Button {
+                            importing = session.id
+                            Task { await open(session) }
+                        } label: { row(session) }
+                        .buttonStyle(.plain)
+                        .disabled(importing != nil || session.support.status != "supported" || !model.canOperate)
+                    }
+                    if next != nil {
+                        Button { Task { await read(more: true) } } label: { SettingsRow(title: "Show more sessions") { EmptyView() } }
+                            .buttonStyle(.plain).disabled(loading)
+                    }
+                    if let problem {
+                        ServiceProblem(message: problem)
+                        Button { Task { await read() } } label: { SettingsRow(title: "Try again") { EmptyView() } }
+                            .buttonStyle(.plain)
+                    }
+                }
+                .settingsRow()
+            }
         }
+        .settingsList()
         .searchable(text: $query, prompt: "Search past sessions")
         .navigationTitle("Past CLI sessions").navigationBarTitleDisplayMode(.inline)
         .task(id: query) {
@@ -63,6 +100,25 @@ struct PastSessionsView: View {
             if let thread = model.thread { ThreadView(model: model, thread: thread) { model.open($0) } }
         }
         .onDisappear { Task { _ = try? await model.service(["type": "history.release"], as: ServiceValue.self) } }
+    }
+    /// The session's title at full ink (muted when it can't be imported), then the agent and
+    /// message count, then why it can't be opened when it can't.
+    private func row(_ session: PastSession) -> some View {
+        let supported = session.support.status == "supported"
+        return HStack(spacing: AceTheme.Spacing.md) {
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+                Text(session.title.isEmpty ? "Untitled session" : session.title).aceFont(SettingsStyle.label, relativeTo: .body)
+                    .foregroundStyle(supported ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground).lineLimit(2)
+                Text("\(session.provider.capitalized) · \(session.messageCount) messages").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                if let reason = session.support.reason {
+                    Text(reason).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
+                }
+            }
+            Spacer(minLength: AceTheme.Spacing.sm)
+            if importing == session.id { ProgressView().accessibilityLabel("Opening session") }
+        }
+        .contentShape(Rectangle())
     }
     private func read(more: Bool = false, rescan: Bool = false) async {
         loading = true; problem = nil
@@ -85,3 +141,4 @@ struct PastSessionsView: View {
         } catch { problem = error.localizedDescription }
     }
 }
+
