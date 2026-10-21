@@ -31,10 +31,20 @@ Use prose for a single fact, a one-step action, or a short list that is already 
 
 ## How
 
-1. Write one complete HTML document with inline `<style>`, plus inline `<script>` for an interactive page. Keep it at or below 16 MiB of UTF-8. Draw with HTML, inline SVG or `<canvas>`. Put every raster image in the page as a base64 `data:` URL (`<img src="data:image/png;base64,…" alt="…">`), PNG, JPEG, GIF or WebP; a page can't load a file path or a URL. Images count toward the 16 MiB cap; downscale a large screenshot (for example to 1600 px wide JPEG) before embedding it.
+1. Write one complete HTML document with inline `<style>`, plus inline `<script>` for an interactive page. Keep it at or below 16 MiB of UTF-8. Draw with HTML, inline SVG or `<canvas>`. Embed every image as base64 (see [Images: base64 only](#images-base64-only)).
 2. Call `html_render` with `{ title, html, mode, height? }`. Claude Code exposes it as `mcp__ace__html_render`, OpenCode and Pi as `ace_html_render`. The title is short and descriptive. `height` is an optional maximum (80–2000 CSS px); a taller page scrolls inside it.
 3. If it returns `invalid_html`, nothing was published: fix every problem listed in `issues` and call it again.
 4. In the reply, say only what the page doesn't already show.
+
+## Images: base64 only
+
+To show an image (a screenshot, a plot, a photo, a generated picture) inside a page, encode it as base64 and put it in the page as a `data:` URL. The page has no file access and no network, so anything else renders as a broken image.
+
+- Wrong: `<img src="/tmp/shot.png">`, `<img src="shot.png">`, `<img src="file:///…">`, `<img src="https://…">`. The same goes for CSS `url(…)`, `<source>`, `<image href>` in SVG and `<link rel="icon">`.
+- Right: `<img src="data:image/png;base64,iVBORw0KGgo…" alt="What it shows">`. Use `image/jpeg`, `image/gif` or `image/webp` in the prefix for those formats.
+- Get the string with `base64 -i shot.png` on macOS or `base64 -w0 shot.png` on Linux, and paste it after the `data:image/png;base64,` prefix.
+- Images count toward the 16 MiB page cap, and base64 is a third larger than the file. Downscale a large image before encoding it, for example `sips -Z 1600 -s format jpeg shot.png --out shot.jpg` on macOS.
+- To show an image on its own, with no page around it, use `image_show` instead (see [Posting an image](#posting-an-image)).
 
 ## The sandbox
 
@@ -93,6 +103,7 @@ Check the page against this list; fix anything that fails:
 - Every control does something visible right away, and its result sits beside it.
 - Nothing decorative: no gradients, glows, shadows on content, emoji, stock icons or filler text.
 - It reads in light and dark, at 360 px and at 1200 px.
+- Every image is a base64 `data:` URL: no `src`, `href` or CSS `url(…)` points at a file path or a web address.
 
 ## Layout and access
 
