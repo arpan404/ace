@@ -1,3 +1,4 @@
+import { CaretLeftIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { Suspense, useRef, useState } from "react";
 import { ProviderTile } from "@/components/provider-tile.tsx";
@@ -45,8 +46,9 @@ const back = (
   <Link
     to="/settings/providers"
     aria-label="Back to Providers"
-    className="rounded-xs text-muted-foreground focus-ring hover:text-foreground"
+    className="inline-flex items-center gap-1 rounded-xs text-muted-foreground focus-ring hover:text-foreground"
   >
+    <CaretLeftIcon aria-hidden size={12} />
     Providers
   </Link>
 );

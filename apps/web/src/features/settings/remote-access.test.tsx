@@ -35,7 +35,7 @@ test("administrator access still requires explicit Projects and Accounts grants"
   await app.open("/settings/remote");
   await userEvent.click(await screen.findByRole("button", { name: "Pair a device" }));
   const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
-  await userEvent.click(within(dialog).getByRole("button", { name: "Administrator" }));
+  await userEvent.click(within(dialog).getByRole("radio", { name: "Administrator" }));
   await userEvent.click(within(dialog).getByText("Advanced access", { exact: true }));
   await userEvent.click(within(dialog).getByRole("switch", { name: "Projects" }));
   await userEvent.click(within(dialog).getByRole("button", { name: "Show pairing code" }));

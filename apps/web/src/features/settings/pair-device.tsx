@@ -1,6 +1,5 @@
 import { SettingAddRow, SettingDisclosure } from "@/components/setting-row.tsx";
-import { useNavigate } from "@tanstack/react-router";
-import { SettingsBody } from "./settings-body.tsx";
+import { Navigate, useLocation } from "@tanstack/react-router";
 import { Switch } from "@/components/ui/switch.tsx";
 import { deviceScopeLabels, deviceAccessOptions } from "./device-scopes.ts";
 import type { Device, DeviceScope } from "@ace/protocol";
@@ -18,7 +17,8 @@ import {
 } from "@/components/ui/dialog.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { QrCode } from "@/components/ui/qr-code.tsx";
-import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
+import { Spinner } from "@/components/ui/spinner.tsx";
+import { cn } from "@/lib/cn.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useSeconds } from "@/lib/time.ts";
 import type { Pairing } from "./data/backend.ts";
@@ -33,6 +33,52 @@ const scopesFor: Record<Access, DeviceScope[]> = {
 
 /** While a code is on screen, the paired list is read this often to catch the new device. */
 const watchMs = 2_000;
+/** How long a pairing code lives: the bar under the QR drains over it. */
+const codeLifeMs = 5 * 60_000;
+
+const accessDescriptions: Record<Access, string> = {
+  operate: "Follow threads, answer approvals and send messages.",
+  read: "Follow threads and read transcripts.",
+  admin: "Everything, plus settings, pairing and computer use.",
+};
+
+/** One access level to pair with: its name and what it allows, chosen as a whole card. */
+function AccessOption(props: {
+  label: string;
+  description: string;
+  selected: boolean;
+  onSelect(): void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={props.selected}
+      aria-label={props.label}
+      onClick={props.onSelect}
+      className={cn(
+        "flex w-full items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors duration-(--motion-fast) focus-ring",
+        props.selected
+          ? "border-ring bg-ring/8"
+          : "border-border hover:border-border-strong hover:bg-hover",
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border",
+          props.selected ? "border-ring" : "border-border-strong",
+        )}
+      >
+        {props.selected && <span className="fx-rise-in size-2 rounded-full bg-ring" />}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-ui font-medium text-foreground">{props.label}</span>
+        <span className="block text-xs text-muted-foreground">{props.description}</span>
+      </span>
+    </button>
+  );
+}
 
 /** "m:ss" left on a pairing code. */
 export function countdown(expiresAt: number, now: number): string {
@@ -106,12 +152,17 @@ function PairingFlow(props: { close(): void }) {
         />
       ) : (
         <>
-          <SegmentedControl<Access>
-            label="Access"
-            value={access}
-            options={deviceAccessOptions}
-            onValueChange={setAccess}
-          />
+          <div role="radiogroup" aria-label="Access" className="flex flex-col gap-2">
+            {deviceAccessOptions.map((option) => (
+              <AccessOption
+                key={option.value}
+                label={option.label}
+                description={accessDescriptions[option.value]}
+                selected={access === option.value}
+                onSelect={() => setAccess(option.value)}
+              />
+            ))}
+          </div>
           <SettingDisclosure title="Advanced access">
             <p className="py-2 text-sm text-muted-foreground">
               Projects allows changing registered folders. Accounts allows managing provider
@@ -131,11 +182,6 @@ function PairingFlow(props: { close(): void }) {
               </label>
             ))}
           </SettingDisclosure>
-          {access === "admin" && (
-            <p className="text-sm text-muted-foreground">
-              Can change settings, pair or revoke devices, and use computer controls.
-            </p>
-          )}
           {pair.isError && (
             <p role="alert" className="text-sm text-destructive">
               {pair.error.message}
@@ -161,7 +207,9 @@ function PairingFlow(props: { close(): void }) {
 
 /** Machines and devices' add row opens the same flow as /pair. */
 export function PairDevice() {
-  const [open, setOpen] = useState(false);
+  // `/pair` lands here with #pair: the dialog opens over the page it belongs to.
+  const hash = useLocation({ select: (location) => location.hash });
+  const [open, setOpen] = useState(hash === "pair");
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <SettingAddRow id="remote.pair" onClick={() => setOpen(true)}>
@@ -177,15 +225,9 @@ export function PairDevice() {
   );
 }
 
+/** `/pair`: the pairing dialog, over Machines and devices where pairing lives. */
 export function PairDevicePage() {
-  const navigate = useNavigate();
-  return (
-    <SettingsBody page="Pair a device">
-      <div className="mt-6">
-        <PairingFlow close={() => void navigate({ to: "/settings/remote" })} />
-      </div>
-    </SettingsBody>
-  );
+  return <Navigate to="/settings/remote" hash="pair" replace />;
 }
 
 function Paired(props: { device: Device; onDone(): void }) {
@@ -220,6 +262,7 @@ function PairingCode(props: {
   const toast = useToast();
   const now = useSeconds(true);
   const expired = pairing.expiresAt <= now;
+  const left = pairing.expiresAt - now;
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(pairing.url);
@@ -230,21 +273,53 @@ function PairingCode(props: {
   };
   return (
     <>
-      <div className="flex w-full min-w-0 flex-col items-center gap-3 text-center">
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+      <div className="flex w-full min-w-0 flex-col gap-3">
+        <p className="flex items-center gap-1 text-ui text-muted-foreground">
           {deviceScopeLabels(props.scopes)}
-          <Button size="sm" variant="ghost" onClick={props.onChange}>
+          <span aria-hidden>·</span>
+          <Button size="sm" variant="ghost" className="-ml-1.5" onClick={props.onChange}>
             Change
           </Button>
         </p>
-        <QrCode
-          value={pairing.url}
-          label="Pairing QR code"
-          {...(expired ? { className: "opacity-20" } : {})}
-        />
-        <p className="text-sm text-muted-foreground">
-          {expired ? "This code has expired." : `Expires in ${countdown(pairing.expiresAt, now)}`}
-        </p>
+        <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-card px-4 pt-5 pb-4">
+          <div className="relative">
+            <QrCode
+              value={pairing.url}
+              label="Pairing QR code"
+              className={cn(
+                "shadow-[0_0_0_1px_rgb(0_0_0/0.06)] transition-opacity duration-(--motion-base)",
+                expired && "opacity-15",
+              )}
+            />
+            {expired && (
+              <span className="absolute inset-0 grid place-items-center text-ui font-medium">
+                Expired
+              </span>
+            )}
+          </div>
+          <p
+            aria-label={`Pairing code ${pairing.code}`}
+            className="font-mono text-lg font-semibold tracking-[0.14em] tabular-nums"
+          >
+            {pairing.code}
+          </p>
+          <div className="h-[3px] w-44 overflow-hidden rounded-full bg-fill-strong">
+            <span
+              className="block h-full rounded-full bg-ring transition-[width] duration-1000 ease-linear"
+              style={{ width: `${Math.max(0, Math.min(1, left / codeLifeMs)) * 100}%` }}
+            />
+          </div>
+          <p className="flex items-center gap-2 text-xs text-muted-foreground tabular-nums">
+            {expired ? (
+              "This code has expired."
+            ) : (
+              <>
+                <Spinner label="Waiting for the device" />
+                {`Waiting for your device · Expires in ${countdown(pairing.expiresAt, now)}`}
+              </>
+            )}
+          </p>
+        </div>
         <div className="flex w-full min-w-0 items-center gap-2">
           <Input
             readOnly

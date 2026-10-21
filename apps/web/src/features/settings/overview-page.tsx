@@ -1,7 +1,8 @@
 import { CaretRightIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { SettingNote, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
@@ -60,48 +61,57 @@ function useOpenOnMachine() {
 function MachineOverview(props: { machine: Machine }) {
   const { machine } = props;
   return (
-    <section role="group" aria-label={machine.name} className="mt-10">
+    <div role="group" aria-label={machine.name}>
       <MachineScope
         machine={machine}
-        unavailable={<MachineHeader machine={machine} summary={machineUnavailableText(machine)} />}
+        unavailable={
+          <MachineSection machine={machine} summary={machineUnavailableText(machine)}>
+            <SettingNote>{machineUnavailableText(machine)}</SettingNote>
+          </MachineSection>
+        }
       >
         <OnlineMachine machine={machine} />
       </MachineScope>
-    </section>
+    </div>
   );
 }
 
-/** The machine's group title, as a provider's on Usage: mark, name, and its state at the right. */
-function MachineHeader(props: { machine: Machine; summary?: string | undefined }) {
+/**
+ * One machine as a settings group: its name over a card, its connection and readiness at the
+ * label's right with the way into its settings, then its rows.
+ */
+function MachineSection(props: {
+  machine: Machine;
+  summary?: string | undefined;
+  children: ReactNode;
+}) {
   const { machine } = props;
   const open = useOpenOnMachine();
   const status = machineStatus[machine.status];
   return (
-    <div className="flex min-h-9 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border pb-2">
-      <h3 className="flex items-center gap-2 text-md font-medium">
-        <MachineMark icon={machine.icon} primary={machine.primary} />
-        {machine.name}
-      </h3>
-      <p className="min-w-0 flex-1 truncate text-ui text-muted-foreground">
-        {[status.label, props.summary].filter(Boolean).join(" · ")}
-      </p>
-      {machine.status === "auth_failed" ? (
-        <Button size="sm" variant="secondary" onClick={() => open(machine, "/settings/remote")}>
-          Pair again
-        </Button>
-      ) : (
-        machine.client && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="-mr-2.5"
-            onClick={() => open(machine, "/settings/agents")}
-          >
-            Edit settings
-          </Button>
-        )
-      )}
-    </div>
+    <SettingSection
+      label={machine.name}
+      actions={
+        <>
+          <span>
+            {[status.label, machine.client ? props.summary : undefined].filter(Boolean).join(" · ")}
+          </span>
+          {machine.status === "auth_failed" ? (
+            <Button size="sm" variant="ghost" onClick={() => open(machine, "/settings/remote")}>
+              Pair again
+            </Button>
+          ) : (
+            machine.client && (
+              <Button size="sm" variant="ghost" onClick={() => open(machine, "/settings/agents")}>
+                Edit settings
+              </Button>
+            )
+          )}
+        </>
+      }
+    >
+      {props.children}
+    </SettingSection>
   );
 }
 
@@ -122,20 +132,21 @@ function OnlineMachine(props: { machine: Machine }) {
           : `All ${installed.length} providers ready`;
   const ordered = [...attention, ...installed.filter((entry) => !needsAttention(entry))];
   return (
-    <>
-      <MachineHeader machine={props.machine} summary={summary} />
-      {!entries && !query.isError && (
-        <div className="flex flex-col gap-3 py-3">
-          <Skeleton className="h-5 w-56 rounded-md" />
-          <Skeleton className="h-5 w-44 rounded-md" />
+    <MachineSection machine={props.machine} summary={summary}>
+      {!entries && !query.isError ? (
+        <div className="flex min-h-(--setting-row-height) items-center px-3.5" data-setting-slot="">
+          <Skeleton className="h-4 w-48 rounded-md" />
         </div>
-      )}
-      <div className="flex flex-col pt-1">
-        {ordered.map((entry) => (
+      ) : query.isError ? (
+        <SettingNote>Couldn't check its providers.</SettingNote>
+      ) : !installed.length ? (
+        <SettingNote>No coding agents installed.</SettingNote>
+      ) : (
+        ordered.map((entry) => (
           <ProviderLine key={entry.id} machine={props.machine} entry={entry} />
-        ))}
-      </div>
-    </>
+        ))
+      )}
+    </MachineSection>
   );
 }
 
@@ -144,7 +155,7 @@ function ProviderLine(props: { machine: Machine; entry: ProviderEntry }) {
   const { install, row, view } = props.entry;
   const open = useOpenOnMachine();
   return (
-    <div role="group" aria-label={install.name} className="py-1.5">
+    <div role="group" aria-label={install.name} data-setting-slot="" className="px-3.5 py-1.5">
       <ProviderSetupRow
         provider={install.kind}
         acpAgentId={install.registry?.agent?.acpAgentId ?? install.acpAgentId}
@@ -193,12 +204,7 @@ function NetworkOverview(props: { machineCount: number }) {
     <SettingSection
       label="Network"
       actions={
-        <Button
-          size="sm"
-          variant="ghost"
-          className="-mr-2.5"
-          onClick={() => void navigate({ to: "/settings/remote" })}
-        >
+        <Button size="sm" variant="ghost" onClick={() => void navigate({ to: "/settings/remote" })}>
           Manage
         </Button>
       }

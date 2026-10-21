@@ -23,7 +23,7 @@ test("after following a rail link, focus lands on the new view's title", async (
   await waitFor(() => {
     const focused = document.activeElement;
     expect(focused?.tagName).toBe("H1");
-    expect(focused?.textContent).toBe("Overview");
+    expect(focused?.textContent).toBe("Settings");
     expect(focused?.closest("header")).not.toBeNull();
   });
 });

@@ -53,7 +53,7 @@ test("settings search reveals and highlights the pairing control before it opens
 
 test("pair opens pairing instead of a thread and creates a code only when requested", async () => {
   await harness().open("/pair");
-  await screen.findByRole("heading", { level: 1, name: "Pair a device" });
+  await screen.findByRole("heading", { level: 2, name: "Pair a device" });
   expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull();
   expect(screen.queryByRole("textbox", { name: "Pairing link" })).toBeNull();
   await userEvent.click(await screen.findByRole("button", { name: "Show pairing code" }));

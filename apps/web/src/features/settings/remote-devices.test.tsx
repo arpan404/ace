@@ -40,11 +40,13 @@ test("pairing shows a one-time QR code, its code and a link that can be copied",
   await harness({ clock: () => Date.now() }).open("/settings/remote");
   await user.click(await screen.findByRole("button", { name: "Pair a device" }));
   const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
-  await user.click(within(dialog).getByRole("button", { name: "View only" }));
+  await user.click(within(dialog).getByRole("radio", { name: "View only" }));
   await user.click(within(dialog).getByRole("button", { name: "Show pairing code" }));
 
   expect(await within(dialog).findByRole("img", { name: "Pairing QR code" })).toBeTruthy();
-  expect(within(dialog).getByText(/^Expires in (5:00|4:5\d)$/)).toBeTruthy();
+  expect(within(dialog).getByText(/Expires in (5:00|4:5\d)$/)).toBeTruthy();
+  // The short code is on screen for a device that can't scan.
+  expect(within(dialog).getByLabelText(/^Pairing code \S+$/)).toBeTruthy();
 
   await user.click(within(dialog).getByRole("button", { name: "Copy link" }));
   const copied = await navigator.clipboard.readText();

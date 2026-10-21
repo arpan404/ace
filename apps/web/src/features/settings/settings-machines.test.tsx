@@ -69,7 +69,7 @@ test("Overview lists each machine's provider that needs a sign-in, and Open show
   await userEvent.click(
     within(cursor).getByRole("button", { name: "Open Cursor on Build server" }),
   );
-  expect(await screen.findByRole("heading", { level: 1, name: "Cursor" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 2, name: "Cursor" })).toBeTruthy();
   expect(await screen.findByRole("button", { name: "Machine: Build server" })).toBeTruthy();
 });
 
@@ -79,7 +79,8 @@ test("Overview says a machine is offline instead of showing its last providers",
   const build = await screen.findByRole("group", { name: "Build server" });
   await within(build).findByRole("group", { name: "Cursor" });
   act(() => app.crashMachine("build"));
-  await within(build).findByText(/^Offline · Its settings appear when it.s back online\.$/);
+  await within(build).findByText("Its settings appear when it's back online.");
+  expect(within(build).getByText("Offline")).toBeTruthy();
   expect(within(build).queryByRole("group", { name: "Cursor" })).toBeNull();
   expect(within(build).queryByRole("button", { name: "Edit settings" })).toBeNull();
 });

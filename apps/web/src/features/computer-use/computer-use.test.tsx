@@ -20,7 +20,7 @@ async function openSettings() {
   return { app, world };
 }
 
-const page = () => screen.findByRole("heading", { name: "Computer use", level: 1 });
+const page = () => screen.findByRole("heading", { name: "Computer use", level: 2 });
 
 test("turning computer use on and off is what the daemon records", async () => {
   const { app } = await openSettings();

@@ -41,7 +41,7 @@ export function SettingsPageLinks(props: { pages?: readonly SettingsPath[] }) {
         return (
           <section key={group} aria-label={title ?? "Overview"}>
             {title && (
-              <h3 className="flex h-6 items-center px-2.5 text-xs font-medium text-subtle-foreground">
+              <h3 className="flex h-6 items-center px-2.5 text-2xs font-medium tracking-[0.04em] text-subtle-foreground uppercase">
                 {title}
               </h3>
             )}
@@ -113,7 +113,7 @@ export function SettingsNav() {
       </nav>
       {found.length > 0 && (
         <section aria-label="Matching settings" className="mt-4">
-          <h3 className="flex h-6 items-center px-2.5 text-xs font-medium text-subtle-foreground">
+          <h3 className="flex h-6 items-center px-2.5 text-2xs font-medium tracking-[0.04em] text-subtle-foreground uppercase">
             Settings
           </h3>
           <ul className="flex flex-col gap-px">
