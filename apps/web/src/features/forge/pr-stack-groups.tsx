@@ -2,7 +2,7 @@ import type { ForgePrRef, ForgeRepository } from "@ace/protocol";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { Button } from "@/components/ui/button.tsx";
-import { readForge } from "./source.ts";
+import { readForge } from "@/lib/forge-read.ts";
 
 export function useStackMemberships(
   workspaceId: string,

@@ -16,7 +16,7 @@ import { PrFiles, preloadPrFiles } from "./pr-files.tsx";
 import { whenIdle } from "@/lib/idle.ts";
 import { useFreshSinceReconnect } from "./query-state.tsx";
 import { keptForgeMs } from "@/lib/query-persistence.ts";
-import { prDetailKey, prDetailStaleMs, readPrDetail } from "./pr-detail-query.ts";
+import { prDetailKey, prDetailStaleMs, readPrDetail } from "@/lib/forge-pr-detail.ts";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrReviewWorkspace, usePrReview } from "./pr-review-context.tsx";
 import { usePrActions } from "./pr-actions.ts";

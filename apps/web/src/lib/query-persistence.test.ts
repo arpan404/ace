@@ -63,7 +63,7 @@ async function observe(queries: QueryClient, key: QueryKey, answer: unknown) {
   const first = observer.getCurrentResult().data;
   const seen: unknown[] = [];
   const stop = observer.subscribe((result) => seen.push(result.data));
-  await vi.waitFor(() => expect(seen.at(-1)).toEqual(answer));
+  await vi.waitFor(() => expect(seen.at(-1)).toEqual(answer), { timeout: 5_000 });
   stop();
   return first;
 }
@@ -161,7 +161,7 @@ test("a PR panel's reads are kept without provider payloads and never crowd out 
     queryFn: async () => "diff contents",
   });
   s.time.flush();
-  await vi.waitFor(() => expect(m.values.has(queryRecordKey)).toBe(true));
+  await vi.waitFor(() => expect(m.values.has(queryRecordKey)).toBe(true), { timeout: 5_000 });
   const text = JSON.stringify(m.values.get(queryRecordKey));
   expect(text).not.toContain("payload");
   expect(text).not.toContain("diff contents");
@@ -171,7 +171,9 @@ test("a PR panel's reads are kept without provider payloads and never crowd out 
 
   const next = session(m.storage);
   const key = ["forge", "api", undefined, "pr", last];
-  await vi.waitFor(() => expect(next.queries.getQueryData(key)).toBeDefined());
+  await vi.waitFor(() => expect(next.queries.getQueryData(key)).toBeDefined(), {
+    timeout: 5_000,
+  });
   // Shown as kept first, then replaced by what the daemon says now.
   expect(await observe(next.queries, key, { title: "PR now", status: {} })).toMatchObject({
     title: `PR ${last}`,

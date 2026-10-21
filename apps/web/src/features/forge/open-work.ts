@@ -5,7 +5,7 @@ import {
   type ForgePrList,
 } from "@ace/protocol";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { readForge } from "./source.ts";
+import { readForge } from "@/lib/forge-read.ts";
 
 /** Open work changes slowly; a minute keeps reopening New thread from hitting GitHub. */
 const fresh = 60_000;

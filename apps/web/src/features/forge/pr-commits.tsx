@@ -1,8 +1,8 @@
 import type { ForgePrDetail, ForgeRepository } from "@ace/protocol";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { keptForgeMs } from "@/lib/query-persistence.ts";
-import { readForge } from "./source.ts";
-import { prContentStaleMs } from "./pr-detail-query.ts";
+import { readForge } from "@/lib/forge-read.ts";
+import { prContentStaleMs } from "@/lib/forge-pr-detail.ts";
 
 /** All provider-exposed PR commits, at most ten 25-commit pages. */
 export function usePrCommits(props: {

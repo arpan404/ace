@@ -5,7 +5,7 @@ import { capsule } from "../agents/task-capsule.tsx";
 import { PrDot } from "../agents/pr-chip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { pullRequestTab, useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { usePrPrefetch } from "@/features/forge/index.ts";
+import { usePrPrefetch } from "@/lib/forge-pr-detail.ts";
 
 /** Rows shown before the rest fold into "N more". */
 const shown = 4;

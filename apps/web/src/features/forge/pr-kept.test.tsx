@@ -6,7 +6,7 @@ import { createQueryClient } from "@/app.tsx";
 import { restoreQueries } from "@/lib/query-persistence.ts";
 import { harness } from "@/test/harness.tsx";
 import { openPullRequest } from "./test-support.ts";
-import { prDetailKey } from "./pr-detail-query.ts";
+import { prDetailKey } from "@/lib/forge-pr-detail.ts";
 
 await import("./pr-panel-tab.tsx");
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "api" } as const;

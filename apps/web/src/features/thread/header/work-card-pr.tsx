@@ -3,7 +3,7 @@ import { mergeGate, mergeMethods, type MergeMethod } from "@ace/ui-core";
 import { useMergeMethod } from "./merge-method.ts";
 import { useState } from "react";
 import { pullRequestTab, useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { usePrPrefetch } from "@/features/forge/index.ts";
+import { usePrPrefetch } from "@/lib/forge-pr-detail.ts";
 import { PullRequestGlyph } from "@/components/pull-request-state.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { WorkspaceError } from "../sources/workspace-source.ts";

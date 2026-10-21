@@ -279,6 +279,25 @@ async function forgeRun() {
         page = result.nextPage;
       }
     });
+    // The panel's own sequence: first paint, then the Summary's reads side by side.
+    const opened = performance.now();
+    const first = await forge.prDetail(number, signal);
+    const firstPaintMs = ms(opened);
+    await Promise.all([
+      forge.lifecycle.snapshot(number, signal),
+      first.status.state === "open" || first.status.state === "draft"
+        ? forge.prMergeState(number, signal)
+        : undefined,
+      forge.reviews.host(number, signal),
+      forge.reviews.viewedNow(number, signal),
+      forge.prStack(number, signal),
+      forge.stackMemberships([number], signal),
+      forge.prFiles(
+        { number, page: 1, headSha: first.status.headSha, baseSha: first.baseSha },
+        signal,
+      ),
+    ]);
+    console.log(JSON.stringify({ panel: { firstPaintMs, summaryCompleteMs: ms(opened) } }));
   }
 }
 

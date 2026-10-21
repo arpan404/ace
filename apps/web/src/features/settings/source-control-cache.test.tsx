@@ -17,7 +17,7 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useSourceControlCache } from "@/lib/source-control-cache.ts";
 import { fakeClient, memoryKeyValue } from "@/test/harness.tsx";
 import { SourceControlSettings } from "./source-control-page.tsx";
-import { readForge } from "@/features/forge/source.ts";
+import { readForge } from "@/lib/forge-read.ts";
 import { detail } from "@/features/forge/pr-workspace.fixture.ts";
 
 const repository = { forge: "github", host: "github.com", owner: "octo", name: "ace" } as const;

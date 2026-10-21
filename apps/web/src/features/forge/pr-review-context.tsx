@@ -10,7 +10,7 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
 import { actionErrorText } from "@ace/ui-core";
-import { readForge } from "./source.ts";
+import { readForge } from "@/lib/forge-read.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { readFailureText } from "./query-state.tsx";
 const Context = createContext<{

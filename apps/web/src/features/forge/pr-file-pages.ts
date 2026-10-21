@@ -4,8 +4,8 @@ import { useClient, useConnectionState } from "@ace/client-react";
 import type { ForgePrDetail, ForgePrFiles, ForgeRepository } from "@ace/protocol";
 import { refreshOnReconnect } from "@/lib/daemon-query-reconnect.ts";
 import { joinFilePages } from "./pr-code-model.ts";
-import { readForge } from "./source.ts";
-import { prContentStaleMs } from "./pr-detail-query.ts";
+import { readForge } from "@/lib/forge-read.ts";
+import { prContentStaleMs } from "@/lib/forge-pr-detail.ts";
 
 /**
  * A pull request's changed files (all commits, or one commit against its parent), read page by

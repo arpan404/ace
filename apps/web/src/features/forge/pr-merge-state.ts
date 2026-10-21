@@ -6,7 +6,7 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { runCommand } from "@/lib/daemon-command.ts";
 import { useToast } from "@/components/ui/toast.tsx";
-import { readForge, writeFailure } from "./source.ts";
+import { readForge, writeFailure } from "@/lib/forge-read.ts";
 import { useFreshSinceReconnect } from "./query-state.tsx";
 
 export type MergeStateAction = "enable" | "disable" | "dequeue";

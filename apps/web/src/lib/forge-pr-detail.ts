@@ -4,7 +4,7 @@ import { useClient, useConnectionState } from "@ace/client-react";
 import type { ForgePrDetail, ForgeRepository } from "@ace/protocol";
 import { useQueryClient } from "@tanstack/react-query";
 import { keptForgeMs } from "@/lib/query-persistence.ts";
-import { readForge } from "./source.ts";
+import { readForge } from "@/lib/forge-read.ts";
 
 /** How long a PR's detail counts as current before a view reads it again. */
 export const prDetailStaleMs = 15_000;

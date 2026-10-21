@@ -1,7 +1,7 @@
 import type { ForgeActivity, ForgePrDetail } from "@ace/protocol";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { readForge } from "./source.ts";
-import { prContentStaleMs } from "./pr-detail-query.ts";
+import { readForge } from "@/lib/forge-read.ts";
+import { prContentStaleMs } from "@/lib/forge-pr-detail.ts";
 
 /**
  * Every activity event of a pull request (up to 120 pages), read once and shared by the
