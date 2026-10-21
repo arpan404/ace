@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct RemoteSetting: Identifiable {
-    enum Control { case toggle, choices([String]), text, number }
+    enum Control { case toggle, choices([String]), text, number, stringList }
     let key: String
     let title: String
     let control: Control
@@ -11,6 +11,10 @@ struct RemoteSettingsCategory: Identifiable {
     let title: String
     let settings: [RemoteSetting]
     var id: String { title }
+    static let computer = RemoteSettingsCategory(title: "App access and devices", settings: [
+        .init(key: "computer.blockedApps", title: "Apps agents can't use", control: .stringList),
+        .init(key: "devices.emulatorWindow", title: "Show emulator window", control: .toggle),
+    ])
     static let all: [RemoteSettingsCategory] = [
         .init(title: "Threads", settings: [
             .init(key: "threads.followUpBehavior", title: "Follow-up delivery", control: .choices(["steer", "queue"])),
@@ -73,6 +77,7 @@ private struct RemoteSettingRow: View {
     let setting: RemoteSetting
     @State private var value: ServiceValue?
     @State private var words = ""
+    @State private var entries: [String] = []
     @State private var saving = false
     @State private var problem: String?
     var body: some View {
@@ -85,6 +90,18 @@ private struct RemoteSettingRow: View {
                     Picker(setting.title, selection: Binding(get: { words }, set: { save(.string($0)) })) {
                         ForEach(choices, id: \.self) { Text($0.replacingOccurrences(of: "_", with: " ").capitalized).tag($0) }
                     }
+                case .stringList:
+                    Text(setting.title).foregroundStyle(AceTheme.Colours.mutedForeground)
+                    ForEach(entries.indices, id: \.self) { index in
+                        HStack {
+                            TextField("App name or bundle ID", text: Binding(get: { entries.indices.contains(index) ? entries[index] : "" }, set: { value in if entries.indices.contains(index) { entries[index] = value } }))
+                                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            Button { entries.remove(at: index) } label: { Image(systemName: "minus.circle") }.accessibilityLabel("Remove app")
+                        }
+                    }
+                    Button("Add app") { entries.append("") }.disabled(entries.count >= 200)
+                    Button("Save") { save(.array(entries.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.map(ServiceValue.string))) }
+                    Text("Password managers, terminals and ace itself are always blocked.").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground)
                 case .text, .number:
                     TextField(setting.title, text: $words, axis: .vertical)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -133,5 +150,6 @@ private struct RemoteSettingRow: View {
             throw ServiceFailure(message: reply.diagnostics.first?.message ?? "This setting couldn't be saved.")
         }
         value = entry.value; words = text(entry.value); problem = nil
+        if case .array(let values) = entry.value { entries = values.compactMap { if case .string(let text) = $0 { text } else { nil } } }
     }
 }

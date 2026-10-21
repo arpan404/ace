@@ -23,6 +23,7 @@ enum StreamWire {
     enum Kind {
         static let video: UInt8 = 2
         static let deviceFrame: UInt8 = 4
+        static let screenFrame: UInt8 = 5
         static let download: UInt8 = 8
     }
 

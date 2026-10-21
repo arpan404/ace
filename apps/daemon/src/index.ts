@@ -35,6 +35,7 @@ import { buildFields, daemonLogDirectory, logStartupRefusal, openDaemonLog } fro
 import { logHomeBackup } from "./home-backup-log.ts";
 import { sqliteFailureDetails, systemDiskSpace } from "./sqlite-failure.ts";
 import { createLoopMonitor, systemLoopClock } from "./loop-monitor.ts";
+import { watchStalls } from "./stall-log.ts";
 import { DaemonStop, type StopReason } from "./stop-reason.ts";
 import { stopRecorder, type Stopping } from "./stop-record.ts";
 import { beginRun, previousRunRecord, type DaemonRun } from "./run-marker.ts";
@@ -188,6 +189,10 @@ export async function startDaemon(options: DaemonOptions = {}) {
     stopInventory();
     inventory.close();
   }, "process inventory");
+  resources.own(
+    watchStalls(log, daemonLogDirectory(config), options.stallTiming),
+    "stall watchdog",
+  );
   const lifetime = new AbortController();
   resources.onShutdown(() => lifetime.abort());
   let initialized = false;

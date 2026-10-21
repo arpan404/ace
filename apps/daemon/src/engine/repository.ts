@@ -40,6 +40,7 @@ import { skippableAtStartup } from "./startup-skip.ts";
 import { QueueStore } from "./queue-store.ts";
 import { Snapshot } from "./persistence.ts";
 import { migrateEngine } from "./migrations.ts";
+import { indexEngineRecords } from "../engine-record-indexes.ts";
 
 import { IntentStore, type IntentHeader } from "./intents.ts";
 import { AttachmentCorrelations } from "./attachment-correlations.ts";
@@ -100,6 +101,7 @@ export class EngineRepository {
     this.metadata = new SessionMetadata(this);
     this.aceInputs = new AceInputs(store);
     store.atomic(migrateEngine);
+    store.atomic(indexEngineRecords);
     migrateEmptyCursorThreads(store);
     this.attachments = new AttachmentCorrelations(store);
     indexTitleInputs(store);

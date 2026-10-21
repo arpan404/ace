@@ -56,33 +56,37 @@ const next = (
   view(value, { revision: "r1", treeState, ...(children === undefined ? {} : { children }) }).next;
 
 test("early phases say what to do before advancing", () => {
-  expect(next(run({ phase: "plan" }))).toBe("Plan the work, then advance to implement.");
-  expect(next(run({ phase: "implement" }))).toBe("Make the change, then advance to verify.");
+  expect(next(run({ phase: "plan" }))).toBe(
+    "Plan the work, then advance to implement. Use version 3.",
+  );
+  expect(next(run({ phase: "implement" }))).toBe(
+    "Make the change, then advance to verify. Use version 3.",
+  );
 });
 
 test("a blocker comes first, whatever else is pending", () => {
   expect(next(run({ blocker: "Need a test account" }))).toBe(
-    "Resolve the blocker: Need a test account. Ask the person if needed, then resume with the decision in note.",
+    "Resolve the blocker: Need a test account. Ask the person if needed, then resume with the decision in note. Use version 3.",
   );
 });
 
 test("missing evidence names the kind, the criterion and the revision to record at", () => {
   expect(next(run())).toBe(
-    "Record automated evidence for `restore` at revision r1 (1 more check pending).",
+    "Record automated evidence for `restore` at revision r1 (1 more check pending). Use version 3.",
   );
   expect(next(run({ evidence: [pass("automated")] }))).toBe(
-    "Record ui evidence for `restore` at revision r1.",
+    "Record ui evidence for `restore` at revision r1. Use version 3.",
   );
 });
 
 test("a failed check asks for a fix and a stale pass asks for a repeat", () => {
   const failed = run({ evidence: [pass("automated", { result: "fail" }), pass("ui")] });
   expect(next(failed)).toBe(
-    "Fix `restore`: its automated check failed. Then repeat the check and record the result.",
+    "Fix `restore`: its automated check failed. Then repeat the check and record the result. Use version 3.",
   );
   const stale = run({ evidence: [pass("automated", { revision: "r0" }), pass("ui")] });
   expect(next(stale)).toBe(
-    "Repeat the automated check for `restore`: the source changed since it was recorded.",
+    "Repeat the automated check for `restore`: the source changed since it was recorded. Use version 3.",
   );
 });
 
@@ -96,14 +100,16 @@ test("an independent criterion with only the owner's pass asks another model to 
   expect(next(value)).toBe(
     `Ask a different provider or model to verify \`restore\` (ui): delegate with runRole "verify" and tell the child runOwner "${owner.threadId}".`,
   );
-  expect(next(run({ ...value, evidence: [pass("ui", { by: child })] }))).toBe("Advance to review.");
+  expect(next(run({ ...value, evidence: [pass("ui", { by: child })] }))).toBe(
+    "Advance to review. Use version 3.",
+  );
 });
 
 test("with every check passing, each phase points at the next one", () => {
   const passing = { evidence: [pass("automated"), pass("ui")] };
-  expect(next(run(passing))).toBe("Advance to review.");
+  expect(next(run(passing))).toBe("Advance to review. Use version 3.");
   expect(next(run({ ...passing, phase: "review" }))).toBe(
-    "Review the change, then advance to delivery.",
+    "Review the change, then advance to delivery. Use version 3.",
   );
 });
 
@@ -133,11 +139,11 @@ test("in order: a blocker, a failed check, the phase's next step, other pending 
     },
   ];
   const step =
-    "Step `same-surface`: Confirm on the same surface. Then call step: done with what you observed, or skipped with the reason.";
+    "Step `same-surface`: Confirm on the same surface. Then call step: done with what you observed, or skipped with the reason. Use version 3.";
   const failing = run({ steps, evidence: [pass("automated", { result: "fail" })] });
   expect(next(run({ ...failing, blocker: "Need a device" }))).toContain("Resolve the blocker");
   expect(next(failing)).toBe(
-    "Fix `restore`: its automated check failed. Then repeat the check and record the result (1 more check pending).",
+    "Fix `restore`: its automated check failed. Then repeat the check and record the result (1 more check pending). Use version 3.",
   );
   expect(next(run({ steps }))).toBe(step);
   // A stale pass is pending, not failing: the step still comes first.
@@ -154,9 +160,17 @@ test("in order: a blocker, a failed check, the phase's next step, other pending 
     },
   ];
   expect(next(run({ steps: marked }))).toBe(
-    "Record automated evidence for `restore` at revision r1 (1 more check pending).",
+    "Record automated evidence for `restore` at revision r1 (1 more check pending). Use version 3.",
   );
   expect(next(run({ steps: marked, evidence: [pass("automated"), pass("ui")] }))).toBe(
-    "Advance to review.",
+    "Advance to review. Use version 3.",
   );
+});
+
+test("every step the caller writes names the version to send; delegating and waiting do not", () => {
+  expect(next(run({ phase: "implement", version: 4 }))).toBe(
+    "Make the change, then advance to verify. Use version 4.",
+  );
+  const delivered = run({ phase: "delivery", evidence: [pass("automated"), pass("ui")] });
+  expect(next(delivered, "working", 2)).not.toContain("version");
 });

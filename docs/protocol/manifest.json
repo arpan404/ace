@@ -21,8 +21,8 @@
       "sha256": "64dcb3faa23f44a76c4a19e4028c0f41b9875bd2821e79bfb18fe2747aab25f5"
     },
     "mcp.md": {
-      "bytes": 71014,
-      "sha256": "46e599a27d41d35204c172e64be9b9fe578ceb4b3e9d34ca2f97403c303446ce"
+      "bytes": 71587,
+      "sha256": "9402643fc694aa663e5b5f30b0823282af6037adee2d0ac7996d174db20db089"
     },
     "models.md": {
       "bytes": 15140,
@@ -2000,6 +2000,10 @@
       "bytes": 1901,
       "sha256": "17ce5e74812d326cea8e9a68ac74800dcf89e4931f1211cc58f6b0e7880486fd"
     },
+    "schema/OffshiftEvidenceBatch.json": {
+      "bytes": 276,
+      "sha256": "8735d12b9add0ada48b6d371bdefaaacad8079ccee4f7d85f1d040b058f33da5"
+    },
     "schema/OffshiftEvidenceInput.json": {
       "bytes": 1597,
       "sha256": "e476ba02125e5ff9336fcc596c452d0d410db00b5435d2ca504076d5d825e768"
@@ -2038,7 +2042,7 @@
     },
     "schema/OffshiftRequest.json": {
       "bytes": 7730,
-      "sha256": "6debdbefd212c1bfcdea43108a3dd5ea27a4ffb930a20d4b56b462c86a2a49ba"
+      "sha256": "3aca3adaa1a1b80046c859e144b6b4c73868b7e54fff10bd6c1c75518a4089d7"
     },
     "schema/OffshiftResult.json": {
       "bytes": 457,
@@ -3909,8 +3913,8 @@
       "sha256": "80052ed0fa925aba35ad1c1ff0842366a1068fcfe97701e8d6f97a64d318620e"
     },
     "schema/offshift.input.json": {
-      "bytes": 4229,
-      "sha256": "e46b1a6ce6ccc29bedbffb7afffa1a5ed58642d7341717ce6c4df78e27a14f09"
+      "bytes": 4526,
+      "sha256": "2789d4a7dcdbc3b70a012bfec13105a1ee6c1422eb3729817131870d80ee5c60"
     },
     "schema/offshift.output.json": {
       "bytes": 20268,
@@ -4021,10 +4025,10 @@
       "sha256": "3c00a18ea5c34e708a57c9d0f5d0cdba097745d6b5fc80bd543053d4c1079efc"
     },
     "types.md": {
-      "bytes": 855537,
-      "sha256": "63f73bb15f22896134a7d56533cd12e7e9ecfef0bd31690cb700d3eaf16fe1ac"
+      "bytes": 853544,
+      "sha256": "ea4f53b2ebb2cbf61cb95b34b85d12eaf917bc65d35453714ebe47dccbd71a11"
     }
   },
-  "input": "32a707ff4a365fc01cc53ff1a27fafe6e997da7054458c72d9539f8f537eb61f",
+  "input": "8f7cb03fd1325da077cc808c8b3ab8463265966077879ecf43f711a7765b3e81",
   "version": 1
 }
