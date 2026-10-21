@@ -39,7 +39,8 @@ private struct ChangesActions: ViewModifier {
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     menu
-                    if let step, step.kind != "none", model.canOperate { stepButton(step) }
+                    // A step that can't run yet stays in the menu with its reason, never greyed here.
+                    if let step, step.kind != "none", step.blocked == nil, model.canOperate { stepButton(step) }
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { status }
@@ -64,9 +65,9 @@ private struct ChangesActions: ViewModifier {
         Button { start(step) } label: {
             if running { ProgressView() } else { Image(systemName: icon(step)) }
         }
-        .disabled(step.blocked != nil || running)
+        .disabled(running)
         .accessibilityLabel(label(step))
-        .accessibilityHint(step.blocked ?? step.detail)
+        .accessibilityHint(step.detail)
         .accessibilityIdentifier("changes.step")
     }
     private var menu: some View {
