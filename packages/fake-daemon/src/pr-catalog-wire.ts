@@ -1,5 +1,6 @@
 import type { ForgeBrowserResult, WorkspaceActionRequest } from "@ace/protocol";
 import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
+import { catalogPrList } from "./forge-list-wire.ts";
 
 /**
  * Whole pull requests the fake app can open in its PR panel: detail, merge state, lifecycle,
@@ -20,6 +21,7 @@ export class FakePrCatalog {
     );
   }
   read(op: WorkspaceActionRequest["operation"]): ForgeBrowserResult | undefined {
+    if (op.op === "forge.pr.list") return catalogPrList(op, this.fixtures);
     if (op.op === "forge.pr.stack-memberships") {
       const known = op.numbers.filter((number) => this.find({ ...op, number }));
       return known.length === op.numbers.length

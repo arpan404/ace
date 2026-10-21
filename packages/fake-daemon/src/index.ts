@@ -77,6 +77,7 @@ export { seedIndex } from "./scenarios/seed-index.ts";
 export * as facts from "./scenarios/facts.ts";
 export { workbenchServices } from "./scenarios/services.ts";
 export { pullRequestDetails } from "./catalog/pull-request-details.ts";
+export { seedForgeBrowse } from "./scenarios/forge-browse.ts";
 export type { ServicesSeed } from "./services-wire.ts";
 export type { FakePlugin, FakePluginComponent, PluginSeed } from "./plugins-wire.ts";
 export { accountList } from "./catalog/accounts.ts";

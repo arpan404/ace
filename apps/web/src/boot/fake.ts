@@ -15,7 +15,7 @@ import {
   seedColdStartState,
   turnStatuses,
   workbenchServices,
-  pullRequestDetails,
+  seedForgeBrowse,
 } from "@ace/fake-daemon";
 import type { Client } from "@ace/client";
 import type { MachinePool } from "@ace/client-worker/machines";
@@ -89,8 +89,9 @@ export function bootFake(): {
     daemon.seedServices(
       workbenchServices(Date.now(), Intl.DateTimeFormat().resolvedOptions().timeZone),
     );
-    // The PR panel's three looks: ready to merge, failing with changes requested, merged.
-    daemon.workspace.seedPullRequests(pullRequestDetails(Date.now()));
+    // The PR panel's three looks (ready, failing with changes requested, merged) and the
+    // Pull requests view's lists.
+    seedForgeBrowse(daemon, Date.now());
   }
   // `aceFakeWorld = "computer-use"` (or `?fakeWorld=computer-use`): agents using apps and the
   // browser on this Mac.

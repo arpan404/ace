@@ -1,12 +1,12 @@
-import { ClockIcon, CubeIcon } from "@phosphor-icons/react";
+import { ClockIcon, CubeIcon, GitPullRequestIcon } from "@phosphor-icons/react";
 import type { IconGlyph } from "@/components/icon.tsx";
 import type { KeymapId } from "@/lib/keymap.ts";
 
 /** The app's views (DESIGN-fable.md, Principle 4). Projects and machines are never views. */
 export interface View {
-  id: "home" | "automations" | "skills";
+  id: "home" | "automations" | "skills" | "forge";
   label: string;
-  to: "/" | "/automations" | "/skills";
+  to: "/" | "/automations" | "/skills" | "/pulls";
   /** Path prefixes that belong to this view. */
   matches: readonly string[];
   shortcut?: KeymapId;
@@ -34,6 +34,15 @@ export const menuViews: readonly MenuView[] = [
     to: "/skills",
     matches: ["/skills"],
     shortcut: "goSkills",
+  },
+  {
+    id: "forge",
+    label: "Pull requests",
+    icon: GitPullRequestIcon,
+    to: "/pulls",
+    // Issues is a tab of the same view.
+    matches: ["/pulls", "/issues"],
+    shortcut: "goPullRequests",
   },
 ];
 

@@ -40,7 +40,7 @@ const patch = (adds: number, dels: number) =>
     ...Array.from({ length: adds }, (_, i) => `+new line ${i + 1}`),
     " // unchanged context",
   ].join("\n");
-const file = (path: string, additions: number, deletions: number, status = "modified") =>
+export const file = (path: string, additions: number, deletions: number, status = "modified") =>
   ForgeFile.parse({
     path,
     status,
@@ -49,7 +49,7 @@ const file = (path: string, additions: number, deletions: number, status = "modi
     patch: patch(Math.min(additions, 12), Math.min(deletions, 8)),
     truncated: false,
   });
-const check = (
+export const check = (
   name: string,
   status: "success" | "failure" | "pending",
   at: number,
@@ -63,7 +63,7 @@ const check = (
   jobId: null,
   url,
 });
-const mergeState = (headSha: string, patchState: Partial<ForgeMergeState>) =>
+export const mergeState = (headSha: string, patchState: Partial<ForgeMergeState>) =>
   ForgeMergeState.parse({
     headSha,
     state: "OPEN",
@@ -79,7 +79,7 @@ const mergeState = (headSha: string, patchState: Partial<ForgeMergeState>) =>
     raw: {},
     ...patchState,
   });
-const lifecycle = (detail: ForgePrDetail, actions: string[]) =>
+export const lifecycle = (detail: ForgePrDetail, actions: string[]) =>
   ForgeLifecycleState.parse({
     snapshot: {
       pr: detail.status.ref,
@@ -101,7 +101,7 @@ const lifecycle = (detail: ForgePrDetail, actions: string[]) =>
     },
     operations: [],
   });
-const review = (headSha: string, open: boolean) =>
+export const review = (headSha: string, open: boolean) =>
   ForgeReviewState.parse({
     viewer: "you",
     headSha,
