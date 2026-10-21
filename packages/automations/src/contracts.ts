@@ -8,6 +8,10 @@ export interface ExecutionInput {
   title?: string | undefined;
   provider: Automation["provider"];
   model?: string | undefined;
+  /** The model's effort; absent keeps the model's default. */
+  effort?: string | undefined;
+  /** The provider account instance the run starts on; absent uses the provider's default. */
+  instance?: string | undefined;
   access?: Automation["access"] | undefined;
   workspace: string;
   prompt: string;

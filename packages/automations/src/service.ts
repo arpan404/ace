@@ -7,7 +7,7 @@ import {
   type AutomationRun,
 } from "@ace/protocol";
 import { type Dependencies, type ExecutionInput } from "./contracts.ts";
-import { renderPrompt, scheduledDeadline, recoverOccurrence } from "./decisions.ts";
+import { renderPrompt, scheduledDeadline, recoverOccurrence, withRunNote } from "./decisions.ts";
 import { normalizeAutomation } from "./definition.ts";
 import { Occurrence } from "./recurrence.ts";
 import { AutomationStore, type JobMetadata } from "./store.ts";
@@ -345,20 +345,34 @@ export class AutomationService {
   inbox(limit = 50, before?: number, automationId?: string) {
     return this.store.inbox(limit, before, automationId);
   }
-  trigger(id: string, input: unknown, kind: AutomationRun["trigger"] = "manual"): AutomationRun {
+  /**
+   * Admit one run. `note` is the person's extra instruction for a manual run, added after the
+   * saved prompt; a retried request maps to the same run, so its first note is the one kept.
+   */
+  trigger(
+    id: string,
+    input: unknown,
+    kind: AutomationRun["trigger"] = "manual",
+    note?: string,
+  ): AutomationRun {
     if (!this.live) throw new Error("Automation service is stopped");
     const generation = this.generation;
     const automation = this.store.definition(id);
     if (!automation || !automation.enabled) throw new Error("Automation is disabled or missing");
     const event = AutomationEvent.parse(input);
-    const admission = this.store.transaction(() => this.admit(automation, event, kind));
+    const admission = this.store.transaction(() => this.admit(automation, event, kind, note));
     if (admission.created) this.publish(admission.run);
     if (admission.admitted && admission.input && this.live && generation === this.generation)
       this.executions.launch(admission.run, admission.input);
     this.arm();
     return admission.run;
   }
-  private admit(automation: Automation, event: AutomationEvent, kind: AutomationRun["trigger"]) {
+  private admit(
+    automation: Automation,
+    event: AutomationEvent,
+    kind: AutomationRun["trigger"],
+    note?: string,
+  ) {
     const id = kind === "manual" ? manualId(automation.id, event.key) : this.deps.id();
     let input: ExecutionInput | undefined;
     let failure: string | undefined;
@@ -370,8 +384,10 @@ export class AutomationService {
         provider: automation.provider,
         workspace: automation.workspace,
         worktree: automation.worktree,
-        prompt: renderPrompt(automation.prompt, event.variables),
+        prompt: withRunNote(renderPrompt(automation.prompt, event.variables), note),
         ...(automation.model ? { model: automation.model } : {}),
+        ...(automation.effort ? { effort: automation.effort } : {}),
+        ...(automation.instance ? { instance: automation.instance } : {}),
         ...(automation.access ? { access: automation.access } : {}),
       };
     } catch (error) {
@@ -672,10 +688,12 @@ export class AutomationService {
         case "automation.run":
           return {
             ...base,
-            run: this.trigger(request.id, {
-              key: `manual:${request.requestId}`,
-              variables: request.variables,
-            }),
+            run: this.trigger(
+              request.id,
+              { key: `manual:${request.requestId}`, variables: request.variables },
+              "manual",
+              request.message,
+            ),
           };
         case "automation.list": {
           const jobs = this.store.list();

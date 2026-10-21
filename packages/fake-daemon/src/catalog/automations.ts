@@ -15,8 +15,10 @@ export function automationList(startAt: number, zone: string): Automation[] {
       enabled: true,
       workspace: "ace",
       provider: "claude",
-      // A catalog row id: Sonnet on the work account.
+      // A catalog row id: Sonnet on the work account, as the composer's chip picks it.
       model: "claude-work:claude-sonnet-4-5",
+      effort: "high",
+      instance: "claude-work",
       prompt:
         "Audit dependencies in each project for advisories, open one thread per project with a proposed fix, and link the advisory. Skip devDependencies.",
       worktree: true,
@@ -38,6 +40,8 @@ export function automationList(startAt: number, zone: string): Automation[] {
       workspace: "ace",
       provider: "codex",
       model: "codex-personal:gpt-5-codex",
+      effort: "medium",
+      instance: "codex-personal",
       prompt:
         "Review the pull request against the repository's standards and the issue it links. Leave one summary comment, and line comments only for real problems.",
       worktree: true,
@@ -97,6 +101,7 @@ const run = (
   result: string,
   trigger: AutomationRun["trigger"] = "schedule",
   threadId?: string,
+  minutes = 4,
 ): AutomationRun => ({
   id,
   automationId,
@@ -106,7 +111,7 @@ const run = (
   status,
   // Never before the epoch, whatever clock a test starts from.
   startedAt: Math.max(0, now - ago),
-  finishedAt: Math.max(0, now - ago) + 4 * 60_000,
+  finishedAt: Math.max(0, now - ago) + minutes * 60_000,
   result,
   ...(threadId ? { threadId } : {}),
 });
@@ -123,9 +128,10 @@ export function automationRuns(now: number, zone = "UTC"): AutomationRun[] {
       41 * 60_000,
       now,
       "succeeded",
-      "#212 · approved with 1 note",
+      "Approved #212 with one note: the Codex 0.48 bump changes the default sandbox, so the release notes should say so.",
       "github",
       "thread-bump-codex",
+      6,
     ),
     run(
       "run-flaky-1",
@@ -134,7 +140,10 @@ export function automationRuns(now: number, zone = "UTC"): AutomationRun[] {
       2 * hour,
       now,
       "succeeded",
-      "Nothing flaky across 3 runs",
+      "Ran the suite three times: 1,284 tests passed every time. Nothing flaky, so no threads opened.",
+      "schedule",
+      undefined,
+      17,
     ),
     run(
       "run-review-209",
@@ -143,9 +152,10 @@ export function automationRuns(now: number, zone = "UTC"): AutomationRun[] {
       5 * hour,
       now,
       "succeeded",
-      "#209 · requested changes",
+      "Requested changes on #209: deleting a thread removes its worktree before the agent stops, which can lose unsaved edits. Left two line comments.",
       "github",
       "thread-worktree-cleanup",
+      9,
     ),
     run(
       "run-audit-1",
@@ -154,11 +164,23 @@ export function automationRuns(now: number, zone = "UTC"): AutomationRun[] {
       6 * hour,
       now,
       "succeeded",
-      "2 advisories · opened a thread in ace",
+      "Found 2 advisories: a moderate one in undici and a low one in semver. Opened a thread in ace with the undici upgrade; semver needs no change because the affected range isn't used.",
       "schedule",
       "thread-bump-codex",
+      12,
     ),
-    run("run-audit-2", "auto-dependency-audit", audit, day, now, "succeeded", "Nothing to fix"),
+    run(
+      "run-audit-2",
+      "auto-dependency-audit",
+      audit,
+      day,
+      now,
+      "succeeded",
+      "No new advisories in any project. Nothing to fix.",
+      "schedule",
+      undefined,
+      3,
+    ),
     run(
       "run-audit-3",
       "auto-dependency-audit",
@@ -166,7 +188,10 @@ export function automationRuns(now: number, zone = "UTC"): AutomationRun[] {
       2 * day,
       now,
       "succeeded",
-      "1 advisory · fix merged as #203",
+      "One advisory in ws (denial of service on malformed frames). Upgraded to 8.18.1; the fix merged as #203.",
+      "schedule",
+      undefined,
+      14,
     ),
     run(
       "run-audit-4",
@@ -175,7 +200,10 @@ export function automationRuns(now: number, zone = "UTC"): AutomationRun[] {
       3 * day,
       now,
       "failed",
-      "npm registry timeout, retried once",
+      "The npm registry timed out twice while reading advisories, so the audit stopped. It runs again tonight.",
+      "schedule",
+      undefined,
+      2,
     ),
     run(
       "run-changelog-1",
@@ -184,7 +212,10 @@ export function automationRuns(now: number, zone = "UTC"): AutomationRun[] {
       6 * day,
       now,
       "succeeded",
-      "Draft posted to #releases",
+      "Drafted release notes for 11 merged pull requests, grouped by area, and posted them to #releases.",
+      "schedule",
+      undefined,
+      5,
     ),
   ];
   const schedules = automationList(
@@ -202,8 +233,98 @@ export function automationRuns(now: number, zone = "UTC"): AutomationRun[] {
       if (next === undefined || next > record.startedAt) break;
       latest = cursor = next;
     }
+    const took = (record.finishedAt ?? record.startedAt) - record.startedAt;
     return latest === undefined
       ? []
-      : [{ ...record, startedAt: latest, finishedAt: latest + 4 * 60_000 }];
+      : [{ ...record, startedAt: latest, finishedAt: latest + took }];
   });
+}
+
+/** Automations agents made from Home threads: each belongs to the thread that made it. */
+export function threadAutomationList(
+  startAt: number,
+  zone: string,
+): { threadId: string; automation: Automation }[] {
+  const common = { missedRun: "skip", concurrency: 1, jitterMs: 0, worktree: false } as const;
+  return [
+    {
+      threadId: "thread-checkout",
+      automation: {
+        ...common,
+        id: "agent-checkout-soak",
+        title: "Re-run the checkout test overnight",
+        enabled: true,
+        workspace: "billing-api",
+        provider: "claude",
+        effort: "medium",
+        prompt:
+          "Run the checkout integration test 25 times against the fixed retry logic and report any failure with its seed.",
+        trigger: {
+          kind: "schedule",
+          schedule: {
+            kind: "rrule",
+            expression: "FREQ=DAILY;BYHOUR=3;BYMINUTE=30",
+            timezone: zone,
+            startAt,
+          },
+        },
+      },
+    },
+    {
+      threadId: "thread-worktree-cleanup",
+      automation: {
+        ...common,
+        id: "agent-worktree-sweep",
+        title: "Sweep orphaned worktrees",
+        enabled: true,
+        workspace: "ace",
+        provider: "codex",
+        prompt:
+          "List worktrees under ~/.ace/worktrees whose thread is gone and remove the ones with no unpushed commits.",
+        trigger: { kind: "manual" },
+      },
+    },
+  ];
+}
+
+/** Runs of the agents' automations, newest first. */
+export function threadAutomationRuns(now: number): AutomationRun[] {
+  return [
+    run(
+      "run-checkout-soak-2",
+      "agent-checkout-soak",
+      "Re-run the checkout test overnight",
+      7 * hour,
+      now,
+      "succeeded",
+      "25 of 25 runs passed. The longest took 4.2s, well under the 10s timeout that used to trip.",
+      "schedule",
+      "thread-checkout",
+      11,
+    ),
+    run(
+      "run-checkout-soak-1",
+      "agent-checkout-soak",
+      "Re-run the checkout test overnight",
+      day + 7 * hour,
+      now,
+      "failed",
+      "24 of 25 runs passed. Seed 81733 failed: the payment mock answered after the order was cancelled. The thread has the log.",
+      "schedule",
+      "thread-checkout",
+      13,
+    ),
+    run(
+      "run-worktree-sweep-1",
+      "agent-worktree-sweep",
+      "Sweep orphaned worktrees",
+      3 * hour,
+      now,
+      "succeeded",
+      "Removed 3 orphaned worktrees (1.8 GB). Kept fix/old-relay because it has 2 unpushed commits.",
+      "manual",
+      "thread-worktree-cleanup",
+      2,
+    ),
+  ];
 }

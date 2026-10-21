@@ -36,6 +36,8 @@ const Input = z.object({
   title: Automation.shape.title.optional(),
   provider: Automation.shape.provider,
   model: z.string().optional(),
+  effort: z.string().optional(),
+  instance: z.string().optional(),
   access: Automation.shape.access,
   workspace: z.string(),
   prompt: z.string().max(maxMessageBytes),

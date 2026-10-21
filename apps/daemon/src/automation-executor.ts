@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Command, CommandId, ThreadId, WorkspaceId, DeviceId } from "@ace/protocol";
-import type { AutomationExecutor, ExecutionResult } from "@ace/automations";
+import type { AutomationExecutor, ExecutionInput, ExecutionResult } from "@ace/automations";
 import type { ServiceContext } from "./services/types.ts";
 import { commandContext } from "./commands.ts";
 import { readThreadTree } from "./thread-tree.ts";
@@ -98,6 +98,7 @@ export function automationExecutor(context: ServiceContext): AutomationExecutor 
           trigger: "schedule",
           origin: { kind: "automation", role: input.automationId },
           ...(input.model ? { model: input.model } : {}),
+          ...launchChoices(input),
           mode: input.worktree ? "worktree" : "local",
           title: automationThreadTitle(input.title),
           input: [{ type: "text", text: input.prompt }],
@@ -131,6 +132,21 @@ const executionKey = (value: string) =>
   CommandId.parse(`automation-${createHash("sha256").update(value).digest("hex")}`);
 
 function noop(): void {}
+
+/**
+ * The effort and account a run starts on, carried as New thread carries them: the account as
+ * `accountId` (ACP agents are picked by their own identity, which an automation doesn't store)
+ * and the effort in the launch options.
+ */
+export function launchChoices(input: ExecutionInput): {
+  accountId?: string;
+  options?: { effort: string };
+} {
+  return {
+    ...(input.instance && input.provider !== "acp" ? { accountId: input.instance } : {}),
+    ...(input.effort ? { options: { effort: input.effort } } : {}),
+  };
+}
 
 /** "Automation: Nightly triage": the automation's own name, never its id. */
 export function automationThreadTitle(name: string | undefined): string {

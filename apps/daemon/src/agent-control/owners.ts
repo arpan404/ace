@@ -4,6 +4,7 @@ import { AgentPreviews } from "./previews.ts";
 export { AgentPreviews } from "./previews.ts";
 import { createHandoffs } from "./handoffs.ts";
 import { createOffshifts } from "./offshift.ts";
+import { createThreadAutomations } from "./thread-automations.ts";
 import { join } from "node:path";
 import { z } from "zod";
 import { AutomationService, AutomationStore } from "@ace/automations";
@@ -76,6 +77,8 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
           role: `automation: ${input.automationId}`,
           provider: input.provider,
           ...(input.model ? { model: input.model } : {}),
+          ...(input.effort ? { effort: input.effort } : {}),
+          ...(input.instance && input.provider !== "acp" ? { accountId: input.instance } : {}),
           wait: false,
           estimatedLoad: 0,
         };
@@ -109,11 +112,18 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
   resources.own(() => automations.stop());
   resources.onShutdown(() => automations.stop());
   context.onListen.push(() => followAutomationSetting(context, automations));
+  const live = (automationId: string) => {
+    const identity = lookup(automationId);
+    const thread = identity && store.getThread(identity.thread_id);
+    return thread && thread.deletedAt === undefined ? thread.id : undefined;
+  };
+  const threadAutomations = createThreadAutomations(automations, live);
   const previews = new AgentPreviews();
   const handoffs = createHandoffs(context, delegations);
   const offshifts = createOffshifts(context, delegations);
   return {
     previews,
+    threadAutomations,
     async execute(
       caller: McpAttribution,
       operation: ExtensionOperation,

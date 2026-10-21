@@ -13,6 +13,16 @@ export function renderPrompt(template: string, input: unknown): string {
   if (rendered.length > maxMessageBytes) throw new Error("Rendered prompt exceeds limit");
   return rendered;
 }
+/**
+ * A run's prompt with the person's note for that one run: the saved prompt, a blank line, then
+ * the note, so the run's thread shows both. Without a note the prompt is unchanged.
+ */
+export function withRunNote(prompt: string, note: string | undefined): string {
+  if (note === undefined || note.trim() === "") return prompt;
+  const joined = `${prompt}\n\n${note}`;
+  if (joined.length > maxMessageBytes) throw new Error("Rendered prompt exceeds limit");
+  return joined;
+}
 export function jitterDeadline(
   nominal: number | undefined,
   jitterMs: number,

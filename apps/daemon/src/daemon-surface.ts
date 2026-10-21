@@ -69,6 +69,7 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "previewClient",
     "previewSuggestions",
     "automations",
+    "threadAutomations",
     "activityReads",
     "browsing",
     "computerUsing",
