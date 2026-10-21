@@ -91,6 +91,7 @@ struct DevicesScreen: View {
                 .buttonStyle(.plain)
                 .listRowBackground(AceTheme.Colours.background)
                 .listRowSeparatorTint(AceTheme.Colours.separator)
+                .listSectionSeparator(.hidden, edges: .top)
                 .accessibilityIdentifier("devices.row")
         }
         ForEach(Array(view.notes.enumerated()), id: \.offset) { _, note in

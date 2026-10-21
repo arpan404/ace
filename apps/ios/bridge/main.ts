@@ -171,7 +171,10 @@ async function start(json: string): Promise<void> {
     now: () => host.now(),
     agent: (holder) => deviceAgent(holder.threadId, holder.agentId),
   });
-  screen = new NativeScreen(featureConfig);
+  screen = new NativeScreen(
+    featureConfig,
+    (holder) => deviceAgent(holder.threadId, holder.agentId)?.name,
+  );
   services = new NativeServices(client, pump, devices, screen);
   terminal = new NativeTerminal(client, pump);
   browser = new BrowserLive(client, pump, preview, scheduler.set);

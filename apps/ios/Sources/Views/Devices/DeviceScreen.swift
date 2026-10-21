@@ -41,7 +41,6 @@ struct DeviceScreen: View {
 
     var body: some View {
         stage
-            .overlay(alignment: .bottom) { activityCaption }
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { strip }
             .background(AceTheme.Colours.background)
             .threadTitle(info?.name ?? name, subtitle: info?.subtitle ?? "")
@@ -91,6 +90,7 @@ struct DeviceScreen: View {
                             idle(info)
                         }
                     }
+                    .overlay(alignment: .bottom) { activityCaption.padding(.bottom, AceTheme.Spacing.xxl) }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -154,7 +154,6 @@ struct DeviceScreen: View {
             .foregroundStyle(AceTheme.Colours.foreground)
             .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
             .aceGlass(in: Capsule())
-            .padding(.bottom, AceTheme.Spacing.sm)
             .transition(.opacity)
             .accessibilityLabel("Agent action: \(caption.caption)")
             .accessibilityIdentifier("devices.activity")
@@ -191,9 +190,18 @@ struct DeviceScreen: View {
                 .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.xs)
                 .accessibilityIdentifier("devices.keyboard")
             }
-            if let info, !info.control.sentence.isEmpty || devices.problem != nil {
+            // What went wrong with the last request, in the device's words, until the next one.
+            if let problem = devices.problem, problem.permission == nil || info?.live == true {
+                Text(problem.text)
+                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, AceTheme.Spacing.xl).padding(.top, AceTheme.Spacing.xs)
+                    .accessibilityIdentifier("devices.problem")
+            }
+            if let info, !info.control.sentence.isEmpty {
                 HStack(spacing: AceTheme.Spacing.md) {
-                    Text(info.control.sentence.isEmpty ? devices.problem?.text ?? "" : info.control.sentence)
+                    Text(info.control.sentence)
                         .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
                         .foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
                     Spacer(minLength: AceTheme.Spacing.sm)

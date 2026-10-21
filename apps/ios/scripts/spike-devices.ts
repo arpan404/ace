@@ -5,10 +5,13 @@ import {
   DeviceAck,
   DeviceClientMessage,
   ScreenAck,
+  DeviceState,
   ScreenClientMessage,
   ThreadId,
 } from "@ace/protocol";
 import { z } from "zod";
+
+const DeviceStateMessage = z.object({ type: z.literal("devices.state"), state: DeviceState });
 import type { ServerWebSocket } from "bun";
 
 /*
@@ -87,7 +90,17 @@ export function spikeDevices(daemon: FakeDaemon, details: (branch: string) => ob
   seedDevices(daemon);
   const agentId = seedThread(daemon, details);
   const owner = daemon.appDevices.transport();
-  owner.open({ ready: () => {}, message: () => {}, close: () => {} });
+  // The agent acts only while it holds the iPhone: a person who took over sees no actions.
+  let agentHolds = false;
+  owner.open({
+    ready: () => {},
+    message: (message: unknown) => {
+      const update = DeviceStateMessage.safeParse(message);
+      if (update.success && update.data.state.device.id === iphone)
+        agentHolds = update.data.state.controller === "agent";
+    },
+    close: () => {},
+  });
   queueMicrotask(() =>
     owner.send(
       DeviceClientMessage.parse({
@@ -107,8 +120,43 @@ export function spikeDevices(daemon: FakeDaemon, details: (branch: string) => ob
   let next = 0;
   setInterval(() => {
     const activity = actions[next++ % actions.length];
-    if (activity) daemon.appDevices.agentActs(iphone, activity);
+    if (activity && agentHolds) daemon.appDevices.agentActs(iphone, activity);
   }, 4_000);
+  seedScreen(daemon, agentId);
+}
+
+/** Computer use on, with the thread's agent using Safari, as Mac screens show it. */
+function seedScreen(daemon: FakeDaemon, agentId: string): void {
+  daemon.screen.enable(true);
+  const screen = daemon.screen.transport();
+  const Result = z.object({
+    type: z.literal("screen.result"),
+    requestId: z.literal("spike-share"),
+    data: z.object({ sessionId: z.string() }),
+  });
+  const request = (requestId: string, operation: unknown) =>
+    void screen.send(ScreenClientMessage.parse({ type: "screen.request", requestId, operation }));
+  screen.open({
+    ready: () => {
+      request("spike-share", {
+        op: "start",
+        target: { kind: "app", bundleId: "com.apple.Safari" },
+        threadId: devicesThread,
+      });
+    },
+    message: (message: unknown) => {
+      const started = Result.safeParse(message);
+      if (started.success)
+        request("spike-agent", {
+          op: "controller",
+          sessionId: started.data.data.sessionId,
+          controller: "agent",
+          threadId: devicesThread,
+          agentId,
+        });
+    },
+    close: () => {},
+  });
 }
 
 /**

@@ -106,6 +106,7 @@ struct DeviceTreeSheet: View {
                 }
             }
             .listStyle(.plain)
+            .environment(\.defaultMinListRowHeight, 36)
             .searchable(text: $query, prompt: "Search elements")
             .navigationTitle("UI tree").navigationBarTitleDisplayMode(.inline)
             .toolbar {

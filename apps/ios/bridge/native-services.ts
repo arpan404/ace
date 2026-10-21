@@ -103,7 +103,7 @@ export class NativeServices {
       const screen = NativeScreenRequest.safeParse(raw);
       if (screen.success && this.screen) {
         try {
-          const data = await this.screen.request(screen.data.operation, controller.signal);
+          const data = await this.screen.request(screen.data, controller.signal);
           this.#reply(id, true, { ok: true, data }, "");
         } catch (error) {
           this.#reply(
