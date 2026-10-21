@@ -35,11 +35,6 @@ async function headings(name: ListName) {
 async function numbers(name: ListName) {
   return numbersIn(await screen.findByRole("navigation", { name }));
 }
-async function pick(menu: RegExp, option: RegExp) {
-  await userEvent.click(await screen.findByRole("button", { name: menu }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: option }));
-}
-
 test("by default open pull requests are ranked by how close they are to merging", async () => {
   const app = withRepository();
   await app.open("/pulls?project=ace");
