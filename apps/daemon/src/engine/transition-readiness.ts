@@ -48,11 +48,7 @@ export class TransitionReadiness {
       "SELECT agent_key FROM engine_transition_blockers WHERE thread_id=? LIMIT 1",
     );
     this.keys = db.prepare("SELECT agent_key FROM engine_transition_blockers WHERE thread_id=?");
-    // Agent records are a sliver of every stored record: without this index the rebuild below
-    // reads the whole table, which on a large database took seconds of startup I/O.
-    db.exec(
-      "CREATE INDEX IF NOT EXISTS engine_agent_records ON engine_state_records(thread_id) WHERE section='agents'",
-    );
+    // Reads agent records through `engine_agent_records` (engine-record-indexes.ts).
     db.exec("DELETE FROM engine_transition_blockers");
     for (const row of db
       .prepare("SELECT thread_id,key,value FROM engine_state_records WHERE section='agents'")

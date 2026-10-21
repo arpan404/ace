@@ -15,12 +15,11 @@ export class InteractionLedger {
         PRIMARY KEY(thread_id,interaction_id));
         CREATE INDEX IF NOT EXISTS engine_requests_generation ON engine_interaction_requests(thread_id,generation);
         CREATE INDEX IF NOT EXISTS engine_requests_native ON engine_interaction_requests(thread_id,binding,native_item,state);
-        CREATE INDEX IF NOT EXISTS engine_requests_key ON engine_interaction_requests(thread_id,native_key,state);
-        CREATE INDEX IF NOT EXISTS engine_interaction_records ON engine_state_records(section,thread_id)
-          WHERE section IN ('interactions','interactionHistory');`);
-      // Backfill terminal outcomes written before this ledger existed. The partial index keeps
-      // this to interaction records instead of every stored record, and only rows the ledger
-      // lacks look up their tool item.
+        CREATE INDEX IF NOT EXISTS engine_requests_key ON engine_interaction_requests(thread_id,native_key,state);`);
+      // Backfill terminal outcomes written before this ledger existed. The partial index
+      // `engine_interaction_records` (engine-record-indexes.ts) keeps this to interaction
+      // records instead of every stored record, and only rows the ledger lacks look up their
+      // tool item.
       db.exec(`INSERT OR IGNORE INTO engine_interaction_requests
         SELECT r.thread_id,json_extract(r.value,'$.id'),r.key,
           (SELECT key FROM engine_state_records i WHERE i.thread_id=r.thread_id AND i.section='items' AND json_extract(i.value,'$.id')=json_extract(r.value,'$.toolCallId') LIMIT 1),
