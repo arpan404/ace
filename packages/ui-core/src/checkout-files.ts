@@ -4,6 +4,19 @@
  * Pure, so the web and mobile clients share one rule.
  */
 
+import type { GitStatusFile } from "@ace/protocol";
+
+/** How a file's uncommitted change is marked beside its name: one letter, and its word. */
+export const changeLetters: Readonly<
+  Record<GitStatusFile["status"], { letter: string; label: string }>
+> = {
+  added: { letter: "A", label: "Added" },
+  modified: { letter: "M", label: "Modified" },
+  deleted: { letter: "D", label: "Deleted" },
+  renamed: { letter: "R", label: "Renamed" },
+  untracked: { letter: "U", label: "Untracked" },
+};
+
 /** The most a viewer reads to show a file; bigger files are offered as a download. */
 export const checkoutViewLimit = 2 * 1024 * 1024;
 /** The largest text a file editor opens (the daemon's `write` cap). */
