@@ -41,7 +41,7 @@ struct ThreadToolbar: ToolbarContent {
     }
     private var work: some View {
         Button(action: openAgents) {
-            Image(systemName: "point.3.connected.trianglepath.dotted")
+            AceIcon(.graph, size: 20)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .overlay(alignment: .topTrailing) {
                     if let dot {
@@ -79,42 +79,42 @@ struct ThreadMenu: View {
     var body: some View {
         Menu {
             Section {
-                Button("Changes", systemImage: "plusminus") { open(.changes) }.accessibilityIdentifier("thread.changes")
-                Button("Find in thread", systemImage: "magnifyingglass") { open(.search) }.accessibilityIdentifier("thread.search")
-                Button("Files", systemImage: "folder") { open(.files) }.accessibilityIdentifier("thread.files")
-                Button("Browser", systemImage: "safari") { open(.browser) }.accessibilityIdentifier("thread.browser")
-                Button("Devices", systemImage: "iphone") { open(.devices) }.accessibilityIdentifier("thread.devices")
-                Button("Terminal", systemImage: "apple.terminal") { open(.terminal) }.accessibilityIdentifier("thread.terminal")
-                Button("Computer use", systemImage: "macwindow") { open(.computer) }
-                Button("Skills and tools", systemImage: "wrench.and.screwdriver") { open(.tools) }.accessibilityIdentifier("thread.tools")
+                Button("Changes", ace: .plusMinus) { open(.changes) }.accessibilityIdentifier("thread.changes")
+                Button("Find in thread", ace: .magnifyingGlass) { open(.search) }.accessibilityIdentifier("thread.search")
+                Button("Files", ace: .folder) { open(.files) }.accessibilityIdentifier("thread.files")
+                Button("Browser", ace: .compass) { open(.browser) }.accessibilityIdentifier("thread.browser")
+                Button("Devices", ace: .deviceMobile) { open(.devices) }.accessibilityIdentifier("thread.devices")
+                Button("Terminal", ace: .terminalWindow) { open(.terminal) }.accessibilityIdentifier("thread.terminal")
+                Button("Computer use", ace: .appWindow) { open(.computer) }
+                Button("Skills and tools", ace: .wrench) { open(.tools) }.accessibilityIdentifier("thread.tools")
             }
             Section {
                 if let activityRow, let hostId = model.hostId {
-                    Button("Show on Lock Screen", systemImage: "widget.small") {
+                    Button("Show on Lock Screen", ace: .squaresFour) {
                         do { try model.liveActivity.start(row: activityRow, hostId: hostId, online: model.connection == "ready") }
                         catch { problem(error.localizedDescription) }
                     }
                 }
                 if model.canOperate, !model.inboxLayout.snooze.isEmpty {
-                    Menu("Snooze", systemImage: "moon.zzz") {
+                    Menu {
                         ForEach(model.inboxLayout.snooze) { option in
                             Button(option.label) { Task { if await model.snooze(thread.id, preset: option.id) { leave() } } }
                         }
-                    }
+                    } label: { Label("Snooze", ace: .bellSimpleZ) }
                 }
                 if model.canOperate, !archived {
-                    Button("Archive", systemImage: "archivebox") { Task { if await model.archive(thread.id) { leave() } } }
+                    Button("Archive", ace: .archive) { Task { if await model.archive(thread.id) { leave() } } }
                 }
             }
             if model.canOperate, thread.screen.controls?.canStop == true {
                 Section {
                     // Stop isn't destructive: it reads in ink, never red.
-                    Button("Stop all agents", systemImage: "stop.circle") { model.stopTree() }
+                    Button("Stop all agents", ace: .stopCircle) { model.stopTree() }
                         .disabled(thread.screen.stopping)
                 }
             }
         } label: {
-            Image(systemName: "ellipsis")
+            AceIcon(.dotsThree, size: 20)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .frame(width: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm, height: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
                 .contentShape(Rectangle())

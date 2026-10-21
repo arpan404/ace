@@ -64,7 +64,7 @@ struct SubagentGroupView: View {
                 .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                 .foregroundStyle(AceTheme.Colours.subtleForeground)
             }
-            Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+            AceIcon(.caretRight, size: 12, relativeTo: .caption)
                 .rotationEffect(.degrees(expanded ? 90 : 0))
                 .foregroundStyle(AceTheme.Colours.subtleForeground)
         }
@@ -110,7 +110,7 @@ struct TranscriptRowButtonStyle: ButtonStyle {
         configuration.label
             .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm, alignment: .leading)
             .padding(.horizontal, AceTheme.Spacing.sm)
-            .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: RoundedRectangle(cornerRadius: AceTheme.Radii.small, style: .continuous))
+            .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: RoundedRectangle(cornerRadius: AceTheme.Radii.md, style: .continuous))
             .padding(.horizontal, -AceTheme.Spacing.sm)
             .contentShape(Rectangle())
     }

@@ -34,7 +34,7 @@ struct ConversationSkeleton: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxl) {
             HStack {
                 Spacer(minLength: AceTheme.Spacing.xxxl)
-                RoundedRectangle(cornerRadius: AceTheme.Radii.bubble)
+                RoundedRectangle(cornerRadius: AceTheme.Radii.lg)
                     .fill(AceTheme.Colours.fill)
                     .frame(height: AceTheme.Dimensions.touchTarget)
                     .containerRelativeFrame(.horizontal) { width, _ in width * 0.6 }

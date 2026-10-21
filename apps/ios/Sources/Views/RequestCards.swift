@@ -101,20 +101,20 @@ struct PlanReviewCard: View {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
                     MarkdownView(text: plan?.markdown ?? "")
                     ForEach(Array((plan?.todos ?? []).enumerated()), id: \.offset) { _, todo in
-                        Label(todo.text, systemImage: todo.status == "completed" ? "checkmark.circle.fill" : todo.status == "in_progress" ? "circle.lefthalf.filled" : "circle")
+                        Label(todo.text, ace: todo.status == "completed" ? .checkCircle : todo.status == "in_progress" ? .circleHalf : .circle)
                             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
                     }
                     if plan?.truncated == true { Text("The full plan is on your machine").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: planHeight)
-            .padding(AceTheme.Spacing.md).requestInset(cornerRadius: AceTheme.Radii.code)
+            .padding(AceTheme.Spacing.md).requestInset(cornerRadius: AceTheme.Radii.lg)
             .accessibilityIdentifier("plan.body")
             if revising {
                 TextField("What should change?", text: $feedback, axis: .vertical)
                     .aceFont(AceTheme.Typography.body, relativeTo: .body).lineLimit(2...5)
                     .padding(AceTheme.Spacing.md).frame(minHeight: AceTheme.Dimensions.touchTarget)
-                    .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.small))
+                    .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.md))
                     .accessibilityIdentifier("plan.feedback")
             }
             HStack(spacing: AceTheme.Spacing.sm) {
@@ -156,7 +156,7 @@ struct FormRequestCard: View {
                     .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.StatusText.failed)
             }
             if let form, form.mode == "url", let url = URL(string: form.url), !form.url.isEmpty {
-                Link(destination: url) { Label("Open consent page", systemImage: "safari") }
+                Link(destination: url) { Label("Open consent page", ace: .compass) }
                     .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
             }
             ForEach(form?.fields ?? []) { field in fieldView(field) }
@@ -181,7 +181,7 @@ struct FormRequestCard: View {
                     .keyboardType(field.type == "string" ? .default : field.type == "integer" ? .numberPad : .decimalPad)
                     .aceFont(AceTheme.Typography.body, relativeTo: .body)
                     .padding(AceTheme.Spacing.md).frame(minHeight: AceTheme.Dimensions.touchTarget)
-                    .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.small))
+                    .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.md))
             } else {
                 Picker(field.title, selection: value) {
                     Text("Choose…").tag("")

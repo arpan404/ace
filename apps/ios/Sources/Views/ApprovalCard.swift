@@ -74,7 +74,7 @@ struct ApprovalCard: View {
             Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { details.toggle() } } label: {
                 HStack(spacing: AceTheme.Spacing.xs) {
                     Text("Details")
-                    Image(systemName: "chevron.right").font(.caption2.weight(.semibold))
+                    AceIcon(.caretRight, size: 12, relativeTo: .caption)
                         .foregroundStyle(AceTheme.Colours.subtleForeground)
                         .rotationEffect(.degrees(details ? 90 : 0))
                 }
@@ -142,8 +142,8 @@ struct CommandBlock: View {
         .scrollBounceBehavior(.basedOnSize)
         .frame(maxHeight: AceTheme.Dimensions.touchTarget * 3)
         .fixedSize(horizontal: false, vertical: true)
-        .requestInset(cornerRadius: AceTheme.Radii.small)
-        .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.small, style: .continuous).strokeBorder(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+        .requestInset(cornerRadius: AceTheme.Radii.md)
+        .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.md, style: .continuous).strokeBorder(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Command")
         .accessibilityValue(command)
@@ -159,7 +159,7 @@ struct RequestButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
     @Environment(\.colorScheme) private var scheme
     func makeBody(configuration: Configuration) -> some View {
-        let shape = RoundedRectangle(cornerRadius: AceTheme.Radii.small, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: AceTheme.Radii.md, style: .continuous)
         configuration.label
             .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
             .lineLimit(1)

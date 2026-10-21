@@ -74,7 +74,7 @@ struct ComposerView<Top: View, Leading: View, Trailing: View>: View {
         }
         .contextMenu {
             if !empty, let alternate = controls?.alternate {
-                Button(alternate == "steer" ? "Steer now" : "Queue for after this turn", systemImage: alternate == "steer" ? "arrow.turn.down.right" : "text.line.last.and.arrowtriangle.forward") { submit(alternate: true) }
+                Button(alternate == "steer" ? "Steer now" : "Queue for after this turn", ace: alternate == "steer" ? .arrowElbowDownRight : .queue) { submit(alternate: true) }
             }
         }
         .accessibilityIdentifier("composer.send")
