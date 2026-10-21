@@ -15,10 +15,10 @@ sys.path.insert(0, os.path.dirname(__file__))
 from helper import Helper, find, outline  # noqa: E402
 
 BINARY = sys.argv[1]
-failures = []
+failures: list[str] = []
 
 
-def check(name, condition, detail=""):
+def check(name: str, condition: bool, detail: object = "") -> None:
     print(("ok   " if condition else "FAIL ") + name + ("" if condition else f"\n     {detail}"))
     if not condition:
         failures.append(name)
@@ -81,7 +81,8 @@ def editor(helper):
     check("type into the text area by id", "error" not in act and act["done"][0].startswith("typed"), act.get("error"))
     after = helper.result("state", app="org.gnome.TextEditor")
     check("a second look shows the typed text", "hello from ace" in text_of(after), outline(after))
-    check("ids stay stable across looks", find(after, role="text area")["id"] == area["id"] and len(ids_before & {n["id"] for n in after["nodes"]}) > 5)
+    again = find(after, role="text area")
+    check("ids stay stable across looks", again is not None and again["id"] == area["id"] and len(ids_before & {n["id"] for n in after["nodes"]}) > 5)
     act = helper.result(
         "act",
         app="org.gnome.TextEditor",
