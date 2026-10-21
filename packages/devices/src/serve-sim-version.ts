@@ -18,13 +18,13 @@ export function serveSimSupported(version: string | undefined): boolean {
 
 /** The version a serve-sim executable reports, or undefined when it doesn't answer sanely. */
 export async function serveSimVersion(
-  command: string,
+  run: { command: string; args: readonly string[] },
   runtime: ProbeRuntime,
   env: NodeJS.ProcessEnv,
 ): Promise<string | undefined> {
   const child = runtime.spawn({
-    command,
-    args: ["--version"],
+    command: run.command,
+    args: [...run.args, "--version"],
     env,
     name: "serve-sim-version",
   });
@@ -46,24 +46,45 @@ export async function serveSimVersion(
   }
 }
 
-/** The serve-sim this machine would use: where it is, its version, and whether ace runs it. */
+/**
+ * The serve-sim this machine would use: how to run it (`args` go before serve-sim's own), its
+ * version, whether ace runs it, and whose copy it is.
+ */
 export interface ServeSimStatus {
   command?: string;
+  args: string[];
   version?: string;
   supported: boolean;
+  /** `env`: ACE_SERVE_SIM; `ace`: the copy ace downloaded; `path`: one on PATH. */
+  source?: "env" | "ace" | "path";
 }
 
-/** Find serve-sim (`ACE_SERVE_SIM`, else on PATH) and read its version. */
+/**
+ * Find serve-sim and read its version: `ACE_SERVE_SIM` when set, else ace's own copy
+ * (`managed`, from the device tools download), else one on PATH.
+ */
 export async function serveSimStatus(
   env: NodeJS.ProcessEnv,
   runtime: ProbeRuntime,
+  managed?: { command: string; args: string[] },
 ): Promise<ServeSimStatus> {
-  const command = await findExecutable(env["ACE_SERVE_SIM"] ?? "serve-sim", env);
-  if (!command) return { supported: false };
-  const version = await serveSimVersion(command, runtime, env);
+  const explicit = env["ACE_SERVE_SIM"];
+  const found = explicit
+    ? await findExecutable(explicit, env).then((command) => command && { command, args: [] })
+    : managed;
+  const source = explicit ? "env" : managed ? "ace" : "path";
+  const run =
+    found ??
+    (explicit
+      ? undefined
+      : await findExecutable("serve-sim", env).then((command) => command && { command, args: [] }));
+  if (!run) return { args: [], supported: false };
+  const version = await serveSimVersion(run, runtime, env);
   return {
-    command,
+    command: run.command,
+    args: run.args,
     ...(version !== undefined ? { version } : {}),
     supported: serveSimSupported(version),
+    source: found ? source : "path",
   };
 }

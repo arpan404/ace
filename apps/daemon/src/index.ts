@@ -7,7 +7,7 @@ export { planStorageItem, type StorageCandidate } from "./storage/planner.ts";
 import { shutdownDeadline } from "./shutdown.ts";
 import { shutdownControl } from "./shutdown-receipt.ts";
 import { connectedDoctorReport } from "./diagnostics-report.ts";
-import { daemonToolchains } from "./toolchains.ts";
+import { daemonToolchains, daemonServeSim } from "./toolchains.ts";
 export { runDaemonProcess } from "./process-daemon.ts";
 export { NewerDataError, HOME_FORMAT_VERSION } from "@ace/service";
 export type { StopReason } from "./stop-reason.ts";
@@ -83,7 +83,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
   const config = options.config ?? readConfig();
   const diagnostics = options.diagnostics ?? {
     doctor: () => connectedDoctorReport(config, process.env, now),
-    toolchains: () => daemonToolchains(process.env, process.platform),
+    toolchains: () =>
+      daemonToolchains(process.env, process.platform, daemonServeSim(config.dataDir)),
   };
   const sharedDiagnostics = shareDiagnostics(diagnostics);
   options = { ...options, diagnostics: sharedDiagnostics };

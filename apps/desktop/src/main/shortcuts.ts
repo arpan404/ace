@@ -41,7 +41,6 @@ export const shortcuts: readonly Shortcut[] = [
   { keymapId: "preview", accelerator: "Ctrl+Shift+P" },
   { keymapId: "devices", accelerator: "Ctrl+Shift+M" },
   { keymapId: "logs", accelerator: "Ctrl+Shift+L" },
-  { keymapId: "takeControl", accelerator: "Ctrl+Shift+C" },
   { keymapId: "newTerminal", accelerator: "Ctrl+Shift+`" },
 ];
 

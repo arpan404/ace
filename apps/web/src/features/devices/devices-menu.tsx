@@ -1,6 +1,7 @@
 import {
   AppWindowIcon,
   DotsThreeIcon,
+  ChartLineIcon,
   FrameCornersIcon,
   GlobeIcon,
   MapPinIcon,
@@ -27,7 +28,12 @@ import {
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
 import { DeviceActionDialog, type DeviceAction } from "./device-action-dialog.tsx";
-import { setScreenOnly, useScreenOnly } from "./device-prefs.ts";
+import {
+  setScreenOnly,
+  setStreamStatsShown,
+  useScreenOnly,
+  useStreamStatsShown,
+} from "./device-prefs.ts";
 import { DisableDevicesDialog } from "./disable-devices-dialog.tsx";
 import type { useDevices } from "./use-devices.ts";
 
@@ -43,6 +49,7 @@ export function DevicesMenu(props: { devices: ReturnType<typeof useDevices> }) {
   const { view } = devices;
   const controls = view.selected ? view.controls : undefined;
   const screenOnly = useScreenOnly();
+  const streamStats = useStreamStatsShown();
   const [action, setAction] = useState<DeviceAction>();
   const [appearance, setAppearance] = useState<"light" | "dark">();
   const [confirm, setConfirm] = useState(false);
@@ -93,6 +100,14 @@ export function DevicesMenu(props: { devices: ReturnType<typeof useDevices> }) {
                   Screen only
                 </span>
               </MenuCheckboxItem>
+              {controls.live && (
+                <MenuCheckboxItem checked={streamStats} onCheckedChange={setStreamStatsShown}>
+                  <span className="inline-flex items-center gap-2">
+                    {icon(ChartLineIcon)}
+                    Stream stats
+                  </span>
+                </MenuCheckboxItem>
+              )}
               {(controls.cleanupRequired || (controls.running && controls.live)) && (
                 <MenuItem icon={icon(StopIcon)} disabled={view.pending} onClick={devices.stop}>
                   {controls.cleanupRequired ? "Retry cleanup" : "Stop live view"}

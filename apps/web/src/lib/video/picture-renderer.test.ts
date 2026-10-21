@@ -32,7 +32,6 @@ function setup(decoder: "decodes" | "broken" | "unsupported" | "none" = "decodes
   });
   const renderer = pictureRenderer<LivePicture>({
     decoder: decoder === "none" ? undefined : factory,
-    image: async () => ({ draw: () => {}, close: () => events.push("image closed") }),
     show: (_image, shown_) => shown.push(shown_.sequence),
     ack: (target, keyframe) => acks.push({ sequence: target.sequence, keyframe }),
     fallback: () => events.push("fallback"),
@@ -64,16 +63,14 @@ test("a delta after a gap waits for a keyframe, asked for through the ack", asyn
   expect(view.shown).toEqual([1, 5]);
 });
 
-test("a codec the platform refuses falls back to JPEG at once; JPEGs show and are freed", async () => {
+test("a codec the platform refuses says so at once, and later pictures are acked unshown", async () => {
   const view = setup("unsupported");
   await view.renderer.render(picture(1, { key: true }));
   expect(view.events.filter((event) => event === "fallback")).toHaveLength(1);
-  // Video still in flight before the switch is acked without showing, so the window drains.
+  // Video still in flight after that is acked without showing, so the daemon's window drains.
   await view.renderer.render(picture(2));
   expect(view.acks.at(-1)).toEqual({ sequence: 2, keyframe: false });
-  await view.renderer.render(picture(3, { codec: "jpeg", key: true }));
-  expect(view.shown).toEqual([3]);
-  expect(view.events).toContain("image closed");
+  expect(view.shown).toEqual([]);
 });
 
 test("a decoder that keeps failing gives up on video after three tries", async () => {
@@ -87,7 +84,7 @@ test("a decoder that keeps failing gives up on video after three tries", async (
   ]);
 });
 
-test("without WebCodecs, H.264 pictures ask for JPEG and are acked unshown", async () => {
+test("without WebCodecs, the view says it can't show video and acks pictures unshown", async () => {
   const view = setup("none");
   await view.renderer.render(picture(1, { key: true }));
   expect(view.events).toContain("fallback");
@@ -103,7 +100,7 @@ test("a new capture starts over: its sequence may begin lower than the last one'
   expect(view.shown).toEqual([90, 1, 2]);
 });
 
-test("a video-only view acks a JPEG without drawing it and keeps its place in the video", async () => {
+test("a still that reaches a live view is acked, never drawn, and the video keeps its place", async () => {
   const shown: number[] = [];
   const acks: { sequence: number; keyframe: boolean }[] = [];
   const renderer = pictureRenderer<LivePicture>({
@@ -123,4 +120,46 @@ test("a video-only view acks a JPEG without drawing it and keeps its place in th
   await renderer.render(picture(3));
   expect(shown).toEqual([1, 3]);
   expect(acks).toEqual([1, 2, 3].map((sequence) => ({ sequence, keyframe: false })));
+});
+
+test("paced to the display, a burst draws only its newest picture at the refresh, acking and freeing the rest", async () => {
+  const shown: number[] = [];
+  const acks: number[] = [];
+  const closed: number[] = [];
+  const refreshes: (() => void)[] = [];
+  const renderer = pictureRenderer<LivePicture>({
+    decoder: (handlers) => ({
+      configure: () => {},
+      decode: (chunk) =>
+        handlers.output({
+          sequence: chunk.sequence,
+          draw: () => {},
+          close: () => closed.push(chunk.sequence),
+        }),
+      close: () => {},
+    }),
+    show: (_image, target) => shown.push(target.sequence),
+    ack: (target) => acks.push(target.sequence),
+    fallback: () => {},
+    pressure: () => {},
+    nextFrame: (draw) => {
+      refreshes.push(draw);
+      return () => {};
+    },
+  });
+  // Pictures held up by a stalled link arrive together, between two refreshes.
+  await renderer.render(picture(1, { key: true }));
+  for (let sequence = 2; sequence <= 5; sequence++) await renderer.render(picture(sequence));
+  // Every decoded picture frees the daemon's window at once; none is drawn before the refresh.
+  expect(acks).toEqual([1, 2, 3, 4, 5]);
+  expect(shown).toEqual([]);
+  expect(closed).toEqual([1, 2, 3, 4]);
+  expect(refreshes).toHaveLength(1);
+  refreshes.shift()?.();
+  expect(shown).toEqual([5]);
+  expect(closed).toEqual([1, 2, 3, 4, 5]);
+  await renderer.render(picture(6));
+  refreshes.shift()?.();
+  expect(shown).toEqual([5, 6]);
+  renderer.close();
 });

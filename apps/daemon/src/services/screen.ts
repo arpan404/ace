@@ -52,6 +52,8 @@ export function createScreenSession(context: SocketContext, simulators: Simulato
       if (!context.options.screen || !context.authorize("admin")) return;
       channel = screenConnection(context.options.screen, simulators, context.sessionId, {
         send: context.send,
+        // Video for a helper that makes only JPEG (Linux, Windows): ace's encoder-only Chrome.
+        pictureEncoder: () => context.options.browser?.videoEncoder(),
         media: {
           bufferedBytes: () => context.socket.bufferedAmount,
           write: (piece) =>
