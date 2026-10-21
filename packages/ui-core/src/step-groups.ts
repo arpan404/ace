@@ -5,11 +5,10 @@ import { exploreAction } from "./explore-command.ts";
 import { isToolSearch } from "./tool-search.ts";
 
 /*
- * A work log's steps as rows: consecutive steps of one family by one agent group into one summary
- * row ("Edited 2 files", "Ran 3 commands and thought once"), exploration into "Explored 3 files
+ * A work log's steps as rows: consecutive steps by one agent group into one summary row
+ * ("Edited 2 files, ran 3 commands and 2 other steps"), exploration alone into "Explored 3 files
  * and 2 searches". What the agent says between steps, an image it showed and an error stand alone
- * and end the group before them; so does a thought that starts a group. A group of one is a
- * plain row. Appending a step regroups only the last group, so a live log costs what changed,
+ * and end the group before them. A group of one is a plain row. Appending a step regroups only the last group, so a live log costs what changed,
  * not its history. Pure.
  */
 
@@ -292,61 +291,16 @@ function makeGroup(facts: readonly StepFact[]): StepGroup {
 }
 
 /**
- * A step's family for grouping: exploration (reads, listings, searches), edits, commands, the web
- * (browsing, fetches, web searches), computer use, the plan, subagents, other tools. Thoughts have
- * none: they ride along with the family around them.
- */
-export type StepFamily =
-  | "explore"
-  | "edit"
-  | "command"
-  | "web"
-  | "computer"
-  | "plan"
-  | "agents"
-  | "question"
-  | "tool";
-
-const families: Record<Exclude<StepKind, "think">, StepFamily> = {
-  read: "explore",
-  list: "explore",
-  search: "explore",
-  edit: "edit",
-  command: "command",
-  browser: "web",
-  fetch: "web",
-  websearch: "web",
-  computer: "computer",
-  plan: "plan",
-  spawn: "agents",
-  agent: "agents",
-  question: "question",
-  tool: "tool",
-};
-
-export function stepFamily(kind: StepKind): StepFamily | undefined {
-  return kind === "think" ? undefined : families[kind];
-}
-
-/**
- * Whether `fact` joins the group holding `facts`: consecutive steps of one family by one agent
- * merge ("Explored 3 files", "Edited 2 files", "Ran 4 commands"); a step of another family
- * starts a new group. What the agent says, an image it showed or an error stands alone and ends
- * the group. A thought joins whatever group it falls in, but a thought standing as a row of its
- * own shows its words, so a step after it starts a new group rather than folding them away:
- * appending to a log never hides what was already in view.
+ * Whether `fact` joins the group holding `facts`: every consecutive step by one agent merges into
+ * one row, whatever mix of reads, commands, edits and thoughts it holds ("Ran 3 commands, read 2
+ * files and 2 other steps"). What the agent says, an image it showed or an error stands alone and
+ * ends the group; so does another agent's step. A question reads as its own row with its answer:
+ * only another question joins it.
  */
 function joins(facts: readonly StepFact[], fact: StepFact): boolean {
   const last = facts.at(-1);
   if (!last || last.alone || fact.alone || last.agentId !== fact.agentId) return false;
-  // A question reads as its own row, with its answer: only another question joins it.
-  if ((last.kind === "question") !== (fact.kind === "question")) return false;
-  if (facts.length === 1 && last.kind === "think") return false;
-  const joining = stepFamily(fact.kind);
-  if (!joining) return true;
-  // The group's family is its first step's that has one; usually its first step.
-  const lead = facts.find((step) => step.kind !== "think");
-  return !lead || stepFamily(lead.kind) === joining;
+  return (last.kind === "question") === (fact.kind === "question");
 }
 
 export interface GroupedSteps {

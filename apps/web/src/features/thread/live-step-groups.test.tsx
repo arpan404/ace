@@ -6,7 +6,7 @@ import { harness } from "@/test/harness.tsx";
 
 beforeEach(() => localStorage.clear());
 
-test("a collapsed live group names its unfinished parallel step; the thought before it keeps its row", async () => {
+test("a collapsed live group names its unfinished parallel step and folds the thought before it", async () => {
   const app = harness();
   app.daemon.createThread({
     id: "parallel",
@@ -43,19 +43,17 @@ test("a collapsed live group names its unfinished parallel step; the thought bef
   await app.open("/t/parallel");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const group = await within(feed).findByRole("button", {
-    name: /Running.*bun run slow.*2.*steps/,
+    name: /Running.*bun run slow.*3.*steps/,
   });
-  // The thought was in view before the steps arrived: they start their own group below it. It
-  // stays one folded row until the reader opens it.
+  // The thought before the steps folds into their group, one step among them.
+  expect(within(feed).queryByRole("button", { name: /^Thought for/ })).toBeNull();
+  await userEvent.click(group);
+  expect(await within(feed).findByRole("button", { name: /bun run quick/ })).toBeTruthy();
   const thought = within(feed).getByRole("button", { name: /^Thought for/ });
-  expect(within(feed).queryByText("The slow build can run alongside the quick check.")).toBeNull();
   await userEvent.click(thought);
   expect(
     await within(feed).findByText("The slow build can run alongside the quick check."),
   ).toBeTruthy();
-  await userEvent.click(thought);
-  await userEvent.click(group);
-  expect(await within(feed).findByRole("button", { name: /bun run quick/ })).toBeTruthy();
   await userEvent.click(group);
   act(() =>
     app.daemon.apply("parallel", [
@@ -71,7 +69,9 @@ test("a collapsed live group names its unfinished parallel step; the thought bef
     await within(feed).findByRole("button", { name: "Waiting for your approval" }),
   ).toBeTruthy();
   act(() => app.daemon.apply("parallel", [facts.toolDone("root", "slow")]));
-  expect(await within(feed).findByRole("button", { name: "Ran 2 commands" })).toBeTruthy();
+  expect(
+    await within(feed).findByRole("button", { name: "Ran 2 commands and thought once" }),
+  ).toBeTruthy();
 });
 
 test("a step the reader opened stays open when the next step joins it into a group", async () => {

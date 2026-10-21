@@ -38,7 +38,7 @@ test("a transcript row has no trailing caret and opens and closes from the keybo
   thinkThenEdit(app);
   await app.open("/t/rows");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const group = await within(feed).findByRole("button", { name: /^Explored 2 files/ });
+  const group = await within(feed).findByRole("button", { name: /^Read 2 files and thought once/ });
   // Nothing after the title: no caret or arrow glyph on the right of the row.
   const lead = group.querySelector("[data-lead]");
   const glyphs = [...group.querySelectorAll("svg")];
@@ -47,10 +47,12 @@ test("a transcript row has no trailing caret and opens and closes from the keybo
   group.focus();
   await userEvent.keyboard("{Enter}");
   expect(group.getAttribute("aria-expanded")).toBe("true");
-  expect(await within(feed).findByRole("list", { name: /Explored 2 files/ })).toBeTruthy();
+  expect(
+    await within(feed).findByRole("list", { name: /Read 2 files and thought once/ }),
+  ).toBeTruthy();
   await userEvent.keyboard(" ");
   expect(group.getAttribute("aria-expanded")).toBe("false");
-  expect(within(feed).queryByRole("list", { name: /Explored 2 files/ })).toBeNull();
+  expect(within(feed).queryByRole("list", { name: /Read 2 files and thought once/ })).toBeNull();
 });
 
 test("a thought row leads with the brain and opens to its words from the keyboard", async () => {
@@ -58,6 +60,10 @@ test("a thought row leads with the brain and opens to its words from the keyboar
   thinkThenEdit(app);
   await app.open("/t/rows");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
+  // The thought folds into the reads after it; opening their row shows it as a step.
+  await userEvent.click(
+    await within(feed).findByRole("button", { name: /^Read 2 files and thought once/ }),
+  );
   const thought = await within(feed).findByRole("button", { name: /^Thought for/ });
   expect(thought.querySelector("[data-lead]")?.getAttribute("data-lead")).toBe("thought");
   expect(within(feed).queryByText("The loader reads the config twice.")).toBeNull();
