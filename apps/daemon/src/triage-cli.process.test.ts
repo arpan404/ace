@@ -36,6 +36,8 @@ it("piped triage generates a feature prompt without starting a daemon or writing
   const output = JSON.parse(result.stdout);
   expect(output.prompt).toContain("Add inbox filtering");
   expect(output.prompt).toContain("acceptance criteria");
+  expect(output.prompt).not.toContain("ace doctor results");
+  expect(output.prompt).not.toContain("Working agreement");
   expect(output.provider).toBe("codex");
   expect(await readdir(home)).toEqual([]);
 });

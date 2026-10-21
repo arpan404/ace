@@ -8,8 +8,12 @@ Date: 2026-10-20. Status: accepted.
 `@ace/diagnostics/triage`. The user chooses bug investigation, feature planning,
 performance investigation or installation repair, describes the issue, reviews the
 prompt and hands it to their installed Claude Code, Codex or Cursor CLI. Prompt
-construction is deterministic and makes no model call. Diagnostics use the existing
-bounded doctor registry and redaction; no conversation or credential files are attached.
+construction is deterministic and makes no model call. The wizard uses keyboard
+selection and editable multiline input. Prompts contain the task, description and
+runtime version. Only the installation-repair template collects doctor checks; it
+lists findings and summarizes successful checks without embedding raw JSON. Probes
+use the existing bounded registry and redaction; no conversation or credential files
+are attached.
 There is no app triage route or provider-launch operation in diagnostics.
 
 The wizard works without a daemon. JSON, jq, print and piped input never launch a

@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, readFile, rm, chmod } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm, chmod, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,9 +32,9 @@ it("the terminal wizard previews the prompt then launches the selected CLI with 
   });
   let output = "";
   const replies = [
-    { match: "Choose a prompt", text: "1\r" },
-    { match: "End with a line", text: "Keep 'quotes', $HOME and $(echo literal).\r.\r" },
-    { match: "Use this prompt", text: "1\r" },
+    { match: "Choose a prompt", text: "\u001b[B\r" },
+    { match: "Describe what you need", text: "Keep 'quotes', $HOME and $(echo literal).\r\r" },
+    { match: "Use this prompt", text: "\r" },
   ];
   const attachment = child.attach({ fromOffset: 0 });
   const outputTask = (async () => {
@@ -54,11 +54,51 @@ it("the terminal wizard previews the prompt then launches the selected CLI with 
     const received = JSON.parse(await readFile(capture, "utf8"));
     expect(received[0]).toBe("--");
     expect(received).toHaveLength(2);
+    expect(received[1]).toContain("acceptance criteria");
+    expect(received[1]).not.toContain("ace doctor results");
     expect(received[1]).toContain("Keep 'quotes', $HOME and $(echo literal).");
     expect(output).toContain("# ace triage");
   } finally {
     attachment.detach();
     await manager.closeAll();
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("Ctrl-C leaves the template picker cleanly without generating or launching anything", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-wizard-cancel-"));
+  const manager = new TerminalManager();
+  const child = manager.openTerminal({
+    shell: process.execPath,
+    args: [fileURLToPath(new URL("./cli.ts", import.meta.url)), "triage"],
+    cwd: home,
+    env: { ...process.env, ACE_HOME: home, PATH: "/usr/bin:/bin" },
+    cols: 80,
+    rows: 24,
+    name: "Cancel triage",
+  });
+  let output = "";
+  let cancelled = false;
+  const attachment = child.attach({ fromOffset: 0 });
+  const reading = (async () => {
+    for await (const event of attachment) {
+      if (event.type !== "data") continue;
+      output += event.data;
+      if (!cancelled && output.includes("Choose a prompt")) {
+        cancelled = true;
+        child.write("\u0003");
+      }
+    }
+  })();
+  try {
+    expect((await child.exited).code).toBe(0);
+    await reading;
+    expect(output).toContain("Cancelled.");
+    expect(output).not.toContain("Opening");
+    expect(await readdir(home)).toEqual([]);
+  } finally {
+    attachment.detach();
+    await manager.closeAll();
+    await rm(home, { recursive: true, force: true });
   }
 });

@@ -1,53 +1,69 @@
-import { createInterface } from "node:readline";
-import { CliFailure } from "./output.ts";
+import { cancel, intro, multiline, note, outro, select, spinner } from "@clack/prompts";
+import { stripVTControlCharacters } from "node:util";
 
-/** One readline owner, closed before the provider takes over stdin. */
+export class TriageCancelled extends Error {}
+const io = { input: process.stdin, output: process.stderr };
+function accepted(value: string | symbol): string {
+  if (typeof value === "symbol") {
+    cancel("Cancelled.", io);
+    throw new TriageCancelled();
+  }
+  return value;
+}
+
 export function triageWizard() {
-  const lines = createInterface({ input: process.stdin, output: process.stderr, terminal: true });
-  const input = lines[Symbol.asyncIterator]();
-  const next = async () => {
-    const line = await input.next();
-    if (line.done) throw new CliFailure("needs-human", "Triage cancelled.");
-    return line.value;
-  };
+  intro("ace triage", io);
   return {
     async choose<T extends string>(
-      label: string,
-      choices: readonly { value: T; label: string }[],
+      message: string,
+      choices: readonly { value: T; label: string; hint?: string }[],
     ): Promise<T> {
-      for (;;) {
-        process.stderr.write(
-          `\n${label}\n${choices.map((choice, index) => `  ${index + 1}. ${choice.label}`).join("\n")}\n> `,
-        );
-        const value = (await next()).trim();
-        const choice = choices.find(
-          (item, index) => value === String(index + 1) || value === item.value,
-        );
-        if (choice) return choice.value;
-        process.stderr.write("Choose one of the listed numbers.\n");
+      const value = accepted(
+        await select({
+          ...io,
+          message,
+          options: choices.map((choice) => ({ ...choice, value: String(choice.value) })),
+        }),
+      );
+      const choice = choices.find((entry) => entry.value === value);
+      if (!choice) throw new Error("Unknown triage choice");
+      return choice.value;
+    },
+    async describe(initialValue?: string): Promise<string> {
+      return accepted(
+        await multiline({
+          ...io,
+          message: "Describe what you need (Enter twice to continue)",
+          placeholder: "What should happen? What happens today?",
+          ...(initialValue ? { initialValue } : {}),
+          validate: (value) =>
+            !value?.trim()
+              ? "Enter a description."
+              : value.length > 16_000
+                ? "Use at most 16,000 characters."
+                : undefined,
+        }),
+      );
+    },
+    preview(prompt: string) {
+      note(stripVTControlCharacters(prompt), "Prompt", io);
+    },
+    async progress<T>(run: () => Promise<T>): Promise<T> {
+      const status = spinner(io);
+      status.start("Checking this computer");
+      try {
+        const result = await run();
+        status.stop("Checks collected");
+        return result;
+      } catch (error) {
+        status.error("Checks failed");
+        throw error;
       }
     },
-    async describe(): Promise<string> {
-      process.stderr.write(
-        "\nDescribe what you need. End with a line containing only a dot (.).\n",
-      );
-      const result: string[] = [];
-      let length = 0;
-      for (;;) {
-        const line = await next();
-        if (line === ".") {
-          if (result.join("\n").trim()) return result.join("\n");
-          process.stderr.write("Enter a description first.\n");
-          continue;
-        }
-        length += line.length + 1;
-        if (length > 16_000)
-          throw new CliFailure("refused", "Description exceeds 16,000 characters.");
-        result.push(line);
-      }
+    finish(message: string) {
+      outro(message, io);
     },
     close() {
-      lines.close();
       process.stdin.pause();
     },
   };

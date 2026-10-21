@@ -283,10 +283,12 @@ and is never part of a cleanup plan. A run that hits its chunk limit returns
 ## Triage and doctor repairs
 
 Run `ace triage` in a terminal to select a prompt template, enter a multiline
-description (finish with a line containing only `.`), review it, then choose Claude
+description (press Enter twice to continue), review it, then choose Claude
 Code, Codex or Cursor CLI. The selected provider opens interactively in the current
 folder with your prompt. Its installed CLI owns login, permissions and session history.
-No daemon is needed. Prompt generation itself makes no model call.
+Use the arrow keys and Enter to choose, or Ctrl-C to cancel. No daemon is needed.
+Prompt generation makes no model call. Setup checks are collected only for the
+`doctor` template; other templates use the description and runtime version.
 
 ```sh
 ace triage

@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import { stripVTControlCharacters } from "node:util";
 import { TriageKind, TriageProvider, type DiagnosticReport } from "@ace/protocol";
 import { buildTriagePrompt, triageProviders, triageTemplates } from "@ace/diagnostics/triage";
 import { collectDoctorReport } from "../diagnostics-report.ts";
@@ -8,11 +7,11 @@ import type { Config } from "../config.ts";
 import { option, validateArgs, type Args } from "./args.ts";
 import { print, prompt as readPrompt } from "./io.ts";
 import { CliFailure } from "./output.ts";
-import { triageWizard } from "./triage-wizard.ts";
+import { triageWizard, TriageCancelled } from "./triage-wizard.ts";
 
 export const triageHelp = `ace triage [DESCRIPTION|-] [--kind bug|feature|performance|doctor] [--provider claude|codex|cursor] [--print]
 
-With a terminal, choose a prompt template, describe the issue and review the prompt before opening a CLI.
+Use arrow keys and Enter to choose a template. Enter a description, press Enter twice, then review the prompt before opening a CLI.
 --print, --json and --jq generate without launching. Pipe a description using -.
 The wizard runs locally without a daemon. Provider CLIs keep their own login and permission settings.
 ace doctor [--fix] [--provider claude|codex|cursor] [--print] [--json]
@@ -45,26 +44,48 @@ export async function triageCommand(args: Args, config: Config): Promise<void> {
       suppliedKind ?? (wizard ? await wizard.choose("Choose a prompt", triageTemplates) : "bug");
     let description =
       args.words[1] === undefined && wizard ? await wizard.describe() : await readPrompt(args, 1);
-    const report = await collectDoctorReport(config, process.env, Date.now);
+    const collect = () => collectDoctorReport(config, process.env, Date.now);
+    const report =
+      kind === "doctor" ? await (wizard ? wizard.progress(collect) : collect()) : undefined;
     for (;;) {
-      generated = buildTriagePrompt({ kind, description, report, environment: environment() });
+      generated = buildTriagePrompt({
+        kind,
+        description,
+        ...(report ? { report } : {}),
+        environment: environment(),
+      });
       if (!wizard) break;
-      process.stderr.write(`\n${stripVTControlCharacters(generated)}\n`);
+      wizard.preview(generated);
       const action = await wizard.choose("Use this prompt", [
         { value: "open", label: "Open in a CLI" },
         { value: "edit", label: "Edit the description" },
         { value: "print", label: "Print prompt and exit" },
         { value: "cancel", label: "Cancel" },
       ]);
-      if (action === "cancel") return;
+      if (action === "cancel") {
+        wizard.finish("Cancelled.");
+        return;
+      }
       if (action === "edit") {
-        description = await wizard.describe();
+        description = await wizard.describe(description);
         continue;
       }
-      if (action === "open") provider ??= await wizard.choose("Open in", triageProviders);
+      if (action === "open")
+        provider ??= await wizard.choose(
+          "Open in",
+          triageProviders.map((entry) => ({ ...entry, hint: entry.command })),
+        );
       else provider = undefined;
+      wizard.finish(
+        provider
+          ? `Opening ${triageProviders.find((entry) => entry.value === provider)?.label ?? provider}…`
+          : "Prompt ready.",
+      );
       break;
     }
+  } catch (error) {
+    if (error instanceof TriageCancelled) return;
+    throw error;
   } finally {
     wizard?.close();
   }
@@ -110,6 +131,10 @@ export async function offerDoctorHandoff(args: Args, report: DiagnosticReport): 
       ...triageProviders,
       { value: "skip", label: "Keep the report and exit" },
     ]);
+    wizard.finish(provider === "skip" ? "Report kept." : "Opening CLI…");
+  } catch (error) {
+    if (error instanceof TriageCancelled) return;
+    throw error;
   } finally {
     wizard.close();
   }
