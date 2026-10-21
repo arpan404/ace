@@ -1,3 +1,4 @@
+import { colors } from "../forge-list-rows.ts";
 import {
   ForgeIssueDetail,
   ForgePrDetail,
@@ -241,6 +242,7 @@ function issue(
     author: patch.author,
     state: patch.state ?? "open",
     labels: patch.labels ?? [],
+    labelColors: colors(patch.labels ?? []),
     assignees: patch.assignees ?? [],
     milestone: null,
     createdAt: iso(now - updated - 30 * hour),

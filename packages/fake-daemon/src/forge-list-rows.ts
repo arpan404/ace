@@ -15,7 +15,8 @@ const palette: Record<string, string> = {
   "good first issue": "7057ff",
 };
 
-const colors = (labels: readonly string[]): Record<string, string> => {
+/** GitHub's colour for each fixture label that has one. */
+export const colors = (labels: readonly string[]): Record<string, string> => {
   const found: Record<string, string> = {};
   for (const label of labels) {
     const color = palette[label];
