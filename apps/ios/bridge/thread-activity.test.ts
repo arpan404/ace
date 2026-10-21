@@ -21,7 +21,7 @@ test("a running turn reads Working with a timer", async () => {
   ]);
   open(connect(fake), "run");
   const row = await until(() => activity(), "the live line");
-  expect(row).toMatchObject({ label: "Working", tone: "working" });
+  expect(row).toMatchObject({ label: "Working", tone: "working", waiting: false });
   expect(row?.since).toBeTypeOf("number");
 });
 
@@ -43,7 +43,7 @@ test("a parent whose turn ended still reads as waiting while its subagent works"
   ]);
   open(connect(fake), "tree");
   const row = await until(() => activity(), "the live line");
-  expect(row).toMatchObject({ label: "Waiting on 1", tone: "working" });
+  expect(row).toMatchObject({ label: "Waiting on 1", tone: "working", waiting: true });
 });
 
 test("a settled thread has no live line", async () => {

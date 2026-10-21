@@ -72,7 +72,8 @@ struct TuneChip: View {
     }
 }
 
-/// A single model and reasoning control, with room for the chosen model's actual name.
+/// The provider's mark and the model's name: opens the model list. Effort and speed are read out
+/// with it and chosen in the list.
 struct ComposerModelButton: View {
     let screen: ThreadScreenModel
     let open: () -> Void
@@ -80,14 +81,17 @@ struct ComposerModelButton: View {
     private var effort: String? { screen.tune.flatMap { tune in tune.efforts.first { $0.id == tune.effort }?.label } }
     var body: some View {
         Button(action: open) {
-            HStack(spacing: AceTheme.Spacing.xs) {
-                Text(name).lineLimit(1).truncationMode(.middle)
-                if screen.tune?.speed != nil && screen.tune?.speed != "standard" { Image(systemName: "bolt.fill") }
-                if let effort { Text(effort).foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1) }
+            HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
+                if let provider = screen.controls?.provider, !provider.isEmpty { ProviderMark(provider: provider) }
+                Text(name).lineLimit(1).truncationMode(.tail)
+                    .frame(maxWidth: AceTheme.Dimensions.touchTarget * 3, alignment: .leading)
                 Image(systemName: screen.controls?.switching == "queued" ? "clock" : "chevron.down")
+                    .font(.caption2.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
             }
-            .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+            .fixedSize(horizontal: true, vertical: false)
+            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
             .foregroundStyle(AceTheme.Colours.mutedForeground)
+            .padding(.horizontal, AceTheme.Spacing.xs)
             .frame(minHeight: AceTheme.Dimensions.touchTarget)
             .contentShape(Rectangle())
         }

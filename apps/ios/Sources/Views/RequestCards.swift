@@ -1,65 +1,61 @@
 import SwiftUI
 
-/// The card frame the request cards share with approvals and questions.
-private struct RequestCardFrame: ViewModifier {
+/// The solid card every request sits in, right above the composer (a question takes the
+/// composer's place): one surface, a hairline edge and a soft lift off the transcript.
+struct RequestCardFrame: ViewModifier {
     @Environment(\.colorScheme) private var colourScheme
     let submission: ApprovalSubmission?
     func body(content: Content) -> some View {
         content
-            .padding(AceTheme.Spacing.lg).background(AceTheme.Colours.card, in: RoundedRectangle(cornerRadius: AceTheme.Radii.approval))
-            .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.approval).stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+            .padding(.horizontal, AceTheme.Spacing.lg).padding(.top, AceTheme.Spacing.lg + AceTheme.Spacing.xxs).padding(.bottom, AceTheme.Spacing.lg)
+            .background(AceTheme.Colours.card, in: RoundedRectangle(cornerRadius: AceTheme.Radii.approval, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.approval, style: .continuous).stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
             .shadow(color: AceTheme.Colours.shadow.opacity(AceTheme.Opacity.shadow(colourScheme)), radius: AceTheme.Elevation.floating, y: AceTheme.Elevation.card)
-            .padding(.horizontal, AceTheme.Dimensions.composerInset).padding(.bottom, AceTheme.Spacing.sm)
+            .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.sm)
             .sensoryFeedback(.selection, trigger: submission?.requestId)
     }
 }
 
-/// Who asks and what kind of request it is, the saving state, and the view-only note.
-private struct RequestHeader: View {
-    let kind: String
+/// The request's bold title and one muted line under it.
+struct RequestHeader: View {
     let title: String
+    var detail = ""
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-            Label(kind, systemImage: "circle.fill").labelStyle(DotLabel())
-                .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             Text(title).aceFont(AceTheme.Typography.title, relativeTo: .headline).fixedSize(horizontal: false, vertical: true)
+            if !detail.isEmpty {
+                Text(detail).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground).fixedSize(horizontal: false, vertical: true)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
-private struct DotLabel: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: AceTheme.Spacing.xs) {
-            Circle().fill(AceTheme.Status.needsYou).frame(width: AceTheme.Spacing.sm, height: AceTheme.Spacing.sm)
-            configuration.title
-        }
-    }
-}
-private struct RequestFooter: View {
+/// The view-only note, or "Sending…" while the answer is on its way to the machine.
+struct RequestFooter: View {
     let submission: ApprovalSubmission?
     let canAct: Bool
     var body: some View {
         if !canAct { ViewOnlyNote.approval }
-        if let submission {
-            Label(submission.phase == .saving ? "Saving your answer…" : "Waiting for the daemon", systemImage: "clock")
-                .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+        if submission != nil {
+            Text("Sending…").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                .frame(maxWidth: .infinity)
         }
     }
 }
-/// A full-width card button, filled for the primary choice.
+/// A full-width card pill: the primary choice in ink, the rest quiet.
 struct CardButton: View {
-    @Environment(\.colorScheme) private var colourScheme
     let title: String
     var primary = false
     var enabled = true
     let action: () -> Void
     var body: some View {
-        Button(action: action) {
-            Text(title).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).lineLimit(2).multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget)
-                .foregroundStyle(primary ? AceTheme.Colours.background : AceTheme.Colours.foreground)
-                .background(primary ? AceTheme.Colours.foreground : AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.button))
-                .opacity(enabled ? 1 : AceTheme.Opacity.disabled(colourScheme))
-        }.buttonStyle(.plain).disabled(!enabled)
+        if primary {
+            Button(title, action: action).buttonStyle(.pillPrimary).disabled(!enabled)
+        } else {
+            Button(title, action: action).buttonStyle(.pillSecondary).disabled(!enabled)
+        }
     }
 }
 
@@ -76,7 +72,7 @@ struct PlanReviewCard: View {
     var body: some View {
         let plan = interaction.plan
         VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
-            RequestHeader(kind: "Plan review", title: plan?.title ?? "Review the plan")
+            RequestHeader(title: plan?.title ?? "Review the plan", detail: "Plan review")
             if let plan, !plan.summary.isEmpty {
                 Text(plan.summary).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
                     .fixedSize(horizontal: false, vertical: true)
@@ -92,7 +88,7 @@ struct PlanReviewCard: View {
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: planHeight)
-            .padding(AceTheme.Spacing.md).background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.code))
+            .padding(AceTheme.Spacing.md).background(AceTheme.Colours.background, in: RoundedRectangle(cornerRadius: AceTheme.Radii.code))
             .accessibilityIdentifier("plan.body")
             if revising {
                 TextField("What should change?", text: $feedback, axis: .vertical)
@@ -131,7 +127,7 @@ struct FormRequestCard: View {
     var body: some View {
         let form = interaction.form
         VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
-            RequestHeader(kind: form?.server ?? "Request", title: form?.title ?? "")
+            RequestHeader(title: form?.title ?? "", detail: form?.server ?? "")
             if let form, form.message != form.title, !form.message.isEmpty {
                 Text(form.message).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
             }
@@ -202,7 +198,7 @@ struct BrowserHelpCard: View {
     let answer: ([String: Any]) -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
-            RequestHeader(kind: "Browser", title: interaction.help?.title ?? "")
+            RequestHeader(title: interaction.help?.title ?? "", detail: "Browser")
             if let detail = interaction.help?.detail, !detail.isEmpty {
                 Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
             }

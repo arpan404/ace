@@ -29,6 +29,8 @@ export function activityRow(activity: TurnActivity | undefined) {
     tone: activity.tone,
     /** The timer's origin in ms, already moved past time spent waiting on the person. */
     since: activity.elapsedFrom ?? null,
+    /** The root does nothing itself while its subagents work. */
+    waiting: activity.waitingOnSubagents === true,
     commands: commands > 0 ? pluralCount(commands, "command", "commands") : "",
   };
 }

@@ -68,6 +68,8 @@ struct ActivityRow: Codable, Sendable, Equatable {
     let tone: String
     /// The timer's origin in ms since 1970; nil when the line has no timer.
     let since: Double?
+    /// The root does nothing itself while its subagents work ("Waiting on 2").
+    let waiting: Bool
     /// "1 command": background commands running beside the work; empty when none.
     let commands: String
 }
