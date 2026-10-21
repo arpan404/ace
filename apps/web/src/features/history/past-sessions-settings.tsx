@@ -22,12 +22,12 @@ export function PastSessionsSettings() {
     <SettingSection
       label="Past sessions"
       anchor="past-sessions"
-      note="Conversations you had in a provider's own app. ace reads them only when you ask, keeps what it finds in memory and forgets it when you leave this page."
+      note="Conversations from a provider's own app, read only when you ask and forgotten when you leave this page."
     >
       {!project ? (
         <SettingNote>Add a project first. Past sessions are found by project folder.</SettingNote>
       ) : (
-        <div className="flex flex-col gap-3 px-4 py-3">
+        <div className="flex flex-col gap-3 py-3">
           <div className="flex flex-wrap items-center gap-2">
             <Select
               label="Past sessions project"

@@ -23,12 +23,14 @@ import { Route as AutomationsIndexRouteImport } from "./routes/automations.index
 import { Route as AutomationsNewRouteImport } from "./routes/automations.new"
 import { Route as SettingsIndexRouteImport } from "./routes/settings.index"
 import { Route as SettingsAdvancedRouteImport } from "./routes/settings.advanced"
+import { Route as SettingsAgentsRouteImport } from "./routes/settings.agents"
 import { Route as SettingsAppearanceRouteImport } from "./routes/settings.appearance"
 import { Route as SettingsBrowserRouteImport } from "./routes/settings.browser"
 import { Route as SettingsComputerUseRouteImport } from "./routes/settings.computer-use"
 import { Route as SettingsGeneralRouteImport } from "./routes/settings.general"
 import { Route as SettingsKeyboardRouteImport } from "./routes/settings.keyboard"
 import { Route as SettingsNotificationsRouteImport } from "./routes/settings.notifications"
+import { Route as SettingsOverviewRouteImport } from "./routes/settings.overview"
 import { Route as SettingsPromptsRouteImport } from "./routes/settings.prompts"
 import { Route as SettingsRemoteRouteImport } from "./routes/settings.remote"
 import { Route as SettingsSourceControlRouteImport } from "./routes/settings.source-control"
@@ -112,6 +114,11 @@ const SettingsAdvancedRoute = SettingsAdvancedRouteImport.update({
   path: "/advanced",
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsAgentsRoute = SettingsAgentsRouteImport.update({
+  id: "/agents",
+  path: "/agents",
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
   id: "/appearance",
   path: "/appearance",
@@ -140,6 +147,11 @@ const SettingsKeyboardRoute = SettingsKeyboardRouteImport.update({
 const SettingsNotificationsRoute = SettingsNotificationsRouteImport.update({
   id: "/notifications",
   path: "/notifications",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsOverviewRoute = SettingsOverviewRouteImport.update({
+  id: "/overview",
+  path: "/overview",
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsPromptsRoute = SettingsPromptsRouteImport.update({
@@ -224,12 +236,14 @@ export interface FileRoutesByFullPath {
   "/new": typeof HomeNewRoute
   "/automations/new": typeof AutomationsNewRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
+  "/settings/agents": typeof SettingsAgentsRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
   "/settings/browser": typeof SettingsBrowserRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
+  "/settings/overview": typeof SettingsOverviewRoute
   "/settings/prompts": typeof SettingsPromptsRoute
   "/settings/remote": typeof SettingsRemoteRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
@@ -254,12 +268,14 @@ export interface FileRoutesByTo {
   "/new": typeof HomeNewRoute
   "/automations/new": typeof AutomationsNewRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
+  "/settings/agents": typeof SettingsAgentsRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
   "/settings/browser": typeof SettingsBrowserRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
+  "/settings/overview": typeof SettingsOverviewRoute
   "/settings/prompts": typeof SettingsPromptsRoute
   "/settings/remote": typeof SettingsRemoteRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
@@ -290,12 +306,14 @@ export interface FileRoutesById {
   "/_home/new": typeof HomeNewRoute
   "/automations/new": typeof AutomationsNewRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
+  "/settings/agents": typeof SettingsAgentsRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
   "/settings/browser": typeof SettingsBrowserRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
+  "/settings/overview": typeof SettingsOverviewRoute
   "/settings/prompts": typeof SettingsPromptsRoute
   "/settings/remote": typeof SettingsRemoteRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
@@ -327,12 +345,14 @@ export interface FileRouteTypes {
     | "/new"
     | "/automations/new"
     | "/settings/advanced"
+    | "/settings/agents"
     | "/settings/appearance"
     | "/settings/browser"
     | "/settings/computer-use"
     | "/settings/general"
     | "/settings/keyboard"
     | "/settings/notifications"
+    | "/settings/overview"
     | "/settings/prompts"
     | "/settings/remote"
     | "/settings/source-control"
@@ -357,12 +377,14 @@ export interface FileRouteTypes {
     | "/new"
     | "/automations/new"
     | "/settings/advanced"
+    | "/settings/agents"
     | "/settings/appearance"
     | "/settings/browser"
     | "/settings/computer-use"
     | "/settings/general"
     | "/settings/keyboard"
     | "/settings/notifications"
+    | "/settings/overview"
     | "/settings/prompts"
     | "/settings/remote"
     | "/settings/source-control"
@@ -392,12 +414,14 @@ export interface FileRouteTypes {
     | "/_home/new"
     | "/automations/new"
     | "/settings/advanced"
+    | "/settings/agents"
     | "/settings/appearance"
     | "/settings/browser"
     | "/settings/computer-use"
     | "/settings/general"
     | "/settings/keyboard"
     | "/settings/notifications"
+    | "/settings/overview"
     | "/settings/prompts"
     | "/settings/remote"
     | "/settings/source-control"
@@ -526,6 +550,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsAdvancedRouteImport
       parentRoute: typeof SettingsRoute
     }
+    "/settings/agents": {
+      id: "/settings/agents"
+      path: "/agents"
+      fullPath: "/settings/agents"
+      preLoaderRoute: typeof SettingsAgentsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     "/settings/appearance": {
       id: "/settings/appearance"
       path: "/appearance"
@@ -566,6 +597,13 @@ declare module "@tanstack/react-router" {
       path: "/notifications"
       fullPath: "/settings/notifications"
       preLoaderRoute: typeof SettingsNotificationsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/overview": {
+      id: "/settings/overview"
+      path: "/overview"
+      fullPath: "/settings/overview"
+      preLoaderRoute: typeof SettingsOverviewRouteImport
       parentRoute: typeof SettingsRoute
     }
     "/settings/prompts": {
@@ -702,12 +740,14 @@ const AutomationsRouteWithChildren = AutomationsRoute._addFileChildren(
 
 interface SettingsRouteChildren {
   SettingsAdvancedRoute: typeof SettingsAdvancedRoute
+  SettingsAgentsRoute: typeof SettingsAgentsRoute
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
   SettingsBrowserRoute: typeof SettingsBrowserRoute
   SettingsComputerUseRoute: typeof SettingsComputerUseRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
   SettingsKeyboardRoute: typeof SettingsKeyboardRoute
   SettingsNotificationsRoute: typeof SettingsNotificationsRoute
+  SettingsOverviewRoute: typeof SettingsOverviewRoute
   SettingsPromptsRoute: typeof SettingsPromptsRoute
   SettingsRemoteRoute: typeof SettingsRemoteRoute
   SettingsSourceControlRoute: typeof SettingsSourceControlRoute
@@ -719,12 +759,14 @@ interface SettingsRouteChildren {
 
 const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAdvancedRoute: SettingsAdvancedRoute,
+  SettingsAgentsRoute: SettingsAgentsRoute,
   SettingsAppearanceRoute: SettingsAppearanceRoute,
   SettingsBrowserRoute: SettingsBrowserRoute,
   SettingsComputerUseRoute: SettingsComputerUseRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,
   SettingsKeyboardRoute: SettingsKeyboardRoute,
   SettingsNotificationsRoute: SettingsNotificationsRoute,
+  SettingsOverviewRoute: SettingsOverviewRoute,
   SettingsPromptsRoute: SettingsPromptsRoute,
   SettingsRemoteRoute: SettingsRemoteRoute,
   SettingsSourceControlRoute: SettingsSourceControlRoute,

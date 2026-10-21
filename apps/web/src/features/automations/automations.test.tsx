@@ -10,7 +10,7 @@ configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 
-await import("../settings/general-page.tsx");
+await import("../settings/agents-page.tsx");
 
 type Seed = ReturnType<typeof workbenchServices>;
 
@@ -37,7 +37,7 @@ async function stored(app: ReturnType<typeof harness>, id: string) {
   return reply.automations?.find((automation) => automation.id === id);
 }
 
-/** Turn the daemon's automation service on or off, as Settings › General does. */
+/** Turn the daemon's automation service on or off, as Settings › Agents does. */
 const setAutomations = (app: ReturnType<typeof harness>, value: boolean) =>
   app.client.request({
     type: "settings.set",
