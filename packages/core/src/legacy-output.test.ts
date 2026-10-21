@@ -91,17 +91,36 @@ it("validates inherited shell details before accepting legacy output and emits o
       item: "shell",
       draft: { type: "tool_call", call: { detail: { output } } },
     });
-  for (const output of ["", "differentprefix!"]) {
-    expect(upsert(output)).toContainEqual(
-      expect.objectContaining({
-        type: "item.created",
-        item: expect.objectContaining({ type: "notice", level: "warning" }),
-      }),
-    );
-    expect(h.item("shell")).toMatchObject({
-      call: { detail: { output: { bytes: 13, tail: "thirteenbytes" } } },
-    });
-  }
+  const first = upsert("");
+  const created = first.find((event) => event.type === "item.created");
+  expect(created).toMatchObject({
+    type: "item.created",
+    item: expect.objectContaining({ type: "notice", level: "warning" }),
+  });
+  if (created?.type !== "item.created" || created.item.type !== "notice")
+    throw new Error("Expected initial warning notice");
+  const noticeId = created.item.id;
+  expect(h.item("shell")).toMatchObject({
+    call: { detail: { output: { bytes: 13, tail: "thirteenbytes" } } },
+  });
+  const second = upsert("differentprefix!");
+  expect(second.filter((event) => event.type === "item.created")).toEqual([]);
+  const updated = second.find((event) => event.type === "item.updated");
+  expect(updated).toMatchObject({
+    type: "item.updated",
+    item: expect.objectContaining({
+      id: noticeId,
+      type: "notice",
+      level: "warning",
+      text: expect.stringContaining("(2 times)"),
+    }),
+  });
+  if (updated?.type !== "item.updated" || updated.item.type !== "notice")
+    throw new Error("Expected coalesced warning update");
+  expect(updated.item.raw.filter((raw) => raw.type === "core.rejected_fact")).toHaveLength(2);
+  expect(h.item("shell")).toMatchObject({
+    call: { detail: { output: { bytes: 13, tail: "thirteenbytes" } } },
+  });
   const events = upsert("thirteenbytes!");
   expect(events.filter((e) => e.type === "item.delta").map((e) => e.append)).toEqual(["!"]);
   expect(h.item("shell")).toMatchObject({
