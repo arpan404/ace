@@ -264,6 +264,39 @@ it("obsolete async watcher failures cannot mark a replaced definition as broken"
   expect(h.errors.map(String).join(" ")).not.toContain("Old watcher failed late");
 });
 
+it("list schedules carry the authoritative latest run per automation", async () => {
+  const h = harness();
+  h.service.put(definition());
+  h.service.put(definition({ id: "other" }));
+  expect(
+    list(h, "empty").schedules?.find((entry) => entry.id === "triage")?.lastRun,
+  ).toBeUndefined();
+  const first = h.service.trigger("triage", { key: "one", variables: { subject: "a" } });
+  await h.finish(0);
+  const second = h.service.trigger("triage", { key: "two", variables: { subject: "b" } });
+  await h.finish(1);
+  h.service.trigger("other", { key: "one", variables: { subject: "c" } });
+  await h.finish(2);
+  const schedules = list(h, "runs").schedules;
+  expect(schedules?.find((entry) => entry.id === "triage")?.lastRun).toMatchObject({
+    id: second.id,
+    eventKey: "two",
+    status: "succeeded",
+  });
+  expect(schedules?.find((entry) => entry.id === "other")?.lastRun).toMatchObject({
+    automationId: "other",
+    eventKey: "one",
+  });
+  expect(first.id).not.toBe(second.id);
+  h.restart();
+  expect(
+    h.service
+      .handle({ type: "automation.list", requestId: "after-restart" })
+      .schedules?.find((entry) => entry.id === "triage")?.lastRun?.id,
+  ).toBe(second.id);
+  await h.service.settled();
+});
+
 it("a late callback from a failed watcher admits nothing, while retry heals", async () => {
   const h = harness();
   const receivers: ((event: AutomationEvent) => Promise<void>)[] = [];

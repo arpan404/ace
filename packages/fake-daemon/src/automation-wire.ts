@@ -141,6 +141,10 @@ export class FakeAutomationWire {
               (automation.trigger.kind === "github"
                 ? this.pollErrors.get(automation.id)
                 : undefined),
+            lastRun: [...this.runs.values()]
+              .filter((run) => run.automationId === automation.id)
+              .toSorted((a, b) => b.startedAt - a.startedAt || (a.id < b.id ? -1 : 1))
+              .at(0),
             nextRunAt:
               this.enabled() && automation.enabled && automation.trigger.kind === "schedule"
                 ? (compileSchedule(automation.trigger.schedule).next(this.now() - 1) ?? null)

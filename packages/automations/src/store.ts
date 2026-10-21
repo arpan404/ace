@@ -281,6 +281,12 @@ export class AutomationStore {
   clearTriggerError(id: string): void {
     this.sql("DELETE FROM automation_trigger_errors WHERE id=?").run(id);
   }
+  latestRun(automationId: string): AutomationRun | undefined {
+    const row = this.sql(
+      "SELECT body FROM automation_runs WHERE automation_id=? ORDER BY seq DESC LIMIT 1",
+    ).get(automationId);
+    return row ? AutomationRun.parse(JSON.parse(String(row.body))) : undefined;
+  }
   running(id: string): boolean {
     return (
       this.sql(

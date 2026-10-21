@@ -152,6 +152,7 @@ export const AutomationResponse = z.object({
         revision: AutomationRevision.optional(),
         lastPollError: AutomationPollError.optional(),
         triggerError: AutomationTriggerError.optional(),
+        lastRun: AutomationRun.optional(),
       }),
     )
     .max(1000)

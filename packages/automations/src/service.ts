@@ -687,6 +687,7 @@ export class AutomationService {
               revision: job.revision,
               lastPollError: job.lastPollError,
               triggerError: job.triggerError,
+              lastRun: this.store.latestRun(job.automation.id),
             })),
           };
         case "automation.inbox":
