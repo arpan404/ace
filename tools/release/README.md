@@ -13,7 +13,7 @@ bun run --filter @ace/release build 1.0.0 darwin-x64 /secure/ace-public.pem
 
 ## Linux (linux-x64, linux-arm64)
 
-Linux releases are glibc-only and must run on Ubuntu 20.04+, Debian 11+, Fedora and Arch (ADR 0091). Everything ace compiles is therefore built inside a Debian 11 container (glibc 2.31, GCC 10), on a host of the target architecture: node-pty's `pty.node`, the workspace addon `descriptor.node` (built by `bun install`'s postinstall), the terminal guardian `group-keeper`, and the screen helper. The bundled Node 24.13.0 itself needs glibc 2.28. `tools/release/linux/setup-debian11.sh` prepares a fresh `debian:11` container as root: it points apt at archive.debian.org (Debian 11 has left the regular mirrors), installs the C/C++ toolchain and PipeWire headers, the checksum-pinned Node 24.13.0, Bun 1.4.0 and Rust 1.91.1. `.github/workflows/release.yml` runs the same steps on `ubuntu-24.04` and `ubuntu-24.04-arm`.
+Linux releases are glibc-only and must run on Ubuntu 20.04+, Debian 11+, Fedora and Arch ([ADR 0093](../../docs/adr/0093-linux-release.md)). Everything ace compiles is therefore built inside a Debian 11 container (glibc 2.31, GCC 10), on a host of the target architecture: node-pty's `pty.node`, the workspace addon `descriptor.node` (built by `bun install`'s postinstall), the terminal guardian `group-keeper`, and the screen helper. The bundled Node 24.13.0 itself needs glibc 2.28. `tools/release/linux/setup-debian11.sh` prepares a fresh `debian:11` container as root: it points apt at archive.debian.org (Debian 11 has left the regular mirrors), installs the C/C++ toolchain and PipeWire headers, the checksum-pinned Node 24.13.0, Bun 1.4.0 and Rust 1.91.1. `.github/workflows/release.yml` runs the same steps on `ubuntu-24.04` and `ubuntu-24.04-arm`.
 
 node-pty 1.1.0 has no Linux prebuilds. `native linux-<arch>` rebuilds the locked package against Node 24.13.0 headers, records compiler provenance and writes checksum-pinned input JSON (`dist/native/linux-<arch>.json`) for the build. Do not reuse another host's binary, a different Node ABI or an unverified download.
 
@@ -26,8 +26,10 @@ node tools/release/src/native.ts linux-arm64
 node tools/release/src/build.ts 1.0.0 linux-arm64 /secure/ace-public.pem tools/release/dist/native/linux-arm64.json
 node tools/release/src/glibc-check.ts tools/release/dist/linux-arm64
 node tools/release/src/smoke.ts tools/release/dist/linux-arm64
-# The desktop packages from the same container (AppImage, deb, tar.gz):
-ACE_RELEASE_PUBLIC_KEY_FILE=/secure/ace-public.pem ACE_VERSION=1.0.0 node apps/desktop/scripts/package.ts --full --arch arm64
+# The desktop release from the same container: AppImage, deb, tar.gz and latest-linux*.yml,
+# staged with SHA256SUMS in dist/releases/v1.0.0 (docs/releasing.md). --with-daemon also
+# builds, signs and stages this host's daemon archive (it needs the private key file).
+ACE_RELEASE_PUBLIC_KEY_FILE=/secure/ace-public.pem bun run release:build 1.0.0
 ```
 
 The Linux build stages the screen helper at `helpers/ace-screen-helper-linux`, beside `ace.mjs`; the daemon finds it there without the desktop app. The helper links glibc dynamically and loads PipeWire with `dlopen` only when capturing on Wayland, so X11 and accessibility need no PipeWire. Before writing the archive, the build refuses any native file for another architecture and any ELF that needs a glibc newer than 2.31 or a libstdc++ newer than GLIBCXX 3.4.28. One reviewed exception is reported instead of failing: `@cursor/sdk-linux-<arch>/bin/cursorsandbox`, Cursor's prebuilt sandbox helper, needs glibc 2.39, so the Cursor provider's sandboxed commands need Ubuntu 24.04+, Debian 13+ or Fedora 40+. `glibc-check.ts` lists the newest glibc and GLIBCXX version each ELF needs.

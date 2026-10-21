@@ -102,6 +102,17 @@ Login launch writes an XDG autostart entry. The tray uses a colour icon on Linux
 shortcut uses the GlobalShortcuts portal on Wayland. The `ace` CLI shim detects AppImage and
 points at the stable AppImage path, not its temporary mount.
 
+**Releases and updates.** Linux desktop releases go through the same `release.ts build` and
+`publish` as macOS (ADR 0091), run in the Debian 11 container on a host of each
+architecture, unsigned. They publish an AppImage, a deb and a tar.gz under one naming
+scheme (`ace-<version>-<arch>.<ext>`) with `latest-linux.yml` / `latest-linux-arm64.yml`.
+
+- The AppImage updates itself in place through electron-updater, like macOS and Windows.
+- A deb install is offered the release page (`inPlace: false`): replacing files that dpkg
+  owns from inside the app would leave the package database wrong. It updates by installing
+  the new deb; an apt repository can make that automatic later.
+- A tar.gz install is offered the release page too: it has no installer to update through.
+
 ## Testing
 
 Linux verification runs in a local Ubuntu 26.04 arm64 VM (Lima) and on CI's x64 and arm64

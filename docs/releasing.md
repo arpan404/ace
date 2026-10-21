@@ -73,6 +73,25 @@ To include standalone CLI archives (`ace update` on installs from `install.sh`),
 - The changes come from the GitHub release notes, so write them for people:
   `--generate-notes` lists merged PR titles.
 
+## Linux packages
+
+Linux packages are built per architecture in a Debian 11 container on a Linux host of that
+architecture, so they run on Ubuntu 20.04+ and Debian 11+ ([ADR 0093](adr/0093-linux-release.md)).
+`.github/workflows/release.yml` does this on GitHub's x64 and arm64 runners and uploads each
+staged folder as `ace-desktop-linux-<arch>`; locally, follow
+[tools/release](../tools/release/README.md). Either way it is the same `release:build`, which
+stages the AppImage, deb, tar.gz, `latest-linux.yml` or `latest-linux-arm64.yml` and
+`SHA256SUMS`, unsigned. Publish them with the Mac's build of the same commit:
+
+```sh
+gh run download <run-id> --pattern 'ace-desktop-linux-*' --dir dist/linux
+bun run release:publish 0.0.3 --include dist/linux/ace-desktop-linux-x64 \
+  --include dist/linux/ace-desktop-linux-arm64
+```
+
+`release:publish` refuses builds of different versions or commits and re-checks every file's
+hash. The AppImage updates itself; deb and tar.gz installs are offered the release page.
+
 ## Notes
 
 - The first release built with this updater is the first one installed apps can update to
