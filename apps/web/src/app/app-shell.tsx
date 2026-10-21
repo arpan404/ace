@@ -11,6 +11,7 @@ import { loadPullRequestTab } from "@/features/forge/index.ts";
 import { PullRequestViewProvider } from "@/features/panels/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import {
+  OpenWorkWarmup,
   ThreadLeaveProvider,
   ThreadStepKeys,
   ThreadsSidebar,
@@ -98,6 +99,9 @@ export function AppShell() {
             </LocalBoundary>
             <LocalBoundary label="notifications" fallback={null}>
               <Notifier />
+            </LocalBoundary>
+            <LocalBoundary label="open work" fallback={null}>
+              <OpenWorkWarmup />
             </LocalBoundary>
           </div>
         </AddAccountHost>

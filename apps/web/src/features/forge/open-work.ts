@@ -7,8 +7,12 @@ import {
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { readForge } from "./source.ts";
 
-/** Open work changes slowly; a minute keeps reopening New thread from hitting GitHub. */
-const fresh = 60_000;
+/**
+ * Open work changes slowly. A list read in the last minute is reused (the daemon keeps its own
+ * minute too, shared by every window); an older one stays on screen while it refreshes, kept for
+ * half an hour after New thread closes so reopening it shows the lists at once.
+ */
+const cached = { staleTime: 60_000, gcTime: 30 * 60_000, refetchOnWindowFocus: false } as const;
 
 /**
  * The project's open pull requests, drafts included, matching `search` (all when empty), newest
@@ -19,7 +23,7 @@ export function useOpenPullRequests(workspaceId: string, search = "", enabled = 
     queryKey: ["forge", workspaceId, "openPullRequests", search],
     enabled,
     retry: false,
-    staleTime: fresh,
+    ...cached,
     // A new search keeps the last results on screen until its own arrive.
     placeholderData: (previous) => previous,
     read: async (client, signal) => {
@@ -46,7 +50,7 @@ export function useFailingPullRequests(workspaceId: string) {
   return useDaemonQuery<ForgePrList>({
     queryKey: ["forge", workspaceId, "failingPullRequests"],
     retry: false,
-    staleTime: fresh,
+    ...cached,
     read: async (client, signal) => {
       const value = await readForge(
         client,
@@ -72,7 +76,7 @@ export function useOpenIssues(workspaceId: string, search = "", enabled = true) 
     queryKey: ["forge", workspaceId, "openIssues", search],
     enabled,
     retry: false,
-    staleTime: fresh,
+    ...cached,
     // A new search keeps the last results on screen until its own arrive.
     placeholderData: (previous) => previous,
     read: async (client, signal) => {

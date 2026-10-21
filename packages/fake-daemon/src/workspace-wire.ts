@@ -69,6 +69,11 @@ export class FakeWorkspaceWire {
   setForgeRead(operation: ForgeBrowserOperation, result: ForgeBrowserResult): void {
     this.forgeReads.set(JSON.stringify(operation), ForgeBrowserResult.parse(result));
   }
+  private forgeReadCounts = new Map<string, number>();
+  /** How many times clients asked for this forge read, as GitHub would see them. */
+  forgeReadCount(operation: ForgeBrowserOperation): number {
+    return this.forgeReadCounts.get(JSON.stringify(operation)) ?? 0;
+  }
   /** Browser fixtures cannot inspect the OS. Apps exist only when a scenario explicitly seeds them. */
   private editors: readonly InstalledEditor[] = [];
   setEditors(editors: readonly InstalledEditor[]): void {
@@ -115,6 +120,10 @@ export class FakeWorkspaceWire {
   }
   async read(request: WorkspaceActionRequest) {
     const op = request.operation;
+    if (op.op.startsWith("forge.")) {
+      const key = JSON.stringify(op);
+      this.forgeReadCounts.set(key, (this.forgeReadCounts.get(key) ?? 0) + 1);
+    }
     if (op.op === "git.draft.cancel") {
       this.drafts.cancel(op.generationId);
       return ServerMessage.parse({
