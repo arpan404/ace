@@ -7,12 +7,15 @@ import SwiftUI
 struct SubagentGroupView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let agents: BlockRow.Agents
+    /// The block's key, under which the thread remembers the rollup open.
+    let blockId: String
     /// The block's items: the launches, whose times start the timer.
     let items: [String]
     let thread: ThreadModel
     let open: (BlockRow.Agents.Entry) -> Void
     var openAll: (() -> Void)? = nil
-    @State private var expanded = false
+    /// Kept by the thread, so the list stays open on the way back from a subagent's thread.
+    private var expanded: Bool { thread.disclosures.isOpen(blockId) }
     private var live: Bool { agents.entries.contains { ["working", "waiting", "needsYou", "unresponsive"].contains($0.token) } }
     /// The most pressing branch colours the status dot.
     private var token: String {
@@ -23,7 +26,7 @@ struct SubagentGroupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { expanded.toggle() } } label: { rollup }
+            Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { thread.disclosures.toggle(blockId) } } label: { rollup }
                 .buttonStyle(.plain)
                 .accessibilityValue(expanded ? "Expanded" : "Collapsed")
                 .accessibilityIdentifier("subagents.rollup")

@@ -78,11 +78,12 @@ struct StepRow: View {
 struct WorkBlockView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let row: BlockRow
-    var blockId = ""
+    let blockId: String
     let thread: ThreadModel
     var steps: StepsLinks? = nil
     var openMessage: ((TranscriptRow) -> Void)? = nil
-    @State private var expanded = false
+    /// Kept by the thread, so an opened log stays open on the way back from a child.
+    private var expanded: Bool { thread.disclosures.isOpen(blockId) }
     var body: some View {
         if row.work?.ongoing == true, let groups = row.groups {
             WorkProgressView(groups: groups, thread: thread, openMessage: openMessage)
@@ -92,7 +93,7 @@ struct WorkBlockView: View {
     }
     private var settled: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { expanded.toggle() } } label: {
+            Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { thread.disclosures.toggle(blockId) } } label: {
                 HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
                     Text(row.work?.label ?? "Worked").lineLimit(1)
                     Image(systemName: "chevron.right").font(.caption.weight(.semibold))
