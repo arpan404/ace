@@ -236,6 +236,56 @@ describe("inbox settling", () => {
   });
 });
 
+describe("inbox rows on the phone", () => {
+  test("a thread leaving the list takes only its own row; the phone never blanks the rest", async () => {
+    pumpFrames.length = 0;
+    pumpTimers.clear();
+    const { daemon, client } = sheetFixture();
+    closers.push(() => client.close());
+    finished(daemon, "keep", "Keep");
+    finished(daemon, "leave", "Leave");
+    // More rows than one bounded frame holds, so a reset could never refill them at once.
+    for (let filler = 0; filler < 35; filler++)
+      finished(daemon, `filler-${filler}`, `Filler ${filler}`);
+    await client.start();
+    const pump = new PatchPump();
+    closers.push(followInbox(client, "mac", pump, new TestClock()));
+
+    // The phone applies each delivered frame the way ClientModel does.
+    const phone = new Map<string, unknown>();
+    let applied = 0;
+    let keepLost = false;
+    const sync = () => {
+      for (const frame of pumpFrames.slice(applied))
+        for (const patch of frame as { type?: string; id?: string; row?: unknown }[]) {
+          if (patch.type === "inbox.reset") phone.clear();
+          if (patch.type === "inbox.row" && patch.id !== undefined)
+            if (patch.row) phone.set(patch.id, patch.row);
+            else phone.delete(patch.id);
+        }
+      applied = pumpFrames.length;
+      return true;
+    };
+    await drivePumpUntil(pump, () => sync() && phone.has("leave") && phone.has("keep"), "listed");
+    const watch = () => {
+      sync();
+      if (!phone.has("keep")) keepLost = true;
+    };
+
+    inboxAction(client, { kind: "archive", threadId: "leave" }, "archive-1", pump);
+    await drivePumpUntil(
+      pump,
+      () => {
+        watch();
+        return !phone.has("leave");
+      },
+      "archived",
+    );
+    expect(keepLost).toBe(false);
+    expect(phone.has("filler-0")).toBe(true);
+  });
+});
+
 describe("inbox confirmation", () => {
   test("ready alone never confirms a cached done row; confirmed working arrives only with its snapshot", async () => {
     let now = 1_000;
