@@ -1,5 +1,8 @@
 # Linux screen helper
 
+The agent computer-use engine (`--computer`: `screen_apps`, `screen_state`, `screen_act`) is
+described in [COMPUTER.md](COMPUTER.md). The rest of this file covers the live-view session mode.
+
 Rust helper for protocol v2, with v1 command compatibility. One process owns capture, input, a bounded AT-SPI ref cache and the private binary frame connection. No action invokes an executable. The daemon keeps the helper alive through stop/start and target inspection. One active capture is allowed per host helper.
 
 ## Build and install
