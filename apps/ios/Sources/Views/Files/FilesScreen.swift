@@ -76,6 +76,7 @@ struct FilesScreen: View {
                     .buttonStyle(.plain)
                     .listRowInsets(EdgeInsets(top: 0, leading: AceTheme.Spacing.xl, bottom: 0, trailing: AceTheme.Spacing.xl))
                     .listRowBackground(AceTheme.Colours.background)
+                    .listRowSeparator(.hidden)
                     .contextMenu { rowMenu(path: row.path, folder: row.folder) }
                     .swipeActions(edge: .trailing) {
                         if actions.canChange, row.mark != "D" {
@@ -139,7 +140,7 @@ struct FilesScreen: View {
                 Button { pick(row) } label: { FileSearchRowView(row: row) }
                     .buttonStyle(.plain)
                     .listRowInsets(EdgeInsets(top: 0, leading: AceTheme.Spacing.xl, bottom: 0, trailing: AceTheme.Spacing.xl))
-                    .listRowBackground(AceTheme.Colours.background)
+                    .listRowBackground(AceTheme.Colours.background).listRowSeparator(.hidden)
                     .contextMenu { rowMenu(path: row.path, folder: row.isFolder) }
                     .accessibilityIdentifier("search.\(row.path)")
             }
@@ -261,7 +262,7 @@ struct FileTreeRowView: View {
                 .foregroundStyle(AceTheme.Colours.decoration)
                 .frame(width: 10).opacity(row.folder ? 1 : 0)
             Image(systemName: row.folder ? "folder" : "doc")
-                .font(.subheadline).foregroundStyle(AceTheme.Colours.mutedForeground).frame(width: 22)
+                .font(.subheadline).foregroundStyle(AceTheme.Colours.subtleForeground).frame(width: 22)
             Text(row.name).aceFont(AceTheme.Typography.body, relativeTo: .body)
                 .foregroundStyle(row.mark == "D" ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
                 .strikethrough(row.mark == "D", color: AceTheme.Colours.mutedForeground)
@@ -285,7 +286,7 @@ struct FileSearchRowView: View {
     var body: some View {
         HStack(spacing: AceTheme.Spacing.md) {
             Image(systemName: row.isFolder ? "folder" : "doc")
-                .font(.subheadline).foregroundStyle(AceTheme.Colours.mutedForeground).frame(width: 22)
+                .font(.subheadline).foregroundStyle(AceTheme.Colours.subtleForeground).frame(width: 22)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                 Text(name).aceFont(AceTheme.Typography.body, relativeTo: .body).lineLimit(1)
                 if !row.folder.isEmpty {
