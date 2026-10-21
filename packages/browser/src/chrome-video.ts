@@ -30,8 +30,11 @@ const Binding = z.object({ name: z.string(), payload: z.string() });
 
 const origin = `chrome-extension://${videoExtensionId}/`;
 
+/** The CDP surface the encoder uses: commands, and the sessions of attached targets. */
+type Connection = Pick<CdpConnection, "send" | "session">;
+
 export class ChromeVideo implements VideoHost {
-  private connection: CdpConnection;
+  private connection: Connection;
   private targets: { keep(targetId: string): void };
   private directory: string;
   private delay: (milliseconds: number) => Promise<void>;
@@ -40,7 +43,7 @@ export class ChromeVideo implements VideoHost {
   private captures = new Map<string, CaptureEvents>();
   private ids = 0;
   constructor(options: {
-    connection: CdpConnection;
+    connection: Connection;
     /** The browser's target router, told to leave the extension's targets attached. */
     targets: { keep(targetId: string): void };
     /** Where the unpacked extension is written. */
@@ -177,8 +180,10 @@ export class ChromeVideo implements VideoHost {
     if (loaded.id !== videoExtensionId)
       throw new Error("The video extension loaded under another id");
     const worker = await this.attach(`${origin}worker.js`);
+    await this.started(worker);
     await evaluate(worker, "aceVideo.ready", []);
     const document = await this.attach(`${origin}offscreen.html`);
+    await this.started(document);
     document.on("Runtime.bindingCalled", (raw) => this.receive(raw));
     await document.send("Runtime.addBinding", { name: "aceVideoEvent" });
     return { worker, document };
@@ -203,6 +208,23 @@ export class ChromeVideo implements VideoHost {
     }
     throw new Error("The video extension did not start");
   }
+  /**
+   * Waits until the extension's script in `target` has defined `aceVideo`: Chrome lists a new
+   * worker or document before its script has run, and a call before then fails. Each look is
+   * bounded, so a target that never answers (one a reload replaced) fails the load instead of
+   * holding every capture until the command times out; the next capture loads again.
+   */
+  private async started(target: BrowserCdp): Promise<void> {
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const kind = await Promise.race([
+        run(target, "typeof aceVideo").catch(() => undefined),
+        this.delay(1_000).then(() => undefined),
+      ]);
+      if (kind === "object") return;
+      await this.delay(100);
+    }
+    throw new Error("The video extension did not start");
+  }
   private receive(raw: unknown): void {
     const binding = Binding.safeParse(raw);
     if (!binding.success || binding.data.name !== "aceVideoEvent") return;
@@ -223,10 +245,15 @@ export class ChromeVideo implements VideoHost {
 }
 
 /** Calls `name(...args)` in a target and returns its (awaited) value; throws what it threw. */
-async function evaluate(target: BrowserCdp, name: string, args: unknown[]): Promise<unknown> {
+function evaluate(target: BrowserCdp, name: string, args: unknown[]): Promise<unknown> {
+  return run(target, `${name}(...${JSON.stringify(args)})`);
+}
+
+/** An expression's (awaited) value in a target; throws what it threw. */
+async function run(target: BrowserCdp, expression: string): Promise<unknown> {
   const reply = Evaluated.parse(
     await target.send("Runtime.evaluate", {
-      expression: `${name}(...${JSON.stringify(args)})`,
+      expression,
       awaitPromise: true,
       returnByValue: true,
     }),
