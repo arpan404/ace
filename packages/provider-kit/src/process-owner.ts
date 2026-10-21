@@ -1,5 +1,6 @@
 import type { ProcessJournal } from "./process-inventory.ts";
 import { setTimeout as delay } from "node:timers/promises";
+import { killWindowsTree } from "./windows-tree.ts";
 
 /** Process-global ownership is separate from application-selected shutdown policy. */
 const owned = new Map<number, (graceMs: number) => Promise<unknown>>();
@@ -11,6 +12,11 @@ export function observeProcessGroups(journal: ProcessJournal): () => void {
 }
 
 export function killGroup(pid: number, signal: NodeJS.Signals): void {
+  if (process.platform === "win32") {
+    // No process groups exist; reap the tree like every other Windows stop.
+    killWindowsTree(pid, true);
+    return;
+  }
   try {
     process.kill(-pid, signal);
   } catch (error) {
