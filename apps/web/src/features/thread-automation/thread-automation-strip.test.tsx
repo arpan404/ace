@@ -88,7 +88,9 @@ async function open() {
 
 test("a thread with an automation says when it runs in the strip above the composer", async () => {
   await open();
-  const line = await screen.findByRole("status", { name: / · runs every day at .+ · Pause · Open$/ });
+  const line = await screen.findByRole("status", {
+    name: / · runs every day at .+ · Pause · Open$/,
+  });
   expect(line.closest("[data-composer-strip]")).not.toBeNull();
   expect(screen.getByRole("link", { name: "Open" }).getAttribute("href")).toBe(
     "/automations/auto-nightly",

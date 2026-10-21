@@ -53,7 +53,9 @@ const text = (entries: ThreadAutomation[]) => {
 };
 
 test("a scheduled automation says when it runs and when next, with Pause and Open", () => {
-  expect(text([entry()])).toBe(`Daily check · runs every day at ${twoAm} · next tonight · Pause · Open`);
+  expect(text([entry()])).toBe(
+    `Daily check · runs every day at ${twoAm} · next tonight · Pause · Open`,
+  );
 });
 
 test("Open goes to the automation, and Pause carries its revision", () => {
