@@ -25,7 +25,7 @@ const { pumpFrames, pumpTimers } = vi.hoisted(() => {
   return { pumpFrames: frames, pumpTimers: timers };
 });
 
-import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
+import { CommandId, DeviceId, InteractionRequest, ThreadId } from "@ace/protocol";
 import { Client } from "@ace/client";
 import { FakeDaemon, facts } from "@ace/fake-daemon";
 import { followInbox, inboxAction, type InboxClock } from "./inbox.ts";
@@ -217,6 +217,67 @@ describe("inbox snooze expiry", () => {
     stop();
     // Only the open follower's timer remains.
     expect(clock.armed).toEqual([start + 10 * minute]);
+  });
+});
+
+describe("inbox attention", () => {
+  type Look = {
+    level: string;
+    word: string | null;
+    tone: string;
+    muted: boolean;
+    glyph: string | null;
+  };
+  const look = (sink: RecordingSink, id: string) =>
+    (sink.read(`inbox:${id}`) as { row: { look: Look } } | undefined)?.row.look;
+
+  test("only the row asking for the person is loud; working recedes and a seen result shows its age", async () => {
+    const { sink } = await following((daemon) => {
+      finished(daemon, "notes", "Notes");
+      daemon.createThread({ id: "busy", workspaceId: "ace", title: "Busy", provider: "codex" });
+      daemon.apply("busy", [facts.rootAgent("codex"), facts.turn("root")]);
+      daemon.createThread({ id: "asks", workspaceId: "ace", title: "Asks", provider: "claude" });
+      daemon.apply("asks", [
+        facts.rootAgent("claude"),
+        facts.turn("root"),
+        {
+          type: "interaction.opened",
+          agent: "root",
+          interaction: "ask",
+          blocking: true,
+          request: InteractionRequest.parse({
+            kind: "approval",
+            title: "Run the tests",
+            options: [{ id: "allow", label: "Allow", kind: "allow_once" }],
+          }),
+        },
+      ]);
+    });
+    await until(() => look(sink, "asks")?.level === "needs-you", "the request");
+    expect(look(sink, "asks")).toEqual({
+      level: "needs-you",
+      word: "Approve",
+      tone: "needs-you",
+      muted: false,
+      glyph: "needs-you",
+      since: null,
+      settled: false,
+      subagents: 0,
+    });
+    await until(() => look(sink, "busy")?.level === "active", "the working row");
+    expect(look(sink, "busy")).toMatchObject({
+      word: "Working",
+      tone: "working",
+      muted: true,
+      glyph: "working",
+    });
+    // Finished before the phone started following: read, so it claims no word, only its age.
+    expect(look(sink, "notes")).toMatchObject({
+      level: "quiet",
+      word: null,
+      muted: true,
+      glyph: null,
+    });
   });
 });
 
