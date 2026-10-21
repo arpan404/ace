@@ -11,7 +11,7 @@ import type { AdapterRegistry } from "./registry.ts";
 import type { ThreadActor, EngineClock } from "./actor.ts";
 import type { Sessions } from "./sessions.ts";
 import type { ThreadTransitions } from "./transitions.ts";
-import type { Fact } from "@ace/core";
+import { continueMessage, type Fact } from "@ace/core";
 import {
   executeIntent,
   DeliveryDeferred,
@@ -234,7 +234,7 @@ export class IntentDelivery {
       this.dependencies.repo.syntheticInput(
         actor.id,
         key,
-        queue.trigger === "restart" ? "continue" : queue.continuation,
+        continueMessage,
         { kind: queue.trigger ?? "restart", commandId: intent.command.id },
         this.dependencies.clock.now(),
       );
@@ -244,7 +244,7 @@ export class IntentDelivery {
           .map((text) => ({ type: "text" as const, text })),
         {
           type: "text" as const,
-          text: queue.trigger === "restart" ? "continue" : queue.continuation,
+          text: continueMessage,
         },
       ];
       this.dependencies.repo.inputs.sending(

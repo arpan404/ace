@@ -213,7 +213,7 @@ test("restart preserves reordering and holds the queue until the person resumes"
   const delivered = replacement.commands.filter((command) => command.type === "send");
   expect(delivered[0]?.input[0]).toMatchObject({
     type: "text",
-    text: "continue",
+    text: "Continue where you left off.",
   });
   expect(delivered.slice(1).map((command) => command.input)).toEqual([text("b"), text("a")]);
   expect(
@@ -277,7 +277,7 @@ test("native restart settles lost shells monitors and subagents and sends one co
   expect(continuationItems[0]).toMatchObject({
     synthetic: true,
     origin: { kind: "restart" },
-    parts: [{ type: "text", text: "continue" }],
+    parts: [{ type: "text", text: "Continue where you left off." }],
   });
   const view = recovered.store.snapshotThread(id);
   expect(Object.values(view.backgroundTasks)).toEqual(
@@ -294,7 +294,9 @@ test("native restart settles lost shells monitors and subagents and sends one co
   );
   expect(sends(replacement)).toHaveLength(1);
   const continuation = replacement.commands.find((command) => command.type === "send");
-  expect(continuation).toMatchObject({ input: [{ type: "text", text: "continue" }] });
+  expect(continuation).toMatchObject({
+    input: [{ type: "text", text: "Continue where you left off." }],
+  });
 });
 
 test("an unacknowledged send is never replayed: Resume refuses it and the next message goes ahead without it", async () => {

@@ -9,7 +9,7 @@ import {
 import { scriptFrames, start, end } from "./test-support.ts";
 afterEach(cleanupRecovery);
 
-test("resuming after a restart sends only continue as one ace-originated input", async () => {
+test("resuming after a restart sends one ace-originated Continue where you left off.", async () => {
   const frames = scriptFrames();
   const h = await fixture([{ on: "send", frames: [frames.frame(start)] }], frames);
   const id = await h.create();
@@ -26,7 +26,7 @@ test("resuming after a restart sends only continue as one ace-originated input",
             draft: {
               type: "message",
               role: "user",
-              parts: [{ type: "text", text: "continue" }],
+              parts: [{ type: "text", text: "Continue where you left off." }],
               complete: true,
               synthetic: false,
             },
@@ -46,13 +46,20 @@ test("resuming after a restart sends only continue as one ace-originated input",
   });
   await recovered.engine.flush();
   expect(replacement.commands.filter((command) => command.type === "send")).toEqual([
-    { type: "send", input: [{ type: "text", text: "continue" }], delivery: "queue" },
+    {
+      type: "send",
+      input: [{ type: "text", text: "Continue where you left off." }],
+      delivery: "queue",
+    },
   ]);
   const items = Object.values(recovered.store.snapshotThread(id).items);
   expect(
     items.filter((item) => item.type === "message" && item.origin?.kind === "restart"),
   ).toEqual([
-    expect.objectContaining({ synthetic: true, parts: [{ type: "text", text: "continue" }] }),
+    expect.objectContaining({
+      synthetic: true,
+      parts: [{ type: "text", text: "Continue where you left off." }],
+    }),
   ]);
   expect(
     items.some(

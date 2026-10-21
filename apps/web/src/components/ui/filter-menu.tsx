@@ -10,6 +10,8 @@ export function FilterMenu<T extends string>(props: {
   value: T;
   options: readonly { value: T; label: string }[];
   onValueChange(value: T): void;
+  /** Which edge the menu lines up with: the trigger's end (a header) or start (a page's left). */
+  align?: "start" | "end";
 }) {
   const current = props.options.find((option) => option.value === props.value);
   return (
@@ -21,7 +23,7 @@ export function FilterMenu<T extends string>(props: {
         {current?.label}
         <CaretDownIcon aria-hidden size={13} />
       </MenuTrigger>
-      <MenuContent align="end">
+      <MenuContent align={props.align ?? "end"}>
         <MenuRadioGroup
           value={props.value}
           onValueChange={(value: unknown) => {

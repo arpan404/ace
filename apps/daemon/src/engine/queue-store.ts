@@ -1,5 +1,6 @@
 import { requireEngineColumns } from "./schema-version.ts";
 import { z } from "zod";
+import { continueMessage } from "@ace/core";
 import { hasNextTurnSelection } from "./input-delivery.ts";
 import type { StatementSync } from "node:sqlite";
 import {
@@ -169,15 +170,9 @@ export class QueueStore {
         !["thread.resume", "queue.resume", "thread.limit"].includes(p.type)
       )
         throw new Error("Invalid queue entry");
-      const queue = this.get(ThreadId.parse(p.threadId));
       return QueuedMessage.parse({
         id: command.id,
-        input: [
-          {
-            type: "text",
-            text: queue.trigger === "restart" ? "continue" : (queue.continuation ?? "continue"),
-          },
-        ],
+        input: [{ type: "text", text: continueMessage }],
         delivery: "queue",
         state: "uncertain",
       });

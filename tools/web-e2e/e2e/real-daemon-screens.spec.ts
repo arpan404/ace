@@ -55,7 +55,7 @@ test("search finds a message across threads and Enter opens its thread", async (
 test("a daemon setting is stored by the daemon and read back by a new session", async ({
   page,
 }) => {
-  await connect(page, "/settings/general");
+  await connect(page, "/settings/agents");
   const toggle = page.getByRole("switch", { name: "Settle when the PR merges" });
   await expect(toggle).toBeVisible();
   const before = await toggle.getAttribute("aria-checked");
@@ -64,7 +64,7 @@ test("a daemon setting is stored by the daemon and read back by a new session", 
   await expect(toggle).toHaveAttribute("aria-checked", after);
 
   // A fresh page is a fresh client: the value can only come from the daemon.
-  await connect(page, "/settings/general");
+  await connect(page, "/settings/agents");
   await expect(page.getByRole("switch", { name: "Settle when the PR merges" })).toHaveAttribute(
     "aria-checked",
     after,

@@ -33,6 +33,23 @@ export function isMissing(entry: ProviderEntry): boolean {
     : entry.install.state === "not_installed";
 }
 
+/** A newer CLI than the installed one is out: the CLI's own check, or the ACP registry's. */
+export function updateAvailable(entry: ProviderEntry): boolean {
+  const { install, row, view } = entry;
+  if (view?.state === "needs_update") return true;
+  return (
+    row?.updateAvailable ??
+    (!!install.registry?.agent &&
+      compareVersions(install.registry.agent.version, install.registry.version) > 0)
+  );
+}
+
+/** Installed, but it can't take work as it is or has an update waiting. */
+export function needsAttention(entry: ProviderEntry): boolean {
+  if (isMissing(entry)) return false;
+  return entry.view?.tone === "problem" || entry.view?.tone === "action" || updateAvailable(entry);
+}
+
 /** Every provider, live: discovery, readiness and the model catalog's say on each. */
 export function useProviderEntries() {
   const backend = useSettingsBackend();

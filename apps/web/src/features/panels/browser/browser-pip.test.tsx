@@ -47,12 +47,12 @@ test("a dismissed picture-in-picture stays away until the Browser shows again; a
 
 test("with picture in picture turned off in Settings › Browser, leaving the Browser never floats the page", async () => {
   const scenario = coldStartReplay();
-  const history = createMemoryHistory({ initialEntries: ["/settings/browser"] });
+  const history = createMemoryHistory({ initialEntries: ["/settings/general"] });
   browserVideo();
   const app = harness({ history });
   app.play(scenario).step();
   seedPanels(app.daemon);
-  await app.open("/settings/browser");
+  await app.open("/settings/general");
   const setting = await screen.findByRole("switch", { name: "Picture in picture" });
   expect(setting.getAttribute("aria-checked")).toBe("true");
   await userEvent.click(setting);

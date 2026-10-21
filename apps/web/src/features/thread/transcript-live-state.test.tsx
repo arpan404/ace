@@ -271,7 +271,7 @@ test("approval inside a subagent holds the parent in a needs-you state naming th
 
 for (const [outcome, label, at] of [
   ["completed", "Worked for 6m 32s", 393_000],
-  ["interrupted", "Stopped after 2m 10s", 131_000],
+  ["interrupted", "Worked for 2m 10s", 131_000],
   ["failed", "Failed after 40s", 41_000],
 ] as const) {
   test(`${outcome} turns retain a collapsible log with their server duration`, async () => {
@@ -288,11 +288,14 @@ for (const [outcome, label, at] of [
   });
 }
 
-test("a usage-limit pause has a collapsible divider while it waits", async () => {
+test("a usage-limit pause keeps its work collapsible, and the limit is said only in the strip", async () => {
   const app = harness();
   app.play(accountLimit(id, "Replay cursor")).runUntilBlocked();
   await app.open(`/t/${id}`);
-  const summary = await screen.findByRole("button", { name: /Paused · Codex usage limit/ });
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  const summary = await within(feed).findByRole("button", { name: /^Worked/ });
+  expect(within(feed).queryByText(/usage limit/i)).toBeNull();
+  expect(await screen.findByRole("region", { name: "Codex is out of usage" })).toBeTruthy();
   await userEvent.click(summary);
   expect(await screen.findByRole("list", { name: "Steps" })).toBeTruthy();
   expect(screen.queryByRole("status", { name: "Working" })).toBeNull();
@@ -397,7 +400,7 @@ test("the empty working composer exposes Stop, and Escape twice stops the turn",
   expect(screen.queryByRole("region", { name: "Agents" })).toBeNull();
   screen.getByRole("combobox", { name: "Message" }).focus();
   await userEvent.keyboard("{Escape}{Escape}");
-  expect(await screen.findByRole("button", { name: /^Stopped after/ })).toBeTruthy();
+  expect(await screen.findByRole("note", { name: "Interrupted by you" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
 });
 
@@ -563,14 +566,12 @@ for (const outcome of ["completed", "interrupted", "failed"] as const) {
       outcome === "completed"
         ? "Worked for"
         : outcome === "interrupted"
-          ? "Stopped after"
+          ? "Worked for"
           : "Failed after";
     expect(
       await screen.findByRole("button", { name: new RegExp(`^${label} 1m 46s`) }),
     ).toBeTruthy();
-    expect(
-      screen.getAllByRole("button", { name: /^(Worked for|Stopped after|Failed after)/ }),
-    ).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /^(Worked for|Failed after)/ })).toHaveLength(1);
     expect(screen.queryByRole("group", { name: "Turn in progress" })).toBeNull();
     if (outcome === "failed")
       expect(

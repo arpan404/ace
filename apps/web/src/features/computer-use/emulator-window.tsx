@@ -18,7 +18,7 @@ export function EmulatorWindowRow() {
     <SettingRow
       id="devices.emulatorWindow"
       title="Show emulator window"
-      description="For the emulator's sensor, camera and fingerprint controls. Applies from the next boot."
+      description="Shows its sensor and camera controls. Applies from the next boot."
       htmlFor={id}
       inline
     >

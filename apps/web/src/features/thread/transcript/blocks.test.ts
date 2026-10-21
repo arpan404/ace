@@ -364,3 +364,53 @@ test("an admitted first ask stays ahead of intervening earlier messages while aw
   );
   expect(shown(buildBlocks(base))).toEqual(["ask", "follow-up", "answer"]);
 });
+
+/** ace's own input to the root agent, as the daemon writes it. */
+const aceInput = (id: string, kind: string, text: string, at: number) =>
+  Item.parse({
+    id,
+    agentId: "root",
+    createdAt: at,
+    complete: true,
+    raw: [],
+    runId: `run-${id}`,
+    type: "message",
+    role: "user",
+    synthetic: true,
+    origin: { kind, commandId: `send-${id}` },
+    parts: [{ type: "text", text }],
+  });
+
+test("Continue after a restart or a limit reads as the person's message; ace's other inputs stay events", () => {
+  const items = new Map<string, Item>([
+    ["resume", aceInput("resume", "limit_resume", "Continue where you left off.", 0)],
+    ["restart", aceInput("restart", "restart", "Continue where you left off.", 1)],
+    [
+      "legacy",
+      aceInput(
+        "legacy",
+        "restart",
+        "ace restarted. Continue.\nNo known background work was live.",
+        2,
+      ),
+    ],
+    [
+      "done",
+      aceInput("done", "background_completion", "Background command `bun test` finished", 3),
+    ],
+  ]);
+  const blocks = buildBlocks({
+    order: [...items.keys()],
+    item: (id) => items.get(id),
+    background: new Map(),
+    turnOf: (id) => items.get(id)?.runId,
+    run: () => ended("completed"),
+  });
+  const kinds = new Map(
+    blocks.flatMap((block) => ("itemId" in block ? [[block.itemId, block.kind]] : [])),
+  );
+  expect(kinds.get("resume")).toBe("user");
+  expect(kinds.get("restart")).toBe("user");
+  expect(kinds.get("legacy")).toBe("event");
+  expect(kinds.get("done")).toBe("event");
+});

@@ -34,10 +34,10 @@ test("a failed provider read offers Retry and recovers without reconnecting", as
   expect(await screen.findByRole("link", { name: "Claude Code" })).toBeTruthy();
 });
 
-test("General says providers could not be checked and retries the read", async () => {
+test("Agents says providers could not be checked and retries the read", async () => {
   const made = app();
   made.daemon.failRequests("providers.request");
-  await made.open("/settings/general");
+  await made.open("/settings/agents");
   await screen.findByText("Couldn't check providers");
   expect(screen.queryByText("No provider CLI installed")).toBeNull();
   made.daemon.restoreRequests();
@@ -88,7 +88,7 @@ test("Usage leaves loading and shows accounts when readiness alone fails", async
 test("failed settings show a retry action and recover their saved value", async () => {
   const made = app();
   made.daemon.failRequests("settings.subscribe");
-  await made.open("/settings/general");
+  await made.open("/settings/agents");
   const errors = await screen.findAllByText("Couldn't load settings");
   expect(errors.length).toBeGreaterThan(0);
   act(() => made.daemon.restoreRequests());
@@ -190,7 +190,7 @@ test("a committed account limit push updates Usage without reading its history a
   expect(requests.filter((type) => type.startsWith("usage."))).toEqual([]);
 });
 
-test("General keeps its provider choice through a failed live refetch", async () => {
+test("Agents keeps its provider choice through a failed live refetch", async () => {
   const made = app();
   const connect = made.daemon.connect.bind(made.daemon);
   let publish: ((message: ServerMessage) => void) | undefined;
@@ -199,7 +199,7 @@ test("General keeps its provider choice through a failed live refetch", async ()
     publish = (message) => connection.push(message);
     return connection;
   };
-  await made.open("/settings/general");
+  await made.open("/settings/agents");
   await screen.findByRole("combobox", { name: "Default provider for new threads" });
   const readiness = await made.client.request({
     type: "providers.request",

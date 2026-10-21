@@ -1,4 +1,5 @@
-import koffi from "koffi";
+import { createRequire } from "node:module";
+import type koffiModule from "koffi";
 import { z } from "zod";
 
 /**
@@ -42,8 +43,14 @@ export function killOnCloseInfo(): Buffer {
   return info;
 }
 
-/** Thin koffi shell over kernel32; every native result is validated before use. */
+/**
+ * Thin koffi shell over kernel32; every native result is validated before use. koffi is
+ * required here, not imported, so bundles without native packages (the desktop main
+ * process reaches this through `process.ts`) still build; there a failing load leaves the
+ * taskkill tree stop in charge.
+ */
 export function loadWindowsJobApi(): WindowsJobApi {
+  const koffi: typeof koffiModule = createRequire(import.meta.url)("koffi");
   const library = koffi.load("kernel32.dll");
   const createJobObject = library.func("void* __stdcall CreateJobObjectW(void* attrs, void* name)");
   const setInformationJobObject = library.func(

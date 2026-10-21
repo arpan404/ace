@@ -120,7 +120,7 @@ test("saving source control preferences and rescanning replace cached PR results
   try {
     await screen.findByText("Account A's result");
     await screen.findByText("Other daemon's cached result");
-    await screen.findByText(/GitHub API access verified as ada/);
+    await screen.findByText("Signed in as ada");
     await shown(false);
     act(() => {
       seed(own, "own-pr", "Account B's result");
@@ -177,7 +177,7 @@ test("switching the expected GitHub account re-reads the PR panel instead of sho
   const view = render(<RouterProvider router={router} />);
   try {
     await screen.findByText("Seen as ada");
-    await screen.findByText(/GitHub API access verified as ada/);
+    await screen.findByText("Signed in as ada");
     act(() => titled("Seen as octo"));
     await userEvent.type(screen.getByRole("textbox", { name: "Expected account" }), "octo");
     await userEvent.click(screen.getByRole("button", { name: "Save preferences" }));

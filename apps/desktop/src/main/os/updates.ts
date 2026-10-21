@@ -28,7 +28,9 @@ export async function electronUpdateEngine(
   options: EngineOptions,
 ): Promise<UpdateEngine | undefined> {
   if (!existsSync(join(options.resourcesPath, "app-update.yml"))) return undefined;
-  const { autoUpdater } = await import("electron-updater");
+  // electron-updater is CommonJS: its exports arrive as `default`, both when Node loads it
+  // and in the bundled chunk, where named exports are not filled in.
+  const { autoUpdater } = (await import("electron-updater")).default;
   const squirrel = options.platform === "darwin" ? (await import("electron")).autoUpdater : null;
   autoUpdater.autoDownload = false;
   // Quitting installs a downloaded update: quitting stops the app's daemon in any case.

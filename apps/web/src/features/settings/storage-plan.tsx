@@ -55,7 +55,7 @@ export function StoragePlanPreview(props: {
               item.reasons.every((reason) => ["uncommitted", "unpushed"].includes(reason));
             const result = props.result?.items.find((entry) => entry.id === item.id);
             return (
-              <li key={item.id} className="px-4 py-3">
+              <li key={item.id} className="py-3">
                 <div className="flex items-start justify-between gap-3 text-sm">
                   <span className="min-w-0 break-all font-medium">{item.label}</span>
                   <span className="shrink-0 tabular-nums text-muted-foreground">

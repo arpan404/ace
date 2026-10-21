@@ -1,3 +1,4 @@
+import { useThreadMeta } from "@ace/client-react";
 import type { Thread } from "@ace/protocol";
 import {
   accountDisplayName,
@@ -11,6 +12,18 @@ import { runsNow, runsOn, selectionIdentity } from "./execution.ts";
 import { choiceKind, usePendingChoice } from "./pending-choice.ts";
 
 const modelSwitches = choiceKind<ModelChoice>();
+
+/** What the thread runs on and where its switch stands: a pending choice gives way once it moves. */
+const switchState = (meta: Thread | undefined) =>
+  meta
+    ? JSON.stringify([selectionIdentity(runsOn(meta)), meta.switch?.state, meta.switch?.at])
+    : "";
+
+/** The model or account the person just picked on this thread, before the daemon reports it. */
+export function useChosenModel(threadId: string): ModelChoice | undefined {
+  return usePendingChoice(modelSwitches, threadId, switchState(useThreadMeta(threadId))).chosen
+    ?.value;
+}
 
 /** When a switch takes over, while nothing more specific (offline, slow) needs saying. */
 const nextTurn = "Applies at the agent's next turn";
@@ -39,10 +52,7 @@ export function useModelSwitch(
   choices: readonly ModelChoice[],
 ) {
   const sources = useThreadSources();
-  const state = meta
-    ? JSON.stringify([selectionIdentity(runsOn(meta)), meta.switch?.state, meta.switch?.at])
-    : "";
-  const pending = usePendingChoice(modelSwitches, thread.id, state);
+  const pending = usePendingChoice(modelSwitches, thread.id, switchState(meta));
   const chosen = pending.chosen?.value;
   return {
     chosen,

@@ -5,11 +5,29 @@ import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { openWorkCard } from "@/test/open-work.ts";
 
-async function renameMachine(button: string, name: string, icon: string) {
-  const edit = await screen.findByRole("button", { name: button });
-  await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
-  await userEvent.click(edit);
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
+/** The aria label of the mark beside a machine's name in a Settings region. */
+async function machineMark(region: string, name: string) {
+  const label = await within(await screen.findByRole("region", { name: region })).findByText(name, {
+    exact: true,
+  });
+  return label.parentElement?.querySelector("[role=img]")?.getAttribute("aria-label");
+}
+
+/** Opens the name and icon editor: this machine's Edit button, or another machine's row menu. */
+async function editMachine(machine: "this" | string) {
+  if (machine === "this") {
+    const region = await screen.findByRole("region", { name: "This machine" });
+    const edit = await within(region).findByRole("button", { name: "Edit" });
+    await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
+    await userEvent.click(edit);
+    return;
+  }
+  await userEvent.click(await screen.findByRole("button", { name: `Actions for ${machine}` }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit name and icon" }));
+}
+
+async function renameMachine(machine: "this" | string, name: string, icon: string) {
+  await editMachine(machine);
   const dialog = await screen.findByRole("dialog");
   const input = within(dialog).getByRole("textbox", { name: "Machine name" });
   await userEvent.clear(input);
@@ -26,8 +44,8 @@ test("editing this machine updates Settings and the thread's details card", asyn
   app.play(replayCursor()).runThrough("finding");
   const view = await app.open("/settings/remote");
   await screen.findByText("Fake machine", { exact: true });
-  await renameMachine("Actions for Fake machine", "Workshop Mac", "Desktop");
-  const machines = screen.getByRole("region", { name: "Machines" });
+  await renameMachine("this", "Workshop Mac", "Desktop");
+  const machines = screen.getByRole("region", { name: "This machine" });
   expect(await within(machines).findByText("Workshop Mac")).toBeTruthy();
   expect(within(machines).getByRole("img", { name: "desktop machine icon" })).toBeTruthy();
   expect(app.daemon.services.settings.get("host.icon")).toMatchObject({
@@ -54,7 +72,7 @@ test("editing a paired machine saves on that host and replaces stale thread labe
     })
     .runThrough("finding");
   let view = await app.open("/settings/remote");
-  await renameMachine("Actions for Old server", "Build server", "Server");
+  await renameMachine("Old server", "Build server", "Server");
   expect(app.machines.get("build")?.services.settings.get("host.displayName")).toBe("Build server");
   expect(app.machines.get("build")?.services.settings.get("host.icon")).toMatchObject({
     kind: "server",
@@ -128,12 +146,7 @@ test("a chosen machine icon survives leaving Settings and returning to it", asyn
   app.play(replayCursor()).runThrough("finding");
   const view = await app.open("/settings/remote");
   await screen.findByText("Fake machine", { exact: true });
-  const edit = await screen.findByRole("button", {
-    name: /Actions for (Fake machine|Workshop Mac)/,
-  });
-  await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
-  await userEvent.click(edit);
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
+  await editMachine("this");
   const dialog = await screen.findByRole("dialog");
   await userEvent.click(within(dialog).getByRole("button", { name: "Terminal" }));
   await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
@@ -143,7 +156,7 @@ test("a chosen machine icon survives leaving Settings and returning to it", asyn
   await screen.findByRole("combobox", { name: "Message" });
   cleanup();
   await app.open("/settings/remote");
-  const machines = await screen.findByRole("region", { name: "Machines" });
+  const machines = await screen.findByRole("region", { name: "This machine" });
   expect(await within(machines).findByRole("img", { name: "terminal machine icon" })).toBeTruthy();
 });
 
@@ -187,31 +200,21 @@ test("clearing a custom machine name restores the computer name", async () => {
   const app = harness();
   app.daemon.services.settings.seed({ "host.displayName": "Workshop Mac" });
   await app.open("/settings/remote");
-  const edit = await screen.findByRole("button", {
-    name: /Actions for (Fake machine|Workshop Mac)/,
-  });
-  await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
-  await userEvent.click(edit);
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
+  await editMachine("this");
   const dialog = await screen.findByRole("dialog");
   await userEvent.clear(within(dialog).getByRole("textbox", { name: "Machine name" }));
   await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(
-    await within(screen.getByRole("region", { name: "Machines" })).findByText("Fake machine"),
+    await within(screen.getByRole("region", { name: "This machine" })).findByText("Fake machine"),
   ).toBeTruthy();
 });
 
 test("with no icon chosen, this machine shows a laptop and a paired machine a server", async () => {
   const app = harness({ machines: [{ hostId: "build", name: "Build server" }] });
   await app.open("/settings/remote");
-  const machines = await screen.findByRole("region", { name: "Machines" });
-  const mark = async (name: string) =>
-    (await within(machines).findByText(name, { exact: true })).parentElement
-      ?.querySelector("[role=img]")
-      ?.getAttribute("aria-label");
-  expect(await mark("This Mac")).toBe("laptop machine icon");
-  expect(await mark("Build server")).toBe("server machine icon");
+  expect(await machineMark("This machine", "This Mac")).toBe("laptop machine icon");
+  expect(await machineMark("Machines", "Build server")).toBe("server machine icon");
 });
 
 test("Enter in the machine name saves it", async () => {
@@ -219,15 +222,12 @@ test("Enter in the machine name saves it", async () => {
   app.play(replayCursor()).runThrough("finding");
   await app.open("/settings/remote");
   await screen.findByText("Fake machine", { exact: true });
-  const edit = await screen.findByRole("button", { name: "Actions for Fake machine" });
-  await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
-  await userEvent.click(edit);
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
+  await editMachine("this");
   const dialog = await screen.findByRole("dialog");
   const input = within(dialog).getByRole("textbox", { name: "Machine name" });
   await userEvent.clear(input);
   await userEvent.type(input, "Studio Mac{Enter}");
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  const machines = screen.getByRole("region", { name: "Machines" });
+  const machines = screen.getByRole("region", { name: "This machine" });
   expect(await within(machines).findByText("Studio Mac")).toBeTruthy();
 });

@@ -12,7 +12,6 @@ import {
 import { useRender } from "@base-ui/react/use-render";
 import { PlusIcon } from "@phosphor-icons/react";
 import { DisclosureCaret } from "@/components/ui/disclosure.tsx";
-import { groupCard, listDivider } from "@/components/ui/rules.ts";
 import { InCard } from "@/components/ui/surface-context.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -26,7 +25,7 @@ const slot = { "data-setting-slot": "" } as const;
 /**
  * Settings-style row: title and description on the left, the control on the right. Hairlines
  * separate rows. Labels and controls keep the same edges at narrow widths. `id` makes the row
- * a deep link: `/settings/general#threads.useWorktree` scrolls to it and flashes it.
+ * a deep link: `/settings/agents#threads.useWorktree` scrolls to it and flashes it.
  */
 export function SettingRow(props: {
   title: ReactNode;
@@ -57,7 +56,7 @@ export function SettingRow(props: {
       data-flash={flashing || undefined}
       className={cn(
         "@container group/setting transition-colors duration-(--motion-slow)",
-        inCard ? "px-4" : "border-t first:border-t-0",
+        inCard ? "" : "border-t first:border-t-0",
         flashing && "bg-accent",
       )}
     >
@@ -67,7 +66,8 @@ export function SettingRow(props: {
           !props.inline && "@max-[440px]:flex-col @max-[440px]:items-stretch",
         )}
       >
-        <div className="min-w-0 flex-1">
+        {/* The label, and under it its description in the quieter tier. */}
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           {compact && props.description ? (
             <Tip label={props.description}>
               <Title
@@ -75,7 +75,7 @@ export function SettingRow(props: {
                 id={titleId}
                 tabIndex={0}
                 aria-describedby={hintId}
-                className="block rounded-sm text-md font-medium focus-ring"
+                className="w-fit rounded-sm text-ui text-foreground focus-ring"
               >
                 {props.title}
               </Title>
@@ -85,7 +85,7 @@ export function SettingRow(props: {
               {...(props.htmlFor ? { htmlFor: props.htmlFor } : {})}
               id={titleId}
               tabIndex={!props.htmlFor && compact && props.description ? 0 : undefined}
-              className="block rounded-sm text-md font-medium focus-ring"
+              className="w-fit rounded-sm text-ui text-foreground focus-ring"
             >
               {props.title}
             </Title>
@@ -96,19 +96,21 @@ export function SettingRow(props: {
             </span>
           )}
           {props.description && !compact && (
-            <p
+            <span
               id={hintId}
               title={typeof props.description === "string" ? props.description : undefined}
-              className="mt-0.5 text-xs text-muted-foreground"
+              className="text-xs text-muted-foreground"
             >
               {props.description}
-            </p>
+            </span>
           )}
         </div>
         {props.children && (
           <div
             className={cn(
-              "ml-auto flex min-w-0 max-w-[60%] shrink-0 flex-wrap items-center justify-end gap-2 *:max-w-full",
+              // A trailing ghost button's label lines up with the column's edge, not its padding
+              // (its negative margin would otherwise count against the max-width its siblings keep).
+              "ml-auto flex min-w-0 max-w-[60%] shrink-0 flex-wrap items-center justify-end gap-2 *:max-w-full [&>[data-variant=ghost]:last-child]:-mr-2.5 [&>[data-variant=ghost]:last-child]:max-w-none",
               !props.inline &&
                 "@max-[440px]:ml-0 @max-[440px]:max-w-full @max-[440px]:justify-start",
             )}
@@ -156,8 +158,8 @@ function useHashFlash(id: string | undefined, ref: RefObject<HTMLElement | null>
 export type SettingScope = "daemon" | "device" | "computer";
 
 /**
- * A titled group of rows on a subtle card, hairlines between rows (docs/design/visual-language.md,
- * "Settings").
+ * A titled group of rows: the title, a hairline, then rows with hairlines between them. No card
+ * around it; the next group starts `--settings-group-gap` below (DESIGN.md §3).
  */
 export function SettingSection(props: {
   label: string;
@@ -172,36 +174,34 @@ export function SettingSection(props: {
 }) {
   const id = useId();
   return (
-    <section id={props.anchor} className="mt-8" aria-labelledby={id}>
-      <div className="mb-2 flex min-h-7 items-center gap-2 px-1">
-        <h3 id={id} className="text-ui font-medium text-foreground">
+    <section id={props.anchor} className="mb-(--settings-group-gap)" aria-labelledby={id}>
+      <div className="mb-2 flex min-h-7 items-center gap-2">
+        <h3 id={id} className="text-md font-medium text-foreground">
           {props.label}
         </h3>
-        {props.actions && <div className="ml-auto flex items-center gap-1">{props.actions}</div>}
+        {props.actions && (
+          // A trailing ghost button's label lines up with the rows' right edge, as in a row.
+          <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground [&>[data-variant=ghost]:last-child]:-mr-2.5">
+            {props.actions}
+          </div>
+        )}
       </div>
-      {props.note && <p className="mb-2 px-1 text-sm text-muted-foreground">{props.note}</p>}
+      {props.note && <p className="mb-2 text-ui text-muted-foreground">{props.note}</p>}
       <SettingCard>{props.children}</SettingCard>
     </section>
   );
 }
 
 /**
- * Rows grouped on a subtle card with hairlines between them. Put rows (`SettingRow`), prose
+ * Rows under one rule with hairlines between them. Put rows (`SettingRow`), prose
  * (`SettingNote`), actions (`SettingFooter`), lists of rows (`SettingList`) and disclosures
- * (`SettingDisclosure`) in it; each insets itself to the card's one left edge. `SettingSection`
- * adds a title; use this alone for rows that head a page without one.
+ * (`SettingDisclosure`) in it; each keeps the page's one left edge. `SettingSection` adds a
+ * title; use this alone for rows that head a page without one.
  */
 export function SettingCard(props: { children: ReactNode; className?: string }) {
   return (
     <InCard value>
-      <div
-        className={cn(
-          listDivider,
-          groupCard,
-          "[&>:not([data-setting-slot])]:mx-4",
-          props.className,
-        )}
-      >
+      <div className={cn("divide-y divide-border border-t border-border", props.className)}>
         {props.children}
       </div>
     </InCard>
@@ -210,9 +210,7 @@ export function SettingCard(props: { children: ReactNode; className?: string }) 
 
 /** Prose inside a card (a status line, what a group does), inset like a row's text. */
 export function SettingNote({ className, ...props }: ComponentProps<"p">) {
-  return (
-    <p {...slot} className={cn("px-4 py-3 text-sm text-muted-foreground", className)} {...props} />
-  );
+  return <p {...slot} className={cn("py-3 text-ui text-muted-foreground", className)} {...props} />;
 }
 
 /** A card's actions, one row tall, at the end of the row like a row's control. */
@@ -221,7 +219,7 @@ export function SettingFooter(props: { children: ReactNode; className?: string }
     <div
       {...slot}
       className={cn(
-        "flex min-h-(--setting-row-height) flex-wrap items-center justify-end gap-2 px-4 py-(--setting-row-y)",
+        "flex min-h-(--setting-row-height) flex-wrap items-center justify-end gap-2 py-(--setting-row-y)",
         props.className,
       )}
     >
@@ -232,7 +230,7 @@ export function SettingFooter(props: { children: ReactNode; className?: string }
 
 /** A list of rows inside a card; its rows inset themselves, the list adds the hairlines. */
 export function SettingList({ className, ...props }: ComponentProps<"ul">) {
-  return <ul {...slot} className={cn("divide-y divide-border-soft", className)} {...props} />;
+  return <ul {...slot} className={cn("divide-y divide-border", className)} {...props} />;
 }
 
 /** One row of a `SettingList`: the row's height and inset, whatever it holds. */
@@ -248,7 +246,7 @@ export function SettingListItem({ className, id, ref, ...props }: ComponentProps
       id,
       "data-flash": flashing || undefined,
       className: cn(
-        "flex min-h-(--setting-row-height) items-center gap-2 px-4 py-(--setting-row-y) transition-colors duration-(--motion-slow)",
+        "flex min-h-(--setting-row-height) items-center gap-2 py-(--setting-row-y) transition-colors duration-(--motion-slow)",
         flashing && "bg-accent",
         className,
       ),
@@ -280,7 +278,7 @@ export function SettingAction({
       type,
       "data-flash": flashing || undefined,
       className: cn(
-        "flex min-h-(--setting-row-height) w-full items-center gap-2 px-4 text-left text-ui font-medium text-muted-foreground transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-fill hover:text-foreground disabled:opacity-50",
+        "flex min-h-(--setting-row-height) w-full items-center gap-2 text-left text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring-inset hover:text-foreground disabled:opacity-50",
         flashing && "bg-accent",
         className,
       ),
@@ -322,7 +320,7 @@ export function SettingDisclosure(props: {
         className={cn(
           "flex cursor-default list-none items-center gap-2 text-ui [&::-webkit-details-marker]:hidden",
           inCard
-            ? "min-h-(--setting-row-height) px-4 focus-ring-inset"
+            ? "min-h-(--setting-row-height) focus-ring-inset"
             : "h-8 w-fit rounded-md pr-2 text-muted-foreground focus-ring hover:text-foreground",
         )}
       >
