@@ -323,3 +323,171 @@ writeFileSync(join(root, "package-lock.json"), JSON.stringify({ packages: { "nod
     await work.close();
   }
 });
+test("a 302 to another HTTPS URL installs and its entrypoint reads back", async () => {
+  const work = await temporary();
+  const service = await registry(
+    work.root,
+    async () => new Response(body([sample()])),
+    async (url, options) => {
+      if (options?.redirect !== "manual") throw new Error("unexpected redirect");
+      if (String(url) === "https://example.org/artifact")
+        return new Response(null, {
+          status: 302,
+          headers: { location: "https://example.org/real-artifact" },
+        });
+      return new Response("synthetic artifact");
+    },
+  );
+  try {
+    await service.catalog.refresh();
+    const digest = plan(
+      await service.handle({
+        type: "registry.install-plan",
+        requestId: "plan",
+        acpAgentId: "official:sample",
+        runtime: "binary",
+      }),
+    );
+    const installed = await service.handle({
+      type: "registry.install-intent",
+      requestId: "install",
+      intentId: "redirect-approved",
+      digest,
+    });
+    if (!installed.result.ok || !("installation" in installed.result))
+      throw new Error("Missing installation");
+    expect(
+      await readFile((await service.resolve(installed.result.installation)).command, "utf8"),
+    ).toBe("synthetic artifact");
+  } finally {
+    await service.close();
+    await work.close();
+  }
+});
+test("a redirect to an http URL never publishes an installation", async () => {
+  const work = await temporary();
+  const service = await registry(
+    work.root,
+    async () => new Response(body([sample()])),
+    async (url, options) => {
+      if (options?.redirect !== "manual") throw new Error("unexpected redirect");
+      if (String(url) === "https://example.org/artifact")
+        return new Response(null, {
+          status: 302,
+          headers: { location: "http://example.org/real" },
+        });
+      return new Response("synthetic artifact");
+    },
+  );
+  try {
+    await service.catalog.refresh();
+    const digest = plan(
+      await service.handle({
+        type: "registry.install-plan",
+        requestId: "plan",
+        acpAgentId: "official:sample",
+        runtime: "binary",
+      }),
+    );
+    expect(
+      (
+        await service.handle({
+          type: "registry.install-intent",
+          requestId: "install",
+          intentId: "downgrade",
+          digest,
+        })
+      ).result.ok,
+    ).toBe(false);
+    expect(service.inventory.list()).toEqual([]);
+    expect(await readdir(join(work.root, "installations"))).toEqual([]);
+  } finally {
+    await service.close();
+    await work.close();
+  }
+});
+test("a redirect chain beyond the hop limit never publishes an installation", async () => {
+  const work = await temporary();
+  const service = await registry(
+    work.root,
+    async () => new Response(body([sample()])),
+    async (url, options) => {
+      if (options?.redirect !== "manual") throw new Error("unexpected redirect");
+      const target = String(url);
+      if (target === "https://example.org/hop-6") return new Response("synthetic artifact");
+      const hop = Number(target.split("hop-")[1] ?? 0);
+      return new Response(null, {
+        status: 302,
+        headers: { location: `https://example.org/hop-${hop + 1}` },
+      });
+    },
+  );
+  try {
+    await service.catalog.refresh();
+    const digest = plan(
+      await service.handle({
+        type: "registry.install-plan",
+        requestId: "plan",
+        acpAgentId: "official:sample",
+        runtime: "binary",
+      }),
+    );
+    expect(
+      (
+        await service.handle({
+          type: "registry.install-intent",
+          requestId: "install",
+          intentId: "loop",
+          digest,
+        })
+      ).result.ok,
+    ).toBe(false);
+    expect(service.inventory.list()).toEqual([]);
+    expect(await readdir(join(work.root, "installations"))).toEqual([]);
+  } finally {
+    await service.close();
+    await work.close();
+  }
+});
+test("a redirect to bytes with the wrong sha256 never publishes an installation", async () => {
+  const work = await temporary();
+  const service = await registry(
+    work.root,
+    async () => new Response(body([sample()])),
+    async (url, options) => {
+      if (options?.redirect !== "manual") throw new Error("unexpected redirect");
+      if (String(url) === "https://example.org/artifact")
+        return new Response(null, {
+          status: 302,
+          headers: { location: "https://example.org/real-artifact" },
+        });
+      return new Response("wrong artifact");
+    },
+  );
+  try {
+    await service.catalog.refresh();
+    const digest = plan(
+      await service.handle({
+        type: "registry.install-plan",
+        requestId: "plan",
+        acpAgentId: "official:sample",
+        runtime: "binary",
+      }),
+    );
+    expect(
+      (
+        await service.handle({
+          type: "registry.install-intent",
+          requestId: "install",
+          intentId: "tampered",
+          digest,
+        })
+      ).result.ok,
+    ).toBe(false);
+    expect(service.inventory.list()).toEqual([]);
+    expect(await readdir(join(work.root, "installations"))).toEqual([]);
+  } finally {
+    await service.close();
+    await work.close();
+  }
+});
