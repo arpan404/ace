@@ -280,6 +280,34 @@ const agents: Record<string, Wording> = {
 
 /** Failures any of ace's tools can report, whichever family it is. */
 const shared: Record<string, Wording> = {
+  approval_timeout: () => ({
+    title: "Site access wasn't approved in time",
+    hint: "Allow the site in ace, then try again.",
+  }),
+  page_timeout: (site) => ({
+    title: `${site} took too long to load`,
+    hint: "Check the page and reload if needed.",
+  }),
+  tool_timeout: () => ({
+    title: "The action took too long",
+    hint: "Check its result before trying again.",
+  }),
+  cancelled: () => ({
+    title: "The action was cancelled",
+    hint: "It may have partly completed.",
+  }),
+  result_too_large: () => ({
+    title: "The result is too large to show",
+    hint: "The agent can request a smaller part.",
+  }),
+  calls_limit: () => ({
+    title: "Too many actions are running at once",
+    hint: "Wait for a running action to finish.",
+  }),
+  session_ended: () => ({
+    title: "This session ended",
+    hint: "Start a new turn to continue.",
+  }),
   invalid_arguments: () => ({ title: "The agent's request was malformed" }),
   invalid_data: () => ({ title: "The tool answered with something unexpected" }),
   timeout: () => ({ title: "No answer in time", hint: "Nothing changed. Try again." }),
