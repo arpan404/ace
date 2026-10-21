@@ -74,6 +74,15 @@ The agent keeps its own login, permissions and session history.
 
 ### `ace doctor` checks, then offers repairs
 
+Doctor's checks come from feature modules under `apps/daemon/src/doctor/`: install and
+versions, daemon health, recent errors, storage, accounts, computer use and remote
+access, on top of the base setup checks. Each feature gets one context (config, clock,
+platform, the daemon's run state and a daemon client that resolves undefined when the
+daemon is down), so it works offline and is tested against temp folders and fakes. A
+feature may offer repairs with ids `<feature>.<name>`; chosen repairs go to the feature
+that offered them, and a repair that throws is reported as failed. Report text is
+redacted for secret-looking environment values only, so versions and paths stay readable.
+
 Doctor runs its health checks (Node, provider CLIs and logins, git, node-pty,
 Chromium, disk, database integrity and space, port, folder access) and then lists the
 repairs the report calls for:

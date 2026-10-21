@@ -300,17 +300,44 @@ ace triage --print             # playbook and facts on stdout, to paste anywhere
 ace triage --json              # just the file paths
 ```
 
-`ace doctor` checks this computer's ace setup, then lists the repairs it can make:
+`ace doctor` checks this computer's ace setup, then lists the repairs it can make. It
+shows only problems by default; `--all` lists every check.
 
 ```sh
 ace doctor            # report; in a terminal, choose repairs from a checklist
+ace doctor --all      # every check, passing ones included
 ace doctor --dry-run  # report and list repairs, change nothing
 ace doctor --fix      # run the recommended repairs without asking
 ace doctor --fix --json
 ```
 
+What it checks:
+
+- **Setup**: Node, provider CLIs and their logins, git, node-pty, Chromium, disk, port,
+  ace folder access.
+- **Install**: the ace CLI, running daemon and desktop app are the same version; the data
+  folder's format is one this build reads; which `ace` commands are on PATH; Xcode and
+  the Android SDK (optional).
+- **Daemon**: if running, whether it answers, its event-loop delay, memory, queue
+  backlogs and log writes. If not, how its last run ended: a clean quit, a crash, a
+  failed or refused start with its error, or a stop that ran past its deadline.
+- **Recent errors**: warnings and errors from the last 24 hours, grouped.
+- **Storage**: database integrity (with time that scales with the database's size),
+  reusable space and WAL, what the data folder holds, leftover pre-upgrade backups, a
+  daemon lock naming a dead process, and free space for compaction.
+- **Accounts**: folders and sign-in for every configured account.
+- **Computer use** (macOS): the screen helper and its Accessibility and Screen Recording
+  grants.
+- **Remote access**: transport, Tailscale, relay, paired devices and certificate expiry.
+
+Checks that need the daemon say so when it isn't running; everything else reads files
+directly.
+
 - **Fix ace folder access** creates missing ace and log folders and makes them private
   to you. It refuses links, non-directories and folders owned by someone else.
+- **Delete old database backups** removes copies made before an upgrade the current
+  database has finished. It is never preselected, since it gives up rolling back, and is
+  blocked while integrity is unconfirmed or an update is running.
 - **Reclaim database space** is offered when at least 1 MiB is reusable or the WAL
   reaches 32 MiB. The running local daemon compacts in small journaled steps and
   checkpoints the WAL; doctor reports the size before and after. If ace isn't running,
