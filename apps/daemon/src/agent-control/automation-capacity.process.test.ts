@@ -100,3 +100,124 @@ test("removed and rejected agent definitions do not permanently consume automati
     await f.close();
   }
 });
+
+test("agents cannot pause, resume, or retry jobs they do not own", async () => {
+  const f = await automationFixture();
+  try {
+    const base: Automation = {
+      id: "owned-pause",
+      title: "Owned",
+      enabled: true,
+      workspace: f.h.home,
+      provider: "codex",
+      prompt: "Check",
+      worktree: false,
+      trigger: { kind: "manual" },
+      missedRun: "skip",
+      concurrency: 1,
+      jitterMs: 0,
+    };
+    const manage = (request: import("@ace/protocol").AgentAutomationRequest) =>
+      f.call({ op: "automation.manage", request });
+    expect(
+      await manage({ type: "automation.put", requestId: "own-put", automation: base }),
+    ).toMatchObject({ ok: true });
+    const workspaceId = f.h.store.getThread(f.caller.threadId)?.workspaceId;
+    if (!workspaceId) throw new Error("Missing caller workspace");
+    const foreign = f.h.service.command("foreign", {
+      type: "thread.create",
+      workspaceId,
+      provider: "codex",
+      input: [{ type: "text", text: "Other caller" }],
+    });
+    await f.h.engine.flush();
+    if (!foreign.threadId) throw new Error("Missing foreign thread");
+    const agentId = f.h.store.getThread(foreign.threadId)?.rootAgentId;
+    if (!agentId) throw new Error("Missing foreign root");
+    const outsider = { sessionId: "foreign", threadId: foreign.threadId, agentId };
+    expect(
+      await f.call(
+        {
+          op: "automation.manage",
+          request: {
+            type: "automation.setEnabled",
+            requestId: "pause-foreign",
+            id: base.id,
+            enabled: false,
+          },
+        },
+        outsider,
+      ),
+    ).toEqual({ ok: false, code: "forbidden" });
+    expect(
+      await f.call(
+        {
+          op: "automation.manage",
+          request: { type: "automation.retry", requestId: "retry-foreign", id: base.id },
+        },
+        outsider,
+      ),
+    ).toEqual({ ok: false, code: "forbidden" });
+    expect(
+      await f.call(
+        {
+          op: "automation.manage",
+          request: { type: "automation.remove", requestId: "remove-foreign", id: base.id },
+        },
+        outsider,
+      ),
+    ).toEqual({ ok: false, code: "forbidden" });
+    expect(
+      await f.call(
+        {
+          op: "automation.manage",
+          request: {
+            type: "automation.setEnabled",
+            requestId: "pause-missing",
+            id: "absent",
+            enabled: false,
+          },
+        },
+        outsider,
+      ),
+    ).toEqual({ ok: false, code: "not_found" });
+    expect(
+      await f.call({
+        op: "automation.manage",
+        request: { type: "automation.retry", requestId: "retry-missing", id: "absent" },
+      }),
+    ).toEqual({ ok: false, code: "not_found" });
+    expect(
+      await manage({
+        type: "automation.setEnabled",
+        requestId: "pause-own",
+        id: base.id,
+        enabled: false,
+      }),
+    ).toMatchObject({ ok: true });
+    expect(
+      await manage({
+        type: "automation.setEnabled",
+        requestId: "resume-own",
+        id: base.id,
+        enabled: true,
+      }),
+    ).toMatchObject({ ok: true });
+    await f.settings.set("automations.enabled", true, { kind: "global" });
+    await f.settings.settled({ kind: "global" });
+    expect(
+      await manage({ type: "automation.retry", requestId: "retry-own", id: base.id }),
+    ).toMatchObject({ ok: true });
+    expect(
+      await manage({
+        type: "automation.setEnabled",
+        requestId: "stale-own",
+        id: base.id,
+        enabled: false,
+        expectedRevision: 999_999,
+      }),
+    ).toMatchObject({ ok: false });
+  } finally {
+    await f.close();
+  }
+});
