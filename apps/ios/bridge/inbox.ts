@@ -146,6 +146,10 @@ export function followInbox(
       const send = owner.pendingSend(id);
       return { type: "pending", id, row: send ? pendingRow(send, connection.getSnapshot()) : null };
     });
+  /** The thread ids the phone holds rows for, so one that leaves the list loses only its row. */
+  let listed = new Set<string>();
+  const gone = (id: string) =>
+    pump.put(`inbox:${id}`, () => ({ type: "inbox.row", id, row: null }));
   let unconfirmed = store.unconfirmed === true;
   let fresh = isConfirmed(store, online());
   const change: ChangeTap = (keys) => {
@@ -157,12 +161,22 @@ export function followInbox(
     const flipped = nowUnconfirmed !== unconfirmed || nowFresh !== fresh;
     unconfirmed = nowUnconfirmed;
     fresh = nowFresh;
-    if (keys === "all" || keys.has("ids")) {
+    if (keys === "all") {
       pump.clear("inbox:");
       pump.put("inbox:reset", () => ({ type: "inbox.reset" }));
-      for (const id of store.ids) row(id);
-    } else if (flipped) for (const id of store.ids) row(id);
-    else for (const key of keys) if (key.startsWith("thread:")) row(key.slice(7));
+      listed = new Set(store.ids);
+      for (const id of listed) row(id);
+    } else {
+      // A thread joining or leaving the list touches only its own row. A reset here would
+      // blank every row on the phone until the rest arrive, throwing the list to the top.
+      if (keys.has("ids")) {
+        const now = new Set(store.ids);
+        for (const id of listed) if (!now.has(id)) gone(id);
+        listed = now;
+      }
+      if (flipped || keys.has("ids")) for (const id of store.ids) row(id);
+      else for (const key of keys) if (key.startsWith("thread:")) row(key.slice(7));
+    }
     sections();
   };
   const stops = [
