@@ -8,6 +8,61 @@ pub struct Candidate {
     pub running: bool,
 }
 
+/// Parts of the desktop itself (shells, compositors, portals, bars, launchers, lock screens,
+/// input methods, accessibility and settings daemons, polkit agents). They show windows on the
+/// accessibility bus but are not apps an agent may operate. Matched on a desktop id or an
+/// executable name, case-insensitive, with any `.desktop` suffix ignored.
+pub fn is_system_component(name: &str) -> bool {
+    const EXACT: &[&str] = &[
+        "gnome-shell",
+        "org.gnome.shell",
+        "org.gnome.shell.extensions",
+        "mutter-x11-frames",
+        "plasmashell",
+        "org.kde.plasmashell",
+        "xwayland",
+        "gnome-shell-calendar-server",
+        "evolution-alarm-notify",
+        "org.gnome.evolution-alarm-notify",
+        "waybar",
+        "mako",
+        "swaync",
+        "hyprpaper",
+        "hypridle",
+        "hyprlock",
+        "walker",
+        "wofi",
+        "rofi",
+        "fuzzel",
+        "tofi",
+        "swaybg",
+        "swaylock",
+        "swayidle",
+        "lxpolkit",
+    ];
+    const PREFIXES: &[&str] = &[
+        "kwin",
+        "org.kde.kwin",
+        "xdg-desktop-portal",
+        "org.freedesktop.impl.portal",
+        "at-spi",
+        "ibus",
+        "org.freedesktop.ibus",
+        "gsd-",
+        "org.gnome.settingsdaemon",
+    ];
+    let name = name.trim().to_lowercase();
+    let name = name.strip_suffix(".desktop").unwrap_or(&name);
+    !name.is_empty()
+        && (EXACT.contains(&name) || PREFIXES.iter().any(|prefix| name.starts_with(prefix)) || name.contains("polkit"))
+}
+
+pub fn system_component_message(name: &str) -> String {
+    format!(
+        "{name} is part of the desktop itself (its shell, a portal or a system service), not an app computer use operates. Name an app instead; screen_apps lists them."
+    )
+}
+
 fn exact(candidate: &Candidate, wanted: &str) -> bool {
     let id = candidate.id.to_lowercase();
     id == wanted || candidate.name.to_lowercase() == wanted || id.rsplit('.').next() == Some(wanted) && id.contains('.')
@@ -27,8 +82,14 @@ pub fn resolve(query: &str, candidates: &[Candidate]) -> CuResult<Candidate> {
             "Name an app, e.g. \"Calculator\" or \"org.gnome.TextEditor\".",
         ));
     }
+    if is_system_component(&wanted) {
+        return Err(CuError::new("app_not_allowed", system_component_message(query.trim())));
+    }
     let mut unique: Vec<&Candidate> = Vec::new();
     for candidate in candidates {
+        if is_system_component(&candidate.id) {
+            continue;
+        }
         if !unique.iter().any(|c| c.id == candidate.id) {
             unique.push(candidate);
         }
@@ -65,7 +126,7 @@ pub fn resolve(query: &str, candidates: &[Candidate]) -> CuResult<Candidate> {
 /// `apps {query}`: running apps that match, then up to 50 installed ones (none without a query).
 pub fn listing(query: Option<&str>, running: &[Candidate], installed: &[Candidate]) -> Vec<Candidate> {
     let wanted = query.map(|q| q.trim().to_lowercase()).unwrap_or_default();
-    let matches = |c: &Candidate| wanted.is_empty() || partial(c, &wanted);
+    let matches = |c: &Candidate| !is_system_component(&c.id) && (wanted.is_empty() || partial(c, &wanted));
     let mut rows: Vec<Candidate> = running.iter().filter(|c| matches(c)).cloned().collect();
     if wanted.is_empty() {
         return rows;
@@ -124,6 +185,63 @@ mod tests {
                 .contains("Calculator (org.gnome.Calculator), Text Editor (org.gnome.TextEditor)")
         );
         assert_eq!(resolve("photoshop", &world()).unwrap_err().code, "app_not_found");
+    }
+
+    #[test]
+    fn desktop_shells_portals_bars_and_agents_are_not_apps() {
+        for name in [
+            "gnome-shell",
+            "org.gnome.Shell.desktop",
+            "mutter-x11-frames",
+            "plasmashell",
+            "kwin_wayland",
+            "xdg-desktop-portal-gnome",
+            "Xwayland",
+            "at-spi2-registryd",
+            "ibus-daemon",
+            "gnome-shell-calendar-server",
+            "evolution-alarm-notify",
+            "gsd-media-keys",
+            "polkit-gnome-authentication-agent-1",
+            "hyprpolkitagent",
+            "waybar",
+            "mako",
+            "swaync",
+            "hyprpaper",
+            "hypridle",
+            "hyprlock",
+            "walker",
+            "wofi",
+            "rofi",
+            "swaybg",
+        ] {
+            assert!(is_system_component(name), "{name}");
+        }
+        for name in [
+            "org.gnome.Calculator",
+            "firefox",
+            "org.kde.kate",
+            "code",
+            "Mako Studio Pro",
+        ] {
+            assert!(!is_system_component(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn the_shell_is_refused_by_name_and_left_out_of_listings() {
+        let mut apps = world();
+        apps.push(candidate("gnome-shell", "gnome-shell", true));
+        let refused = resolve("GNOME-Shell", &apps).unwrap_err();
+        assert_eq!(refused.code, "app_not_allowed");
+        assert!(refused.message.contains("part of the desktop itself"));
+        // A partial query never lands on it either.
+        assert_eq!(resolve("shell", &apps).unwrap_err().code, "app_not_found");
+        let running = vec![
+            candidate("gnome-shell", "gnome-shell", true),
+            candidate("org.gnome.Calculator", "Calculator", true),
+        ];
+        assert_eq!(listing(None, &running, &[]).len(), 1);
     }
 
     #[test]

@@ -168,7 +168,12 @@ impl Actor<'_> {
                 self.changed();
                 return Ok(format!("focused {label} (ready for type)"));
             }
-            if element.states.selectable && self.select_in_parent(&element).await {
+            // GTK4 list rows carry no action and often no SELECTABLE state; their list selects them.
+            let row = matches!(
+                element.role.as_str(),
+                "list item" | "table cell" | "tree item" | "table row"
+            );
+            if (element.states.selectable || row) && self.select_in_parent(&element).await {
                 return Ok(format!("selected {label}"));
             }
         }

@@ -61,6 +61,11 @@ pub async fn running(bus: &Bus, x: Option<&XDisplay>, installed: &[DesktopApp]) 
         };
         let facts = identity::read_process(Path::new("/proc"), pid);
         let (id, entry) = identity::identify(&facts, &hints, installed);
+        // The desktop's own shell, portals, bars and agents are not apps to operate.
+        let system = crate::computer::catalog::is_system_component;
+        if system(&id) || facts.exe_name.as_deref().is_some_and(system) {
+            continue;
+        }
         let shown = entry
             .map(|e| e.name.clone())
             .filter(|n| !n.is_empty())
