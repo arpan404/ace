@@ -9121,8 +9121,11 @@ Example:
     "id": "example",
     "payload": {
       "action": {
-        "kind": "thread.unresolve",
-        "threadId": "example"
+        "content": "-1",
+        "kind": "reaction.add",
+        "subject": {
+          "kind": "pr"
+        }
       },
       "pr": {
         "number": 7,
@@ -9155,8 +9158,8 @@ Example:
 
 ```json
 {
-  "limit": 2,
-  "offset": 1,
+  "limit": 5,
+  "offset": 0,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -9177,8 +9180,8 @@ Example:
 
 ```json
 {
-  "before": 1,
-  "limit": 5,
+  "before": 7,
+  "limit": 8,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"
@@ -9200,9 +9203,9 @@ Example:
 
 ```json
 {
-  "before": 8,
-  "collection": "interactions",
-  "limit": 9,
+  "before": 2,
+  "collection": "backgroundTasks",
+  "limit": 2,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"
@@ -9223,7 +9226,7 @@ Example:
 ```json
 {
   "before": {
-    "at": 1,
+    "at": 0,
     "id": "example"
   },
   "requestId": "example",
@@ -9301,15 +9304,17 @@ Example:
 ```json
 {
   "removed": [],
-  "requestId": "example",
-  "seq": 0,
+  "seq": 5,
   "subscriptionId": "example",
   "threads": {},
   "type": "threads.patch",
   "window": {
-    "before": null,
+    "before": {
+      "at": 4,
+      "id": "example"
+    },
     "counts": [],
-    "total": 5
+    "total": 2
   }
 }
 ```
@@ -9332,9 +9337,9 @@ Example:
 {
   "data": "example",
   "done": true,
-  "index": 4,
+  "index": 1,
   "requestId": "example",
-  "seq": 2,
+  "seq": 9,
   "threadId": "example",
   "type": "entities.page.part"
 }
@@ -9352,7 +9357,7 @@ Example:
 
 ```json
 {
-  "seq": 9,
+  "seq": 5,
   "subscriptionId": "example",
   "type": "subscription.ready"
 }
@@ -9375,8 +9380,8 @@ Example:
 {
   "data": "example",
   "done": false,
-  "index": 3,
-  "seq": 1,
+  "index": 5,
+  "seq": 5,
   "subscriptionId": "example",
   "type": "snapshot.part"
 }
@@ -9395,10 +9400,10 @@ Example:
 ```json
 {
   "page": {
-    "collection": "interactions",
-    "entitiesBefore": null,
+    "collection": "runs",
+    "entitiesBefore": 7,
     "entries": [],
-    "seq": 5,
+    "seq": 8,
     "threadId": "example"
   },
   "requestId": "example",
@@ -9419,7 +9424,7 @@ Example:
 
 ```json
 {
-  "headSeq": 4,
+  "headSeq": 1,
   "hostId": "example",
   "protocolVersion": 1,
   "type": "welcome"
