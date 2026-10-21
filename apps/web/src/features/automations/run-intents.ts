@@ -3,9 +3,10 @@ import { z } from "zod";
 
 /*
  * One user-intended Run now per daemon per automation, kept across reloads until the
- * daemon answers for certain. A failed or uncertain send (offline, timeout, abort)
- * keeps its requestId so an explicit Retry reuses it; a definitive answer clears it.
- * Only the idempotency key is stored, never credentials or tokens.
+ * daemon answers for certain. A failed or uncertain send keeps its requestId so an
+ * explicit Retry reuses it; a definitive answer clears it. Only the idempotency key
+ * is stored, never credentials or tokens. At capacity a new intent is refused rather
+ * than evicting an unresolved one (which would duplicate the run).
  */
 
 export const RunIntent = z.object({
@@ -18,14 +19,28 @@ export type RunIntent = z.infer<typeof RunIntent>;
 
 const Stored = z.array(RunIntent).max(64);
 const storageKey = "ace.automation.runIntents";
-const keep = 32;
+export const maxRunIntents = 32;
+
+/** The daemon identity without anything that authenticates: no userinfo, query or fragment. */
+export function normalizeDaemonKey(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.username = "";
+    parsed.password = "";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return url.split("#")[0]?.split("?")[0] ?? url;
+  }
+}
 
 export function loadRunIntents(storage: KeyValueStorage | undefined): readonly RunIntent[] {
   return readJson(storage, storageKey, Stored, []);
 }
 
 function saveRunIntents(storage: KeyValueStorage | undefined, intents: readonly RunIntent[]): void {
-  writeJson(storage, storageKey, intents.slice(0, keep));
+  writeJson(storage, storageKey, intents);
 }
 
 export function getRunIntent(
@@ -39,8 +54,9 @@ export function getRunIntent(
 }
 
 /**
- * The pending intent, or a new one that is stored before returning. The same
- * requestId is reused until cleared, so a retry never submits twice.
+ * The pending intent, or a new one that is verified in storage before returning.
+ * Refuses (undefined) at capacity or when the write cannot be verified, so a retry
+ * never duplicates an unresolved run and dispatch never runs without a durable key.
  */
 export function ensureRunIntent(
   storage: KeyValueStorage | undefined,
@@ -48,9 +64,11 @@ export function ensureRunIntent(
   automationId: string,
   now: () => number,
   newId: () => string,
-): RunIntent {
+): RunIntent | undefined {
+  if (storage === undefined || storage.durable === false) return undefined;
   const existing = getRunIntent(storage, daemonKey, automationId);
   if (existing) return existing;
+  if (loadRunIntents(storage).length >= maxRunIntents) return undefined;
   const intent: RunIntent = {
     daemonKey,
     automationId,
@@ -58,7 +76,9 @@ export function ensureRunIntent(
     createdAt: now(),
   };
   saveRunIntents(storage, [intent, ...loadRunIntents(storage)]);
-  return intent;
+  const verified = getRunIntent(storage, daemonKey, automationId);
+  if (verified?.requestId !== intent.requestId) return undefined;
+  return verified;
 }
 
 export function clearRunIntent(
@@ -72,23 +92,4 @@ export function clearRunIntent(
       (intent) => !(intent.daemonKey === daemonKey && intent.automationId === automationId),
     ),
   );
-}
-
-/**
- * Keep the intent for another try only when the send may have reached the daemon.
- * Definitive daemon answers (ok:false, or an admitted run) clear it instead.
- */
-export function shouldKeepRunIntentOnError(error: unknown): boolean {
-  if (error !== null && typeof error === "object" && "name" in error) {
-    const record = error as { name?: unknown; code?: unknown };
-    if (record.name === "ClientError") {
-      return (
-        record.code === "offline" ||
-        record.code === "timeout" ||
-        record.code === "aborted" ||
-        record.code === "not_dispatched"
-      );
-    }
-  }
-  return false;
 }

@@ -3,14 +3,20 @@ import {
   clearRunIntent,
   ensureRunIntent,
   getRunIntent,
-  shouldKeepRunIntentOnError,
+  maxRunIntents,
+  normalizeDaemonKey,
 } from "./run-intents.ts";
-import { memoryKeyValue } from "@/test/harness.tsx";
-import { ClientError } from "@ace/client";
+function memoryKeyValue() {
+  const data = new Map<string, string>();
+  return {
+    getItem: (key: string) => data.get(key) ?? null,
+    setItem: (key: string, value: string) => void data.set(key, value),
+  };
+}
 
 test("one intent per daemon per automation survives reloads and clears once answered", () => {
   const storage = memoryKeyValue();
-  const daemon = "memory://fake-daemon";
+  const daemon = normalizeDaemonKey("memory://fake-daemon");
   const first = ensureRunIntent(
     storage,
     daemon,
@@ -18,7 +24,7 @@ test("one intent per daemon per automation survives reloads and clears once answ
     () => 1000,
     () => "req-1",
   );
-  expect(first.requestId).toBe("req-1");
+  expect(first?.requestId).toBe("req-1");
   const again = ensureRunIntent(
     storage,
     daemon,
@@ -26,42 +32,89 @@ test("one intent per daemon per automation survives reloads and clears once answ
     () => 2000,
     () => "req-2",
   );
-  expect(again.requestId).toBe("req-1");
+  expect(again?.requestId).toBe("req-1");
   expect(getRunIntent(storage, daemon, "auto-a")?.requestId).toBe("req-1");
-  expect(getRunIntent(storage, "other://daemon", "auto-a")).toBeUndefined();
+  expect(getRunIntent(storage, normalizeDaemonKey("other://daemon"), "auto-a")).toBeUndefined();
   const other = ensureRunIntent(
     storage,
-    "other://daemon",
+    normalizeDaemonKey("other://daemon"),
     "auto-a",
     () => 3000,
     () => "req-3",
   );
-  expect(other.requestId).toBe("req-3");
+  expect(other?.requestId).toBe("req-3");
   clearRunIntent(storage, daemon, "auto-a");
   expect(getRunIntent(storage, daemon, "auto-a")).toBeUndefined();
-  expect(getRunIntent(storage, "other://daemon", "auto-a")?.requestId).toBe("req-3");
+  expect(getRunIntent(storage, normalizeDaemonKey("other://daemon"), "auto-a")?.requestId).toBe(
+    "req-3",
+  );
 });
 
-test("uncertain sends keep the intent while definitive refusals clear it", () => {
-  expect(shouldKeepRunIntentOnError(new ClientError("offline"))).toBe(true);
-  expect(shouldKeepRunIntentOnError(new ClientError("timeout"))).toBe(true);
-  expect(shouldKeepRunIntentOnError(new ClientError("aborted"))).toBe(true);
-  expect(shouldKeepRunIntentOnError(new ClientError("not_dispatched"))).toBe(true);
-  expect(shouldKeepRunIntentOnError(new Error("Automation revision conflict"))).toBe(false);
-  expect(shouldKeepRunIntentOnError(new Error("disabled_or_missing"))).toBe(false);
-});
-
-test("run intents stay bounded and never hold credentials", () => {
+test("a full store refuses new intents instead of evicting unresolved ones", () => {
   const storage = memoryKeyValue();
-  for (let index = 0; index < 40; index++)
+  const daemon = normalizeDaemonKey("memory://fake-daemon");
+  for (let index = 0; index < maxRunIntents; index++)
+    expect(
+      ensureRunIntent(
+        storage,
+        daemon,
+        `auto-${index}`,
+        () => index,
+        () => `req-${index}`,
+      )?.requestId,
+    ).toBe(`req-${index}`);
+  expect(
     ensureRunIntent(
       storage,
-      "memory://fake-daemon",
-      `auto-${index}`,
-      () => index,
-      () => `req-${index}`,
-    );
-  const raw = storage.data.get("ace.automation.runIntents") ?? "";
-  expect(raw).not.toContain("token");
-  expect(JSON.parse(raw)).toHaveLength(32);
+      daemon,
+      "auto-overflow",
+      () => 999,
+      () => "req-new",
+    ),
+  ).toBeUndefined();
+  expect(getRunIntent(storage, daemon, "auto-0")?.requestId).toBe("req-0");
+});
+
+test("memory-only storage refuses a run whose retry key would disappear on reload", () => {
+  const storage = { ...memoryKeyValue(), durable: false };
+  const daemon = normalizeDaemonKey("memory://fake-daemon");
+  expect(
+    ensureRunIntent(
+      storage,
+      daemon,
+      "auto-a",
+      () => 1,
+      () => "req-1",
+    ),
+  ).toBeUndefined();
+  expect(getRunIntent(storage, daemon, "auto-a")).toBeUndefined();
+});
+
+test("a blocked store refuses dispatch and daemon keys strip credentials and queries", () => {
+  const secret = "secret-token-abc123";
+  const dirty = `ws://user:${secret}@host:4242/some/path?foo=bar&token=${secret}#token=${secret}`;
+  const clean = normalizeDaemonKey(dirty);
+  expect(clean).not.toContain(secret);
+  expect(clean).not.toContain("foo=bar");
+  expect(clean).not.toContain("user@");
+  expect(clean).toBe(normalizeDaemonKey("ws://host:4242/some/path"));
+  const blocked = {
+    data: new Map<string, string>(),
+    length: 0,
+    key: () => null,
+    getItem: () => null,
+    setItem: () => {
+      throw new Error("blocked");
+    },
+    removeItem: () => {},
+  };
+  expect(
+    ensureRunIntent(
+      blocked,
+      clean,
+      "auto-a",
+      () => 1,
+      () => "req-1",
+    ),
+  ).toBeUndefined();
 });
