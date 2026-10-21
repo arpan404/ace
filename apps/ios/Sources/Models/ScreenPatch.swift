@@ -60,6 +60,17 @@ struct AttachmentFile: Codable, Sendable, Equatable, Identifiable {
     let progress: Double
     let error: String
 }
+/// The thread's one live line for the capsule above the composer (`bridge/thread-activity.ts`):
+/// the shared `turnActivity` words, its tone and its timer's origin. Nil when nothing is live.
+struct ActivityRow: Codable, Sendable, Equatable {
+    let label: String
+    /// `working`, `needs-you`, `held` or `paused`.
+    let tone: String
+    /// The timer's origin in ms since 1970; nil when the line has no timer.
+    let since: Double?
+    /// "1 command": background commands running beside the work; empty when none.
+    let commands: String
+}
 /// A finished turn's steps read from the daemon, page by page.
 struct StepsHeader: Codable, Sendable, Equatable {
     let ordinal: Int
@@ -78,8 +89,9 @@ enum ScreenPatch: Sendable {
     case attachments([AttachmentFile])
     case laneBlock(lane: String, id: String, row: BlockRow?)
     case laneBlockPosition(lane: String, id: String, index: Int?)
+    case activity(ActivityRow?)
 
-    static let types: Set<String> = ["thread.steps", "thread.stepsPage", "thread.tune", "thread.attachments", "thread.laneBlock", "thread.laneBlockPosition"]
+    static let types: Set<String> = ["thread.steps", "thread.stepsPage", "thread.tune", "thread.attachments", "thread.laneBlock", "thread.laneBlockPosition", "thread.activity"]
     private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, lane, id, row, index }
     init(type: String, from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
@@ -88,6 +100,7 @@ enum ScreenPatch: Sendable {
         case "thread.stepsPage":
             self = .stepsPage(ordinal: try box.decode(Int.self, forKey: .ordinal), page: try box.decode(Int.self, forKey: .page), rows: try box.decode([TranscriptRow].self, forKey: .rows))
         case "thread.tune": self = .tune(try TuneRow(from: decoder))
+        case "thread.activity": self = .activity(try box.decodeIfPresent(ActivityRow.self, forKey: .row))
         case "thread.attachments": self = .attachments(try box.decode([AttachmentFile].self, forKey: .files))
         case "thread.laneBlock":
             self = .laneBlock(lane: try box.decode(String.self, forKey: .lane), id: try box.decode(String.self, forKey: .id), row: try box.decodeIfPresent(BlockRow.self, forKey: .row))
