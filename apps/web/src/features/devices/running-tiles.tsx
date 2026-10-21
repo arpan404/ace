@@ -23,7 +23,8 @@ const noInput = () => {};
 
 /**
  * One running device as a tile: its live screen, small, inside its drawn frame (watched only
- * while the tile is on screen), "Live" while it streams, then its name, OS and who drives it.
+ * while the tile is on screen), "Live" while it streams, then its name, OS and the agent driving
+ * it, if one is.
  */
 function RunningTile(props: {
   row: DeviceRow;

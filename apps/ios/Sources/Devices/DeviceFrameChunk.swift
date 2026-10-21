@@ -38,6 +38,13 @@ struct DeviceFrameChunk: Equatable, Sendable {
     /// A device picture from its envelope's header and payload; throws on anything malformed,
     /// as the daemon's own reader does.
     static func decode(_ meta: Data, _ payload: Data) throws -> DeviceFrameChunk {
+        try decodePicture(meta, payload, source: isDeviceId)
+    }
+    /// The same wire picture, scoped to a Mac screen session (stream kind 5).
+    static func decodeScreen(_ meta: Data, _ payload: Data) throws -> DeviceFrameChunk {
+        try decodePicture(meta, payload, source: isStreamId)
+    }
+    private static func decodePicture(_ meta: Data, _ payload: Data, source: (String) -> Bool) throws -> DeviceFrameChunk {
         let reader = ByteReader(meta)
         guard meta.count >= 32, !payload.isEmpty else { throw StreamEnvelopeError.invalidHeader }
         let codecLength = Int(reader.u8(27))
@@ -62,7 +69,7 @@ struct DeviceFrameChunk: Equatable, Sendable {
         guard sequence.isFinite, sequence >= 0, sequence.rounded() == sequence, sequence <= 9_007_199_254_740_991,
               timestamp.isFinite, timestamp >= 0 else { throw StreamEnvelopeError.invalidHeader }
         let deviceId = try text(parts[0]), streamId = try text(parts[1])
-        guard isDeviceId(deviceId), isStreamId(streamId) else { throw StreamEnvelopeError.invalidHeader }
+        guard source(deviceId), isStreamId(streamId) else { throw StreamEnvelopeError.invalidHeader }
         return DeviceFrameChunk(
             deviceId: deviceId, streamId: streamId, sequence: Int(sequence), timestamp: timestamp,
             width: width, height: height, scale: scale, rotation: rotation, codec: codec,

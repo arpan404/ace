@@ -196,3 +196,11 @@ export { livePlanStep } from "./plan.ts";
 export { isThreadStartCall, startedThreadOf, type StartedThread } from "./started-thread.ts";
 /** The utility model for titles and commit/PR drafts: the same resolution the daemon runs. */
 export { resolveUtilityModel, type UtilityModel } from "@ace/models/utility-model";
+
+export {
+  JumpController,
+  jumpedSource,
+  type Focus,
+  type JumpSnapshot,
+  type LiveTail,
+} from "./jump-controller.ts";

@@ -16,13 +16,18 @@ export class InteractionLedger {
         CREATE INDEX IF NOT EXISTS engine_requests_generation ON engine_interaction_requests(thread_id,generation);
         CREATE INDEX IF NOT EXISTS engine_requests_native ON engine_interaction_requests(thread_id,binding,native_item,state);
         CREATE INDEX IF NOT EXISTS engine_requests_key ON engine_interaction_requests(thread_id,native_key,state);`);
-      // Backfill terminal outcomes written before this ledger existed.
+      // Backfill terminal outcomes written before this ledger existed. The partial index
+      // `engine_interaction_records` (engine-record-indexes.ts) keeps this to interaction
+      // records instead of every stored record, and only rows the ledger lacks look up their
+      // tool item.
       db.exec(`INSERT OR IGNORE INTO engine_interaction_requests
         SELECT r.thread_id,json_extract(r.value,'$.id'),r.key,
           (SELECT key FROM engine_state_records i WHERE i.thread_id=r.thread_id AND i.section='items' AND json_extract(i.value,'$.id')=json_extract(r.value,'$.toolCallId') LIMIT 1),
           (SELECT provider FROM threads WHERE id=r.thread_id)||':'||COALESCE(s.native_session_id,''),NULL,json_extract(r.value,'$.state')
         FROM engine_state_records r JOIN engine_sessions s ON s.thread_id=r.thread_id
-        WHERE r.section IN ('interactions','interactionHistory') AND json_extract(r.value,'$.state')<>'pending';`);
+        WHERE r.section IN ('interactions','interactionHistory') AND json_extract(r.value,'$.state')<>'pending'
+          AND NOT EXISTS(SELECT 1 FROM engine_interaction_requests q
+            WHERE q.thread_id=r.thread_id AND q.interaction_id=json_extract(r.value,'$.id'));`);
     });
   }
   private store: Store;

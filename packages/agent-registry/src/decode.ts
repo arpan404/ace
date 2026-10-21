@@ -84,14 +84,15 @@ export function platformTarget(platform: string, arch: string): string | undefin
   return cpu ? `${os}-${cpu}` : undefined;
 }
 /**
- * Archives ace can unpack: ZIP, gzip tar and raw executables ("agent-linux-amd64", "agent.exe").
+ * Archives ace can unpack: ZIP, gzip and bzip2 tars, and raw executables
+ * ("agent-linux-amd64", "agent.exe").
  * Any other compressed file or installer is refused, never installed as if it were the binary.
  */
 export function supportedArchive(archive: string): boolean {
   const path = new URL(archive).pathname;
   return (
-    /\.(tar\.gz|tgz|zip)$/i.test(path) ||
-    !/\.(dmg|pkg|deb|rpm|msi|msix|appimage|tar|gz|bz2|tbz2?|xz|txz|zst|tzst|7z|rar|lzma?|lz4)$/i.test(
+    /\.(tar\.gz|tgz|tar\.bz2|tbz2?|zip)$/i.test(path) ||
+    !/\.(dmg|pkg|deb|rpm|msi|msix|appimage|tar|gz|bz2|xz|txz|zst|tzst|7z|rar|lzma?|lz4)$/i.test(
       path,
     )
   );

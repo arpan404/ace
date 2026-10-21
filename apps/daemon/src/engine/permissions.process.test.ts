@@ -1,4 +1,4 @@
-import { Engine } from "@ace/daemon";
+import { Engine, Store } from "@ace/daemon";
 import { expect, test } from "vitest";
 import { opencodeNative } from "@ace/provider-kit/access-modes";
 import { harness, scriptFrames, start, end } from "./test-support.ts";
@@ -131,14 +131,38 @@ test.each([
           db.prepare(
             `UPDATE ${table} SET ${column}=json_set(${column},'$.permission',json(?)) WHERE ${key}=? AND json_extract(${column},'$.permission') IS NOT NULL`,
           ).run(JSON.stringify({ override, effective, pending: false }), id);
+        // A database from before the mapping existed has not recorded it as done.
+        db.exec("DELETE FROM upgrade_cleanup WHERE id='recorded-permission-modes-v1'");
       });
+      await h.store.close();
       for (let restart = 0; restart < 2; restart++) {
-        const engine = new Engine(h.store, { registry: h.registry, clock: h.clock });
+        const store = new Store(h.path);
+        const engine = new Engine(store, { registry: h.registry, clock: h.clock });
         try {
           await engine.ready();
-          expect(h.store.getThread(id)?.permission).toMatchObject(expected);
+          expect(store.getThread(id)?.permission).toMatchObject(expected);
+          const recorded = store.atomic((db) =>
+            db
+              .prepare(
+                `SELECT json_extract(payload,'$.permission.override') AS override,
+                  json_extract(payload,'$.permission.effective') AS effective
+                FROM events WHERE thread_id=? AND type='thread.updated'
+                AND json_extract(payload,'$.permission') IS NOT NULL`,
+              )
+              .all(id),
+          );
+          expect(recorded.length).toBeGreaterThan(0);
+          for (const row of recorded) {
+            expect([null, "read-only", "ask", "auto-review", "full-access"]).toContain(
+              row.override,
+            );
+            expect([null, "read-only", "ask", "auto-review", "full-access"]).toContain(
+              row.effective,
+            );
+          }
         } finally {
           await engine.close();
+          await store.close();
         }
       }
     } finally {

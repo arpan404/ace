@@ -27,7 +27,7 @@ import XCTest
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(first.waitForExistence(timeout: 10))
 
-        app.buttons["inbox.machines"].tap()
+        app.openBrowseDestination("inbox.machines")
         screenshot("machines-sheet-opening")
         XCTAssertTrue(app.descendants(matching: .any)["machines.row.ios-spike-host-9852"].firstMatch.waitForExistence(timeout: 10))
         XCTAssertTrue(app.descendants(matching: .any)["machines.row.ios-spike-host-9863"].firstMatch.exists)

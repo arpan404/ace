@@ -27,3 +27,4 @@ export {
 } from "./sim-tools.ts";
 export { type SimToolName } from "./sim-schemas.ts";
 export { pinnedServeSim, serveSimStatus, type ServeSimStatus } from "./serve-sim-version.ts";
+export { managedServeSim, type ServeSimCommand } from "./serve-sim-install.ts";

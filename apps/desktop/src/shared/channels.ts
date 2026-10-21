@@ -104,6 +104,12 @@ export const requests = {
   "updates.check": { request: None, result: UpdateStatus },
   /** A page diagnostic for the desktop log, rate-limited there; the page never waits on it. */
   "diagnostics.report": { request: DiagnosticReport, result: None },
+  /** Where the app's update stands now, for a page that loaded after the last event. */
+  "updates.current": { request: None, result: UpdateStatus },
+  /** Download the update on offer. */
+  "updates.download": { request: None, result: UpdateStatus },
+  /** Restart into the downloaded update once running agents finish. */
+  "updates.install": { request: None, result: UpdateStatus },
 } as const;
 export type RequestChannel = keyof typeof requests;
 export type RequestOf<C extends RequestChannel> = z.input<(typeof requests)[C]["request"]>;
@@ -125,6 +131,8 @@ export const events = {
   "browser.shortcut": BrowserShortcut,
   "browser.context": BrowserContextAction,
   "updates.status": UpdateStatus,
+  /** The outcome of the menu's Check for Updates…, for the page to answer with a toast. */
+  "updates.checked": UpdateStatus,
   /** The machine woke up; the renderer should reconnect now rather than wait for backoff. */
   "system.resumed": None,
 } as const;

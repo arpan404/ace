@@ -316,7 +316,9 @@ keyframe that followed overflowed again. The encoder's bit rate never followed t
 ### Decision
 
 - **No JPEG to any viewer.** Live views carry encoded video only (`browserVideo`, and H.264
-  pictures for devices). There is no JPEG before the first keyframe, no JPEG when an encode
+  pictures for devices and, since 2026-10-20, computer-use sessions: a watching view asks the
+  Mac's screen helper for 60 fps H.264 with `stream.configure`, the bridge forwards only video,
+  and a helper that can't encode it leaves the view saying so). There is no JPEG before the first keyframe, no JPEG when an encode
   stops, and no JPEG for clients without WebCodecs: those show that they can't decode video.
   `browserFrame` is no longer sent to viewers. The JPEG screencast is internal: it feeds
   recordings and keeps a headless page drawing while an agent works it, with one fixed setting.

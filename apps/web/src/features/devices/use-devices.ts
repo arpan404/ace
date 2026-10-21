@@ -8,7 +8,7 @@ import type {
   DeviceSettings,
   DeviceState,
 } from "@ace/protocol";
-import { AgentId, ThreadId, ScreenUITreeResult } from "@ace/protocol";
+import { ThreadId, ScreenUITreeResult } from "@ace/protocol";
 import {
   deviceControls,
   deviceProblem,
@@ -59,6 +59,10 @@ export interface DevicesView {
   rows: DeviceRow[];
   /** Missing SDKs or tools discovery reported. */
   notes: DeviceProblem[];
+  /** Discovery found the device tools ace downloads (serve-sim, the scrcpy server) missing. */
+  toolsMissing: boolean;
+  /** The device tools are downloading. */
+  downloadingTools: boolean;
   selected: DeviceRow | undefined;
   controls: DeviceControls | undefined;
   pending: boolean;
@@ -82,6 +86,7 @@ export function useDevices(threadId: string, deviceId?: string) {
   const { session, snapshot, reconnect } = useDeviceSession(endpoint);
   const [enabledLocally, setEnabled] = useState<boolean | undefined>();
   const [pending, setPending] = useState(0);
+  const [downloadingTools, setDownloadingTools] = useState(false);
   const [failed, setFailed] = useState<DeviceProblem | undefined>();
   const connected = snapshot.connected;
   const { add: notify } = useToast();
@@ -185,6 +190,15 @@ export function useDevices(threadId: string, deviceId?: string) {
     return run(operation);
   };
   const target = selected?.id;
+  /** serve-sim and the scrcpy server, downloaded by the daemon in a process of their own. */
+  const downloadTools = async () => {
+    setDownloadingTools(true);
+    try {
+      await run({ op: "tools.install" });
+    } finally {
+      setDownloadingTools(false);
+    }
+  };
 
   const view: DevicesView = {
     connected,
@@ -202,6 +216,8 @@ export function useDevices(threadId: string, deviceId?: string) {
     enabled,
     rows,
     notes: snapshot.issues.map((issue) => ({ message: issue.message, hint: issue.hint })),
+    toolsMissing: snapshot.issues.some((issue) => issue.code === "tool_missing"),
+    downloadingTools,
     selected,
     controls,
     pending: pending > 0,
@@ -220,11 +236,22 @@ export function useDevices(threadId: string, deviceId?: string) {
     view,
     threadId,
     reconnect,
+    /** Turning devices on also downloads the tools ace runs, so they are there from the start. */
     enable: (on: boolean) =>
       act(async () => {
         setEnabled(enabledResult(await run({ op: "enable", enabled: on })));
         await run({ op: "list" });
         await run({ op: "states" });
+        // The list shows at once; the download runs beside it and a failure stays on show.
+        if (on) {
+          await downloadTools();
+          await run({ op: "list" });
+        }
+      }),
+    downloadTools: () =>
+      act(async () => {
+        await downloadTools();
+        await run({ op: "list" });
       }),
     /** Boot, then show its screen: booting is how a person asks to see the device. */
     boot: () =>
@@ -252,30 +279,6 @@ export function useDevices(threadId: string, deviceId?: string) {
       act(() => send({ op: "permissions.request", permission })),
     /** Try the live view again, as after granting a permission. */
     retry: () => target && act(() => run({ op: "start", deviceId: target, fps: 60 })),
-    takeControl: () =>
-      target &&
-      act(() =>
-        run({
-          op: "controller",
-          deviceId: target,
-          controller: "human",
-          threadId: ThreadId.parse(threadId),
-        }),
-      ),
-    release: () =>
-      target && act(() => run({ op: "controller", deviceId: target, controller: "none" })),
-    /** Hand the device to one of this thread's agents, which moves the device to this thread. */
-    delegate: (agentId: string) =>
-      target &&
-      act(() =>
-        run({
-          op: "controller",
-          deviceId: target,
-          controller: "agent",
-          threadId: ThreadId.parse(threadId),
-          agentId: AgentId.parse(agentId),
-        }),
-      ),
     action: (operation: DeviceOperation) => act(() => withControl(operation)),
     install: (path: string) =>
       target && act(() => withControl({ op: "install", deviceId: target, path })),

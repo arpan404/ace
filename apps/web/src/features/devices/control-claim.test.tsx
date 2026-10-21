@@ -56,7 +56,9 @@ test("the first down and up share control acquisition so the Simulator receives 
   act(() => app.daemon.appDevices.dropAll());
   await userEvent.click(await within(panel).findByRole("button", { name: "Reconnect" }));
   const device = await within(panel).findByRole("region", { name: "iPhone 16 Pro" });
-  await userEvent.click(await within(device).findByRole("button", { name: /Take control/ }));
+  // An earlier press took control; by the next tap the service's clock has run its lease out.
+  await userEvent.click(await within(device).findByRole("button", { name: "Home" }));
+  await waitFor(() => expect(app.daemon.appDevices.inputs).toHaveLength(1));
   const canvas = await within(device).findByRole("img", { name: "iPhone 16 Pro screen" });
   await waitFor(() => expect(browser.draws(canvas)).toBeGreaterThan(0));
   // The page still shows control when both events arrive, but the service clock has expired it.
@@ -73,6 +75,7 @@ test("the first down and up share control acquisition so the Simulator receives 
   });
   await waitFor(() =>
     expect(app.daemon.appDevices.inputs.map((entry) => entry.input)).toEqual([
+      { kind: "key", key: "home" },
       { kind: "pointer", phase: "down", x: 10, y: 20 },
       { kind: "pointer", phase: "up", x: 10, y: 20 },
     ]),

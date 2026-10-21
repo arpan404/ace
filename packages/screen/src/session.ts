@@ -31,6 +31,10 @@ export type Session = {
   recordingStarting: boolean;
   viewers: number;
   hadViewer: boolean;
+  /** The frame rate the session started capturing at, before any viewer asked for more. */
+  captureFps?: number;
+  /** A viewer switched the helper to live video: the last viewer leaving switches it back. */
+  viewerVideo?: boolean;
   releasing: boolean;
   stopping: Promise<void> | undefined;
   failureCleanup: Promise<void> | undefined;
