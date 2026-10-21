@@ -38,7 +38,7 @@ export async function bundleDaemon(
           ctx.onLoad(
             {
               filter:
-                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|session|api-key|builtins|install)\.ts$/,
+                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|stall-watchdog|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|session|api-key|builtins|install)\.ts$/,
             },
             async (args) => {
               let contents = await readFile(args.path, "utf8");
@@ -67,6 +67,11 @@ export async function bundleDaemon(
                 contents = contents.replace(
                   '"./history-publish-worker.ts"',
                   '"./history-publish-worker.mjs"',
+                );
+              if (args.path.endsWith("/daemon/src/stall-watchdog.ts"))
+                contents = contents.replace(
+                  '"./stall-watchdog-worker.ts"',
+                  '"./stall-watchdog-worker.mjs"',
                 );
               if (args.path.endsWith("/daemon/src/pi-login-driver.ts"))
                 contents = contents.replace('"./pi-login-worker.ts"', '"./pi-login-worker.mjs"');
@@ -184,6 +189,7 @@ export async function bundleDaemon(
     ["packages/adapter-claude/src/fork-worker.ts", "claude-fork-worker.mjs"],
     ["apps/daemon/src/cursor-account-terminal.ts", "cursor-account-terminal.mjs"],
     ["apps/daemon/src/history-publish-worker.ts", "history-publish-worker.mjs"],
+    ["apps/daemon/src/stall-watchdog-worker.ts", "stall-watchdog-worker.mjs"],
     ["packages/adapter-cursor/src/host-entry.ts", "cursor-sdk-host.mjs"],
     ["packages/adapter-cursor/src/api-key-entry.ts", "cursor-api-key.mjs"],
     ["packages/adapter-pi/src/extension.ts", "pi-extension.mjs"],
