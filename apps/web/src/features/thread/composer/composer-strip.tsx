@@ -7,7 +7,7 @@ import { useShownPlans } from "@/lib/use-plans.ts";
 import { failedHead, withoutMessage } from "./failed-head.ts";
 import { withoutAgentPending, withoutAgentResults } from "./queued-agent-result.ts";
 import { holdsTurn, stoppedHold } from "@ace/ui-core";
-import { HeldTurnStrip, useContinueOnSwitch, useHeldTurn } from "./held-turn-strip.tsx";
+import { HeldTurnStrip, useHeldTurn } from "./held-turn-strip.tsx";
 import { useHeldQueue } from "./queue-notice.tsx";
 import { QueueStrip } from "./queue-strip.tsx";
 import { queuedCount } from "./queued.tsx";
@@ -78,7 +78,6 @@ export function ComposerStrip(props: {
       ? undefined
       : allHeld;
   const heldTurn = useHeldTurn(props.threadId, allHeld);
-  useContinueOnSwitch(props.threadId, heldTurn, noAgents);
   const pending = withoutAgentPending(
     useQueuedPending(props.threadId, noAgents.page, noAgents.retained).filter(
       (message) => message.id !== failed?.id,
@@ -166,6 +165,7 @@ export function ComposerStrip(props: {
         <ConfirmStopStrip subagents={props.confirmStop?.subagents ?? 0} />
       ) : slot.shown === "held" && heldTurn ? (
         <HeldTurnStrip
+          threadId={props.threadId}
           turn={heldTurn}
           queue={noAgents}
           indicators={indicators}

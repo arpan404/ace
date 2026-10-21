@@ -115,6 +115,14 @@ export class ThreadHost {
       },
     });
     this.attachInput(fact, events);
+    // Like the daemon, a turn that ended on an error keeps it on its run.
+    if (fact.type === "turn.ended" && fact.error)
+      for (const event of events)
+        if (event.type === "run.ended") {
+          event.error = fact.error;
+          const run = this.state.runs[event.runId];
+          if (run) run.error = fact.error;
+        }
     for (const event of events)
       if (
         event.type === "item.created" &&

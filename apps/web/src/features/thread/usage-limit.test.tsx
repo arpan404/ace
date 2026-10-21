@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { describeWake } from "@ace/ui-core";
 import { harness } from "@/test/harness.tsx";
-import { openModelPicker, selectAccount } from "@/test/model-control.ts";
+import { closeModelControl, openModelPicker, selectAccount } from "@/test/model-control.ts";
 
 const minute = 60_000;
 const hour = 60 * minute;
@@ -43,7 +43,7 @@ function report(
   );
 }
 
-test("at its limit, the thread says when its account resets, and switching account carries the work on", async () => {
+test("at its limit, the thread says when its account resets; after switching account, a message sends at once", async () => {
   const app = harness();
   report(app, "codex-team", { five_hour: [100, 87 * minute], seven_day: [88, 6 * 24 * hour] });
   report(app, "codex-personal", { five_hour: [38, 3 * hour] });
@@ -55,6 +55,7 @@ test("at its limit, the thread says when its account resets, and switching accou
     const p = value.payload;
     if (p.type === "thread.switch") sent.push(`switch:${p.selection.instanceId ?? ""}`);
     if (p.type === "thread.limit") sent.push(`limit:${p.action}`);
+    if (p.type === "thread.send") sent.push("send");
     return command(value);
   };
   await app.open("/t/thread-capped");
@@ -68,7 +69,12 @@ test("at its limit, the thread says when its account resets, and switching accou
   expect(header.queryByText("Limited")).toBeNull();
   expect(header.queryByRole("status")).toBeNull();
 
-  // Switch opens the composer's picker; choosing another account hands the work off at once.
+  // While the limit holds, a message would wait for the reset.
+  const message = await screen.findByRole("combobox", { name: "Message" });
+  await userEvent.type(message, "Pick the CI split back up");
+  expect(await screen.findByRole("button", { name: "Queue message" })).toBeTruthy();
+
+  // Switch opens the composer's picker; choosing another account takes the limit away at once.
   await userEvent.click(within(notice).getByRole("button", { name: "Switch account or provider" }));
   const popover = await screen.findByRole("dialog", { name: "Model and effort" });
   const models = await openModelPicker(popover);
@@ -76,10 +82,13 @@ test("at its limit, the thread says when its account resets, and switching accou
   const [model] = within(models).getAllByRole("option");
   if (!model) throw new Error("No model on Personal");
   await userEvent.click(model);
+  await closeModelControl();
+  expect(screen.queryByRole("region", { name: "Codex is out of usage" })).toBeNull();
 
-  // The switch goes first; the turn then resumes on the new account without another Continue.
-  await waitFor(() => expect(sent).toEqual(["switch:codex-personal", "limit:resume_now"]));
-  await waitFor(() =>
-    expect(screen.queryByRole("region", { name: "Codex is out of usage" })).toBeNull(),
-  );
+  // The message now sends, after the switch, and the turn runs without waiting for the reset.
+  await userEvent.click(await screen.findByRole("button", { name: "Send" }));
+  await waitFor(() => expect(sent).toEqual(["switch:codex-personal", "send"]));
+  const feed = screen.getByRole("feed", { name: "Transcript" });
+  expect(await within(feed).findByText("Pick the CI split back up")).toBeTruthy();
+  expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
 });

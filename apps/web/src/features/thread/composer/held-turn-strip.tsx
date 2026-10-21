@@ -2,10 +2,13 @@ import type { ThreadReader } from "@ace/client";
 import { useThread, useThreadMeta } from "@ace/client-react";
 import type { AgentError } from "@ace/protocol";
 import { describeProviderError, heldTurn, providerNames, type HeldTurn } from "@ace/ui-core";
-import { useCallback, useEffect, useEffectEvent, useRef, type ReactNode } from "react";
+import { useCallback, type ReactNode } from "react";
+import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
+import { threadAccountId } from "../lib/thread-account.ts";
 import { useNow } from "@/lib/time.ts";
 import type { HeldQueue } from "./queue-notice.tsx";
 import { useActiveRootRun } from "./stop-state.ts";
+import { useChosenModel } from "./use-model-switch.ts";
 import type { QueueControls } from "./use-queue.ts";
 
 /** The root agent's failure while it is the newest thing that happened to it. */
@@ -30,6 +33,7 @@ export function useHeldTurn(threadId: string, held: HeldQueue | undefined): Held
   const failure = useRootFailure(threadId);
   const running = !!useActiveRootRun(threadId);
   const now = useNow();
+  const leaving = useLeavesLimit(threadId);
   const view =
     failure && !running
       ? describeProviderError({
@@ -41,29 +45,18 @@ export function useHeldTurn(threadId: string, held: HeldQueue | undefined): Held
         })
       : undefined;
   const who = provider ? providerNames[provider] : "The provider";
-  return heldTurn(held?.notice, view, who, now);
+  return leaving ? undefined : heldTurn(held?.notice, view, who, now);
 }
 
 /**
- * While a limit holds the thread, a switch to another account, model or provider carries the
- * work on at once: the new agent starts from the handoff without waiting for another Continue.
- * Only a switch made after the hold showed counts, and a refused one never does.
+ * The person picked a model on an account with room (shown at once, before the daemon has it),
+ * or a switch is on its way: the limit is the old account's, so it stops showing and their next
+ * message goes straight out on the new selection.
  */
-export function useContinueOnSwitch(
-  threadId: string,
-  turn: HeldTurn | undefined,
-  queue: QueueControls,
-): void {
-  const change = useThreadMeta(threadId)?.switch;
-  const seen = useRef(change?.at);
-  const carryOn = useEffectEvent(() => {
-    if (turn) queue.act(turn.carryOn);
-  });
-  useEffect(() => {
-    if (change?.at === seen.current) return;
-    seen.current = change?.at;
-    if (change && change.state !== "failed") carryOn();
-  }, [change]);
+export function useLeavesLimit(threadId: string): boolean {
+  const chosen = useChosenModel(threadId);
+  const queued = useThreadMeta(threadId)?.switch?.state === "queued";
+  return chosen ? !chosen.exhausted : queued;
 }
 
 /**
@@ -72,17 +65,27 @@ export function useContinueOnSwitch(
  * where you left off." as the person's message.
  */
 export function HeldTurnStrip(props: {
+  threadId: string;
   turn: HeldTurn;
   queue: QueueControls;
   indicators: ReactNode;
   onSwitch(): void;
 }) {
   const { turn } = props;
+  const meta = useThreadMeta(props.threadId);
   return (
     <section
       aria-label={turn.lead}
-      className="flex h-9 min-w-0 items-center gap-1 pr-1 pl-2.5 text-xs"
+      className="flex h-9 min-w-0 items-center gap-2 pr-1 pl-2.5 text-xs"
     >
+      {meta?.provider && (
+        <ProviderAccountIcon
+          provider={meta.provider}
+          instance={threadAccountId(meta)}
+          size={14}
+          tooltip={false}
+        />
+      )}
       <p className="min-w-0 flex-1 truncate text-muted-foreground">
         {turn.lead}
         {turn.until && (

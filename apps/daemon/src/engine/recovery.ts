@@ -437,22 +437,26 @@ export class Recovery {
     if (!this.ports.moveTarget) throw new Error("Account migration is unavailable");
     return this.ports.moveTarget(id, requested);
   }
+  /**
+   * The thread moved to another account, model or provider. A limit or snooze hold it carried
+   * becomes a cleared-limit hold (`clearLimit`'s marker): queued messages and the continuation
+   * wait for Resume, and the person's next message goes at once on the new selection.
+   */
   bindingChanged(id: ThreadId): void {
     const queue = this.repo.queue.get(id);
+    const left = queue.paused && (queue.reason === "limit" || queue.reason === "snooze");
+    const at = this.clock.now();
     this.repo.queue.set(
       id,
       {
         limited: false,
-        resetAt: null,
+        resetAt: left ? at : null,
         resumeAt: null,
         timerAction: null,
         holdToken: queue.holdToken + 1,
-        reason:
-          queue.paused && (queue.reason === "limit" || queue.reason === "snooze")
-            ? "manual"
-            : queue.reason,
+        reason: left ? "manual" : queue.reason,
       },
-      this.clock.now(),
+      at,
     );
     this.schedule();
   }
@@ -494,19 +498,24 @@ export class Recovery {
     this.schedule();
   }
   /**
-   * The person sends while a limit hold nothing definite keeps: a limit with no known reset, or
-   * one that has already cleared. Their message is the go-ahead: the hold and ace's own
-   * "continue" are dropped and the queue sends in order, with their message last. If the
-   * provider refuses again, its definite signal holds the thread again. A known reset that
-   * hasn't passed keeps holding, and so does a pause the person chose.
+   * The person sends while a limit hold nothing definite keeps: a limit with no known reset, one
+   * that has already cleared (or that a switch left behind), or one the thread is leaving (a
+   * switch to another account, model or provider is ahead of the message). Their message
+   * is the go-ahead: the hold and ace's own continuation are dropped and the queue sends in
+   * order, with their message last, on the new selection when there is one. If the provider
+   * refuses again, its definite signal holds the thread again. A known reset that hasn't passed
+   * keeps holding otherwise, and so does a pause the person chose.
    */
   releaseLimitHold(id: ThreadId, at: number): void {
     const queue = this.repo.queue.get(id);
-    if (!queue.paused || queue.resumeAt !== null) return;
+    if (!queue.paused) return;
+    const leaving =
+      (queue.reason === "limit" || queue.reason === "snooze") &&
+      this.repo.pending.transition(id)?.kind === "thread.switch";
     const resetless = queue.limited && queue.reason === "limit" && queue.resetAt === null;
     // `clearLimit` leaves this marker: a manual hold that records when its limit cleared.
     const cleared = !queue.limited && queue.reason === "manual" && queue.resetAt !== null;
-    if (!resetless && !cleared) return;
+    if (!leaving && (queue.resumeAt !== null || (!resetless && !cleared))) return;
     if (this.repo.queue.hasUncertain(id) || this.repo.pending.recovering(id)) return;
     this.lift(id, at);
   }

@@ -176,3 +176,46 @@ for (const destination of ["provider", "account"] as const) {
     expect(h.store.getThread(id)?.status.state).toBe("done");
   });
 }
+
+for (const settle of ["before", "after"] as const) {
+  test(`a message sent ${settle === "before" ? "right after" : "once"} switching away from a limited provider goes out at once, with no ace Continue`, async () => {
+    const options = {
+      native: true,
+      limited: true,
+      recovery: { resetAt: () => 5000 },
+      preferences: { limitPolicy: "resume_at_reset" as const },
+      io: {
+        migrate: async (request: { nativeSessionId: string }) => ({
+          status: "migrated" as const,
+          nativeSessionId: request.nativeSessionId,
+          action: "resume" as const,
+          copiedFiles: 1,
+          env: {},
+        }),
+        applyPatch: async () => {},
+      },
+    };
+    const h = setup(options);
+    const id = await h.create();
+    expect(
+      h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text: "one" }] }).ok,
+    ).toBe(true);
+    await h.engine.flush();
+    expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "limit" });
+    options.limited = false;
+    expect(
+      h.command({ type: "thread.switch", threadId: id, selection: { provider: "claude" } }).ok,
+    ).toBe(true);
+    // The person sends at once (the switch still on its way) or once it has landed.
+    if (settle === "after") await h.engine.flush();
+    expect(
+      h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text: "two" }] }).ok,
+    ).toBe(true);
+    await h.engine.flush();
+    const sent = h.inputs.slice(1);
+    expect(sent.map((input) => input.provider)).toEqual(["claude", "claude"]);
+    expect(sent.at(-1)?.text).toBe("two");
+    expect(sent.some((input) => input.text.endsWith("Continue where you left off."))).toBe(false);
+    expect(h.engine.queue(id)).toMatchObject({ paused: false, messages: [] });
+  });
+}
