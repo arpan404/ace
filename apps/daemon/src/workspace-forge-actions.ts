@@ -8,7 +8,8 @@ import {
   actionFamily,
   observedWrite,
   observedMergeState,
-  type RemoteForgeAction,
+  writeTarget,
+  type ForgePrWrite,
 } from "./forge-action-observation.ts";
 
 type Settled = "reconciled" | "failed";
@@ -134,20 +135,26 @@ export class WorkspaceForgeActions {
     backend: GitHubForge,
     signal: AbortSignal,
   ): Promise<ForgePrStatus> {
-    if (!("link" in action)) throw new ForgeError("invalid_data");
-    const status = await backend.status(action.link.pr.number, signal);
+    const target =
+      action.type === "forge.hosted.merge"
+        ? action.pr
+        : "link" in action
+          ? action.link.pr
+          : undefined;
+    if (!target) throw new ForgeError("invalid_data");
+    const status = await backend.status(target.number, signal);
     return action.type === "forge.pr.auto-merge" || action.type === "forge.pr.merge-state.change"
-      ? { ...status, mergeState: await backend.prMergeState(action.link.pr.number, signal) }
+      ? { ...status, mergeState: await backend.prMergeState(target.number, signal) }
       : status;
   }
   async execute(
-    action: RemoteForgeAction,
+    action: ForgePrWrite,
     backend: GitHubForge,
     signal: AbortSignal,
     allowed: () => boolean,
     publish: (status: ForgePrStatus) => void,
   ): Promise<Omit<CommandResult, "commandId">> {
-    const pr = action.link.pr;
+    const pr = writeTarget(action);
     const key = this.key(pr);
     if (this.live.has(key) || this.live.size >= 16)
       return { ok: false, error: "forge_write_pending" };
@@ -174,14 +181,14 @@ export class WorkspaceForgeActions {
     }
   }
   private async write(
-    action: RemoteForgeAction,
+    action: ForgePrWrite,
     key: string,
     backend: GitHubForge,
     signal: AbortSignal,
     allowed: () => boolean,
     publish: (status: ForgePrStatus) => void,
   ): Promise<Omit<CommandResult, "commandId">> {
-    const pr = action.link.pr;
+    const pr = writeTarget(action);
     const actor =
       action.type === "forge.comment.reply" ? await backend.currentUser(signal) : undefined;
     signal.throwIfAborted();
@@ -217,7 +224,7 @@ export class WorkspaceForgeActions {
         await backend.replyComment(pr.number, action.commentId, action.body, signal, dispatch);
       else if (action.type === "forge.review.request")
         await backend.requestReviews(pr.number, action.reviewers, signal, dispatch);
-      else if (action.type === "forge.pr.merge")
+      else if (action.type === "forge.pr.merge" || action.type === "forge.hosted.merge")
         await backend.merge(pr.number, action.headSha, action.method, signal, dispatch);
       else
         mergeState = await backend.changeMergeState(

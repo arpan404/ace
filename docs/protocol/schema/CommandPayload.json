@@ -717,6 +717,9 @@
       "$ref": "https://ace.local/protocol/v1/ForgeHostedChecksCommand.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ForgeHostedMergeCommand.json"
+    },
+    {
       "properties": {
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"

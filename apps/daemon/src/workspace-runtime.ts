@@ -601,6 +601,11 @@ export class WorkspaceRuntime {
         if (!cwd) return { ok: false, error: "workspace_not_found" };
         return this.forge.hostedReview({ ...command, payload: p }, cwd, allowed);
       }
+      if (p.type === "forge.hosted.merge") {
+        const cwd = this.store.getWorkspacePath(p.workspaceId);
+        if (!cwd) return commandNotDispatched(command, "workspace_not_found");
+        return this.forge.hostedMerge({ ...command, payload: p }, cwd, allowed);
+      }
       if (p.type === "forge.hosted.checks") {
         const cwd = this.store.getWorkspacePath(p.workspaceId);
         if (!cwd) return { ok: false, error: "workspace_not_found" };

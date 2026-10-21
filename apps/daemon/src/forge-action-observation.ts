@@ -1,5 +1,11 @@
 import { mergeStateChangeObserved } from "@ace/forge";
-import { ForgeCommand, type ForgePrStatus, type ForgeMergeState } from "@ace/protocol";
+import {
+  ForgeCommand,
+  ForgeHostedMergeCommand,
+  type ForgePrRef,
+  type ForgePrStatus,
+  type ForgeMergeState,
+} from "@ace/protocol";
 import { z } from "zod";
 
 export type RemoteForgeAction = Extract<
@@ -14,14 +20,28 @@ export type RemoteForgeAction = Extract<
   }
 >;
 
+/**
+ * A write to a PR from either entry point: a thread linked to it, or the project's Pull requests
+ * page (`forge.hosted.merge`). Both share one journal and one fence per PR and family.
+ */
+export type ForgePrWrite = RemoteForgeAction | ForgeHostedMergeCommand;
+
+/** The pull request a write targets, whichever entry point sent it. */
+export function writeTarget(action: ForgePrWrite): ForgePrRef {
+  return action.type === "forge.hosted.merge" ? action.pr : action.link.pr;
+}
+
 export const ForgeWriteReceipt = z.object({
-  action: ForgeCommand.refine(
-    (action) =>
-      action.type !== "forge.pr.status" &&
-      action.type !== "forge.pr.link" &&
-      action.type !== "forge.pr.unlink" &&
-      action.type !== "forge.pr.create",
-  ),
+  action: z.union([
+    ForgeCommand.refine(
+      (action) =>
+        action.type !== "forge.pr.status" &&
+        action.type !== "forge.pr.link" &&
+        action.type !== "forge.pr.unlink" &&
+        action.type !== "forge.pr.create",
+    ),
+    ForgeHostedMergeCommand,
+  ]),
   phase: z.enum(["pending", "accepted", "reconciled", "failed"]),
   /** When the write was journalled for dispatch; bounds how long doubt can fence a retry. */
   at: z.number().int().nonnegative(),
@@ -57,7 +77,7 @@ export function observedMergeState(
 /** Absence is never proof that a write was rejected: GitHub may still be converging. */
 export function observedWrite(receipt: ForgeWriteReceipt, status: ForgePrStatus): boolean {
   const action = receipt.action;
-  if (action.type === "forge.pr.merge")
+  if (action.type === "forge.pr.merge" || action.type === "forge.hosted.merge")
     return status.state === "merged" && status.headSha === action.headSha;
   if (action.type === "forge.comment.reply")
     return (
