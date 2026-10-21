@@ -37,3 +37,32 @@ No provider or GitHub credentials enter automation definitions. gh uses its exis
 Definition and deadline rows are physically separate from snapshots. Startup migrates existing inline state in one transaction, iterates metadata and reads only required schedule cursors. Admission and listing never decode poll state. A poll parses its snapshot once and builds a bounded resource index, with O(snapshot + events) work for diff and admission rather than O(events × snapshot). Admission uses indexed active counts and event keys, with prepared statements and transaction boundaries. The timer reads an indexed minimum deadline instead of scanning all automation history. Memory holds only bounded definitions, one poll response and admitted executor tasks. The last 1,000 runs per automation are retained for audit and deduplication, alongside every unfinished run. Older event keys are no longer deduplicated after retention. File events received during the automation's own run are ignored and skipped file events are not persisted. No in-memory history cache exists.
 
 Tests exercise the public package API with temp SQLite, injected time and timer drivers, an executor fake and a real child process running a fake gh executable. They cover recurrence filters, DST gaps and folds, leap days, month ends, COUNT/UNTIL, downtime policies, jitter persistence, one timer, concurrency, crash recovery, outcomes, pagination, conditional requests and deduplication. Non-gating benchmarks measure recurrence evaluation, dispatch/admission and conditional-poll translation, composed polling/admission with large persisted snapshots, and supervised gh I/O. Each run commits before invoking callbacks, allowing callback-driven configuration edits without exposing a partially committed batch. Before delivery, at least eight production mutations must each cause a behavioral test to fail, then be reverted.
+
+## Amendment: durable actions and isolated trigger failures (2026-10-20)
+
+Definition revisions persist separately from definitions and survive deletion. New clients
+send `expectedRevision` on edits and removals; a stale revision is refused without changing
+the saved definition. A null revision on a put means create only. The dedicated
+`automation.setEnabled` operation changes the current saved definition, preventing a
+pause from overwriting a newer prompt or schedule. Requests without a revision retain
+their existing behavior for older clients and callers.
+
+Deletion commits on the daemon before the UI reports success. Undo recreates the saved
+definition with a create-only put; it cannot overwrite a definition recreated elsewhere.
+Removing a definition retains its run history. Manual run retries keep the same request
+identity across uncertain responses and reloads, so the persisted event key and thread
+receipt deduplicate the retry. The browser must retain the identity before dispatch and
+must not discard unresolved identities to make room for new requests.
+
+A failed trigger is isolated from healthy schedules and active-run recovery. Trigger
+diagnostics persist and are returned in list metadata, alongside each automation's latest
+run. File watcher readiness and failure report through the workspace boundary with
+generation checks; a successful subscription call alone does not prove the watcher is
+ready. Recurrence evaluation errors remain distinct from valid COUNT/UNTIL exhaustion.
+`automation.retry` retries the stored trigger after its cause has been corrected.
+
+The earlier one-hour runtime limit is superseded: an automation run stays running while
+its thread tree works, waits for a person, or has an uncertain outcome. Stopping the
+scheduler releases observers and preserves unfinished runs for recovery. Closing the UI
+does not stop the daemon's scheduler; a stopped daemon or sleeping machine cannot execute
+work until it runs again, when the persisted missed-run policy applies.
