@@ -1,7 +1,7 @@
 import type { Automation, AutomationRun } from "@ace/protocol";
 import { useClient, useConnectionState } from "@ace/client-react";
-import { useQueryClient, useInfiniteQuery, type QueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
+import { useCallback, useMemo } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import {
   automationInbox,
@@ -9,8 +9,9 @@ import {
   listAutomations,
   putAutomation,
   removeAutomation,
+  retryAutomation,
   runAutomation,
-  type AutomationEntry,
+  setEnabledAutomation,
 } from "./automations-source.ts";
 
 /*
@@ -29,59 +30,16 @@ export const inboxLimit = 50;
 const runningPollMs = 5_000;
 const idlePollMs = 60_000;
 
-/** How long a deleted automation can be brought back from its toast. */
-export const undoWindowMs = 6_000;
-
-/**
- * Automations deleted on this device whose Undo window is still open: hidden from every list
- * at once, removed on the daemon only when the window closes. One set per query client.
- */
-class Hidden {
-  private ids: ReadonlySet<string> = new Set();
-  private listeners = new Set<() => void>();
-  snapshot = () => this.ids;
-  subscribe = (listener: () => void) => {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  };
-  set(id: string, hidden: boolean) {
-    if (this.ids.has(id) === hidden) return;
-    const next = new Set(this.ids);
-    if (hidden) next.add(id);
-    else next.delete(id);
-    this.ids = next;
-    for (const listener of this.listeners) listener();
-  }
-}
-const hiddenSets = new WeakMap<QueryClient, Hidden>();
-function useHidden(): Hidden {
-  const queries = useQueryClient();
-  let hidden = hiddenSets.get(queries);
-  if (!hidden) {
-    hidden = new Hidden();
-    hiddenSets.set(queries, hidden);
-  }
-  return hidden;
-}
-
 export function useAutomations() {
-  const hidden = useHidden();
-  const ids = useSyncExternalStore(hidden.subscribe, hidden.snapshot, hidden.snapshot);
-  const select = useCallback(
-    (entries: AutomationEntry[]) =>
-      ids.size ? entries.filter((entry) => !ids.has(entry.automation.id)) : entries,
-    [ids],
-  );
   return useDaemonQuery({
     queryKey: keys.list,
     read: (client, signal) => listAutomations(client, signal),
-    select,
     refetchInterval: idlePollMs,
   });
 }
 
 export function useAutomation(id: string): {
-  entry: AutomationEntry | undefined;
+  entry: import("./automations-source.ts").AutomationEntry | undefined;
   pending: boolean;
   error: unknown;
   retry(): void;
@@ -127,21 +85,23 @@ export function useAutomationHistory(id: string) {
 export function useAutomationActions() {
   const client = useClient();
   const queries = useQueryClient();
-  const hidden = useHidden();
   return useMemo(() => {
     const refreshed = async <T>(write: Promise<T>): Promise<T> => {
       const result = await write;
-      await queries.invalidateQueries({ queryKey: keys.all });
+      void queries.invalidateQueries({ queryKey: keys.all });
       return result;
     };
     return {
-      save: (automation: Automation) => refreshed(putAutomation(client, automation)),
-      setEnabled: (automation: Automation, enabled: boolean) =>
-        refreshed(putAutomation(client, { ...automation, enabled })),
-      remove: (id: string) => refreshed(removeAutomation(client, id)),
-      /** Hide it here while its Undo window is open (`hidden`), or show it again. */
-      setHidden: (id: string, value: boolean) => hidden.set(id, value),
-      runNow: (id: string) => refreshed(runAutomation(client, id)),
+      save: (automation: Automation, expectedRevision?: number | null | undefined) =>
+        refreshed(putAutomation(client, automation, expectedRevision)),
+      setEnabled: (id: string, enabled: boolean, expectedRevision?: number | undefined) =>
+        refreshed(setEnabledAutomation(client, id, enabled, expectedRevision)),
+      remove: (id: string, expectedRevision?: number | null | undefined) =>
+        refreshed(removeAutomation(client, id, expectedRevision)),
+      retry: (id: string, expectedRevision?: number | undefined) =>
+        refreshed(retryAutomation(client, id, expectedRevision)),
+      runNow: (id: string, requestId?: string | undefined) =>
+        refreshed(runAutomation(client, id, requestId)),
     };
-  }, [client, queries, hidden]);
+  }, [client, queries]);
 }
