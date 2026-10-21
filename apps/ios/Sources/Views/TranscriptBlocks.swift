@@ -108,9 +108,10 @@ struct MessageRow: View {
             if let attachments = row.attachments, !attachments.isEmpty {
                 AttachmentChips(attachments: attachments, more: row.moreAttachments ?? 0)
             }
+            // Only part of a long message is on the phone: one quiet row opens all of it.
             if row.truncated, let openMessage {
-                Button("Read full message") { openMessage(row) }.aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                QuietLink(icon: "text.alignleft", title: "Read full message") { openMessage(row) }
+                    .fixedSize(horizontal: user, vertical: false)
                     .accessibilityIdentifier("message.full.\(row.id)")
             }
         }

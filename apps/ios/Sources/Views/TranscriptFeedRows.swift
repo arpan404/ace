@@ -16,8 +16,10 @@ struct TranscriptFeedRowView: View {
     let thread: ThreadModel
     let links: TranscriptLinks
     var body: some View {
+        // 14pt between blocks: the reading rhythm of the whole column.
         BlockView(block: row.block, thread: thread, links: links)
-            .padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
+            .padding(.top, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
+            .padding(.bottom, AceTheme.Spacing.sm)
             .padding(.horizontal, AceTheme.Spacing.xl)
     }
 }

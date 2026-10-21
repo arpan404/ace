@@ -50,7 +50,7 @@ private struct DaemonStep: View {
     let row: TranscriptRow
     var body: some View {
         if row.type == "message" {
-            Text(Markdown.inline(row.text)).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.foreground)
+            MarkdownView(text: row.text).stepNarration(true)
         } else if let step = row.step {
             StepRow(step: step)
         } else {
