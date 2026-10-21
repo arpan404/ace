@@ -88,7 +88,7 @@ async function open() {
 
 test("a thread with an automation says when it runs in the strip above the composer", async () => {
   await open();
-  const line = await screen.findByRole("status", { name: /^Runs every day at .+ · Pause · Open$/ });
+  const line = await screen.findByRole("status", { name: / · runs every day at .+ · Pause · Open$/ });
   expect(line.closest("[data-composer-strip]")).not.toBeNull();
   expect(screen.getByRole("link", { name: "Open" }).getAttribute("href")).toBe(
     "/automations/auto-nightly",
@@ -97,7 +97,7 @@ test("a thread with an automation says when it runs in the strip above the compo
 
 test("an approval takes the strip over the automation's line", async () => {
   const app = await open();
-  await screen.findByRole("status", { name: /^Runs every day at/ });
+  await screen.findByRole("status", { name: / · runs every day at/ });
   act(() =>
     app.daemon.apply(threadId, [
       { type: "turn.started", agent: "root", nativeTurnId: "t2", trigger: "user" },
@@ -119,6 +119,6 @@ test("an approval takes the strip over the automation's line", async () => {
   );
   expect(await screen.findByRole("region", { name: "Waiting for you" })).toBeTruthy();
   await waitFor(() =>
-    expect(screen.queryByRole("status", { name: /^Runs every day at/ })).toBeNull(),
+    expect(screen.queryByRole("status", { name: / · runs every day at/ })).toBeNull(),
   );
 });

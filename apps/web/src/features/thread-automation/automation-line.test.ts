@@ -53,7 +53,7 @@ const text = (entries: ThreadAutomation[]) => {
 };
 
 test("a scheduled automation says when it runs and when next, with Pause and Open", () => {
-  expect(text([entry()])).toBe(`Runs every day at ${twoAm} · next tonight · Pause · Open`);
+  expect(text([entry()])).toBe(`Daily check · runs every day at ${twoAm} · next tonight · Pause · Open`);
 });
 
 test("Open goes to the automation, and Pause carries its revision", () => {
@@ -91,7 +91,7 @@ test("a running automation says so in the working colour, with how long ago and 
 
 test("a paused automation says what it would run on, with Resume", () => {
   expect(text([entry({ enabled: false }, { nextRunAt: undefined })])).toBe(
-    `Paused · runs every day at ${twoAm} · Resume`,
+    `Paused · Daily check · runs every day at ${twoAm} · Resume`,
   );
 });
 
@@ -108,7 +108,7 @@ test("a file trigger that broke says it is not watching, and why, in the failed 
     ],
     facts,
   );
-  expect(line && lineText(line)).toBe("Not watching · ~/code/relay is gone · Open");
+  expect(line && lineText(line)).toBe("Not watching Daily check · ~/code/relay is gone · Open");
   expect(line?.segments[0]?.status?.tone).toBe("failed");
 });
 
@@ -128,7 +128,7 @@ test("a GitHub trigger says what it waits for, and nothing about a next time", (
     pollIntervalMs: 60_000,
   };
   expect(text([entry({ trigger: github }, { nextRunAt: undefined })])).toBe(
-    "Runs when CI fails in arpan404/ace · Pause · Open",
+    "Daily check · runs when CI fails in arpan404/ace · Pause · Open",
   );
 });
 
@@ -138,7 +138,7 @@ test("a schedule kept in another zone names it", () => {
     schedule: { ...schedule, timezone: "Asia/Kathmandu" },
   };
   expect(text([entry({ trigger: zoned }, { nextRunAt: undefined })])).toBe(
-    `Runs every day at ${twoAm} (Asia/Kathmandu) · Pause · Open`,
+    `Daily check · runs every day at ${twoAm} (Asia/Kathmandu) · Pause · Open`,
   );
 });
 

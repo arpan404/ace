@@ -14,9 +14,9 @@ const lowerFirst = (words: string) => words.charAt(0).toLowerCase() + words.slic
 
 /*
  * The one sentence a thread's automations put above its composer, when nothing more urgent is
- * there: "Runs every day at 2:00 AM · next tonight · Pause · Open", "Running Daily check ·
- * started 2m ago · Open run", "Paused · runs every day at 2:00 AM · Resume", "Not watching ·
- * ~/code/relay is gone · Open", "2 automations · next tonight 2:00 AM · Open". Pure: the clock
+ * there: "Daily check · runs every day at 2:00 AM · next tonight · Pause · Open", "Running Daily
+ * check · started 2m ago · Open run", "Paused · Daily check · runs every day at 2:00 AM · Resume",
+ * "Not watching Docs sync · ~/code/relay is gone · Open", "2 automations · next tonight 2:00 AM · Open". Pure: the clock
  * and the reader's zone are passed in.
  */
 
@@ -98,18 +98,26 @@ function single(entry: ThreadAutomation, facts: LineFacts): AutomationLine {
     };
   if (!automation.enabled)
     return {
-      segments: [{ text: "Paused" }, { text: `runs ${runsWords(entry, facts)}` }],
+      segments: [
+        { text: "Paused" },
+        { text: automation.title },
+        { text: `runs ${runsWords(entry, facts)}` },
+      ],
       actions: [{ kind: "resume", id: automation.id, revision: entry.revision }],
     };
   if (entry.triggerError)
     return {
       segments: [
-        { status: { word: notWatching(entry), tone: "failed" } },
+        { status: { word: notWatching(entry), tone: "failed" }, text: automation.title },
         { text: reason(entry.triggerError.message) },
       ],
       actions: [open],
     };
-  const segments: LineSegment[] = [{ text: `Runs ${runsWords(entry, facts)}` }];
+  // The name first: a thread may own several, and "runs by hand" alone says nothing.
+  const segments: LineSegment[] = [
+    { text: automation.title },
+    { text: `runs ${runsWords(entry, facts)}` },
+  ];
   if (entry.nextRunAt !== undefined) {
     const zone = zoneOf(entry, facts);
     const { trigger } = automation;
