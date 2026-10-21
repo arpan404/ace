@@ -973,7 +973,7 @@ Example:
 
 ## offshift
 
-Track a multi-step coding outcome in this thread's durable record: criteria, steps, phase, blocker and evidence. Steps come from a playbook or your own; phases are plan, implement, verify, review and delivery; evidence binds to the workspace's Git revision. It records work and never runs it. Changes take the last version. Every result's next says what to do now. Each action's fields are named in action's description.
+Track a multi-step coding outcome in this thread's durable record: criteria, steps, phase, blocker and evidence. Steps come from a playbook or your own; phases are plan, implement, verify, review and delivery; evidence binds to the workspace's Git revision. It records work and never runs it. Every result's next says what to do now and, for a change, which version to send. Each action's fields are named in action's description.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -988,7 +988,7 @@ Semantic rule: start needs runId, outcome, endpoint and criteria; get needs runI
 | action | yes | ["start","get","list","playbooks","advance","block","resume","evidence","revise","step"] | {"description":"start: open a run with its outcome, endpoint, criteria, and optional playbook and steps. get: the run, revision, pending evidence and next. list: this thread's runs. playbooks: the built-in playbooks and their steps. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record one check's result. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked. step: mark stepId done or skipped (note: what you saw, or why)."} |
 | runId | no | string | {"description":"Every action but list: the run's id, chosen at start (letters, digits, _ . -).","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
 | requestId | no | string | {"description":"Optional on changes; omitted, an identical retry still applies once.","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| version | no | integer | {"description":"Every change after start: the version the last result returned. A mismatch means the run changed; get it again.","minimum":0,"maximum":9007199254740991} |
+| version | no | integer | {"description":"Every change after start: run.version from the last result, which next repeats when the next change is yours. A mismatch means the run changed; get it again.","minimum":0,"maximum":9007199254740991} |
 | outcome | no | string | {"description":"start: the observable result the work delivers.","minLength":1,"maxLength":4096} |
 | endpoint | no | string | {"description":"start: where the work stops, as authorized (local changes, an open PR, ...).","minLength":1,"maxLength":4096} |
 | criteria | no | [OffshiftCriteria.json](schema/OffshiftCriteria.json) | {"description":"start: what must hold for the outcome, up to 64."} |

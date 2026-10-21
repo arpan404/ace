@@ -53,7 +53,7 @@ const Input = z
       .nonnegative()
       .optional()
       .describe(
-        "Every change after start: the version the last result returned. A mismatch means the run changed; get it again.",
+        "Every change after start: run.version from the last result, which next repeats when the next change is yours. A mismatch means the run changed; get it again.",
       ),
     outcome: text.optional().describe("start: the observable result the work delivers."),
     endpoint: text
@@ -169,7 +169,7 @@ export const offshift = controlTool({
   riskClass: "thread-write",
   capability: "thread_control",
   description:
-    "Track a multi-step coding outcome in this thread's durable record: criteria, steps, phase, blocker and evidence. Steps come from a playbook or your own; phases are plan, implement, verify, review and delivery; evidence binds to the workspace's Git revision. It records work and never runs it. Changes take the last version. Every result's next says what to do now. Each action's fields are named in action's description.",
+    "Track a multi-step coding outcome in this thread's durable record: criteria, steps, phase, blocker and evidence. Steps come from a playbook or your own; phases are plan, implement, verify, review and delivery; evidence binds to the workspace's Git revision. It records work and never runs it. Every result's next says what to do now and, for a change, which version to send. Each action's fields are named in action's description.",
   input: Input,
   output: controlResult(OffshiftResult),
   run: (input, control) =>

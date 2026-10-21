@@ -51,7 +51,7 @@ test("a run started from a playbook carries its steps, all to do, and next names
   expect(run.steps.map((step) => step.id)).toEqual(fix?.steps.map((step) => step.id));
   expect(run.steps.every((step) => step.state === "todo")).toBe(true);
   expect(view(run, context).next).toBe(
-    "Step `reproduce`: Reproduce the defect on the surface where it was reported. Then call step: done with what you observed, or skipped with the reason (1 more step in plan).",
+    "Step `reproduce`: Reproduce the defect on the surface where it was reported. Then call step: done with what you observed, or skipped with the reason (1 more step in plan). Use version 0.",
   );
 });
 
@@ -84,10 +84,10 @@ test("a run without a playbook can track its own steps", () => {
   const run = start({ steps: [{ id: "sketch", title: "Sketch the schema", phase: "plan" }] });
   expect(run.playbook).toBeUndefined();
   expect(view(run, context).next).toBe(
-    "Step `sketch`: Sketch the schema. Then call step: done with what you observed, or skipped with the reason.",
+    "Step `sketch`: Sketch the schema. Then call step: done with what you observed, or skipped with the reason. Use version 0.",
   );
   const done = mark(run, "sketch", "done", "Two tables");
-  expect(view(done, context).next).toBe("Advance to implement.");
+  expect(view(done, context).next).toBe("Advance to implement. Use version 1.");
 });
 
 test("leaving a phase is refused while it has steps to do, and allowed once each is done or skipped with a reason", () => {
@@ -121,7 +121,7 @@ test("a step of a later phase waits for that phase, and an unknown step names th
 test("investigate has no implement steps, so implement can be left at once", () => {
   let run = start({ playbook: "investigate" });
   run = advance(mark(run, "question", "done", "Why the cache misses"), "implement");
-  expect(view(run, context).next).toBe("Advance to verify.");
+  expect(view(run, context).next).toBe("Advance to verify. Use version 2.");
   expect(advance(run, "verify").phase).toBe("verify");
 });
 
