@@ -19,13 +19,14 @@ struct AgentsSheet: View {
             List {
                 if let sheet {
                     Section {
-                        ForEach(sheet.rows) { row in agentRow(row).listRowBackground(Color.clear) }
+                        ForEach(sheet.rows) { row in agentRow(row) }
                     }
-                    .listSectionSeparator(.hidden, edges: .top)
+                    .listSectionSeparator(.hidden)
+                    .listRowSeparator(.hidden).listRowBackground(Color.clear)
                     if sheet.hidden.agents > 0 {
                         Text(hiddenText(sheet.hidden)).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                             .foregroundStyle(AceTheme.Colours.mutedForeground).accessibilityIdentifier("agents.hidden")
-                            .listRowBackground(Color.clear)
+                            .listRowBackground(Color.clear).listRowSeparator(.hidden)
                     }
                     if !sheet.tasks.isEmpty {
                         Section {
@@ -36,8 +37,9 @@ struct AgentsSheet: View {
                                 Text("\(sheet.hiddenTasks) more on your computer").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                                     .foregroundStyle(AceTheme.Colours.mutedForeground)
                             }
-                        } header: { InsetHeader("Running in background") }
-                        .listRowBackground(Color.clear)
+                        } header: { SettingsHeader("Running in background") }
+                        .listSectionSeparator(.hidden)
+                        .listRowSeparator(.hidden).listRowBackground(Color.clear)
                     }
                     Group {
                         BudgetLine(totals: sheet.totals, context: sheet.context)
@@ -66,10 +68,9 @@ struct AgentsSheet: View {
                 }
                 if model.canOperate {
                     ToolbarItem(placement: .primaryAction) {
-                        Button(role: .destructive) { request(.tree(agents: sheet?.totals.agents ?? 1)) } label: {
+                        Button { request(.tree(agents: sheet?.totals.agents ?? 1)) } label: {
                             Text(stop.saving ? "Stopping…" : "Stop all")
                         }
-                        .tint(AceTheme.StatusText.failed)
                         .disabled(!(sheet?.treeRunning ?? false) || stop.saving)
                         .accessibilityIdentifier("agents.stopAll")
                     }
