@@ -29,21 +29,26 @@ struct ProjectPickerView: View {
                     ContentUnavailableView(query.isEmpty ? "No projects yet" : "No projects match", systemImage: "folder",
                                            description: Text(query.isEmpty ? "Add a folder from your computer to start." : ""))
                 }
-                if !recent.isEmpty { Section("Recent") { ForEach(recent) { row($0) } } }
-                if !rest.isEmpty { Section(recent.isEmpty ? "Projects" : "Other projects") { ForEach(rest) { row($0) } } }
+                if !recent.isEmpty { Section { ForEach(recent) { row($0) } } header: { SettingsHeader("Recent") }.settingsRow() }
+                if !rest.isEmpty {
+                    Section { ForEach(rest) { row($0) } } header: { SettingsHeader(recent.isEmpty ? "Projects" : "Other projects") }.settingsRow()
+                }
             default:
-                HStack { Spacer(); ProgressView(); Spacer() }.listRowSeparator(.hidden)
+                Section { ForEach(0..<4, id: \.self) { _ in ProjectSkeletonRow() } }.settingsRow()
             }
             Section {
                 if canAdd {
-                    Button(action: addProject) { Label("Add a folder from your computer", systemImage: "folder.badge.plus") }
+                    Button(action: addProject) { SettingsRow(title: "Add a folder from your computer") { Image(systemName: "plus").foregroundStyle(AceTheme.Colours.subtleForeground) } }
+                        .buttonStyle(.plain)
                         .accessibilityIdentifier("projects.add")
                 } else {
                     Text("To add a project, open ace on your computer and choose Add project.")
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
                 }
             }
+            .settingsRow()
         }
+        .settingsList()
         .searchable(text: $query, prompt: "Search projects")
         .navigationTitle("Project").navigationBarTitleDisplayMode(.inline)
         .refreshable { reload() }
@@ -52,17 +57,30 @@ struct ProjectPickerView: View {
         Button { choose(project.id) } label: {
             HStack(spacing: AceTheme.Spacing.md) {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                    Text(project.name).aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+                    Text(project.name).aceFont(SettingsStyle.label, relativeTo: .body).fontWeight(project.id == selected ? .medium : .regular)
+                        .foregroundStyle(AceTheme.Colours.foreground)
                     Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1).truncationMode(.middle)
                 }
                 Spacer(minLength: AceTheme.Spacing.none)
-                if project.id == selected { Image(systemName: "checkmark").foregroundStyle(AceTheme.Colours.foreground) }
+                if project.id == selected { Image(systemName: "checkmark").font(.body.weight(.medium)).foregroundStyle(AceTheme.Colours.foreground) }
             }
-            .frame(minHeight: AceTheme.Dimensions.touchTarget).contentShape(Rectangle())
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(project.id == selected ? .isSelected : [])
         .accessibilityIdentifier("project.\(project.id)")
+    }
+}
+
+/// A project row while the list loads: the name and path as skeleton bars.
+private struct ProjectSkeletonRow: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+            Capsule().fill(AceTheme.Colours.fill).frame(width: 120, height: 12)
+            Capsule().fill(AceTheme.Colours.fill).frame(width: 200, height: 10)
+        }
+        .padding(.vertical, AceTheme.Spacing.xxs)
+        .accessibilityHidden(true)
     }
 }
 
