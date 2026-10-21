@@ -6,6 +6,8 @@ import type { ForgeRepository } from "@ace/protocol";
 export interface LinkedThread {
   id: string;
   title: string;
+  /** It waits on the person: an approval, a question. */
+  needsYou: boolean;
 }
 export type LinkedThreads = ReadonlyMap<string, LinkedThread>;
 
@@ -24,7 +26,11 @@ function readLinks(reader: SidebarReader): { pulls: LinkedThreads; issues: Linke
   for (const id of reader.ids) {
     const thread = reader.thread(id);
     if (!thread || thread.archivedAt !== undefined) continue;
-    const linked = { id: thread.id, title: thread.title };
+    const linked = {
+      id: thread.id,
+      title: thread.title,
+      needsYou: thread.status.state === "needs_you",
+    };
     for (const pr of thread.details?.linkedPrs ?? []) {
       const key = workKey(pr.repo, pr.number);
       if (!pulls.has(key)) pulls.set(key, linked);
@@ -41,7 +47,9 @@ const same = (x: LinkedThreads, y: LinkedThreads) =>
   x.size === y.size &&
   [...x].every(([key, thread]) => {
     const other = y.get(key);
-    return other?.id === thread.id && other.title === thread.title;
+    return (
+      other?.id === thread.id && other.title === thread.title && other.needsYou === thread.needsYou
+    );
   });
 const sameLinks = (a: ReturnType<typeof readLinks>, b: ReturnType<typeof readLinks>): boolean =>
   same(a.pulls, b.pulls) && same(a.issues, b.issues);

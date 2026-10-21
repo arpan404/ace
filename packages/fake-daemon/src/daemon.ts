@@ -290,6 +290,7 @@ export class FakeDaemon implements Host {
         ),
       this.servicesWire.files,
     );
+    this.services.verify.onMerged = (_, number) => this.workspace.mergePullRequest(number);
   }
   /** The PTYs clients reach through `terminal.request`, for seeding a scenario's terminals. */
   get terminals(): FakeTerminals {
@@ -325,6 +326,7 @@ export class FakeDaemon implements Host {
     | "holdForgeRead"
     | "forgeReadCount"
     | "seedPullRequests"
+    | "mergePullRequest"
     | "setDraftGenerator"
     | "setIssueOutcome"
     | "checkReruns"

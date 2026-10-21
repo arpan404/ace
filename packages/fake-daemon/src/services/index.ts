@@ -26,6 +26,7 @@ import { search, searchTitles } from "./search.ts";
 import { listModels, resolveModel } from "./models.ts";
 import { FakeSettings, type Push } from "./settings.ts";
 import { FakeActivityReads } from "./activity-reads.ts";
+import { FakeVerify } from "./verify.ts";
 import { FakeRegistry } from "./registry.ts";
 import { fakeAccessModes, fakeProviderPermissions } from "../permissions.ts";
 
@@ -89,6 +90,8 @@ export class FakeServices {
   readonly settings: FakeSettings;
   /** Activity's read cursor (`activity.reads`); `set` stages one. */
   readonly activityReads: FakeActivityReads;
+  /** Verify's simulated local checks and merge runs (`verify.request`). */
+  readonly verify: FakeVerify;
   /** The ACP registry: its cached index, installations and installs in progress. */
   readonly registry: FakeRegistry;
   /**
@@ -284,6 +287,11 @@ export class FakeServices {
       () => host.clock(),
       (message) => host.broadcast?.(message),
     );
+    this.verify = new FakeVerify({
+      clock: () => host.clock(),
+      broadcast: (message) => host.broadcast?.(message),
+      schedule: (callback, delayMs) => void setTimeout(callback, delayMs),
+    });
     this.settings = new FakeSettings(
       settingsValues(),
       (threadId) => host.thread(threadId)?.workspaceId,
@@ -676,6 +684,8 @@ export class FakeServices {
       case "activity.reads":
       case "activity.markRead":
         return this.activityReads.handle(message);
+      case "verify.request":
+        return this.verify.handle(message);
       case "settings.get":
       case "settings.reset":
       case "settings.set":

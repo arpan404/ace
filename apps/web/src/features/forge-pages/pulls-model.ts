@@ -56,7 +56,7 @@ const updated = (a: ForgePrRow, b: ForgePrRow) => b.updatedAt.localeCompare(a.up
 
 /**
  * The loaded rows by size or newest activity; ties keep the newest first. "Ready to merge"
- * ranks the whole repository instead (`rankByReadiness`).
+ * reads the whole repository instead (`useReadyPages`).
  */
 export function sortPrs(
   rows: readonly ForgePrRow[],

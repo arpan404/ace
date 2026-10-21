@@ -86,6 +86,7 @@ export function PrGatesRow(props: { actions: PrActions; onSelect(key: GateKey): 
     outcomes: reviewerOutcomes(detail.status.comments),
     ended,
     branchDeleted,
+    local: actions.local.result,
   });
   const open = detail.status.state === "open" || detail.status.state === "draft";
   const branchLoading = open && actions.mergeState.query.isPending;

@@ -74,6 +74,10 @@ export class FakeWorkspaceWire {
   seedPullRequests(fixtures: readonly PullRequestFixture[]): void {
     this.pullRequests.seed(fixtures);
   }
+  /** Mark a catalog PR merged, as a Verify merge run does on GitHub. */
+  mergePullRequest(number: number): void {
+    this.pullRequests.mergeNumber(number);
+  }
   private seededRead(op: WorkspaceActionRequest["operation"]): ForgeBrowserResult | undefined {
     return (
       this.issues.read(op) ??
