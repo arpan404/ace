@@ -48,19 +48,34 @@ session is available.
 
 ### Browser use
 
-ace's Chrome stays the headless engine. Linux x64 uses the pinned Chrome for Testing build.
-Linux arm64, which Chrome for Testing does not publish, uses a checksum-pinned Chromium from
-a fixed upstream build of the same major version; a person may point `ACE_CHROMIUM_PATH` (or
-the matching setting) at any Chromium on every platform.
+ace's Chrome stays the headless engine. Linux x64 and arm64 both use the pinned Chrome for
+Testing build: Chrome for Testing publishes `linux-arm64` from 153.0.8001.0, so the arm64 pin
+is the same 153.0.8010.12 with the same checksum discipline (publisher MD5 plus immutable
+Google Storage generation). Playwright 1.63 downloads this same object for arm64, and distro
+packages were rejected: Debian's `chromium` is a moving security version, and Ubuntu's
+`chromium-browser` is a snap whose confinement refuses hidden profile directories such as
+`~/.ace`. A person may point `ACE_CHROMIUM_PATH` (the daemon's environment) at any Chromium on
+every platform; the daemon never picks a personal installation by itself.
 
-Launch failures are reported with their cause: missing shared libraries (with the install
-command for the detected distro), a blocked sandbox (with the one-time fix), running as root,
-and a too-small `/dev/shm` (`--disable-dev-shm-usage`). Disabling the sandbox is an explicit
-opt-in, never a silent fallback. `ace doctor` launches the real engine to check this.
+Launch failures are reported with their cause, to the agent as a public code and in the
+daemon log with Chrome's own words: missing shared libraries (`browser_missing_libraries`,
+naming them and the install command for the distribution family from `/etc/os-release`), a
+blocked sandbox (`browser_sandbox_blocked`: AppArmor's user-namespace restriction, disabled
+user namespaces, or running as root). `/dev/shm` under 512 MB adds `--disable-dev-shm-usage`.
+Disabling the sandbox is an explicit opt-in, `ACE_CHROMIUM_NO_SANDBOX=1`, never a silent
+fallback. The AppArmor profile (unconfined plus `userns`, attached to
+`@{HOME}/.ace/chromium/*/chrome-linux{64,-arm64}/chrome`) is defined once in
+`@ace/browser/linux-sandbox`; the deb installs it and `ace doctor` prints it with the commands
+to load it. `ace doctor` starts the real engine (`--version`, then a bounded headless start)
+to check all of this. The Chromium process guardian reads `/proc` on Linux, so it works
+without procps.
 
-The desktop parks unseen agent tabs without a visible window on Linux: parked views render
-offscreen instead of in a transparent window, because Linux window managers ignore opacity
-and off-screen positions.
+The desktop parks unseen agent tabs without a visible window on Linux. A never-shown,
+minimized or fully clipped window gets no frames on Linux, and offscreen rendering is fixed
+when a tab is created, so parked views keep their full size inside a 1×1 parking window: a
+view larger than its window is clipped but keeps rendering. On X11 an empty window shape hides
+that pixel; Wayland has no shapes, so one pixel remains there. macOS and
+Windows keep the transparent window.
 
 ### Computer use
 
