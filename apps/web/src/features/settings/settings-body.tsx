@@ -1,18 +1,16 @@
 import { useLocation } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { FilterMenu } from "@/components/ui/filter-menu.tsx";
-import { machineStatus } from "@/lib/machine-status.ts";
+import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { useSettingsMachine } from "./machine-scope.tsx";
-import { settingsPageOf } from "./settings-pages.ts";
+import { settingsPageOf, type SettingsGroup } from "./settings-pages.ts";
 
 /**
  * One settings page, cardless like the rest of the app: a centred column, as the thread view
  * and Usage centre theirs, under a 20/600 page title; groups are a section title over hairline
- * rows. The title row carries the page's controls
- * at its right and, on a Machine page with more than one machine, the machine it edits as a
- * quiet menu ("This Mac ⌄"), as Usage picks its environment. Content rises in when the page
- * or the machine changes.
+ * rows. Under the title, what the page edits: the environment picked at the top of the sidebar,
+ * or "This device". The title row carries the page's controls at its right. Content rises in
+ * when the page or the environment changes.
  *
  * Nothing on a page is a card: a group is its title over hairline-separated rows, and groups
  * are set apart by `--settings-group-gap` (see `SettingSection`).
@@ -31,9 +29,8 @@ export function SettingsBody(props: {
   children?: ReactNode;
 }) {
   const pathname = useLocation({ select: (location) => location.pathname });
-  const machinePage = settingsPageOf(pathname)?.group === "machine";
-  const { machine, machines } = useSettingsMachine();
-  const picker = machinePage && machines.length > 1;
+  const group = settingsPageOf(pathname)?.group;
+  const { machine } = useSettingsMachine();
   return (
     // The sidebar already says Settings and the page names itself below: the header keeps only
     // its controls, with the view's name for assistive tech.
@@ -48,13 +45,13 @@ export function SettingsBody(props: {
               <h2 className="text-xl leading-[26px] font-semibold tracking-[-0.015em]">
                 {props.page}
               </h2>
+              <PageScope group={group} />
               {props.lede && (
                 <div className="mt-0.5 text-ui text-muted-foreground">{props.lede}</div>
               )}
             </div>
-            {(picker || props.trailing || props.titleActions) && (
+            {(props.trailing || props.titleActions) && (
               <div className="ml-auto flex items-center gap-2">
-                {picker && <MachineFilter />}
                 {props.trailing}
                 {props.titleActions}
               </div>
@@ -73,24 +70,19 @@ export function SettingsBody(props: {
   );
 }
 
-/** The machine a Machine page edits, as Usage picks its environment: a quiet text menu. */
-function MachineFilter() {
-  const { machine, machines, choose } = useSettingsMachine();
+/**
+ * What a page edits, under its title: the environment picked in the sidebar for a machine page,
+ * "This device" for a page this screen keeps whatever environment is picked.
+ */
+function PageScope(props: { group: SettingsGroup | undefined }) {
+  const { machine } = useSettingsMachine();
+  if (props.group === "device")
+    return <p className="mt-0.5 text-ui text-muted-foreground">This device</p>;
+  if (props.group !== "machine" || !machine) return null;
   return (
-    <FilterMenu
-      label="Machine"
-      value={machine?.id ?? ""}
-      options={machines.map((entry) => ({
-        value: entry.id,
-        label:
-          entry.status === "online"
-            ? entry.name
-            : `${entry.name} · ${machineStatus[entry.status].label}`,
-      }))}
-      onValueChange={(id) => {
-        const next = machines.find((entry) => entry.id === id);
-        choose(next && !next.primary ? next.id : undefined);
-      }}
-    />
+    <p className="mt-0.5 flex items-center gap-1.5 text-ui text-muted-foreground">
+      <MachineMark icon={machine.icon} primary={machine.primary} />
+      {machine.name}
+    </p>
   );
 }

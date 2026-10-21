@@ -2,7 +2,6 @@
 export {
   AdvancedSettingsScreen,
   AgentsSettingsScreen,
-  OverviewSettingsScreen,
   StorageSettingsScreen,
   BrowserSettingsScreen,
   PairDeviceScreen,

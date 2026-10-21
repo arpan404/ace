@@ -43,7 +43,12 @@ test("editing this machine updates Settings and the thread's details card", asyn
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
   const view = await app.open("/settings/remote");
-  await screen.findByText("Fake machine", { exact: true });
+  await within(await screen.findByRole("region", { name: "This machine" })).findByText(
+    "Fake machine",
+    {
+      exact: true,
+    },
+  );
   await renameMachine("this", "Workshop Mac", "Desktop");
   const machines = screen.getByRole("region", { name: "This machine" });
   expect(await within(machines).findByText("Workshop Mac")).toBeTruthy();
@@ -145,7 +150,12 @@ test("a chosen machine icon survives leaving Settings and returning to it", asyn
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
   const view = await app.open("/settings/remote");
-  await screen.findByText("Fake machine", { exact: true });
+  await within(await screen.findByRole("region", { name: "This machine" })).findByText(
+    "Fake machine",
+    {
+      exact: true,
+    },
+  );
   await editMachine("this");
   const dialog = await screen.findByRole("dialog");
   await userEvent.click(within(dialog).getByRole("button", { name: "Terminal" }));
@@ -221,7 +231,12 @@ test("Enter in the machine name saves it", async () => {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
   await app.open("/settings/remote");
-  await screen.findByText("Fake machine", { exact: true });
+  await within(await screen.findByRole("region", { name: "This machine" })).findByText(
+    "Fake machine",
+    {
+      exact: true,
+    },
+  );
   await editMachine("this");
   const dialog = await screen.findByRole("dialog");
   const input = within(dialog).getByRole("textbox", { name: "Machine name" });

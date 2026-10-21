@@ -49,20 +49,6 @@ export function AgentsSettingsScreen() {
   );
 }
 
-const OverviewSettings = lazy(() =>
-  import("./overview-page.tsx").then((module) => ({ default: module.OverviewSettings })),
-);
-
-export function OverviewSettingsScreen() {
-  return (
-    <SettingsBody page="Overview">
-      <Suspense fallback={<ListSkeleton label="machines" shape="row" rows={3} className="mt-10" />}>
-        <OverviewSettings />
-      </Suspense>
-    </SettingsBody>
-  );
-}
-
 function AgentsPlaceholder() {
   return (
     <SettingSection label="New threads">
@@ -178,7 +164,7 @@ export function ComputerUseSettingsScreen() {
  * leaves the sheet to the threads); wider, Overview.
  */
 export function SettingsIndexScreen() {
-  return <ViewListPage title="Settings" fallback={<Navigate to="/settings/overview" replace />} />;
+  return <ViewListPage title="Settings" fallback={<Navigate to="/settings/agents" replace />} />;
 }
 
 const Prompts = lazy(() =>

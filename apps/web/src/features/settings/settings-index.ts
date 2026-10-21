@@ -86,12 +86,6 @@ const entries = [
     keywords: ["usage", "quota", "rate limit", "resume", "snooze", "migrate", "switch account"],
   },
   {
-    id: "overview",
-    page: "/settings/overview",
-    title: "Machines and providers that need attention",
-    keywords: ["status", "health", "updates", "sign in", "offline", "machines"],
-  },
-  {
     id: "threads.useWorktree",
     page: "/settings/agents",
     title: "New threads use a worktree",
