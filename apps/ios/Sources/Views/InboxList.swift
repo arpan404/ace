@@ -152,7 +152,8 @@ struct InboxList<Filters: View>: View {
                     Button("Retry") { for session in inbox.sessions { session.client.retry() } }
                 }
             } else {
-                ContentUnavailableView { Label { Text("Connecting to your machine…") } icon: { ProgressView() } }
+                // The bar names the first connection once it takes a moment; the page only waits.
+                ProgressView().controlSize(.large).accessibilityLabel("Connecting")
             }
         } else if pulls {
             ContentUnavailableView("No pull requests in review", image: "tab-pulls",
