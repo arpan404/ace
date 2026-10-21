@@ -17,7 +17,7 @@ struct TranscriptFeedRowView: View {
     let links: TranscriptLinks
     var body: some View {
         BlockView(block: row.block, thread: thread, links: links)
-            .padding(.vertical, AceTheme.Spacing.xs)
+            .padding(.vertical, AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
             .padding(.horizontal, AceTheme.Spacing.xl)
     }
 }

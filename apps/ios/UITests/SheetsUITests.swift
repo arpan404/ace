@@ -22,7 +22,6 @@ import XCTest
 
     func testChangesSheetShowsFilesADiffAndTheNextStep() throws {
         let app = launchIntoTree()
-        app.buttons["thread.menu"].tap()
         app.buttons["thread.changes"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["changes.totals"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["changes.step"].waitForExistence(timeout: 10))
@@ -30,7 +29,6 @@ import XCTest
         app.buttons["changes.file.packages/provider-kit/src/process-owner.ts"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["diff.view"].waitForExistence(timeout: 10))
         screenshot("changes-diff")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
         app.buttons["changes.file.apps/daemon/src/cli/kill-all.fixtures.ts"].tap()
         let truncated = app.descendants(matching: .any)["diff.truncated"]
         for _ in 0..<40 where !truncated.exists { app.swipeUp(velocity: .fast) }
@@ -40,7 +38,6 @@ import XCTest
 
     func testCommitEditorFillsTheMessageFromTheDaemonsDraft() throws {
         let app = launchIntoTree()
-        app.buttons["thread.menu"].tap()
         app.buttons["thread.changes"].tap()
         XCTAssertTrue(app.buttons["changes.step"].waitForExistence(timeout: 15))
         app.buttons["changes.step"].tap()
@@ -63,7 +60,7 @@ import XCTest
         app.launch()
         XCTAssertTrue(app.buttons["thread.ios-tree"].waitForExistence(timeout: 25))
         app.buttons["thread.ios-tree"].tap()
-        XCTAssertTrue(app.buttons["thread.work"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["thread.agents"].waitForExistence(timeout: 15))
         return app
     }
     private func screenshot(_ name: String) {

@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// One paired computer: connection, access and address, the coding-agent CLIs it reports with
-/// their sign-in and usage, then rename and remove. Words arrive from `@ace/ui-core/mobile`.
+/// their sign-in and usage, its own settings, then rename and remove. Words arrive from
+/// `@ace/ui-core/mobile`.
 struct MachineDetailView: View {
     let inbox: MachineInbox
     let machines: MachinesModel?
@@ -42,10 +43,22 @@ struct MachineDetailView: View {
                     }
                 }
             }
+            .insetRowBackground()
             providers
+            if let client {
+                Section {
+                    ForEach(RemoteSettingsCategory.all) { category in
+                        NavigationLink { RemoteSettingsView(model: client, category: category) } label: {
+                            InsetRow(category.title, systemImage: category.symbol)
+                        }
+                    }
+                } header: { InsetHeader("On this machine") }
+                .insetRowBackground()
+            }
             if let machines {
                 Section {
                     Button("Rename") { newName = facts.name; renaming = true }.accessibilityIdentifier("machine.rename")
+                        .foregroundStyle(AceTheme.Colours.foreground)
                     Button("Remove from this phone", role: .destructive) { removing = true }.accessibilityIdentifier("machine.remove")
                 } footer: {
                     Text("Removing forgets this phone's access and unsent work for \(facts.name). Revoke the device on the computer too.")
@@ -60,8 +73,10 @@ struct MachineDetailView: View {
                         Task { await machines.remove(hostId); dismiss() }
                     }.accessibilityIdentifier("machine.remove.confirm")
                 } message: { Text("This phone forgets its access and unsent work for that computer.") }
+                .insetRowBackground()
             }
         }
+        .insetGroupedList()
         .navigationTitle(facts.name).navigationBarTitleDisplayMode(.inline)
         .task(id: hostId) { client?.refreshMachine() }
         .refreshable { client?.refreshMachine() }
@@ -80,7 +95,13 @@ struct MachineDetailView: View {
         }
     }
     @ViewBuilder private var providers: some View {
-        Section("Coding tools") {
+        Section {
+            providerRows
+        } header: { InsetHeader("Coding tools") }
+        .insetRowBackground()
+    }
+    @ViewBuilder private var providerRows: some View {
+        Group {
             if let info = client?.providers {
                 ForEach(info.providers) { provider in ProviderRow(provider: provider) }
                 if !info.absent.isEmpty {
@@ -113,7 +134,7 @@ struct ProviderRow: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             line {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                    Text(provider.name).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+                    Label { Text(provider.name) } icon: { ProviderMark(provider: provider.provider, size: 18) }.aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
                     Text([provider.summary, provider.version].compactMap { $0 }.joined(separator: " · "))
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
                         .fixedSize(horizontal: false, vertical: true)

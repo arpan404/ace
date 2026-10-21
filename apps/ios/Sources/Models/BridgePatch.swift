@@ -33,6 +33,16 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     var badge: String? = nil
     var diff: Diff? = nil
     var testsRunning: Bool? = nil
+    /// The pull request the thread's card names, and whether it is still in review.
+    var pr: PullRequestRef? = nil
+    /// Start of the current working stretch (ms) while the tree works; nil otherwise.
+    var workingSince: Double? = nil
+}
+struct PullRequestRef: Codable, Sendable, Equatable {
+    let number: Int
+    /// open, draft, merged or closed.
+    let state: String
+    var inReview: Bool { state == "open" || state == "draft" }
 }
 struct TranscriptRow: Codable, Sendable, Identifiable, Equatable {
     let id: String

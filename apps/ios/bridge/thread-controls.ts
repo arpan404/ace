@@ -1,6 +1,6 @@
 import type { ThreadReader } from "@ace/client";
 import type { CommandPayload, FollowUpBehavior, Interaction, ThreadId } from "@ace/protocol";
-import { followUpDelivery, isBusy, modelLabel, stopFence } from "@ace/ui-core";
+import { followUpDelivery, isBusy, modelLabel, providerDisplayName, stopFence } from "@ace/ui-core";
 import { runsOn } from "@ace/ui-core/thread-execution";
 import { preview } from "./presentation.ts";
 
@@ -25,13 +25,16 @@ export function controlsRow(reader: ThreadReader, setting: FollowUpBehavior | un
   const alternate = followUpDelivery({ ...input, opposite: true });
   const selection = runsOn(thread);
   const busy = isBusy(status);
+  const provider = selection?.provider ?? thread?.provider;
   return {
     busy,
     delivery: delivery ?? null,
     alternate: alternate === delivery ? null : (alternate ?? null),
     // Stop is hidden while the agent asks a question: answering is how that turn moves on.
     canStop: busy && !questionPending(reader) && stopFence(reader) !== undefined,
-    provider: selection?.provider ?? thread?.provider ?? "",
+    provider: provider ?? "",
+    /** "Claude": the model sheet's section header. */
+    providerName: provider ? providerDisplayName(provider) : "",
     model: preview(selection?.model ? modelLabel(selection.model) : "", 128),
     switching: thread?.switch?.state ?? "",
   };
