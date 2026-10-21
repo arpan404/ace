@@ -4,7 +4,7 @@ import SwiftUI
 enum NewThreadRoute: Hashable { case projects, addProject, mention, instructions }
 
 /// New thread (issue #560): "What should we build in <project>?", then, above the keyboard, the
-/// worktree and base chips and the first message with its files and model. The bridge judges
+/// strip saying where it runs and the first message with its files and model. The bridge judges
 /// readiness and builds `thread.create`; the draft survives the app being killed.
 struct NewThreadSheet: View {
     @Bindable var inbox: MachineInbox
@@ -37,7 +37,7 @@ struct NewThreadSheet: View {
     private var compose: ComposeModel? { client?.compose }
     private var project: ComposeProject? { compose?.projects.first { $0.id == draft.projectId } }
     private var choice: NewThreadChoice { NewThreadChoice(compose: compose, draft: draft) }
-    private var branches: (state: String, bases: [ComposeBase], start: ComposeBaseRef?, noWorktree: String?)? {
+    private var branches: NewThreadBranches? {
         guard let read = compose?.branches, read.workspaceId == draft.projectId else { return nil }
         return (read.state, read.bases, read.start, read.noWorktree)
     }
@@ -49,9 +49,11 @@ struct NewThreadSheet: View {
     var body: some View {
         NavigationStack(path: $path) {
             VStack(spacing: AceTheme.Spacing.none) {
-                ScrollView { hero }
-                    .scrollDismissesKeyboard(.interactively)
-                    .defaultScrollAnchor(.top)
+                ScrollView {
+                    hero.containerRelativeFrame(.vertical, alignment: .center)
+                }
+                .scrollDismissesKeyboard(.interactively)
+                .scrollBounceBehavior(.basedOnSize)
                 bottom
             }
             .background(AceTheme.Colours.background)
@@ -92,65 +94,36 @@ struct NewThreadSheet: View {
         }
     }
 
-    /// "What should we build in ace-next?", the project underlined and tappable; the machine
-    /// beneath when there's more than one.
     private var hero: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
-            NavigationLink(value: NewThreadRoute.projects) {
-                Group {
-                    if let name = project?.name {
-                        Text("What should we build in ") + Text(name).underline(color: AceTheme.Colours.decoration) + Text("?")
-                    } else {
-                        Text("What should we build?\n") + Text("Choose a project").foregroundStyle(AceTheme.Colours.mutedForeground)
-                            .underline(color: AceTheme.Colours.decoration)
-                    }
-                }
-                .aceFont(NewThreadStyle.hero, relativeTo: .title)
-                .foregroundStyle(AceTheme.Colours.foreground)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(project.map { "Project, \($0.name)" } ?? "Choose a project")
-            .accessibilityIdentifier("newThread.project")
-            if inbox.sessions.count > 1 {
-                Menu {
-                    Picker("Machine", selection: Binding(get: { machineId ?? "" }, set: { id in
-                        drafts.edit { $0.machineId = id; $0.projectId = nil; $0.provider = nil; $0.model = nil; $0.account = nil; $0.effort = nil; $0.speed = nil; $0.access = nil; $0.base = nil }
-                    })) {
-                        ForEach(inbox.sessions) { session in
-                            Text(session.client.canOperate ? inbox.name(session.hostId) : "\(inbox.name(session.hostId)) · View only").tag(session.hostId)
-                        }
-                    }
-                } label: {
-                    Text("on \(machineId.map(inbox.name) ?? "")").aceFont(AceTheme.Typography.body, relativeTo: .body)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
-                }
-                .accessibilityLabel("Machine").accessibilityValue(machineId.map(inbox.name) ?? "")
-                .accessibilityIdentifier("newThread.machine")
-            }
-        }
-        .padding(.horizontal, AceTheme.Spacing.xxl).padding(.top, AceTheme.Spacing.xxl)
+        NewThreadHero(projects: compose?.projects ?? [], selected: project, canAdd: client?.canOperate ?? false,
+                      choose: { id in drafts.edit { $0.projectId = id; $0.base = nil } },
+                      allProjects: { path.append(.projects) }, addProject: { path.append(.addProject) })
+            .padding(.horizontal, AceTheme.Spacing.xxl)
     }
 
-    /// Above the keyboard: what holds Send back, the worktree chips, then the first message.
+    /// Above the keyboard: the one strip slot (where it runs, or what holds Send back) tucked
+    /// under the composer's top edge, then the first message.
     private var bottom: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm + AceTheme.Spacing.xxs) {
-            if let note = failure ?? attachProblem ?? (draft.text.isEmpty ? nil : blocker) {
-                Text(note).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    .foregroundStyle((failure ?? attachProblem) == nil ? AceTheme.Colours.mutedForeground : AceTheme.StatusText.failed)
-                    .padding(.horizontal, AceTheme.Spacing.sm)
-                    .accessibilityIdentifier("newThread.note")
-            }
-            if draft.projectId != nil {
-                NewThreadWorktreeChips(drafts: drafts, branches: branches)
-            }
+        VStack(spacing: AceTheme.Spacing.none) {
+            NewThreadStrip(drafts: drafts, branches: branches,
+                           machines: inbox.sessions.count > 1 ? inbox.sessions.map { session in
+                               (session.hostId, session.client.canOperate ? inbox.name(session.hostId) : "\(inbox.name(session.hostId)) · View only")
+                           } : [],
+                           machineId: machineId, chooseMachine: chooseMachine, notice: notice)
             NewThreadComposer(drafts: drafts, client: client, files: files, choice: choice, agentsState: compose?.agentsState,
                               sending: sending, blocker: blocker, attachProblem: $attachProblem,
                               chooseModel: { choosingModel = true }, send: send)
         }
         .padding(.horizontal, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
         .padding(.bottom, AceTheme.Spacing.sm)
+    }
+    private var notice: (text: String, failed: Bool)? {
+        if let problem = failure ?? attachProblem { return (problem, true) }
+        if !draft.text.isEmpty, let blocker { return (blocker, false) }
+        return nil
+    }
+    private func chooseMachine(_ id: String) {
+        drafts.edit { $0.machineId = id; $0.projectId = nil; $0.provider = nil; $0.model = nil; $0.account = nil; $0.effort = nil; $0.speed = nil; $0.access = nil; $0.base = nil }
     }
 
     /// Mentions, the project's files, and instructions or a profile, out of the main path.

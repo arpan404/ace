@@ -29,11 +29,11 @@ import XCTest
         XCTAssertNotNil(visible)
         visible?.tap()
         app.buttons["modelSheet.done"].tap()
+        // The strip's Worktree box turns a worktree on; its base shows beside it.
         let worktree = app.buttons["newThread.worktree"]
-        if worktree.waitForExistence(timeout: 10), worktree.isEnabled {
+        if worktree.waitForExistence(timeout: 10), worktree.isEnabled, worktree.value as? String == "Off" {
             worktree.tap()
-            let newWorktree = app.buttons["New worktree"]
-            if newWorktree.waitForExistence(timeout: 5) { newWorktree.tap() }
+            XCTAssertTrue(app.buttons["newThread.base"].waitForExistence(timeout: 10))
         }
         let message = element(app, "newThread.message")
         XCTAssertTrue(message.waitForExistence(timeout: 5))
@@ -77,10 +77,10 @@ import XCTest
         field.typeText(name)
         app.textViews["Profile instructions"].tap()
         app.textViews["Profile instructions"].typeText(instructions)
-        app.buttons["Save profile"].tap()
+        app.buttons["profile.save"].tap()
         // Back from Profiles to the same draft: the picker reads the new profile at once.
         XCTAssertTrue(app.staticTexts[name].waitForExistence(timeout: 5))
-        app.navigationBars["Profiles"].buttons.firstMatch.tap()
+        app.navigationBars["Task profiles"].buttons.firstMatch.tap()
         let picker = element(app, "newThread.profile")
         XCTAssertTrue(picker.waitForExistence(timeout: 5))
         for _ in 0..<8 where !picker.isHittable { app.swipeUp() }
