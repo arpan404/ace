@@ -180,7 +180,7 @@ function PrDetailLoaded(props: {
         ?.writeText(
           `gh pr checkout ${status.ref.number} --repo ${repository.host}/${repository.owner}/${repository.name}`,
         )
-        .then(() => toast.add({ title: "Checkout command copied" }));
+        .catch(() => toast.error({ title: "Couldn't copy the checkout command" }));
     } else
       event.currentTarget
         .querySelector<HTMLButtonElement>("[data-pr-primary]:not(:disabled)")

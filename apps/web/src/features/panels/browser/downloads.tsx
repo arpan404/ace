@@ -117,10 +117,9 @@ function DownloadRow(props: {
             <MenuItem
               icon={<Icon icon={CopyIcon} />}
               onClick={() =>
-                void navigator.clipboard?.writeText(path).then(
-                  () => toast.add({ title: "Path copied" }),
-                  () => toast.error({ title: "Couldn't copy the path" }),
-                )
+                void navigator.clipboard
+                  ?.writeText(path)
+                  .catch(() => toast.error({ title: "Couldn't copy the path" }))
               }
             >
               Copy path

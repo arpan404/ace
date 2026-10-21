@@ -15,7 +15,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
 import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
 import { PairDevice } from "./pair-device.tsx";
 import { RowMenu } from "@/components/ui/row-menu.tsx";
@@ -70,12 +69,10 @@ function PairedDevices() {
 function RevokeDialog(props: { device: Device | undefined; onDone(): void }) {
   const backend = useSettingsBackend();
   const queryClient = useQueryClient();
-  const toast = useToast();
   const revoke = useMutation({
     mutationFn: (device: Device) => backend.revoke(device.id),
-    onSuccess: async (_, device) => {
+    onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: settingsQueries.devices(backend).queryKey });
-      toast.add({ title: `${device.name} can no longer reach this computer` });
       props.onDone();
     },
   });

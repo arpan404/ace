@@ -1,8 +1,9 @@
-import { CopyIcon } from "@phosphor-icons/react";
+import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
+import { useCopy } from "@/components/use-copy.ts";
 import { useDismissBootSplash } from "@/lib/boot-splash.ts";
 import { ConnectCard } from "./connect-card.tsx";
 
@@ -40,14 +41,9 @@ export function BootFailure(props: {
   useDismissBootSplash();
   const toast = useToast();
   const message = errorText(props.error);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(message);
-      toast.add({ title: "Copied" });
-    } catch {
-      toast.error({ title: "Couldn't copy. Select the message and copy it yourself." });
-    }
-  };
+  const { copied, copy } = useCopy(() =>
+    toast.error({ title: "Couldn't copy. Select the message and copy it yourself." }),
+  );
   return (
     <ConnectCard labelledBy="boot-failure-title">
       <h1 id="boot-failure-title" className="mt-4 text-xl font-semibold tracking-title">
@@ -61,10 +57,10 @@ export function BootFailure(props: {
           {message}
         </pre>
         <IconButton
-          icon={CopyIcon}
-          label="Copy error"
+          icon={copied ? CheckIcon : CopyIcon}
+          label={copied ? "Copied" : "Copy error"}
           size="sm"
-          onClick={() => void copy()}
+          onClick={() => copy(message)}
           className="absolute top-1.5 right-1.5"
         />
       </div>

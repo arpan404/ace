@@ -18,10 +18,9 @@ export function useFolderActions(path: string | undefined): {
   return {
     copy: path
       ? () =>
-          void navigator.clipboard?.writeText(path).then(
-            () => toast.add({ title: "Path copied" }),
-            () => toast.error({ title: "Couldn't copy the path" }),
-          )
+          void navigator.clipboard
+            ?.writeText(path)
+            .catch(() => toast.error({ title: "Couldn't copy the path" }))
       : undefined,
     reveal:
       show && path

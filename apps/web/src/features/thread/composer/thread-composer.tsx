@@ -161,7 +161,6 @@ export function ThreadComposer({
         draft,
       });
       setContinuation(undefined);
-      toast.add({ title: `Continues on ${target.choice.model} in a new thread` });
       void navigate({ to: "/t/$threadId", params: { threadId: opened } });
       return true;
     } catch (error) {
