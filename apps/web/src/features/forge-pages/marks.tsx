@@ -98,7 +98,7 @@ export function ChecksMark(props: { ci: ForgePrRow["ci"] }) {
   );
 }
 
-/** Up to three people, overlapped, with the rest as "+N". */
+/** Up to three people side by side, a little apart, with the rest as "+N". */
 export function Avatars(props: {
   people: readonly string[];
   avatars?: Record<string, string> | undefined;
@@ -109,20 +109,16 @@ export function Avatars(props: {
   return (
     <span
       title={`${props.label}: ${props.people.join(", ")}`}
-      className="inline-flex shrink-0 items-center -space-x-1.5"
+      className="inline-flex shrink-0 items-center gap-1"
     >
       <span className="sr-only">{`${props.label}: ${props.people.join(", ")}`}</span>
       {shown.map((person) => (
         <span key={person} aria-hidden className="inline-flex">
-          <PrAvatar
-            name={person}
-            url={props.avatars?.[person]}
-            className="size-5 min-w-5 ring-2 ring-background"
-          />
+          <PrAvatar name={person} url={props.avatars?.[person]} className="size-5 min-w-5" />
         </span>
       ))}
       {props.people.length > shown.length && (
-        <span aria-hidden className="pl-2 text-xs text-subtle-foreground tabular-nums">
+        <span aria-hidden className="text-xs text-subtle-foreground tabular-nums">
           +{props.people.length - shown.length}
         </span>
       )}
