@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { SearchField } from "@/components/search-field.tsx";
 import { Tabs, TabsList, TabsTab } from "@/components/ui/tabs.tsx";
@@ -61,10 +61,13 @@ export function ListFrame(props: {
   address: string;
   /** Its rows are on screen, so a kept position can be restored. */
   ready: boolean;
+  /** One status line pinned under the toolbar (the merge strip). */
+  strip?: ReactNode;
   children: ReactNode;
 }) {
   const navigate = useNavigate();
   const { ref, onScroll } = useListScroll(props.kind, props.address, props.ready);
+  const header = useSteadyHeader(ref);
   const label = props.kind === "pulls" ? "Search pull requests" : "Search issues";
   return (
     <div
@@ -92,7 +95,10 @@ export function ListFrame(props: {
         <SearchBox label={label} value={props.search} onValue={props.onSearch} />
         {props.actions}
       </div>
-      <header className={cn("sticky top-0 z-[2] bg-background px-(--forge-gutter)", toolbarEdge)}>
+      <header
+        ref={header}
+        className={cn("sticky top-0 z-[2] bg-background px-(--forge-gutter)", toolbarEdge)}
+      >
         <div
           role="toolbar"
           aria-label={props.kind === "pulls" ? "Pull request filters" : "Issue filters"}
@@ -102,10 +108,33 @@ export function ListFrame(props: {
           <span className="flex-1" />
           {props.menus}
         </div>
+        {props.strip}
       </header>
       {props.children}
     </div>
   );
+}
+
+/**
+ * The pinned header grows or shrinks (a strip comes or goes) without moving the rows on
+ * screen: once scrolled, the scroller follows the change in its height.
+ */
+function useSteadyHeader(scroller: { current: HTMLDivElement | null }) {
+  const header = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    const element = header.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    let height = element.offsetHeight;
+    const observer = new ResizeObserver(() => {
+      const next = element.offsetHeight;
+      const list = scroller.current;
+      if (list && list.scrollTop > 0 && next !== height) list.scrollTop += next - height;
+      height = next;
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [scroller]);
+  return header;
 }
 
 /** The page's one gutter: 16px in a narrow column, 32px beside it. */

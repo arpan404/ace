@@ -35,15 +35,15 @@ async function headings(name: ListName) {
 async function numbers(name: ListName) {
   return numbersIn(await screen.findByRole("navigation", { name }));
 }
-test("by default open pull requests are ranked by how close they are to merging", async () => {
+test("by default open pull requests are grouped by what each needs next", async () => {
   const app = withRepository();
   await app.open("/pulls?project=ace");
   await waitFor(async () =>
     expect(await groups("Pull requests")).toEqual({
-      Ready: ["224"],
-      // #226 conflicts with its base but waits on review: it goes last in that tier.
-      "Waiting on review": ["231", "226"],
-      "Needs changes": ["229"],
+      // Reviews asked of you come before your own branch that fell behind.
+      "Needs you": ["229", "226", "222"],
+      "Ready to merge": ["233", "224"],
+      Waiting: ["231"],
       Drafts: ["227"],
     }),
   );
@@ -54,16 +54,16 @@ test("sorted by activity, open pull requests are grouped as yours, waiting on yo
   await app.open("/pulls?project=ace&sort=updated");
   await waitFor(async () =>
     expect(await groups("Pull requests")).toEqual({
-      "Authored by you": ["231", "227"],
+      "Authored by you": ["231", "227", "222"],
       "Review requested": ["229", "226"],
-      Others: ["224"],
+      Others: ["233", "224"],
     }),
   );
   await waitFor(async () =>
     expect(await headings("Pull requests")).toEqual([
-      "Authored by you2",
+      "Authored by you3",
       "Review requested2",
-      "Others1",
+      "Others2",
     ]),
   );
 });
@@ -73,7 +73,7 @@ test("Reviewing narrows the list to pull requests asking for your review", async
   await app.open("/pulls?project=ace");
   await screen.findByRole("navigation", { name: "Pull requests" });
   await userEvent.click(screen.getByRole("button", { name: "Reviewing" }));
-  await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["226", "229"]));
+  await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["229", "226"]));
 });
 
 test("the state choices count each state and Merged lists merged pull requests", async () => {
@@ -99,14 +99,14 @@ test("a row opens its pull request as a page, and Back returns to the list as it
   await app.open("/pulls?project=ace");
   await screen.findByRole("navigation", { name: "Pull requests" });
   await userEvent.click(screen.getByRole("button", { name: "Reviewing" }));
-  await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["226", "229"]));
+  await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["229", "226"]));
   const nav = screen.getByRole("navigation", { name: "Pull requests" });
   await userEvent.click(within(nav).getByRole("link", { name: /Reconnect the client worker/ }));
   expect(await screen.findByRole("article", { name: "Pull request #229" })).toBeTruthy();
   // The page takes the main column: the list is gone until Back.
   expect(screen.queryByRole("navigation", { name: "Pull requests" })).toBeNull();
   await userEvent.click(await screen.findByRole("button", { name: "Back to pull requests" }));
-  await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["226", "229"]));
+  await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["229", "226"]));
   expect(screen.getByRole("button", { name: "Reviewing" }).getAttribute("aria-pressed")).toBe(
     "true",
   );

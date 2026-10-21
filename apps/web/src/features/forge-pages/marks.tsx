@@ -10,6 +10,7 @@ import {
   XIcon,
 } from "@phosphor-icons/react";
 import type { ForgeIssueRow, ForgePrRow } from "@ace/protocol";
+import type { LocalCheckResult } from "@ace/ui-core";
 import { PersonAvatar as PrAvatar } from "@/components/person-avatar.tsx";
 import { cn } from "@/lib/cn.ts";
 
@@ -79,21 +80,40 @@ export function ReviewMark(props: { decision: ForgePrRow["reviewDecision"] }) {
   );
 }
 
-export function ChecksMark(props: { ci: ForgePrRow["ci"] }) {
+/** GitHub's checks and the latest local check of the head, as one state. */
+function checksState(
+  ci: ForgePrRow["ci"],
+  local: LocalCheckResult,
+): "failure" | "pending" | "success" | undefined {
+  if (ci === "failure" || local === "failed") return "failure";
+  if (ci === "pending" || local === "running") return "pending";
+  if (ci === "success" || local === "passed") return "success";
+  return undefined;
+}
+
+const localWords = {
+  failed: "local check failed",
+  running: "local check running",
+  passed: "local check passed",
+};
+
+export function ChecksMark(props: { ci: ForgePrRow["ci"]; local?: LocalCheckResult }) {
+  const state = checksState(props.ci, props.local);
   const mark =
-    props.ci === "success"
+    state === "success"
       ? { icon: CheckIcon, tone: "done", word: "Checks passed" }
-      : props.ci === "failure"
+      : state === "failure"
         ? { icon: XIcon, tone: "failed", word: "Checks failing" }
-        : props.ci === "pending"
+        : state === "pending"
           ? { icon: ClockIcon, tone: "working", word: "Checks running" }
           : undefined;
   if (!mark) return null;
   const Icon = mark.icon;
+  const word = props.local ? `${mark.word}, ${localWords[props.local]}` : mark.word;
   return (
-    <span data-tone={mark.tone} title={mark.word} className="inline-flex text-(--tone-text)">
-      <Icon aria-hidden size={14} weight={props.ci === "pending" ? "regular" : "bold"} />
-      <span className="sr-only">{mark.word}</span>
+    <span data-tone={mark.tone} title={word} className="inline-flex text-(--tone-text)">
+      <Icon aria-hidden size={14} weight={state === "pending" ? "regular" : "bold"} />
+      <span className="sr-only">{word}</span>
     </span>
   );
 }
