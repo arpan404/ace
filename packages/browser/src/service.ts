@@ -522,6 +522,10 @@ export class BrowserService {
             // A session handed on to the next backend keeps the thread's scope and profile.
             if (!retiring) await release();
           },
+          // A desktop capture that failed loses the pages as a lost view does, and recovers so.
+          suspended: (reason) => {
+            if (session?.state.backend === "embedded") request.lost(reason);
+          },
           ...(restoredTabs.length ? { restoredTabs } : {}),
           ...(store
             ? {
