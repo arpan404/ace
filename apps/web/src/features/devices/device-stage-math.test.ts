@@ -114,12 +114,13 @@ test("the stream stats show pictures that arrived but weren't drawn, the longest
   for (let at = 0; at <= 1000; at += 20) meter.add({ capturedAt: at, shownAt: at });
   for (let at = 1400; at <= 2000; at += 50) meter.add({ capturedAt: at, shownAt: at });
   meter.keyframeAsked(1100);
+  meter.decoder("default", "EncodingError");
   expect(streamDetails(meter.read(2000))).toEqual([
     "Received 60/s · drawn 13/s",
     "6.0 Mbit/s",
     "Longest stall 400 ms (5 s)",
     "Keyframes asked 1 (5 s)",
-    "Decoder: the browser's choice; it doesn't report hardware use",
+    "Decoder: browser default (hardware failed: EncodingError)",
   ]);
 });
 

@@ -24,6 +24,8 @@ export interface StreamStats {
   longestGapMs: number;
   /** Keyframes this view asked for in the last five seconds (a lost place, a decode error). */
   keyframesAsked: number;
+  /** Which decoder the view asked for, and why it fell back, as far as WebCodecs lets it know. */
+  decoder: { preference: "hardware" | "default"; reason?: string } | undefined;
   /**
    * The screen is holding still: a Simulator re-sends its unchanged picture about five times a
    * second, which would otherwise read as a stream that dropped to 5 fps.
@@ -46,6 +48,7 @@ export class StreamMeter {
   private frames: ShownFrame[] = [];
   private received: { at: number; bytes: number }[] = [];
   private asked: number[] = [];
+  private decoderChoice: StreamStats["decoder"];
   private readonly sameClock: boolean;
   constructor(options: { sameClock: boolean }) {
     this.sameClock = options.sameClock;
@@ -61,6 +64,11 @@ export class StreamMeter {
   receive(at: number, bytes: number): void {
     this.received.push({ at, bytes });
     trim(this.received, (entry) => entry.at, at - historyMs);
+  }
+
+  /** The decoder the view runs: hardware asked for, or the browser's default after that failed. */
+  decoder(preference: "hardware" | "default", reason?: string): void {
+    this.decoderChoice = { preference, ...(reason ? { reason } : {}) };
   }
 
   /** The view asked the daemon for a keyframe. */
@@ -100,6 +108,7 @@ export class StreamMeter {
       megabits: Math.round((bytes * 8) / 1e4) / 100,
       longestGapMs: Math.round(longestGapMs),
       keyframesAsked: this.asked.filter((at) => at > now - historyMs).length,
+      decoder: this.decoderChoice,
       still:
         fps !== undefined &&
         fps <= stillFps &&
@@ -128,6 +137,11 @@ export function streamDetails(stats: StreamStats | undefined): string[] {
     `${stats.megabits.toFixed(1)} Mbit/s`,
     `Longest stall ${stats.longestGapMs} ms (5 s)`,
     `Keyframes asked ${stats.keyframesAsked} (5 s)`,
-    "Decoder: the browser's choice; it doesn't report hardware use",
+    // WebCodecs takes a hardware hint but never says where a decode ran.
+    stats.decoder?.preference === "hardware"
+      ? "Decoder: hardware asked for (unconfirmed)"
+      : stats.decoder
+        ? `Decoder: browser default${stats.decoder.reason ? ` (hardware failed: ${stats.decoder.reason})` : ""}`
+        : "Decoder: not started",
   ];
 }

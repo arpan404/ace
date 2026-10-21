@@ -9,7 +9,7 @@ import type { DeviceInput } from "@ace/protocol";
 import { deviceGesture, devicePoint, type FrameSize } from "@ace/ui-core";
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { cn } from "@/lib/cn.ts";
-import { webCodecsDecoder } from "@/lib/video/codecs.ts";
+import { webCodecsDecoder, type DecoderPreference } from "@/lib/video/codecs.ts";
 import { TouchGestures, type TouchEffect } from "@/lib/touch-gestures.ts";
 import type { DeviceSession } from "./device-session.ts";
 import { nextFrame } from "@/lib/next-frame.ts";
@@ -61,6 +61,7 @@ const partnerId = 1_000_000;
 export interface StreamObserver {
   receive(at: number, bytes: number): void;
   keyframeAsked(at: number): void;
+  decoder(preference: DecoderPreference, reason?: string): void;
 }
 
 /**
@@ -206,7 +207,9 @@ export function DeviceScreen(props: {
     };
     // Video only: no JPEG decoder, and a platform that refuses H.264 says so.
     const renderer = pictureRenderer<DevicePicture>({
-      decoder: webCodecsDecoder(),
+      decoder: webCodecsDecoder((preference, reason) =>
+        latestStream.current?.decoder(preference, reason),
+      ),
       nextFrame,
       show,
       ack: (picture, keyframe) => {
