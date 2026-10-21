@@ -24,6 +24,11 @@ export type Choice<T extends string> = {
 
 export function triageWizard(title: string) {
   intro(title, io);
+  return wizardSession();
+}
+
+/** Prompts that continue an earlier session on screen, without a second title. */
+export function wizardSession() {
   return {
     async choose<T extends string>(
       message: string,
@@ -85,4 +90,4 @@ export function triageWizard(title: string) {
     },
   };
 }
-export type TriageWizard = ReturnType<typeof triageWizard>;
+export type TriageWizard = ReturnType<typeof wizardSession>;

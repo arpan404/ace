@@ -1,4 +1,3 @@
-import { formatDoctor } from "@ace/diagnostics";
 import { TriageProvider } from "@ace/diagnostics/triage";
 import type { DiagnosticRepair, DiagnosticReport } from "@ace/protocol";
 import { collectDoctorReport } from "../diagnostics-report.ts";
@@ -32,7 +31,7 @@ export async function doctorCommand(args: Args, config: Config): Promise<void> {
   const daemon = await localDaemonState(config.dataDir);
   const before = await cliDoctorReport(config, daemon);
   const plan = planDoctorRepairs(before, daemon);
-  if (!json) await print(args, formatDoctor(before).trimEnd() + "\n\n" + describePlan(plan));
+  if (!json) await print(args, formatChecks(before) + "\n\n" + describePlan(plan));
 
   let chosen: DoctorRepairId[] = [];
   if (!dryRun && plan.length) {
@@ -41,7 +40,7 @@ export async function doctorCommand(args: Args, config: Config): Promise<void> {
     else if (!json)
       await print(
         args,
-        "Run in a terminal to choose repairs, or pass --fix for the recommended ones.",
+        "\nRun in a terminal to choose repairs, or pass --fix for the recommended ones.",
       );
   } else if (dryRun && plan.length && !json) await print(args, "Dry run: nothing changed.");
 
@@ -114,6 +113,22 @@ function describePlan(plan: readonly PlannedRepair[]): string {
   );
 }
 
+/** Problems first, with their fixes; passing checks are counted, not listed. */
+export function formatChecks(report: DiagnosticReport): string {
+  const open = report.checks.filter((check) => check.status !== "ok");
+  const passed = report.checks.length - open.length;
+  return [
+    ...open.map(
+      (check) =>
+        `${check.status === "fail" ? "FAIL" : "WARN"} ${check.id}: ${check.message}` +
+        (check.fix ? `\n     ${check.fix}` : ""),
+    ),
+    open.length
+      ? `${passed} other ${passed === 1 ? "check" : "checks"} passed.`
+      : `All ${passed} checks passed.`,
+  ].join("\n");
+}
+
 async function pickRepairs(plan: readonly PlannedRepair[]): Promise<DoctorRepairId[]> {
   const { triageWizard, paint, TriageCancelled } = await import("./triage-wizard.ts");
   const runnable = plan.filter((repair) => !repair.blocked);
@@ -140,8 +155,8 @@ async function pickRepairs(plan: readonly PlannedRepair[]): Promise<DoctorRepair
 }
 
 async function wantsAgent(): Promise<boolean> {
-  const { triageWizard, paint, TriageCancelled } = await import("./triage-wizard.ts");
-  const wizard = triageWizard(paint(["bold", "inverse"], " ace doctor "));
+  const { wizardSession, TriageCancelled } = await import("./triage-wizard.ts");
+  const wizard = wizardSession();
   try {
     const answer = await wizard.choose("Start an agent to investigate what's left?", [
       { value: "yes", label: "Yes, start ace triage" },

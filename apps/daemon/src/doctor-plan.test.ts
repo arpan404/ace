@@ -35,8 +35,6 @@ it("folder problems and reclaimable space are both recommended while ace runs", 
     "Fix ace folder access",
     "Reclaim database space",
   ]);
-  expect(plan[0]?.detail).toContain("Log folder: missing");
-  expect(plan[1]?.detail).toContain("300 MiB reusable");
   expect(recommendedRepairs(plan)).toEqual(["folders", "database"]);
 });
 

@@ -1,6 +1,6 @@
 # 0092: CLI triage and bounded doctor repairs
 
-Date: 2026-10-20. Status: accepted.
+Date: 2026-10-20. Updated 2026-10-21. Status: accepted.
 
 ## Context
 
@@ -8,70 +8,93 @@ Triage is what a person reaches for when ace is broken: the app crashes or won't
 the daemon is down or stuck, settings are wrong. A triage screen inside the app, or one
 served by the daemon, would be unavailable exactly when it is needed.
 
+A first version asked the person to pick a template and describe the problem, then
+pasted a long generated prompt into an agent. That front-loaded the wrong work: the
+person had to diagnose before anyone helped, and the agent got a fixed snapshot instead
+of a way to investigate.
+
 ## Decision
 
-`ace triage` is a CLI-only wizard. Portable prompt templates live in
-`@ace/diagnostics/triage`. The user chooses bug investigation, feature planning,
-performance investigation or installation repair, answers that template's main
-question and one optional follow-up, reviews the prompt and hands it to their
-installed Claude Code, Codex, Cursor CLI or OpenCode, copies it or prints it. Prompt
-construction is deterministic and makes no model call.
+### `ace triage` hands a coding agent a playbook and the facts
 
-A handoff is only useful if the agent can see what the person saw, so every prompt
-carries local evidence: the last 24 hours of ace warnings and errors, grouped by
-message with counts and one shortened sample; whether the local daemon is running;
-which agent CLIs are installed and their versions; and where ace keeps its logs and
-data, with the instruction to read but never write the live SQLite files. The log
-digest reads only the tail of the log file and is pure (`digestLogLines`, clock
-injected). Messages and samples pass through the text redactor for secret-looking
-environment values, ids and emails; home paths are shown as `~` because the agent runs
-on the same computer and needs them. Only the installation-repair template runs doctor
-checks; it lists findings and summarizes successful checks without raw JSON. No
-conversation or credential files are attached.
+`ace triage` asks nothing up front. It writes two files to a fresh temporary folder,
+which works even when the ace folder is broken:
+
+- `FACTS.md`: this computer's facts, collected best-effort. These are the ace CLI
+  version, OS and Node, where `ace` was launched from, whether the daemon is running,
+  installed agent CLIs and their versions, the data folder, log, settings and database
+  paths, a source-cache folder for cloning ace, and the files the agent must never open
+  (daemon token, TLS, account homes, browser profiles, MCP enrollments). It also
+  carries the last 24 hours of warnings and errors (grouped, with counts and one
+  shortened sample) and anything that couldn't be checked.
+- `PLAYBOOK.md`: how to investigate an ace problem. Ask the person what happened and
+  where, establish which build and computer it happened on, gather evidence from logs,
+  `ace doctor`, the daemon, provider CLIs and read-only databases, read the source at the
+  matching release tag, search arpan404/ace issues and releases, then let the person
+  choose between fixing it now, writing an issue, both or neither. Local fixes are
+  settings, restarts, reinstalls or sign-ins, run only with consent; the installed ace
+  is never patched. Issues follow fixed sections and are posted only after the person
+  approves the complete text.
+
+The person picks an installed Claude Code, Codex, Cursor CLI or OpenCode. The agent
+starts in the triage folder, so it can't wander into an unrelated project, with a
+single line: read the playbook and follow it. A one-line argument survives any shell
+or argv limit; the detail lives in files. `--print` writes the playbook and facts to
+stdout for pasting into any agent; `--json` lists the files.
+
+Logs, databases, issues and web pages are data written by others; the playbook tells
+the agent never to follow instructions found there. Log text is redacted for
+secret-looking environment values, ids and emails before it reaches the facts file.
+Home paths become `~`, since the agent runs on the same computer and needs them.
+
+### Triage depends on nothing that is broken when it is needed
+
 There is no app triage route or provider-launch operation in diagnostics, and none
-may be added: triage depends on nothing that is broken when it is needed.
+may be added.
 
 - `cli.ts` routes `ace triage` and `ace doctor` to a small entry point before the rest
   of the command table loads, so a module that fails to load elsewhere can't block them.
-- Triage never connects to the daemon. It reads files directly: the log tail and the
-  daemon's run state.
+- Triage never connects to the daemon. It reads files directly: the log tail, the
+  daemon's run state and the data folder listing.
 - Invalid `ACE_*` settings don't stop it. It drops them, keeps a valid `ACE_HOME` (or
-  falls back to the default folder) and says so in the prompt.
-- Every probe is best-effort. A failed read, CLI probe or doctor run becomes a line
-  under "Couldn't check" in the prompt instead of an error, since in a broken install
-  those failures are often the best evidence.
-- `TriageKind` and `TriageProvider` live in `@ace/diagnostics/triage`, not the wire
-  protocol, because no client or daemon request carries them.
+  falls back to the default folder) and records what it ignored.
+- Every probe is best-effort. A failed read or CLI probe becomes a line under "Couldn't
+  check" instead of an error; in a broken install those failures are often the clue.
+- `TriageProvider` lives in `@ace/diagnostics/triage`, not the wire protocol, because
+  no client or daemon request carries it.
 
-The wizard works without a daemon. JSON, jq, print and piped input never launch a
-provider. Interactive launch passes an argument vector directly to the installed
-executable: an option terminator before the prompt, or OpenCode's `--prompt=` flag
-because OpenCode reads a positional argument as its start folder. Cursor resolves
-`cursor-agent` before the generic `agent`. While the CLI runs, ace ignores SIGINT so
-Ctrl-C interrupts the agent's turn rather than killing ace, and forwards SIGTERM and
-SIGHUP. It retains the CLI's normal
-login and permission configuration and current working folder. No shell interpolation
-or implicit installation is involved. Provider CLIs may retain their own session history.
+### Launching the agent
 
-`ace doctor` remains read-only. It reports integrity, allocated database pages,
-reusable pages and WAL bytes. `ace doctor --fix` creates missing ace/log folders
-and restores owner-only directory permissions. Folder repairs refuse links,
-non-directories and foreign ownership. Settings > Advanced uses these folder repairs
-through an admin-only diagnostics operation, with authority checked again before writes.
+The argument vector goes straight to the installed executable, never through a shell:
+`--` and then the line, or OpenCode's `--prompt=` because OpenCode reads a positional
+argument as its start folder. Cursor resolves `cursor-agent` before the generic
+`agent`. While the agent runs, ace ignores SIGINT so Ctrl-C interrupts the agent's turn
+rather than killing ace, forwards SIGTERM and SIGHUP, and exits with the agent's code.
+The agent keeps its own login, permissions and session history.
 
-The CLI can also reclaim space when integrity passes and reusable pages or WAL size
-cross the diagnostic thresholds. It calls the running local daemon's existing storage
-compaction operation. That owner supplies the maintenance fence, incremental vacuum,
-resumable journal, bounded chunks and WAL checkpoint. Doctor never opens an offline
-database for writes, deletes WAL files or runs full VACUUM. Legacy databases with
-`auto_vacuum=NONE` keep their reusable pages and need a rowid-preserving migration to
-shrink. Rebuilding them implicitly could renumber row IDs referenced by stored frames
-and receipts. Corruption stays a failure requiring preservation and backup restoration.
+### `ace doctor` checks, then offers repairs
 
-While ace's own daemon is running it holds the loopback port, so the CLI drops that
-expected port warning instead of reporting it or handing it to an agent.
+Doctor runs its health checks (Node, provider CLIs and logins, git, node-pty,
+Chromium, disk, database integrity and space, port, folder access) and then lists the
+repairs the report calls for:
 
-Doctor reruns probes after repairs, reports individual outcomes and retains a failing
-exit status while failures remain, even after a successful CLI handoff. Remaining
-findings can become a triage prompt. Optional missing providers stay warnings, and the
-prompt asks which tools the user needs. Neither command publishes data automatically.
+- **Fix ace folder access**: create missing ace and log folders and make them
+  owner-only. Links, non-directories and folders owned by someone else are refused.
+- **Reclaim database space**: when integrity passes and reusable pages or the WAL cross
+  the thresholds. It asks the running local daemon to run its journaled incremental
+  compaction and WAL checkpoint behind the existing storage fence, and reports
+  before → after sizes. With no daemon running it is listed as blocked, reported as
+  skipped under `--fix`, and no offline database is opened for writes. Legacy
+  `auto_vacuum=NONE` files keep their reusable pages; shrinking them needs a
+  rowid-preserving migration because a full VACUUM could renumber row IDs referenced by
+  stored frames and receipts. Corruption stays a failure needing a backup restore.
+
+In a terminal the person picks repairs from a checklist with the recommended ones
+selected. `--fix` runs the recommended ones without asking, `--dry-run` changes nothing,
+and without a terminal doctor only reports. Checks run again after repairs; failures
+keep a nonzero exit status. If findings remain, doctor offers to start triage with them
+in the facts file. While ace's own daemon runs it holds the loopback port, so the CLI
+drops that expected port warning.
+
+Settings > Advanced keeps using the folder repairs through an admin-only diagnostics
+operation, with authority checked again before writes.

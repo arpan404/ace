@@ -282,48 +282,44 @@ and is never part of a cleanup plan. A run that hits its chunk limit returns
 
 ## Triage and doctor repairs
 
-Run `ace triage` in a terminal to turn a problem or idea into a prompt a coding agent
-can act on. It is built for when ace is broken: it needs neither the app nor the
-daemon, ignores invalid `ACE_*` settings, and lists anything it couldn't read under
-"Couldn't check" in the prompt. Pick a template, answer its question (press Enter twice to continue) and
-an optional follow-up, then review the prompt. Besides your answers it includes ace's
-warnings and errors from the last 24 hours, grouped with counts; whether the daemon is
-running; installed agent CLIs and versions; and where ace keeps its logs and data.
-Then open it in Claude Code, Codex, Cursor CLI or OpenCode, copy it to the clipboard,
-or print it. CLIs that aren't installed are shown but can't be picked. The chosen CLI
-opens interactively in the current folder and owns login, permissions and session
-history; Ctrl-C inside it interrupts the agent, not ace. No daemon is needed and
-prompt generation makes no model call. Setup checks run only for the `doctor` template.
+`ace triage` starts a coding agent to help when ace isn't working. It needs neither the
+app nor the daemon, so it works when they crash or won't start.
+
+It asks nothing up front. It writes a playbook and this computer's facts to a temporary
+folder, then you pick an installed Claude Code, Codex, Cursor CLI or OpenCode. The facts
+cover versions, whether the daemon runs, agent CLIs, where logs and data live, which
+files never to open, recent warnings and errors, and anything it couldn't check. The
+agent starts in that folder, asks what went wrong, and investigates. Before changing
+anything on your computer or posting an issue, it shows you exactly what it will do
+and waits for a yes. Ctrl-C inside the agent interrupts the agent, not ace.
 
 ```sh
-ace triage
-ace triage 'Thread switching freezes for four seconds' --kind performance
-ace triage 'Add project filtering' --kind feature --print
-ace triage 'Stop leaves threads working' --provider opencode
-printf '%s\n' 'The composer loses my draft' | ace triage - --json
-ace doctor
-ace doctor --fix
-ace doctor --fix --provider codex
+ace triage                     # pick an agent and start
+ace triage --provider opencode # skip the picker
+ace triage --print             # playbook and facts on stdout, to paste anywhere
+ace triage --json              # just the file paths
+```
+
+`ace doctor` checks this computer's ace setup, then lists the repairs it can make:
+
+```sh
+ace doctor            # report; in a terminal, choose repairs from a checklist
+ace doctor --dry-run  # report and list repairs, change nothing
+ace doctor --fix      # run the recommended repairs without asking
 ace doctor --fix --json
 ```
 
-Templates are `bug` (default for noninteractive input), `feature`, `performance` and
-`doctor`. JSON, jq, print and piped invocations generate a prompt without starting a
-provider. Log samples are redacted for secrets, ids and emails; diagnostics exclude
-conversations and credential files. Run the command on the affected computer;
-`--remote` is refused.
+- **Fix ace folder access** creates missing ace and log folders and makes them private
+  to you. It refuses links, non-directories and folders owned by someone else.
+- **Reclaim database space** is offered when at least 1 MiB is reusable or the WAL
+  reaches 32 MiB. The running local daemon compacts in small journaled steps and
+  checkpoints the WAL; doctor reports the size before and after. If ace isn't running,
+  the repair is listed as unable to run and nothing is written. Legacy
+  `auto_vacuum=NONE` files keep their reusable pages; shrinking them needs a
+  rowid-preserving migration. No full VACUUM, WAL deletion or corrupt-file rebuild
+  runs. See [Compaction](storage-cleanup.md#compaction).
 
-`doctor --fix` creates missing ace/log folders and restores their owner-only access.
-It refuses symlinks, foreign ownership and non-directory paths. Doctor also reports
-allocated and reusable SQLite pages and WAL size. When at least 1 MiB is reusable or
-the WAL reaches 32 MiB, `--fix` asks the running local daemon to perform its journaled
-incremental compaction and WAL checkpoint. Offline databases are left unchanged.
-Legacy `auto_vacuum=NONE` files retain reusable pages; shrinking them requires a
-rowid-preserving migration. No full VACUUM, WAL deletion or corrupt-file rebuild runs.
-See [Compaction](storage-cleanup.md#compaction).
-
-Checks run again after repair; unresolved failures keep a nonzero exit status.
-Interactive runs offer a coding CLI for further investigation. JSON includes `repairs`
-and, when findings remain, a ready-to-use `prompt`. `--print` also prints that prompt.
-Corruption recovery, CLI installation and login remain manual or agent-assisted work.
-Triage is available only in the CLI.
+Checks run again after repairs, and failures keep a nonzero exit status. If findings
+remain, doctor offers to start `ace triage` with them. JSON output has `planned` (what
+doctor would do) and `repairs` (what it did). Run both commands on the affected
+computer; `--remote` is refused. Triage is available only in the CLI.

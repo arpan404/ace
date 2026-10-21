@@ -26,7 +26,8 @@ export function planDoctorRepairs(
     plan.push({
       id: "folders",
       title: "Fix ace folder access",
-      detail: `${folders.map((check) => check.message).join("; ")}. Creates missing folders and makes them private to you. Links and folders owned by someone else are left alone.`,
+      detail:
+        "Creates missing folders and makes them private to you. Links and folders owned by someone else are left alone.",
       recommended: true,
     });
   const space = open.filter((check) => SPACE_CHECKS.has(check.id) && check.status === "warn");
@@ -35,7 +36,8 @@ export function planDoctorRepairs(
     plan.push({
       id: "database",
       title: "Reclaim database space",
-      detail: `${space.map((check) => check.message).join("; ")}. The running daemon compacts its databases in small steps; writes pause briefly and no rows are deleted.`,
+      detail:
+        "ace's running daemon compacts its databases in small steps. Writes pause briefly; no rows are deleted.",
       recommended: daemon === "running",
       ...(daemon === "running"
         ? {}
