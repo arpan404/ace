@@ -193,6 +193,83 @@ test("full PR detail includes hosted branch identities, description, reviews and
   }
 });
 
+test("PR detail returns the head and the file list from one GraphQL request", async () => {
+  const fixtures = standard();
+  fixtures["repos/octo/ace/pulls/7"] = [{ body: richPr }];
+  fixtures.graphql = [{ body: threads() }];
+  fixtures["graphql:reviewDecision headRefOid"] = [
+    {
+      body: {
+        data: {
+          repository: {
+            pullRequest: {
+              reviewDecision: "APPROVED",
+              headRefOid: sha,
+              files: {
+                nodes: [
+                  { path: "src/main.ts", additions: 3, deletions: 1, changeType: "MODIFIED" },
+                  { path: "new.ts", additions: 5, deletions: 0, changeType: "ADDED" },
+                  { path: "old.ts", additions: 0, deletions: 4, changeType: "DELETED" },
+                ],
+              },
+            },
+          },
+        },
+      },
+    },
+  ];
+  const f = await fakeGh(fixtures);
+  try {
+    expect(await f.forge.prDetail(7, signal())).toMatchObject({
+      status: { ref: { repository, number: 7 }, headSha: sha },
+      reviewDecision: "APPROVED",
+      files: [
+        { path: "src/main.ts", additions: 3, deletions: 1, status: "modified" },
+        { path: "new.ts", additions: 5, deletions: 0, status: "added" },
+        { path: "old.ts", additions: 0, deletions: 4, status: "removed" },
+      ],
+    });
+    const decision = (await f.requests()).filter(
+      (request) =>
+        request.path === "graphql" && JSON.stringify(request.body ?? "").includes("reviewDecision"),
+    );
+    expect(decision).toHaveLength(1);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("PR detail still loads when the file list is missing or malformed", async () => {
+  for (const files of [undefined, null, { nodes: [{ path: 7 }] }]) {
+    const fixtures = standard();
+    fixtures["repos/octo/ace/pulls/7"] = [{ body: richPr }];
+    fixtures.graphql = [{ body: threads() }];
+    fixtures["graphql:reviewDecision headRefOid"] = [
+      {
+        body: {
+          data: {
+            repository: {
+              pullRequest: {
+                reviewDecision: "APPROVED",
+                headRefOid: sha,
+                ...(files === undefined ? {} : { files }),
+              },
+            },
+          },
+        },
+      },
+    ];
+    const f = await fakeGh(fixtures);
+    try {
+      const read = await f.forge.prDetail(7, signal());
+      expect(read).toMatchObject({ status: { headSha: sha }, reviewDecision: "APPROVED" });
+      expect(read.files).toBeUndefined();
+    } finally {
+      await f.cleanup();
+    }
+  }
+});
+
 test("hosted file pages identify the base and head and visibly bound oversized or missing patches", async () => {
   const path = "repos/octo/ace/pulls/7/files?per_page=25&page=1";
   const f = await fakeGh({

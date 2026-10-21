@@ -1,0 +1,31 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgePrDetailFile.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "additions": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "deletions": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "path": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "status": {
+      "maxLength": 65536,
+      "type": "string"
+    }
+  },
+  "required": [
+    "path",
+    "additions",
+    "deletions",
+    "status"
+  ],
+  "type": "object"
+}
