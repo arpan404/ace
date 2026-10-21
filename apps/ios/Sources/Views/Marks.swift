@@ -47,15 +47,17 @@ struct ProviderMark: View {
     }
 }
 
-/// The project's initial on a small rounded tile, from the shared badge.
+/// The project's initial as a quiet monogram: a faint tile the size of the name's cap height,
+/// so it reads as part of the line rather than a badge. Decorative; the name beside it speaks.
 struct ProjectMark: View {
     let badge: String
+    @ScaledMetric(relativeTo: .subheadline) private var side: CGFloat = 16
     var body: some View {
         Text(badge.prefix(1).uppercased())
-            .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(AceTheme.Colours.background)
-            .frame(width: 17, height: 17)
-            .background(AceTheme.Colours.mutedForeground, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .font(.system(size: side * 0.6, weight: .semibold, design: .rounded))
+            .foregroundStyle(AceTheme.Colours.mutedForeground)
+            .frame(width: side, height: side)
+            .background(AceTheme.Colours.mutedForeground.opacity(0.16), in: RoundedRectangle(cornerRadius: side * 0.28, style: .continuous))
             .accessibilityHidden(true)
     }
 }
