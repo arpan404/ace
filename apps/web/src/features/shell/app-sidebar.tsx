@@ -40,7 +40,8 @@ function useBackToApp(section: boolean) {
 /**
  * The one sidebar. At the top, the ace wordmark and Search (a dialog over any screen); back,
  * forward and the sidebar's toggle sit in the header. Then the thread list (or the selected
- * section's list) as its only scrolling part, and at the foot the profile with the Settings gear
+ * section's list) as its only scrolling part, then Pull requests as a quiet row, and at the foot
+ * the profile with the Settings gear
  * (and, beside it, the app's update when there is one to act on).
  * Settings, Automations and Skills hide app navigation and the profile, with a full-width Back
  * to app at the foot in its place.
@@ -48,6 +49,8 @@ function useBackToApp(section: boolean) {
 export function AppSidebar(props: {
   /** The thread list, the body's content unless a view's list takes it (Settings' pages). */
   threads: ReactNode;
+  /** Quiet rows over the profile that open full pages (Pull requests), lit while open. */
+  pages?: ((forgeOpen: boolean) => ReactNode) | undefined;
 }) {
   const { sheet, setBody, bodyClaimed, hideSidebar } = useViewFrame();
   const { setPaletteOpen } = useLayout();
@@ -104,6 +107,9 @@ export function AppSidebar(props: {
             Back to app
           </Link>
         </div>
+      )}
+      {!section && props.pages && (
+        <div className="shrink-0 px-2 pt-2">{props.pages(current === "forge")}</div>
       )}
       <div
         hidden={section}
