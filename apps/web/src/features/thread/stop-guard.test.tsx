@@ -57,14 +57,19 @@ test("an Esc after the moment has passed asks again instead of stopping", async 
   expect(of("thread.interrupt")).toEqual([]);
 });
 
-test("after Stop, a command still running is said in the strip with Stop it, and nothing says Working", async () => {
+test("after Stop, the strip names the command still running with its Stop, and nothing says Working", async () => {
   const { of } = await working();
   await userEvent.keyboard("{Escape}{Escape}");
-  await waitFor(() => expect(strip()).toMatch(/^Stopped · 1 background command still running/));
+  // The run already reads stopped in the transcript; the strip only says what still runs.
+  await waitFor(() => expect(strip()).toMatch(/^Running bun run dev:relay/));
+  expect(strip()).not.toMatch(/Stopped/);
+  expect(document.querySelector("[data-composer-strip] code")?.textContent).toBe(
+    "bun run dev:relay",
+  );
   expect(screen.queryByRole("group", { name: "Turn in progress" })).toBeNull();
   expect(screen.queryByText(/Working for/)).toBeNull();
 
-  await userEvent.click(screen.getByRole("button", { name: "Stop it" }));
+  await userEvent.click(screen.getByRole("button", { name: "Stop the background command" }));
   await waitFor(() => expect(of("background_task.stop")).toHaveLength(1));
-  await waitFor(() => expect(strip()).not.toMatch(/^Stopped/));
+  await waitFor(() => expect(strip()).not.toMatch(/^Running/));
 });

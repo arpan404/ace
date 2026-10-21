@@ -15,16 +15,16 @@ const placeholder: Fact = {
   agent: "root",
   task: "claude:s:p1:unbound:toolu_1",
   kind: "subagent",
-  title: "Claude child awaiting task registration",
+  title: "Subagent",
   stoppable: false,
 };
-// Recorded before the overflow placeholder became a subagent task.
 const overflow: Fact = {
   type: "background.started",
   agent: "root",
   task: "claude:s:p1:unbound:overflow",
   kind: "other",
-  title: "Claude child transcript recovery exceeded its limit",
+  title: "Unregistered subagent transcripts",
+  internal: true,
   stoppable: false,
 };
 const subagent: Fact = {
@@ -94,14 +94,14 @@ test("a Claude child placeholder left by a previous daemon run stops holding its
     try {
       await engine.flush();
       expect(statuses(store, id)).toEqual({
-        "Claude child awaiting task registration": "stopped",
-        "Claude child transcript recovery exceeded its limit": "stopped",
+        Subagent: "stopped",
+        "Unregistered subagent transcripts": "stopped",
         "Fix stale lease": "stopped",
         // A background shell may outlive the CLI: ace still reports it as possibly running.
         "bun run dev": "unknown",
       });
       const placeholderTask = Object.values(store.snapshotThread(id).backgroundTasks).find(
-        (task) => task.title === "Claude child awaiting task registration",
+        (task) => task.title === "Subagent",
       );
       expect(placeholderTask?.endedAt).toBe(2);
     } finally {
@@ -130,7 +130,7 @@ test("a Claude session that exits settles the child work that lived inside it", 
     const id = await h.create();
     await h.engine.flush();
     expect(statuses(h.store, id)).toEqual({
-      "Claude child awaiting task registration": "stopped",
+      Subagent: "stopped",
       "Fix stale lease": "stopped",
       "bun run dev": "unknown",
     });

@@ -698,7 +698,7 @@ it("a synthetic shell result consumed in an active execution clears its completi
   expect(h.translator.isSettled()).toBe(true);
 });
 
-it("unknown projected content stays diagnostic and malformed live data reports uncertain execution", () => {
+it("unknown projected content stays diagnostic and malformed live data goes to the log, the agent disconnected", () => {
   const h = setup();
   const message = {
     id: "future",
@@ -715,15 +715,17 @@ it("unknown projected content stays diagnostic and malformed live data reports u
     api_key: "synthetic-secret",
   };
   h.frame("sse", invalid);
-  expect(Object.values(h.view.items).filter((item) => item.type === "notice")).toMatchObject([
-    {
-      text: "OpenCode data could not be translated; execution remains uncertain",
-      level: "error",
-      raw: [{ data: { api_key: "[redacted]" } }],
-    },
-  ]);
+  // The transcript gets no notice of ace's own: the detail goes to the daemon's log.
+  expect(Object.values(h.view.items).filter((item) => item.type === "notice")).toEqual([]);
   expect(h.translator.takeDiagnostics()).toEqual([
     { type: "session.execution.started", data: invalid },
+    {
+      type: "adapter.warning",
+      data: expect.objectContaining({
+        event: "translation-failed",
+        frame: "session.execution.started",
+      }),
+    },
   ]);
   expect(h.view.thread.status.state).not.toBe("done");
 });

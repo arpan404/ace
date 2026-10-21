@@ -67,14 +67,14 @@ test("Stop in the waiting strip ends every background command it can, whatever i
     { task: "ci", kind: "monitor", title: "gh run watch", stoppable: true },
     { task: "sync", kind: "other", title: "provider sync", stoppable: false },
   ]);
-  const strip = await screen.findByRole("status", { name: "Waiting for 3 background commands" });
+  const strip = await screen.findByRole("status", { name: "Running 3 background tasks" });
   await userEvent.click(
     within(strip).getByRole("button", { name: "Stop the background commands" }),
   );
 
   await waitFor(() => expect(stops()).toHaveLength(2));
   // What can't be stopped keeps running, and the strip now waits on it alone, with no Stop.
-  const left = await screen.findByRole("status", { name: "Waiting for provider sync" });
+  const left = await screen.findByRole("status", { name: "Running 1 background task" });
   expect(within(left).queryByRole("button", { name: /^Stop/ })).toBeNull();
 });
 
@@ -82,12 +82,13 @@ test("a turn waiting on one stoppable monitor offers Stop, and pressing it ends 
   const { stops } = await finishedTurnWaitingOn([
     { task: "ci", kind: "monitor", title: "gh run watch", stoppable: true },
   ]);
-  const strip = await screen.findByRole("status", { name: "Waiting for gh run watch" });
+  // A monitor is command-like, but only a shell is named by its command.
+  const strip = await screen.findByRole("status", { name: "Running 1 command" });
   await userEvent.click(within(strip).getByRole("button", { name: "Stop the background command" }));
 
   await waitFor(() => expect(stops()).toHaveLength(1));
   await waitFor(() =>
-    expect(screen.queryByRole("status", { name: "Waiting for gh run watch" })).toBeNull(),
+    expect(screen.queryByRole("status", { name: "Running 1 command" })).toBeNull(),
   );
 });
 
@@ -96,7 +97,7 @@ test("the waiting strip shows no Stop when none of its background commands can b
     { task: "a", kind: "other", title: "provider sync", stoppable: false },
     { task: "b", kind: "shell", title: "bun run dev", stoppable: false },
   ]);
-  const strip = await screen.findByRole("status", { name: "Waiting for 2 background commands" });
+  const strip = await screen.findByRole("status", { name: "Running 2 background tasks" });
   expect(within(strip).queryByRole("button", { name: /^Stop/ })).toBeNull();
   expect(stops()).toEqual([]);
 });

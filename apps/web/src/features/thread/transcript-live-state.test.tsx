@@ -196,7 +196,7 @@ test("a turn that leaves a background shell running waits on it in the composer 
     },
   ]);
   act(() => app.daemon.apply(id, [facts.endTurn("root")]));
-  const strip = await screen.findByRole("status", { name: "Waiting for bun run build" });
+  const strip = await screen.findByRole("status", { name: "Running bun run build" });
   expect(within(strip).getByRole("button", { name: "Stop the background command" })).toBeTruthy();
   expect(screen.queryByRole("group", { name: "Turn in progress" })).toBeNull();
   expect(screen.queryByRole("status", { name: /^Working/ })).toBeNull();
@@ -225,10 +225,10 @@ test("Stop in the strip ends the background command a finished turn waits on", a
     },
   ]);
   act(() => app.daemon.apply(id, [facts.endTurn("root")]));
-  const strip = await screen.findByRole("status", { name: "Waiting for bun run build" });
+  const strip = await screen.findByRole("status", { name: "Running bun run build" });
   await userEvent.click(within(strip).getByRole("button", { name: "Stop the background command" }));
   await waitFor(() =>
-    expect(screen.queryByRole("status", { name: "Waiting for bun run build" })).toBeNull(),
+    expect(screen.queryByRole("status", { name: "Running bun run build" })).toBeNull(),
   );
 });
 
