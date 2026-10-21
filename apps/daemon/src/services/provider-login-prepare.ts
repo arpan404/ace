@@ -22,6 +22,7 @@ import { cursorLoginDriver } from "../provider-login-cursor.ts";
 
 import { cursorHosts } from "./cursor-hosts.ts";
 import { registerCursorSdkCatalog } from "./cursor-activation.ts";
+import { backgroundFailure } from "./background.ts";
 import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 
 import type { ServiceContext } from "./types.ts";
@@ -170,8 +171,14 @@ export async function prepareProviderLogin(
           instanceId,
           registry.get(instanceId)?.instance.loginRevision ?? id(),
         );
-        await services.providerStatuses?.refresh();
-        services.providerStatuses?.publish();
+        changeSignal.throwIfAborted();
+        // Account and model truth are committed; global status refresh is best-effort and
+        // must not gate the login result.
+        const statuses = services.providerStatuses;
+        if (statuses) {
+          statuses.refresh().catch(backgroundFailure(context, "Provider status refresh failed"));
+          statuses.publish();
+        }
       },
     };
   }

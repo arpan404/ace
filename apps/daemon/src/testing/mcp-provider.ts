@@ -1,10 +1,5 @@
 // Offline CLI double. A real loopback request proves the native configuration works.
-import { readPrivateMcpConfig } from "@ace/mcp-server";
-import { validateNativeMcpConfig, shellExposesBearer } from "./provider-mcp-config.ts";
 import { z } from "zod";
-import { openApiDocument } from "@ace/adapter-opencode/contract";
-import { availability } from "./provider-mcp-availability.ts";
-import { proof } from "./provider-mcp-proof.ts";
 import { createInterface } from "node:readline";
 import { createServer } from "node:http";
 const provider = z
@@ -48,6 +43,12 @@ if (provider === "opencode" && args[0] !== "serve") {
   console.log("No credentials configured");
   process.exit(0);
 }
+// Metadata probes do not load the full MCP and provider schemas, like a CLI's version path.
+const { readPrivateMcpConfig } = await import("@ace/mcp-server");
+const { validateNativeMcpConfig, shellExposesBearer } = await import("./provider-mcp-config.ts");
+const { openApiDocument } = await import("@ace/adapter-opencode/contract");
+const { availability } = await import("./provider-mcp-availability.ts");
+const { proof } = await import("./provider-mcp-proof.ts");
 const write = (value: unknown) => process.stdout.write(`${JSON.stringify(value)}\n`);
 
 if (provider === "opencode") {
