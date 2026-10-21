@@ -1,120 +1,155 @@
 import SwiftUI
 
-/// One thread in the inbox: quiet project and status, title, then branch, machine and when
-/// it last worked (or wakes). Every word arrives from the bridge; colour comes from its token.
-/// The machine shows only when more than one is paired (DESIGN.md list rows). The badge pill
-/// and folder glyph are omitted: they repeated the project name without adding state.
+/// One thread in the inbox, in three lines: project … status (and how long it has worked),
+/// the title, then branch · pull request or machine … provider. Every word and token arrives
+/// from the bridge; colour comes from its token. Rows that need the person stay loud; work in
+/// progress recedes. The machine shows only when more than one is paired (DESIGN.md list rows).
 struct InboxThreadRow: View {
     let row: ThreadRow
     let snoozed: Bool
     var machine: String? = nil
     @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// Working and waiting rows recede: the person has nothing to do there yet.
+    private var recedes: Bool { row.status.token == "working" || row.status.token == "waiting" }
+
     var body: some View {
         // At accessibility text sizes the side-by-side lines stack, so nothing is cut off.
         let stacked = typeSize.isAccessibilitySize
         let lines = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: AceTheme.Spacing.xxs))
-                            : AnyLayout(HStackLayout(spacing: AceTheme.Spacing.sm))
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                            : AnyLayout(HStackLayout(spacing: 7))
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             lines {
                 if !row.project.isEmpty {
-                    Text(row.project).aceFont(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(stacked ? nil : 1)
+                    HStack(spacing: 7) {
+                        ProjectMark(badge: row.badge ?? row.project)
+                        Text(row.project).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).lineLimit(stacked ? nil : 1)
+                    }
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .opacity(recedes ? 0.7 : 1)
                 }
-                if !stacked, !row.project.isEmpty { Spacer(minLength: AceTheme.Spacing.sm) }
-                StateLabel(status: row.status)
-            }.foregroundStyle(AceTheme.Colours.mutedForeground)
-            Text(row.title).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(stacked ? nil : 2)
+                if !stacked { Spacer(minLength: AceTheme.Spacing.sm) }
+                status
+            }
+            .frame(minHeight: 20)
+            Text(row.title)
+                .aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
+                .fontWeight(recedes ? .regular : .medium)
+                .foregroundStyle(recedes ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
+                .lineLimit(stacked ? nil : 1)
+                .padding(.top, 3).padding(.bottom, AceTheme.Spacing.xs)
             lines {
-                if !row.branch.isEmpty { Text(row.branch).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(stacked ? nil : 1).truncationMode(.middle) }
-                if let machine, !machine.isEmpty { Text(row.branch.isEmpty || stacked ? machine : "· \(machine)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(1) }
-                if !stacked { Spacer(minLength: AceTheme.Spacing.none) }
-                if row.agents > 1 {
-                    Label("\(row.agents) agents", systemImage: "point.3.connected.trianglepath.dotted")
-                        .labelStyle(.titleAndIcon).aceFont(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(1)
+                if !row.branch.isEmpty {
+                    Text(row.branch).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .lineLimit(stacked ? nil : 1).truncationMode(.middle)
                 }
-                Text(when).aceFont(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit().lineLimit(1)
-            }.foregroundStyle(AceTheme.Colours.subtleForeground)
+                if let extra { Text(row.branch.isEmpty || stacked ? extra : "·  \(extra)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(1) }
+                if !stacked { Spacer(minLength: AceTheme.Spacing.sm) }
+                providers
+            }
+            .foregroundStyle(AceTheme.Colours.subtleForeground)
+            .frame(minHeight: 18)
+            .opacity(recedes ? 0.7 : 1)
         }
-        .padding(.vertical, AceTheme.Spacing.sm)
+        .padding(.top, 11).padding(.bottom, AceTheme.Spacing.md)
         .frame(minHeight: AceTheme.Dimensions.touchTarget)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
+
+    /// The shared status word, then how long the tree has worked or when a snooze ends.
+    private var status: some View {
+        TimelineView(.everyMinute) { context in
+            HStack(spacing: 5) {
+                StateLabel(status: row.status)
+                if let time = time(at: context.date) {
+                    Text(time).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).monospacedDigit()
+                        .foregroundStyle(snoozed ? AceTheme.Colours.subtleForeground : StateStyle.text(row.status.token))
+                        .lineLimit(1)
+                }
+            }
+        }
+    }
+    /// The pull request when the thread has one, else the machine when several are paired.
+    private var extra: String? {
+        if let pr = row.pr { return "#\(pr.number)" }
+        if let machine, !machine.isEmpty { return machine }
+        return nil
+    }
+    /// The thread's provider; a tree of several agents adds how many more there are.
+    private var providers: some View {
+        HStack(spacing: 3) {
+            ProviderMark(provider: row.provider)
+            if row.agents > 1 {
+                Text("+\(row.agents - 1)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit()
+                    .accessibilityLabel("\(row.agents) agents")
+            }
+        }
+        .opacity(0.75)
+    }
     /// Native date formatting of the bridge's timestamps; no state is derived here.
-    private var when: String {
+    private func time(at now: Date) -> String? {
         if snoozed, let until = row.snoozedUntil {
             let date = Date(timeIntervalSince1970: until / 1000)
             let time = date.formatted(date: .omitted, time: .shortened)
             return Calendar.current.isDateInToday(date) ? "Until \(time)" : "Until \(date.formatted(.dateTime.weekday(.abbreviated))) \(time)"
         }
-        return ActivityTime.text(Date(timeIntervalSince1970: (row.activityAt ?? row.updatedAt) / 1000), now: Date())
+        if let since = row.workingSince { return ActivityTime.elapsed(since: Date(timeIntervalSince1970: since / 1000), now: now) }
+        return nil
     }
 }
 
-/// A send the SDK still holds: the thread's project, the shared unsent wording, the text.
+/// A send the SDK still holds, drawn like a thread row: project … the shared unsent wording,
+/// the text, then the thread it goes to.
 struct InboxUnsentRow: View {
     let entry: PendingRow
     let thread: ThreadRow?
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            HStack(spacing: AceTheme.Spacing.sm) {
-                if let project = thread?.project, !project.isEmpty {
-                    Text(project).aceFont(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(1)
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+            HStack(spacing: 7) {
+                if let thread, !thread.project.isEmpty {
+                    ProjectMark(badge: thread.badge ?? thread.project)
+                    Text(thread.project).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).lineLimit(1)
                 }
                 Spacer(minLength: AceTheme.Spacing.sm)
-                Text(entry.label ?? "").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(StateStyle.text(entry.token ?? "neutral"))
-            }.foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text(entry.label ?? "").aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.semibold)
+                    .foregroundStyle(StateStyle.text(entry.token ?? "neutral")).lineLimit(1)
+            }
+            .foregroundStyle(AceTheme.Colours.mutedForeground)
+            .frame(minHeight: 20)
             Text(entry.text).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
-            if let thread { Text(thread.title).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1) }
+                .padding(.top, 3).padding(.bottom, AceTheme.Spacing.xs)
+            if let thread {
+                Text(thread.title).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1)
+            }
         }
-        .padding(.vertical, AceTheme.Spacing.sm)
+        .padding(.top, 11).padding(.bottom, AceTheme.Spacing.md)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
 }
 
-/// "Needs you ─── 2": a section's shared label, a hairline and its count. The title stays
-/// secondary, the count tertiary, so sections read quieter than rows.
-struct InboxSectionHeader: View {
-    let title: String
+/// "Snoozed (2) ⌄": a folded group at the end of the list, quiet until opened.
+struct InboxShelf: View {
+    let label: String
     let count: Int
+    let expanded: Bool
+    let toggle: () -> Void
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.md) {
-            Text(title).aceFont(AceTheme.Typography.label, relativeTo: .caption).textCase(nil)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
-            Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border)
-            Text(count.formatted()).aceFont(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit()
-                .foregroundStyle(AceTheme.Colours.subtleForeground)
+        Button(action: toggle) {
+            HStack(spacing: AceTheme.Spacing.sm) {
+                Text("\(label) (\(count.formatted()))")
+                Spacer(minLength: AceTheme.Spacing.sm)
+                Image(systemName: "chevron.down").imageScale(.small)
+                    .rotationEffect(.degrees(expanded ? 180 : 0))
+            }
+            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+            .foregroundStyle(AceTheme.Colours.subtleForeground)
+            .frame(minHeight: AceTheme.Dimensions.touchTarget)
+            .contentShape(Rectangle())
         }
-        .padding(.vertical, AceTheme.Spacing.xxs)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
-    }
-}
-
-/// The connection as the inbox shows it: quiet while connecting, a retry when it can't reach.
-struct InboxConnectionBanner: View {
-    let connection: String
-    /// Which machine, when more than one is paired; the others' rows stay as they are.
-    var machine: String? = nil
-    let retry: () -> Void
-    var body: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
-            if waiting { ProgressView().controlSize(.mini) } else { Image(systemName: "wifi.slash") }
-            Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-            Spacer(minLength: AceTheme.Spacing.sm)
-            if !waiting { Button("Retry", action: retry).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).buttonStyle(.borderless) }
-        }
-        .foregroundStyle(AceTheme.Colours.mutedForeground)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier(machine.map { "inbox.connection.\($0)" } ?? "inbox.connection")
-    }
-    private var waiting: Bool { connection == "connecting" || connection == "starting" }
-    private var message: String {
-        let state = switch connection {
-        case "fatal": "Connection needs attention"
-        case "offline", "reconnecting": "Offline · showing what this phone last saw"
-        default: machine == nil ? "Connecting to your machine…" : "Connecting…"
-        }
-        return machine.map { "\($0) · \(state)" } ?? state
+        .buttonStyle(.plain)
+        .accessibilityValue(expanded ? "Expanded" : "Collapsed")
     }
 }

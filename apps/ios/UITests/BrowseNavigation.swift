@@ -7,11 +7,17 @@ extension XCUIApplication {
         XCTAssertTrue(buttons["thread.agents"].waitForExistence(timeout: 10))
         buttons["thread.agents"].tap()
     }
+    /// The inbox's detached compose button in the tab bar.
+    var newThreadButton: XCUIElement { tabBars.buttons["New thread"].firstMatch }
+    /// Browse ace: a long press on the Settings button offers it until Settings lists the tools.
+    @MainActor func openLibrary() {
+        XCTAssertTrue(buttons["inbox.settings"].waitForExistence(timeout: 10))
+        buttons["inbox.settings"].press(forDuration: 1)
+        XCTAssertTrue(buttons["inbox.library"].waitForExistence(timeout: 10))
+        buttons["inbox.library"].tap()
+    }
     @MainActor func openBrowseDestination(_ identifier: String) {
-        if !buttons[identifier].exists {
-            XCTAssertTrue(buttons["inbox.library"].waitForExistence(timeout: 10))
-            buttons["inbox.library"].tap()
-        }
+        if !buttons[identifier].exists { openLibrary() }
         XCTAssertTrue(buttons[identifier].waitForExistence(timeout: 10))
         buttons[identifier].tap()
     }
