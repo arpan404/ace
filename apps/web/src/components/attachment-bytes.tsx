@@ -5,6 +5,7 @@ import type { ImageSource } from "./attachment-format.ts";
 import {
   AttachmentLoads,
   originalLimit,
+  permanentFailure,
   type AttachmentSource,
   type ImageVariant,
 } from "./attachment-loads.ts";
@@ -38,11 +39,14 @@ function variantOf(source: AttachmentSource, full: boolean): ImageVariant | unde
 
 export type ImageState =
   | { state: "loading" }
-  | { state: "ready"; url: string }
+  /** `reload` fetches bytes the browser couldn't show again; absent once that has happened. */
+  | { state: "ready"; url: string; reload?: (() => void) | undefined }
   | { state: "unavailable" };
 
 const loading: ImageState = { state: "loading" };
 const unavailable: ImageState = { state: "unavailable" };
+/** An image whose reads kept failing for a transient reason asks again this much later. */
+const recheckMs = 15_000;
 
 /**
  * A URL for an image while it is mounted, handed to `children`. Inline and blob URLs pass
@@ -70,24 +74,72 @@ function AttachmentUrl(props: {
   return props.children(useAttachmentUrl(props.source, props.full));
 }
 
+interface Round {
+  key: string;
+  /** Bumped to ask again; the shown state stays until the new answer arrives. */
+  count: number;
+  /** Fresh bytes were already fetched once because the browser couldn't show kept ones. */
+  refetched: boolean;
+}
+
+/*
+ * Never stuck: a read that failed for a transient reason (a socket that dropped while the phone
+ * slept, a slow link's deadline, a busy daemon) shows as unavailable only until it is asked
+ * again, when the connection is next ready or after `recheckMs`. Bytes the browser can't decode
+ * (Safari can drop a kept blob's backing store while a tab sleeps) are fetched afresh once.
+ */
 function useAttachmentUrl(source: AttachmentSource, full: boolean): ImageState {
   const client = useClient();
   // The attachment's state, tagged with the key it belongs to so a new source starts loading.
   const [loaded, setLoaded] = useState<{ client: ClientApi; key: string; state: ImageState }>();
+  const [round, setRound] = useState<Round>();
   const { threadId, sha256, bytes, thumbnail } = source;
-  const key = `${threadId}\u0000${sha256}\u0000${full}`;
   const variant = variantOf(source, full);
+  const key = `${threadId}\u0000${sha256}\u0000${variant ?? ""}`;
+  const count = round?.key === key ? round.count : 0;
+  const refetched = round?.key === key && round.refetched;
   // A layout effect, so a cached thumbnail paints with its row instead of a frame later.
   useLayoutEffect(() => {
     if (!variant) return;
     const target = { kind: "attachment", threadId, sha256, bytes, thumbnail } as const;
     let live = true;
     let objectUrl: string | undefined;
-    const show = (blob: Blob) => {
-      objectUrl = URL.createObjectURL(blob);
-      setLoaded({ client, key, state: { state: "ready", url: objectUrl } });
+    let stopRecheck: (() => void) | undefined;
+    const again = (refetch: boolean) => {
+      if (!live) return;
+      live = false;
+      setRound((previous) => {
+        const base = previous?.key === key ? previous : { count: 0, refetched: false };
+        return { key, count: base.count + 1, refetched: base.refetched || refetch };
+      });
     };
     const cache = cacheOf(client);
+    const show = (blob: Blob) => {
+      const url = URL.createObjectURL(blob);
+      objectUrl = url;
+      const reload = refetched
+        ? undefined
+        : () => {
+            if (!live) return;
+            cache.evict(target, variant);
+            setLoaded({ client, key, state: loading });
+            again(true);
+          };
+      setLoaded({ client, key, state: { state: "ready", url, reload } });
+    };
+    const recheck = () => {
+      const timer = setTimeout(() => again(false), recheckMs);
+      let wasReady = client.state === "ready";
+      const stop = client.connectionState().subscribe(() => {
+        const ready = client.state === "ready";
+        if (ready && !wasReady) again(false);
+        wasReady = ready;
+      });
+      return () => {
+        clearTimeout(timer);
+        stop();
+      };
+    };
     const hit = cache.cached(target, variant);
     const lease = hit ? undefined : cache.acquire(target, variant);
     if (hit) show(hit);
@@ -96,16 +148,20 @@ function useAttachmentUrl(source: AttachmentSource, full: boolean): ImageState {
         (blob) => {
           if (live) show(blob);
         },
-        () => {
-          if (live) setLoaded({ client, key, state: { state: "unavailable" } });
+        (error: unknown) => {
+          if (!live) return;
+          setLoaded({ client, key, state: unavailable });
+          if (!permanentFailure(error)) stopRecheck = recheck();
         },
       );
     return () => {
       live = false;
+      stopRecheck?.();
       lease?.release();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [client, key, threadId, sha256, bytes, thumbnail, variant]);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- `count` asks again.
+  }, [client, key, threadId, sha256, bytes, thumbnail, variant, count, refetched]);
   if (!variant) return unavailable;
   return loaded?.client === client && loaded.key === key ? loaded.state : loading;
 }
