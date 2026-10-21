@@ -28,7 +28,9 @@ export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "cli.r
             ? Replies<"onboarding.result">
             : Q["type"] extends "worktree.creation.request"
               ? Replies<"worktree.creation.result">
-              : LegacyServiceResponse<Q>;
+              : Q["type"] extends "verify.request"
+                ? Replies<"verify.result">
+                : LegacyServiceResponse<Q>;
 
 type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "storage.request"
   ? Replies<"storage.result">
@@ -166,6 +168,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "host.identity": ["host.identity.result"],
   "activity.reads": ["activity.reads.result"],
   "activity.markRead": ["activity.reads.result"],
+  "verify.request": ["verify.result"],
   "turns.page": ["turns.page"],
   "items.window": ["items.window"],
   "turn.steps": ["turn.steps"],
