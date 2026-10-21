@@ -218,7 +218,9 @@ function workingLabel(fact: LiveFact | undefined): string {
   if (fact?.kind === "watching")
     return fact.count === 1 && fact.title
       ? `Working · ${fact.title}`
-      : `Working · ${fact.count} background tasks`;
+      : fact.count > 1
+        ? `Working · ${fact.count} background tasks`
+        : "Working";
   if (fact?.kind === "tests") return "Working · running tests";
   return "Working";
 }
@@ -246,7 +248,7 @@ function compactStatus(
 ): string {
   // The transcript's live line reads the same rule, so the two never disagree.
   if (tree) return tree.kind === "waiting" ? "Waiting" : "Working";
-  if (fact?.kind === "watching") return `Background · ${fact.count}`;
+  if (fact?.kind === "watching") return fact.count ? `Background · ${fact.count}` : "Background";
   if (fact?.kind === "child-asking") return childAskingLabel(fact.agent);
   if (fact?.kind === "asking") {
     if (fact.request === "approval") return "Approve";

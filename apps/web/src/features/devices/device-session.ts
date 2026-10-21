@@ -12,6 +12,7 @@ import {
 } from "@ace/client/devices";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { DaemonEndpoint } from "@/boot/connection.tsx";
+import { isLoopbackUrl } from "@/boot/fragment-handoff.ts";
 import { webStorage } from "@/boot/web-storage.ts";
 import { learnRelay, type RelayRoute } from "./relay-route.ts";
 
@@ -20,8 +21,7 @@ const schedule = (callback: () => void, delayMs: number) => {
   return () => clearTimeout(timer);
 };
 
-const loopback = (url: string) =>
-  ["localhost", "127.0.0.1", "[::1]"].includes(new URL(url).hostname);
+const loopback = isLoopbackUrl;
 
 /** The daemon's HTTP origin for its socket address. */
 const httpOrigin = (url: string) => {

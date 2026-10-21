@@ -162,6 +162,7 @@ export class TargetSessions {
         capture: helper.capabilities?.platform !== "macos",
         allowlist: bundles(target),
       };
+      session.captureFps = start.fps;
       const startingSession = session,
         startingHelper = helper;
       const validateStart = () => {

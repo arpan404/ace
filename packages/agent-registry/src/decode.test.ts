@@ -214,17 +214,17 @@ test("grouped selectors reject overflow before offering an incomplete model list
   );
 });
 test("a platform binary ace can't unpack is unavailable unless a package runtime is offered", () => {
-  const bzip = {
-    archive: "https://example.org/agent.tar.bz2",
+  const xz = {
+    archive: "https://example.org/agent.tar.xz",
     cmd: "./agent",
-    sha256: digest("bzip"),
+    sha256: digest("xz"),
   };
   const [binaryOnly, withNpm] = decode([
-    { ...entry, id: "bzip", distribution: { binary: { "darwin-aarch64": bzip } } },
+    { ...entry, id: "xz", distribution: { binary: { "darwin-aarch64": xz } } },
     {
       ...entry,
       id: "both",
-      distribution: { ...entry.distribution, binary: { "darwin-aarch64": bzip } },
+      distribution: { ...entry.distribution, binary: { "darwin-aarch64": xz } },
     },
   ]).agents;
   if (!binaryOnly || !withNpm) throw new Error("Missing samples");
@@ -245,10 +245,13 @@ const offered = (archive: string) => {
   if (!agent) throw new Error("Missing sample");
   return availability(agent, "linux-x86_64");
 };
-test("only ZIP, gzip tar and raw executables are installable binaries", () => {
+test("only ZIP, gzip and bzip2 tars and raw executables are installable binaries", () => {
   for (const archive of [
     "https://example.org/agent.tar.gz",
     "https://example.org/agent.tgz",
+    "https://example.org/agent.tar.bz2",
+    "https://example.org/agent.tbz2",
+    "https://example.org/agent.tbz",
     "https://example.org/agent.zip",
     "https://example.org/agent-linux-amd64",
     "https://example.org/agent-win-amd64.exe",
@@ -261,6 +264,7 @@ test("only ZIP, gzip tar and raw executables are installable binaries", () => {
     "https://example.org/agent.7z",
     "https://example.org/agent.tar",
     "https://example.org/agent.gz",
+    "https://example.org/agent.bz2",
     "https://example.org/agent.msix",
   ])
     expect(offered(archive)).toBe("unsupported_distribution");

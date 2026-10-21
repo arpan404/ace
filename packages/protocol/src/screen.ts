@@ -24,6 +24,7 @@ export {
 import {
   ScreenId,
   ScreenBundle,
+  ScreenStreamSettings,
   ScreenPermissions,
   ScreenTarget,
   ScreenAction,
@@ -126,6 +127,15 @@ export const ScreenOperation = z.discriminatedUnion("op", [
   }),
   z.object({ op: z.literal("action"), sessionId: ScreenId, action: ScreenAction }),
   z.object({ op: z.literal("subscribe"), sessionId: ScreenId }),
+  /**
+   * A watching view's live stream: H.264 at the size, rate and bit rate it can show, where the
+   * Mac's helper encodes it; JPEG otherwise. The last view leaving returns the session to stills.
+   */
+  z.object({
+    op: z.literal("stream.configure"),
+    sessionId: ScreenId,
+    settings: ScreenStreamSettings,
+  }),
   z.object({ op: z.literal("unsubscribe"), sessionId: ScreenId }),
   z.object({ op: z.literal("record.start"), sessionId: ScreenId }),
   z.object({ op: z.literal("record.stop"), sessionId: ScreenId }),

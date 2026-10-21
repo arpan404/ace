@@ -193,8 +193,11 @@ fails, and cleans up any session it started.
 When a pinned `serve-sim` is installed on the device's Mac, capture uses its CLI
 (`--no-preview --quiet <UDID>`), its H.264 or MJPEG framebuffer stream, its
 persistent WebSocket HID channel and its accessibility route. `ACE_SERVE_SIM` can
-select an explicit executable. Install with `npm install -g serve-sim@0.1.48`; the
-desktop daemon includes the user's CLI paths. The legacy screen-helper path remains
+select an explicit executable. Amended 2026-10-20: ace downloads its own pinned copy
+(serve-sim 0.1.48 and `ws`, verified by their npm sha512) into `<dataDir>/tools` when
+devices are enabled, from Devices' "Download device tools", or on the first live view,
+always in a separate process, and runs it with the daemon's Node; the scrcpy server
+downloads the same way. ace's copy is preferred over one on PATH. The legacy screen-helper path remains
 available on Macs without it. An explicit missing `ACE_SERVE_SIM` is an error, never
 a silent fallback.
 
@@ -364,7 +367,7 @@ fallbacks above (MJPEG and ffmpeg JPEG for viewers without a decoder, the JPEG a
   `not_supported`); before it sizes its stream it asks for 60 fps in the remote box. While anyone
   watches, the capture streams H.264 whatever else uses it. A capture that can't refuses the
   view rather than downgrading it: the Simulator screen helper without an H.264 encoder with
-  `tool_missing` and `npm install -g serve-sim@0.1.48`, serve-sim video that won't start with a
+  `tool_missing` and a pointer to Devices' "Download device tools", serve-sim video that won't start with a
   reinstall hint, and the Android screenrecord fallback with `not_supported` naming why scrcpy
   didn't start. The bridge drops any JPEG frame, so the JPEG a capture makes for agents' stills
   and recordings while nobody watches never reaches a view.

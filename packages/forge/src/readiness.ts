@@ -63,13 +63,38 @@ export function identityRunner(
     }
     verifiedAt = options?.now();
   };
+  // Reads that need a probe at the same moment share one.
+  let probing: Promise<void> | undefined;
+  const verifyRead = async (signal: AbortSignal) => {
+    const shared = (probing ??= verify(signal).finally(() => (probing = undefined)));
+    try {
+      await shared;
+    } catch (error) {
+      // Another read's cancellation proves nothing about this one: probe for it alone.
+      if (error instanceof ForgeError && error.kind === "cancelled" && !signal.aborted)
+        return verify(signal);
+      throw error;
+    }
+  };
   return async (request: CommandRequest) => {
     await assertCurrent();
     if (request.command !== "gh") return runner(request);
     const write = isForgeMutation(request);
-    if (write || !fresh()) {
-      await verify(request.signal);
+    if (!write && !fresh()) {
+      // A read has no effect, so it runs beside its identity probe instead of after it; its
+      // answer is only returned once the probe proves the account it was read as.
+      const [checked, read] = await Promise.allSettled([
+        verifyRead(request.signal),
+        runner(request),
+      ]);
+      if (checked.status === "rejected") throw checked.reason;
       // Preferences may change while the identity process is running.
+      await assertCurrent();
+      if (read.status === "rejected") throw read.reason;
+      return read.value;
+    }
+    if (write) {
+      await verify(request.signal);
       await assertCurrent();
     }
     const result = await runner(request);

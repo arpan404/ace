@@ -400,13 +400,20 @@ test("a turn that left a command running reads as running in background, never W
     shell("dev", "bun run dev:relay", "running", 0),
   ]);
   thread.background("dev");
-  // No agent is doing a turn: no "Working for" timer, the command named instead.
+  // No agent is doing a turn: no "Working for" timer, the command named instead, as its
+  // tool call ran it.
   expect(turnActivity(thread.reader, "root")).toMatchObject({
     label: "Running in background",
-    code: "dev",
+    code: "bun run dev:relay",
     tone: "held",
     elapsedFrom: undefined,
-    waitingOn: { kind: "background", count: 1, title: "dev", taskIds: ["task-dev"] },
+    waitingOn: {
+      kind: "background",
+      count: 1,
+      title: "bun run dev:relay",
+      shells: true,
+      taskIds: ["task-dev"],
+    },
   });
 
   thread.background("tunnel");

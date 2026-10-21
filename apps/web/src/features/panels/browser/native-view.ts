@@ -44,11 +44,9 @@ export function nativeViewPlacement(input: {
   /** The area is the device's own viewport (the device toolbar's frame): fill it exactly. */
   exact?: boolean | undefined;
   overlays: readonly PageBox[];
-  /** Space kept around a device-sized page; picture-in-picture keeps none. */
-  padding?: number | undefined;
 }): { bounds: PageBox; visible: boolean; covered: boolean } {
   const { area, device } = input;
-  const padding = input.padding ?? devicePadding;
+  const padding = devicePadding;
   let box = area;
   if (device && !input.exact) {
     const scale = Math.min(
@@ -110,11 +108,8 @@ export function useNativeView(
   options: {
     device: NativeViewPlacement["device"];
     exact?: boolean | undefined;
-    padding?: number;
     /** One tab of the thread (split view); omitted: the tab the thread shows. */
     tabId?: string | undefined;
-    /** Picture-in-picture: the page takes no clicks; the desktop reports them (`onRestore`). */
-    picture?: boolean | undefined;
   },
 ): { shown: boolean; frozen: FrozenPage | undefined } {
   const [shown, setShown] = useState(false);
@@ -126,14 +121,13 @@ export function useNativeView(
   const deviceKey = options.device
     ? `${options.device.width}x${options.device.height}:${options.device.mobile}:${options.device.deviceScaleFactor}:${options.exact}`
     : `none:${options.exact}`;
-  const placeKey = `${deviceKey}:${options.padding ?? 0}:${options.picture === true}`;
   const tabId = options.tabId;
   const sync = useEffectEvent(() => {
     latest.current = options;
     replace.current?.();
   });
   // oxlint-disable-next-line react/exhaustive-effect-dependencies -- the key names the change.
-  useLayoutEffect(() => sync(), [placeKey]);
+  useLayoutEffect(() => sync(), [deviceKey]);
   useLayoutEffect(() => {
     const views = desktopBrowserViews();
     const element = area.current;
@@ -221,7 +215,6 @@ export function useNativeView(
         device: size,
         exact: latest.current.exact,
         overlays: overlayBoxes(element),
-        padding: latest.current.padding,
       });
       // Covered and not yet captured: keep showing the page until its picture is ready.
       if (!box.covered) attempted = false;
@@ -233,7 +226,6 @@ export function useNativeView(
         bounds: box.bounds,
         visible: box.visible && !hidden,
         ...(box.visible && hidden ? { covered: true } : {}),
-        ...(latest.current.picture ? { picture: true } : {}),
         ...(size ? { device: size } : {}),
       });
     };

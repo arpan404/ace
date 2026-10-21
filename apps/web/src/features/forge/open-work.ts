@@ -6,7 +6,7 @@ import {
   type ForgePrList,
 } from "@ace/protocol";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { readForge } from "./source.ts";
+import { readForge } from "@/lib/forge-read.ts";
 
 /**
  * Open work changes slowly. A read in the last minute is reused (the daemon keeps its own minute

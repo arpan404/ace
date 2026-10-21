@@ -58,6 +58,12 @@ export interface ProviderAdapter {
   forkSession?(input: { nativeSessionId: string; signal: AbortSignal }): Promise<string>;
 }
 
+/**
+ * Diagnostic payload type for the adapter's own bookkeeping that hit a limit or lost certainty
+ * (dropped transcripts, unreadable data): the daemon logs it as a warning, never the transcript.
+ */
+export const adapterWarning = "adapter.warning";
+
 export interface Translator {
   /** Native debug evidence kept outside the transcript. Drain after each translation. */
   takeDiagnostics?(): import("@ace/protocol").RawPayload[];

@@ -5,6 +5,7 @@ import SwiftUI
 struct NewThreadEntry: ViewModifier {
     @Bindable var inbox: MachineInbox
     let open: (InboxKey) -> Void
+    @Binding var projectFilter: String
     @State private var composing = false
     @State private var awaiting: (machineId: String, commandId: String)?
     /// Starting is impossible when every paired machine is view-only: both entries stay
@@ -13,36 +14,47 @@ struct NewThreadEntry: ViewModifier {
         inbox.sessions.isEmpty || inbox.sessions.contains(where: { $0.client.canOperate })
     }
 
+    private struct ProjectChoice { let id: String; let name: String }
+    private var projects: [ProjectChoice] {
+        var seen = Set<String>()
+        return inbox.sessions.flatMap { $0.client.inbox.values }.compactMap { row in
+            guard let id = row.workspaceId, seen.insert(id).inserted else { return nil }
+            return ProjectChoice(id: id, name: row.project)
+        }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
     func body(content: Content) -> some View {
         content
-            .safeAreaInset(edge: .bottom) {
-                if canStart {
-                    Button { composing = true } label: {
-                        Label("Start a task", systemImage: "plus")
-                            .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                            .frame(maxWidth: .infinity, minHeight: AceTheme.Dimensions.touchTarget)
+            .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
+                HStack(spacing: AceTheme.Spacing.sm) {
+                    Menu {
+                        Button("All projects") { projectFilter = "" }
+                        ForEach(projects, id: \.id) { project in
+                            Button(project.name) { projectFilter = project.id }
+                        }
+                    } label: {
+                        HStack(spacing: AceTheme.Spacing.xs) {
+                            Text(projects.first { $0.id == projectFilter }?.name ?? "All projects").lineLimit(1)
+                            Image(systemName: "chevron.down")
+                        }
+                        .frame(minHeight: AceTheme.Dimensions.touchTarget)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(AceTheme.Colours.foreground)
-                    .floatingGlass()
-                    .padding(.horizontal, AceTheme.Dimensions.composerInset)
-                    .padding(.bottom, AceTheme.Spacing.sm)
-                    .disabled(inbox.sessions.isEmpty)
-                    .accessibilityIdentifier("inbox.startTask")
-                }
-            }
-            .toolbar {
-                if canStart {
-                    ToolbarItem(placement: .topBarTrailing) {
+                    .accessibilityIdentifier("inbox.projects")
+                    Spacer(minLength: AceTheme.Spacing.sm)
+                    if canStart {
                         Button { composing = true } label: { Image(systemName: "square.and.pencil") }
+                            .frame(minWidth: AceTheme.Dimensions.touchTarget, minHeight: AceTheme.Dimensions.touchTarget)
                             .disabled(inbox.sessions.isEmpty)
-                            .accessibilityLabel("New thread")
-                            .accessibilityIdentifier("inbox.compose")
+                            .accessibilityLabel("New thread").accessibilityIdentifier("inbox.startTask")
                     }
                 }
+                .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                .padding(.horizontal, AceTheme.Spacing.lg)
+                .background(AceTheme.Colours.background)
             }
             .sheet(isPresented: $composing) {
-                NewThreadSheet(inbox: inbox) { machineId, commandId in awaiting = (machineId, commandId) }
+                NewThreadSheet(inbox: inbox, saved: { machineId, commandId in awaiting = (machineId, commandId) }, initialProject: projectFilter.isEmpty ? nil : projectFilter)
                     .presentationDetents([.large]).presentationDragIndicator(.visible)
             }
             .task(id: awaiting?.commandId) {
@@ -65,7 +77,7 @@ struct NewThreadEntry: ViewModifier {
 }
 
 extension View {
-    func newThreadEntry(inbox: MachineInbox, open: @escaping (InboxKey) -> Void) -> some View {
-        modifier(NewThreadEntry(inbox: inbox, open: open))
+    func newThreadEntry(inbox: MachineInbox, projectFilter: Binding<String>, open: @escaping (InboxKey) -> Void) -> some View {
+        modifier(NewThreadEntry(inbox: inbox, open: open, projectFilter: projectFilter))
     }
 }

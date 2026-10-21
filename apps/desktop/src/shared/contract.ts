@@ -305,11 +305,6 @@ export const BrowserPlacement = z.object({
    * page, so it keeps rendering and its sound plays.
    */
   covered: z.boolean().optional(),
-  /**
-   * Drawn as picture-in-picture: the person's mouse never reaches the page, and their click
-   * asks the renderer to bring the page back to its panel (`browser.restore`).
-   */
-  picture: z.boolean().optional(),
 });
 export type BrowserPlacement = z.infer<typeof BrowserPlacement>;
 /** Names a thread's embedded browser view (one tab of it with `tabId`). */

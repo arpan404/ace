@@ -148,12 +148,7 @@ export class TabPage extends FakePage {
   shown = false;
   /** Hidden only while the app's menu covers it. */
   covered = false;
-  /** Drawn as picture-in-picture: the person's clicks bring it back instead of reaching it. */
-  floating = false;
   agent = true;
-  setPicture(on: boolean) {
-    this.floating = on;
-  }
   async picture() {
     return this.shown ? "data:image/png;base64,AA==" : undefined;
   }

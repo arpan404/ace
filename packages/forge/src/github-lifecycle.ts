@@ -57,8 +57,9 @@ export class GitHubLifecycle {
   }
   async snapshot(number: number, signal: AbortSignal): Promise<ForgeLifecycleSnapshot> {
     const pr = ForgePrRef.parse({ repository: this.#repository, number });
+    // The host's mutations come in the same query: one round trip, not two in a row.
     const response = await this.#graphql(
-      `query AceLifecycleSnapshot($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){isArchived viewerPermission pullRequest(number:$number){${lifecyclePrFields}}}}`,
+      `query AceLifecycleSnapshot($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){isArchived viewerPermission pullRequest(number:$number){${lifecyclePrFields}}} mutationType:__type(name:"Mutation"){fields{name}}}`,
       { owner: this.#repository.owner, name: this.#repository.name, number },
       signal,
     );
@@ -67,11 +68,7 @@ export class GitHubLifecycle {
     if (raw.number !== number) throw new ForgeError("invalid_data");
     if (raw.labels.pageInfo.hasNextPage || raw.assignees.pageInfo.hasNextPage)
       throw new ForgeError("limit");
-    const supported = decode(
-      SupportedMutations,
-      (await this.#graphql(`query{mutationType:__type(name:"Mutation"){fields{name}}}`, {}, signal))
-        .body,
-    ).data.mutationType.fields;
+    const supported = decode(SupportedMutations, response.body).data.mutationType.fields;
     const state =
       raw.state === "MERGED"
         ? "merged"

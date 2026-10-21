@@ -73,6 +73,7 @@ export class SessionObservations {
       released = true;
       lease.release();
       session.viewers--;
+      if (!session.viewers && session.viewerVideo) this.stillsOnly(session);
       this.releaseUnused(session);
     };
     try {
@@ -104,9 +105,31 @@ export class SessionObservations {
       !session.helper.capabilities.codecs.includes("h264")
     )
       return { codec: "jpeg" };
-    return z
+    const result = z
       .object({ codec: z.enum(["jpeg", "h264"]) })
       .parse(await session.helper.request({ op: "stream.configure", settings }));
+    // A view may ask just before its subscription lands; the last one leaving switches back.
+    if (result.codec === "h264") session.viewerVideo = true;
+    return result;
+  }
+  /**
+   * Nobody watches any more: the helper goes back to the frame rate the session started at,
+   * as stills, so an agent working unwatched never keeps a 60 fps capture and encoder busy.
+   */
+  private stillsOnly(session: Session): void {
+    session.viewerVideo = false;
+    void session.helper
+      .request({
+        op: "stream.configure",
+        settings: {
+          codec: "jpeg",
+          maxWidth: 3840,
+          maxHeight: 3840,
+          fps: session.captureFps ?? 10,
+          bitrate: 4_000_000,
+        },
+      })
+      .catch(() => {});
   }
   async requestKeyframe(id: string): Promise<void> {
     const session = this.live(id);

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The single inbox (issue #560) across every paired machine: the shared sections merged by rank,
-/// Done and Snoozed folded away below. Swift filters by search text and draws; grouping and
+/// Done and Snoozed folded away below. Grouping and
 /// wording come from each machine's runtime. A row and its thread belong to their machine.
 struct InboxView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -15,8 +15,10 @@ struct InboxView: View {
     @State private var path: [String] = []
     /// The machine whose thread is open: the whole navigation stack routes to its runtime.
     @State private var openMachine: String?
-    @State private var search = ""
+    @State private var projectFilter = ""
     @State private var showingSearch = false
+    @State private var showingLibrary = false
+    @State private var libraryDestination: String?
     @State private var showingMachines = false
     @State private var showingSettings = false
     @State private var archiveMachine: String?
@@ -26,7 +28,13 @@ struct InboxView: View {
     private static let settledKeys: Set<String> = ["done", "snoozed"]
 
     private var merged: MergedInbox { inbox.merged }
-    private var sections: [MergedInbox.Section] { merged.sections.compactMap(filtered) }
+    private var sections: [MergedInbox.Section] {
+        guard !projectFilter.isEmpty else { return merged.sections }
+        return merged.sections.compactMap { section in
+            let keys = section.rows.filter { inbox.row($0)?.workspaceId == projectFilter }
+            return keys.isEmpty ? nil : MergedInbox.Section(key: section.key, label: section.label, rows: keys)
+        }
+    }
     private var open: [MergedInbox.Section] { sections.filter { !Self.settledKeys.contains($0.key) } }
     private var settled: [MergedInbox.Section] { sections.filter { Self.settledKeys.contains($0.key) } }
     private var current: ClientModel? { openMachine.flatMap(inbox.client) }
@@ -34,9 +42,6 @@ struct InboxView: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                if showingSearch {
-                    TextField("Search threads", text: $search).textFieldStyle(.plain).accessibilityIdentifier("inbox.search")
-                }
                 ForEach(inbox.sessions.filter { $0.client.connection != "ready" }) { session in
                     InboxConnectionBanner(connection: session.client.connection,
                                           machine: inbox.showsMachineNames ? inbox.name(session.hostId) : nil) { session.client.retry() }
@@ -49,7 +54,7 @@ struct InboxView: View {
                         .listRowBackground(AceTheme.Colours.background)
                 }
                 ForEach(open) { section in
-                    Section { rows(section) } header: { InboxSectionHeader(title: section.label, count: section.rows.count) }
+                    rows(section)
                 }
                 if !settled.isEmpty {
                     Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { showSettled.toggle() } } label: {
@@ -70,18 +75,18 @@ struct InboxView: View {
                     .accessibilityValue(showSettled ? "Expanded" : "Collapsed")
                     if showSettled {
                         ForEach(settled) { section in
-                            Section { rows(section) } header: { InboxSectionHeader(title: section.label, count: section.rows.count) }
+                            rows(section)
                         }
                     }
                 }
-                if !merged.more.isEmpty && search.isEmpty {
+                if !merged.more.isEmpty {
                     Button("Show older threads") { for id in merged.more { inbox.client(id)?.loadOlderThreads() } }
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
                         .frame(minHeight: AceTheme.Dimensions.touchTarget)
                         .listRowSeparator(.hidden).accessibilityIdentifier("inbox.more")
                 }
                 emptyState.listRowSeparator(.hidden)
-                if inbox.anyLoaded && search.isEmpty {
+                if inbox.anyLoaded {
                     Button("Archived threads") { archiveMachine = inbox.sessions.first?.hostId }
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
                         .frame(minHeight: AceTheme.Dimensions.touchTarget)
@@ -100,6 +105,20 @@ struct InboxView: View {
                     ThreadView(model: client, thread: thread) { child in client.open(child); path.append(child) }
                 }
             }
+            .sheet(isPresented: $showingSearch) { ConversationSearchSheet(inbox: inbox) }
+            .sheet(isPresented: $showingLibrary, onDismiss: {
+                switch libraryDestination {
+                case "settings": showingSettings = true
+                case "machines": showingMachines = true
+                case "archive": archiveMachine = inbox.sessions.first?.hostId
+                default: break
+                }
+                libraryDestination = nil
+            }) {
+                LibrarySheet(inbox: inbox, openSettings: { libraryDestination = "settings"; showingLibrary = false },
+                             openMachines: { libraryDestination = "machines"; showingLibrary = false },
+                             openArchive: { libraryDestination = "archive"; showingLibrary = false })
+            }
             .sheet(isPresented: $showingMachines) {
                 MachinesSheet(inbox: inbox, machines: machines) { showingMachines = false; addMachine() }
             }
@@ -117,7 +136,7 @@ struct InboxView: View {
                 }
             }
             .overlay(alignment: .bottom) { undoArchive }
-            .newThreadEntry(inbox: inbox) { key in openThread(key) }
+            .newThreadEntry(inbox: inbox, projectFilter: $projectFilter) { key in openThread(key) }
             .aceNotifications(inbox: inbox) { key in openThread(key) }
             .onChange(of: path) { old, new in
                 if !old.isEmpty && new.isEmpty { current?.back(); openMachine = nil }
@@ -205,9 +224,8 @@ struct InboxView: View {
     }
     @ViewBuilder private var emptyState: some View {
         if sections.isEmpty {
-            if !search.isEmpty && !merged.sections.isEmpty { ContentUnavailableView.search(text: search) }
-            else if !inbox.anyLoaded {
-                if inbox.sessions.allSatisfy({ ["fatal", "offline", "reconnecting"].contains($0.client.connection) }) && !inbox.sessions.isEmpty {
+            if !inbox.anyLoaded || !inbox.allReady {
+                if inbox.sessions.contains(where: { ["fatal", "offline", "reconnecting"].contains($0.client.connection) }) {
                     ContentUnavailableView {
                         Label(inbox.showsMachineNames ? "Can't reach your machines" : "Can't reach your machine", systemImage: "wifi.slash")
                     } description: { Text("Your threads appear once it's back.") } actions: {
@@ -247,24 +265,13 @@ struct InboxView: View {
         // glass behind it where the OS supports it, so the machines control and the
         // trailing icons keep the emphasis.
         wordmarkItem
-        ToolbarItem(placement: .topBarLeading) {
-            Button { showingMachines = true } label: {
-                HStack(spacing: AceTheme.Spacing.xs) {
-                    Circle().fill(inbox.allReady ? AceTheme.Status.done : AceTheme.Colours.decoration).frame(width: AceTheme.Dimensions.statusDot, height: AceTheme.Dimensions.statusDot)
-                    Text(inbox.sessions.count == 1 ? "1 machine" : "\(inbox.sessions.count) machines").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                }.foregroundStyle(AceTheme.Colours.mutedForeground)
-            }
-            .accessibilityLabel("Machines")
-            .accessibilityValue(inbox.allReady ? "All connected" : "Not all connected")
-            .accessibilityIdentifier("inbox.machines")
+        ToolbarItem(placement: .topBarTrailing) {
+            Button { showingLibrary = true } label: { Image(systemName: "sidebar.left") }
+                .accessibilityLabel("Browse ace").accessibilityIdentifier("inbox.library")
         }
         ToolbarItem(placement: .topBarTrailing) {
-            Button { showingSettings = true } label: { Image(systemName: "gearshape") }
-                .accessibilityLabel("Settings").accessibilityIdentifier("inbox.settings")
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { showingSearch.toggle(); if !showingSearch { search = "" } } } label: { Image(systemName: "magnifyingglass") }
-                .accessibilityLabel("Search threads")
+            Button { showingSearch = true } label: { Image(systemName: "magnifyingglass") }
+                .accessibilityLabel("Search conversations").accessibilityIdentifier("inbox.search")
         }
     }
 
@@ -284,16 +291,6 @@ struct InboxView: View {
             .accessibilityHidden(true)
     }
 
-    private func filtered(_ section: MergedInbox.Section) -> MergedInbox.Section? {
-        guard !search.isEmpty else { return section }
-        let rows = section.rows.filter { key in
-            let pending = section.key == "unsent" ? inbox.pending(key) : nil
-            let row = section.key == "unsent" ? pending.flatMap { inbox.row(InboxKey(machineId: key.machineId, id: $0.threadId)) } : inbox.row(key)
-            let machine = inbox.showsMachineNames ? inbox.name(key.machineId) : ""
-            return [row?.title ?? "", row?.project ?? "", pending?.text ?? "", machine].contains { $0.localizedCaseInsensitiveContains(search) }
-        }
-        return rows.isEmpty ? nil : MergedInbox.Section(key: section.key, label: section.label, rows: rows)
-    }
     /// Opening routes to the row's machine; a thread already open elsewhere is closed first.
     private func openThread(_ key: InboxKey) {
         guard let client = inbox.client(key.machineId), client.inbox[key.id] != nil else { return }

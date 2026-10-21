@@ -123,8 +123,6 @@ export const events = {
     visible: z.boolean(),
   }),
   "browser.shortcut": BrowserShortcut,
-  /** The person clicked a thread's page drawn as picture-in-picture: show it in the panel. */
-  "browser.restore": BrowserThread,
   "browser.context": BrowserContextAction,
   "updates.status": UpdateStatus,
   /** The machine woke up; the renderer should reconnect now rather than wait for backoff. */

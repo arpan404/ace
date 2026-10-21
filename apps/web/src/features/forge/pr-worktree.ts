@@ -6,7 +6,7 @@ import { actionErrorText, outcomeUncertain, readJson, writeJson } from "@ace/ui-
 import { useLayout } from "@/lib/layout.tsx";
 import { useWorktreeCreation } from "@/features/thread/index.ts";
 import { useToast } from "@/components/ui/toast.tsx";
-import { failureCode } from "./source.ts";
+import { failureCode } from "@/lib/forge-read.ts";
 
 /**
  * "Work on PR in this task": an isolated checkout of the PR head for an existing task. The

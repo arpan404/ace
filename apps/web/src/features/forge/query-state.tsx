@@ -4,7 +4,7 @@ import { useConnectionState } from "@ace/client-react";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { actionErrorText } from "@ace/ui-core";
-import { failureCode } from "./source.ts";
+import { failureCode } from "@/lib/forge-read.ts";
 
 /** A failed read in words: its code's sentence, or the error's own when it has no code. */
 export function readFailureText(error: Error): string {

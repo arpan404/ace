@@ -2,7 +2,7 @@ import type { NativeViewPlacement, DesktopBrowserViews } from "@/boot/desktop-br
 
 /**
  * The placer that last asked to show each view. Another one may take a view over as the first
- * lets go (the panel closing as picture-in-picture opens, in the same commit): the one letting
+ * lets go in the same commit (a Browser tab remounting): the one letting
  * go then leaves it where it is instead of hiding it, so the view never blinks.
  */
 const showing = new Map<string, NativePlacement>();

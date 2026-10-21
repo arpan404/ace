@@ -82,15 +82,17 @@ test("a settled tree tells the person where its run stopped, and a delivered run
       action: "evidence",
       runId: "login",
       version,
-      evidence: {
-        criterionId: "error",
-        kind: "source",
-        result: "pass",
-        revision: started.revision,
-        action: "Read the diff",
-        artifact: "report",
-        note: "The error renders",
-      },
+      evidence: [
+        {
+          criterionId: "error",
+          kind: "source",
+          result: "pass",
+          revision: started.revision,
+          action: "Read the diff",
+          artifact: "report",
+          note: "The error renders",
+        },
+      ],
     });
     version = checked.run.version;
     for (const phase of ["review", "delivery"] as const)

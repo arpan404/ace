@@ -10,6 +10,8 @@ export interface Child {
   settled: boolean;
   uncertain?: boolean;
   summary?: boolean;
+  /** What the task call asked the subagent to do, when it said. */
+  description?: string;
 }
 /** Child identities belong to task calls until native IDs arrive. No native resume is implied. */
 export class Children {
@@ -32,6 +34,7 @@ export class Children {
     const input = object(args);
     const key = `child:${call}`;
     const native = nativeIdentity(input.agentId) ?? nativeIdentity(input.resume);
+    const description = string(input.description)?.trim();
     const child: Child = {
       key,
       parent,
@@ -40,6 +43,7 @@ export class Children {
       background: false,
       settled: false,
       ...(native ? { native } : {}),
+      ...(description ? { description } : {}),
     };
     this.calls.set(call, child);
     let pending = this.pendingByParent.get(parent);
@@ -151,7 +155,7 @@ export class Children {
       agent: child.parent,
       task: `background:${child.call}`,
       kind: "subagent",
-      title: "SDK task child; completion unverified",
+      title: child.description ?? "Subagent",
       childAgent: child.key,
       item: child.call,
       stoppable: false,

@@ -35,6 +35,7 @@ export async function extractTar(
   path: string,
   root: string,
   signal: AbortSignal,
+  compression: "gzip" | "bzip2",
   symlink?: SymlinkFn,
 ): Promise<void> {
   const { default: tar } = await import("tar-stream");
@@ -76,13 +77,11 @@ export async function extractTar(
     void task.then(() => active.delete(task));
   });
   try {
-    await pipeline(
-      createReadStream(path),
-      createGunzip(),
-      new ExpansionBudget().stream(),
-      archive,
-      { signal },
-    );
+    const decompress =
+      compression === "gzip" ? createGunzip() : (await import("unbzip2-stream")).default();
+    await pipeline(createReadStream(path), decompress, new ExpansionBudget().stream(), archive, {
+      signal,
+    });
   } finally {
     await Promise.allSettled(active);
   }
