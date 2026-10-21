@@ -1,3 +1,20 @@
+/** `1.2 GB`, `684 KB`, `0 B`: binary units, one decimal from KB up. */
+export function formatBytes(bytes: number): string {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = Math.max(0, bytes);
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return `${unit ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+}
+
+/** `5 worktrees`, `1 worktree`. */
+export function plural(count: number, noun: string): string {
+  return `${count.toLocaleString("en-US")} ${noun}${count === 1 ? "" : "s"}`;
+}
+
 /** A duration as a person reads it: "40 s", "12 min", "5 h", "3 days". */
 export function duration(ms: number): string {
   const seconds = Math.max(0, Math.round(ms / 1000));
@@ -20,7 +37,7 @@ export function milliseconds(value: number): string {
   return value >= 1000 ? `${(value / 1000).toFixed(1)} s` : `${value.toFixed(1)} ms`;
 }
 
-/** Check messages are capped at 2048 characters. */
-export function clip(text: string): string {
-  return text.length > 2048 ? `${text.slice(0, 2047)}…` : text;
+/** Keeps a check message within the report's 2,048-character limit. */
+export function clip(text: string, limit = 2048): string {
+  return text.length <= limit ? text : `${text.slice(0, limit - 1)}…`;
 }

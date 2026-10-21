@@ -1,4 +1,5 @@
 import { createDoctorChecks, createSystemProbes, runDoctor, type Check } from "@ace/diagnostics";
+import { isSecretKey } from "@ace/redaction";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import { DiagnosticReport, type DiagnosticRepair } from "@ace/protocol";
 import { homedir } from "node:os";
@@ -31,7 +32,12 @@ export async function collectDoctorReport(
     { now },
   );
   return DiagnosticReport.parse(
-    JSON.parse(createDiagnosticRedactor({ home: homedir(), env })(JSON.stringify(report))),
+    JSON.parse(
+      // Secret-looking variables only: redacting every value hid versions and paths too.
+      createDiagnosticRedactor({ home: homedir(), env: secretEnvironment(env) })(
+        JSON.stringify(report),
+      ),
+    ),
   );
 }
 
@@ -60,4 +66,8 @@ export async function connectedDoctorReport(
   // The running listener owns this port. Checking whether another listener can bind it
   // is useful offline, but would be a false warning from the connected app.
   return { ...report, checks: report.checks.filter((check) => check.id !== "port") };
+}
+
+function secretEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([key]) => isSecretKey(key)));
 }

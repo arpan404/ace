@@ -49,9 +49,17 @@ export async function collectFullReport(
 ): Promise<DiagnosticReport> {
   const extra = features.flatMap((feature) => feature.checks(context));
   const report = await collectDoctorReport(context.config, context.env, context.now, extra);
-  return context.daemonState === "running"
-    ? { ...report, checks: report.checks.filter((check) => check.id !== "port") }
-    : report;
+  // The person reading this is the one whose home it is; "~" reads better than a marker.
+  const checks = report.checks.map((check) => ({
+    ...check,
+    message: check.message.replaceAll("<HOME>", "~"),
+    fix: check.fix.replaceAll("<HOME>", "~"),
+  }));
+  return {
+    ...report,
+    checks:
+      context.daemonState === "running" ? checks.filter((check) => check.id !== "port") : checks,
+  };
 }
 
 /** Built-in repairs first, then each feature's, in feature order. */

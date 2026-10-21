@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { digestLogLines, type TriageFacts } from "@ace/diagnostics/triage";
 import { createTextRedactor, isSecretKey } from "@ace/redaction";
 import type { DiagnosticReport } from "@ace/protocol";
+import { processAlive } from "@ace/service/home";
 import { RUN_MARKER_FILE, parseRunMarker } from "./run-marker.ts";
 import type { InstalledCli } from "./triage-launch.ts";
 
@@ -46,16 +47,6 @@ export async function localDaemonState(
     return run?.state === "running" && run.pid > 0 && alive(run.pid) ? "running" : "stopped";
   } catch {
     return "stopped";
-  }
-}
-
-function processAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    // EPERM means it exists but belongs to someone else.
-    return error instanceof Error && "code" in error && error.code === "EPERM";
   }
 }
 

@@ -122,12 +122,17 @@ function describePlan(plan: readonly PlannedRepair[]): string {
   );
 }
 
+/** Continuation lines of a multi-line message line up under the first. */
+function indent(text: string): string {
+  return text.replaceAll("\n", "\n     ");
+}
+
 /** Every check, passing ones included (`--all`). */
 export function formatAllChecks(report: DiagnosticReport): string {
   return report.checks
     .map(
       (check) =>
-        `${check.status.toUpperCase().padEnd(4)} ${check.id}: ${check.message}` +
+        `${check.status.toUpperCase().padEnd(4)} ${check.id}: ${indent(check.message)}` +
         (check.status !== "ok" && check.fix ? `\n     ${check.fix}` : ""),
     )
     .join("\n");
@@ -140,7 +145,7 @@ export function formatChecks(report: DiagnosticReport): string {
   return [
     ...open.map(
       (check) =>
-        `${check.status === "fail" ? "FAIL" : "WARN"} ${check.id}: ${check.message}` +
+        `${check.status === "fail" ? "FAIL" : "WARN"} ${check.id}: ${indent(check.message)}` +
         (check.fix ? `\n     ${check.fix}` : ""),
     ),
     open.length

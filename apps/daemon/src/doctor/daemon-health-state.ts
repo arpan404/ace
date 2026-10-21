@@ -1,7 +1,7 @@
 import type { CheckResult } from "@ace/diagnostics";
 import type { DiagnosticsHealth } from "@ace/protocol";
 import type { DaemonHistory, LastRun } from "./daemon-health-history.ts";
-import { clip, duration } from "./daemon-health-format.ts";
+import { clip, duration } from "./format.ts";
 
 export type Verdict = Omit<CheckResult, "id">;
 

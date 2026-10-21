@@ -1,5 +1,5 @@
 import type { DiagnosticsHealth } from "@ace/protocol";
-import { clip, megabytes, milliseconds } from "./daemon-health-format.ts";
+import { clip, megabytes, milliseconds } from "./format.ts";
 import type { Verdict } from "./daemon-health-state.ts";
 
 /** p99 event-loop delay a person feels: clicks and streamed replies lag by a quarter second. */
@@ -34,7 +34,6 @@ export const QUEUE_WARN: Readonly<Record<string, { at: number; label: Label; byt
 };
 const QUEUE_LABELS: Readonly<Record<string, Label>> = {
   "engine.queuedSends": ["queued message", "queued messages"],
-  "daemon.healthRequests": ["health read", "health reads"],
 };
 type Label = readonly [one: string, many: string];
 
@@ -84,7 +83,10 @@ export function memoryVerdict(health: DiagnosticsHealth | undefined): Verdict {
 
 export function queuesVerdict(health: DiagnosticsHealth | undefined): Verdict {
   if (!health) return NOT_MEASURED;
-  const waiting = Object.entries(health.queues).filter(([, depth]) => depth > 0);
+  // Doctor's own health read is always in flight while it asks; don't report it.
+  const waiting = Object.entries(health.queues).filter(
+    ([name, depth]) => depth > 0 && name !== "daemon.healthRequests",
+  );
   const backlogged = waiting.filter(([name, depth]) => {
     const limit = QUEUE_WARN[name];
     return limit !== undefined && depth >= limit.at;

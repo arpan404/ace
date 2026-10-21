@@ -42,7 +42,12 @@ const LogRecord = z.object({
 const RecordData = z
   .object({
     pid: z.number().optional().catch(undefined),
-    version: z.string().max(64).optional().catch(undefined),
+    // Logs written with full redaction hold "<ENV>" here; only keep a real version.
+    version: z
+      .string()
+      .regex(/^(?:development|\d+\.\d+\.\d+[\w.+-]*)$/)
+      .optional()
+      .catch(undefined),
     storedFormat: z.unknown().optional(),
     message: z.string().optional().catch(undefined),
     error: z.object({ message: z.string() }).loose().optional().catch(undefined),
