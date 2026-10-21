@@ -17,6 +17,8 @@ private struct NativeAccountsReply: Decodable {
     let result: Result
 }
 
+/// A provider's accounts on the machine: one section per account, headed by its name and who it
+/// is signed in as, with its sign-in and management verbs as rows.
 struct ProviderAccountsView: View {
     let model: ClientModel
     let provider: String
@@ -32,26 +34,49 @@ struct ProviderAccountsView: View {
         List {
             ForEach(accounts) { account in
                 Section {
-                    LabeledContent(account.label, value: account.isDefault == true ? "Default" : account.status.replacingOccurrences(of: "_", with: " ").capitalized)
-                    if let identity = account.signedInAs { Text(identity).foregroundStyle(AceTheme.Colours.mutedForeground) }
+                    SettingsRow("Status", value: account.isDefault == true ? "Default" : account.status.replacingOccurrences(of: "_", with: " ").capitalized)
+                        .accessibilityElement(children: .combine)
                     if model.canOperate {
-                        NavigationLink("Sign in") { ProviderSignInView(model: model, provider: provider, name: account.label, instance: account.id) }
-                        if account.isDefault != true { Button("Use by default") { perform("setDefault", account: account) } }
-                        Button("Rename") { label = account.label; renaming = account }
-                        Button("Remove account", role: .destructive) { removing = account }
+                        NavigationLink { ProviderSignInView(model: model, provider: provider, name: account.label, instance: account.id) } label: {
+                            SettingsRow("Sign in")
+                        }
+                        if account.isDefault != true {
+                            Button { perform("setDefault", account: account) } label: { SettingsActionLabel(title: "Use by default") }
+                                .buttonStyle(.plain)
+                        }
+                        Button { label = account.label; renaming = account } label: { SettingsActionLabel(title: "Rename") }
+                            .buttonStyle(.plain)
+                        Button(role: .destructive) { removing = account } label: {
+                            Text("Remove account").aceFont(SettingsStyle.label, relativeTo: .body)
+                                .foregroundStyle(AceTheme.StatusText.failed).frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
                     }
-                }
+                } header: { SettingsHeader(account.label, note: account.signedInAs) }
+                .settingsRow()
             }
-            Section {
-                if model.canOperate {
-                    Button("Add account", ace: .userPlus) {
+            if model.canOperate {
+                Section {
+                    Button {
                         Task { await request(["type": "provider.accounts.add", "provider": provider, "method": "login"]) }
+                    } label: {
+                        SettingsActionLabel(title: "Add account", icon: .userPlus)
                     }
+                    .buttonStyle(.plain)
                 }
+                .settingsRow()
             }
-            ServiceProblem(message: problem)
-            if problem != nil { Button("Retry") { Task { await read() } } }
+            if let problem {
+                Section {
+                    ServiceProblem(message: problem)
+                    Button { Task { await read() } } label: { SettingsActionLabel(title: "Retry") }
+                        .buttonStyle(.plain)
+                }
+                .settingsRow()
+            }
         }
+        .settingsList()
         .disabled(busy)
         .navigationTitle("\(name) accounts").navigationBarTitleDisplayMode(.inline)
         .task { await read() }.refreshable { await read() }
@@ -89,3 +114,4 @@ struct ProviderAccountsView: View {
         } catch { if !Task.isCancelled { problem = error.localizedDescription } }
     }
 }
+

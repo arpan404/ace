@@ -21,26 +21,45 @@ struct LoginProgress: Decodable {
     let codeEntry: Bool?
     var finished: Bool { ["succeeded", "failed", "cancelled"].contains(state) }
 }
+/// Settings › Providers: each coding-agent CLI on the machine with its status and usage, the same
+/// rows as the machine's page, each opening its sign-in.
 struct ProviderSettingsView: View {
     let model: ClientModel
     var body: some View {
         List {
-            ForEach(model.providers?.providers ?? []) { provider in
-                NavigationLink { ProviderSignInView(model: model, provider: provider.provider, name: provider.name) } label: {
-                    VStack(alignment: .leading) {
-                        LabeledContent(provider.name, value: provider.status.label)
-                        Text(provider.summary).foregroundStyle(AceTheme.Colours.mutedForeground)
-                        ForEach(provider.usage, id: \.self) { usage in LabeledContent(usage.label, value: usage.left) }
+            Section {
+                if let info = model.providers {
+                    ForEach(info.providers) { provider in
+                        NavigationLink { ProviderSignInView(model: model, provider: provider.provider, name: provider.name) } label: {
+                            ProviderRow(provider: provider)
+                        }
                     }
+                    if let problem = info.problem { ServiceProblem(message: problem) }
+                } else if model.connection == "ready" {
+                    HStack {
+                        Capsule().fill(AceTheme.Colours.fill).frame(width: 120, height: 10)
+                        Spacer(minLength: AceTheme.Spacing.sm)
+                        Capsule().fill(AceTheme.Colours.fill).frame(width: 64, height: 10)
+                    }
+                    .accessibilityElement(children: .ignore).accessibilityLabel("Reading coding tools")
+                } else {
+                    Text("Shown once this phone reaches the computer.")
+                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
                 }
-            }
-            if let problem = model.providers?.problem { ServiceProblem(message: problem) }
-            if let absent = model.providers?.absent, !absent.isEmpty { Text("Not installed or disabled: \(absent.joined(separator: ", "))") }
+            } header: { SettingsHeader("Coding tools", note: absentNote) }
+            .settingsRow()
         }
+        .settingsList()
         .navigationTitle("Providers").navigationBarTitleDisplayMode(.inline)
         .task { model.refreshMachine() }.refreshable { model.refreshMachine() }
     }
+    private var absentNote: String? {
+        guard let absent = model.providers?.absent, !absent.isEmpty else { return nil }
+        return "Not installed or disabled: \(absent.joined(separator: ", "))"
+    }
 }
+/// One provider's sign-in on the paired machine: start it, then follow the CLI's steps (a link,
+/// a code, a choice) until it finishes.
 struct ProviderSignInView: View {
     let model: ClientModel
     let provider: String
@@ -52,41 +71,74 @@ struct ProviderSignInView: View {
     @State private var busy = false
     @State private var code = ""
     var body: some View {
-        Form {
+        List {
             Section {
                 if instance == nil, ["claude", "codex", "opencode", "cursor", "pi"].contains(provider) {
-                    NavigationLink("Accounts") { ProviderAccountsView(model: model, provider: provider, name: name) }
+                    NavigationLink { ProviderAccountsView(model: model, provider: provider, name: name) } label: { SettingsRow("Accounts") }
                 }
-                Text("Sign in to the coding agent installed on your paired machine.")
-                Button("Sign in") { request(["type": "provider.login.start", "provider": provider]) }
+                Button { request(["type": "provider.login.start", "provider": provider]) } label: { SettingsActionLabel(title: "Sign in") }
+                    .buttonStyle(.plain)
                     .disabled(busy || progress.map { !$0.finished } == true || !model.canOperate)
-            }
+            } header: { SettingsHeader("Sign-in", note: "Sign in to the coding agent installed on your paired machine.") }
+            .settingsRow()
             if let progress {
-                Section(progress.finished ? "Result" : "Continue sign-in") {
-                    Text(progress.message ?? progress.prompt ?? progress.state.replacingOccurrences(of: "_", with: " ").capitalized)
-                    if let hint = progress.hint { Text(hint) }
-                    if let words = progress.userCode { Text(words).textSelection(.enabled).monospaced() }
+                Section {
+                    SettingsRow(title: progress.message ?? progress.prompt ?? progress.state.replacingOccurrences(of: "_", with: " ").capitalized,
+                                description: progress.hint) { EmptyView() }
+                    if let words = progress.userCode {
+                        SettingsRow(title: "Code") {
+                            Text(words).aceMonospace(SettingsStyle.value, relativeTo: .body)
+                                .foregroundStyle(AceTheme.Colours.foreground).textSelection(.enabled)
+                        }
+                    }
                     if let raw = progress.url, let url = URL(string: raw), url.scheme == "https" {
-                        Link("Open provider sign-in", destination: url)
+                        Link(destination: url) {
+                            SettingsRow(title: "Open provider sign-in") {
+                                AceIcon(.arrowSquareOut, size: 16).foregroundStyle(AceTheme.Colours.subtleForeground)
+                            }
+                        }
+                        .buttonStyle(.plain)
                     }
                     ForEach(progress.choices ?? []) { choice in
-                        Button(choice.label) { request(["type": "provider.login.input", "session": progress.session, "input": ["choice": choice.id]]) }
+                        Button { request(["type": "provider.login.input", "session": progress.session, "input": ["choice": choice.id]]) } label: {
+                            SettingsActionLabel(title: choice.label)
+                        }
+                        .buttonStyle(.plain)
                     }
                     if progress.state == "awaiting_input", progress.codeEntry != true, (progress.choices ?? []).isEmpty {
-                        Button("Continue") { request(["type": "provider.login.input", "session": progress.session, "input": ["value": "enter"]]) }
+                        Button { request(["type": "provider.login.input", "session": progress.session, "input": ["value": "enter"]]) } label: {
+                            SettingsActionLabel(title: "Continue")
+                        }
+                        .buttonStyle(.plain)
                     }
                     if progress.codeEntry == true {
                         SecureField("Code from provider", text: $code).textInputAutocapitalization(.never).autocorrectionDisabled()
-                        Button("Continue") {
+                            .aceFont(SettingsStyle.label, relativeTo: .body)
+                        Button {
                             let entry = code; code = ""
                             request(["type": "provider.login.input", "session": progress.session, "input": ["code": entry]])
-                        }.disabled(code.isEmpty)
+                        } label: { SettingsActionLabel(title: "Continue") }
+                        .buttonStyle(.plain)
+                        .disabled(code.isEmpty)
                     }
-                    if !progress.finished { Button("Cancel sign-in", role: .cancel) { request(["type": "provider.login.cancel", "session": progress.session]) } }
-                }.disabled(busy || !model.canOperate)
+                    if !progress.finished {
+                        Button(role: .cancel) { request(["type": "provider.login.cancel", "session": progress.session]) } label: {
+                            SettingsActionLabel(title: "Cancel sign-in")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } header: { SettingsHeader(progress.finished ? "Result" : "Continue sign-in") }
+                .disabled(busy || !model.canOperate)
+                .settingsRow()
             }
-            ServiceProblem(message: problem)
+            if let problem {
+                ServiceProblem(message: problem)
+                    .listRowBackground(Color.clear).listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: AceTheme.Spacing.sm, leading: SettingsStyle.margin,
+                                              bottom: AceTheme.Spacing.sm, trailing: SettingsStyle.margin))
+            }
         }
+        .settingsList()
         .navigationTitle(name).navigationBarTitleDisplayMode(.inline)
         .onAppear { if progress == nil { progress = initial } }
         .task(id: progress?.session) {
@@ -119,3 +171,4 @@ struct ProviderSignInView: View {
         }
     }
 }
+

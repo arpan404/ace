@@ -112,6 +112,43 @@ struct SettingsValue: View {
     }
 }
 
+/// A row that is one action ("Run now", "Remove plugin"): the verb at the label's size, in the
+/// failed red only when it destroys something, dimmed while it can't run. An optional muted value
+/// or quiet glyph sits at the right.
+struct SettingsActionLabel: View {
+    let title: String
+    var destructive = false
+    var value: String? = nil
+    var icon: AceIcon.Name? = nil
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.colorScheme) private var scheme
+    var body: some View {
+        HStack(spacing: AceTheme.Spacing.md) {
+            Text(title).aceFont(SettingsStyle.label, relativeTo: .body)
+                .foregroundStyle(destructive ? AceTheme.StatusText.failed : AceTheme.Colours.foreground)
+            Spacer(minLength: AceTheme.Spacing.sm)
+            SettingsValue(text: value)
+            if let icon { AceIcon(icon, size: 16).foregroundStyle(AceTheme.Colours.subtleForeground) }
+        }
+        .contentShape(Rectangle())
+        .opacity(enabled ? 1 : AceTheme.Opacity.disabled(scheme))
+    }
+}
+
+/// An item row while its list loads (DESIGN.md §3 Loading): its title and second line as
+/// skeleton bars at their usual size.
+struct SettingsSkeletonRow: View {
+    var title: CGFloat = 120
+    var line: CGFloat = 200
+    var body: some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+            Capsule().fill(AceTheme.Colours.fill).frame(width: title, height: 12)
+            Capsule().fill(AceTheme.Colours.fill).frame(width: line, height: 10)
+        }
+        .padding(.vertical, AceTheme.Spacing.xxs)
+    }
+}
+
 /// A page link in Settings' own list: a quiet outlined glyph, the page's name and its value.
 /// The glyph stays at the subtle tier, as on the web's settings list.
 struct SettingsLinkLabel: View {
