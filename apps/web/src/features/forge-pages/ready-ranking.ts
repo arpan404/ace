@@ -18,12 +18,15 @@ export const tiers = [
 ] as const;
 export type Tier = (typeof tiers)[number]["id"];
 
-/** How close one pull request is to merging, by what the list knows of it. */
+/**
+ * How close one pull request is to merging, by its review decision and checks: the same rules,
+ * in the same order, that count each tier on GitHub. Conflicts aren't searchable, so they only
+ * move a pull request to the end of its tier.
+ */
 export function readinessTier(row: ForgePrRow): Tier {
   if (row.state === "draft") return "drafts";
   if (row.state !== "open") return "other";
-  if (row.conflicting || row.ci === "failure" || row.reviewDecision === "CHANGES_REQUESTED")
-    return "changes";
+  if (row.ci === "failure" || row.reviewDecision === "CHANGES_REQUESTED") return "changes";
   if (row.reviewDecision === "REVIEW_REQUIRED") return "review";
   if (row.ci === "pending") return "checks";
   // Approved, or a repository that requires no review, with checks green or none at all.
@@ -35,11 +38,13 @@ export function readinessTier(row: ForgePrRow): Tier {
   return "other";
 }
 
-const newest = (a: ForgePrRow, b: ForgePrRow) => b.updatedAt.localeCompare(a.updatedAt);
+/** Within a tier: mergeable before conflicting, then newest activity first. */
+const within = (a: ForgePrRow, b: ForgePrRow) =>
+  Number(!!a.conflicting) - Number(!!b.conflicting) || b.updatedAt.localeCompare(a.updatedAt);
 const key = (row: ForgePrRow) =>
   `${row.ref.repository.owner}/${row.ref.repository.name}#${row.ref.number}`.toLowerCase();
 
-/** Rows grouped by tier, readiest first, newest activity first within a tier; each PR once. */
+/** Rows grouped by tier, readiest first; each PR once. */
 export function rankByReadiness(rows: readonly ForgePrRow[]): RowGroup<ForgePrRow>[] {
   const seen = new Set<string>();
   const unique = rows.filter((row) => !seen.has(key(row)) && seen.add(key(row)));
@@ -47,7 +52,7 @@ export function rankByReadiness(rows: readonly ForgePrRow[]): RowGroup<ForgePrRo
     .map((tier) => ({
       id: tier.id,
       label: tier.label,
-      rows: unique.filter((row) => readinessTier(row) === tier.id).toSorted(newest),
+      rows: unique.filter((row) => readinessTier(row) === tier.id).toSorted(within),
     }))
     .filter((group) => group.rows.length > 0);
 }

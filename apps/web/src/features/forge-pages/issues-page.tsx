@@ -22,7 +22,7 @@ import {
 } from "./issues-model.ts";
 import { useLinkedThreads, workKey } from "./linked-threads.ts";
 import { ListFrame } from "./list-frame.tsx";
-import { useIssuePages } from "./lists.ts";
+import { useGroupCounts, useIssuePages } from "./lists.ts";
 import { NewIssueDialog } from "./new-issue-dialog.tsx";
 import { useProjectChoice } from "./project-choice.ts";
 import { GroupHeader } from "./row-parts.tsx";
@@ -85,6 +85,7 @@ export function IssuesPage(props: {
   const [paging, setPaging] = useState({ key: listKey, pages: 1 });
   const pages = paging.key === listKey ? paging.pages : 1;
   const list = useIssuePages(project, query, pages);
+  const totals = useGroupCounts(project, { by: "issue-people", query }).data;
   const linked = useLinkedThreads().issues;
   const keys = useViewListKeys<HTMLElement>();
   const [creating, setCreating] = useState(false);
@@ -189,7 +190,7 @@ export function IssuesPage(props: {
                 <GroupHeader
                   icon={groupIcons[group.id as keyof typeof groupIcons] ?? UsersIcon}
                   label={group.label}
-                  count={group.rows.length}
+                  count={totals?.[group.id]}
                 />
               )}
               <ul>

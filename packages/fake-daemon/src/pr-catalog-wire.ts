@@ -5,7 +5,7 @@ import type {
   WorkspaceActionRequest,
 } from "@ace/protocol";
 import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
-import { catalogPrList } from "./forge-list-wire.ts";
+import { catalogGroupCounts, catalogPrList } from "./forge-list-wire.ts";
 
 /**
  * Whole pull requests the fake app can open in its PR panel: detail, merge state, lifecycle,
@@ -82,6 +82,15 @@ export class FakePrCatalog {
       entry === fixture ? { ...fixture, mergeState: next } : entry,
     );
     return { ok: true, pr: payload.pr, prStatus: { ...fixture.detail.status, mergeState: next } };
+  }
+  /** Each list group's total, from these pull requests and the issues in `reads`. */
+  groupCounts(
+    op: WorkspaceActionRequest["operation"],
+    reads: ReadonlyMap<string, ForgeBrowserResult>,
+  ): ForgeBrowserResult | undefined {
+    return op.op === "forge.group-counts"
+      ? catalogGroupCounts(op, this.fixtures, reads)
+      : undefined;
   }
   read(op: WorkspaceActionRequest["operation"]): ForgeBrowserResult | undefined {
     if (op.op === "forge.pr.list") return catalogPrList(op, this.fixtures);

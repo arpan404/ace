@@ -79,6 +79,7 @@ export class FakeWorkspaceWire {
       this.issues.read(op) ??
       this.forgeReads.get(JSON.stringify(op)) ??
       (op.op === "forge.issue.list" ? catalogIssueList(op, this.forgeReads) : undefined) ??
+      this.pullRequests.groupCounts(op, this.forgeReads) ??
       emptyIssueList(op)
     );
   }

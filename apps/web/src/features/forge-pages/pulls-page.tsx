@@ -22,7 +22,7 @@ import { DetailSplit } from "./detail-split.tsx";
 import { FiltersMenu, type FilterSection } from "./filters-menu.tsx";
 import { useLinkedThreads, workKey } from "./linked-threads.ts";
 import { ListFrame } from "./list-frame.tsx";
-import { usePrPages } from "./lists.ts";
+import { useGroupCounts, usePrPages } from "./lists.ts";
 import { PrPanel } from "./pr-panel.tsx";
 import { PrRow } from "./pr-row.tsx";
 import { useReadyPages } from "./ready-pages.ts";
@@ -150,14 +150,19 @@ export function PullRequestsPage(props: {
   const sort: PullsSort = search.sort ?? "ready";
   const listed = usePrPages(project, query, pages);
   // "Ready to merge" ranks the whole repository, so it reads its own pages, readiest first.
-  const ranked = useReadyPages(project, search, sort === "ready");
-  const list = sort === "ready" ? ranked : listed;
+  // Readiness ranks open pull requests; merged or closed ones group by who they concern.
+  const byReadiness = sort === "ready" && (search.state ?? "open") === "open";
+  const ranked = useReadyPages(project, search, byReadiness);
+  const list = byReadiness ? ranked : listed;
+  const totals = useGroupCounts(
+    project,
+    byReadiness ? { by: "readiness", query } : { by: "pr-people", query },
+  ).data;
   const linked = useLinkedThreads().pulls;
   const keys = useViewListKeys<HTMLElement>();
-  const groups =
-    sort === "ready"
-      ? rankByReadiness(list.rows)
-      : groupPrs(sortPrs(list.rows, sort), list.first?.viewer);
+  const groups = byReadiness
+    ? rankByReadiness(list.rows)
+    : groupPrs(sortPrs(list.rows, sort === "ready" ? "updated" : sort), list.first?.viewer);
   const counts = list.first?.counts;
   const stateOptions = [
     { value: "open" as const, label: counts ? `Open ${counts.open + counts.draft}` : "Open" },
@@ -268,7 +273,7 @@ export function PullRequestsPage(props: {
                 <GroupHeader
                   icon={groupIcons[group.id as keyof typeof groupIcons] ?? UsersIcon}
                   label={group.label}
-                  count={group.rows.length}
+                  count={totals?.[group.id]}
                 />
               ) : null}
               <ul>
@@ -290,9 +295,7 @@ export function PullRequestsPage(props: {
                 size="sm"
                 variant="ghost"
                 onClick={() =>
-                  sort === "ready"
-                    ? ranked.loadMore()
-                    : setPaging({ key: listKey, pages: pages + 1 })
+                  byReadiness ? ranked.loadMore() : setPaging({ key: listKey, pages: pages + 1 })
                 }
               >
                 Show more

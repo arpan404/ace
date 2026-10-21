@@ -21,7 +21,7 @@ const ranked = (rows: ForgePrRow[]) =>
     rankByReadiness(rows).map((group) => [group.label, group.rows.map((r) => r.ref.number)]),
   );
 
-test("pull requests are ranked readiest first, newest activity first within each tier", () => {
+test("pull requests are ranked readiest first, mergeable then newest first within each tier", () => {
   expect(
     ranked([
       row(1),
@@ -34,10 +34,11 @@ test("pull requests are ranked readiest first, newest activity first within each
       row(8, { reviewDecision: "CHANGES_REQUESTED" }),
     ]),
   ).toEqual({
-    Ready: [5, 1],
+    // A conflict can't be searched: it only moves #3 to the end of its tier.
+    Ready: [5, 1, 3],
     "Waiting on checks": [7],
     "Waiting on review": [4],
-    "Needs changes": [8, 3, 2],
+    "Needs changes": [8, 2],
     Drafts: [6],
   });
 });

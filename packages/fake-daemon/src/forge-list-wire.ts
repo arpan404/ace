@@ -61,27 +61,9 @@ export function catalogPrList(
   if (!fixtures.length) return undefined;
   const repository = projectRepository(op);
   const { query } = op;
-  const found = fixtures
-    .filter((fixture) => sameRepository(fixture.detail.status.ref.repository, repository))
-    .map(prRow)
-    .filter(
-      (row) =>
-        matches(row.title, query.search) &&
-        (!query.author || row.author === login(query.author)) &&
-        (!query.reviewer || (row.reviewers ?? []).includes(login(query.reviewer))) &&
-        (!query.assignee || (row.assignees ?? []).includes(login(query.assignee))) &&
-        (query.ci === "any" || row.ci === query.ci) &&
-        reviewMatches(row, query.review) &&
-        query.labels.every((label) => row.labels.includes(label)),
-    )
-    .toSorted(newestFirst);
+  const found = matchingPrs(op, query, fixtures);
   const inState = (state: ForgePrRow["state"]) => found.filter((row) => row.state === state);
-  const listed =
-    query.state === "all"
-      ? found
-      : query.state === "active"
-        ? found.filter((row) => row.state === "open" || row.state === "draft")
-        : inState(query.state);
+  const listed = prsInState(found, query.state);
   return {
     resource: "prList",
     value: {
@@ -98,6 +80,40 @@ export function catalogPrList(
       truncated: false,
     },
   };
+}
+
+/** The catalog's PRs of the project's repository matching every filter but the state. */
+export function matchingPrs(
+  scope: { workspaceId: string; repository?: ForgeRepository | undefined },
+  query: Op<"forge.pr.list">["query"],
+  fixtures: readonly PullRequestFixture[],
+): ForgePrRow[] {
+  const repository = projectRepository(scope);
+  return fixtures
+    .filter((fixture) => sameRepository(fixture.detail.status.ref.repository, repository))
+    .map(prRow)
+    .filter(
+      (row) =>
+        matches(row.title, query.search) &&
+        (!query.author || row.author === login(query.author)) &&
+        (!query.reviewer || (row.reviewers ?? []).includes(login(query.reviewer))) &&
+        (!query.assignee || (row.assignees ?? []).includes(login(query.assignee))) &&
+        (query.ci === "any" || row.ci === query.ci) &&
+        reviewMatches(row, query.review) &&
+        query.labels.every((label) => row.labels.includes(label)),
+    )
+    .toSorted(newestFirst);
+}
+
+/** The rows of `rows` a search's state selects, as GitHub's state qualifiers do. */
+export function prsInState(
+  rows: readonly ForgePrRow[],
+  state: Op<"forge.pr.list">["query"]["state"],
+): ForgePrRow[] {
+  if (state === "all") return [...rows];
+  if (state === "active")
+    return rows.filter((row) => row.state === "open" || row.state === "draft");
+  return rows.filter((row) => row.state === state);
 }
 
 /** The number a timeline read's key names, for counting an issue's comments. */
@@ -121,26 +137,8 @@ export function catalogIssueList(
 ): ForgeBrowserResult | undefined {
   const repository = projectRepository(op);
   const { query } = op;
-  const byNumber = new Map<number, ForgeIssueDetail>();
-  const comments = new Map<number, number>();
-  for (const [key, value] of reads) {
-    if (value.resource === "issueDetail" && sameRepository(value.value.ref.repository, repository))
-      byNumber.set(value.value.ref.number, value.value);
-    const number = value.resource === "issueTimeline" ? timelineNumber(key) : undefined;
-    if (value.resource === "issueTimeline" && number !== undefined)
-      comments.set(number, value.events.filter((event) => event.kind === "issue_comment").length);
-  }
-  if (!byNumber.size) return undefined;
-  const found: ForgeIssueRow[] = [...byNumber.values()]
-    .filter(
-      (issue) =>
-        matches(issue.title, query.search) &&
-        (!query.author || issue.author === login(query.author)) &&
-        (!query.assignee || issue.assignees.includes(login(query.assignee))) &&
-        query.labels.every((label) => issue.labels.includes(label)),
-    )
-    .map((issue) => issueRow(issue, comments.get(issue.ref.number) ?? 0))
-    .toSorted(newestFirst);
+  const found = matchingIssues(op, query, reads);
+  if (!found) return undefined;
   const inState = (state: ForgeIssueRow["state"]) => found.filter((row) => row.state === state);
   return {
     resource: "issueList",
@@ -155,4 +153,102 @@ export function catalogIssueList(
       truncated: false,
     },
   };
+}
+
+/** The issues the fake knows of the project's repository matching every filter but the state. */
+export function matchingIssues(
+  scope: { workspaceId: string; repository?: ForgeRepository | undefined },
+  query: Op<"forge.issue.list">["query"],
+  reads: ReadonlyMap<string, ForgeBrowserResult>,
+): ForgeIssueRow[] | undefined {
+  const repository = projectRepository(scope);
+  const byNumber = new Map<number, ForgeIssueDetail>();
+  const comments = new Map<number, number>();
+  for (const [key, value] of reads) {
+    if (value.resource === "issueDetail" && sameRepository(value.value.ref.repository, repository))
+      byNumber.set(value.value.ref.number, value.value);
+    const number = value.resource === "issueTimeline" ? timelineNumber(key) : undefined;
+    if (value.resource === "issueTimeline" && number !== undefined)
+      comments.set(number, value.events.filter((event) => event.kind === "issue_comment").length);
+  }
+  if (!byNumber.size) return undefined;
+  return [...byNumber.values()]
+    .filter(
+      (issue) =>
+        matches(issue.title, query.search) &&
+        (!query.author || issue.author === login(query.author)) &&
+        (!query.assignee || issue.assignees.includes(login(query.assignee))) &&
+        query.labels.every((label) => issue.labels.includes(label)),
+    )
+    .map((issue) => issueRow(issue, comments.get(issue.ref.number) ?? 0))
+    .toSorted(newestFirst);
+}
+
+/** Each row in the first group whose test it passes; the rest in `rest`. */
+function tally<T>(rows: readonly T[], groups: [string, (row: T) => boolean][], rest: string) {
+  const counts: Record<string, number> = {};
+  const left = rows.filter((row) => {
+    for (const [id, test] of groups)
+      if (test(row)) {
+        counts[id] = (counts[id] ?? 0) + 1;
+        return false;
+      }
+    return true;
+  });
+  for (const [id] of groups) counts[id] ??= 0;
+  counts[rest] = left.length;
+  return counts;
+}
+const blocked = (row: ForgePrRow) =>
+  row.reviewDecision === "REVIEW_REQUIRED" || row.reviewDecision === "CHANGES_REQUESTED";
+
+/**
+ * `forge.group-counts` over the fake's pull requests and issues, by the rules GitHub's searches
+ * count them with: each item once, in its first group.
+ */
+export function catalogGroupCounts(
+  op: Op<"forge.group-counts">,
+  fixtures: readonly PullRequestFixture[],
+  reads: ReadonlyMap<string, ForgeBrowserResult>,
+): ForgeBrowserResult | undefined {
+  const { grouping } = op;
+  if (grouping.by === "issue-people") {
+    const issues = matchingIssues(op, grouping.query, reads);
+    if (!issues) return undefined;
+    const counts = tally(
+      issues.filter((row) => row.state === grouping.query.state),
+      [
+        ["assigned", (row) => row.assignees.includes(viewer)],
+        ["created", (row) => row.author === viewer],
+      ],
+      "others",
+    );
+    return { resource: "groupCounts", counts };
+  }
+  if (!fixtures.length) return undefined;
+  const rows = matchingPrs(op, grouping.query, fixtures);
+  if (grouping.by === "pr-people")
+    return {
+      resource: "groupCounts",
+      counts: tally(
+        prsInState(rows, grouping.query.state),
+        [
+          ["authored", (row) => row.author === viewer],
+          ["reviewing", (row) => (row.reviewers ?? []).includes(viewer)],
+        ],
+        "others",
+      ),
+    };
+  const counts = tally(
+    rows.filter((row) => row.state === "open"),
+    [
+      ["changes", (row) => row.reviewDecision === "CHANGES_REQUESTED" || row.ci === "failure"],
+      ["review", (row) => row.reviewDecision === "REVIEW_REQUIRED"],
+      ["checks", (row) => row.ci === "pending" && !blocked(row)],
+      ["ready", (row) => (row.ci === "success" || row.ci === "none") && !blocked(row)],
+    ],
+    "other",
+  );
+  counts.drafts = rows.filter((row) => row.state === "draft").length;
+  return { resource: "groupCounts", counts };
 }

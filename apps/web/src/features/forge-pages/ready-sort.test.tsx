@@ -37,6 +37,10 @@ function withBusyRepository() {
   return app;
 }
 
+/** A group's heading: its name and GitHub's total for it. */
+const heading = (name: string) =>
+  within(screen.getByRole("region", { name })).getByRole("heading").textContent;
+
 async function groups() {
   const nav = await screen.findByRole("navigation", { name: "Pull requests" });
   return Object.fromEntries(
@@ -55,6 +59,9 @@ test("a ready pull request older than the first page still leads the list", asyn
   await waitFor(async () => expect(await groups()).toEqual({ Ready: 1, "Waiting on review": 25 }));
   const ready = within(await screen.findByRole("region", { name: "Ready" }));
   expect(ready.getByRole("link", { name: /Old but ready/ })).toBeTruthy();
+  // 25 of the 30 waiting on review are loaded; the heading says GitHub's 30.
+  await waitFor(() => expect(heading("Waiting on review")).toBe("Waiting on review30"));
+  expect(heading("Ready")).toBe("Ready1");
   await userEvent.click(screen.getByRole("button", { name: "Show more" }));
   await waitFor(async () => expect(await groups()).toEqual({ Ready: 1, "Waiting on review": 30 }));
 });

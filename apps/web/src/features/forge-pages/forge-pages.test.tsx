@@ -25,6 +25,13 @@ async function groups(name: ListName) {
       .map((section) => [section.getAttribute("aria-label"), numbersIn(section)]),
   );
 }
+/** Each group's heading: its name and GitHub's total for it. */
+async function headings(name: ListName) {
+  const nav = await screen.findByRole("navigation", { name });
+  return within(nav)
+    .getAllByRole("heading")
+    .map((heading) => heading.textContent);
+}
 async function numbers(name: ListName) {
   return numbersIn(await screen.findByRole("navigation", { name }));
 }
@@ -39,8 +46,9 @@ test("by default open pull requests are ranked by how close they are to merging"
   await waitFor(async () =>
     expect(await groups("Pull requests")).toEqual({
       Ready: ["224"],
-      "Waiting on review": ["231"],
-      "Needs changes": ["229", "226"],
+      // #226 conflicts with its base but waits on review: it goes last in that tier.
+      "Waiting on review": ["231", "226"],
+      "Needs changes": ["229"],
       Drafts: ["227"],
     }),
   );
@@ -56,6 +64,13 @@ test("sorted by activity, open pull requests are grouped as yours, waiting on yo
       Others: ["224"],
     }),
   );
+  await waitFor(async () =>
+    expect(await headings("Pull requests")).toEqual([
+      "Authored by you2",
+      "Review requested2",
+      "Others1",
+    ]),
+  );
 });
 
 test("Reviewing narrows the list to pull requests asking for your review", async () => {
@@ -63,7 +78,7 @@ test("Reviewing narrows the list to pull requests asking for your review", async
   await app.open("/pulls?project=ace");
   await screen.findByRole("navigation", { name: "Pull requests" });
   await userEvent.click(screen.getByRole("button", { name: "Reviewing" }));
-  await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["229", "226"]));
+  await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["226", "229"]));
 });
 
 test("the state menu counts each state and lists merged pull requests", async () => {
@@ -122,6 +137,9 @@ test("issues are grouped as assigned to you, opened by you, and the rest", async
       "Created by you": ["235"],
       Others: ["238"],
     }),
+  );
+  await waitFor(async () =>
+    expect(await headings("Issues")).toEqual(["Assigned to you1", "Created by you1", "Others1"]),
   );
 });
 

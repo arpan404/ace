@@ -74,13 +74,15 @@ export function Thread(props: { thread: LinkedThread | undefined }) {
   );
 }
 
-/** A group of rows: its glyph, name, count and a hairline to the edge. */
-export function GroupHeader(props: { icon: IconGlyph; label: string; count: number }) {
+/** A group of rows: its glyph, name, GitHub's total once known, and a hairline to the edge. */
+export function GroupHeader(props: { icon: IconGlyph; label: string; count: number | undefined }) {
   return (
     <h2 className="flex items-center gap-2 px-4 pt-5 pb-1.5 text-xs font-medium text-muted-foreground">
       <Icon icon={props.icon} size={14} className="text-faint-foreground" />
       {props.label}
-      <span className="font-normal text-subtle-foreground tabular-nums">{props.count}</span>
+      {props.count !== undefined && (
+        <span className="font-normal text-subtle-foreground tabular-nums">{props.count}</span>
+      )}
       <span aria-hidden className="h-px flex-1 bg-border" />
     </h2>
   );

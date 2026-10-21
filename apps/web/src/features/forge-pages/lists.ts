@@ -1,5 +1,6 @@
 import type { ClientApi } from "@ace/client";
 import type {
+  ForgeGroupCounting,
   ForgeIssueDetail,
   ForgeIssueList,
   ForgeIssueSearch,
@@ -110,6 +111,28 @@ export function useIssuePages(project: string | undefined, query: ForgeIssueSear
       return value.value;
     },
   );
+}
+
+/**
+ * Every group's total for the list on show, as GitHub counts it: one request per filter set,
+ * kept as long as the list's pages are.
+ */
+export function useGroupCounts(project: string | undefined, grouping: ForgeGroupCounting) {
+  return useDaemonQuery<Record<string, number>>({
+    queryKey: ["forge", project, "browse", "groupCounts", grouping],
+    enabled: !!project,
+    ...listed,
+    placeholderData: keepPreviousData,
+    read: async (client, signal) => {
+      const value = await readForge(
+        client,
+        { op: "forge.group-counts", workspaceId: project ?? "", grouping },
+        signal,
+      );
+      if (value.resource !== "groupCounts") throw new Error("No group counts.");
+      return value.counts;
+    },
+  });
 }
 
 export const issueDetailKey = (project: string, number: number) =>
