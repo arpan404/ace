@@ -50,6 +50,41 @@ const commit = {
   author: { login: "contributor" },
   commit: { message: "Handle empty input", author: { name: "Contributor", date: "2026-10-01" } },
 };
+/** A commit as GitHub's GraphQL `pullRequest.commits` lists it. */
+const commitNode = (oid: string, message = "Handle empty input") => ({
+  commit: {
+    oid,
+    message,
+    url: `${pr.html_url}/commits/${oid}`,
+    additions: 8,
+    deletions: 3,
+    author: { name: "Contributor", date: "2026-10-01", user: { login: "contributor" } },
+  },
+});
+/** One newest-first page of a PR's commits; `before` is the cursor of the next older page. */
+const commitPage = (
+  nodes: unknown[],
+  options: { head?: string; before?: string; total?: number } = {},
+) => ({
+  body: {
+    data: {
+      repository: {
+        pullRequest: {
+          headRefOid: options.head ?? sha,
+          commits: {
+            totalCount: options.total ?? nodes.length,
+            pageInfo: {
+              hasPreviousPage: options.before !== undefined,
+              startCursor: options.before ?? null,
+            },
+            nodes,
+          },
+        },
+      },
+    },
+  },
+});
+const commitsQuery = "graphql:query PrCommits(";
 
 test("repository search keeps literal words scoped and returns counts, draft rows and incomplete bounded pages", async () => {
   const query = ForgePrSearch.parse({
@@ -258,7 +293,7 @@ test("individual commit diffs use the commit's first parent and reject unrelated
       { body: { merge_base_commit: { sha: nextSha } } },
     ],
     "repos/octo/ace/pulls/7": [{ body: richPr }],
-    "repos/octo/ace/pulls/7/commits?per_page=100&page=1": [{ body: [commit] }],
+    [commitsQuery]: [commitPage([commitNode(sha)])],
     [`repos/octo/ace/commits/${sha}?per_page=25&page=1`]: [
       { body: { ...commit, parents: [{ sha: nextSha }], files: [file] } },
     ],
@@ -301,19 +336,17 @@ test("malformed pagination and cancelled or rate-limited reads never produce par
     ).rejects.toMatchObject({ kind: "invalid_data" });
     const cancelled = new AbortController();
     cancelled.abort();
-    await expect(f.forge.prCommits(7, 1, sha, cancelled.signal)).rejects.toMatchObject({
+    await expect(f.forge.prCommits(7, undefined, sha, cancelled.signal)).rejects.toMatchObject({
       kind: "cancelled",
     });
   } finally {
     await f.cleanup();
   }
   const limited = await fakeGh({
-    "repos/octo/ace/pulls/7/commits?per_page=25&page=1": [
-      { status: 429, headers: { "retry-after": "60" } },
-    ],
+    [commitsQuery]: [{ status: 429, headers: { "retry-after": "60" } }],
   });
   try {
-    await expect(limited.forge.prCommits(7, 1, sha, signal())).rejects.toMatchObject({
+    await expect(limited.forge.prCommits(7, undefined, sha, signal())).rejects.toMatchObject({
       kind: "rate_limit",
       retryAt: 61_000,
     });
@@ -323,16 +356,12 @@ test("malformed pagination and cancelled or rate-limited reads never produce par
 });
 
 test("a push during a commit-list read cannot label the new commits with the previously selected head", async () => {
+  // The push landed before the page was read: the page names the new head.
   const f = await fakeGh({
-    // The push landed while the list was read: the check after it sees the new head.
-    "repos/octo/ace/pulls/7": [{ body: { ...richPr, head: { ...richPr.head, sha: nextSha } } }],
-    "repos/octo/ace/pulls/7/commits?per_page=25&page=1": [{ body: [{ ...commit, sha: nextSha }] }],
-    graphql: [
-      { body: { data: { repository: { c0: { oid: nextSha, additions: 8, deletions: 3 } } } } },
-    ],
+    [commitsQuery]: [commitPage([commitNode(nextSha)], { head: nextSha })],
   });
   try {
-    await expect(f.forge.prCommits(7, 1, sha, signal())).rejects.toMatchObject({
+    await expect(f.forge.prCommits(7, undefined, sha, signal())).rejects.toMatchObject({
       kind: "conflict",
     });
   } finally {
@@ -340,28 +369,69 @@ test("a push during a commit-list read cannot label the new commits with the pre
   }
 });
 
-test("commit pages expose per-commit statistics and preserve authors and next-page navigation", async () => {
-  const path = "repos/octo/ace/pulls/7/commits?per_page=25&page=1";
+test("a PR with more than 250 commits lists every one, newest page first, with statistics and authors", async () => {
+  const shas = Array.from({ length: 260 }, (_, n) => n.toString(16).padStart(40, "0"));
   const f = await fakeGh({
-    "repos/octo/ace/pulls/7": [{ body: richPr }],
-    graphql: [{ body: { data: { repository: { c0: { oid: sha, additions: 8, deletions: 3 } } } } }],
-    [path]: [
-      {
-        body: [commit],
-        headers: {
-          link: '<https://api.github.com/repos/octo/ace/pulls/7/commits?per_page=25&page=2>; rel="next"',
-        },
-      },
+    [commitsQuery]: [
+      commitPage(
+        shas.slice(160).map((oid) => commitNode(oid)),
+        { before: "c160", total: 260 },
+      ),
+      commitPage(
+        shas.slice(60, 160).map((oid) => commitNode(oid)),
+        { before: "c60", total: 260 },
+      ),
+      commitPage(
+        shas.slice(0, 60).map((oid) => commitNode(oid)),
+        { total: 260 },
+      ),
     ],
   });
   try {
-    expect(await f.forge.prCommits(7, 1, sha, signal())).toMatchObject({
-      commits: [
-        { sha, author: "contributor", message: "Handle empty input", additions: 8, deletions: 3 },
-      ],
-      nextPage: 2,
-      truncated: false,
+    const newest = await f.forge.prCommits(7, undefined, sha, signal());
+    expect(newest).toMatchObject({ before: "c160", total: 260, truncated: false });
+    expect(newest.commits.at(-1)).toMatchObject({
+      sha: shas[259],
+      author: "contributor",
+      message: "Handle empty input",
+      additions: 8,
+      deletions: 3,
+      date: "2026-10-01",
     });
+    const middle = await f.forge.prCommits(7, newest.before, sha, signal());
+    const oldest = await f.forge.prCommits(7, middle.before, sha, signal());
+    expect(oldest.before).toBeUndefined();
+    const listed = [...oldest.commits, ...middle.commits, ...newest.commits].map((c) => c.sha);
+    expect(listed).toEqual(shas);
+    // Each older page is asked for by the cursor the newer one named.
+    const cursors = (await f.requests())
+      .filter((request) => request.path === "graphql")
+      .map((request) => (request.body as { variables: { before: unknown } }).variables.before);
+    expect(cursors).toEqual([null, "c160", "c60"]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("a commit older than the newest page still opens its own diff", async () => {
+  const old = "d".repeat(40);
+  const f = await fakeGh({
+    "repos/octo/ace/pulls/7": [{ body: richPr }],
+    [commitsQuery]: [
+      commitPage([commitNode(sha)], { before: "c1", total: 301 }),
+      commitPage([commitNode(old)], { total: 301 }),
+    ],
+    [`repos/octo/ace/commits/${old}?per_page=25&page=1`]: [
+      { body: { ...commit, sha: old, parents: [{ sha: nextSha }], files: [file] } },
+    ],
+  });
+  try {
+    expect(
+      await f.forge.prFiles(
+        { number: 7, page: 1, headSha: sha, baseSha: nextSha, commit: old },
+        signal(),
+      ),
+    ).toMatchObject({ commit: old, baseSha: nextSha, files: [{ patch: file.patch }] });
   } finally {
     await f.cleanup();
   }
@@ -393,7 +463,7 @@ test("the PR file provider cap stays visible on a terminal page with complete pa
 test("a PR's file cap does not label a complete individual-commit diff as truncated", async () => {
   const f = await fakeGh({
     "repos/octo/ace/pulls/7": [{ body: { ...richPr, changed_files: 3001 } }],
-    "repos/octo/ace/pulls/7/commits?per_page=100&page=1": [{ body: [commit] }],
+    [commitsQuery]: [commitPage([commitNode(sha)])],
     [`repos/octo/ace/commits/${sha}?per_page=25&page=1`]: [
       { body: { ...commit, parents: [{ sha: nextSha }], files: [file] } },
     ],
@@ -445,7 +515,7 @@ test("timeline events preserve unknown kinds and fields while exposing actor, la
     extra: { retained: true },
   };
   const f = await fakeGh({
-    "repos/octo/ace/issues/7/timeline?per_page=25&page=1": [
+    "repos/octo/ace/issues/7/timeline?per_page=100&page=1": [
       {
         body: [
           future,

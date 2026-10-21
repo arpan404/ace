@@ -10,6 +10,12 @@ import { WorkspaceId, ThreadId } from "./ids.ts";
 const text = z.string().max(65_536);
 const sha = z.string().regex(/^[a-fA-F0-9]{40,64}$/);
 export const ForgePageInput = z.object({ page: z.number().int().min(1).max(120).default(1) });
+/** A timeline page of up to 100 events; a long pull request has many. */
+export const ForgeActivityPageInput = z.object({
+  page: z.number().int().min(1).max(10_000).default(1),
+});
+/** A provider's opaque position in a newest-first list. */
+const cursor = z.string().min(1).max(256);
 export const ForgePrSearch = z.object({
   /** `open` leaves drafts out; `active` is every open PR, drafts included. */
   state: z.enum(["open", "draft", "closed", "merged", "active"]).default("open"),
@@ -180,7 +186,7 @@ export const ForgeBrowserOperations = [
     op: z.literal("forge.pr.activity"),
     ...scope,
     number: z.number().int().positive(),
-    ...ForgePageInput.shape,
+    ...ForgeActivityPageInput.shape,
   }),
   z.object({ op: z.literal("forge.pr.list"), ...scope, query: ForgePrSearch }),
   z.object({ op: z.literal("forge.open-work"), ...scope }),
@@ -189,7 +195,8 @@ export const ForgeBrowserOperations = [
     op: z.literal("forge.pr.commits"),
     ...scope,
     number: z.number().int().positive(),
-    ...ForgePageInput.shape,
+    /** The page older than this cursor; none reads the newest page. */
+    before: cursor.optional(),
     headSha: sha,
   }),
   z.object({
@@ -214,8 +221,10 @@ export const ForgeBrowserResult = z.discriminatedUnion("resource", [
   z.object({ resource: z.literal("prReviewState"), value: ForgeReviewState }),
   z.object({
     resource: z.literal("prActivity"),
-    events: z.array(ForgeActivity).max(25),
+    events: z.array(ForgeActivity).max(100),
     nextPage: z.number().int().positive().optional(),
+    /** The timeline's last (newest) page, so the pages between can be read at once. */
+    lastPage: z.number().int().positive().optional(),
     truncated: z.boolean(),
   }),
   z.object({ resource: z.literal("prList"), value: ForgePrList }),
@@ -223,8 +232,12 @@ export const ForgeBrowserResult = z.discriminatedUnion("resource", [
   z.object({ resource: z.literal("prDetail"), value: ForgePrDetail }),
   z.object({
     resource: z.literal("prCommits"),
-    commits: z.array(ForgeCommit).max(25),
-    nextPage: z.number().int().positive().optional(),
+    /** One page, oldest first; pages come newest first. */
+    commits: z.array(ForgeCommit).max(100),
+    /** Pass as `before` to read the next older page; absent on the oldest page. */
+    before: cursor.optional(),
+    /** How many commits the pull request has. */
+    total: z.number().int().nonnegative().optional(),
     truncated: z.boolean(),
   }),
   z.object({ resource: z.literal("prFiles"), value: ForgePrFiles }),

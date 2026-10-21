@@ -101,6 +101,6 @@ export function codeCaveats(facts: {
   if (facts.withheld)
     notes.push("GitHub withheld some patches (binary or too large). Open GitHub to see them.");
   if (facts.truncated) notes.push("GitHub lists at most 3,000 files for a pull request.");
-  if (facts.commitsTruncated) notes.push("GitHub lists only the first 250 commits.");
+  if (facts.commitsTruncated) notes.push("Only the newest 10,000 commits are listed.");
   return notes;
 }

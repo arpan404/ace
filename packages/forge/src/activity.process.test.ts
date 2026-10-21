@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { fakeGh, sha } from "./testing/fixtures.ts";
 
 const signal = () => new AbortController().signal;
-const timeline = (page: number) => `repos/octo/ace/issues/7/timeline?per_page=25&page=${page}`;
+const timeline = (page: number) => `repos/octo/ace/issues/7/timeline?per_page=100&page=${page}`;
 // GitHub links the next timeline page by repository id, not by owner and name.
 const byIdLink = (path: string) => `<https://api.github.com/repositories/1401155797/${path}>`;
 
@@ -179,7 +179,7 @@ test("a next link by repository id that names a different resource is refused", 
     [timeline(1)]: [
       {
         body: [{ id: 1, event: "closed", actor: { login: "author" } }],
-        headers: { link: `${byIdLink("issues/8/timeline?per_page=25&page=2")}; rel="next"` },
+        headers: { link: `${byIdLink("issues/8/timeline?per_page=100&page=2")}; rel="next"` },
       },
     ],
   });
@@ -187,6 +187,36 @@ test("a next link by repository id that names a different resource is refused", 
     await expect(f.forge.prActivity(7, 1, signal())).rejects.toMatchObject({
       kind: "invalid_data",
     });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("a long timeline's first page names its last page, so the newest page can be read next", async () => {
+  const link = (page: number, rel: string) =>
+    `${byIdLink(timeline(page).replace("repos/octo/ace/", ""))}; rel="${rel}"`;
+  const labels = Array.from({ length: 100 }, (_, n) => ({
+    id: n,
+    event: "labeled",
+    actor: { login: "author" },
+    label: { name: "bug" },
+  }));
+  const f = await fakeGh({
+    [timeline(1)]: [{ body: labels, headers: { link: `${link(2, "next")}, ${link(31, "last")}` } }],
+    [timeline(31)]: [
+      {
+        body: [{ id: 9_000, event: "merged", actor: { login: "author" } }],
+        headers: { link: `${link(1, "first")}, ${link(30, "prev")}` },
+      },
+    ],
+  });
+  try {
+    const first = await f.forge.prActivity(7, 1, signal());
+    expect(first).toMatchObject({ nextPage: 2, lastPage: 31, truncated: false });
+    expect(first.events).toHaveLength(100);
+    const newest = await f.forge.prActivity(7, first.lastPage ?? 0, signal());
+    expect(newest.events).toMatchObject([{ id: "9000", event: "merged" }]);
+    expect(newest.nextPage).toBeUndefined();
   } finally {
     await f.cleanup();
   }

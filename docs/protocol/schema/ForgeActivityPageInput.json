@@ -1,0 +1,13 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeActivityPageInput.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "page": {
+      "default": 1,
+      "maximum": 10000,
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "type": "object"
+}
