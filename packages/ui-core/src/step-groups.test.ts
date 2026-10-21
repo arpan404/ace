@@ -1,6 +1,13 @@
 import { Item, type ToolDetail } from "@ace/protocol";
 import { expect, it } from "vitest";
-import { groupSteps, groupSummary, retriedStepIds, stepFact, type StepFact } from "./index.ts";
+import {
+  backgroundFact,
+  groupSteps,
+  groupSummary,
+  retriedStepIds,
+  stepFact,
+  type StepFact,
+} from "./index.ts";
 
 let created = 0;
 function call(
@@ -286,4 +293,24 @@ it("a question the agent asked is its own row, and questions asked back to back 
   );
   expect(groups.map((group) => group.ids)).toEqual([["a"], ["q1"], ["t"], ["q2", "q3"], ["b"]]);
   expect(groups[3]?.summary).toBe("Asked 2 questions");
+});
+
+it("commands left running in the background are a row of their own, never counted as commands", () => {
+  const background = new Set(["dev", "watch"]);
+  const steps = facts([
+    shell("build", "bun run build"),
+    shell("dev", "bun run dev"),
+    shell("watch", "bun run watch"),
+    thought("next", "Check the server."),
+    shell("curl", "curl localhost:3000"),
+  ]).map((fact) => (background.has(fact.id) ? backgroundFact(fact) : fact));
+  const { groups } = groupSteps(steps);
+  expect(groups.map((group) => group.ids)).toEqual([
+    ["build"],
+    ["dev", "watch"],
+    ["next"],
+    ["curl"],
+  ]);
+  expect(groups[1]).toMatchObject({ icon: "background", sentence: "Ran 2 background tasks" });
+  expect(groups.map((group) => group.summary).join(" ")).not.toMatch(/commands/);
 });

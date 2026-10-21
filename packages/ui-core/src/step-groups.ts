@@ -26,6 +26,7 @@ export type StepKind =
   | "plan"
   | "agent"
   | "spawn"
+  | "background"
   | "question"
   | "tool"
   | "think";
@@ -66,6 +67,14 @@ export interface StepGroup {
 }
 
 const exploring = new Set<StepKind>(["read", "list", "search"]);
+
+/**
+ * How a command left running in the background counts (its call has a background task): as a
+ * background task, never as a plain command, so a folded "Ran 3 commands" never hides it.
+ */
+export function backgroundFact(fact: StepFact): StepFact {
+  return fact.kind === "background" ? fact : { ...fact, kind: "background", target: undefined };
+}
 
 /**
  * How one item counts for grouping; `retried` holds failed steps a later step re-ran. Undefined
@@ -203,6 +212,7 @@ function phrases(facts: readonly StepFact[]): { kind: StepKind; text: string; st
   add("list", (steps) => `listed ${plural(steps, "folder")}`);
   add("plan", () => "updated the task list");
   add("spawn", (steps) => `started ${plural(steps, "subagent")}`);
+  add("background", (steps) => `ran ${plural(steps, "background task")}`);
   add("agent", (steps) => `messaged ${plural(steps, "subagent")}`);
   add("question", (steps) => `asked ${plural(steps, "question")}`);
   add("tool", (steps) => `used ${plural(steps, "tool")}`);
@@ -304,6 +314,7 @@ export type StepFamily =
   | "computer"
   | "plan"
   | "agents"
+  | "background"
   | "question"
   | "tool";
 
@@ -319,6 +330,7 @@ const families: Record<Exclude<StepKind, "think">, StepFamily> = {
   computer: "computer",
   plan: "plan",
   spawn: "agents",
+  background: "background",
   agent: "agents",
   question: "question",
   tool: "tool",
@@ -339,6 +351,9 @@ export function stepFamily(kind: StepKind): StepFamily | undefined {
 function joins(facts: readonly StepFact[], fact: StepFact): boolean {
   const last = facts.at(-1);
   if (!last || last.alone || fact.alone || last.agentId !== fact.agentId) return false;
+  // Commands left running in the background read as one card of their own (their lines, Stop
+  // and all): only consecutive ones share it, and a thought after one starts a new row.
+  if ((last.kind === "background") !== (fact.kind === "background")) return false;
   // A question reads as its own row, with its answer: only another question joins it.
   if ((last.kind === "question") !== (fact.kind === "question")) return false;
   if (facts.length === 1 && last.kind === "think") return false;
