@@ -180,3 +180,84 @@ test("committed deletion survives reconnect and restoring its definition retains
     await f.daemon.close();
   }
 });
+
+test("a scheduled prompt can be edited while paused and resumes with its saved schedule after reconnect", async () => {
+  const f = await daemonFixture();
+  let connection = await connect(f, "schedule-editor");
+  try {
+    await f.daemon.settings.set("automations.enabled", true, { kind: "global" });
+    const automation = {
+      ...definition(f.workspace),
+      trigger: {
+        kind: "schedule",
+        schedule: {
+          kind: "rrule",
+          expression: "FREQ=DAILY;BYHOUR=9;BYMINUTE=30",
+          timezone: "America/Chicago",
+          startAt: Math.ceil(Date.now() / 60_000) * 60_000 + 86_400_000,
+        },
+      },
+    } satisfies Automation;
+    expect(
+      await connection.ask({
+        type: "automation.put",
+        requestId: "schedule",
+        automation,
+        expectedRevision: null,
+      }),
+    ).toMatchObject({ ok: true });
+    const before = await connection.ask({ type: "automation.list", requestId: "before-pause" });
+    expect(before.schedules?.[0]?.nextRunAt).toBeGreaterThan(Date.now());
+    expect(
+      await connection.ask({
+        type: "automation.setEnabled",
+        requestId: "pause-schedule",
+        id: automation.id,
+        enabled: false,
+        expectedRevision: z.number().parse(before.schedules?.[0]?.revision),
+      }),
+    ).toMatchObject({ ok: true });
+    const paused = await connection.ask({ type: "automation.list", requestId: "paused" });
+    expect(paused.schedules?.[0]?.nextRunAt).toBeNull();
+    const edited = Automation.parse({
+      ...automation,
+      enabled: false,
+      prompt: "Review failed tests and summarize their causes",
+      trigger: {
+        ...automation.trigger,
+        schedule: {
+          ...automation.trigger.schedule,
+          expression: "FREQ=WEEKLY;BYDAY=MO;BYHOUR=10;BYMINUTE=0",
+        },
+      },
+    });
+    expect(
+      await connection.ask({
+        type: "automation.put",
+        requestId: "edit-paused",
+        automation: edited,
+        expectedRevision: z.number().parse(paused.schedules?.[0]?.revision),
+      }),
+    ).toMatchObject({ ok: true });
+    await connection.client.close();
+    connection = await connect(f, "resumed-schedule-editor");
+    const saved = await connection.ask({ type: "automation.list", requestId: "reconnected" });
+    expect(saved.automations).toEqual([edited]);
+    expect(saved.schedules?.[0]?.nextRunAt).toBeNull();
+    expect(
+      await connection.ask({
+        type: "automation.setEnabled",
+        requestId: "resume-schedule",
+        id: automation.id,
+        enabled: true,
+        expectedRevision: z.number().parse(saved.schedules?.[0]?.revision),
+      }),
+    ).toMatchObject({ ok: true });
+    const resumed = await connection.ask({ type: "automation.list", requestId: "resumed" });
+    expect(resumed.automations).toEqual([{ ...edited, enabled: true }]);
+    expect(resumed.schedules?.[0]?.nextRunAt).toBeGreaterThan(Date.now());
+  } finally {
+    await connection.client.close();
+    await f.daemon.close();
+  }
+});
