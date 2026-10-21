@@ -101,8 +101,9 @@ export function standard(): Fixtures {
 
 export async function fakeGh(
   fixtures: Fixtures,
-  options: { maxBytes?: number; timeoutMs?: number } = {},
+  options: { maxBytes?: number; timeoutMs?: number; now?: () => number } = {},
 ) {
+  const { now = () => 1_000, ...limits } = options;
   const dir = await mkdtemp(join(tmpdir(), "ace-forge-"));
   const executable = join(dir, "gh");
   const config = join(dir, "fixtures.json");
@@ -113,9 +114,9 @@ export async function fakeGh(
   const runner = createCommandRunner({
     cwd: dir,
     env: { FORGE_FIXTURE: config, FORGE_STATE: state },
-    ...options,
+    ...limits,
   });
-  const forge = new GitHubForge({ repository, runner, command: executable, now: () => 1_000 });
+  const forge = new GitHubForge({ repository, runner, command: executable, now });
   return {
     dir,
     runner,

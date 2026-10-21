@@ -18,6 +18,7 @@ import { scriptOutput } from "./catalog/scripts.ts";
 import { FakeForgeWire } from "./forge-wire.ts";
 import { FakePrCatalog } from "./pr-catalog-wire.ts";
 import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
+import { fakeOpenWork } from "./open-work-wire.ts";
 import { emptyIssueList, FakeIssueWire } from "./issue-wire.ts";
 import { FakeTerminals } from "./terminals.ts";
 import { FakeGitStates } from "./git-states.ts";
@@ -66,8 +67,16 @@ export class FakeWorkspaceWire {
   seedPullRequests(fixtures: readonly PullRequestFixture[]): void {
     this.pullRequests.seed(fixtures);
   }
+  private seededRead(op: WorkspaceActionRequest["operation"]): ForgeBrowserResult | undefined {
+    return this.issues.read(op) ?? this.forgeReads.get(JSON.stringify(op)) ?? emptyIssueList(op);
+  }
   setForgeRead(operation: ForgeBrowserOperation, result: ForgeBrowserResult): void {
     this.forgeReads.set(JSON.stringify(operation), ForgeBrowserResult.parse(result));
+  }
+  private forgeReadCounts = new Map<string, number>();
+  /** How many times clients asked for this forge read, as GitHub would see them. */
+  forgeReadCount(operation: ForgeBrowserOperation): number {
+    return this.forgeReadCounts.get(JSON.stringify(operation)) ?? 0;
   }
   /** Browser fixtures cannot inspect the OS. Apps exist only when a scenario explicitly seeds them. */
   private editors: readonly InstalledEditor[] = [];
@@ -115,6 +124,10 @@ export class FakeWorkspaceWire {
   }
   async read(request: WorkspaceActionRequest) {
     const op = request.operation;
+    if (op.op.startsWith("forge.")) {
+      const key = JSON.stringify(op);
+      this.forgeReadCounts.set(key, (this.forgeReadCounts.get(key) ?? 0) + 1);
+    }
     if (op.op === "git.draft.cancel") {
       this.drafts.cancel(op.generationId);
       return ServerMessage.parse({
@@ -198,9 +211,14 @@ export class FakeWorkspaceWire {
           : { kind: "error", code: "forge_not_found" },
       });
     }
+    if (op.op === "forge.open-work")
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: { kind: "forge", data: fakeOpenWork(op, (list) => this.seededRead(list)) },
+      });
     if (op.op.startsWith("forge.")) {
-      const data =
-        this.issues.read(op) ?? this.forgeReads.get(JSON.stringify(op)) ?? emptyIssueList(op);
+      const data = this.seededRead(op);
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,

@@ -89,6 +89,7 @@ export class GhApi {
   readonly #command: string;
   readonly #host: string;
   readonly #now: () => number;
+  readonly #onWrite: (() => void) | undefined;
   readonly #cache = new Map<string, Cached>();
   #cacheBytes = 0;
   constructor(options: {
@@ -96,11 +97,14 @@ export class GhApi {
     command?: string;
     host: string;
     now: () => number;
+    /** Runs as a write starts and once it ends, however it ends. */
+    onWrite?: () => void;
   }) {
     this.#runner = options.runner;
     this.#command = options.command ?? "gh";
     this.#host = options.host;
     this.#now = options.now;
+    this.#onWrite = options.onWrite;
   }
   async request(
     path: string,
@@ -116,10 +120,14 @@ export class GhApi {
       signal,
       mode: "json" as const,
     };
+    const write = isForgeMutation(request);
+    if (write) this.#onWrite?.();
     try {
       return await this.#request(path, signal, body, method, dispatch);
     } catch (error) {
-      throw isForgeMutation(request) ? dispatch.failure(error) : error;
+      throw write ? dispatch.failure(error) : error;
+    } finally {
+      if (write) this.#onWrite?.();
     }
   }
   async #request(
