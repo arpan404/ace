@@ -60,9 +60,12 @@ export function PrCheckLog(props: {
   const scroller = useRef<HTMLDivElement>(null);
   const rows = useRef<VirtualRowsHandle>(null);
   const focus = log.focus;
-  // The log opens at the failing step, once.
+  // The log opens at the failing step, once: on the next frame, after a long log's window has
+  // found its scroller.
   useEffect(() => {
-    if (focus !== null) scrollToLine(scroller.current, rows.current, focus);
+    if (focus === null) return;
+    const frame = requestAnimationFrame(() => scrollToLine(scroller.current, rows.current, focus));
+    return () => cancelAnimationFrame(frame);
   }, [focus]);
   const jump = props.jump;
   useEffect(() => {
