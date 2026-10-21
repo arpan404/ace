@@ -85,7 +85,7 @@ export function NewIssuePage(props: {
                       ?.querySelector<HTMLTextAreaElement>("textarea")
                       ?.focus();
                 }}
-                className="h-9 w-full min-w-0 bg-transparent text-xl font-semibold tracking-title text-foreground outline-none placeholder:font-normal placeholder:text-subtle-foreground"
+                className="h-9 w-full min-w-0 bg-transparent text-xl font-semibold tracking-title text-foreground placeholder:font-normal focus:outline-none placeholder:text-subtle-foreground"
               />
             }
           />

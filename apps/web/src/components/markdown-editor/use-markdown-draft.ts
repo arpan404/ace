@@ -31,11 +31,7 @@ function read(storage: KeyValueStorage | undefined, key: string): string | undef
 function write(storage: KeyValueStorage | undefined, key: string, text: string) {
   // Each write reads the list again, so two windows writing different drafts keep both.
   const entries = readJson(storage, storageKey, Entries, []);
-  writeJson(
-    storage,
-    storageKey,
-    putDraft(entries, key, { text, mentions: [], attachments: [] }),
-  );
+  writeJson(storage, storageKey, putDraft(entries, key, { text, mentions: [], attachments: [] }));
 }
 
 /**
@@ -56,10 +52,13 @@ export function useMarkdownDraft(key: string | undefined, initial = "") {
     write(storage, key, current.current);
   });
   useEffect(() => {
-    if (!pending.current) return;
-    const timer = setTimeout(flush, settleMs);
+    if (!key || !pending.current) return;
+    const timer = setTimeout(() => {
+      pending.current = false;
+      write(storage, key, text);
+    }, settleMs);
     return () => clearTimeout(timer);
-  }, [text]);
+  }, [key, storage, text]);
   useEffect(() => {
     const hidden = () => flush();
     window.addEventListener("pagehide", hidden);

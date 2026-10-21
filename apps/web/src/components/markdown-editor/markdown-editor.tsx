@@ -118,7 +118,7 @@ export function MarkdownEditor(props: {
           applyChange(event.currentTarget, change);
         }}
         className={cn(
-          "block w-full resize-none overflow-y-auto bg-transparent px-3 py-2 text-ui leading-normal text-foreground outline-none [field-sizing:content] placeholder:text-subtle-foreground pointer-coarse:text-[16px]",
+          "block w-full resize-none overflow-y-auto bg-transparent px-3 py-2 text-ui leading-normal text-foreground [field-sizing:content] placeholder:text-subtle-foreground focus:outline-none",
           heights[props.size ?? "comment"],
         )}
       />

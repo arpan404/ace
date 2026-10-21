@@ -6,7 +6,10 @@ import { formatCommands, type FormatCommand } from "./commands.ts";
  * Pressing one keeps focus in the text (the press never takes it), so the selection it acts on
  * is still there and typing carries on.
  */
-export function FormatToolbar(props: { disabled?: boolean; onRun(command: FormatCommand): void }) {
+export function FormatToolbar(props: {
+  disabled?: boolean | undefined;
+  onRun(command: FormatCommand): void;
+}) {
   return (
     <div role="group" aria-label="Formatting" className="flex flex-wrap items-center">
       {formatCommands.map((command) => (
