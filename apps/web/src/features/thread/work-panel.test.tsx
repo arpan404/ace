@@ -319,8 +319,9 @@ test("the branch menu switches branches without repeating environment actions", 
   expect(within(menu).queryByRole("menuitem", { name: /^Copy path/ })).toBeNull();
   expect(within(menu).queryByRole("menuitem", { name: /^Run / })).toBeNull();
   await userEvent.click(branch);
-  expect(await screen.findByText("Switched to develop")).toBeTruthy();
   expect(
-    within(await openWorkCard()).getByRole("button", { name: "Branch develop, switch branch" }),
+    await within(await openWorkCard()).findByRole("button", {
+      name: "Branch develop, switch branch",
+    }),
   ).toBeTruthy();
 });

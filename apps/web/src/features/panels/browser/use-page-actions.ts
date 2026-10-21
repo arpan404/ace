@@ -126,9 +126,7 @@ export function usePageActions(input: {
       const done = await run("Couldn't clear browsing data", () =>
         tool(threadId, { action: "clear_data" }, tabId),
       );
-      if (done === undefined) return false;
-      toast.add({ title: "Browsing data cleared" });
-      return true;
+      return done !== undefined;
     },
   };
 }

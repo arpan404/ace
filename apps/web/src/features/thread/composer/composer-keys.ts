@@ -19,8 +19,8 @@ export interface ComposerKeys {
   list: KeyList | undefined;
   newline(): void;
   history(step: "undo" | "redo"): void;
-  /** Bring back the last sent message; false when there is none or the composer isn't empty. */
-  recall(): boolean;
+  /** Walk the sent messages (↑ older, ↓ newer); false when the key should move the caret instead. */
+  recall(direction: "older" | "newer"): boolean;
   /** Esc asks to stop; undefined when there's nothing to stop. */
   stopKey: ((at: number) => void) | undefined;
   /** The key that sends the other way (Settings › Keyboard; ⌘↵ by default). */
@@ -32,7 +32,7 @@ export interface ComposerKeys {
 /**
  * The composer's keyboard, in priority order: IME composition passes through untouched; ⌘Z,
  * ⇧⌘Z and Ctrl+Y walk the composer's history; ⇧↵ breaks the line; an open suggestion list takes
- * the arrows, Home, End, Enter, Tab and Esc; ↑ in an empty composer recalls the last message;
+ * the arrows, Home, End, Enter, Tab and Esc; ↑ and ↓ walk the sent messages;
  * Esc asks to stop; the other send key sends the other way; Enter sends.
  */
 export function composerKeyDown(event: KeyboardEvent<HTMLElement>, keys: ComposerKeys): void {
@@ -82,7 +82,8 @@ export function composerKeyDown(event: KeyboardEvent<HTMLElement>, keys: Compose
     }
   }
   const plain = !modified && !event.altKey && !event.shiftKey;
-  if (key === "ArrowUp" && plain && !list && keys.recall()) {
+  const arrow = key === "ArrowUp" ? "older" : key === "ArrowDown" ? "newer" : undefined;
+  if (arrow && plain && !list && keys.recall(arrow)) {
     done();
     return;
   }

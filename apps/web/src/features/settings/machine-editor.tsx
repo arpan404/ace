@@ -75,10 +75,11 @@ export function Machines() {
                 </MenuItem>
                 <MenuItem
                   onClick={() =>
-                    void pool?.remove(machine.id).then(
-                      () => toast.add({ title: `${machine.name} forgotten` }),
-                      () => toast.error({ title: "Couldn't forget this machine. Try again." }),
-                    )
+                    void pool
+                      ?.remove(machine.id)
+                      .catch(() =>
+                        toast.error({ title: "Couldn't forget this machine. Try again." }),
+                      )
                   }
                 >
                   Forget

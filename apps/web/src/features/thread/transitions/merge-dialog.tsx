@@ -13,7 +13,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 import { Textarea } from "@/components/ui/input.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
 import { readMergePatch } from "@/lib/git-diff.ts";
 import { failureMessage } from "@/lib/daemon-command.ts";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
@@ -24,7 +23,6 @@ export function MergeDialog(props: { thread: ThreadRef; onClose(): void }) {
   const meta = useThreadMeta(props.thread.id);
   const sources = useThreadSources();
   const navigate = useNavigate();
-  const toast = useToast();
   const read = useCallback(
     (reader: import("@ace/client").ThreadReader) => {
       for (let at = reader.order.length - 1; at >= 0; at--) {
@@ -67,10 +65,6 @@ export function MergeDialog(props: { thread: ThreadRef; onClose(): void }) {
         includeCode ? await readMergePatch(client, props.thread.id) : undefined,
       );
       props.onClose();
-      toast.add({
-        title: "Results sent to parent",
-        description: "The summary is available on its next turn.",
-      });
       void navigate({ to: "/t/$threadId", params: { threadId: parent } });
     } catch (failure) {
       setError(failureMessage(failure));

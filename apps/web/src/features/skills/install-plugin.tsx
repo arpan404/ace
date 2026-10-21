@@ -119,8 +119,8 @@ export function InstallDialogProvider(props: { children: ReactNode }) {
   );
   const navigate = useNavigate();
   const toast = useToast();
+  // Its page opening is the confirmation.
   const installed = async (name: string) => {
-    toast.add({ title: `Installed ${name}` });
     setOpen(false);
     await navigate({ to: "/skills/$skillId", params: { skillId: pluginSkillId(name) } });
   };

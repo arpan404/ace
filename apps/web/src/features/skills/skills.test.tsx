@@ -137,7 +137,7 @@ test("a plugin's page lists what it ships and its pin, with the switch labelled"
   ).toBeTruthy();
 });
 
-test("ticking providers is one change and one toast, sent when the menu closes", async () => {
+test("ticking providers is one change, sent when the menu closes", async () => {
   const app = await open("/skills/plugin~release");
   await screen.findByRole("heading", { level: 2, name: "Release" });
   expect(screen.getByText("Claude Code only")).toBeTruthy();
@@ -151,8 +151,6 @@ test("ticking providers is one change and one toast, sent when the menu closes",
   await userEvent.keyboard("{Escape}");
 
   expect(await screen.findByText("Claude Code and Codex")).toBeTruthy();
-  expect(await screen.findByText("Release available to Claude Code and Codex")).toBeTruthy();
-  expect(screen.getAllByText(/^Release available to/)).toHaveLength(1);
   // The daemon got exactly the closed menu's choice.
   const { availability } = await pluginList(app);
   expect(availability?.find((entry) => entry.name === "release")?.providers).toEqual([

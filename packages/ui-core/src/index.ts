@@ -62,6 +62,7 @@ export * from "./project-badge.ts";
 export type { Brand } from "./brand-art/index.gen.ts";
 export type { BrandArt, BrandGradient, BrandPath } from "./brand-art-types.ts";
 export * from "./providers.ts";
+export * from "./provider-slots.ts";
 export * from "./provider-status.ts";
 export * from "./provider-readiness.ts";
 export * from "./provider-account-model.ts";

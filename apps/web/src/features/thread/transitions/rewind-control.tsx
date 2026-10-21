@@ -11,7 +11,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
 import { failureMessage, useDaemonReady } from "@/lib/daemon-command.ts";
 import { useThreadSources } from "../sources/index.ts";
 
@@ -19,7 +18,6 @@ export function RewindControl(props: { threadId: string; entryId: string }) {
   const meta = useThreadMeta(props.threadId);
   const sources = useThreadSources();
   const ready = useDaemonReady();
-  const toast = useToast();
   const [open, setOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();
@@ -32,10 +30,6 @@ export function RewindControl(props: { threadId: string; entryId: string }) {
     try {
       await sources.actions.rewind(props.threadId, props.entryId);
       setOpen(false);
-      toast.add({
-        title: "Conversation rewound",
-        description: "Files are unchanged. Your next message continues from this turn.",
-      });
     } catch (failure) {
       setError(failureMessage(failure));
     } finally {

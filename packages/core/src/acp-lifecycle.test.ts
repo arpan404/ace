@@ -73,6 +73,25 @@ it("unknown tasks without execution uncertainty retain their existing settlement
   h.send({ type: "turn.ended", agent: "root", outcome: "interrupted" });
   expect(h.state.status.state).toBe("done");
 });
+it("a task ace lost track of settles on later terminal evidence and keeps when it was lost", () => {
+  const h = setup();
+  h.shell();
+  h.send({ type: "process.exited", deliberate: false });
+  const lostAt = h.state.tasks["shell"]?.endedAt;
+  expect(h.state.tasks["shell"]?.status).toBe("unknown");
+  const events = h.send({ type: "background.ended", task: "shell", status: "stopped" });
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      type: "background_task.updated",
+      status: "stopped",
+      endedAt: lostAt,
+    }),
+  );
+  expect(h.state.tasks["shell"]).toMatchObject({ status: "stopped", endedAt: lostAt });
+  // Settled work stays settled.
+  h.send({ type: "background.ended", task: "shell", status: "completed" });
+  expect(h.state.tasks["shell"]?.status).toBe("stopped");
+});
 it("legacy snapshots can receive an uncertain task without a new state migration", () => {
   const h = setup();
   delete h.state.uncertainTasks;

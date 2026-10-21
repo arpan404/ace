@@ -65,13 +65,6 @@ export function PrComposer(props: {
         setOpen(false);
         setClosing(false);
       }
-      toast.add({
-        title: close
-          ? "Pull request closed with comment"
-          : selected === "review"
-            ? "Review submitted"
-            : "Comment posted",
-      });
     } catch (error) {
       toast.error({
         title: "Couldn't submit",
