@@ -204,8 +204,11 @@ export async function watch(
     // Subscribe first, then scan, retaining notifications that race initialization.
     const initial = await fullSnapshot(safe, ignore, lifetime.signal);
     previous = new VisibleTree(initial.values());
-    initializing = false;
+    // Per-directory watches start after the inventory read their folders: one rescan of them
+    // catches entries that raced it, before the subscription is handed out.
     follow(initial.values(), []);
+    if (revisit.size) await scan();
+    initializing = false;
     if (dirty.size || revisit.size || full || metadataDirty) schedule();
   } catch (error) {
     disposed = true;
