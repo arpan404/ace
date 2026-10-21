@@ -1,14 +1,23 @@
 import { useLocation } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { CaretDownIcon, DevicesIcon } from "@phosphor-icons/react";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
+import {
+  Menu,
+  MenuContent,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuTrigger,
+} from "@/components/ui/menu.tsx";
+import { machineStatus } from "@/lib/machine-status.ts";
 import { Screen } from "@/features/shell/index.ts";
-import { useSettingsMachine } from "./machine-scope.tsx";
+import { allMachines, useSettingsMachine } from "./machine-scope.tsx";
 import { settingsPageOf, type SettingsGroup } from "./settings-pages.ts";
 
 /**
  * One settings page, cardless like the rest of the app: a centred column, as the thread view
  * and Usage centre theirs, under a 20/600 page title; groups are a section title over hairline
- * rows. Under the title, what the page edits: the environment picked at the top of the sidebar,
+ * rows. Under the title, what the page edits: the environment it edits as a menu to switch it,
  * or "This device". The title row carries the page's controls at its right. Content rises in
  * when the page or the environment changes.
  *
@@ -75,14 +84,64 @@ export function SettingsBody(props: {
  * "This device" for a page this screen keeps whatever environment is picked.
  */
 function PageScope(props: { group: SettingsGroup | undefined }) {
-  const { machine } = useSettingsMachine();
+  const { machine, machines, choose, all } = useSettingsMachine();
   if (props.group === "device")
     return <p className="mt-0.5 text-ui text-muted-foreground">This device</p>;
   if (props.group !== "machine" || !machine) return null;
-  return (
-    <p className="mt-0.5 flex items-center gap-1.5 text-ui text-muted-foreground">
+  const label = all ? (
+    <>
+      <DevicesIcon aria-hidden size={14} />
+      All machines
+    </>
+  ) : (
+    <>
       <MachineMark icon={machine.icon} primary={machine.primary} />
       {machine.name}
-    </p>
+    </>
+  );
+  if (machines.length < 2)
+    return (
+      <p className="mt-0.5 flex items-center gap-1.5 text-ui text-muted-foreground">{label}</p>
+    );
+  return (
+    <Menu>
+      <MenuTrigger
+        aria-label={`Environment: ${all ? "All machines" : machine.name}`}
+        className="-ml-1.5 mt-0.5 flex h-6 items-center gap-1.5 rounded-md px-1.5 text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
+      >
+        {label}
+        <CaretDownIcon aria-hidden size={12} className="text-subtle-foreground" />
+      </MenuTrigger>
+      <MenuContent align="start">
+        <MenuRadioGroup
+          value={all ? allMachines : machine.id}
+          onValueChange={(id: unknown) => {
+            if (id === allMachines) return choose(allMachines);
+            const next = machines.find((entry) => entry.id === id);
+            if (next) choose(next.primary ? undefined : next.id);
+          }}
+        >
+          <MenuRadioItem value={allMachines}>
+            <span className="flex min-w-0 items-center gap-2">
+              <DevicesIcon aria-hidden size={14} />
+              All machines
+            </span>
+          </MenuRadioItem>
+          {machines.map((entry) => (
+            <MenuRadioItem key={entry.id} value={entry.id}>
+              <span className="flex min-w-0 items-center gap-2">
+                <MachineMark icon={entry.icon} primary={entry.primary} />
+                <span className="truncate">{entry.name}</span>
+                {entry.status !== "online" && (
+                  <span className="text-xs text-subtle-foreground">
+                    {machineStatus[entry.status].label}
+                  </span>
+                )}
+              </span>
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuContent>
+    </Menu>
   );
 }

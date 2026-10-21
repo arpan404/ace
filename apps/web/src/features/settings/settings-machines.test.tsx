@@ -20,7 +20,11 @@ function withBuildServer() {
 
 async function pickMachine(name: string | RegExp) {
   await userEvent.click(await screen.findByRole("button", { name: /^Environment: / }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name }));
+  await userEvent.click(
+    await screen.findByRole("menuitemradio", {
+      name: typeof name === "string" ? new RegExp(`${name}$`) : name,
+    }),
+  );
 }
 
 /** This window's own machine: listed first in the picker. */
@@ -69,8 +73,10 @@ test("a page this device keeps says so and stays put when another environment is
   await userEvent.click(within(pages).getByRole("link", { name: "Appearance" }));
   await screen.findByRole("heading", { level: 2, name: "Appearance" });
   expect(within(screen.getByRole("main")).getByText("This device")).toBeTruthy();
-  // The environment switch still names the machine the machine pages edit.
-  expect(screen.getByRole("button", { name: "Environment: Build server" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /^Environment: / })).toBeNull();
+  // Back on a machine page, the environment is still the one picked.
+  await userEvent.click(within(pages).getByRole("link", { name: "Agents" }));
+  expect(await screen.findByRole("button", { name: "Environment: Build server" })).toBeTruthy();
 }, 30_000);
 
 test("what a thread does at a usage limit is stored on the daemon and said under the setting", async () => {
@@ -100,4 +106,25 @@ test("with another machine picked, Computer use leaves screen access to that mac
   expect(screen.queryByRole("switch", { name: "Let agents use apps" })).toBeNull();
   expect(screen.queryByRole("region", { name: "macOS permissions" })).toBeNull();
   expect(screen.getByRole("switch", { name: "Show emulator window" })).toBeTruthy();
+}, 30_000);
+
+test("with All machines picked, a change on Agents lands on every connected machine", async () => {
+  const { app, remote } = withBuildServer();
+  remote.services.settings.seed({ "threads.settleOnMerge": false });
+  await app.open("/settings/agents");
+  await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
+  await pickMachine("All machines");
+  const merged = await screen.findByRole("switch", { name: "Settle when the PR merges" });
+  // This machine has it on, Build server off: the row says they differ.
+  expect(await screen.findByText("Differs")).toBeTruthy();
+  await userEvent.click(merged);
+  await waitFor(() =>
+    expect(app.daemon.services.settings.get("threads.settleOnMerge")).toBe(false),
+  );
+  await userEvent.click(merged);
+  await waitFor(() => {
+    expect(app.daemon.services.settings.get("threads.settleOnMerge")).toBe(true);
+    expect(remote.services.settings.get("threads.settleOnMerge")).toBe(true);
+  });
+  await waitFor(() => expect(screen.queryByText("Differs")).toBeNull());
 }, 30_000);
