@@ -22,8 +22,12 @@ function caretEscape(text: string): string {
   return text.replace(/([()%!^"<>&|])/g, "^$1");
 }
 
+/** The program path rides in plain quotes so a space cannot split it; a quote
+ * or % in the path is refused instead of misquoted. */
 function escapeCommand(value: string): string {
-  return caretEscape(msvcrtQuote(value));
+  if (value.includes('"') || value.includes("%"))
+    throw new Error("Windows batch command path cannot contain a quote or %");
+  return `"${value}"`;
 }
 
 function escapeArgument(value: string): string {
