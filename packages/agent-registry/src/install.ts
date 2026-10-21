@@ -30,7 +30,24 @@ async function download(
   request: typeof fetch,
   progress: InstallRuntime["onProgress"],
 ): Promise<void> {
-  const response = await request(plan.archive ?? "", { signal, redirect: "error" });
+  let current = plan.archive ?? "";
+  let response: Response | undefined;
+  // GitHub Releases answers with a 302 to release-assets; follow it by hand so every hop stays HTTPS.
+  for (let redirects = 0; ; redirects++) {
+    const target = new URL(current);
+    if (target.protocol !== "https:" || target.username || target.password)
+      throw new Error("Artifact redirect must use HTTPS");
+    const hop = await request(current, { signal, redirect: "manual" });
+    const location = hop.headers.get("location");
+    if ([301, 302, 303, 307, 308].includes(hop.status) && location) {
+      await hop.body?.cancel().catch(() => {});
+      if (redirects >= 5) throw new Error("Too many artifact redirects");
+      current = new URL(location, current).toString();
+      continue;
+    }
+    response = hop;
+    break;
+  }
   if (!response.ok || !response.body) throw new Error("Artifact download failed");
   const reader = response.body.getReader();
   const file = await open(path, "wx", 0o600);
