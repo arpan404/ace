@@ -143,7 +143,7 @@ fn fill(image: &mut Rgb, x0: i64, y0: i64, w: i64, h: i64, color: [u8; 3]) {
 
 /// Draws a thin outline and an id tag at each mark's top-left corner.
 pub fn draw_marks(image: &mut Rgb, marks: &[Mark]) {
-    let unit: i64 = if image.width >= 700 { 2 } else { 1 };
+    let unit: i64 = if image.width >= 240 { 2 } else { 1 };
     for mark in marks {
         let (x, y) = (mark.rect.x.round() as i64, mark.rect.y.round() as i64);
         let (w, h) = (mark.rect.w.round() as i64, mark.rect.h.round() as i64);

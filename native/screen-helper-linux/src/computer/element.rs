@@ -50,10 +50,20 @@ pub fn states(set: &StateSet) -> States {
     }
 }
 
+/// The standard AT-SPI role name. Toolkits' own `GetRoleName` strings vary (GTK4 says
+/// "generic" where other toolkits say "panel"), so the numeric role is mapped here.
+pub async fn role(bus: &Bus, obj: &Obj) -> BusResult<String> {
+    let number = bus.atspi::<_, u32>(obj, "Accessible", "GetRole", &()).await?;
+    match atspi::Role::try_from(number) {
+        Ok(role) => Ok(role.name().to_owned()),
+        Err(_) => bus.atspi::<_, String>(obj, "Accessible", "GetRoleName", &()).await,
+    }
+}
+
 /// Role, name, description, states and interfaces in one round of calls.
 pub async fn read(bus: &Bus, obj: &Obj) -> BusResult<Element> {
     let (role, name, description, state, interfaces) = tokio::join!(
-        bus.atspi::<_, String>(obj, "Accessible", "GetRoleName", &()),
+        role(bus, obj),
         bus.string_prop(obj, "Accessible", "Name"),
         bus.string_prop(obj, "Accessible", "Description"),
         bus.atspi::<_, StateSet>(obj, "Accessible", "GetState", &()),

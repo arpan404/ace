@@ -13,27 +13,28 @@ enum Inserted {
 }
 
 impl Actor<'_> {
-    /// The element typing goes to: the step's id (focused first), else the focused element.
+    /// The element typing goes to: the step's id (focused first), else the focused text
+    /// element, else the text element the agent last worked in.
     async fn text_target(&mut self, step: &Step) -> CuResult<Option<(Element, String)>> {
         if step.get("id").is_some() {
             let (id, element) = self.target(step).await?;
             grab(self.bus, &element.obj).await;
+            if element.interfaces.text {
+                self.session.text_focus = Some(element.obj.clone());
+            }
             return Ok(Some((element, self.label(id))));
         }
-        if self.session.focused.is_none() {
-            self.refresh().await;
+        self.refresh().await;
+        let focused = self.session.focused.as_ref().and_then(|f| f.obj.clone());
+        for obj in [focused, self.session.text_focus.clone()].into_iter().flatten() {
+            let Ok(element) = element::read(self.bus, &obj).await else { continue };
+            if element.defunct || !element.interfaces.text {
+                continue;
+            }
+            let label = self.session.label_of(&obj).unwrap_or_else(|| "the focused element".into());
+            return Ok(Some((element, label)));
         }
-        let Some(obj) = self.session.focused.as_ref().and_then(|f| f.obj.clone()) else {
-            return Ok(None);
-        };
-        let label = self
-            .session
-            .label_of(&obj)
-            .unwrap_or_else(|| "the focused element".into());
-        match element::read(self.bus, &obj).await {
-            Ok(element) if !element.defunct => Ok(Some((element, label))),
-            _ => Ok(None),
-        }
+        Ok(None)
     }
 
     async fn insert(&self, element: &Element, text: &str) -> CuResult<Inserted> {

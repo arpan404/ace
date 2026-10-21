@@ -3,7 +3,7 @@ use crate::computer::bus::{Bus, BusError, Obj, key};
 use crate::computer::element::{self, COORD_SCREEN, COORD_WINDOW};
 use crate::computer::error::{CuError, CuResult};
 use crate::computer::ids::Ids;
-use crate::computer::outline::Node;
+use crate::computer::outline::{Node, Rect, content_offset};
 use crate::computer::walk::{FrameMap, Tree, Walker};
 use crate::computer::xdisplay::XDisplay;
 use serde_json::Value;
@@ -30,6 +30,9 @@ pub struct AppSession {
     pub nodes: Vec<Node>,
     pub focused: Option<crate::computer::walk::Focused>,
     pub menu_bar: Option<Obj>,
+    /// The text element the agent last typed, selected or focused in. GTK4 reports focus only
+    /// while its window is active, so background key steps fall back to this.
+    pub text_focus: Option<Obj>,
     pub not_responding: bool,
     /// X windows already redirected for capture.
     pub redirected: HashSet<u32>,
@@ -52,6 +55,7 @@ impl AppSession {
             nodes: Vec::new(),
             focused: None,
             menu_bar: None,
+            text_focus: None,
             not_responding: false,
             redirected: HashSet::new(),
             scale: 1.0,
@@ -175,18 +179,21 @@ impl AppSession {
                 });
             }
         }
-        let relative = element::extents(bus, &window.obj, COORD_WINDOW).await.ok().flatten()?;
-        // The frame's window extents cover the whole X window, shadow included.
-        let dx = if (relative.w - f64::from(ww)).abs() < 2.0 {
-            relative.x
-        } else {
-            0.0
+        // GTK4: the window's content sits centred in the X window (inside its shadow margin),
+        // whatever offset the frame itself reports, so place the largest child.
+        let mut content = None;
+        for child in bus.children(&window.obj).await.ok()?.iter().take(8) {
+            if let Ok(Some(rect)) = element::extents(bus, child, COORD_WINDOW).await
+                && content.is_none_or(|c: Rect| rect.w * rect.h > c.w * c.h)
+            {
+                content = Some(rect);
+            }
+        }
+        let content = match content {
+            Some(content) => content,
+            None => element::extents(bus, &window.obj, COORD_WINDOW).await.ok().flatten()?,
         };
-        let dy = if (relative.h - f64::from(wh)).abs() < 2.0 {
-            relative.y
-        } else {
-            0.0
-        };
+        let (dx, dy) = content_offset((f64::from(ww), f64::from(wh)), content);
         Some(FrameMap {
             coord: COORD_WINDOW,
             dx,

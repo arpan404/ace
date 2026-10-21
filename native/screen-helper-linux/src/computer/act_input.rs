@@ -386,12 +386,7 @@ impl Actor<'_> {
         let bus = self.bus;
         let mut pane = start.clone();
         for _ in 0..8 {
-            if bus
-                .atspi::<_, String>(&pane, "Accessible", "GetRoleName", &())
-                .await
-                .ok()?
-                == "scroll pane"
-            {
+            if element::role(bus, &pane).await.ok()? == "scroll pane" {
                 break;
             }
             pane = element::parent(bus, &pane).await?;

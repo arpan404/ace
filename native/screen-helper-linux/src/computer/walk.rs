@@ -72,7 +72,7 @@ impl<'a> Walker<'a> {
     }
 
     pub async fn walk(&mut self, root: &Obj, depth: usize) {
-        self.visit(root.clone(), depth, true).await;
+        self.visit(root.clone(), depth, true, None).await;
     }
 
     pub fn finish(self) -> Tree {
@@ -85,6 +85,7 @@ impl<'a> Walker<'a> {
         obj: Obj,
         depth: usize,
         root: bool,
+        parent_name: Option<String>,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + '_>> {
         Box::pin(async move {
             if self.exhausted() {
@@ -128,10 +129,19 @@ impl<'a> Walker<'a> {
             let Some(node) = self.describe(&element, depth, children.len()).await else {
                 return;
             };
+            let mut inherited = parent_name.clone();
             let child_depth = match node {
                 Described::Line(node) => {
                     let mut node = *node;
                     node.depth = depth;
+                    // A caption that repeats its control's name (a button's own label) says nothing.
+                    let caption = matches!(element.role.as_str(), "label" | "static" | "text") && !node.actionable;
+                    if caption && children.is_empty() && node.name.is_some() && node.name == parent_name {
+                        return;
+                    }
+                    if node.name.is_some() {
+                        inherited = node.name.clone();
+                    }
                     if element.states.focused {
                         self.note_focus(&element, Some(node.id), node.name.clone(), &node.role)
                             .await;
@@ -152,7 +162,7 @@ impl<'a> Walker<'a> {
                     self.tree.truncated = true;
                     break;
                 }
-                self.visit(child, child_depth, false).await;
+                self.visit(child, child_depth, false, inherited.clone()).await;
             }
         })
     }

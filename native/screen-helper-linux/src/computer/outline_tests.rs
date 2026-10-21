@@ -29,6 +29,20 @@ fn buttons_read_as_the_macos_engine_names_them() {
 }
 
 #[test]
+fn gtk4_window_extents_land_inside_the_shadow_margin() {
+    // A 700×520 X window whose 690×510 content reports itself at (-5, -5).
+    let content = Rect {
+        x: -5.0,
+        y: -5.0,
+        w: 690.0,
+        h: 510.0,
+    };
+    let (dx, dy) = content_offset((700.0, 520.0), content);
+    // The content's left edge is then drawn 5 px into the window.
+    assert_eq!((-5.0 - dx, -5.0 - dy), (5.0, 5.0));
+}
+
+#[test]
 fn toggles_say_on_or_off_and_insensitive_controls_say_disabled() {
     let on = States {
         checked: true,
@@ -41,6 +55,12 @@ fn toggles_say_on_or_off_and_insensitive_controls_say_disabled() {
         ..enabled()
     };
     assert_eq!(flags("push button", &off), vec!["disabled"]);
+    // GTK4 sets SENSITIVE but never ENABLED on usable controls.
+    let gtk4 = States {
+        enabled: false,
+        ..enabled()
+    };
+    assert!(flags("push button", &gtk4).is_empty());
     let password = States {
         focused: true,
         ..enabled()
@@ -68,7 +88,9 @@ fn clicking_prefers_click_over_other_press_like_actions() {
 fn unlabelled_wrappers_fold_into_their_only_child_and_empty_ones_vanish() {
     assert_eq!(keep("panel", false, false, 1), Keep::Fold);
     assert_eq!(keep("panel", false, false, 0), Keep::Drop);
-    assert_eq!(keep("panel", false, false, 3), Keep::Line);
+    assert_eq!(keep("panel", false, false, 3), Keep::Fold);
+    assert_eq!(keep("table", false, false, 3), Keep::Line);
+    assert_eq!(keep("unknown", false, false, 3), Keep::Line);
     assert_eq!(keep("push button", true, true, 0), Keep::Line);
     assert_eq!(keep("scroll pane", false, false, 1), Keep::Line);
 }

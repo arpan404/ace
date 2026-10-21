@@ -48,6 +48,17 @@ impl Rect {
     }
 }
 
+/// What to subtract from window-relative extents to get X window pixels, given the window's
+/// content box: the content sits centred in the X window (GTK4 surrounds it with an even
+/// shadow margin), so its left edge lands at half the spare width.
+pub fn content_offset(window: (f64, f64), content: Rect) -> (f64, f64) {
+    let margin = |outer: f64, inner: f64| ((outer - inner) / 2.0).max(0.0);
+    (
+        content.x - margin(window.0, content.w),
+        content.y - margin(window.1, content.h),
+    )
+}
+
 /// One outline line.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Node {
@@ -240,7 +251,8 @@ pub fn role_name(role: &str, states: &States, in_menu_bar: bool) -> String {
 
 pub fn flags(role: &str, states: &States) -> Vec<String> {
     let mut flags = Vec::new();
-    if !states.sensitive || !states.enabled {
+    // GTK4 never sets ENABLED; SENSITIVE is what every toolkit sets on usable controls.
+    if !states.sensitive {
         flags.push("disabled");
     }
     if states.selected && !matches!(role, "frame" | "dialog" | "window") {
@@ -313,9 +325,13 @@ pub fn keep(role: &str, actionable: bool, labelled: bool, children: usize) -> Ke
     if actionable || labelled || is_structural(role) {
         return Keep::Line;
     }
+    // GTK4 nests every control in several unnamed boxes; a line for each costs tokens and
+    // says nothing, so plain containers always fold into their children.
+    let plain = matches!(role, "panel" | "grouping" | "filler" | "section" | "generic");
     match children {
         0 => Keep::Drop,
         1 => Keep::Fold,
+        _ if plain => Keep::Fold,
         _ => Keep::Line,
     }
 }

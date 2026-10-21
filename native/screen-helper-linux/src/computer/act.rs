@@ -231,6 +231,9 @@ impl Actor<'_> {
                 ),
             ));
         }
+        if element.interfaces.text {
+            self.session.text_focus = Some(element.obj.clone());
+        }
         self.changed();
         Ok(format!("focused {label}"))
     }
@@ -359,6 +362,7 @@ impl Actor<'_> {
             _ => {}
         }
         grab(self.bus, &element.obj).await;
+        self.session.text_focus = Some(element.obj.clone());
         set_selection(self.bus, &element.obj, start as i32, end as i32)
             .await
             .map_err(|_| {
