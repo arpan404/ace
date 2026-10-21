@@ -159,6 +159,7 @@ export { serviceLabel } from "./provider-services.ts";
 export { freeModelMarker } from "./model-picker.ts";
 
 export { recoveryAttention, type RecoveryAttention } from "./recovery-attention.ts";
+export { agentGlyph, glyphTones, threadGlyph, type GlyphState } from "./status-glyph.ts";
 export {
   rowAttention,
   currentAttention,

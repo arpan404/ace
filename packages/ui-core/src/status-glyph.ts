@@ -1,4 +1,5 @@
-import type { AgentGlyph, ThreadMarkKind, Tone } from "@ace/ui-core";
+import type { AgentGlyph } from "./agents.ts";
+import type { ThreadMarkKind, Tone } from "./status.ts";
 
 /**
  * The Aperture status set: every state is the same 16-unit ring, and only its opening or one

@@ -37,6 +37,24 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     var pr: PullRequestRef? = nil
     /// Start of the current working stretch (ms) while the tree works; nil otherwise.
     var workingSince: Double? = nil
+    /// Inbox rows only: how loudly the row asks for the person (`inbox-look.ts`).
+    var look: RowLook? = nil
+}
+/// How an inbox row reads, by the web's Home row rule (`rowAttention`): the attention level,
+/// the status word (none at rest: the row shows its age), its tone and glyph, and whether the
+/// row mutes. Swift draws it; it never derives attention.
+struct RowLook: Codable, Sendable, Equatable {
+    let level: String
+    let word: String?
+    let tone: String
+    let muted: Bool
+    let glyph: String?
+    /// Start (ms) of an active row's live stretch, for its elapsed time.
+    let since: Double?
+    let settled: Bool
+    let subagents: Int
+    /// The word takes its tone's colour unless the row mutes; waiting never does.
+    var loud: Bool { !muted && tone != "waiting" }
 }
 struct PullRequestRef: Codable, Sendable, Equatable {
     let number: Int
