@@ -123,7 +123,7 @@ describe("Windows process supervision", () => {
     expect(await proc.exited).toMatchObject({ code: 0, reason: "exit" });
     const lines = (await readFile(record, "utf8")).split("\n");
     expect(lines.slice(0, 3)).toEqual(["/d", "/s", "/c"]);
-    expect(lines[3]).toBe('"C:\\tools\\agent.cmd "a&b" "%%PATH%%""');
+    expect(lines[3]).toBe('"^"C:\\tools\\agent.cmd^" ^^^"a^^^&b^^^" ^^^"^^^%PATH^^^%^^^""');
   });
 
   it("reports a byte stream exit code on Windows supervision", async () => {

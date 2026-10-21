@@ -25,9 +25,11 @@ boundary.
   resolved from `PATH`. The digest still pins the script, so script changes need
   a new approval while `node` upgrades keep theirs.
 - **Batch entrypoints.** One pure helper wraps a `.cmd`/`.bat` command line as
-  `cmd.exe /d /s /c "..."`, quoting spaces and `^ & | < > "`, doubling `%` so
-  the environment is not expanded, and escaping `"` MSVCRT-style. Other commands
-  pass through. Both supervised spawn paths apply it on Windows.
+  `cmd.exe /d /s /c "..."`, spawned with `windowsVerbatimArguments` so Node
+  does not re-quote the line. Arguments are MSVCRT-quoted for the target
+  parser, then cmd metacharacters are `^`-escaped — twice for `.cmd`/`.bat`,
+  whose `%*` forwarding parses the line a second time. Other commands pass
+  through. Both supervised spawn paths apply it on Windows.
 - **Supervision.** Windows processes spawn non-detached with `windowsHide` and
   keep the `RawSupervisedProcess` contract (exit reasons, output limits, stop
   grace). Graceful stop is `taskkill /pid /T`, escalating to `/T /F` after the
