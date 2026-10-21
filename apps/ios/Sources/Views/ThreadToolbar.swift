@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Everything the ⋯ menu opens: each destination is listed once.
-enum ThreadDestination { case search, files, terminal, browser, computer, tools }
+enum ThreadDestination { case search, files, terminal, browser, devices, computer, tools }
 
 /// The thread's header: its title with "project · branch" under it, then Changes, Agents and ⋯
 /// sharing one glass capsule on iOS 26.
@@ -55,6 +55,7 @@ struct ThreadMenu: View {
                 Button("Find in thread", systemImage: "magnifyingglass") { open(.search) }.accessibilityIdentifier("thread.search")
                 Button("Files", systemImage: "folder") { open(.files) }.accessibilityIdentifier("thread.files")
                 Button("Browser", systemImage: "safari") { open(.browser) }.accessibilityIdentifier("thread.browser")
+                Button("Devices", systemImage: "iphone") { open(.devices) }.accessibilityIdentifier("thread.devices")
                 Button("Terminal", systemImage: "apple.terminal") { open(.terminal) }.accessibilityIdentifier("thread.terminal")
                 Button("Computer use", systemImage: "macwindow") { open(.computer) }
                 Button("Skills and tools", systemImage: "wrench.and.screwdriver") { open(.tools) }.accessibilityIdentifier("thread.tools")

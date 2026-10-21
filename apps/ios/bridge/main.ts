@@ -2,6 +2,7 @@ import { host } from "./polyfills.ts";
 import { ClientCore, type Lease, type ThreadSource } from "@ace/client";
 import { z } from "zod";
 import { DeviceId, HostId } from "@ace/protocol";
+import { agentName } from "@ace/ui-core";
 import { call, scheduler } from "./host.ts";
 import { PatchPump, followThread } from "./patches.ts";
 import { followInbox, inboxAction, makeActivityGeneration } from "./inbox.ts";
@@ -21,7 +22,6 @@ import { NativeServices, NativeServiceAction } from "./native-services.ts";
 import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
 import { BrowserLive } from "./browser-live.ts";
 import { nativeChunks } from "./thread-attachments.ts";
-import { agentName } from "@ace/ui-core";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
 
@@ -84,6 +84,11 @@ const pump = new PatchPump();
 const trust = new TrustMonitor();
 const sheets = new Sheets(pump, preview);
 let openThreadId: string | undefined;
+/** An agent of the thread open on the phone, named as everywhere else; undefined otherwise. */
+function deviceAgent(threadId: string, agentId: string) {
+  const agent = threadId === openThreadId ? lease?.store.agent(agentId) : undefined;
+  return agent && { name: agentName(agent), provider: agent.native?.provider ?? "" };
+}
 function error(): void {
   pump.put("error", () => ({
     type: "error",
@@ -162,8 +167,15 @@ async function start(json: string): Promise<void> {
     id: () => host.uuid(),
     trust,
   };
-  devices = new NativeDevices(featureConfig);
-  screen = new NativeScreen(featureConfig);
+  devices = new NativeDevices(featureConfig, {
+    sink: pump,
+    now: () => host.now(),
+    agent: (holder) => deviceAgent(holder.threadId, holder.agentId),
+  });
+  screen = new NativeScreen(
+    featureConfig,
+    (holder) => deviceAgent(holder.threadId, holder.agentId)?.name,
+  );
   services = new NativeServices(client, pump, devices, screen);
   terminal = new NativeTerminal(client, pump);
   browser = new BrowserLive(client, pump, preview, scheduler.set, {

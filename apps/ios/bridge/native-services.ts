@@ -29,7 +29,7 @@ import type { PatchSink } from "./agents.ts";
 import { NativeMediaRequest, readNativeMedia } from "./native-media.ts";
 import { NativeHistoryWindow, readHistoryWindow } from "./native-search.ts";
 import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
-import { NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
+import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
 import { NativeScreenRequest, type NativeScreen } from "./native-screen.ts";
 
 // The SDK validates every request and reply. The native bridge exposes only these services;
@@ -58,6 +58,13 @@ const Request = z.union([
   TerminalRequest,
   UsageSummary,
 ]);
+const DeviceRequestType = z.object({
+  type: z.enum(["devices.request", "devices.gesture", "devices.tree"]),
+});
+const invalidDeviceValue = {
+  message: "The device doesn't take that value.",
+  hint: "Check it, such as en-US for a language, and try again.",
+};
 export const NativeServiceAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("service"), id: z.string().min(1).max(128), request: z.unknown() }),
   z.object({ type: z.literal("service.cancel"), id: z.string().min(1).max(128) }),
@@ -96,7 +103,7 @@ export class NativeServices {
       const screen = NativeScreenRequest.safeParse(raw);
       if (screen.success && this.screen) {
         try {
-          const data = await this.screen.request(screen.data.operation, controller.signal);
+          const data = await this.screen.request(screen.data, controller.signal);
           this.#reply(id, true, { ok: true, data }, "");
         } catch (error) {
           this.#reply(
@@ -114,7 +121,7 @@ export class NativeServices {
       const device = NativeDeviceRequest.safeParse(raw);
       if (device.success && this.devices) {
         try {
-          const data = await this.devices.request(device.data.operation, controller.signal);
+          const data = await this.devices.request(device.data, controller.signal);
           this.#reply(id, true, { ok: true, data }, "");
         } catch (error) {
           this.#reply(
@@ -122,11 +129,16 @@ export class NativeServices {
             true,
             {
               ok: false,
-              error: { message: error instanceof Error ? error.message : "Device request failed" },
+              error: deviceFailure(error),
             },
             "",
           );
         }
+        return;
+      }
+      // A device form whose value the protocol refuses (a locale, a location): say so plainly.
+      if (this.devices && DeviceRequestType.safeParse(raw).success) {
+        this.#reply(id, true, { ok: false, error: invalidDeviceValue }, "");
         return;
       }
       const message = NativeMessageRequest.safeParse(raw);

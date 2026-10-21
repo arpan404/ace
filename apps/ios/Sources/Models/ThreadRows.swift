@@ -13,6 +13,8 @@ struct StepLine: Codable, Sendable, Equatable {
     let removed: Int?
     /// An agent opened a page in the thread's browser; the row opens it.
     var browser: Bool? = nil
+    /// `device:<id>` or `computer`: where tapping the step goes; empty or nil for nowhere.
+    var opens: String? = nil
 }
 struct AttachmentLine: Codable, Sendable, Equatable, Hashable {
     let kind: String

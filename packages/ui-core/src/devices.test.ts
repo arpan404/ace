@@ -7,6 +7,7 @@ import {
   devicePoint,
   shownFrameSize,
   deviceRows,
+  holdsControl,
   leaseLeft,
 } from "./devices.ts";
 
@@ -58,6 +59,9 @@ test("control is yours only until the lease runs out", () => {
   const after = deviceControls(iphone, leased, 10_000);
   expect(after.inControl).toBe(false);
   expect(after.status).toBe("Live · Your control ended");
+  expect(holdsControl(leased, 4_000)).toBe(true);
+  expect(holdsControl(leased, 10_000)).toBe(false);
+  expect(holdsControl({ ...leased, ownedHere: false }, 4_000)).toBe(false);
 });
 
 test("an agent driving the device is named in the status", () => {

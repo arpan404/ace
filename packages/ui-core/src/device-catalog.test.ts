@@ -1,4 +1,4 @@
-import type { DeviceRow } from "@ace/ui-core";
+import type { DeviceRow } from "./devices.ts";
 import { expect, test } from "vitest";
 import { deviceCatalog, deviceKind, iphoneCutout, rememberUse } from "./device-catalog.ts";
 

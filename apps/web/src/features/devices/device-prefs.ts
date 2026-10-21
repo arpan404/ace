@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { z } from "zod";
 import { webStorage } from "@/boot/web-storage.ts";
-import { recentLimit, rememberUse, type DeviceUse } from "./device-catalog.ts";
+import { recentLimit, rememberUse, type DeviceUse } from "@ace/ui-core/devices";
 
 /*
  * What the Devices views remember on this machine, never on the daemon: the devices this person

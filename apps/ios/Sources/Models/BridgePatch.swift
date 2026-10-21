@@ -165,6 +165,8 @@ enum BridgePatch: Decodable, Sendable {
     case screen(String, Int, ScreenPatch)
     /// The thread's live browser view (`bridge/browser-live.ts`).
     case browser(BrowserPatch)
+    /// A thread's Devices screen and its logs (`bridge/native-devices.ts`).
+    case devices(DevicesPatch)
 
     private enum Keys: String, CodingKey { case type, id, row, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation }
     init(from decoder: any Decoder) throws {
@@ -225,6 +227,7 @@ enum BridgePatch: Decodable, Sendable {
         case "git.draft": self = .gitDraft(try GitDraft(from: decoder))
         case "archive.list": self = .archiveList(try ArchiveList(from: decoder))
         case let kind where BrowserPatch.types.contains(kind): self = .browser(try BrowserPatch(from: decoder))
+        case let kind where DevicesPatch.types.contains(kind): self = .devices(try DevicesPatch(from: decoder))
         case let kind where ScreenPatch.types.contains(kind):
             let (id, epoch) = try scope()
             self = .screen(id, epoch, try ScreenPatch(type: kind, from: decoder))

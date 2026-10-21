@@ -18,6 +18,7 @@ struct ThreadView: View {
     @State private var fullMessage: TranscriptRow?
     @State private var showTools = false
     @State private var showComputer = false
+    @State private var devicesRoute: DevicesRoute?
     @State private var activityProblem: String?
     @State private var showAgents = false
     @State private var showChanges = false
@@ -90,7 +91,11 @@ struct ThreadView: View {
             .alert("Live Activity", isPresented: Binding(get: { activityProblem != nil }, set: { if !$0 { activityProblem = nil } })) {
                 Button("OK") { activityProblem = nil }
             } message: { Text(activityProblem ?? "") }
-            .sheet(isPresented: $showComputer) { NavigationStack { RemoteScreenView(model: model, threadId: thread.id) } }
+            .environment(\.openStep) { opens in
+                if opens == "computer" { showComputer = true } else if opens.hasPrefix("device:") { devicesRoute = .device(String(opens.dropFirst(7))) }
+            }
+            .navigationDestination(item: $devicesRoute) { route in DevicesRouteView(model: model, threadId: thread.id, route: route) }
+            .navigationDestination(isPresented: $showComputer) { RemoteScreenView(model: model, threadId: thread.id) }
             .sheet(isPresented: $showTools) {
                 NavigationStack { ThreadToolsView(model: model, thread: thread, openThread: openThread) }.presentationDetents([.large]).presentationDragIndicator(.visible)
             }
@@ -205,6 +210,7 @@ struct ThreadView: View {
         case .files: showFiles = true
         case .terminal: showTerminal = true
         case .browser: showBrowser = true
+        case .devices: devicesRoute = .list
         case .computer: showComputer = true
         case .tools: showTools = true
         }

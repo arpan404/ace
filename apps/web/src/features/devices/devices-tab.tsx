@@ -11,7 +11,7 @@ import { cn } from "@/lib/cn.ts";
 import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { CatalogMenu } from "./catalog-menu.tsx";
 import { controllerOf } from "./controller-label.tsx";
-import { deviceCatalog, type PlatformFilter } from "./device-catalog.ts";
+import { deviceCatalog, type PlatformFilter } from "@ace/ui-core/devices";
 import { DeviceGroups, RecentRows } from "./device-list-rows.tsx";
 import { noteDeviceUse, requestBoot, useRecentUses } from "./device-prefs.ts";
 import { Problem } from "./device-problem.tsx";

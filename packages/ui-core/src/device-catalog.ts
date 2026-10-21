@@ -1,4 +1,4 @@
-import type { DeviceRow } from "@ace/ui-core";
+import type { DeviceRow } from "./devices.ts";
 
 /*
  * The Devices list as a pure function of the inventory: what kind each device is, which ones

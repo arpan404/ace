@@ -14,6 +14,7 @@ import { seedArchive } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
 import { seedNativeMedia } from "./media-scenario.ts";
 import { answerScreenshot, browserControl, realVideo, seedBrowser } from "./spike-browser.ts";
+import { featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
 
 /** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
 const port = z.coerce
@@ -140,6 +141,7 @@ seedProjects(daemon);
 seedNativeMedia(daemon);
 seedBrowser(daemon, details);
 requestScenarios(daemon, details);
+spikeDevices(daemon, details);
 let fresh = 0;
 
 const connections = new Map<ServerWebSocket<undefined>, ReturnType<FakeDaemon["connect"]>>();
@@ -294,6 +296,7 @@ const server = Bun.serve<undefined>({
     },
     message(socket, data) {
       if (typeof data === "string") {
+        if (featureMessage(daemon, socket, data, connections)) return;
         if (data.includes('"type":"command"')) commands++;
         lostReceipt.observe(data);
         if (answerScreenshot(data, (text) => socket.send(text), daemon)) return;
@@ -301,6 +304,7 @@ const server = Bun.serve<undefined>({
       }
     },
     close(socket) {
+      featureClosed(socket);
       connections.get(socket)?.close();
       connections.delete(socket);
     },

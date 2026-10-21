@@ -371,3 +371,30 @@ test("a queued follow-up shows above the composer and can be reworded, sent now 
   await until(() => latest("admission", "gone"), "a refusal");
   expect(latest("admission", "gone")?.ok).toBe(false);
 });
+
+test("a simulator step opens its device and a computer-use step opens computer use", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "sim", workspaceId: "ace", title: "Sim", provider: "claude" });
+  const simId = "ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b";
+  fake.apply("sim", [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    facts.tool("root", "tap", {
+      kind: "mcp",
+      title: "sim_act",
+      detail: { kind: "mcp", server: "ace", tool: "sim_act", arguments: { simId, action: "tap" } },
+    }),
+    facts.tool("root", "click", {
+      kind: "mcp",
+      title: "screen_input",
+      detail: { kind: "mcp", server: "ace", tool: "screen_input", arguments: { kind: "click" } },
+    }),
+  ]);
+  open(connect(fake), "sim");
+  const steps = await until(() => {
+    const found = rows("thread.item").filter((row) => row.type === "tool_call");
+    return found.length === 2 ? found : undefined;
+  }, "both steps");
+  const opens = steps.map((row) => (row.step as { opens: string } | null)?.opens);
+  expect(opens).toEqual([`device:${simId}`, "computer"]);
+});
