@@ -43,8 +43,7 @@ struct MachineRow: View {
     var body: some View {
         let facts = MachineFacts(inbox: inbox, machines: machines, hostId: hostId)
         HStack(spacing: AceTheme.Spacing.md) {
-            Image(systemName: facts.symbol).font(.system(size: 17)).foregroundStyle(AceTheme.Colours.subtleForeground)
-                .frame(width: AceTheme.Spacing.xxl).accessibilityHidden(true)
+            AceIcon(facts.icon, size: 18).foregroundStyle(AceTheme.Colours.subtleForeground)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(facts.name).aceFont(SettingsStyle.label, relativeTo: .body).fontWeight(.medium)
                     .foregroundStyle(AceTheme.Colours.foreground)
@@ -91,7 +90,7 @@ struct ConnectionDot: View {
     let needsPairing: Bool
     /// The SDK is connecting or reconnecting to it right now.
     let trying: Bool
-    let symbol: String
+    let icon: AceIcon.Name
 
     init(inbox: MachineInbox, machines: MachinesModel?, hostId: String) {
         let entry = machines?.entry(hostId)
@@ -104,7 +103,7 @@ struct ConnectionDot: View {
         lastSeen = inbox.lastSeen(hostId).map { Date(timeIntervalSince1970: $0 / 1000) }
         readOnly = machines.map { $0.isReadOnly(hostId) }
         address = entry.flatMap { URL(string: $0.target.url) }.map { url in [url.host, url.port.map(String.init)].compactMap { $0 }.joined(separator: ":") }
-        symbol = Self.symbol(entry?.icon?.kind)
+        icon = Self.icon(entry?.icon?.kind)
     }
     var connected: Bool { connection.token == "done" }
     /// The address while connected; otherwise the connection word and when it was last seen.
@@ -119,16 +118,16 @@ struct ConnectionDot: View {
         return parts.joined(separator: " · ")
     }
     /// The person's machine mark (`MachineIconKind`); a laptop when there is none.
-    static func symbol(_ kind: String?) -> String {
+    static func icon(_ kind: String?) -> AceIcon.Name {
         switch kind {
-        case "desktop": "desktopcomputer"
-        case "monitor": "display"
-        case "server": "server.rack"
-        case "cloud": "cloud"
-        case "cpu": "cpu"
-        case "terminal": "apple.terminal"
-        case "phone": "iphone"
-        default: "laptopcomputer"
+        case "desktop": .desktop
+        case "monitor": .monitor
+        case "server": .hardDrives
+        case "cloud": .cloud
+        case "cpu": .cpu
+        case "terminal": .terminalWindow
+        case "phone": .deviceMobile
+        default: .laptop
         }
     }
 }

@@ -17,7 +17,7 @@ struct TaskProfilesView: View {
                     catch { problem = error.localizedDescription }
                 }
                 NavigationLink { TaskProfileEditor(store: store, profile: TaskProfile(id: UUID().uuidString, name: "", instructions: "")) } label: {
-                    SettingsRow(title: "New profile") { Image(systemName: "plus").foregroundStyle(AceTheme.Colours.subtleForeground) }
+                    SettingsRow(title: "New profile") { AceIcon(.plus, size: 16).foregroundStyle(AceTheme.Colours.subtleForeground) }
                 }
             } header: { SettingsHeader("Profiles", note: "Included in the first message of new threads that use them.") }
             .settingsRow()

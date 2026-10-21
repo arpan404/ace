@@ -33,7 +33,7 @@ struct ChangesSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                    Button { dismiss() } label: { AceIcon(.x, size: 18) }
                         .accessibilityLabel("Close").accessibilityIdentifier("changes.close")
                 }
             }
@@ -51,13 +51,12 @@ struct ChangesSheet: View {
     @ViewBuilder private var content: some View {
         if let summary {
             if summary.state == "error" {
-                ContentUnavailableView("Couldn't read changes", systemImage: "exclamationmark.triangle",
-                                       description: Text("Check that this thread has a git checkout, then refresh."))
-                    .padding(.top, AceTheme.Spacing.xxxl)
+                EmptyState(icon: nil, title: "Couldn't read changes", line: "Check that this thread has a git checkout, then refresh.", failed: true)
+                    .padding(.top, AceTheme.Spacing.xxxl * 2)
             } else if summary.state == "loading" && summary.files.isEmpty {
                 ProgressView("Reading changes…").frame(maxWidth: .infinity).padding(.top, AceTheme.Spacing.xxxl)
             } else if summary.files.isEmpty {
-                ContentUnavailableView("No uncommitted changes", systemImage: "checkmark.circle").padding(.top, AceTheme.Spacing.xxxl)
+                EmptyState(icon: .gitBranch, title: "No uncommitted changes").padding(.top, AceTheme.Spacing.xxxl * 2)
             } else {
                 totals
                 ForEach(summary.files) { file in
@@ -122,11 +121,11 @@ struct ChangedFileHeader: View {
         HStack(spacing: AceTheme.Spacing.sm) {
             Button(action: toggle) {
                 HStack(spacing: AceTheme.Spacing.sm) {
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                    AceIcon(.caretRight, size: 12)
                         .rotationEffect(.degrees(open ? 90 : 0))
                         .animation(reduceMotion ? nil : AceTheme.Motion.spring, value: open)
                         .foregroundStyle(AceTheme.Colours.subtleForeground)
-                    Image(systemName: "doc.text").font(.footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
+                    AceIcon(.fileText, size: 14).foregroundStyle(AceTheme.Colours.subtleForeground)
                     path
                     if file.status != "modified" {
                         Text(file.status).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
@@ -142,7 +141,7 @@ struct ChangedFileHeader: View {
             .accessibilityValue(open ? "Open" : "Closed")
             .accessibilityIdentifier("changes.file.\(file.path)")
             Button(action: review) {
-                Image(systemName: reviewed ? "checkmark.square.fill" : "square").font(.body)
+                AceIcon(reviewed ? .checkSquare : .square, size: 18)
                     .foregroundStyle(reviewed ? AceTheme.Colours.foreground : AceTheme.Colours.decoration)
                     .frame(minWidth: 32, minHeight: 44).contentShape(Rectangle())
             }

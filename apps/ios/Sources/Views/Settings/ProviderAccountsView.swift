@@ -44,7 +44,7 @@ struct ProviderAccountsView: View {
             }
             Section {
                 if model.canOperate {
-                    Button("Add account", systemImage: "person.badge.plus") {
+                    Button("Add account", ace: .userPlus) {
                         Task { await request(["type": "provider.accounts.add", "provider": provider, "method": "login"]) }
                     }
                 }

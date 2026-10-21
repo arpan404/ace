@@ -41,7 +41,7 @@ struct ModePicker: View {
 /// status dots, the open one on the active fill, and the composer with Send. "system" splits it on
 /// a diagonal, light on the left and dark on the right.
 struct AppPreview: View {
-    static let radius: CGFloat = 12
+    static let radius = AceTheme.Radii.lg
     let scheme: String
 
     var body: some View {

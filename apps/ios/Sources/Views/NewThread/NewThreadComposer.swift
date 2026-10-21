@@ -49,7 +49,7 @@ struct NewThreadComposer: View {
                     drafts.picked(staged, workspaceId: project)
                     client.composeAttach(staged, workspaceId: project)
                 }, problem: $attachProblem, identifier: "newThread.attach", staging: drafts.staging) {
-                    Image(systemName: "plus").font(.title3).foregroundStyle(AceTheme.Colours.mutedForeground)
+                    AceIcon(.plus, size: 20).foregroundStyle(AceTheme.Colours.mutedForeground)
                 }
                 .disabled(draft.projectId == nil || client?.canOperate != true)
                 Button(action: chooseModel) { modelLabel }
@@ -75,7 +75,7 @@ struct NewThreadComposer: View {
                     .lineLimit(1).truncationMode(.middle)
             }
             if let effort { Text("· \(effort)").lineLimit(1) }
-            Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
+            AceIcon(.caretDown, size: 11).foregroundStyle(AceTheme.Colours.subtleForeground)
         }
         .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
         .foregroundStyle(AceTheme.Colours.mutedForeground)

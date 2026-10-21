@@ -19,15 +19,17 @@ struct ProjectPickerView: View {
         List {
             switch compose.projectsState {
             case "failed":
-                ContentUnavailableView {
-                    Label("Couldn't read projects", systemImage: "wifi.exclamationmark")
-                } description: { Text("Your computer didn't answer.") } actions: { Button("Try again", action: reload) }
+                EmptyState(icon: nil, title: "Couldn't read projects", line: "Your computer didn't answer. Try again in a moment.", failed: true) {
+                    Button("Try again", action: reload)
+                }
+                .padding(.top, AceTheme.Spacing.xxxl).listRowBackground(Color.clear).listRowSeparator(.hidden)
             case "ready":
                 let recent = matches.filter(\.recent)
                 let rest = matches.filter { !$0.recent }
                 if matches.isEmpty {
-                    ContentUnavailableView(query.isEmpty ? "No projects yet" : "No projects match", systemImage: "folder",
-                                           description: Text(query.isEmpty ? "Add a folder from your computer to start." : ""))
+                    EmptyState(icon: .folder, title: query.isEmpty ? "No projects yet" : "No projects match",
+                               line: query.isEmpty ? "Add a folder from your computer to start." : nil)
+                        .padding(.top, AceTheme.Spacing.xxxl).listRowBackground(Color.clear).listRowSeparator(.hidden)
                 }
                 if !recent.isEmpty { Section { ForEach(recent) { row($0) } } header: { SettingsHeader("Recent") }.settingsRow() }
                 if !rest.isEmpty {
@@ -38,7 +40,7 @@ struct ProjectPickerView: View {
             }
             Section {
                 if canAdd {
-                    Button(action: addProject) { SettingsRow(title: "Add a folder from your computer") { Image(systemName: "plus").foregroundStyle(AceTheme.Colours.subtleForeground) } }
+                    Button(action: addProject) { SettingsRow(title: "Add a folder from your computer") { AceIcon(.plus, size: 16).foregroundStyle(AceTheme.Colours.subtleForeground) } }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("projects.add")
                 } else {
@@ -62,7 +64,7 @@ struct ProjectPickerView: View {
                     Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1).truncationMode(.middle)
                 }
                 Spacer(minLength: AceTheme.Spacing.none)
-                if project.id == selected { Image(systemName: "checkmark").font(.body.weight(.medium)).foregroundStyle(AceTheme.Colours.foreground) }
+                if project.id == selected { AceIcon(.check, size: 16).foregroundStyle(AceTheme.Colours.foreground) }
             }
             .contentShape(Rectangle())
         }
@@ -97,8 +99,8 @@ struct AddProjectView: View {
         List {
             if client.canOperate {
                 Section {
-                    NavigationLink { CreateProjectView(model: client, cloning: false, added: added) } label: { Label("New project", systemImage: "folder.badge.plus") }
-                    NavigationLink { CreateProjectView(model: client, cloning: true, added: added) } label: { Label("Clone repository", systemImage: "arrow.down.doc") }
+                    NavigationLink { CreateProjectView(model: client, cloning: false, added: added) } label: { Label("New project", ace: .folderPlus) }
+                    NavigationLink { CreateProjectView(model: client, cloning: true, added: added) } label: { Label("Clone repository", ace: .fileArrowDown) }
                 }
             }
             if let failure { Text(failure).foregroundStyle(AceTheme.StatusText.failed).aceFont(AceTheme.Typography.caption, relativeTo: .footnote) }
@@ -108,7 +110,7 @@ struct AddProjectView: View {
                 ForEach(folders?.folders ?? []) { folder in
                     Button { add(folder) } label: {
                         HStack(spacing: AceTheme.Spacing.md) {
-                            Image(systemName: folder.git ? "arrow.triangle.branch" : "folder").foregroundStyle(AceTheme.Colours.decoration)
+                            AceIcon(folder.git ? .gitBranch : .folder, size: 16).foregroundStyle(AceTheme.Colours.faintForeground)
                             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                                 Text(folder.name).aceFont(AceTheme.Typography.body, relativeTo: .body)
                                 Text(folder.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1).truncationMode(.middle)
@@ -122,10 +124,12 @@ struct AddProjectView: View {
                     .accessibilityIdentifier("folder.\(folder.name)")
                 }
             case "forbidden":
-                ContentUnavailableView("Add it on your computer", systemImage: "desktopcomputer",
-                                       description: Text("This computer doesn't let this phone browse its folders. In ace on your computer, choose Add project."))
+                EmptyState(icon: .desktop, title: "Add it on your computer",
+                           line: "This computer doesn't let this phone browse its folders. In ace on your computer, choose Add project.")
+                    .padding(.top, AceTheme.Spacing.xxxl).listRowSeparator(.hidden)
             case "failed":
-                ContentUnavailableView("Couldn't search folders", systemImage: "wifi.exclamationmark", description: Text("Check the connection and try again."))
+                EmptyState(icon: nil, title: "Couldn't search folders", line: "Check the connection and try again.", failed: true)
+                    .padding(.top, AceTheme.Spacing.xxxl).listRowSeparator(.hidden)
             default:
                 HStack { Spacer(); ProgressView(); Spacer() }.listRowSeparator(.hidden)
             }

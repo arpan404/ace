@@ -14,7 +14,7 @@ struct PairingView: View {
     var body: some View {
         List {
             Section {
-                Button { scanning = true } label: { SettingsRow(title: "Scan the pairing code") { Image(systemName: "qrcode.viewfinder").foregroundStyle(AceTheme.Colours.subtleForeground) } }
+                Button { scanning = true } label: { SettingsRow(title: "Scan the pairing code") { AceIcon(.qrCode, size: 16).foregroundStyle(AceTheme.Colours.subtleForeground) } }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("pairing.scan")
             } header: {

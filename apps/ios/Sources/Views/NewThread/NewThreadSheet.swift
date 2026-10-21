@@ -61,7 +61,7 @@ struct NewThreadSheet: View {
             .navigationTitle("New thread").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                    Button { dismiss() } label: { AceIcon(.x, size: 18) }
                         .accessibilityLabel("Close").accessibilityIdentifier("newThread.close")
                 }
                 ToolbarItem(placement: .topBarTrailing) { moreOptions }
@@ -129,13 +129,13 @@ struct NewThreadSheet: View {
     /// Mentions, the project's files, and instructions or a profile, out of the main path.
     private var moreOptions: some View {
         Menu {
-            Button("Mention a file", systemImage: "at") { path.append(.mention) }
+            Button("Mention a file", ace: .at) { path.append(.mention) }
                 .disabled(draft.projectId == nil).accessibilityIdentifier("newThread.mention")
-            Button("Browse files", systemImage: "folder") { browsing = true }
+            Button("Browse files", ace: .folder) { browsing = true }
                 .disabled(draft.projectId == nil).accessibilityIdentifier("newThread.files")
-            Button("Instructions and profile", systemImage: "person.text.rectangle") { path.append(.instructions) }
+            Button("Instructions and profile", ace: .identificationCard) { path.append(.instructions) }
                 .accessibilityIdentifier("newThread.instructionsPage")
-        } label: { Image(systemName: "ellipsis") }
+        } label: { AceIcon(.dotsThree, size: 18) }
         .accessibilityLabel("More options").accessibilityIdentifier("newThread.options")
     }
     /// The chosen project's own folder, read-only, before the thread exists.
@@ -146,7 +146,7 @@ struct NewThreadSheet: View {
                             mention: { file in drafts.edit { $0.text = Mention.insert(file, into: $0.text) }; browsing = false })
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
-                            Button { browsing = false } label: { Image(systemName: "xmark") }
+                            Button { browsing = false } label: { AceIcon(.x, size: 18) }
                                 .accessibilityLabel("Close").accessibilityIdentifier("files.close")
                         }
                     }

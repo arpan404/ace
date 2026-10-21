@@ -35,7 +35,7 @@ struct NewThreadStrip: View {
             .foregroundStyle(AceTheme.Colours.mutedForeground)
             .padding(.horizontal, AceTheme.Spacing.xs)
             .frame(minHeight: 36)
-            .aceGlass(in: UnevenRoundedRectangle(topLeadingRadius: AceTheme.Radii.code, topTrailingRadius: AceTheme.Radii.code))
+            .aceGlass(in: UnevenRoundedRectangle(topLeadingRadius: AceTheme.Radii.lg, topTrailingRadius: AceTheme.Radii.lg))
             .padding(.horizontal, AceTheme.Spacing.lg)
         }
     }
@@ -48,7 +48,7 @@ struct NewThreadStrip: View {
                 }
             } label: {
                 segment {
-                    Image(systemName: "laptopcomputer").foregroundStyle(AceTheme.Colours.subtleForeground)
+                    AceIcon(.laptop, size: 14, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
                     Text(machines.first { $0.id == machineId }?.name ?? "").lineLimit(1)
                 }
             }
@@ -86,18 +86,18 @@ struct NewThreadStrip: View {
                 }
             } label: {
                 segment {
-                    Image(systemName: "arrow.triangle.branch").foregroundStyle(AceTheme.Colours.subtleForeground)
+                    AceIcon(.gitBranch, size: 14, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
                     Text(branches.bases.first { $0.base == selected }?.label ?? "Current branch")
                         .aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
                         .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1).truncationMode(.middle)
-                    Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
+                    AceIcon(.caretDown, size: 11).foregroundStyle(AceTheme.Colours.subtleForeground)
                 }
             }
             .accessibilityLabel("Starts from").accessibilityValue(branches.bases.first { $0.base == selected }?.label ?? "")
             .accessibilityIdentifier("newThread.base")
         } else if branches?.state != "failed" {
             segment {
-                Image(systemName: "arrow.triangle.branch").foregroundStyle(AceTheme.Colours.subtleForeground)
+                AceIcon(.gitBranch, size: 14, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
                 Capsule().fill(AceTheme.Colours.fill).frame(width: 72, height: 10)
             }
             .accessibilityLabel("Reading branches")
@@ -119,13 +119,13 @@ struct NewThreadStrip: View {
 private struct StripCheckbox: View {
     let checked: Bool
     var body: some View {
-        RoundedRectangle(cornerRadius: AceTheme.Radii.badge)
+        RoundedRectangle(cornerRadius: AceTheme.Radii.xs)
             .fill(checked ? AceTheme.Colours.accent : Color.clear)
             .overlay {
                 if checked {
-                    Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(AceTheme.Colours.onAccent)
+                    AceIcon(.check, size: 11, weight: .bold).foregroundStyle(AceTheme.Colours.onAccent)
                 } else {
-                    RoundedRectangle(cornerRadius: AceTheme.Radii.badge).strokeBorder(AceTheme.Colours.decoration, lineWidth: AceTheme.Dimensions.border)
+                    RoundedRectangle(cornerRadius: AceTheme.Radii.xs).strokeBorder(AceTheme.Colours.decoration, lineWidth: AceTheme.Dimensions.border)
                 }
             }
             .frame(width: 15, height: 15)

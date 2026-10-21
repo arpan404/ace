@@ -54,7 +54,7 @@ struct TaskRowView: View {
                              : AnyLayout(HStackLayout(spacing: AceTheme.Spacing.md))
         layout {
             HStack(spacing: AceTheme.Spacing.md) {
-                Image(systemName: task.kind == "shell" ? "terminal" : "gearshape.2").font(.footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
+                AceIcon(task.kind == "shell" ? .terminal : .gearSix, size: 14, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
                     .frame(width: 16)
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                     // Only a shell's title is its command; anything else is words, never code.
@@ -76,7 +76,7 @@ struct TaskRowView: View {
                     .aceFont(AceTheme.Typography.label, relativeTo: .footnote)
                     .foregroundStyle(AceTheme.Colours.foreground)
                     .padding(.horizontal, AceTheme.Spacing.md).frame(minHeight: 30)
-                    .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.small).strokeBorder(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
+                    .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.md).strokeBorder(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
                     .buttonStyle(.plain)
                     .frame(minHeight: AceTheme.Dimensions.touchTarget)
                     .accessibilityIdentifier("agents.task.stop.\(task.id)")

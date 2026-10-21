@@ -158,9 +158,9 @@ struct AutomationsView: View {
                     Text(row.prompt).lineLimit(4)
                     LabeledContent("Provider", value: row.provider.capitalized)
                     Text(row.workspace).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
-                    Button("Edit", systemImage: "pencil") { editing = row }
+                    Button("Edit", ace: .pencilSimple) { editing = row }
                     Button("Delete", role: .destructive) { removing = row }
-                    Button("Run now", systemImage: "play") {
+                    Button("Run now", ace: .play) {
                         perform(["type": "automation.run", "id": row.id, "variables": [String: String]()])
                     }
                     .disabled(!row.enabled)
@@ -183,7 +183,7 @@ struct AutomationsView: View {
         .navigationTitle("Automations").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("New automation", systemImage: "plus") {
+                Button("New automation", ace: .plus) {
                     editing = AutomationRow(id: UUID().uuidString, title: "", enabled: true, workspace: "", provider: model.providers?.providers.first?.provider ?? "codex", prompt: "", trigger: .object(["kind": .string("manual")]), worktree: false, missedRun: "skip", concurrency: 1, jitterMs: 0, model: nil, access: nil)
                 }.disabled(!model.canOperate || unavailable)
             }

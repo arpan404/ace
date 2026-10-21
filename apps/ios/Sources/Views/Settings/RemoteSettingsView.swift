@@ -103,7 +103,7 @@ private struct RemoteSettingRow: View {
                         HStack {
                             TextField("App name or bundle ID", text: Binding(get: { entries.indices.contains(index) ? entries[index] : "" }, set: { value in if entries.indices.contains(index) { entries[index] = value } }))
                                 .textInputAutocapitalization(.never).autocorrectionDisabled()
-                            Button { entries.remove(at: index) } label: { Image(systemName: "minus.circle") }.accessibilityLabel("Remove app")
+                            Button { entries.remove(at: index) } label: { AceIcon(.minusCircle, size: 18) }.accessibilityLabel("Remove app")
                         }
                     }
                     Button("Add app") { entries.append("") }.disabled(entries.count >= 200)

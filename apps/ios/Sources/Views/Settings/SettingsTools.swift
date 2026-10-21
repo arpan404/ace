@@ -18,17 +18,17 @@ enum SettingsTool: String, Hashable, CaseIterable {
         case .devices: "Simulators and devices"
         }
     }
-    var symbol: String {
+    var icon: AceIcon.Name {
         switch self {
-        case .projects: "folder"
-        case .automations: "clock.arrow.circlepath"
-        case .usage: "chart.bar"
-        case .skills: "book"
-        case .providers: "person.crop.circle"
-        case .sourceControl: "arrow.triangle.branch"
-        case .prompts: "text.alignleft"
-        case .computer: "macwindow"
-        case .devices: "iphone"
+        case .projects: .folder
+        case .automations: .clockCounterClockwise
+        case .usage: .chartBar
+        case .skills: .bookOpen
+        case .providers: .terminalWindow
+        case .sourceControl: .gitBranch
+        case .prompts: .notePencil
+        case .computer: .appWindow
+        case .devices: .deviceMobile
         }
     }
     /// Kept from the old Browse sheet so automation finds the same rows.
@@ -69,7 +69,7 @@ struct SettingsTools: View {
             Section {
                 if inbox.sessions.count > 1 {
                     HStack {
-                        SettingsLinkLabel(title: "Machine", symbol: "desktopcomputer")
+                        SettingsLinkLabel(title: "Machine", icon: .desktop)
                         Picker("Machine", selection: Binding(get: { hostId }, set: { machine = $0 })) {
                             ForEach(inbox.sessions) { Text(inbox.name($0.hostId)).tag($0.hostId) }
                         }
@@ -78,7 +78,7 @@ struct SettingsTools: View {
                     .accessibilityIdentifier("settings.tools.machine")
                 }
                 ForEach(SettingsTool.allCases, id: \.self) { tool in
-                    NavigationLink(value: SettingsRoute.tool(tool, machine: hostId)) { SettingsLinkLabel(title: tool.title, symbol: tool.symbol) }
+                    NavigationLink(value: SettingsRoute.tool(tool, machine: hostId)) { SettingsLinkLabel(title: tool.title, icon: tool.icon) }
                         .accessibilityIdentifier(tool.identifier)
                 }
             } header: {
