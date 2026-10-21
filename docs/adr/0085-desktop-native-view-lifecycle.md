@@ -79,6 +79,15 @@ answers it from the main process without touching the renderer. Only a missed pi
 answer of `Unknown browser session`, loses the session and closes the view as before. Any
 other answer, including an older desktop's "unknown method" error, counts as alive.
 
+Amended 2026-10-20: a page lost while the link stays up comes back by itself. A view that
+stops drawing (a frozen or hidden tab) never answers the screenshot a restarted live capture
+asks for; that capture's timeout pauses the thread as a lost view does, and Reopen recovers it.
+While the desktop stays registered, the daemon also tries to recover any such paused thread on
+the desktop by itself: after 1 second, then twice as long after each failed try, at most a
+minute apart. A recovery lost again within a minute keeps the longer wait, so a page that keeps
+failing is not reopened in a loop. Without a desktop nothing is tried; its next registration
+resumes the thread as before.
+
 ### Several native tabs per thread
 
 `EmbeddedPageGroup` holds up to 16 tabs (ADR 0083's per-thread limit), each its own

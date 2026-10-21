@@ -60,3 +60,57 @@ it("Reopen brings the page back even when its old view does not close in time", 
   await reopened;
   expect(f.service.state("thread")).toMatchObject({ backend: "embedded", status: "ready" });
 });
+
+it("a desktop that stopped answering, its liveness ping too, gets the page back on its own once it answers again", async () => {
+  const clock = new TestNavigationClock();
+  const f = await backendFixture({
+    navigationClock: clock,
+    wakeWatch: false,
+    tabLifecycle: false,
+    backendLoss: () => "pause",
+  });
+  await f.open();
+  await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/page" });
+  // The desktop froze while its link stayed up.
+  f.hold("Accessibility.getFullAXTree", "ace.ping");
+  const asked = once(f.requests, "Accessibility.getFullAXTree");
+  const failed = expect(f.service.execute("thread", { action: "snapshot" })).rejects.toThrow(
+    "timed out",
+  );
+  await asked;
+  const pinged = once(f.requests, "ace.ping");
+  clock.advance(30_000);
+  await failed;
+  await pinged;
+  clock.advance(5_000);
+  await vi.waitFor(() =>
+    expect(f.service.state("thread")).toMatchObject({
+      status: "paused",
+      reason: "Desktop browser command timed out",
+      pageStateLost: true,
+    }),
+  );
+  f.releaseHold();
+  await vi.waitFor(() => {
+    clock.advance(1_000);
+    expect(f.service.state("thread")).toMatchObject({
+      backend: "embedded",
+      status: "ready",
+      url: "http://localhost:3000/page",
+    });
+  });
+  expect(f.headless.pages).toHaveLength(0);
+});
+
+it("a page paused by a capture that timed out comes back on the desktop on its own", async () => {
+  const { f, clock } = await stalledCapture();
+  await vi.waitFor(() => {
+    clock.advance(1_000);
+    expect(f.service.state("thread")).toMatchObject({
+      backend: "embedded",
+      status: "ready",
+      url: "http://localhost:3000/page",
+    });
+  });
+  expect(f.headless.pages).toHaveLength(0);
+});

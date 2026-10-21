@@ -9,6 +9,7 @@ import {
 } from "@ace/protocol";
 import { recoverHeadless } from "./recovery.ts";
 import { DesktopLoss } from "./desktop-loss.ts";
+import { RecoveryRetry } from "./recovery-retry.ts";
 import { detectFfmpeg } from "./discovery.ts";
 import { ownedHeadless } from "./owned-backend.ts";
 import { BrowserProfiles } from "./profiles.ts";
@@ -233,11 +234,13 @@ export class BrowserService {
     let retiring = false;
     let backendLost = false;
     const loss = new DesktopLoss(this.navigationClock, this.options.desktopReadoptionGraceMs);
+    const retry = new RecoveryRetry(this.navigationClock);
     let opening: BackendOpen | undefined;
     const release = async () => {
       if (released) return;
       released = true;
       loss.finish();
+      retry.stop();
       if (session && this.sessions.get(options.threadId) === session)
         this.sessions.delete(options.threadId);
       scope.abort();
@@ -299,6 +302,7 @@ export class BrowserService {
             },
           });
           loss.finish();
+          retry.recovered();
           return;
         }
         const url = owned.state.url;
@@ -317,6 +321,7 @@ export class BrowserService {
           loss.finish();
           backend = native;
           backendLost = false;
+          retry.recovered();
         } catch (error) {
           await replacement.close().catch(() => {});
           throw error;
@@ -325,16 +330,32 @@ export class BrowserService {
       const recovery = recover()
         .catch((error) => {
           this.resumable.set(options.threadId, resume);
-          if (!signal.aborted)
+          if (!signal.aborted) {
             owned.recoveryFailed(
               error instanceof Error ? error.message : "Browser recovery failed",
             );
+            retryResume();
+          }
           this.options.onError?.(error);
         })
         .finally(() => this.recoveries.delete(options.threadId));
       this.recoveries.set(options.threadId, recovery);
       return recovery;
     };
+    /**
+     * Try `resume` again later, on its own, while the desktop is there to take the page: a page
+     * lost while the desktop stays connected comes back once the desktop answers again. Without
+     * a desktop nothing is tried; its next registration resumes the page.
+     */
+    const retryResume = () =>
+      retry.schedule(() => {
+        const owned = session;
+        if (signal.aborted || !owned || owned.state.closed || owned.state.status !== "paused")
+          return;
+        // A recovery under way (or none needed) holds the callback; it retries on failure.
+        if (!this.embedded || this.resumable.get(options.threadId) !== resume) return;
+        void resume();
+      });
     /**
      * The desktop can't draw (its screen locked): its views give no live picture, so the pages
      * move to ace's Chromium, every tab with its address and the shown one still shown. They
@@ -462,6 +483,8 @@ export class BrowserService {
             owned.suspend(reason);
             loss.reported = true;
             lose();
+            // The desktop is still connected: the page comes back once it answers again.
+            retryResume();
             return;
           }
           owned.detach(reason);
