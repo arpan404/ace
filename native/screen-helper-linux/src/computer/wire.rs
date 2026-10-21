@@ -120,6 +120,20 @@ pub fn sniff_id(data: &[u8]) -> Option<String> {
     (after.as_bytes()[end] == b'"').then(|| after[..end].to_owned())
 }
 
+/// The `--data-dir <dir>` (or `--data-dir=<dir>`) argument, if given and absolute.
+pub fn data_dir_arg(args: impl Iterator<Item = String>) -> Option<std::path::PathBuf> {
+    let mut args = args.peekable();
+    let mut found = None;
+    while let Some(arg) = args.next() {
+        if let Some(value) = arg.strip_prefix("--data-dir=") {
+            found = Some(value.to_owned());
+        } else if arg == "--data-dir" {
+            found = args.next();
+        }
+    }
+    found.map(std::path::PathBuf::from).filter(|path| path.is_absolute())
+}
+
 pub fn ok_line(id: &str, result: Value) -> String {
     let mut line = json!({"id": id, "ok": true, "result": result}).to_string();
     line.push('\n');
@@ -175,6 +189,18 @@ mod tests {
             matches!(&parsed[1], RequestLine::Invalid { id, message } if id.is_empty() && message.contains("no string id"))
         );
         assert!(matches!(&parsed[2], RequestLine::Invalid { id, message } if id == "y" && message.contains("no op")));
+    }
+
+    #[test]
+    fn the_data_dir_comes_from_either_argument_form_and_must_be_absolute() {
+        let args = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>().into_iter();
+        assert_eq!(
+            data_dir_arg(args(&["--computer", "--data-dir", "/home/me/.ace/screen"])),
+            Some(std::path::PathBuf::from("/home/me/.ace/screen"))
+        );
+        assert_eq!(data_dir_arg(args(&["--data-dir=/d", "--computer"])), Some("/d".into()));
+        assert_eq!(data_dir_arg(args(&["--computer", "--data-dir", "relative"])), None);
+        assert_eq!(data_dir_arg(args(&["--computer"])), None);
     }
 
     #[test]

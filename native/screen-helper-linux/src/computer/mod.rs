@@ -37,7 +37,11 @@ mod events;
 #[cfg(target_os = "linux")]
 mod observe;
 #[cfg(target_os = "linux")]
+mod pw_frame;
+#[cfg(target_os = "linux")]
 mod run;
+#[cfg(target_os = "linux")]
+mod screencast;
 #[cfg(target_os = "linux")]
 mod service;
 #[cfg(target_os = "linux")]

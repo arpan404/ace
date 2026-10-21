@@ -9,10 +9,12 @@ use crate::computer::desktop::DesktopApp;
 use crate::computer::error::{CuError, CuResult};
 use crate::computer::events::Activity;
 use crate::computer::observe::{self, Options};
+use crate::computer::screencast::ScreenCast;
 use crate::computer::session::AppSession;
 use crate::computer::xdisplay::XDisplay;
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 const X11_CAPABILITIES: [&str; 20] = [
@@ -69,6 +71,10 @@ pub struct Service {
     sessions: HashMap<u32, AppSession>,
     resolved: HashMap<String, u32>,
     clipboard: Option<Clipboard>,
+    /// Wayland screenshots, through the ScreenCast portal.
+    cast: Option<ScreenCast>,
+    /// Where restore tokens are kept (`--data-dir`); without it they last for this process.
+    data_dir: Option<PathBuf>,
 }
 
 fn flag(body: &Map<String, Value>, key: &str, default: bool) -> bool {
@@ -76,7 +82,7 @@ fn flag(body: &Map<String, Value>, key: &str, default: bool) -> bool {
 }
 
 impl Service {
-    pub fn new(cancellations: Cancellations) -> Self {
+    pub fn new(cancellations: Cancellations, data_dir: Option<PathBuf>) -> Self {
         Self {
             cancellations,
             bus: None,
@@ -86,6 +92,8 @@ impl Service {
             sessions: HashMap::new(),
             resolved: HashMap::new(),
             clipboard: None,
+            cast: None,
+            data_dir,
         }
     }
 
@@ -105,15 +113,19 @@ impl Service {
         Ok(bus)
     }
 
-    fn connect_x(&mut self) {
+    /// X11 when the session is X11; otherwise the ScreenCast portal for screenshots.
+    async fn connect_display(&mut self) {
         if !self.x_tried {
             self.x_tried = true;
             self.x = XDisplay::connect();
+            if self.x.is_none() {
+                self.cast = ScreenCast::connect(self.data_dir.clone()).await;
+            }
         }
     }
 
     pub async fn handle(&mut self, body: &Map<String, Value>, check: &Checkpoint) -> CuResult<Value> {
-        self.connect_x();
+        self.connect_display().await;
         match body.get("op").and_then(Value::as_str).unwrap_or_default() {
             "hello" => {
                 let accessibility = self.bus().await.is_ok();
@@ -123,7 +135,7 @@ impl Service {
                     &WAYLAND_CAPABILITIES
                 };
                 Ok(
-                    json!({"version": 2, "accessibility": accessibility, "screenRecording": self.x.is_some(), "capabilities": capabilities}),
+                    json!({"version": 2, "accessibility": accessibility, "screenRecording": self.x.is_some() || self.cast.is_some(), "capabilities": capabilities}),
                 )
             }
             "apps" => self.apps(body.get("query").and_then(Value::as_str)).await,
@@ -277,7 +289,7 @@ impl Service {
             outline: flag(body, "outline", true),
             marks: flag(body, "marks", true),
         };
-        let mut result = observe::observation(&bus, x, session, &windows, &options).await;
+        let mut result = observe::observation(&bus, x, session, &windows, self.cast.as_mut(), &options).await;
         check.check()?;
         if launched {
             result["launched"] = json!(true);
@@ -302,6 +314,7 @@ impl Service {
             sessions,
             activity,
             clipboard,
+            cast,
             ..
         } = self;
         let x = x.as_ref();
@@ -400,7 +413,7 @@ impl Service {
                 outline: flag(body, "outline", true),
                 marks: flag(body, "marks", true),
             };
-            result["state"] = observe::observation(&bus, x, session, &windows, &options).await;
+            result["state"] = observe::observation(&bus, x, session, &windows, cast.as_mut(), &options).await;
         }
         result["elapsedMs"] = json!(started.elapsed().as_millis() as u64);
         Ok(result)

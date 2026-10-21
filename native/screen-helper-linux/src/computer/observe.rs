@@ -1,16 +1,20 @@
 //! The observation the model gets: app, windows, the chosen window's outline, focus, menu
-//! bar, and on X11 optionally a screenshot tagged with ids.
+//! bar, and optionally a screenshot tagged with ids (X11 directly, Wayland through the
+//! ScreenCast portal).
 use crate::computer::bus::Bus;
 use crate::computer::capture;
 use crate::computer::element::{self, COORD_WINDOW};
-use crate::computer::error::{CuResult, clip};
+use crate::computer::error::{CuError, CuResult, clip};
 use crate::computer::image::{self, Rgb};
+use crate::computer::outline::{Node, Rect, content_offset};
+use crate::computer::screencast::ScreenCast;
 use crate::computer::session::{AppSession, WindowEntry};
+use crate::computer::walk::FrameMap;
 use crate::computer::xdisplay::XDisplay;
 use serde_json::{Value, json};
 use std::time::Duration;
 
-pub const WAYLAND_SCREENSHOT: &str = "Screenshots are not available in this Wayland session: capturing a window needs the desktop's screen-capture (ScreenCast portal) permission, which ace does not request yet. Work from the outline; it lists every element with its text and id.";
+pub const WAYLAND_SCREENSHOT: &str = "Screenshots are not available in this Wayland session: the desktop offers no screen-sharing portal (xdg-desktop-portal with ScreenCast). Work from the outline; it lists every element with its text and id.";
 
 pub struct Options {
     pub screenshot: bool,
@@ -23,11 +27,19 @@ pub async fn observation(
     x: Option<&XDisplay>,
     session: &mut AppSession,
     windows: &[WindowEntry],
+    cast: Option<&mut ScreenCast>,
     options: &Options,
 ) -> Value {
     let xid = x.and_then(|x| session.x_window(x));
+    let wayland_marks = x.is_none() && cast.is_some() && options.screenshot && options.marks;
     let frames = match (x, xid) {
         (Some(x), Some(xid)) if options.outline => session.frame_map(bus, x, xid).await,
+        // Wayland: window-relative extents, placed once the frame's size is known.
+        (None, _) if options.outline && wayland_marks => Some(FrameMap {
+            coord: COORD_WINDOW,
+            dx: 0.0,
+            dy: 0.0,
+        }),
         _ => None,
     };
     let mut truncated = false;
@@ -87,7 +99,13 @@ pub async fn observation(
         result["focused"] = entry;
     }
     if options.screenshot {
-        match screenshot(x, xid, session, options.marks && options.outline).await {
+        let marks = options.marks && options.outline;
+        let picture = match (x, cast) {
+            (Some(x), _) => screenshot(x, xid, session, marks).await,
+            (None, Some(cast)) => portal_screenshot(bus, cast, session, marks).await,
+            (None, None) => Err(WAYLAND_SCREENSHOT.into()),
+        };
+        match picture {
             Ok(picture) => result["screenshot"] = picture,
             Err(message) => result["screenshotError"] = json!(message),
         }
@@ -111,15 +129,7 @@ async fn menu_titles(bus: &Bus, session: &AppSession) -> Vec<String> {
         .collect()
 }
 
-async fn screenshot(
-    x: Option<&XDisplay>,
-    xid: Option<u32>,
-    session: &mut AppSession,
-    marks: bool,
-) -> Result<Value, String> {
-    let Some(x) = x else {
-        return Err(WAYLAND_SCREENSHOT.into());
-    };
+async fn screenshot(x: &XDisplay, xid: Option<u32>, session: &mut AppSession, marks: bool) -> Result<Value, String> {
     let window = session
         .window
         .clone()
@@ -146,17 +156,65 @@ async fn screenshot(
         false
     };
     let picture = capture::grab(x, xid, composited).map_err(|e| e.message)?;
-    session.scale = f64::from(image::fit(picture.width, picture.height).0) / f64::from(picture.width.max(1));
-    encode(picture, if marks { Some(&session.nodes) } else { None }).map_err(|e| e.message)
+    let logical = (f64::from(picture.width), f64::from(picture.height));
+    let nodes = if marks { Some(&session.nodes) } else { None };
+    let (value, scale) = encode(picture, logical, nodes).map_err(|e| e.message)?;
+    session.scale = scale;
+    Ok(value)
 }
 
-fn encode(picture: Rgb, nodes: Option<&Vec<crate::computer::outline::Node>>) -> CuResult<Value> {
+/// Wayland: one frame of the app's window through the ScreenCast portal.
+async fn portal_screenshot(
+    bus: &Bus,
+    cast: &mut ScreenCast,
+    session: &mut AppSession,
+    marks: bool,
+) -> Result<Value, String> {
+    let window = session
+        .window
+        .clone()
+        .ok_or_else(|| format!("{} has no window to capture.", session.name))?;
+    if window.minimized {
+        return Err("The window is minimized, so it can't be captured. Use the outline.".into());
+    }
+    let frame = cast.capture(&session.id, &session.name).await?;
+    let logical = (f64::from(frame.logical.0), f64::from(frame.logical.1));
+    // A window frame shows exactly the window, its content centred in it. A monitor frame
+    // can't be related to window-relative positions, so it gets no marks.
+    let content = if marks && frame.window {
+        session.content(bus).await
+    } else {
+        None
+    };
+    let placed: Option<Vec<Node>> = content.map(|content| {
+        let (dx, dy) = content_offset(logical, content);
+        session
+            .nodes
+            .iter()
+            .map(|node| {
+                let mut node = node.clone();
+                node.frame = node.frame.map(|f| Rect {
+                    x: f.x - dx,
+                    y: f.y - dy,
+                    ..f
+                });
+                node
+            })
+            .collect()
+    });
+    let (value, scale) = encode(frame.picture, logical, placed.as_ref()).map_err(|e| e.message)?;
+    session.scale = scale;
+    Ok(value)
+}
+
+/// Fits, marks and encodes a picture. `logical` is the size node frames are measured in.
+/// Returns the screenshot and its pixels per logical pixel.
+fn encode(picture: Rgb, logical: (f64, f64), nodes: Option<&Vec<Node>>) -> CuResult<(Value, f64)> {
     let (width, height) = image::fit(picture.width, picture.height);
-    let scale = f64::from(width) / f64::from(picture.width.max(1));
-    let original = (f64::from(picture.width), f64::from(picture.height));
+    let scale = f64::from(width) / logical.0.max(1.0);
     let mut scaled = image::downscale(&picture, width, height);
     if let Some(nodes) = nodes {
-        image::draw_marks(&mut scaled, &image::marks(nodes, original, scale));
+        image::draw_marks(&mut scaled, &image::marks(nodes, logical, scale));
     }
     let mut jpeg = Vec::new();
     jpeg_encoder::Encoder::new(&mut jpeg, 80)
@@ -166,8 +224,9 @@ fn encode(picture: Rgb, nodes: Option<&Vec<crate::computer::outline::Node>>) -> 
             height as u16,
             jpeg_encoder::ColorType::Rgb,
         )
-        .map_err(|e| {
-            crate::computer::error::CuError::new("internal", format!("Could not encode the screenshot: {e}"))
-        })?;
-    Ok(json!({"jpeg": image::base64(&jpeg), "width": width, "height": height}))
+        .map_err(|e| CuError::new("internal", format!("Could not encode the screenshot: {e}")))?;
+    Ok((
+        json!({"jpeg": image::base64(&jpeg), "width": width, "height": height}),
+        scale,
+    ))
 }

@@ -180,7 +180,20 @@ impl AppSession {
             }
         }
         // GTK4: the window's content sits centred in the X window (inside its shadow margin),
-        // whatever offset the frame itself reports, so place the largest child.
+        // whatever offset the frame itself reports.
+        let content = self.content(bus).await?;
+        let (dx, dy) = content_offset((f64::from(ww), f64::from(wh)), content);
+        Some(FrameMap {
+            coord: COORD_WINDOW,
+            dx,
+            dy,
+        })
+    }
+
+    /// The window's content box in window-relative coordinates: its largest child, else the
+    /// window itself.
+    pub async fn content(&self, bus: &Bus) -> Option<Rect> {
+        let window = self.window.as_ref()?;
         let mut content = None;
         for child in bus.children(&window.obj).await.ok()?.iter().take(8) {
             if let Ok(Some(rect)) = element::extents(bus, child, COORD_WINDOW).await
@@ -189,16 +202,10 @@ impl AppSession {
                 content = Some(rect);
             }
         }
-        let content = match content {
-            Some(content) => content,
-            None => element::extents(bus, &window.obj, COORD_WINDOW).await.ok().flatten()?,
-        };
-        let (dx, dy) = content_offset((f64::from(ww), f64::from(wh)), content);
-        Some(FrameMap {
-            coord: COORD_WINDOW,
-            dx,
-            dy,
-        })
+        match content {
+            Some(content) => Some(content),
+            None => element::extents(bus, &window.obj, COORD_WINDOW).await.ok().flatten(),
+        }
     }
 
     /// Walks the chosen window and any open popup windows, updating ids and the node list.

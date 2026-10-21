@@ -87,6 +87,12 @@ fn read_stdin(output: Output, cancellations: Cancellations, sender: tokio::sync:
     let _ = sender.send(Message::End);
 }
 
+/// `--data-dir <dir>`: where screen-sharing restore tokens are kept (the daemon passes
+/// `<ACE_HOME>/screen`).
+fn data_dir(args: impl Iterator<Item = String>) -> Option<std::path::PathBuf> {
+    crate::computer::wire::data_dir_arg(args)
+}
+
 pub async fn run() -> i32 {
     watch_signals();
     let output = Output {
@@ -99,7 +105,7 @@ pub async fn run() -> i32 {
         let cancellations = cancellations.clone();
         std::thread::spawn(move || read_stdin(output, cancellations, sender));
     }
-    let mut service = Service::new(cancellations.clone());
+    let mut service = Service::new(cancellations.clone(), data_dir(std::env::args().skip(1)));
     while let Some(message) = receiver.recv().await {
         let Message::Request { id, body } = message else { break };
         let check = cancellations.checkpoint(&id);
