@@ -13,7 +13,6 @@ import { Icon } from "@/components/icon.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 
-
 /**
  * The browser's address: shows the page at rest, edits in place, suggests addresses this thread
  * runs or visited as you type, and opens what you enter. Never searches the web for text that
