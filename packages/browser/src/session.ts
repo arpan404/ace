@@ -313,7 +313,9 @@ export class BrowserSession {
   }
   async releaseLostBackend(): Promise<void> {
     await Promise.all(this.tabs.all().map((tab) => tab.settled()));
-    await this.options.backend.close();
+    // A view that would not close in time is let go anyway: its backend session remembers the
+    // failed close, and failing on it here would fail every later recovery of the thread too.
+    await this.options.backend.close().catch(() => {});
   }
   /** A renderer (`tabId`) or the whole browser came back: re-arm annotate mode and capture. */
   restarted(tabId?: string): void {
@@ -350,8 +352,10 @@ export class BrowserSession {
         // A shown tab closing under its capture is not a lost browser: the next shown tab
         // takes the capture once the backend reports it (`changed`).
         if (target !== undefined && this.tabs.leaving(target)) return;
-        if (token === this.captureToken && !this.closed)
-          this.suspend(error instanceof Error ? error.message : failure);
+        if (token !== this.captureToken || this.closed || this.paused) return;
+        const reason = error instanceof Error ? error.message : failure;
+        this.suspend(reason);
+        this.options.suspended?.(reason);
       });
   }
   /** The thread's pages were reopened on a new backend session; their state is gone. */
