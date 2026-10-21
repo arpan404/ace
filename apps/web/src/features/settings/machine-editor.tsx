@@ -56,7 +56,7 @@ export function ThisMachineRow() {
       >
         <Button
           size="sm"
-          variant="secondary"
+          variant="ghost"
           disabled={!machine.client}
           onClick={() => setEditing(true)}
         >

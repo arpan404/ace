@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
+import { StatusLabel } from "@/components/status-label.tsx";
 import { ProviderSetupRow } from "@/features/provider-setup/index.ts";
 import { machineStatus } from "@/lib/machine-status.ts";
 import type { Machine } from "@/lib/machines.ts";
@@ -77,8 +78,9 @@ function MachineOverview(props: { machine: Machine }) {
 }
 
 /**
- * One machine as a settings group: its name over a card, its connection and readiness at the
- * label's right with the way into its settings, then its rows.
+ * One machine as a settings group: its mark and name as the title, its connection as a status
+ * word, its readiness in plain words, and the way into its settings at the right; then its
+ * provider rows under the group's rule.
  */
 function MachineSection(props: {
   machine: Machine;
@@ -90,23 +92,36 @@ function MachineSection(props: {
   const status = machineStatus[machine.status];
   const titleId = useId();
   return (
-    <section aria-labelledby={titleId} className="mb-9">
+    <section aria-labelledby={titleId} className="mb-(--settings-group-gap)">
       {/* A machine is the thing on this page, so its name is a title, not a small label. */}
-      <div className="mb-2 flex min-h-7 flex-wrap items-center gap-x-2.5 gap-y-1 px-0.5">
+      <div className="mb-2 flex min-h-7 flex-wrap items-center gap-x-3 gap-y-1">
         <h3 id={titleId} className="flex items-center gap-2 text-md font-medium">
           <MachineMark icon={machine.icon} primary={machine.primary} />
           {machine.name}
         </h3>
-        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-          {[status.label, machine.client ? props.summary : undefined].filter(Boolean).join(" · ")}
-        </span>
+        <StatusLabel tone={status.tone} label={status.label} />
+        {machine.client && props.summary && (
+          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+            {props.summary}
+          </span>
+        )}
         {machine.status === "auth_failed" ? (
-          <Button size="sm" variant="ghost" onClick={() => open(machine, "/settings/remote")}>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto -mr-2.5"
+            onClick={() => open(machine, "/settings/remote")}
+          >
             Pair again
           </Button>
         ) : (
           machine.client && (
-            <Button size="sm" variant="ghost" onClick={() => open(machine, "/settings/agents")}>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="ml-auto -mr-2.5"
+              onClick={() => open(machine, "/settings/agents")}
+            >
               Edit settings
             </Button>
           )
@@ -152,13 +167,17 @@ function OnlineMachine(props: { machine: Machine }) {
   );
 }
 
-/** One provider on one machine: its state and fix (Sign in, Update…), and the way to its page. */
+/**
+ * One provider on one machine, in columns: name and version, its state, the fix it needs (Sign
+ * in, Update…) and the way to its page. One row height, like every settings row.
+ */
 function ProviderLine(props: { machine: Machine; entry: ProviderEntry }) {
   const { install, row, view } = props.entry;
   const open = useOpenOnMachine();
   return (
-    <div role="group" aria-label={install.name} data-setting-slot="" className="py-1.5">
+    <div role="group" aria-label={install.name} data-setting-slot="" className="py-1">
       <ProviderSetupRow
+        columns
         provider={install.kind}
         acpAgentId={install.registry?.agent?.acpAgentId ?? install.acpAgentId}
         instance={install.instance}

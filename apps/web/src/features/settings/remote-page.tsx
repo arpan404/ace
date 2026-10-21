@@ -60,12 +60,14 @@ function PairedDevices() {
       {devices.isError && <LoadError error={devices.error} />}
       {devices.data?.length === 0 && <SettingNote>No paired devices.</SettingNote>}
       {devices.data?.map((device) => (
-        <SettingRow
-          key={device.id}
-          title={device.name}
-          description={`${deviceScopeLabels(device.scopes)} · Seen ${formatAgo(device.lastSeenAt, now)}`}
-          inline
-        >
+        // In columns: the device, what it may do, when it was last seen, then its menu.
+        <SettingRow key={device.id} title={device.name}>
+          <span className="text-ui text-muted-foreground @[30rem]:w-32">
+            {deviceScopeLabels(device.scopes)}
+          </span>
+          <span className="text-xs text-subtle-foreground tabular-nums @[30rem]:w-24 @[30rem]:text-right">
+            Seen {formatAgo(device.lastSeenAt, now)}
+          </span>
           <RowMenu label={`Actions for ${device.name}`}>
             <MenuItem danger onClick={() => setRevoking(device)}>
               Revoke

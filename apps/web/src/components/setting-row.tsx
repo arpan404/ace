@@ -108,8 +108,9 @@ export function SettingRow(props: {
         {props.children && (
           <div
             className={cn(
-              // A trailing ghost button's label lines up with the column's edge, not its padding.
-              "ml-auto flex min-w-0 max-w-[60%] shrink-0 flex-wrap items-center justify-end gap-2 *:max-w-full [&>[data-variant=ghost]:last-child]:-mr-2.5",
+              // A trailing ghost button's label lines up with the column's edge, not its padding
+              // (its negative margin would otherwise count against the max-width its siblings keep).
+              "ml-auto flex min-w-0 max-w-[60%] shrink-0 flex-wrap items-center justify-end gap-2 *:max-w-full [&>[data-variant=ghost]:last-child]:-mr-2.5 [&>[data-variant=ghost]:last-child]:max-w-none",
               !props.inline &&
                 "@max-[440px]:ml-0 @max-[440px]:max-w-full @max-[440px]:justify-start",
             )}
@@ -157,8 +158,8 @@ function useHashFlash(id: string | undefined, ref: RefObject<HTMLElement | null>
 export type SettingScope = "daemon" | "device" | "computer";
 
 /**
- * A titled group of rows on a subtle card, hairlines between rows (docs/design/visual-language.md,
- * "Settings").
+ * A titled group of rows: the title, a hairline, then rows with hairlines between them. No card
+ * around it; the next group starts `--settings-group-gap` below (DESIGN.md §3).
  */
 export function SettingSection(props: {
   label: string;
@@ -173,13 +174,14 @@ export function SettingSection(props: {
 }) {
   const id = useId();
   return (
-    <section id={props.anchor} className="mb-9" aria-labelledby={id}>
-      <div className="mb-1 flex min-h-7 items-center gap-2">
+    <section id={props.anchor} className="mb-(--settings-group-gap)" aria-labelledby={id}>
+      <div className="mb-2 flex min-h-7 items-center gap-2">
         <h3 id={id} className="text-md font-medium text-foreground">
           {props.label}
         </h3>
         {props.actions && (
-          <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
+          // A trailing ghost button's label lines up with the rows' right edge, as in a row.
+          <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground [&>[data-variant=ghost]:last-child]:-mr-2.5">
             {props.actions}
           </div>
         )}
@@ -191,10 +193,10 @@ export function SettingSection(props: {
 }
 
 /**
- * Rows grouped on a subtle card with hairlines between them. Put rows (`SettingRow`), prose
+ * Rows under one rule with hairlines between them. Put rows (`SettingRow`), prose
  * (`SettingNote`), actions (`SettingFooter`), lists of rows (`SettingList`) and disclosures
- * (`SettingDisclosure`) in it; each insets itself to the card's one left edge. `SettingSection`
- * adds a title; use this alone for rows that head a page without one.
+ * (`SettingDisclosure`) in it; each keeps the page's one left edge. `SettingSection` adds a
+ * title; use this alone for rows that head a page without one.
  */
 export function SettingCard(props: { children: ReactNode; className?: string }) {
   return (

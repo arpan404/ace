@@ -1,7 +1,7 @@
 import { CaretLeftIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { Suspense, useRef, useState } from "react";
-import { ProviderTile } from "@/components/provider-tile.tsx";
+import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { SettingDisclosure, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
@@ -126,11 +126,12 @@ function ProviderPage(props: { entry: ProviderEntry }) {
       page={install.name}
       back={back}
       icon={
-        <ProviderTile
+        // A bare mark beside the title, as the sidebar and Usage draw providers.
+        <ProviderIcon
           provider={install.kind}
           acpAgentId={install.acpAgentId}
-          size="lg"
-          muted={missing}
+          size={24}
+          className={missing ? "opacity-60 grayscale" : undefined}
         />
       }
       lede={

@@ -5,7 +5,7 @@ import { deviceScopeLabels, deviceAccessOptions } from "./device-scopes.ts";
 import type { Device, DeviceScope } from "@ace/protocol";
 import { CheckCircleIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type Ref } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
@@ -41,6 +41,12 @@ const accessDescriptions: Record<Access, string> = {
   read: "Follow threads and read transcripts.",
   admin: "Everything, plus settings, pairing and computer use.",
 };
+
+/** Grants apart from the access level, each its own switch. */
+const advancedScopes: readonly { value: "projects" | "accounts"; label: string; what: string }[] = [
+  { value: "projects", label: "Projects", what: "Add and remove project folders." },
+  { value: "accounts", label: "Accounts", what: "Add and remove provider accounts." },
+];
 
 /** One access level to pair with: its name and what it allows, chosen as a whole card. */
 function AccessOption(props: {
@@ -86,7 +92,8 @@ export function countdown(expiresAt: number, now: number): string {
  * Pair a phone or browser: pick its access, then a one-time QR code and link. While the code
  * shows, the paired list is watched; the new device replaces the code with a confirmation.
  */
-function PairingFlow(props: { close(): void }) {
+function PairingFlow({ ref, ...props }: { close(): void; ref: Ref<HTMLDivElement> }) {
+  const id = useId();
   const backend = useSettingsBackend();
   const remote = useRemoteStatus();
   const reachable =
@@ -121,7 +128,9 @@ function PairingFlow(props: { close(): void }) {
     setKnown(undefined);
   };
   return (
-    <div className="flex flex-col gap-4">
+    // Focus starts on the flow itself, not on the first option: nothing is outlined until the
+    // person presses a key.
+    <div ref={ref} tabIndex={-1} className="flex flex-col gap-4 outline-none">
       <p className="text-sm text-muted-foreground">
         The link works once and expires after five minutes.{" "}
         {remote.isFetching
@@ -163,23 +172,32 @@ function PairingFlow(props: { close(): void }) {
             ))}
           </div>
           <SettingDisclosure title="Advanced access">
-            <p className="py-2 text-sm text-muted-foreground">
-              Projects allows changing registered folders. Accounts allows managing provider
-              accounts. These are separate from administrator access.
-            </p>
-            {(["projects", "accounts"] as const).map((scope) => (
-              <label key={scope} className="flex items-center justify-between gap-4 py-2 text-sm">
-                {scope === "projects" ? "Projects" : "Accounts"}
-                <Switch
-                  checked={advanced.includes(scope)}
-                  onCheckedChange={(on) =>
-                    setAdvanced((before) =>
-                      on ? [...before, scope] : before.filter((item) => item !== scope),
-                    )
-                  }
-                />
-              </label>
-            ))}
+            <div className="divide-y divide-border">
+              {advancedScopes.map((scope) => (
+                <div
+                  key={scope.value}
+                  className="flex min-h-11 items-center justify-between gap-4 py-1.5"
+                >
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <label htmlFor={`${id}-${scope.value}`} className="text-ui text-foreground">
+                      {scope.label}
+                    </label>
+                    <span className="text-xs text-muted-foreground">{scope.what}</span>
+                  </span>
+                  <Switch
+                    id={`${id}-${scope.value}`}
+                    checked={advanced.includes(scope.value)}
+                    onCheckedChange={(on) =>
+                      setAdvanced((before) =>
+                        on
+                          ? [...before, scope.value]
+                          : before.filter((item) => item !== scope.value),
+                      )
+                    }
+                  />
+                </div>
+              ))}
+            </div>
           </SettingDisclosure>
           {pair.isError && (
             <p role="alert" className="text-sm text-destructive">
@@ -209,16 +227,17 @@ export function PairDevice() {
   // `/pair` lands here with #pair: the dialog opens over the page it belongs to.
   const hash = useLocation({ select: (location) => location.hash });
   const [open, setOpen] = useState(hash === "pair");
+  const flow = useRef<HTMLDivElement>(null);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <SettingAddRow id="remote.pair" onClick={() => setOpen(true)}>
         Pair a device
       </SettingAddRow>
-      <DialogContent>
+      <DialogContent initialFocus={flow}>
         <DialogHeader>
           <DialogTitle>Pair a device</DialogTitle>
         </DialogHeader>
-        {open && <PairingFlow close={() => setOpen(false)} />}
+        {open && <PairingFlow ref={flow} close={() => setOpen(false)} />}
       </DialogContent>
     </Dialog>
   );
@@ -235,7 +254,7 @@ function Paired(props: { device: Device; onDone(): void }) {
 
   return (
     <>
-      <div role="status" className="flex flex-col items-center gap-2 py-4 text-center">
+      <div role="status" className="fx-rise-in flex flex-col items-center gap-2 py-4 text-center">
         <Icon icon={CheckCircleIcon} size={36} className="text-status-done" />
         <p className="text-md font-medium">{props.device.name} paired</p>
         <p className="text-sm text-muted-foreground">{deviceScopeLabels(props.device.scopes)}</p>
@@ -272,7 +291,7 @@ function PairingCode(props: {
   };
   return (
     <>
-      <div className="flex w-full min-w-0 flex-col gap-3">
+      <div className="fx-rise-in flex w-full min-w-0 flex-col gap-3">
         <p className="flex items-center gap-1 text-ui text-muted-foreground">
           {deviceScopeLabels(props.scopes)}
           <span aria-hidden>·</span>

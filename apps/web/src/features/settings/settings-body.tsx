@@ -13,6 +13,9 @@ import { settingsPageOf } from "./settings-pages.ts";
  * at its right and, on a Machine page with more than one machine, the machine it edits as a
  * quiet menu ("This Mac ⌄"), as Usage picks its environment. Content rises in when the page
  * or the machine changes.
+ *
+ * Nothing on a page is a card: a group is its title over hairline-separated rows, and groups
+ * are set apart by `--settings-group-gap` (see `SettingSection`).
  */
 export function SettingsBody(props: {
   page: string;
@@ -38,7 +41,8 @@ export function SettingsBody(props: {
       <div className="h-full overflow-auto">
         <div className="@container w-full max-w-[860px] px-5 pt-5 pb-20 sm:px-7">
           {props.back && <div className="mb-1 text-ui">{props.back}</div>}
-          <div className="mb-3.5 flex min-h-8 flex-wrap items-center gap-x-3 gap-y-2">
+          {/* The title row is a band of its own: the first group starts a clear step below it. */}
+          <div className="mb-7 flex min-h-8 flex-wrap items-center gap-x-3 gap-y-2">
             {props.icon}
             <div className="min-w-0">
               <h2 className="text-xl leading-[26px] font-semibold tracking-[-0.015em]">

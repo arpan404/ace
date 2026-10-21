@@ -37,6 +37,8 @@
   --settings-column: clamp(640px, 64vw, 900px);
   --setting-row-height: 44px;
   --setting-row-y: 6px;
+  /* Between one settings group (title over rows) and the next. */
+  --settings-group-gap: 40px;
   --picker-row-padding: 12px;
   --picker-row-height: 48px;
 
