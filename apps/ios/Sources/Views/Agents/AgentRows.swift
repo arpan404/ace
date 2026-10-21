@@ -1,36 +1,43 @@
 import SwiftUI
 
-/// One agent in the tree: indent by depth, the shared status word and colour, what it is doing.
+/// One agent in the tree: its provider's mark (indented by depth), its name over what it is
+/// doing, and the shared status word.
 struct AgentRowView: View {
     let row: AgentSheet.Row
+    /// The thread's provider: its agents run on it.
+    let provider: String
     @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
-            Circle().fill(StateStyle.marker(row.status.token))
-                .frame(width: AceTheme.Dimensions.statusDot, height: AceTheme.Dimensions.statusDot)
+        HStack(spacing: AceTheme.Spacing.md) {
+            ProviderMark(provider: provider, size: 20).foregroundStyle(AceTheme.Colours.foreground)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(row.model.isEmpty ? row.name : "\(row.name) · \(row.model)")
-                    .aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(typeSize.isAccessibilitySize ? 4 : 2)
-                Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(row.needsYou ? StateStyle.text(row.status.token) : AceTheme.Colours.mutedForeground).lineLimit(4)
+                Text(row.depth == 0 ? "Main agent" : row.name)
+                    .aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+                    .lineLimit(typeSize.isAccessibilitySize ? 4 : 1)
+                Text(detail).aceFont(AceTheme.Typography.label, relativeTo: .footnote).fontWeight(.regular)
+                    .foregroundStyle(row.needsYou ? StateStyle.text(row.status.token) : AceTheme.Colours.mutedForeground)
+                    .lineLimit(typeSize.isAccessibilitySize ? 4 : 1)
             }
+            Spacer(minLength: AceTheme.Spacing.sm)
+            StateLabel(status: row.status)
         }
         // Depth beyond a few levels keeps its own line rather than squeezing the name.
         .padding(.leading, CGFloat(min(row.depth, 4)) * AceTheme.Spacing.lg)
+        .padding(.vertical, AceTheme.Spacing.xs)
         .accessibilityElement(children: .combine)
-        .accessibilityValue(row.status.label)
     }
+    /// What it is doing; the model when that says no more than the status word.
     private var detail: String {
-        var parts = [row.status.label]
-        // Only a working or failed agent's activity says more than its status word.
-        if ["working", "failed"].contains(row.status.token) && row.activity.lowercased() != row.status.label.lowercased() { parts.append(row.activity) }
-        if let tokens = row.tokens { parts.append("\(TokenCount.short(tokens)) tokens") }
+        var parts: [String] = []
+        if row.activity.lowercased() != row.status.label.lowercased() && !row.activity.isEmpty { parts.append(row.activity) }
+        else if !row.model.isEmpty { parts.append(row.model) }
+        if row.depth == 0 && row.name != "Main agent" && !row.name.isEmpty { parts.insert(row.name, at: 0) }
         if row.background { parts.append("background") }
         return parts.joined(separator: " · ")
     }
 }
 
-/// A background process or task with its state; Stop where ace can stop it on its own.
+/// A background command or task with its state; a Stop pill where ace can stop it on its own.
 struct TaskRowView: View {
     let task: AgentSheet.BackgroundTask
     let canStop: Bool
@@ -40,10 +47,11 @@ struct TaskRowView: View {
         // At accessibility sizes Stop goes under the command instead of squeezing it.
         let stacked = typeSize.isAccessibilitySize
         let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: AceTheme.Spacing.sm))
-                             : AnyLayout(HStackLayout(spacing: AceTheme.Spacing.sm))
+                             : AnyLayout(HStackLayout(spacing: AceTheme.Spacing.md))
         layout {
-            HStack(spacing: AceTheme.Spacing.sm) {
+            HStack(spacing: AceTheme.Spacing.md) {
                 Image(systemName: task.kind == "shell" ? "terminal" : "gearshape.2").foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .frame(width: 20)
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                     // Only a shell's title is its command; anything else is words, never code.
                     Group {
@@ -53,14 +61,20 @@ struct TaskRowView: View {
                             Text(task.title).aceFont(AceTheme.Typography.label, relativeTo: .footnote)
                         }
                     }
+                    .foregroundStyle(AceTheme.Colours.foreground)
                     .lineLimit(stacked ? 4 : 2)
-                    Text(task.status.label.capitalized).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                        .foregroundStyle(StateStyle.text(task.status.token))
+                    StateLabel(status: StatusDisplay(label: task.status.label.capitalized, token: task.status.token))
                 }
             }
             if !stacked { Spacer(minLength: AceTheme.Spacing.none) }
             if canStop && task.stoppable {
-                Button("Stop", role: .destructive, action: stop).buttonStyle(.bordered).frame(minHeight: AceTheme.Dimensions.touchTarget)
+                Button("Stop", action: stop)
+                    .aceFont(AceTheme.Typography.label, relativeTo: .footnote).fontWeight(.semibold)
+                    .foregroundStyle(AceTheme.StatusText.failed)
+                    .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: 34)
+                    .background(AceTheme.Colours.diffDelete, in: Capsule())
+                    .buttonStyle(.plain)
+                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
                     .accessibilityIdentifier("agents.task.stop.\(task.id)")
             }
         }
@@ -68,25 +82,21 @@ struct TaskRowView: View {
     }
 }
 
-/// Tokens across the tree and the root agent's context window, when the provider reports them.
-struct BudgetView: View {
+/// Tokens across the tree and the root agent's context window, as one quiet line.
+struct BudgetLine: View {
     let totals: AgentSheet.Totals
     let context: AgentSheet.Context?
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
-            if let context {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
-                    LabeledContent("Context", value: "\(TokenCount.short(context.used)) / \(TokenCount.short(context.window))")
-                    ProgressView(value: Double(min(context.used, context.window)), total: Double(max(context.window, 1))).tint(AceTheme.Colours.accent)
-                        .accessibilityHidden(true)
-                }
-                // The meter repeats the numbers above it; VoiceOver reads them once.
-                .accessibilityElement(children: .combine)
-            }
-            if let tokens = totals.tokens { LabeledContent("Tokens used", value: TokenCount.short(tokens)) }
-            if let cost = totals.costUsd { LabeledContent("Cost", value: cost.formatted(.currency(code: "USD"))) }
+        let parts = [
+            context.map { "Context \(TokenCount.short($0.used)) of \(TokenCount.short($0.window))" },
+            totals.tokens.map { "\(TokenCount.short($0)) tokens" },
+            totals.costUsd.map { $0.formatted(.currency(code: "USD")) },
+        ].compactMap { $0 }
+        if !parts.isEmpty {
+            Text(parts.joined(separator: " · ")).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                .accessibilityIdentifier("agents.budget")
         }
-        .aceFont(AceTheme.Typography.body, relativeTo: .body)
     }
 }
 

@@ -1,11 +1,18 @@
 import SwiftUI
 import UIKit
 
-/// Native editable text with Dynamic Type and bounded composer height.
+/// Native editable text with Dynamic Type and bounded composer height. It reports when the text
+/// no longer fits one line of the compact composer, so the composer can grow into a card.
 struct NativeTextInput: UIViewRepresentable {
     @Binding var text: String
     let inputBegan: () -> Void
     var submit: (() -> Void)? = nil
+    /// Whether the composer shows the text as a card (wrapped) right now.
+    var wraps = false
+    var onWrap: ((Bool) -> Void)? = nil
+    var identifier = "composer.input"
+    /// Takes the keyboard as soon as it shows (New thread's first message).
+    var focusOnAppear = false
     @AppStorage("ace.keyboard.returnSends") private var returnSends = false
     func makeUIView(context: Context) -> ComposerTextView {
         let view = ComposerTextView()
@@ -17,14 +24,15 @@ struct NativeTextInput: UIViewRepresentable {
         view.textContainerInset = UIEdgeInsets(top: AceTheme.Spacing.md, left: AceTheme.Spacing.none, bottom: AceTheme.Spacing.md, right: AceTheme.Spacing.none)
         view.textContainer.lineFragmentPadding = AceTheme.Spacing.none
         view.isScrollEnabled = true
-        view.accessibilityIdentifier = "composer.input"
+        view.accessibilityIdentifier = identifier
+        if focusOnAppear { Task { @MainActor in view.becomeFirstResponder() } }
         view.accessibilityLabel = "Steer or follow up"
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return view
     }
     func updateUIView(_ view: ComposerTextView, context: Context) {
         context.coordinator.parent = self
-        if view.text != text { view.text = text }
+        if view.text != text { view.text = text; context.coordinator.measure(view) }
         view.inputBegan = inputBegan
         view.font = AceTheme.uiFont(AceTheme.Typography.body, relativeTo: .body, traits: view.traitCollection)
         view.textColor = UIColor(AceTheme.Colours.foreground)
@@ -47,8 +55,21 @@ struct NativeTextInput: UIViewRepresentable {
         }
         func textViewDidChange(_ textView: UITextView) {
             parent.text = textView.text
+            measure(textView)
             textView.invalidateIntrinsicContentSize()
             textView.scrollRangeToVisible(textView.selectedRange)
+        }
+        /// The width the text had on one line of the compact composer; the card switches back
+        /// only once the text fits it again, so the layout never flips back and forth.
+        private var compactWidth: CGFloat = 0
+        func measure(_ textView: UITextView) {
+            guard let onWrap = parent.onWrap else { return }
+            if !parent.wraps, textView.bounds.width > 0 { compactWidth = textView.bounds.width }
+            let text = textView.text ?? ""
+            let font = textView.font ?? UIFont.preferredFont(forTextStyle: .body)
+            let needed = (text as NSString).size(withAttributes: [.font: font]).width
+            let wraps = text.contains("\n") || (compactWidth > 0 && needed > compactWidth - AceTheme.Spacing.xs)
+            if wraps != parent.wraps { Task { @MainActor in onWrap(wraps) } }
         }
         func textViewDidChangeSelection(_ textView: UITextView) { textView.scrollRangeToVisible(textView.selectedRange) }
     }
