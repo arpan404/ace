@@ -516,3 +516,35 @@ test("aborted paused originals release listener admission before their consumer 
     await f.close();
   }
 });
+
+test("an original still arrives whole while a slow link briefly queues other output", async () => {
+  const f = await setup();
+  const client = new Client(f.options);
+  // A phone over Tailscale drains slowly: right after the first chunk, a transcript part sits
+  // queued on the socket for a moment. Only the socket's backlog counter is controlled; the
+  // daemon, its outbox and the socket are real, and the backlog drains on its own.
+  const property = Object.getOwnPropertyDescriptor(WebSocket.prototype, "bufferedAmount");
+  const real = property?.get;
+  if (!property || !real) throw new Error("ws exposes no bufferedAmount");
+  let drainsAt: number | undefined;
+  try {
+    await client.start();
+    await expect.poll(() => client.state).toBe("ready");
+    Object.defineProperty(WebSocket.prototype, "bufferedAmount", {
+      ...property,
+      get(this: WebSocket): number {
+        const queued = Number(real.call(this));
+        if (f.binaryFrames() === 0) return queued;
+        drainsAt ??= performance.now() + 100;
+        return performance.now() < drainsAt ? queued + 300 * 1024 : queued;
+      },
+    });
+    const image = await client.attachmentBytes(f.input);
+    expect(Buffer.from(image.bytes)).toEqual(f.bytes);
+    expect(drainsAt).toBeDefined();
+  } finally {
+    Object.defineProperty(WebSocket.prototype, "bufferedAmount", property);
+    await client.close();
+    await f.close();
+  }
+});
