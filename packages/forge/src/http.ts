@@ -3,7 +3,7 @@ import { MutationDispatch, isForgeMutation } from "./mutation.ts";
 import { createHash } from "node:crypto";
 import { immutable } from "./immutable.ts";
 import { z } from "zod";
-import { ForgeError } from "./errors.ts";
+import { ForgeError, ForgeQueryRefused } from "./errors.ts";
 import { redactData } from "./redact.ts";
 import type { CommandRunner } from "./command.ts";
 
@@ -51,8 +51,11 @@ function assertGraphqlResult(
   // STALE_DATA: a guarded write's expected state (such as a branch head) no longer holds.
   else if (refused && codes.every((code) => code === "UNPROCESSABLE" || code === "STALE_DATA"))
     error = new ForgeError("conflict", undefined, false);
-  else if (refused && codes.every((code) => code === "GRAPHQL_VALIDATION_FAILED"))
-    error = new ForgeError("invalid_data", undefined, false);
+  else if (
+    refused &&
+    codes.every((code) => code === "GRAPHQL_VALIDATION_FAILED" || code === "undefinedField")
+  )
+    error = new ForgeQueryRefused();
   if (!error) throw new ForgeError("invalid_data");
   dispatch.reject();
   throw error;
