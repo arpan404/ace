@@ -2,7 +2,9 @@ import type { ThreadReader } from "@ace/client";
 import { useItem, useThreadMeta, useThread } from "@ace/client-react";
 import type { Item } from "@ace/protocol";
 import {
+  describeProviderError,
   displayNotice,
+  isLimitError,
   sanitizeUserText,
   stripAceOriginMarker,
   echoesEarlierError,
@@ -221,15 +223,8 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
   switch (item.type) {
     case "notice": {
       if (item.code === "input_queued") return null;
-      // One quiet row; Continue lives on the pill over the composer, not here.
-      if (interruptionNotice(item))
-        return (
-          <SystemRow
-            text={item.text}
-            at={item.createdAt}
-            icon={<ArrowClockwiseIcon aria-hidden size={14} />}
-          />
-        );
+      // A restart or a provider exit is said once, in the composer's held-turn strip.
+      if (interruptionNotice(item)) return null;
       const kind = noticeInput(item);
       const line = kind && inputLine({ kind, text: item.text });
       if (line) return <EventRow line={line} at={item.createdAt} received={item.text} />;
@@ -239,6 +234,8 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
       if (item.level === "error") {
         if (!failures) return null;
         const error = noticeError(item);
+        // A usage or rate limit pauses the turn: the composer's strip says so while it holds.
+        if (isLimitError(describeProviderError(error))) return null;
         return (
           <ErrorRow
             count={failures}

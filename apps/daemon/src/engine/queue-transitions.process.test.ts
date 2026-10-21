@@ -168,7 +168,7 @@ for (const destination of ["provider", "account"] as const) {
       provider,
     ]);
     expect(h.inputs.slice(2).map((input) => input.text)).toEqual(["one", "two"]);
-    expect(h.inputs[1]?.text.split("\n").at(-1)).toBe("continue");
+    expect(h.inputs[1]?.text.split("\n").at(-1)).toBe("Continue where you left off.");
     expect(h.sessions.at(-1)?.context.instanceId).toBe(
       destination === "account" ? "account-b" : undefined,
     );

@@ -3,6 +3,7 @@ import { visibleHistoryOrder } from "@ace/projection";
 import type { BackgroundTask, Item, Run } from "@ace/protocol";
 import { carriesOnStretch, type InlineQuestion } from "./thread-ledger.ts";
 import { isBareErrorCode } from "./error-display.ts";
+import { isPersonMessage } from "./person-message.ts";
 import { isThreadStartCall } from "./started-thread.ts";
 import { reportsOn, toolRefusal } from "./tool-refusals.ts";
 
@@ -271,7 +272,7 @@ function actionFailure(item: Extract<Item, { type: "notice" }>): boolean {
 }
 
 /** The person's own words: not a message ace or the provider wrote for them. */
-const isPerson = (item: Item) => item.type === "message" && item.role === "user" && !item.synthetic;
+const isPerson = (item: Item) => isPersonMessage(item);
 const isLaunch = (item: Item) =>
   item.type === "delegation.started" ||
   (item.type === "tool_call" && item.call.kind === "agent.spawn");
@@ -635,10 +636,10 @@ export function buildBlocks(source: BlockSource): Block[] {
     if (!replaced)
       switch (item.type) {
         case "message":
-          if (item.synthetic) push({ kind: "event", key: id, itemId: id }, false);
-          else if (person) {
+          if (person) {
             push({ kind: "user", key: id, itemId: id }, item.createdAt);
-          } else {
+          } else if (item.synthetic) push({ kind: "event", key: id, itemId: id }, false);
+          else {
             // Said between steps: it reads inside the log, in order. After the last step: the
             // answer, below the log. Which one it is only shows once the turn has settled, so
             // while it works the row is decided by what came before it alone: after a step it

@@ -10,7 +10,7 @@ import {
   type CommandPayload,
   type EventPayload,
 } from "@ace/protocol";
-import type { Fact, ThreadState } from "@ace/core";
+import { continueMessage, type Fact, type ThreadState } from "@ace/core";
 import type { EngineRepository } from "./repository.ts";
 import { maxMessages, isSend } from "./queue-store.ts";
 import type { EngineClock } from "./actor.ts";
@@ -204,7 +204,11 @@ export class Recovery {
       this.clock.now(),
     );
     if (!text) return;
-    this.repo.queue.set(id, { continuation: "continue", trigger: "restart" }, this.clock.now());
+    this.repo.queue.set(
+      id,
+      { continuation: continueMessage, trigger: "restart" },
+      this.clock.now(),
+    );
     this.sync(id);
   }
   /**
@@ -219,7 +223,7 @@ export class Recovery {
     this.repo.queue.set(
       id,
       {
-        continuation: queue.continuation ?? "continue",
+        continuation: queue.continuation ?? continueMessage,
         trigger: queue.trigger ?? "restart",
         paused: true,
         reason: queue.paused && queue.reason ? queue.reason : "restart",
@@ -291,7 +295,7 @@ export class Recovery {
         holdToken: queue.holdToken + 1,
         reason: "limit",
         resetAt: reset,
-        continuation: queue.continuation ?? "continue",
+        continuation: queue.continuation ?? continueMessage,
         trigger: queue.trigger ?? "limit_resume",
         resumeAt: timed && reset !== null && reset > at ? reset : null,
         timerAction: timed && reset !== null && reset > at ? action : null,

@@ -215,7 +215,7 @@ for (const interruption of ["exit", "crash"] as const) {
       nativeId: "fresh-restart",
     });
     expect(sent[0]).toMatchObject({
-      input: [{ type: "text", text: "continue" }],
+      input: [{ type: "text", text: "Continue where you left off." }],
     });
     expect(
       Object.values(store.snapshotThread(id).runs).some((run) => run.trigger === "restart"),

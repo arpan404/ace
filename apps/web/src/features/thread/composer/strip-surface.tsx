@@ -17,7 +17,12 @@ import {
  * half the window scrolls inside it. One-line content (the queue, the connection, the plan)
  * sits on dense 12px rows; a request keeps a card's padding.
  */
-export function StripSurface(props: { slot: string; children: ReactNode }) {
+export function StripSurface(props: {
+  slot: string;
+  /** A held turn tints the strip in its status hue. */
+  tone?: string | undefined;
+  children: ReactNode;
+}) {
   const body = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   // The body follows its content's height through the style alone, so a change of height
@@ -52,7 +57,11 @@ export function StripSurface(props: { slot: string; children: ReactNode }) {
     };
   }, [props.slot]);
   return (
-    <div data-composer-strip className={cn("relative z-0", attachedInset, attachedOverlap)}>
+    <div
+      data-composer-strip
+      data-tone={props.tone}
+      className={cn("relative z-0", attachedInset, attachedOverlap)}
+    >
       {/* It rises from behind the composer when it first arrives. */}
       <div data-edge="bottom" className={cn("fx-panel-in relative", attachedSurface)}>
         <div ref={body} className="composer-strip-body">

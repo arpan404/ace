@@ -80,11 +80,12 @@ export function FailedTurn(props: {
       setSending(false);
     }
   };
+  // A usage or rate limit is a pause, not a failure: the composer's strip says it while it holds.
+  if (isLimitError(view)) return null;
   const fixable = latest && view.action !== undefined && fixes.has(view.action);
   // Nothing said why: "Turn failed" alone. A fix names the failure itself ("Not signed in").
   const known = reported !== undefined || error !== undefined;
-  // A limit names itself ("Usage limit reached · Resets 8:30pm"), never "Turn failed".
-  const heading = fixable || !known || isLimitError(view) ? undefined : "Turn failed";
+  const heading = fixable || !known ? undefined : "Turn failed";
   // Under "Turn failed" the failure's own words follow the model, even when they were its title.
   const said = heading ? (view.message ?? view.title) : view.message;
   const failed = known

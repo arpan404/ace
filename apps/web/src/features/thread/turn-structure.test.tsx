@@ -277,16 +277,16 @@ test("the subagent card deduplicates a launch and its spawn call and opens the c
   expect(await screen.findByText(/Drafted the frame table/)).toBeTruthy();
 });
 
-test("a usage-limit pause marks where the turn stopped, and stays there after the resume", async () => {
+test("a usage-limit pause keeps the turn's work where it stopped, and there after the resume", async () => {
   const app = harness();
   app
     .play(accountLimit("thread-limit-flags", "Remove the legacy feature-flag reader"))
     .runUntilBlocked();
   await app.open("/t/thread-limit-flags");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const pause = await within(feed).findByRole("note", {
-    name: "Paused · Codex usage limit",
-  });
+  // The work keeps its place; the limit itself is said only in the composer's strip.
+  const pause = await within(feed).findByRole("note", { name: /^Worked/ });
+  expect(within(feed).queryByText(/usage limit/)).toBeNull();
   const ask = within(feed).getByText("Remove the legacy feature-flag reader");
   expect(follows(ask, pause)).toBe(true);
   // One marker: the live line doesn't repeat it.
@@ -294,7 +294,7 @@ test("a usage-limit pause marks where the turn stopped, and stays there after th
 
   act(() => app.daemon.apply("thread-limit-flags", resumeAfterLimit));
   const resumed = await within(feed).findByText("Picking the flag removal back up.");
-  const kept = within(feed).getByRole("note", { name: "Paused · Codex usage limit" });
+  const kept = within(feed).getByRole("note", { name: /^Worked/ });
   expect(follows(ask, kept) && follows(kept, resumed)).toBe(true);
 });
 
@@ -313,7 +313,7 @@ test("a pause in history is rebuilt from the resume, after a reload", async () =
   app.daemon.apply("thread-limit-flags", resumeAfterLimit);
   await app.open("/t/thread-limit-flags");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const pause = await within(feed).findByRole("note", { name: "Paused · Codex usage limit" });
+  const pause = await within(feed).findByRole("note", { name: /^Worked/ });
   expect(follows(pause, within(feed).getByText("Picking the flag removal back up."))).toBe(true);
   // The resume interrupted the paused turn; the pause already says why it stopped.
   expect(within(feed).queryByRole("note", { name: /^Stopped/ })).toBeNull();

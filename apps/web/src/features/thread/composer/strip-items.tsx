@@ -18,6 +18,7 @@ import {
   XCircleIcon,
 } from "@phosphor-icons/react";
 import { useId, useState, type ReactNode } from "react";
+import { PauseBarsIcon } from "@/components/ace-icons.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -89,31 +90,37 @@ function Indicator(props: { kind: StripKind; counts: StripCounts; onPick(kind: S
                 "Show connection: Offline",
               ]
             : [<Spinner key="i" />, "Reconnecting", "Show connection: Reconnecting"]
-          : props.kind === "stopped"
+          : props.kind === "held"
             ? [
-                <Icon key="i" size={12} icon={TerminalIcon} />,
-                `${counts.running} running`,
-                `Show ${plural(counts.running, "background command")} still running`,
+                <Icon key="i" size={12} icon={PauseBarsIcon} />,
+                "Paused",
+                "Show why the turn is paused",
               ]
-            : props.kind === "waiting"
+            : props.kind === "stopped"
               ? [
-                  <Icon key="i" size={12} icon={HourglassMediumIcon} />,
-                  "Waiting",
-                  "Show what the agent is waiting for",
+                  <Icon key="i" size={12} icon={TerminalIcon} />,
+                  `${counts.running} running`,
+                  `Show ${plural(counts.running, "background command")} still running`,
                 ]
-              : props.kind === "queue"
+              : props.kind === "waiting"
                 ? [
-                    <Icon key="i" size={12} icon={TrayIcon} />,
-                    `${counts.queued} queued`,
-                    `Show ${plural(counts.queued, "queued message")}`,
+                    <Icon key="i" size={12} icon={HourglassMediumIcon} />,
+                    "Waiting",
+                    "Show what the agent is waiting for",
                   ]
-                : props.kind === "goal"
-                  ? [<Icon key="i" size={12} icon={TargetIcon} />, "Goal", "Show goal"]
-                  : [
-                      <Icon key="i" size={12} icon={ListChecksIcon} />,
-                      counts.plan ? `${counts.plan.done}/${counts.plan.total}` : "Tasks",
-                      counts.plan ? `Show tasks, ${planCount(counts.plan)} done` : "Show tasks",
-                    ];
+                : props.kind === "queue"
+                  ? [
+                      <Icon key="i" size={12} icon={TrayIcon} />,
+                      `${counts.queued} queued`,
+                      `Show ${plural(counts.queued, "queued message")}`,
+                    ]
+                  : props.kind === "goal"
+                    ? [<Icon key="i" size={12} icon={TargetIcon} />, "Goal", "Show goal"]
+                    : [
+                        <Icon key="i" size={12} icon={ListChecksIcon} />,
+                        counts.plan ? `${counts.plan.done}/${counts.plan.total}` : "Tasks",
+                        counts.plan ? `Show tasks, ${planCount(counts.plan)} done` : "Show tasks",
+                      ];
   return (
     <button
       type="button"

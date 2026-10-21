@@ -21,6 +21,8 @@ export type QueueAction =
       /** The account it moves to, when one is named. */ instanceId?: string;
     }
   | { id: "resume"; label: string }
+  /** Carry the stopped turn on: one "Continue where you left off." in the person's words. */
+  | { id: "continue"; label: string }
   | { id: "hold"; label: string }
   | { id: "choose_model"; label: string };
 
@@ -73,7 +75,7 @@ export function queueNotice(
       title: "Resumes when the limit resets",
       detail: `Queued messages send ${describeWake(resumeAt, now, locale)}.`,
       actions: [
-        { id: "resume_now", label: "Resume now" },
+        { id: "resume_now", label: "Continue now" },
         { id: "hold", label: "Don't resume" },
       ],
     };
@@ -85,7 +87,7 @@ export function queueNotice(
         resumeAt === null
           ? "Nothing sends until you resume."
           : `Resets ${describeWake(resumeAt, now, locale)}. Nothing sends until you resume.`,
-      actions: [{ id: "resume_now", label: "Resume now" }],
+      actions: [{ id: "resume_now", label: "Continue now" }],
     };
   if (status?.state === "limited" || reason === "limit") {
     // The thread's own reset, else the account's: the daemon resumes at the account's too.
@@ -120,7 +122,7 @@ export function queueNotice(
                   } as const)
                 : ({ id: "migrate_now", label: "Move to another account" } as const),
             ]),
-        { id: "resume_now", label: "Resume now" },
+        { id: "resume_now", label: "Continue now" },
       ],
     };
   }
@@ -136,16 +138,16 @@ export function queueNotice(
     case "stopped":
       return {
         kind: "stopped",
-        title: "Agent stopped",
+        title: "Paused",
         detail: "",
-        actions: [{ id: "resume", label: "Continue" }],
+        actions: [{ id: "continue", label: "Continue" }],
       };
     case "restart":
       return {
         kind: "restart",
-        title: "Stopped by a restart",
+        title: "Interrupted by a restart",
         detail: "",
-        actions: [{ id: "resume", label: "Continue" }],
+        actions: [{ id: "continue", label: "Continue" }],
       };
     case "uncertain":
       return {
@@ -170,7 +172,7 @@ export function queueNotice(
 
 /**
  * A stopped turn (the person's Stop, a restart, a provider that died) is not a queue state: it
- * reads as a pill over the composer with Continue, never as an item in the queue's strip.
+ * reads in the held-turn strip with Continue, never as an item in the queue's strip.
  */
 export function stoppedHold(notice: QueueNotice | undefined): boolean {
   return notice?.kind === "restart" || notice?.kind === "stopped";

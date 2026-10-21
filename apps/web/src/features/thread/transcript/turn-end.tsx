@@ -1,7 +1,6 @@
 import type { ThreadKey, ThreadReader } from "@ace/client";
-import { useThreadMeta } from "@ace/client-react";
 import type { Run } from "@ace/protocol";
-import { formatElapsed, pauseLabel, providerNames } from "@ace/ui-core";
+import { formatElapsed } from "@ace/ui-core";
 import { Suspense, useCallback, useMemo } from "react";
 import { StopCircleIcon } from "@phosphor-icons/react";
 import { GroupedSteps } from "../items/step-groups-view.tsx";
@@ -100,10 +99,13 @@ export function TurnEnd(props: { threadId: string; block: EndBlock }) {
   );
   const read = useCallback((reader: ThreadReader) => readEnding(reader, block), [block]);
   const ending = useWatched(props.threadId, keys, read, sameEnding);
-  const provider = useThreadMeta(props.threadId)?.provider;
   if (!ending) return null;
   if (block.ending === "paused") {
-    const text = pauseLabel(provider ? providerNames[provider] : undefined, undefined);
+    // The limit itself is said in the composer's strip; history keeps only the work.
+    const text =
+      ending.ranMs !== undefined && ending.ranMs >= 1000
+        ? `Worked for ${formatElapsed(ending.ranMs)}`
+        : "Worked";
     return (
       <details
         role="note"
@@ -118,12 +120,13 @@ export function TurnEnd(props: { threadId: string; block: EndBlock }) {
     );
   }
   if (block.ending === "interrupted") {
+    // A restart is no stop the person made: the composer's strip says it, with Continue.
+    if (block.automatic) return null;
     const after =
       ending.ranMs !== undefined && ending.ranMs >= 1000
         ? ` · after ${formatElapsed(ending.ranMs)}`
         : "";
-    // A restart (the app quit, the daemon restarted) is no stop the person made.
-    const text = `${block.automatic ? "Interrupted" : "Stopped"}${after}`;
+    const text = `Stopped${after}`;
     return <SystemRow text={text} icon={<StopCircleIcon aria-hidden size={14} />} />;
   }
   return (

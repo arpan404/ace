@@ -190,18 +190,20 @@ test("a usage limit holds the queue, says when it resets and resumes on request"
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const notice = await screen.findByRole("region", { name: "Usage limit reached" });
   expect(within(notice).getByText(/The account resets/)).toBeTruthy();
+  // The strip says it once: the transcript keeps no limit row.
+  expect(within(feed).queryByText(/limit reached/)).toBeNull();
 
-  // A message sent meanwhile waits on the daemon's queue.
+  // A message sent meanwhile waits on the daemon's queue, counted beside the hold.
   const message = await screen.findByRole("combobox", { name: "Message" });
   await userEvent.type(message, "Then add a metric{Enter}");
-  await waitFor(() => expect(pills()).toHaveLength(1));
+  await screen.findByRole("button", { name: "Show 1 queued message" });
 
-  await userEvent.click(within(notice).getByRole("button", { name: "Limit actions" }));
+  await userEvent.click(within(notice).getByRole("button", { name: "More" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Snooze until reset" }));
   const snoozed = await screen.findByRole("region", { name: "Snoozed until the limit resets" });
   expect(within(feed).queryByText("Then add a metric")).toBeNull();
 
-  await userEvent.click(within(snoozed).getByRole("button", { name: "Resume now" }));
+  await userEvent.click(within(snoozed).getByRole("button", { name: "Continue now" }));
   expect(await within(feed).findByText("Then add a metric")).toBeTruthy();
   await waitFor(() =>
     expect(screen.queryByRole("region", { name: /Snoozed|Usage limit/ })).toBeNull(),
