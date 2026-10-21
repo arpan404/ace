@@ -13,6 +13,7 @@ import { seedSheets } from "./sheet-scenario.ts";
 import { seedArchive } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
 import { seedNativeMedia } from "./media-scenario.ts";
+import { featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
 
 /** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
 const port = z.coerce
@@ -138,6 +139,7 @@ seedArchive(daemon, Date.now(), Number(process.env.ACE_IOS_SPIKE_NAP_MS ?? 90_00
 seedProjects(daemon);
 seedNativeMedia(daemon);
 requestScenarios(daemon, details);
+spikeDevices(daemon, details);
 let fresh = 0;
 
 const connections = new Map<ServerWebSocket<undefined>, ReturnType<FakeDaemon["connect"]>>();
@@ -289,12 +291,14 @@ const server = Bun.serve<undefined>({
     },
     message(socket, data) {
       if (typeof data === "string") {
+        if (featureMessage(daemon, socket, data, connections)) return;
         if (data.includes('"type":"command"')) commands++;
         lostReceipt.observe(data);
         connections.get(socket)?.receive(data);
       }
     },
     close(socket) {
+      featureClosed(socket);
       connections.get(socket)?.close();
       connections.delete(socket);
     },
