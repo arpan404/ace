@@ -71,6 +71,8 @@ export function FileDiffBlock(props: {
   actions?: ReactNode;
   statusIcon?: ReactNode;
   whitespace?: boolean | undefined;
+  /** Shown under the header instead of the lines: an image, a rendered document, a read. */
+  body?: ReactNode;
 }) {
   const { file, view, onView } = props;
   const { open, expanded, asText } = view;
@@ -165,10 +167,11 @@ export function FileDiffBlock(props: {
           </button>
           {props.actions}
         </div>
-        {open && !file.rows.length && (
+        {open && props.body}
+        {open && props.body === undefined && !file.rows.length && (
           <p className="px-3.5 py-2 text-xs text-subtle-foreground">No text changes to show.</p>
         )}
-        {open && renderer !== "dom" && !asText && (
+        {open && props.body === undefined && renderer !== "dom" && !asText && (
           <Suspense fallback={<Spinner label="Loading the diff renderer" className="m-3.5" />}>
             <GpuDiff
               path={file.path}
@@ -178,7 +181,7 @@ export function FileDiffBlock(props: {
             />
           </Suspense>
         )}
-        {open && (renderer === "dom" || asText) && (
+        {open && props.body === undefined && (renderer === "dom" || asText) && (
           <div
             className={cn(
               "font-mono text-sm leading-5",

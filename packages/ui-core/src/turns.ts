@@ -84,7 +84,7 @@ export function groupFileChanges(items: readonly ToolItem[]): FileChanges[] {
  * the diff options. Equal keys give equal diffs, so a diff is computed once per content.
  */
 export function fileDiffKey(file: FileChanges, hash: (text: string) => string): string {
-  const parts = [`v1|ctx3|${file.path}`];
+  const parts = [`v2|ctx3|${file.path}`];
   for (const change of file.changes)
     parts.push(
       [

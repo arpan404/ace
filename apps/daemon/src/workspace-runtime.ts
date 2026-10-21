@@ -403,7 +403,8 @@ export class WorkspaceRuntime {
       op.op === "forge.pr.detail" ||
       op.op === "forge.pr.commits" ||
       op.op === "forge.pr.files" ||
-      op.op === "forge.pr.check"
+      op.op === "forge.pr.check" ||
+      op.op === "forge.file.content"
     ) {
       if (
         op.op === "forge.pr.stack" &&

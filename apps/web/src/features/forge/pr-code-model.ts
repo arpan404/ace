@@ -1,26 +1,45 @@
 import type { ForgeFile, ForgePrFiles, ForgePrStatus } from "@ace/protocol";
 import type { FileChanges, FileDiff } from "@ace/ui-core";
 
-/** A hosted file's patch as the shared diff worker's input. */
-export function hostedFileChanges(files: readonly ForgeFile[]): FileChanges[] {
-  return files.map((file) => ({
-    path: file.path,
-    changes: [
-      {
-        path: file.previousPath ?? file.path,
-        kind:
-          file.status === "added"
-            ? "add"
-            : file.status === "removed"
-              ? "delete"
-              : file.previousPath
-                ? "move"
-                : "update",
-        ...(file.previousPath ? { movePath: file.path } : {}),
-        diff: file.patch ?? "",
-      },
-    ],
-  }));
+/** Both sides of a file, read whole where GitHub withheld its patch; null where there is none. */
+export type SideTexts = ReadonlyMap<string, { oldText: string | null; newText: string | null }>;
+const noTexts: SideTexts = new Map();
+
+/**
+ * Hosted files as the shared diff worker's input: GitHub's patch, or both sides' text where it
+ * withheld the patch and they have been read (which also lets every unchanged run expand).
+ */
+export function hostedFileChanges(
+  files: readonly ForgeFile[],
+  texts: SideTexts = noTexts,
+): FileChanges[] {
+  return files.map((file) => {
+    const kind =
+      file.status === "added"
+        ? "add"
+        : file.status === "removed"
+          ? "delete"
+          : file.previousPath
+            ? "move"
+            : "update";
+    const whole = texts.get(file.path);
+    return {
+      path: file.path,
+      changes: [
+        {
+          path: file.previousPath ?? file.path,
+          kind,
+          ...(file.previousPath ? { movePath: file.path } : {}),
+          ...(whole
+            ? {
+                oldText: whole.oldText,
+                ...(whole.newText === null ? {} : { newText: whole.newText }),
+              }
+            : { diff: file.patch ?? "" }),
+        },
+      ],
+    };
+  });
 }
 
 export const hostedFileStatus = (file: ForgeFile): FileDiff["status"] =>
@@ -89,7 +108,6 @@ export function offDiffThreads(
 /** What the Code tab can't show in full, as short sentences for its one warning. */
 export function codeCaveats(facts: {
   viewed: "available" | "unavailable" | "all-commits-only";
-  withheld: boolean;
   truncated: boolean;
   commitsTruncated: boolean;
 }): string[] {
@@ -98,9 +116,7 @@ export function codeCaveats(facts: {
     notes.push("GitHub's viewed state is unavailable, so no file shows as viewed.");
   if (facts.viewed === "all-commits-only")
     notes.push("Viewed marks apply to All commits, not to a single commit.");
-  if (facts.withheld)
-    notes.push("GitHub withheld some patches (binary or too large). Open GitHub to see them.");
-  if (facts.truncated) notes.push("GitHub lists at most 3,000 files for a pull request.");
+  if (facts.truncated) notes.push("Some changed files couldn't be listed.");
   if (facts.commitsTruncated) notes.push("Only the newest 10,000 commits are listed.");
   return notes;
 }
