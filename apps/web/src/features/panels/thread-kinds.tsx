@@ -19,6 +19,7 @@ import { setLoading } from "./browser/loading.ts";
 import { browserTabData, daemonTabId } from "./browser/browser-data.ts";
 import { closeBrowserTab } from "./browser/browser-closers.ts";
 import { BrowserTabBadge, BrowserTabMark } from "./browser/tab-mark.tsx";
+import { BrowserTabMenuItems } from "./browser/tab-menu.tsx";
 import { QuickOpenOverlay } from "./files/quick-open-overlay.tsx";
 import { quickOpen } from "./files/quick-open-store.ts";
 import { fileTabId } from "./files/tab-id.ts";
@@ -101,6 +102,7 @@ export const browserKind = defineTabKind({
   icon: GlobeSimpleIcon,
   TabIcon: BrowserTabMark,
   Badge: BrowserTabBadge,
+  MenuItems: BrowserTabMenuItems,
   launcher: 45,
   title: (tab) => {
     const data = browserTabData(tab);

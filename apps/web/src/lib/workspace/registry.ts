@@ -59,6 +59,11 @@ export interface TabKindOptions {
    * or nothing.
    */
   Badge?: ComponentType<{ scope: string; tab: WorkspaceTab; folded?: boolean }>;
+  /**
+   * The kind's own items in a tab's right-click menu (a browser tab's Mute tab), drawn after the
+   * shell's view items. Loaded with the kinds, so keep it small.
+   */
+  MenuItems?: ComponentType<{ scope: string; tab: WorkspaceTab }>;
   /** The tab title; default: the title the view last reported, else `label`. */
   title?(tab: WorkspaceTab): string;
   load(): Promise<TabModule>;

@@ -25,39 +25,40 @@ export function useFixWithAgent(props: {
   const { detail } = props;
   const linked = detail.relatedThreads.filter((thread) => !thread.archived);
   const target = linked.find((thread) => thread.id === props.hostThreadId) ?? linked[0];
+  /** Hands `request` to the task's composer. */
+  const send = (request: string) => {
+    if (!target) {
+      void navigate({
+        to: "/new",
+        search: { project: props.workspaceId, pullRequest: detail.status.url },
+      });
+      return;
+    }
+    // The panel's own task: a panel in full view hides its composer, so step out of it.
+    const here = target.id === props.hostThreadId;
+    if (here) workspace.setExpanded(false);
+    // The request showing in the composer is the confirmation.
+    if (insertTextInComposer(target.id, request)) return;
+    if (!here) void navigate({ to: "/t/$threadId", params: { threadId: target.id } });
+    // The task's composer mounts once its page shows; hand the request over then.
+    const started = performance.now();
+    const timer = setInterval(() => {
+      if (insertTextInComposer(target.id, request)) clearInterval(timer);
+      else if (performance.now() - started > mountWaitMs) {
+        clearInterval(timer);
+        toast.error({
+          title: "Couldn't add the request",
+          description: "Open the task and try again.",
+        });
+      }
+    }, mountPollMs);
+  };
   return {
     /** The task the request goes to, if one is linked. */
     target,
     fix(item: AttentionItem) {
-      const request = fixRequest(item, {
-        number: detail.status.ref.number,
-        url: detail.status.url,
-      });
-      if (!target) {
-        void navigate({
-          to: "/new",
-          search: { project: props.workspaceId, pullRequest: detail.status.url },
-        });
-        return;
-      }
-      // The panel's own task: a panel in full view hides its composer, so step out of it.
-      const here = target.id === props.hostThreadId;
-      if (here) workspace.setExpanded(false);
-      // The request showing in the composer is the confirmation.
-      if (insertTextInComposer(target.id, request)) return;
-      if (!here) void navigate({ to: "/t/$threadId", params: { threadId: target.id } });
-      // The task's composer mounts once its page shows; hand the request over then.
-      const started = performance.now();
-      const timer = setInterval(() => {
-        if (insertTextInComposer(target.id, request)) clearInterval(timer);
-        else if (performance.now() - started > mountWaitMs) {
-          clearInterval(timer);
-          toast.error({
-            title: "Couldn't add the request",
-            description: "Open the task and try again.",
-          });
-        }
-      }, mountPollMs);
+      send(fixRequest(item, { number: detail.status.ref.number, url: detail.status.url }));
     },
+    send,
   };
 }

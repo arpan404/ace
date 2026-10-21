@@ -352,12 +352,18 @@ export class GhApi {
       return `${requested}${url.search}`;
     throw new ForgeError("invalid_data");
   }
-  async log(jobPath: string, signal: AbortSignal): Promise<{ text: string; truncated: boolean }> {
+  /** A job log's newest `tailBytes`; `gh api` follows GitHub's redirect to the log text. */
+  async log(
+    jobPath: string,
+    signal: AbortSignal,
+    tailBytes?: number,
+  ): Promise<{ text: string; truncated: boolean }> {
     const result = await this.#runner({
       command: this.#command,
       args: ["api", jobPath, "--hostname", this.#host, "--method", "GET"],
       signal,
       mode: "tail",
+      ...(tailBytes === undefined ? {} : { tailBytes }),
     });
     if (result.code !== 0) throw new ForgeError("cli");
     return { text: result.stdout, truncated: result.truncated };

@@ -66,6 +66,39 @@
         }
       ]
     },
+    "deployments": {
+      "items": {
+        "properties": {
+          "environment": {
+            "maxLength": 65536,
+            "type": "string"
+          },
+          "state": {
+            "maxLength": 65536,
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "maxLength": 65536,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "environment",
+          "state",
+          "url"
+        ],
+        "type": "object"
+      },
+      "maxItems": 10,
+      "type": "array"
+    },
     "headSha": {
       "pattern": "^[a-fA-F0-9]{40,64}$",
       "type": "string"
@@ -81,6 +114,18 @@
             "enqueuedAt": {
               "maxLength": 65536,
               "type": "string"
+            },
+            "estimatedTimeToMerge": {
+              "anyOf": [
+                {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "id": {
               "maxLength": 65536,
@@ -120,6 +165,14 @@
           "type": "null"
         }
       ]
+    },
+    "rules": {
+      "items": {
+        "maxLength": 65536,
+        "type": "string"
+      },
+      "maxItems": 20,
+      "type": "array"
     },
     "state": {
       "maxLength": 65536,
