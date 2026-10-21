@@ -1,18 +1,12 @@
-import {
-  ArrowClockwiseIcon,
-  ArrowsClockwiseIcon,
-  CheckIcon,
-  DownloadSimpleIcon,
-} from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, CheckIcon, DownloadSimpleIcon } from "@phosphor-icons/react";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { openRelease, useDesktopUpdate, type UpdateStatus } from "@/boot/desktop-updates.ts";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { whenIdle } from "@/lib/idle.ts";
-import { showsReleaseNotes, updateAction, updateLabel } from "./update-status.ts";
+import { hasUpdate, showsReleaseNotes, updateAction, updateLabel } from "./update-status.ts";
 
 const ring = 2 * Math.PI * 13;
 
@@ -21,7 +15,7 @@ const UpdateOverlays = deferredComponent(() =>
   import("./update-overlays.tsx").then((module) => module.UpdateOverlays),
 );
 
-/** The state's glyph: a refresh to check, a download (with a dot, or its progress), a restart. */
+/** The update's glyph: a download (with a dot, or its progress), a restart, a spinner. */
 function UpdateGlyph(props: { status: UpdateStatus }) {
   const { status } = props;
   if (status.state === "installing") return <Spinner className="text-foreground" />;
@@ -58,58 +52,40 @@ function UpdateGlyph(props: { status: UpdateStatus }) {
         />
       </span>
     );
-  if (status.state === "downloaded")
-    return (
-      <span className="relative grid size-4 place-items-center">
-        <ArrowClockwiseIcon aria-hidden size={16} />
-        <span className="absolute -right-1 -bottom-1 grid size-2.5 place-items-center rounded-full bg-foreground text-background ring-2 ring-sidebar">
-          <CheckIcon aria-hidden size={7} weight="bold" />
-        </span>
-      </span>
-    );
   return (
-    <ArrowsClockwiseIcon
-      aria-hidden
-      size={16}
-      className={status.state === "checking" ? "motion-safe:animate-spin" : undefined}
-    />
+    <span className="relative grid size-4 place-items-center">
+      <ArrowClockwiseIcon aria-hidden size={16} />
+      <span className="absolute -right-1 -bottom-1 grid size-2.5 place-items-center rounded-full bg-foreground text-background ring-2 ring-sidebar">
+        <CheckIcon aria-hidden size={7} weight="bold" />
+      </span>
+    </span>
   );
 }
 
 /**
- * The app's update, beside the Settings gear (desktop only). It checks for updates when
- * clicked; a found update downloads on the next click, with its progress on the icon, and a
- * downloaded one restarts the app after asking. Hovering an update in hand shows what changed.
+ * The app's update, beside the Settings gear (desktop only), shown only while there is one:
+ * background checks find it. A click downloads it, with its progress on the icon, and a
+ * downloaded one restarts the app after asking. Hovering it shows what changed.
  */
 export function UpdateButton(props: { scope?: object }) {
   const update = useDesktopUpdate(props.scope);
-  const toast = useToast();
   const [confirming, setConfirming] = useState(false);
   const [triggerFocused, setTriggerFocused] = useState(false);
   const [hoverIntent, setHoverIntent] = useState(false);
   const [overlaysArmed, setOverlaysArmed] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const status = update.status;
-  const live = status !== undefined && status.state !== "disabled";
+  const live = status !== undefined && hasUpdate(status);
   // Warm the closed layers while idle (desktop only) so opening them never waits on the network.
   useEffect(() => {
     if (!live) return;
     return whenIdle(() => void UpdateOverlays.preload().catch(() => {}));
   }, [live]);
-  if (!status || status.state === "disabled") return null;
+  if (!status || !live) return null;
   const label = updateLabel(status);
   const action = updateAction(status);
   const act = () => {
-    if (action === "check")
-      void update.check().then((result) => {
-        if (result?.state === "error")
-          toast.error({
-            kind: "desktop-update",
-            title: "Couldn't check for updates",
-            description: result.error?.message ?? "Check your connection and try again.",
-          });
-      });
-    else if (action === "download") update.download();
+    if (action === "download") update.download();
     else if (action === "open-release" && status.releaseUrl)
       openRelease(status.releaseUrl, props.scope);
     else if (action === "install") {

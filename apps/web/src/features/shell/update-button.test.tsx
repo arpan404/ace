@@ -77,16 +77,16 @@ test("a build without the release feed shows no update button", async () => {
   expect(screen.queryByRole("button")).toBeNull();
 });
 
-test("the update button checks for updates, and says when the check failed", async () => {
-  const app = desktop(
-    status(),
-    status({ state: "error", error: { during: "check", message: "getaddrinfo ENOTFOUND" } }),
-  );
-  await userEvent.click(await screen.findByRole("button", { name: "Check for updates" }));
-  expect(app.calls).toEqual(["check"]);
-  const toast = await screen.findByRole("alertdialog");
-  expect(toast.textContent).toContain("Couldn't check for updates");
-  expect(toast.textContent).toContain("getaddrinfo ENOTFOUND");
+test("no update button shows until a check finds an update", async () => {
+  const app = desktop(status());
+  await act(() => Promise.resolve());
+  expect(screen.queryByRole("button")).toBeNull();
+  app.report(status({ state: "checking" }));
+  app.report(status({ state: "current" }));
+  app.report(status({ state: "error", error: { during: "check", message: "Offline" } }));
+  expect(screen.queryByRole("button")).toBeNull();
+  app.report(offer());
+  expect(screen.getByRole("button", { name: "Update 1.1.0 ready to download" })).toBeTruthy();
 });
 
 test("a found update downloads on click, showing its progress", async () => {
