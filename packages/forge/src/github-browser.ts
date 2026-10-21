@@ -56,10 +56,25 @@ const Decision = z.object({
       pullRequest: z.object({
         reviewDecision: z.string().max(100).nullable(),
         headRefOid: z.string(),
+        files: z.unknown().optional(),
       }),
     }),
   }),
 });
+const DetailFiles = z.object({
+  nodes: z
+    .array(
+      z.object({
+        path: z.string().max(65_536),
+        additions: z.number().int().nonnegative(),
+        deletions: z.number().int().nonnegative(),
+        changeType: z.string().max(100),
+      }),
+    )
+    .max(100),
+});
+/** GraphQL's change types in the REST file statuses `ForgeFile.status` uses. */
+const fileStatuses: Partial<Record<string, string>> = { DELETED: "removed" };
 /** The highest timeline page the protocol can ask for (`ForgeActivityPageInput`). */
 const maxActivityPage = 10_000;
 /** A timeline page's source bytes; its reply must fit the daemon's 2 MiB reply frame. */
@@ -184,7 +199,7 @@ export class GitHubBrowser {
       Decision,
       (
         await this.#api.request("graphql", signal, {
-          query: `query($owner:String!, $name:String!, $number:Int!) { repository(owner:$owner,name:$name) { pullRequest(number:$number) { reviewDecision headRefOid } } }`,
+          query: `query($owner:String!, $name:String!, $number:Int!) { repository(owner:$owner,name:$name) { pullRequest(number:$number) { reviewDecision headRefOid files(first:100) { nodes { path additions deletions changeType } } } } }`,
           variables: { owner, name, number },
         })
       ).body,
@@ -195,6 +210,7 @@ export class GitHubBrowser {
     decision: z.infer<typeof Decision>["data"]["repository"]["pullRequest"],
   ): ForgePrDetail {
     const raw = decode(z.object({ pr: BrowserPr }), status.raw).pr;
+    const files = DetailFiles.safeParse(decision.files);
     return {
       status,
       updatedAt: raw.updated_at,
@@ -218,6 +234,16 @@ export class GitHubBrowser {
       reviewDecision: decision.reviewDecision,
       commits: raw.commits,
       changedFiles: raw.changed_files,
+      ...(files.success
+        ? {
+            files: files.data.nodes.map((node) => ({
+              path: node.path,
+              additions: node.additions,
+              deletions: node.deletions,
+              status: fileStatuses[node.changeType] ?? node.changeType.toLowerCase(),
+            })),
+          }
+        : {}),
       relatedThreads: [],
       relatedThreadsTruncated: false,
     };

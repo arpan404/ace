@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { useConnectionState } from "@ace/client-react";
 import { Button } from "@/components/ui/button.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
+import { LoadingRegion, SkeletonText } from "@/components/ui/skeleton.tsx";
 import { actionErrorText } from "@ace/ui-core";
 import { failureCode } from "@/lib/forge-read.ts";
 
@@ -12,6 +12,8 @@ export function readFailureText(error: Error): string {
   return code ? actionErrorText(code) : error.message;
 }
 export function QueryState(props: {
+  /** What is loading, as in "Loading <label>". */
+  label: string;
   query: Pick<UseQueryResult, "isFetching" | "error" | "data" | "refetch">;
 }) {
   const ready = useConnectionState() === "ready";
@@ -27,7 +29,11 @@ export function QueryState(props: {
     );
   // A background poll keeps the shown data; only a first read has nothing to show yet.
   if (props.query.isFetching && props.query.data === undefined)
-    return <Spinner label="Reading GitHub" />;
+    return (
+      <LoadingRegion label={props.label}>
+        <SkeletonText lines={3} />
+      </LoadingRegion>
+    );
   return null;
 }
 

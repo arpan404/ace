@@ -46,6 +46,13 @@
       "minimum": 0,
       "type": "integer"
     },
+    "files": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ForgePrDetailFile.json"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
     "headBranch": {
       "maxLength": 65536,
       "type": "string"
