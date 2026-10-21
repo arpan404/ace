@@ -63,7 +63,7 @@ function AccessOption(props: {
       aria-checked={props.selected}
       aria-label={props.label}
       onClick={props.onSelect}
-      className="flex w-full items-start gap-3 py-2.5 text-left focus-ring-inset"
+      className="-mx-3 flex w-[calc(100%+1.5rem)] items-start gap-3 rounded-md px-3 py-2.5 text-left transition-colors duration-(--motion-fast) hover:bg-hover focus-ring-inset"
     >
       <span
         aria-hidden
@@ -157,11 +157,7 @@ function PairingFlow({ ref, ...props }: { close(): void; ref: Ref<HTMLDivElement
         />
       ) : (
         <>
-          <div
-            role="radiogroup"
-            aria-label="Access"
-            className="flex flex-col divide-y divide-border border-y border-border"
-          >
+          <div role="radiogroup" aria-label="Access" className="flex flex-col">
             {deviceAccessOptions.map((option) => (
               <AccessOption
                 key={option.value}
@@ -173,7 +169,7 @@ function PairingFlow({ ref, ...props }: { close(): void; ref: Ref<HTMLDivElement
             ))}
           </div>
           <SettingDisclosure title="Advanced access">
-            <div className="divide-y divide-border">
+            <div className="flex flex-col">
               {advancedScopes.map((scope) => (
                 <div
                   key={scope.value}

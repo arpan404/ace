@@ -2,7 +2,14 @@ import { CaretRightIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useId, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { SettingCard, SettingNote, SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import {
+  SettingCard,
+  SettingNote,
+  SettingRow,
+  SettingSection,
+  settingsGroup,
+  SettingsGroupTitle,
+} from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
@@ -92,41 +99,35 @@ function MachineSection(props: {
   const status = machineStatus[machine.status];
   const titleId = useId();
   return (
-    <section aria-labelledby={titleId} className="mb-(--settings-group-gap)">
-      {/* A machine is the thing on this page, so its name is a title, not a small label. */}
-      <div className="mb-2 flex min-h-7 flex-wrap items-center gap-x-3 gap-y-1">
-        <h3 id={titleId} className="flex items-center gap-2 text-md font-medium">
+    <section aria-labelledby={titleId} className={settingsGroup}>
+      {/* A machine is the thing on this page: its name, state and way in sit in the gutter. */}
+      <SettingsGroupTitle
+        id={titleId}
+        note={
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <StatusLabel tone={status.tone} label={status.label} />
+            {machine.client && props.summary && <span>{props.summary}</span>}
+          </span>
+        }
+        actions={
+          machine.status === "auth_failed" ? (
+            <Button size="sm" variant="ghost" onClick={() => open(machine, "/settings/remote")}>
+              Pair again
+            </Button>
+          ) : (
+            machine.client && (
+              <Button size="sm" variant="ghost" onClick={() => open(machine, "/settings/agents")}>
+                Edit settings
+              </Button>
+            )
+          )
+        }
+      >
+        <span className="flex items-center gap-2">
           <MachineMark icon={machine.icon} primary={machine.primary} />
           {machine.name}
-        </h3>
-        <StatusLabel tone={status.tone} label={status.label} />
-        {machine.client && props.summary && (
-          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-            {props.summary}
-          </span>
-        )}
-        {machine.status === "auth_failed" ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="ml-auto -mr-2.5"
-            onClick={() => open(machine, "/settings/remote")}
-          >
-            Pair again
-          </Button>
-        ) : (
-          machine.client && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="ml-auto -mr-2.5"
-              onClick={() => open(machine, "/settings/agents")}
-            >
-              Edit settings
-            </Button>
-          )
-        )}
-      </div>
+        </span>
+      </SettingsGroupTitle>
       <SettingCard>{props.children}</SettingCard>
     </section>
   );
@@ -175,7 +176,12 @@ function ProviderLine(props: { machine: Machine; entry: ProviderEntry }) {
   const { install, row, view } = props.entry;
   const open = useOpenOnMachine();
   return (
-    <div role="group" aria-label={install.name} data-setting-slot="" className="py-1">
+    <div
+      role="group"
+      aria-label={install.name}
+      data-setting-slot=""
+      className="-mx-3 rounded-md px-3 py-1 transition-colors duration-(--motion-fast) hover:bg-hover"
+    >
       <ProviderSetupRow
         columns
         provider={install.kind}

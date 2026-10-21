@@ -56,7 +56,9 @@ export function SettingRow(props: {
       data-flash={flashing || undefined}
       className={cn(
         "@container group/setting transition-colors duration-(--motion-slow)",
-        inCard ? "" : "border-t first:border-t-0",
+        inCard
+          ? "-mx-3 rounded-md px-3 transition-colors duration-(--motion-fast) hover:bg-hover"
+          : "",
         flashing && "bg-accent",
       )}
     >
@@ -174,26 +176,46 @@ export function SettingSection(props: {
 }) {
   const id = useId();
   return (
-    <section id={props.anchor} className="mb-(--settings-group-gap)" aria-labelledby={id}>
-      <div className="mb-2 flex min-h-7 items-center gap-2">
-        <h3 id={id} className="text-md font-medium text-foreground">
-          {props.label}
-        </h3>
-        {props.actions && (
-          // A trailing ghost button's label lines up with the rows' right edge, as in a row.
-          <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground [&>[data-variant=ghost]:last-child]:-mr-2.5">
-            {props.actions}
-          </div>
-        )}
-      </div>
-      {props.note && <p className="mb-2 text-ui text-muted-foreground">{props.note}</p>}
+    <section id={props.anchor} className={settingsGroup} aria-labelledby={id}>
+      <SettingsGroupTitle id={id} note={props.note} actions={props.actions}>
+        {props.label}
+      </SettingsGroupTitle>
       <SettingCard>{props.children}</SettingCard>
     </section>
   );
 }
 
 /**
- * Rows under one rule with hairlines between them. Put rows (`SettingRow`), prose
+ * A settings group: its title in a left gutter beside its rows, so nothing needs a rule to say
+ * where a group starts. Narrow, the title sits above. Shared by every grouped settings page.
+ */
+export const settingsGroup =
+  "mb-(--settings-group-gap) grid gap-x-10 gap-y-1.5 @[44rem]:grid-cols-[11rem_minmax(0,1fr)]";
+
+/** A group's title in the gutter, with its one-line note and actions under it. */
+export function SettingsGroupTitle(props: {
+  id: string;
+  children: ReactNode;
+  note?: ReactNode;
+  actions?: ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1 @[44rem]:pt-2.5">
+      <h3 id={props.id} className="text-ui font-medium text-foreground">
+        {props.children}
+      </h3>
+      {props.note && <p className="text-xs text-muted-foreground">{props.note}</p>}
+      {props.actions && (
+        <div className="-ml-2.5 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+          {props.actions}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A group's rows, set apart by space alone; a row takes a soft wash under the pointer. Put rows (`SettingRow`), prose
  * (`SettingNote`), actions (`SettingFooter`), lists of rows (`SettingList`) and disclosures
  * (`SettingDisclosure`) in it; each keeps the page's one left edge. `SettingSection` adds a
  * title; use this alone for rows that head a page without one.
@@ -201,9 +223,7 @@ export function SettingSection(props: {
 export function SettingCard(props: { children: ReactNode; className?: string }) {
   return (
     <InCard value>
-      <div className={cn("divide-y divide-border border-t border-border", props.className)}>
-        {props.children}
-      </div>
+      <div className={cn("flex flex-col", props.className)}>{props.children}</div>
     </InCard>
   );
 }
@@ -230,7 +250,7 @@ export function SettingFooter(props: { children: ReactNode; className?: string }
 
 /** A list of rows inside a card; its rows inset themselves, the list adds the hairlines. */
 export function SettingList({ className, ...props }: ComponentProps<"ul">) {
-  return <ul {...slot} className={cn("divide-y divide-border", className)} {...props} />;
+  return <ul {...slot} className={cn("flex flex-col", className)} {...props} />;
 }
 
 /** One row of a `SettingList`: the row's height and inset, whatever it holds. */
@@ -328,9 +348,7 @@ export function SettingDisclosure(props: {
         {props.title}
       </summary>
       {/* Its rows keep the card's hairlines between them. */}
-      <div className={cn(inCard && "divide-y divide-border-soft border-t border-border-soft")}>
-        {props.children}
-      </div>
+      <div>{props.children}</div>
     </details>
   );
 }
