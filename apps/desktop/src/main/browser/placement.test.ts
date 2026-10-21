@@ -52,25 +52,6 @@ describe("embedded view placement", () => {
     expect(book.resolve("t1").covered).toBeUndefined();
   });
 
-  it("a view is a picture only while picture-in-picture is where it shows", () => {
-    const book = new PlacementBook();
-    const pip = { x: 1100, y: 600, width: 320, height: 200 };
-    expect(book.set("t1", 1, { bounds: pip, visible: true, picture: true })).toMatchObject({
-      host: 1,
-      visible: true,
-      picture: true,
-    });
-    // Back in the panel, the page takes the person's clicks again.
-    expect(book.set("t1", 1, { bounds: panel, visible: true }).picture).toBeUndefined();
-    // Floating in one window but shown in another window's panel since: it's the page there.
-    book.set("t1", 1, { bounds: pip, visible: true, picture: true });
-    expect(book.set("t1", 2, { bounds: other, visible: true }).picture).toBeUndefined();
-    // A hidden floating window is no picture.
-    expect(book.set("t1", 3, { bounds: pip, visible: false, picture: true }).picture).toBe(
-      undefined,
-    );
-  });
-
   it("never shows a view in an empty box (a collapsed panel)", () => {
     const book = new PlacementBook();
     expect(book.set("t1", 1, { bounds: { ...panel, width: 0 }, visible: true }).visible).toBe(

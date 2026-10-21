@@ -17,8 +17,6 @@ export interface ResolvedPlacement {
   visible: boolean;
   /** Hidden only while the renderer's menu covers it (`BrowserPlacement.covered`). */
   covered?: boolean;
-  /** Shown as picture-in-picture (`BrowserPlacement.picture`). */
-  picture?: boolean;
 }
 
 interface Claim {
@@ -26,7 +24,6 @@ interface Claim {
   bounds: Rect;
   visible: boolean;
   covered?: boolean | undefined;
-  picture?: boolean | undefined;
   order: number;
 }
 
@@ -110,7 +107,6 @@ export class PlacementBook {
       bounds: Rect;
       visible: boolean;
       covered?: boolean | undefined;
-      picture?: boolean | undefined;
       device?: NativeDevice | undefined;
     },
   ): ResolvedPlacement {
@@ -121,7 +117,6 @@ export class PlacementBook {
       device: claim.device,
       visible: claim.visible,
       covered: !claim.visible && claim.covered === true,
-      picture: claim.visible && claim.picture === true,
       order: ++this.order,
     });
     return this.resolve(threadId);
@@ -166,7 +161,6 @@ export class PlacementBook {
         bounds: shown[1].bounds,
         visible: true,
         device: shown[1].device,
-        ...(shown[1].picture ? { picture: true } : {}),
       };
     return {
       host: latest?.[0],

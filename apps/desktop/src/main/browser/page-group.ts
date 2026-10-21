@@ -42,10 +42,7 @@ type GroupPage = Pick<
   | "picture"
 > &
   Partial<
-    Pick<
-      EmbeddedPage,
-      "orphan" | "readopt" | "evacuate" | "devtools" | "print" | "lastDriven" | "setPicture"
-    >
+    Pick<EmbeddedPage, "orphan" | "readopt" | "evacuate" | "devtools" | "print" | "lastDriven">
   >;
 
 interface Target {
@@ -54,8 +51,6 @@ interface Target {
   visible: boolean;
   /** Hidden only while the app's menu covers it (`BrowserPlacement.covered`). */
   covered?: boolean;
-  /** Drawn as picture-in-picture (`BrowserPlacement.picture`). */
-  picture?: boolean;
   zoom?: number;
   device?: NativeDevice | undefined;
 }
@@ -254,7 +249,6 @@ export class EmbeddedPageGroup implements ViewPage {
       const shown = target.visible && here;
       tab.page.place({ ...target, visible: shown, covered: here && target.covered === true });
       tab.page.setNativeInput(this.input && shown);
-      tab.page.setPicture?.(shown && target.picture === true);
       tab.page.setAgentControl(id === this.active ? this.agent : !shown);
     }
   }

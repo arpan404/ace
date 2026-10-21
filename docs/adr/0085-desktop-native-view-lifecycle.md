@@ -148,9 +148,14 @@ the view in place and draws the view's still there first. The placement is then 
 `covered`: the page counts as watched, so it renders (parked) and its sound plays, and the
 renderer draws the live screencast in its place once a fresh frame arrives, so a playing video
 keeps moving under the menu. Only what paints above the view covers it: a portal at a higher
-z-index, or a later one at the same z-index. Picture-in-picture is a portal itself, so the app
-beneath it never covers it. Picture-in-picture opening by itself is a per-device setting
-(Settings › Browser › Picture in picture), on by default.
+z-index, or a later one at the same z-index. Picture-in-picture opening by itself is a
+per-device setting (Settings › Browser › Picture in picture), on by default.
+
+Amended 2026-10-20: picture-in-picture draws the page's live video, never the native view. A
+native view paints above the whole window, so it could not be clipped to the floating box's
+rounded edges (it showed past them), and it took the person's clicks for itself, so a click
+on the floating page could not bring it back to the panel. Out of the panel the view keeps
+its panel size and renders parked while it is captured, so the page never reloads or reflows.
 
 ⌘L and ⌘F pressed in a native page no longer move the OS focus at once. The view keeps the
 keys typed next (for at most a second) while the app's page focuses its field; the field

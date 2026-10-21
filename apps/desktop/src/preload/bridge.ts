@@ -172,8 +172,6 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       page: (request: RequestOf<"browser.page">) => call("browser.page", request),
       onContext: (listener: (value: EventOf<"browser.context">) => void) =>
         subscribe("browser.context", listener),
-      onRestore: (listener: (value: EventOf<"browser.restore">) => void) =>
-        subscribe("browser.restore", listener),
     },
     updates: {
       check: () => call("updates.check"),

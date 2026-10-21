@@ -51,8 +51,6 @@ export interface PageOptions {
   forward(accelerator: string): void;
   /** A context menu pick the app carries out (history, a new tab, annotate, page source). */
   contextAction?(action: BrowserContextAction["action"], url?: string): void;
-  /** The person clicked the page while it is drawn as picture-in-picture (`setPicture`). */
-  restore?(): void;
   forget(): void;
   authPreload?: string | undefined;
   rememberPopup?(contents: WebContents): () => void;
@@ -75,8 +73,6 @@ export class EmbeddedPage implements ViewPage {
   private appliedZoom = 1;
   private appZoom = 1;
   private nativeInput = false;
-  /** Drawn as picture-in-picture: a picture of the page, whose click brings the page back. */
-  private floating = false;
   private agentControl = false;
   /** A page writes the clipboard only on the person's own recent click or key press. */
   allowsClipboard(): boolean {
@@ -243,13 +239,6 @@ export class EmbeddedPage implements ViewPage {
       event.preventDefault();
     });
     contents.on("before-mouse-event", (event, mouse) => {
-      // In picture-in-picture the page is a picture: the person's mouse never reaches it, and
-      // their click shows the page in the panel again (the app's own click on the picture).
-      if (this.injecting === 0 && this.floating) {
-        event.preventDefault();
-        if (mouse.type === "mouseDown" && mouse.button === "left") this.options.restore?.();
-        return;
-      }
       if (this.injecting === 0 && mouse.type === "mouseDown" && mouse.button === "right")
         this.humanContextAt = Date.now();
       if (this.allowInput()) {
@@ -834,11 +823,6 @@ export class EmbeddedPage implements ViewPage {
     return printPage(this.contents);
   }
 
-  /** Whether the page is drawn as picture-in-picture now (see `restore`). */
-  setPicture(on: boolean): void {
-    this.floating = on;
-  }
-
   setNativeInput(enabled: boolean): void {
     this.nativeInput = enabled;
     if (!enabled) this.auth.close();
@@ -965,7 +949,7 @@ export class EmbeddedPage implements ViewPage {
     if (this.closing || this.contents.isDestroyed()) return;
     if (this.placementPending) {
       // A view already on screen stays there while its new box's metrics apply (a panel
-      // resizing, the page moving into picture-in-picture): hiding it meanwhile would flash.
+      // resizing): hiding it meanwhile would flash.
       if (!(this.placed && this.presence === "placed")) this.show("hidden");
       return;
     }
