@@ -4,7 +4,6 @@ import SwiftUI
 struct InboxHeaderActions {
     let settings: () -> Void
     let machines: () -> Void
-    let library: () -> Void
 }
 
 /// One tab's navigation stack: the compact wordmark (or a connection problem) and the glass
@@ -70,16 +69,9 @@ struct InboxStack<Destination: View>: View {
     private var title: some View {
         InboxTitle(problem: InboxConnectionProblem.of(inbox), openMachines: header.machines)
     }
-    /// Tap opens Settings; a long press also offers the machine tools until Settings lists them.
     private var settings: some View {
-        Menu {
-            Button("Browse ace", systemImage: "sidebar.left", action: header.library).accessibilityIdentifier("inbox.library")
-        } label: {
-            Image(systemName: "gearshape")
-        } primaryAction: {
-            header.settings()
-        }
-        .accessibilityLabel("Settings").accessibilityIdentifier("inbox.settings")
+        Button(action: header.settings) { Image(systemName: "gearshape") }
+            .accessibilityLabel("Settings").accessibilityIdentifier("inbox.settings")
     }
 
     /// The list is live; a pull asks every machine that isn't ready to reconnect now.

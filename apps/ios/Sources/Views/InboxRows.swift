@@ -80,7 +80,7 @@ struct InboxThreadRow: View {
     /// The thread's provider; a tree of several agents adds how many more there are.
     private var providers: some View {
         HStack(spacing: 3) {
-            ProviderMark(provider: row.provider)
+            ProviderMark(provider: row.provider).foregroundStyle(AceTheme.Colours.mutedForeground)
             if row.agents > 1 {
                 Text("+\(row.agents - 1)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit()
                     .accessibilityLabel("\(row.agents) agents")

@@ -870,6 +870,9 @@
       "type": "object"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/GitConflictsCommand.json"
+    },
+    {
       "properties": {
         "draftFingerprint": {
           "pattern": "^[a-f0-9]{64}$",

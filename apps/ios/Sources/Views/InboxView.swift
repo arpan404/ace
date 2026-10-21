@@ -17,10 +17,9 @@ struct InboxView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @Bindable var inbox: MachineInbox
-    /// Rename, remove and pairing for the Machines sheet; nil for the debug fixture.
+    /// Rename, remove and pairing for Settings › Machines; nil for the debug fixture.
     var machines: MachinesModel?
-    var addMachine: () -> Void = {}
-    /// Settings › App lock; nil where the app has no lock (the debug fixture).
+    /// Settings › Face ID; nil where the app has no lock (the debug fixture).
     var lock: AppLock?
     @State private var tab = InboxTab.threads
     @State private var threadsPath: [String] = []
@@ -32,11 +31,9 @@ struct InboxView: View {
     @State private var projectFilter = ""
     @State private var shelves = InboxShelves()
     @State private var composing = false
-    @State private var showingLibrary = false
-    @State private var libraryDestination: String?
-    @State private var showingMachines = false
     @State private var showingSettings = false
-    @State private var archiveMachine: String?
+    /// Where Settings opens: its root, or Machines from the connection title.
+    @State private var settingsStart: [SettingsRoute] = []
     @State private var snoozing: InboxKey?
     @State private var undo: InboxUndo?
     @State private var settles = 0
@@ -95,29 +92,8 @@ struct InboxView: View {
 
     private var sheets: some View {
         tabs
-        .sheet(isPresented: $showingLibrary, onDismiss: {
-            switch libraryDestination {
-            case "settings": showingSettings = true
-            case "machines": showingMachines = true
-            case "archive": archiveMachine = inbox.sessions.first?.hostId
-            default: break
-            }
-            libraryDestination = nil
-        }) {
-            LibrarySheet(inbox: inbox, openSettings: { libraryDestination = "settings"; showingLibrary = false },
-                         openMachines: { libraryDestination = "machines"; showingLibrary = false },
-                         openArchive: { libraryDestination = "archive"; showingLibrary = false })
-        }
-        .sheet(isPresented: $showingMachines) {
-            MachinesSheet(inbox: inbox, machines: machines) { showingMachines = false; addMachine() }
-        }
         .sheet(isPresented: $showingSettings) {
-            SettingsSheet(inbox: inbox, machines: machines, lock: lock,
-                          openMachines: { showingMachines = true },
-                          openArchive: { archiveMachine = inbox.sessions.first?.hostId })
-        }
-        .sheet(item: Binding(get: { archiveMachine.map(ArchiveTarget.init) }, set: { archiveMachine = $0?.id })) { target in
-            ArchiveSheet(inbox: inbox, machineId: target.id)
+            SettingsSheet(inbox: inbox, machines: machines, lock: lock, start: settingsStart)
         }
     }
 
@@ -127,8 +103,8 @@ struct InboxView: View {
     private func stack(_ tab: InboxTab, path: Binding<[String]>) -> some View {
         InboxStack(inbox: inbox, path: path, pulls: tab == .pulls, machine: $machineFilter, project: $projectFilter,
                    shelves: $shelves, actions: actions(in: tab),
-                   header: InboxHeaderActions(settings: { showingSettings = true }, machines: { showingMachines = true },
-                                              library: { showingLibrary = true })) { id in
+                   header: InboxHeaderActions(settings: { settingsStart = []; showingSettings = true },
+                                              machines: { settingsStart = [.machines]; showingSettings = true })) { id in
             if let client = current, openTab == tab, let thread = client.thread, thread.id == id {
                 // Child threads open on the same machine's client as their parent.
                 ThreadView(model: client, thread: thread) { child in client.open(child); path.wrappedValue.append(child) }
@@ -205,6 +181,3 @@ struct InboxView: View {
         else if new.count < old.count, let parent = new.last { current?.open(parent) }
     }
 }
-
-/// The machine the archive sheet opens on.
-private struct ArchiveTarget: Identifiable { let id: String }

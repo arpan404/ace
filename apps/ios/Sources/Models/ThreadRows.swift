@@ -85,6 +85,8 @@ struct ControlsRow: Codable, Sendable, Equatable {
     let alternate: String?
     let canStop: Bool
     let provider: String
+    /// The provider's display name, for the model sheet's header.
+    var providerName: String?
     let model: String
     let switching: String
 }

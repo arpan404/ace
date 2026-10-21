@@ -329,6 +329,7 @@ export class FakeDaemon implements Host {
     | "setIssueOutcome"
     | "checkReruns"
     | "git"
+    | "conflicts"
     | "failMoves"
     | "setDetails"
   > {

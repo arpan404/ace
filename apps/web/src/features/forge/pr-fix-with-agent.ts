@@ -25,8 +25,8 @@ export function useFixWithAgent(props: {
   const { detail } = props;
   const linked = detail.relatedThreads.filter((thread) => !thread.archived);
   const target = linked.find((thread) => thread.id === props.hostThreadId) ?? linked[0];
-  /** Hands `request` to the task's composer. */
-  const send = (request: string) => {
+  /** Put `request` in the composer of the task working on this PR, for the person to send. */
+  const ask = (request: string) => {
     if (!target) {
       void navigate({
         to: "/new",
@@ -56,9 +56,9 @@ export function useFixWithAgent(props: {
   return {
     /** The task the request goes to, if one is linked. */
     target,
+    ask,
     fix(item: AttentionItem) {
-      send(fixRequest(item, { number: detail.status.ref.number, url: detail.status.url }));
+      ask(fixRequest(item, { number: detail.status.ref.number, url: detail.status.url }));
     },
-    send,
   };
 }

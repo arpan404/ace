@@ -106,9 +106,7 @@ struct ThreadView: View {
                     .presentationDetents([.large]).presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showModels) {
-                ModelPickerSheet(screen: screen, load: { model.requestModels() }, choose: { await model.switchModel($0) }, tuning: {
-                    if let tune = screen.tune, !tune.efforts.isEmpty || !tune.speeds.isEmpty { TuneChip(tune: tune, model: model) }
-                })
+                ModelPickerSheet(model: model, screen: screen)
             }
             .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
             // The agent may open its browser after the thread was opened: ask again as it works.

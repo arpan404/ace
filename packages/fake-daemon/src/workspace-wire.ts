@@ -23,6 +23,7 @@ import { fakeOpenWork } from "./open-work-wire.ts";
 import { emptyIssueList, FakeIssueWire } from "./issue-wire.ts";
 import { FakeTerminals } from "./terminals.ts";
 import { FakeGitStates } from "./git-states.ts";
+import { FakeConflicts } from "./conflict-wire.ts";
 import type { FakeServiceContext } from "./service-context.ts";
 const emptyDiff = { files: 0, additions: 0, deletions: 0 };
 
@@ -32,6 +33,8 @@ export class FakeWorkspaceWire {
   readonly git = new FakeGitStates();
   /** Workflow re-runs the PR panel asked GitHub for (`forge.hosted.checks`), in order. */
   readonly checkReruns: ForgeCheckAction[] = [];
+  /** Merge conflicts in PR checkouts (`git.conflicts`). */
+  readonly conflicts = new FakeConflicts();
   private moveFailure: string | undefined;
   /** Every checkout move fails with `error` (its change kept as failed), or none does. */
   failMoves(error: string | undefined): void {
@@ -244,6 +247,12 @@ export class FakeWorkspaceWire {
         result: data ? { kind: "forge", data } : { kind: "error", code: "forge_not_found" },
       });
     }
+    if (op.op === "git.conflicts")
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: { kind: "gitConflicts", conflicts: this.conflicts.read(op.threadId) },
+      });
     if (op.op === "git.diff")
       return ServerMessage.parse({
         type: "workspace.result",
@@ -408,6 +417,7 @@ export class FakeWorkspaceWire {
       if (printed.done) this.terminals.prompt(terminal.id);
       return { ok: true, terminalId: terminal.id };
     }
+    if (payload.type === "git.conflicts") return this.conflicts.command(payload);
     if (payload.type === "git.commit") {
       if ((thread?.details?.head ?? null) !== payload.expectedHead)
         return { ok: false, error: "git_head_moved" };

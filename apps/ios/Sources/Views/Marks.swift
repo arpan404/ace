@@ -43,7 +43,6 @@ struct ProviderMark: View {
             }
         }
         .frame(width: size, height: size)
-        .foregroundStyle(AceTheme.Colours.mutedForeground)
         .accessibilityHidden(true)
     }
 }

@@ -1,122 +1,150 @@
 import SwiftUI
 
-/// Settings, opened from the inbox header (there is no tab bar): app lock, notifications per
-/// machine, machines and the archive, about and licences, and a diagnostics export.
+/// Every screen Settings pushes inside its own stack.
+enum SettingsRoute: Hashable {
+    case machines, machine(String), pair
+    case notifications, lock, appearance
+    case archive, profiles, thread(machine: String, id: String)
+    case tool(SettingsTool, machine: String)
+    case licences
+}
+
+/// Settings, opened from the inbox: connections (machines, notifications, Face ID), the
+/// interface, threads (archive, profiles), each machine's tools, and the app itself. Everything
+/// pushes inside this sheet's own stack.
 struct SettingsSheet: View {
     let inbox: MachineInbox
     var machines: MachinesModel?
     var lock: AppLock?
-    var openMachines: () -> Void
-    var openArchive: () -> Void
     @Environment(NotificationCoordinator.self) private var notifications: NotificationCoordinator?
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("ace.appearance") private var appearance = "system"
+    @AppStorage("ace.keyboard.returnSends") private var returnSends = false
+    @State private var path: [SettingsRoute]
+    @State private var toolsMachine = ""
+    /// The machine whose archive window is open while the archive or one of its threads shows.
+    @State private var following: String?
+
+    init(inbox: MachineInbox, machines: MachinesModel? = nil, lock: AppLock? = nil, start: [SettingsRoute] = []) {
+        self.inbox = inbox
+        self.machines = machines
+        self.lock = lock
+        _path = State(initialValue: start)
+    }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("This phone") {
-                    NavigationLink("Profiles") { TaskProfilesView(store: TaskProfileStore(defaults: .standard)) }
-                    NavigationLink("Appearance and keyboard") { PhonePreferencesView() }
-                }
-                if let lock { AppLockSection(lock: lock) }
+        NavigationStack(path: $path) {
+            List {
                 Section {
-                    if let notifications {
-                        NavigationLink { NotificationSettingsView(notifications: notifications, inbox: inbox) } label: {
-                            LabeledContent("Notifications", value: notifications.delivering ? "On" : "Off")
-                        }
-                        .accessibilityIdentifier("settings.notifications")
+                    link(.machines, "Machines", "laptopcomputer", value: inbox.sessions.count.formatted(), id: "settings.machines")
+                    if notifications != nil {
+                        link(.notifications, "Notifications", "bell", value: notifications?.delivering == true ? "On" : "Off", id: "settings.notifications")
                     }
-                    Button { dismiss(); openMachines() } label: {
-                        LabeledContent("Machines", value: inbox.sessions.count.formatted())
+                    if let lock { link(.lock, "Face ID", "lock", value: lock.enabled ? "On" : "Off", id: "settings.lock") }
+                } header: { InsetHeader("Connections") }
+                .insetRowBackground()
+                Section {
+                    link(.appearance, "Appearance", "paintpalette", value: PhoneAppearance.label(appearance), id: "settings.appearance")
+                    InsetRow(systemImage: "keyboard", title: "Send with Return") {
+                        Toggle("Send with Return", isOn: $returnSends).labelsHidden()
                     }
-                    .accessibilityIdentifier("settings.machines")
-                    Button { dismiss(); openArchive() } label: { Text("Archived threads") }
-                        .accessibilityIdentifier("settings.archive")
-                }
-                .foregroundStyle(AceTheme.Colours.foreground)
-                Section("Machine settings") {
-                    ForEach(inbox.sessions) { session in
-                        NavigationLink(inbox.name(session.hostId)) { MachineFeaturesView(inbox: inbox, machineId: session.hostId) }
-                            .accessibilityIdentifier("settings.machine.\(session.hostId)")
-                    }
-                }
-                Section("About") {
-                    LabeledContent("Version", value: "\(app.version) (\(app.build))")
-                    NavigationLink("Licences") { LicencesView() }.accessibilityIdentifier("settings.licences")
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("settings.returnSends")
+                } header: { InsetHeader("Interface") }
+                .insetRowBackground()
+                Section {
+                    link(.archive, "Archived", "archivebox", id: "settings.archive")
+                    link(.profiles, "Task profiles", "person.text.rectangle", id: "settings.profiles")
+                } header: { InsetHeader("Threads") }
+                .insetRowBackground()
+                SettingsTools(inbox: inbox, machine: $toolsMachine)
+                Section {
+                    InsetRow("About", systemImage: "info.circle", value: "\(app.version) (\(app.build))")
+                        .accessibilityElement(children: .combine)
+                    link(.licences, "Licences", "doc.text", id: "settings.licences")
                     ShareLink(item: report.json, preview: SharePreview("ace diagnostics")) {
-                        Label("Share diagnostics", systemImage: "square.and.arrow.up")
+                        InsetRow("Send diagnostics", systemImage: "square.and.arrow.up")
                     }
+                    .buttonStyle(.plain)
                     .accessibilityIdentifier("settings.diagnostics")
+                } header: { InsetHeader("App") }
+                .insetRowBackground()
+            }
+            .insetGroupedList()
+            .sensoryFeedback(.selection, trigger: returnSends)
+            .navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel("Close").accessibilityIdentifier("settings.close")
                 }
             }
-            .navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .navigationDestination(for: SettingsRoute.self) { route in destination(route) }
         }
+        .tint(AceTheme.Colours.foreground)
         .presentationDetents([.large]).presentationDragIndicator(.visible)
+        .onChange(of: path) { old, new in navigated(from: old, to: new) }
+        .onDisappear { closeMachineViews() }
     }
+
+    private func link(_ route: SettingsRoute, _ title: String, _ symbol: String, value: String? = nil, id: String) -> some View {
+        NavigationLink(value: route) { InsetRow(title, systemImage: symbol, value: value) }
+            .accessibilityIdentifier(id)
+    }
+
+    @ViewBuilder private func destination(_ route: SettingsRoute) -> some View {
+        switch route {
+        case .machines: MachinesView(inbox: inbox, machines: machines)
+        case .machine(let hostId): MachineDetailView(inbox: inbox, machines: machines, hostId: hostId)
+        case .pair:
+            if let machines { PairingView(machines: machines) { path.removeAll { $0 == .pair } } }
+        case .notifications:
+            if let notifications { NotificationSettingsView(notifications: notifications, inbox: inbox) }
+        case .lock:
+            if let lock { AppLockView(lock: lock) }
+        case .appearance: AppearanceView()
+        case .archive:
+            ArchiveView(inbox: inbox, following: $following) { machine, id in
+                inbox.client(machine)?.open(id)
+                path.append(.thread(machine: machine, id: id))
+            }
+        case .profiles: TaskProfilesView(store: TaskProfileStore(defaults: .standard))
+        case .thread(let machine, let id):
+            if let client = inbox.client(machine), let thread = client.thread, thread.id == id {
+                ThreadView(model: client, thread: thread) { child in
+                    client.open(child)
+                    path.append(.thread(machine: machine, id: child))
+                }
+            }
+        case .tool(let tool, let machine):
+            if let client = inbox.client(machine) { tool.destination(client) }
+        case .licences: LicencesView()
+        }
+    }
+
+    /// Back from an archived thread reopens its parent, or leaves the thread when none is left;
+    /// leaving the archive closes its window.
+    private func navigated(from old: [SettingsRoute], to new: [SettingsRoute]) {
+        guard new.count < old.count else { return }
+        if case .thread(let machine, _) = old.last {
+            if case .thread(let parentMachine, let parent) = new.last { inbox.client(parentMachine)?.open(parent) }
+            else { inbox.client(machine)?.back() }
+        }
+        if !new.contains(.archive), let following {
+            inbox.client(following)?.closeArchive()
+            self.following = nil
+        }
+    }
+    private func closeMachineViews() {
+        if let following { inbox.client(following)?.closeArchive(); self.following = nil }
+        for session in inbox.sessions {
+            session.client.action(["type": "native.devices.close"])
+            session.client.action(["type": "native.screen.close"])
+        }
+    }
+
     private var app: DiagnosticsReport.App { .current }
     private var report: DiagnosticsReport {
         DiagnosticsReport.collect(app: app, inbox: inbox, entries: machines?.machines ?? [], notifications: notifications, lock: lock, now: Date())
-    }
-}
-
-/// Face ID or the passcode at launch and after the chosen time in the background.
-private struct AppLockSection: View {
-    @Bindable var lock: AppLock
-    var body: some View {
-        Section {
-            Toggle("Lock with Face ID", isOn: Binding(get: { lock.enabled }, set: { on in Task { await lock.setEnabled(on) } }))
-                .disabled(lock.authenticating)
-                .accessibilityIdentifier("settings.lock")
-            Picker("Lock after", selection: Binding(get: { lock.timeout }, set: { lock.setTimeout($0) })) {
-                ForEach(AppLock.timeouts, id: \.self) { seconds in Text(Self.label(seconds)).tag(seconds) }
-            }
-            .disabled(!lock.enabled)
-            .accessibilityIdentifier("settings.lockTimeout")
-        } header: { Text("App lock") } footer: {
-            Text("Face ID or your passcode unlocks ace. Turning the lock off asks for it first.")
-        }
-    }
-    static func label(_ seconds: TimeInterval) -> String {
-        if seconds == 0 { return "Immediately" }
-        return Duration.seconds(seconds).formatted(.units(allowed: [.hours, .minutes], width: .wide))
-    }
-}
-
-/// What ships inside the app and its licence. The interface uses Apple's system fonts (SF Pro,
-/// SF Mono); no font, icon set or other third-party asset is bundled. The JavaScript bridge
-/// bundles ace's own packages, Zod and the shared HTML renderer's parse5/entities dependencies.
-struct LicencesView: View {
-    private struct Entry: Identifiable {
-        let name: String
-        let licence: String
-        let notice: String
-        var id: String { name }
-    }
-    private let entries = [
-        Entry(name: "ace", licence: "Apache License 2.0",
-              notice: "Copyright ace contributors. Licensed under the Apache License, Version 2.0. You may obtain a copy of the License at https://www.apache.org/licenses/LICENSE-2.0"),
-        Entry(name: "Zod", licence: "MIT",
-              notice: "Copyright (c) 2025 Colin McDonnell. Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."),
-        Entry(name: "LobeHub Icons", licence: "MIT",
-              notice: "Provider marks. Copyright (c) 2023 LobeHub. Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. The OpenAI mark is OpenAI's trademark, from its brand kit; each mark belongs to its owner."),
-        Entry(name: "parse5", licence: "MIT", notice: Self.bundledNotice("parse5-license")),
-        Entry(name: "entities", licence: "BSD 2-Clause", notice: Self.bundledNotice("entities-license")),
-    ]
-    private static func bundledNotice(_ name: String) -> String {
-        guard let url = Bundle.main.url(forResource: name, withExtension: "txt"), let text = try? String(contentsOf: url, encoding: .utf8) else { return "See \(name).txt in the app bundle." }
-        return text
-    }
-    var body: some View {
-        List(entries) { entry in
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                Text(entry.name).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
-                Text(entry.licence).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-                Text(entry.notice).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-            }
-            .padding(.vertical, AceTheme.Spacing.xs)
-            .accessibilityElement(children: .combine)
-        }
-        .navigationTitle("Licences").navigationBarTitleDisplayMode(.inline)
     }
 }
