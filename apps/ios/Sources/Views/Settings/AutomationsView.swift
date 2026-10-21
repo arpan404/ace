@@ -135,12 +135,15 @@ struct AutomationsView: View {
     @State private var unavailable = false
     var body: some View {
         List {
-            if loading { ProgressView("Reading automations…") }
-            ServiceProblem(message: problem)
-            if !model.canOperate {
-                ViewOnlyNote(message: "View only. To change automations from this phone, pair it again with View and act.")
+            Group {
+                if loading { HStack { Spacer(); ProgressView().accessibilityLabel("Reading automations"); Spacer() } }
+                ServiceProblem(message: problem)
+                if !model.canOperate {
+                    ViewOnlyNote(message: "View only. To change automations from this phone, pair it again with View and act.")
+                }
+                if !loading && rows.isEmpty && problem == nil { ContentUnavailableView("No automations", systemImage: "clock.arrow.circlepath") }
             }
-            if !loading && rows.isEmpty { Text("No automations on this machine.") }
+            .listRowBackground(Color.clear)
             ForEach(rows) { row in
                 Section {
                     Toggle("Enabled", isOn: Binding(get: { row.enabled }, set: { enabled in
@@ -165,21 +168,24 @@ struct AutomationsView: View {
                     }
                     .disabled(!row.enabled)
                 } header: {
-                    Text(row.title.isEmpty ? "Untitled automation" : row.title)
+                    InsetHeader(row.title.isEmpty ? "Untitled automation" : row.title)
                 }
+                .insetRowBackground()
                 .disabled(!model.canOperate || busy)
             }
             if !runs.isEmpty {
-                Section("Recent runs") {
+                Section {
                     ForEach(runs) { run in
                         VStack(alignment: .leading) {
                             LabeledContent(run.title, value: run.status.capitalized)
                             if let result = run.result { Text(result).lineLimit(3).foregroundStyle(AceTheme.Colours.mutedForeground) }
                         }
                     }
-                }
+                } header: { InsetHeader("Recent runs") }
+                .insetRowBackground()
             }
         }
+        .insetGroupedList()
         .navigationTitle("Automations").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

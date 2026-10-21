@@ -29,14 +29,18 @@ struct LicencesView: View {
     }
     var body: some View {
         List(entries) { entry in
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                Text(entry.name).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
-                Text(entry.licence).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-                Text(entry.notice).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+            Section {
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                    Text(entry.name).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body)
+                    Text(entry.licence).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                    Text(entry.notice).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                }
+                .padding(.vertical, AceTheme.Spacing.sm)
+                .accessibilityElement(children: .combine)
             }
-            .padding(.vertical, AceTheme.Spacing.xs)
-            .accessibilityElement(children: .combine)
+            .insetRowBackground()
         }
+        .insetGroupedList()
         .navigationTitle("Licences").navigationBarTitleDisplayMode(.inline)
     }
 }

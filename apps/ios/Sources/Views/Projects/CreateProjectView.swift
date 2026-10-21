@@ -22,32 +22,36 @@ struct CreateProjectView: View {
     }
     var body: some View {
         Form {
-            if model.connection != "ready" { InboxConnectionBanner(connection: model.connection, retry: model.retry) }
-            Section {
-                if cloning { TextField("Repository URL", text: field(\.url)).accessibilityIdentifier("project.clone.url") }
-                TextField("Project name", text: field(\.name)).accessibilityIdentifier("project.create.name")
-                TextField("Parent folder on Mac", text: field(\.parent)).accessibilityIdentifier("project.create.parent")
-            } footer: { Text("Created on your connected machine. The folder and repository are kept there.") }
-            if !cloning {
-                Section("Git") {
-                    Toggle("Initialise a Git repository", isOn: Binding(get: { draft.git }, set: { value in drafts.edit { $0.git = value } }))
-                    if draft.git {
-                        TextField("Initial branch (\(initialBranch))", text: field(\.branch))
-                        TextField(".gitignore contents", text: field(\.gitignore), axis: .vertical).lineLimit(3...8)
-                    }
+            Group {
+                if model.connection != "ready" { InboxConnectionBanner(connection: model.connection, retry: model.retry) }
+                Section {
+                    if cloning { TextField("Repository URL", text: field(\.url)).accessibilityIdentifier("project.clone.url") }
+                    TextField("Project name", text: field(\.name)).accessibilityIdentifier("project.create.name")
+                    TextField("Parent folder on Mac", text: field(\.parent)).accessibilityIdentifier("project.create.parent")
+                } footer: { Text("Created on your connected machine. The folder and repository are kept there.") }
+                if !cloning {
+                    Section {
+                        Toggle("Initialise a Git repository", isOn: Binding(get: { draft.git }, set: { value in drafts.edit { $0.git = value } }))
+                        if draft.git {
+                            TextField("Initial branch (\(initialBranch))", text: field(\.branch))
+                            TextField(".gitignore contents", text: field(\.gitignore), axis: .vertical).lineLimit(3...8)
+                        }
+                    } header: { InsetHeader("Git") }
                 }
+                ServiceProblem(message: problem ?? drafts.problem)
+                if busy {
+                    if cloning, let progress = model.compose.clone, progress.id == draft.commandId {
+                        if let percent = progress.percent { ProgressView(progress.label, value: percent, total: 100) }
+                        else { ProgressView(progress.label) }
+                    } else { ProgressView(cloning ? "Cloning repository…" : "Creating project…") }
+                }
+                Button(cloning ? "Clone repository" : "Create project") { submission = Task { await submit() } }
+                    .disabled(!ready || busy || !model.canOperate || model.connection != "ready")
+                    .accessibilityIdentifier("project.create.submit")
             }
-            ServiceProblem(message: problem ?? drafts.problem)
-            if busy {
-                if cloning, let progress = model.compose.clone, progress.id == draft.commandId {
-                    if let percent = progress.percent { ProgressView(progress.label, value: percent, total: 100) }
-                    else { ProgressView(progress.label) }
-                } else { ProgressView(cloning ? "Cloning repository…" : "Creating project…") }
-            }
-            Button(cloning ? "Clone repository" : "Create project") { submission = Task { await submit() } }
-                .disabled(!ready || busy || !model.canOperate || model.connection != "ready")
-                .accessibilityIdentifier("project.create.submit")
+            .insetRowBackground()
         }
+        .insetGroupedList()
         .textInputAutocapitalization(.never).autocorrectionDisabled()
         .disabled(busy)
         .navigationTitle(cloning ? "Clone repository" : "New project").navigationBarTitleDisplayMode(.inline)

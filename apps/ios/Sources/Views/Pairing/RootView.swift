@@ -33,7 +33,9 @@ struct RootView: View {
                         .frame(maxHeight: 260)
                     PairingView(machines: machines)
                 }
+                .background(AceTheme.Colours.background)
             }
+            .tint(AceTheme.Colours.foreground)
         } else {
             InboxView(inbox: machines.inbox, machines: machines, lock: lock)
         }
