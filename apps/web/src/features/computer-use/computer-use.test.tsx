@@ -6,10 +6,10 @@ import { deviceBrowser } from "@/test/device-browser.ts";
 import { harness } from "@/test/harness.tsx";
 import { screenWorld } from "@/test/screen-world.ts";
 
-// jsdom has no canvas or image decoding: the device browser records what the live views draw.
+// jsdom has no canvas or WebCodecs: the device browser decodes H.264 and records what is drawn.
 let browser: ReturnType<typeof deviceBrowser>;
 beforeEach(() => {
-  browser = deviceBrowser("none");
+  browser = deviceBrowser("decodes");
 });
 afterEach(() => browser.restore());
 
@@ -127,9 +127,7 @@ test("an agent's app shows live in the background; taking over and handing back 
   );
 });
 
-test("where the browser decodes H.264, an app's live view asks for 60 fps video and draws it", async () => {
-  browser.restore();
-  browser = deviceBrowser("decodes");
+test("an app's live view asks for 60 fps video and draws it", async () => {
   const { app, world } = await openSettings();
   const sessionId = await world.agentApp("com.apple.TextEdit");
   await app.open("/settings/computer-use");
@@ -158,8 +156,24 @@ test("leaving the page closes the live view's decoded frames", async () => {
 
   view.unmount();
 
-  expect(browser.bitmaps.length).toBeGreaterThan(0);
-  expect(browser.bitmaps.every((bitmap) => bitmap.closed)).toBe(true);
+  expect(browser.videoFrames.length).toBeGreaterThan(0);
+  expect(browser.videoFrames.every((frame) => frame.closed)).toBe(true);
+});
+
+test("a browser that can't decode H.264 says so instead of showing stills", async () => {
+  browser.restore();
+  browser = deviceBrowser("none");
+  const { app, world } = await openSettings();
+  await world.agentApp("com.apple.TextEdit");
+  await app.open("/settings/computer-use");
+  const card = await screen.findByRole("article", { name: "TextEdit" });
+  await userEvent.click(within(card).getByRole("button", { expanded: false }));
+
+  expect(await within(card).findByText("This browser can't decode video")).toBeTruthy();
+  const live = within(card).getByRole("img", { name: "TextEdit live view" });
+  // The session's stills reach the page, and none is drawn.
+  await waitFor(() => expect(app.daemon.screen.acks.length).toBeGreaterThan(0));
+  expect(browser.draws(live)).toBe(0);
 });
 
 test("a missing macOS permission offers Request, which asks the daemon's Mac", async () => {

@@ -1,9 +1,9 @@
 import type { SourcePicture } from "@ace/client/screen-stream";
 import { deviceVideoSupported, screenStreamProfile } from "@ace/client/devices";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn.ts";
 import { webCodecsDecoder } from "@/lib/video/codecs.ts";
-import { drawUpright, jpegImage } from "@/lib/video/picture-canvas.ts";
+import { drawUpright } from "@/lib/video/picture-canvas.ts";
 import { nextFrame } from "@/lib/next-frame.ts";
 import { pictureRenderer } from "@/lib/video/picture-renderer.ts";
 import type { ScreenSession } from "./screen-session.ts";
@@ -11,8 +11,9 @@ import type { ScreenSession } from "./screen-session.ts";
 /**
  * An app window's live picture on a canvas, with no React render per frame. Pictures come on the
  * shared media stream (stream kind `screenFrame`) and draw through the same renderer as a
- * device's, the newest at each refresh. Where WebCodecs decodes H.264, the view asks the Mac's
- * helper for 60 fps hardware H.264 sized to its panel and link; otherwise it shows stills. Mounting holds
+ * device's, the newest at each refresh: the view asks the Mac's helper for 60 fps hardware H.264
+ * sized to its panel and link. It is video only: where the browser can't decode H.264 or the
+ * helper can't encode it, the view says so instead of showing stills. Mounting holds
  * the session's stream (shared with every other view of it); unmounting (or a new channel) lets
  * it go and closes the decoder. A hidden page holds its newest ack, so the daemon stops sending,
  * and acks it with a keyframe request when the page shows again.
@@ -24,6 +25,8 @@ export function LiveView(props: {
   className?: string;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
+  /** Why there is no picture: live views are video only, never a slideshow of stills. */
+  const [noVideo, setNoVideo] = useState<string>();
   const { session, sessionId } = props;
   useEffect(() => {
     const element = canvas.current;
@@ -55,22 +58,30 @@ export function LiveView(props: {
       const signature = JSON.stringify(settings);
       if (signature === configured) return;
       configured = signature;
-      void session.request({ op: "stream.configure", sessionId, settings }).catch(() => {
-        // A helper that can't (another OS, a stopped session) keeps sending stills.
-        configured = "";
-      });
+      void session.request({ op: "stream.configure", sessionId, settings }).then(
+        (result) => {
+          if (disposed) return;
+          // Only a Mac's helper encodes video; elsewhere the view says so rather than show stills.
+          const codec = (result as { codec?: unknown } | undefined)?.codec;
+          setNoVideo(codec === "h264" ? undefined : "This computer can't stream video of its apps");
+        },
+        () => {
+          configured = "";
+        },
+      );
     };
     const renderer = pictureRenderer<SourcePicture>({
       decoder: webCodecsDecoder(),
       nextFrame,
-      image: jpegImage,
       show: (image, picture) => {
         if (disposed) return;
         drawUpright(element, context, image, picture);
         element.dataset["frame"] = String(picture.sequence);
       },
       ack: (picture, keyframe) => session.ack(picture, keyframe),
-      fallback: () => {},
+      fallback: () => {
+        if (!disposed) setNoVideo("This browser can't decode video");
+      },
       // The view fell behind: a lighter stream, at most every 1.5 s; it recovers when steady.
       pressure: () => {
         const now = performance.now();
@@ -99,6 +110,7 @@ export function LiveView(props: {
     const release = session.retainStream(sessionId);
     void deviceVideoSupported().then((supported) => {
       decodes = supported;
+      if (!supported && !disposed) setNoVideo("This browser can't decode video");
       configure();
     });
     const observer =
@@ -138,11 +150,21 @@ export function LiveView(props: {
     };
   }, [session, sessionId]);
   return (
-    <canvas
-      ref={canvas}
-      role="img"
-      aria-label={props.label}
-      className={cn("absolute inset-0 size-full object-contain", props.className)}
-    />
+    <>
+      <canvas
+        ref={canvas}
+        role="img"
+        aria-label={props.label}
+        className={cn("absolute inset-0 size-full object-contain", props.className)}
+      />
+      {noVideo && (
+        <p
+          role="status"
+          className="absolute inset-0 grid place-items-center p-4 text-center text-xs text-muted-foreground"
+        >
+          {noVideo}
+        </p>
+      )}
+    </>
   );
 }

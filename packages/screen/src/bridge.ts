@@ -192,7 +192,8 @@ export function screenConnection(
             try {
               // Every frame, unhurried: the viewer's window paces the pictures, not the hub.
               const stop = manager.subscribeEvery(sessionId, (frame) => {
-                if (!closed) view.push(framePicture(frame));
+                // Live views are video only: the stills agents read never reach a viewer.
+                if (!closed && frame.header.codec === "h264") view.push(framePicture(frame));
               });
               follows.set(sessionId, follow);
               cancelTick ??= later(1000, tick);

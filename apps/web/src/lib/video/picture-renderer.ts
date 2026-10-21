@@ -9,7 +9,7 @@ export interface PictureImage {
 
 /**
  * One live picture as a picture kind carries it (a device's, or a computer-use session's): a
- * JPEG, or one H.264 access unit with its parameter sets in front of every keyframe.
+ * one H.264 access unit with its parameter sets in front of every keyframe.
  */
 export interface LivePicture {
   streamId: string;
@@ -23,18 +23,13 @@ export interface LivePicture {
 }
 
 export interface PictureRendererPorts<P extends LivePicture> {
-  /** WebCodecs, or undefined where there is none (every picture must be JPEG then). */
+  /** WebCodecs, or undefined where there is none (the view then says it can't show video). */
   decoder: VideoDecoderFactory | undefined;
-  /**
-   * A JPEG's bytes as something drawable. Absent for a view that takes video only (a device's
-   * live view): a JPEG is then acked and never drawn.
-   */
-  image?(bytes: Uint8Array): Promise<PictureImage>;
   /** Show this picture; the image is the renderer's to close after. */
   show(image: PictureImage, picture: P): void;
   /** Tell the daemon the view showed `picture`; `keyframe`: the decoder lost its place. */
   ack(picture: P, keyframe: boolean): void;
-  /** This client can't decode the stream's video: ask for JPEG instead, or say so (video only). */
+  /** This client can't decode the stream's video: the view says so. Live views are video only. */
   fallback(): void;
   /** The view fell behind or lost pictures: a lighter stream may keep up. */
   pressure(): void;
@@ -52,8 +47,8 @@ const failureLimit = 3;
 
 /**
  * A source's live pictures onto its view (devices and computer use; ADR 0011 "One media
- * pipeline", ADR 0064 "Shared media stream"): JPEGs drawn as they come, H.264 through the same
- * `VideoStream` the browser's live view decodes with. Every picture is acked once shown (once
+ * pipeline", ADR 0064 "Shared media stream"): H.264 only, through the same `VideoStream` the
+ * browser's live view decodes with. Every picture is acked once shown (once
  * decoded, when drawing is paced to the display), or at once when it can't be shown, so the
  * daemon's window never waits on a picture this view dropped. A delta after a gap waits for a keyframe, which is asked for through the ack.
  */
@@ -171,22 +166,8 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
       if (picture.sequence <= previous) return;
       const gap = previous >= 0 && picture.sequence !== previous + 1;
       previous = picture.sequence;
-      if (picture.codec === "jpeg") {
-        const decode = ports.image;
-        if (!decode) return void ack(picture, false);
-        video?.reset();
-        let image: PictureImage | undefined;
-        try {
-          image = await decode(picture.bytes);
-          if (!closed) ports.show(image, picture);
-        } catch {
-          // An undecodable JPEG is skipped; the next one replaces it.
-        } finally {
-          image?.close();
-          ack(picture, false);
-        }
-        return;
-      }
+      // Live views are video only: a still that reaches one is acked and never drawn.
+      if (picture.codec === "jpeg") return void ack(picture, false);
       const decoder = unsupported ? undefined : toVideo();
       if (!decoder) {
         giveUp(picture);
