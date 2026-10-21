@@ -81,6 +81,7 @@ struct BrowserBar: View {
     private static let prompt = "Search or enter address"
     private var addressText: String {
         guard let state, !state.closed, let address = state.address, !address.isEmpty else { return Self.prompt }
+        if let host = state.addressHost, !host.isEmpty { return host }
         return address
     }
 
@@ -153,6 +154,7 @@ struct BrowserAddressEditor: View {
             }
             .padding(.horizontal, AceTheme.Spacing.md)
             .padding(.vertical, AceTheme.Spacing.sm)
+            .background(AceTheme.Colours.background)
         }
         .onAppear {
             text = model.browser.view?.state?.addressUrl ?? ""

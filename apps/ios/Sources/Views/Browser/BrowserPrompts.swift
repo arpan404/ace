@@ -51,7 +51,7 @@ struct BrowserPrompts: ViewModifier {
                     username = ""; password = ""
                 }
             } message: { challenge in
-                Text(challenge.realm.map { "“\($0)” on this site. It goes only to the site; ace doesn't keep it." } ?? "It goes only to the site; ace doesn't keep it.")
+                Text([challenge.realm.map { "“\($0)”." }, "Goes only to this site; ace doesn't keep it."].compactMap { $0 }.joined(separator: " "))
             }
             .alert(chooserTitle, isPresented: shown(chooser?.id), presenting: chooser) { chooser in
                 Button("Cancel", role: .cancel) {

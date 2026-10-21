@@ -22,7 +22,7 @@ struct StepRow: View {
     let step: StepLine
     var body: some View {
         // An agent's browser step opens the thread's browser.
-        BrowserStepLink(isBrowser: step.icon == "browser") { row }
+        BrowserStepLink(isBrowser: step.browser == true) { row }
     }
     private var row: some View {
         QuietRow(icon: Self.symbol(step.icon), tint: step.failed ? AceTheme.Status.failed : step.needsYou ? AceTheme.Status.needsYou : AceTheme.Colours.decoration) {

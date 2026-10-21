@@ -114,6 +114,8 @@ export function browserViewState(state: BrowserState, context: ViewContext) {
     /** The address the bar shows: what loads or failed here, else the shown tab's own. */
     address: preview(displayAddress(url), 2048),
     addressUrl: preview(blank(url) ? "" : url, 8192),
+    /** The bar at rest shows the site alone, as Safari's does. */
+    addressHost: preview(addressHost(url) ?? "", 256),
     blank: !state.closed && blank(url),
     shown: shown
       ? {

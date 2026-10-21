@@ -77,6 +77,7 @@ struct BrowserViewInfo: Codable, Sendable, Equatable {
         let moreTabs: Int
         var address: String? = nil
         var addressUrl: String? = nil
+        var addressHost: String? = nil
         var blank: Bool? = nil
         var shown: Shown? = nil
         var disconnected: Bool? = nil

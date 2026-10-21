@@ -170,6 +170,8 @@ struct BrowserStrip<Actions: View>: View {
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
             actions()
+                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .contentShape(Rectangle())
         }
         .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
         .tint(AceTheme.Colours.foreground)

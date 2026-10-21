@@ -88,7 +88,7 @@ struct BrowserConsoleSheet: View {
                 .foregroundStyle(entry.level == "error" ? AceTheme.StatusText.failed : AceTheme.Colours.foreground)
                 .textSelection(.enabled)
         }
-        .listRowBackground(AceTheme.Colours.background)
+        .browserRow()
         .contextMenu { Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = entry.text } }
     }
 
@@ -101,7 +101,7 @@ struct BrowserConsoleSheet: View {
                 .foregroundStyle(entry.failed ? AceTheme.StatusText.failed : AceTheme.Colours.mutedForeground)
         }
         .foregroundStyle(entry.failed ? AceTheme.StatusText.failed : AceTheme.Colours.foreground)
-        .listRowBackground(AceTheme.Colours.background)
+        .browserRow()
     }
 }
 

@@ -24,6 +24,13 @@ struct BrowserSheets: View {
     }
 }
 
+extension View {
+    /// A hairline row on the page colour, with no rule above the first.
+    func browserRow() -> some View {
+        listRowBackground(AceTheme.Colours.background).listRowSeparator(.hidden, edges: .top)
+    }
+}
+
 /// The X that closes a sheet.
 struct SheetClose: ToolbarContent {
     @Environment(\.dismiss) private var dismiss
@@ -49,7 +56,7 @@ struct BrowserTabsSheet: View {
                         model.browserSelectTab(tab.id)
                         dismiss()
                     } label: { row(tab) }
-                    .listRowBackground(AceTheme.Colours.background)
+                    .browserRow()
                     .swipeActions {
                         if model.canOperate {
                             Button("Close", role: .destructive) { model.browserCloseTab(tab.id) }
@@ -59,7 +66,7 @@ struct BrowserTabsSheet: View {
                 }
                 if let more = state?.moreTabs, more > 0 {
                     Text("\(more) more tabs").foregroundStyle(AceTheme.Colours.mutedForeground)
-                        .listRowBackground(AceTheme.Colours.background)
+                        .browserRow()
                 }
             }
             .listStyle(.plain)
@@ -137,7 +144,7 @@ struct BrowserDownloadsSheet: View {
                     }
                 }
                 .frame(minHeight: InsetStyle.rowHeight)
-                .listRowBackground(AceTheme.Colours.background)
+                .browserRow()
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
@@ -182,7 +189,7 @@ struct BrowserHistorySheet: View {
                     }
                     .frame(minHeight: InsetStyle.rowHeight, alignment: .leading)
                 }
-                .listRowBackground(AceTheme.Colours.background)
+                .browserRow()
                 .swipeActions { Button("Forget", role: .destructive) { model.browserForget(visit) } }
             }
             .listStyle(.plain)

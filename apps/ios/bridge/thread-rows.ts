@@ -1,5 +1,5 @@
 import type { Item } from "@ace/protocol";
-import { describeStep, handoffMarker, stepLabels } from "@ace/ui-core";
+import { describeStep, handoffMarker, opensAgentPage, stepLabels } from "@ace/ui-core";
 import { preview } from "./presentation.ts";
 
 /*
@@ -24,6 +24,8 @@ function stepOf(item: Item) {
     needsYou: step.needsYou === true,
     added: step.added ?? null,
     removed: step.removed ?? null,
+    /** An agent opened a page in the thread's browser: the row opens the browser. */
+    browser: opensAgentPage(item),
   };
 }
 
