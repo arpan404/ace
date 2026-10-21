@@ -178,6 +178,12 @@ test("Linux without a systemd user session says so and how to run the daemon ins
     await expect(noSession.perform(action)).rejects.toThrow(
       /needs a systemd user session .* `ace start`/,
     );
+  // A container without systemd has no systemctl at all.
+  const noSystemctl = new UserService(p, (file, args) => runProcess(`/nonexistent/${file}`, args));
+  for (const action of ["status", "install"] as const)
+    await expect(noSystemctl.perform(action)).rejects.toThrow(
+      /needs a systemd user session .* `ace start`/,
+    );
 });
 test("service environment preserves daemon network settings while excluding provider secrets", () => {
   const environment = ServiceEnvironment.parse({

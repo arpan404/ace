@@ -14,12 +14,23 @@ import { checked, type Runner } from "./process.ts";
 const noUserManager =
   /Failed to connect to (?:user scope )?bus|\$DBUS_SESSION_BUS_ADDRESS|\$XDG_RUNTIME_DIR|No medium found/;
 
+const noSession =
+  "ace's service needs a systemd user session (systemctl --user), and this environment has none, as is common in containers and WSL without systemd. Run the daemon in the foreground with `ace start` instead, or log in through a session that starts systemd --user.";
+
 function managerFailure(code: number, stderr: string): Error {
-  if (noUserManager.test(stderr))
-    return new Error(
-      "ace's service needs a systemd user session (systemctl --user), and this environment has none, as is common in containers and WSL without systemd. Run the daemon in the foreground with `ace start` instead, or log in through a session that starts systemd --user.",
-    );
+  if (noUserManager.test(stderr)) return new Error(noSession);
   return new Error(`systemctl failed (${code}): ${stderr}`);
+}
+
+/** Runs `systemctl --user`; a system without systemctl at all has no user session either. */
+async function systemctl(run: Runner, args: readonly string[]) {
+  try {
+    return await run("systemctl", ["--user", ...args]);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT")
+      throw new Error(noSession, { cause: error });
+    throw error;
+  }
 }
 export type ServiceAction = "install" | "uninstall" | "start" | "stop" | "status";
 export class UserService {
@@ -41,19 +52,16 @@ export class UserService {
   }
   private async call(args: string[]) {
     if (this.plan.platform === "darwin") return checked(this.run, "launchctl", args);
-    const result = await this.run("systemctl", ["--user", ...args]);
+    const result = await systemctl(this.run, args);
     if (result.code) throw managerFailure(result.code, result.stderr);
     return result;
   }
   async active(): Promise<boolean> {
     await this.validate();
     const mac = this.plan.platform === "darwin";
-    const r = await this.run(
-      mac ? "launchctl" : "systemctl",
-      mac
-        ? ["print", this.plan.domain]
-        : ["--user", "show", this.plan.domain, `--property=${loadedProperties}`],
-    );
+    const r = mac
+      ? await this.run("launchctl", ["print", this.plan.domain])
+      : await systemctl(this.run, ["show", this.plan.domain, `--property=${loadedProperties}`]);
     if (r.code === 0) {
       const active = assertLoadedService(this.plan, r.stdout);
       if (
