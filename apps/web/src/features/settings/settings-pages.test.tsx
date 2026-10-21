@@ -39,7 +39,7 @@ test("a switched-off agent setting stays off after leaving the page and coming b
   await userEvent.click(worktree);
 
   await goTo("Keyboard");
-  await screen.findByRole("heading", { level: 2, name: "Keyboard" });
+  await screen.findByRole("heading", { level: 1, name: "Keyboard" });
   await goTo("Agents");
   expect(
     (await screen.findByRole("switch", { name: "New threads use a worktree" })).getAttribute(
@@ -196,7 +196,7 @@ test("searching Settings finds a single setting and opens its page at that row",
   const results = screen.getByRole("region", { name: "Matching settings" });
   await userEvent.click(within(results).getByRole("link", { name: /^Translucency/ }));
 
-  await screen.findByRole("heading", { level: 2, name: "Appearance" });
+  await screen.findByRole("heading", { level: 1, name: "Appearance" });
   const row = document.getElementById("appearance.translucency");
   // The page scrolls to that row, the one holding the Translucency slider.
   await waitFor(() => expect(scrolled).toContain(row));
@@ -219,13 +219,13 @@ test("⌘K finds a single setting and opens its page at that row", async () => {
   expect(option.textContent).toContain("Appearance");
   await userEvent.keyboard("{Enter}");
 
-  await screen.findByRole("heading", { level: 2, name: "Appearance" });
+  await screen.findByRole("heading", { level: 1, name: "Appearance" });
   expect(document.getElementById("appearance.reduceMotion")).toBeTruthy();
 });
 
 test("web offers in-app notifications in settings and search while hiding desktop-only controls", async () => {
   await harness().open("/settings/notifications");
-  expect(await screen.findByRole("heading", { level: 2, name: "Notifications" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 1, name: "Notifications" })).toBeTruthy();
   const nav = within(screen.getByRole("navigation", { name: "Settings pages" }));
   expect(nav.getByRole("link", { name: "Notifications" })).toBeTruthy();
   expect(screen.queryByRole("region", { name: "Desktop notifications" })).toBeNull();

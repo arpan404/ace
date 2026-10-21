@@ -1,9 +1,8 @@
-import { CaretLeftIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { Suspense, useRef, useState } from "react";
 import { ProviderTile } from "@/components/provider-tile.tsx";
 import { SettingDisclosure, SettingSection } from "@/components/setting-row.tsx";
-import { Button, buttonVariants } from "@/components/ui/button.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { ProviderPreferences } from "./provider-configuration.tsx";
@@ -46,9 +45,8 @@ const back = (
   <Link
     to="/settings/providers"
     aria-label="Back to Providers"
-    className={buttonVariants({ size: "sm", variant: "ghost", className: "-mt-2 mb-3 -ml-2" })}
+    className="rounded-xs text-muted-foreground focus-ring hover:text-foreground"
   >
-    <CaretLeftIcon aria-hidden size={12} weight="bold" />
     Providers
   </Link>
 );
@@ -72,7 +70,7 @@ export function ProviderDetail(props: { id: string }) {
         back={back}
       >
         {query.isPending ? (
-          <ListSkeleton label="provider" shape="row" rows={4} className="mt-7" />
+          <ListSkeleton label="provider" shape="row" rows={4} className="mt-10" />
         ) : (
           <p role="alert" className="mt-4 text-muted-foreground">
             {query.isError ? (
@@ -191,7 +189,7 @@ function ProviderPage(props: { entry: ProviderEntry }) {
             </SettingSection>
           </>
         )}
-        <SettingDisclosure title="Advanced" className="mt-7" onToggle={setAdvanced}>
+        <SettingDisclosure title="Advanced" className="mt-10" onToggle={setAdvanced}>
           {advanced && row && (
             <Suspense fallback={null}>
               <DeferredProviderMcpServers.Component provider={install.kind} name={install.name} />

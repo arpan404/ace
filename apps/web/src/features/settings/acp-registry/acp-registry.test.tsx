@@ -202,7 +202,7 @@ test("an outdated registry agent signs in then updates from its setup actions", 
   await userEvent.click(
     await screen.findByRole("link", { name: "Gemini CLI" }, { timeout: 10_000 }),
   );
-  await screen.findByRole("heading", { level: 2, name: "Gemini CLI" });
+  await screen.findByRole("heading", { level: 1, name: "Gemini CLI" });
   const setup = screen.getByRole("main");
   await userEvent.click(
     await within(setup).findByRole("button", { name: "Sign in to Gemini CLI" }),

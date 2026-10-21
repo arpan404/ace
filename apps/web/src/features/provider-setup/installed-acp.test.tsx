@@ -26,7 +26,7 @@ test.each(["list", "detail"])(
     const row = await screen.findByRole("group", { name: "Gemini CLI" });
     if (surface === "detail") {
       await userEvent.click(within(row).getByRole("link", { name: "Gemini CLI" }));
-      await screen.findByRole("heading", { name: "Gemini CLI", level: 2 });
+      await screen.findByRole("heading", { name: "Gemini CLI", level: 1 });
     }
     const owner = surface === "list" ? row : screen.getByRole("main");
     await userEvent.click(

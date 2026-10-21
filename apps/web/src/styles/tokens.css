@@ -35,8 +35,8 @@
   --setting-row-padding: 14px;
   /* Settings pages: a column that grows with the window, rows of one height on grouped cards. */
   --settings-column: clamp(640px, 64vw, 900px);
-  --setting-row-height: 52px;
-  --setting-row-y: 10px;
+  --setting-row-height: 48px;
+  --setting-row-y: 8px;
   --picker-row-padding: 12px;
   --picker-row-height: 48px;
 

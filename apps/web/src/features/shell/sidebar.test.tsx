@@ -60,7 +60,7 @@ test("Settings hides app navigation and returns through Back to app", async () =
   await title("New thread");
   const gear = screen.getByRole("link", { name: "Settings" });
   await userEvent.click(gear);
-  await title("Settings");
+  await title("Overview");
   expect(screen.queryByRole("button", { name: "ace menu" })).toBeNull();
   expect(within(appNav()).queryByRole("button", { name: "Search" })).toBeNull();
   expect(within(appNav()).queryByRole("heading", { level: 2, name: "Settings" })).toBeNull();
@@ -99,7 +99,7 @@ test("Back to app returns to the thread the person left, across Settings pages",
   await app.open("/t/thread-router");
   await title("Document the router");
   await userEvent.click(screen.getByRole("link", { name: "Settings" }));
-  await title("Settings");
+  await title("Overview");
   await userEvent.click(
     within(screen.getByRole("navigation", { name: "Settings pages" })).getByRole("link", {
       name: "Appearance",
@@ -122,7 +122,7 @@ test("the sidebar shows a plain ace label and profile connection actions", async
   const daemon = await screen.findByRole("menu", { name: "Connection" });
   expect(within(daemon).getByText(/Connected$/)).toBeTruthy();
   await userEvent.click(within(daemon).getByRole("menuitem", { name: "Pair a device…" }));
-  await screen.findByRole("heading", { level: 2, name: "Machines and devices" });
+  await screen.findByRole("heading", { level: 1, name: "Machines and devices" });
   await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
   await title("New thread");
 
@@ -199,7 +199,7 @@ test("every view's shortcut opens it from anywhere", async () => {
   for (const [keys, heading] of [
     ["gu", "Automations"],
     ["gs", "Skills"],
-    ["{Meta>},{/Meta}", "Settings"],
+    ["{Meta>},{/Meta}", "Overview"],
     ["gh", "Home"],
   ] as const) {
     await userEvent.keyboard(keys);

@@ -19,7 +19,7 @@ test("every view and settings page opens in the shell under its own title", asyn
     ["/skills", "Skills"],
     ["/usage", "Usage"],
     ["/archived", "Archived"],
-    ["/settings", "Settings"],
+    ["/settings", "Overview"],
   ];
   for (const [path, name] of pages) {
     const view = await harness().open(path);
@@ -28,7 +28,7 @@ test("every view and settings page opens in the shell under its own title", asyn
     view.unmount();
   }
   await harness().open("/settings");
-  await screen.findByRole("heading", { level: 2, name: "Overview" });
+  await screen.findByRole("heading", { level: 1, name: "Overview" });
   const pagesNav = screen.getByRole("navigation", { name: "Settings pages" });
   for (const page of [
     "General",
@@ -39,7 +39,7 @@ test("every view and settings page opens in the shell under its own title", asyn
     "Advanced",
   ]) {
     await userEvent.click(within(pagesNav).getByRole("link", { name: page }));
-    await screen.findByRole("heading", { level: 2, name: page });
+    await screen.findByRole("heading", { level: 1, name: page });
   }
 });
 

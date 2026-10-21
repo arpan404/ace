@@ -41,9 +41,9 @@ test("a rebound shortcut works at once, its old keys stop, and the palette shows
   await openProfileView("Automations");
   await heading("Automations");
   await userEvent.keyboard("{Control>},{/Control}");
-  expect(screen.queryByRole("heading", { level: 1, name: "Settings" })).toBeNull();
+  expect(screen.queryByRole("heading", { level: 1, name: "Overview" })).toBeNull();
   await userEvent.keyboard("{Control>}{Shift>}y{/Shift}{/Control}");
-  await heading("Settings");
+  await heading("Overview");
 
   await userEvent.keyboard("{Control>}k{/Control}");
   await waitFor(() => expect(palette()).toBeTruthy());

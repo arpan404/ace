@@ -27,7 +27,7 @@ export function PastSessionsSettings() {
       {!project ? (
         <SettingNote>Add a project first. Past sessions are found by project folder.</SettingNote>
       ) : (
-        <div className="flex flex-col gap-3 px-4 py-3">
+        <div className="flex flex-col gap-3 py-3">
           <div className="flex flex-wrap items-center gap-2">
             <Select
               label="Past sessions project"

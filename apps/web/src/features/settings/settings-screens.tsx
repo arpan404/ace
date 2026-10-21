@@ -58,7 +58,7 @@ const OverviewSettings = lazy(() =>
 export function OverviewSettingsScreen() {
   return (
     <SettingsBody page="Overview">
-      <Suspense fallback={<ListSkeleton label="machines" shape="row" rows={3} className="mt-7" />}>
+      <Suspense fallback={<ListSkeleton label="machines" shape="row" rows={3} className="mt-10" />}>
         <OverviewSettings />
       </Suspense>
     </SettingsBody>
@@ -98,13 +98,9 @@ const ProviderDetail = lazy(() =>
 
 export function ProviderSettingsScreen() {
   return (
-    <SettingsBody
-      page="Providers"
-      titleActions={<RediscoverButton />}
-      lede="The coding agents on this machine. ace runs each one with its own sign-in."
-    >
+    <SettingsBody page="Providers" titleActions={<RediscoverButton />}>
       <Suspense
-        fallback={<ListSkeleton label="provider CLIs" shape="row" rows={5} className="mt-7" />}
+        fallback={<ListSkeleton label="provider CLIs" shape="row" rows={5} className="mt-10" />}
       >
         <ProviderSettings />
       </Suspense>
@@ -119,7 +115,7 @@ export function ProviderDetailScreen(props: { id: string }) {
     <Suspense
       fallback={
         <SettingsBody page="Providers">
-          <ListSkeleton label="provider" shape="row" rows={4} className="mt-7" />
+          <ListSkeleton label="provider" shape="row" rows={4} className="mt-10" />
         </SettingsBody>
       }
     >
@@ -252,7 +248,7 @@ export function BrowserSettingsScreen() {
 
 export function StorageSettingsScreen() {
   return (
-    <SettingsBody page="Storage" lede="What this machine stores, and how long it keeps it.">
+    <SettingsBody page="Storage">
       <Suspense fallback={<ListSkeleton label="storage" shape="row" rows={6} />}>
         <StorageSettings />
       </Suspense>

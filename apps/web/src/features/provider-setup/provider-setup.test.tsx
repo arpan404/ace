@@ -120,7 +120,7 @@ test("a missing prerequisite opens its official download and retry continues wit
   const app = missing("pi");
   app.daemon.services.providerInstalls.scenarios.pi = "missing_prerequisite";
   await app.open("/settings/providers/pi");
-  await screen.findByRole("heading", { level: 2, name: "Pi" });
+  await screen.findByRole("heading", { level: 1, name: "Pi" });
   const row = screen.getByRole("main");
   await userEvent.click(await within(row).findByRole("button", { name: "Install" }));
   expect((await within(row).findByRole("link", { name: "Get Node.js" })).getAttribute("href")).toBe(

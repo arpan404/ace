@@ -23,10 +23,10 @@ import {
 export function ProviderSettings() {
   const { entries, query } = useProviderEntries();
   if (query.isPending)
-    return <ListSkeleton label="providers" shape="row" rows={5} className="mt-7" />;
+    return <ListSkeleton label="providers" shape="row" rows={5} className="mt-10" />;
   if (!entries)
     return (
-      <p role="alert" className="mt-7 text-sm text-muted-foreground">
+      <p role="alert" className="mt-10 text-sm text-muted-foreground">
         Couldn't check providers.{" "}
         <Button size="sm" variant="ghost" onClick={() => void query.refetch()}>
           Retry

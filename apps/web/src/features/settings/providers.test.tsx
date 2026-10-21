@@ -41,7 +41,7 @@ test("the list says each provider's state in one line and asks only where someth
 test("a provider's row opens its page, with its accounts, models and facts; Back returns", async () => {
   await harness().open("/settings/providers");
   await userEvent.click(await screen.findByRole("link", { name: "Claude Code" }));
-  expect(await screen.findByRole("heading", { level: 2, name: "Claude Code" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 1, name: "Claude Code" })).toBeTruthy();
   await userEvent.click(screen.getByText("Advanced", { selector: "summary" }));
   const about = await screen.findByRole("region", { name: "About" }, { timeout: 10_000 });
   expect(within(about).getByText("2.1.4")).toBeTruthy();
@@ -266,7 +266,7 @@ test("an ACP agent added by command joins the list, and its page removes it", as
 
 test("an unknown provider shows a not-found page with a working way back", async () => {
   await harness().open("/settings/providers/acp");
-  expect(await screen.findByRole("heading", { level: 2, name: "Provider not found" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 1, name: "Provider not found" })).toBeTruthy();
   expect(screen.getByText("This provider isn't on this computer.")).toBeTruthy();
   await userEvent.click(screen.getByRole("link", { name: "Back to Providers" }));
   expect(await screen.findByRole("link", { name: "Claude Code" })).toBeTruthy();

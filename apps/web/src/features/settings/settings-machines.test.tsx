@@ -19,14 +19,14 @@ function withBuildServer() {
 }
 
 async function pickMachine(name: string | RegExp) {
-  await userEvent.click(await screen.findByRole("combobox", { name: "Machine to edit" }));
-  await userEvent.click(await screen.findByRole("option", { name }));
+  await userEvent.click(await screen.findByRole("button", { name: /^Machine: / }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name }));
 }
 
 /** This window's own machine: listed first in the picker. */
 async function pickOwnMachine() {
-  await userEvent.click(await screen.findByRole("combobox", { name: "Machine to edit" }));
-  const [own] = await screen.findAllByRole("option");
+  await userEvent.click(await screen.findByRole("button", { name: /^Machine: / }));
+  const [own] = await screen.findAllByRole("menuitemradio");
   if (!own) throw new Error("No machines offered");
   await userEvent.click(own);
 }
@@ -36,7 +36,7 @@ test("a setting changed on Agents with another machine picked is saved on that m
   await app.open("/settings/agents");
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
   await pickMachine("Build server");
-  expect(await screen.findByText("Build server", { selector: "h2 ~ span" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Machine: Build server" })).toBeTruthy();
   const worktree = await screen.findByRole("switch", { name: "New threads use a worktree" });
   await waitFor(() => expect(worktree.getAttribute("aria-checked")).toBe("true"));
   await userEvent.click(worktree);
@@ -57,7 +57,7 @@ test("a setting changed on Agents with another machine picked is saved on that m
 test("with one machine Settings offers no machine to pick", async () => {
   await harness().open("/settings/agents");
   await screen.findByRole("switch", { name: "New threads use a worktree" });
-  expect(screen.queryByRole("combobox", { name: "Machine to edit" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Machine: / })).toBeNull();
 });
 
 test("Overview lists each machine's provider that needs a sign-in, and Open shows it on that machine", async () => {
@@ -69,10 +69,8 @@ test("Overview lists each machine's provider that needs a sign-in, and Open show
   await userEvent.click(
     within(cursor).getByRole("button", { name: "Open Cursor on Build server" }),
   );
-  expect(await screen.findByRole("heading", { level: 2, name: "Cursor" })).toBeTruthy();
-  expect(
-    within(screen.getByRole("combobox", { name: "Machine to edit" })).getByText("Build server"),
-  ).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 1, name: "Cursor" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Machine: Build server" })).toBeTruthy();
 });
 
 test("Overview says a machine is offline instead of showing its last providers", async () => {
