@@ -46,7 +46,7 @@ export function PrAttention(props: {
     if (item.kind !== "check" || !check || checkRunId(check) === undefined) return agent.fix(item);
     const pr = { number: detail.status.ref.number, url: detail.status.url };
     const run = await fetchRun(check).catch(() => undefined);
-    agent.send(checkFixRequest(check, pr, run));
+    agent.ask(checkFixRequest(check, pr, run));
   };
   if (!items.length) return null;
   const open = detail.status.state === "open" || detail.status.state === "draft";

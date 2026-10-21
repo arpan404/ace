@@ -16,6 +16,7 @@ import { ForgePrStatus, ForgeRepository } from "./forge.ts";
 import { Run } from "./thread.ts";
 import { ThreadDetails } from "./thread-client.ts";
 import { BranchRef } from "./worktree-base.ts";
+import { GitConflictsCommand, GitConflictsOperation, GitConflictsResult } from "./git-conflicts.ts";
 const id = z.string().min(1).max(128);
 export const WorkspaceScript = z.object({
   id,
@@ -71,6 +72,7 @@ export const WorkspaceActionRequest = z.object({
     /** The files a commit of the thread's checkout would take, as `git status` reports them. */
     z.object({ op: z.literal("git.status"), threadId: ThreadId }),
     z.object({ op: z.literal("git.diff"), threadId: ThreadId }),
+    GitConflictsOperation,
     z.object({
       op: z.literal("git.draft.context"),
       threadId: ThreadId,
@@ -159,6 +161,7 @@ export const WorkspaceActionResult = z.object({
       context: SourceControlContext,
     }),
     z.object({ kind: z.literal("draftCancelled") }),
+    GitConflictsResult,
     z.object({ kind: z.literal("error"), code: z.string().max(128) }),
   ]),
 });
@@ -202,6 +205,7 @@ export const WorkspaceCommands = [
    * while a lease's owner may still be alive.
    */
   z.object({ type: z.literal("git.lock.clear"), threadId: ThreadId }),
+  GitConflictsCommand,
   z.object({
     type: z.literal("git.commit"),
     threadId: ThreadId,

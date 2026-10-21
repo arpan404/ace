@@ -14,11 +14,20 @@ import type { PrActions } from "./pr-actions.ts";
 import { PrMetadataEditor } from "./pr-metadata-editor.tsx";
 import { PrRevertForm } from "./pr-revert-form.tsx";
 import { usePrReview } from "./pr-review-context.tsx";
+import { PrConflictsDialog } from "./pr-conflicts-view.tsx";
 
-export type PrDialog = "edit" | "revert" | "review" | undefined;
+export type PrDialog = "edit" | "revert" | "review" | "conflicts" | undefined;
 
-/** The forms the ⋯ menu and the Summary's pencils open: edit details, revert, request review. */
-export function PrDialogs(props: { actions: PrActions; open: PrDialog; onClose(): void }) {
+/**
+ * The forms the ⋯ menu, the Summary's pencils and Resolve conflicts open: edit details, revert,
+ * request review, resolve conflicts.
+ */
+export function PrDialogs(props: {
+  actions: PrActions;
+  hostThreadId?: string | undefined;
+  open: PrDialog;
+  onClose(): void;
+}) {
   const { lifecycle, context } = props.actions;
   const snapshot = lifecycle.snapshot;
   const disabled = lifecycle.blocked;
@@ -54,6 +63,12 @@ export function PrDialogs(props: { actions: PrActions; open: PrDialog; onClose()
       <RequestReviewDialog
         actions={props.actions}
         open={props.open === "review"}
+        onClose={props.onClose}
+      />
+      <PrConflictsDialog
+        actions={props.actions}
+        hostThreadId={props.hostThreadId}
+        open={props.open === "conflicts"}
         onClose={props.onClose}
       />
     </>
