@@ -14,7 +14,10 @@ struct RemoteScreenSessionView: View {
         VStack(spacing: AceTheme.Spacing.none) {
             if model.connection != "ready" { InboxConnectionBanner(connection: model.connection, retry: model.retry).padding(AceTheme.Spacing.md) }
             if state?.lifecycle == "live" {
-                MacScreenSurface(live: screen.live, interactive: controlling, input: gesture).frame(maxWidth: .infinity, maxHeight: .infinity)
+                DeviceSurface(next: { screen.live.nextPicture() }, interactive: controlling, label: "Mac app window", identifier: "screen.surface") { from, to in
+                    gesture(from.point, to.point)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ContentUnavailableView("App isn't live", systemImage: "macwindow", description: Text(state?.error ?? state?.lifecycle.capitalized ?? "The session has ended."))
             }
@@ -85,15 +88,4 @@ struct RemoteScreenSessionView: View {
         }
         Task { _ = await screen.input(model, id: sessionId, input) }
     }
-}
-
-private struct MacScreenSurface: UIViewRepresentable {
-    let live: ScreenLiveModel
-    let interactive: Bool
-    let input: (CGPoint, CGPoint) -> Void
-    func makeUIView(context: Context) -> DeviceSurfaceView {
-        let view = DeviceSurfaceView(); view.accessibilityLabel = "Mac app window"; view.accessibilityIdentifier = "screen.surface"
-        return view
-    }
-    func updateUIView(_ view: DeviceSurfaceView, context: Context) { view.nextPicture = { live.nextPicture() }; view.interactive = interactive; view.onGesture = input }
 }

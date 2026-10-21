@@ -1,4 +1,4 @@
-import { DeviceClient } from "@ace/client/devices";
+import { DeviceClient, DeviceClientError } from "@ace/client/devices";
 import {
   AppDeviceId,
   DeviceAck,
@@ -6,7 +6,12 @@ import {
   ScreenUITreeResult,
   ThreadId,
 } from "@ace/protocol";
-import { deviceGesture, holdsControl } from "@ace/ui-core/devices";
+import {
+  deviceGesture,
+  deviceProblem,
+  holdsControl,
+  type DeviceProblem,
+} from "@ace/ui-core/devices";
 import { z } from "zod";
 import { appendLogs, logView, treeRows, type LogTail } from "./device-details.ts";
 import { phoneDevicesView, type AgentLabel, type Holder } from "./devices-view.ts";
@@ -66,6 +71,18 @@ export const NativeDeviceControl = z.discriminatedUnion("type", [
 type ViewWatch = Extract<z.infer<typeof NativeDeviceControl>, { type: "native.devices.view" }>;
 
 const noop = () => {};
+
+/** A failed device request in a person's words, with the macOS permission it lacks if any. */
+export function deviceFailure(error: unknown): DeviceProblem {
+  if (error instanceof DeviceClientError)
+    return deviceProblem({
+      code: error.code,
+      message: error.message,
+      hint: error.hint,
+      permission: error.permission,
+    });
+  return { message: error instanceof Error ? error.message : "That didn't work.", hint: "" };
+}
 
 /** Operations that need the person's control lease; the first one takes it. */
 const controlled = new Set<DeviceOperation["op"]>([

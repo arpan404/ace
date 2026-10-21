@@ -11,6 +11,8 @@ struct StepLine: Codable, Sendable, Equatable {
     let needsYou: Bool
     let added: Int?
     let removed: Int?
+    /// `device:<id>` or `computer`: where tapping the step goes; empty or nil for nowhere.
+    var opens: String? = nil
 }
 struct AttachmentLine: Codable, Sendable, Equatable, Hashable {
     let kind: String

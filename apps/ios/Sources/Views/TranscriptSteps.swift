@@ -19,8 +19,16 @@ struct QuietRow<Content: View>: View {
 
 /// A step's line: "Read process-owner.ts", "Edited src/boot.ts +18 −6". A running step shimmers.
 struct StepRow: View {
+    @Environment(\.openStep) private var openStep
     let step: StepLine
     var body: some View {
+        if let opens = step.opens, !opens.isEmpty, let openStep {
+            Button { openStep(opens) } label: { line }.buttonStyle(.plain).accessibilityHint("Opens its screen")
+        } else {
+            line
+        }
+    }
+    private var line: some View {
         QuietRow(icon: Self.symbol(step.icon), tint: step.failed ? AceTheme.Status.failed : step.needsYou ? AceTheme.Status.needsYou : AceTheme.Colours.decoration) {
             HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
                 if !step.verb.isEmpty { Text(step.verb).layoutPriority(1) }
@@ -52,6 +60,7 @@ struct StepRow: View {
         case "web", "fetch", "websearch": "globe"
         case "browser": "safari"
         case "computer": "display"
+        case "device": "iphone"
         case "plan": "checklist"
         case "think": "brain"
         case "note": "info.circle"
@@ -160,4 +169,9 @@ private struct Shimmer: ViewModifier {
 
 extension View {
     func shimmer(_ active: Bool) -> some View { modifier(Shimmer(active: active)) }
+}
+
+extension EnvironmentValues {
+    /// Opens what a step acted on (`StepLine.opens`): a device's or computer use's screen.
+    @Entry var openStep: ((String) -> Void)? = nil
 }

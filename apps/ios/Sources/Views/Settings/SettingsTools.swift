@@ -51,7 +51,7 @@ enum SettingsTool: String, Hashable, CaseIterable {
         case .sourceControl: SourceControlView(model: model)
         case .prompts: PromptsView(model: model)
         case .computer: RemoteScreenView(model: model)
-        case .devices: RemoteDevicesView(model: model)
+        case .devices: DevicesScreen(model: model, threadId: nil)
         }
     }
 }

@@ -95,6 +95,8 @@ export interface DeviceScreenView {
   buttons: { label: string; key: string }[];
   /** The drawn hardware around the screen, upright and on its side. */
   frame: { portrait: FrameGeometry; landscape: FrameGeometry };
+  /** The screen's size upright, in points, until its first picture says otherwise. */
+  screen: { width: number; height: number };
   activity: { sequence: number; caption: string; provider: string; x?: number; y?: number } | null;
   problem: DeviceProblem | null;
   touch: string;
@@ -219,6 +221,7 @@ function screen(
       portrait: frameGeometry(kind, row.name, portrait),
       landscape: frameGeometry(kind, row.name, { width: portrait.height, height: portrait.width }),
     },
+    screen: { width: upright.width, height: upright.height },
     activity: activity
       ? {
           sequence: activity.sequence,
