@@ -29,7 +29,9 @@ import XCTest
 
     func testAnEditIsSavedOverTheVersionThatWasOpened() throws {
         let app = launchIntoFiles()
-        app.buttons["file.README.md"].tap()
+        let readme = app.buttons["file.README.md"]
+        for _ in 0..<8 where !readme.waitForExistence(timeout: 2) { app.swipeUp() }
+        readme.tap()
         XCTAssertTrue(element(app, "preview.markdown").waitForExistence(timeout: 15))
         screenshot("markdown")
         app.buttons["file.edit"].tap()
@@ -59,26 +61,31 @@ import XCTest
         app.buttons["search.apps/web/src/relay/retry.ts"].tap()
         XCTAssertTrue(element(app, "preview.text").waitForExistence(timeout: 15))
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        app.buttons["Cancel"].firstMatch.tap()
+        app.buttons.matching(NSPredicate(format: "label IN %@", ["Cancel", "Close"])).firstMatch.tap()
 
         app.buttons["files.manage"].tap()
         app.buttons["files.newFile"].tap()
-        let path = app.textFields["files.prompt.field"]
+        let path = app.alerts.textFields.firstMatch
         XCTAssertTrue(path.waitForExistence(timeout: 5))
-        path.typeText("notes.md")
+        let name = "notes-\(Int(Date().timeIntervalSince1970)).md"
+        path.typeText(name)
         screenshot("new-file")
-        app.buttons["files.prompt.submit"].tap()
-        XCTAssertTrue(app.staticTexts["Empty file"].waitForExistence(timeout: 15))
+        app.alerts.buttons["Create"].firstMatch.tap()
+        let created = app.staticTexts["Empty file"].waitForExistence(timeout: 15)
+        screenshot("created")
+        XCTAssertTrue(created)
         app.buttons["file.menu"].tap()
         app.buttons["Delete"].tap()
-        XCTAssertTrue(app.buttons["files.delete.confirm"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.alerts.buttons["Delete"].firstMatch.waitForExistence(timeout: 5))
         screenshot("delete-confirm")
-        app.buttons["files.delete.confirm"].tap()
+        app.alerts.buttons["Delete"].firstMatch.tap()
         let undo = app.buttons["files.strip.action"]
         XCTAssertTrue(undo.waitForExistence(timeout: 15))
         screenshot("deleted")
         undo.tap()
-        XCTAssertTrue(app.buttons["file.notes.md"].waitForExistence(timeout: 15))
+        let restored = app.buttons["file.\(name)"]
+        for _ in 0..<8 where !restored.waitForExistence(timeout: 2) { app.swipeUp() }
+        XCTAssertTrue(restored.exists)
     }
 
     func testAnAnswersLinkOpensItsCheckoutFileAtTheLine() throws {

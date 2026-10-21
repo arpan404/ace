@@ -11,6 +11,9 @@ struct FileScreen: View {
     let scope: FilesScope
     let target: FileTarget
     let mention: ((String) -> Void)?
+    /// Where an Undo for this file goes once the screen closes after deleting it; without one
+    /// the screen stays, saying the file is gone, with Undo.
+    var deleted: ((FileStrip) -> Void)?
     @Environment(\.dismiss) private var dismiss
     @AppStorage("files.wrap") private var wrap = false
     @State private var path: String
@@ -30,7 +33,8 @@ struct FileScreen: View {
     @State private var handle = SourceHandle()
     @State private var actions: FileActions
 
-    init(model: ClientModel, scope: FilesScope, target: FileTarget, mention: ((String) -> Void)?) {
+    init(model: ClientModel, scope: FilesScope, target: FileTarget, mention: ((String) -> Void)?, deleted: ((FileStrip) -> Void)? = nil) {
+        self.deleted = deleted
         self.model = model
         self.scope = scope
         self.target = target
@@ -118,13 +122,13 @@ struct FileScreen: View {
 
     @ViewBuilder private func textBody(_ content: FileContent) -> some View {
         let text = content.text ?? ""
-        if markdownPreview {
+        if text.isEmpty && !editing {
+            ContentUnavailableView("Empty file", systemImage: "doc.text", description: Text("\(name) has no content."))
+        } else if markdownPreview {
             ScrollView {
                 MarkdownView(text: text).padding(.horizontal, AceTheme.Spacing.xl).padding(.vertical, AceTheme.Spacing.lg)
             }
             .accessibilityIdentifier("preview.markdown")
-        } else if text.isEmpty && !editing {
-            ContentUnavailableView("Empty file", systemImage: "doc.text", description: Text("\(name) has no content."))
         } else {
             SourceTextView(document: SourceDocument(key: "\(path)|\(content.version ?? "")|\(editSession)", text: text,
                                                     colours: content.colours ?? [], runs: content.runs ?? [],
@@ -175,8 +179,10 @@ struct FileScreen: View {
             Text(dirty ? "Unsaved changes" : "Editing").aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
         }
-        ToolbarItemGroup(placement: .confirmationAction) {
+        ToolbarItem(placement: .topBarTrailing) {
             Button("Find", systemImage: "magnifyingglass") { handle.find() }
+        }
+        ToolbarItem(placement: .confirmationAction) {
             Button(saving ? "Saving…" : "Save") { save() }.fontWeight(.semibold).disabled(!dirty || saving)
                 .accessibilityIdentifier("file.save")
         }
@@ -257,7 +263,8 @@ struct FileScreen: View {
     /// A rename or move follows the file to its new path; a delete leaves the screen.
     private func moved(_ prompt: FilePrompt?, _ change: FileChange) {
         switch prompt {
-        case .delete?: dismiss()
+        case .delete?:
+            if let deleted, let strip = actions.strip { deleted(strip); dismiss() } else { Task { await load() } }
         case .rename?, .move?: if let destination = change.destination { path = destination }
         default: break
         }

@@ -57,7 +57,7 @@ struct FilesScreen: View {
         .task(id: model.files.revision) { await load() }
         .task(id: query) { await search() }
         .navigationDestination(item: $opened) { target in
-            FileScreen(model: model, scope: scope, target: target, mention: mention)
+            FileScreen(model: model, scope: scope, target: target, mention: mention, deleted: { actions.strip = $0 })
         }
         .navigationDestination(isPresented: $showTrash) { RecentlyDeletedView(model: model, scope: scope) }
         .modifier(FileActionPrompts(actions: actions))

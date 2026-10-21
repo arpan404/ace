@@ -128,12 +128,11 @@ struct FileActionPrompts: ViewModifier {
                 Button(prompt.title == "New file" || prompt.title == "New folder" ? "Create" : prompt.title) { actions.submit(prompt) }
                     .accessibilityIdentifier("files.prompt.submit")
             }
-            .confirmationDialog(actions.prompt.map { "Delete \(FileActions.name($0.start))?" } ?? "", isPresented: deletePrompt,
-                                titleVisibility: .visible, presenting: actions.prompt) { prompt in
-                Button("Delete", role: .destructive) { actions.submit(prompt) }.accessibilityIdentifier("files.delete.confirm")
+            .alert(actions.prompt.map { "Delete \(FileActions.name($0.start))?" } ?? "", isPresented: deletePrompt, presenting: actions.prompt) { prompt in
                 Button("Cancel", role: .cancel) {}
-            } message: { prompt in
-                Text("Move \(prompt.start) to Recently deleted? You can restore it from Recently deleted.")
+                Button("Delete", role: .destructive) { actions.submit(prompt) }.accessibilityIdentifier("files.delete.confirm")
+            } message: { _ in
+                Text("It moves to Recently deleted, where you can restore it.")
             }
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
                 if let strip = actions.strip {

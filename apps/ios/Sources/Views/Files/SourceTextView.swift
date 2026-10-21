@@ -21,7 +21,8 @@ struct SourceDocument: Equatable {
 
 /// Source in SF Mono with line numbers in a gutter that stays put while lines scroll sideways,
 /// change bars beside them as the web's viewer draws, the system find navigator, and wrapping on
-/// request. TextKit 2 lays out only what is near the screen, so a 2 MB file opens like a short one.
+/// request (editing always wraps, so the caret stays on screen). TextKit 2 lays out only what is
+/// near the screen, so a 2 MB file opens like a short one.
 struct SourceTextView: UIViewRepresentable {
     let document: SourceDocument
     let wrap: Bool
@@ -32,26 +33,25 @@ struct SourceTextView: UIViewRepresentable {
     /// Called once the edited text first differs from what was loaded, and again if it returns.
     var dirty: ((Bool) -> Void)?
 
-    func makeUIView(context: Context) -> CodeTextView {
-        let view = CodeTextView(usingTextLayoutManager: true)
-        view.delegate = context.coordinator
-        view.accessibilityIdentifier = "preview.text"
-        handle.view = view
+    func makeUIView(context: Context) -> SourceContainer {
+        let view = SourceContainer()
+        view.text.delegate = context.coordinator
+        handle.view = view.text
         return view
     }
 
-    func updateUIView(_ view: CodeTextView, context: Context) {
+    func updateUIView(_ view: SourceContainer, context: Context) {
         context.coordinator.parent = self
-        handle.view = view
-        view.isEditable = editable
+        handle.view = view.text
+        view.text.isEditable = editable
         if context.coordinator.key != document.key {
             context.coordinator.key = document.key
             context.coordinator.original = document.text
-            view.load(document, wrap: wrap)
-            if let line { DispatchQueue.main.async { view.reveal(line: line) } }
-        } else if view.wrap != wrap {
-            view.setWrap(wrap)
+            context.coordinator.wasDirty = false
+            view.load(document)
+            if let line { view.reveal(line: line) }
         }
+        view.wrap = wrap || editable
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -60,63 +60,70 @@ struct SourceTextView: UIViewRepresentable {
         var parent: SourceTextView
         var key = ""
         var original = ""
-        private var wasDirty = false
+        var wasDirty = false
         init(parent: SourceTextView) { self.parent = parent }
         func textViewDidChange(_ textView: UITextView) {
-            (textView as? CodeTextView)?.textChanged()
+            (textView.superview?.superview as? SourceContainer)?.textChanged()
             let now = textView.text != original
             if now != wasDirty { wasDirty = now; parent.dirty?(now) }
+        }
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            (scrollView.superview?.superview as? SourceContainer)?.gutter.setNeedsDisplay()
         }
     }
 }
 
-/// The text view behind `SourceTextView`.
-final class CodeTextView: UITextView {
-    private let gutter = SourceGutter()
+/// The text view (scrolling up and down, as wide as the longest line) inside a sideways scroller,
+/// with the gutter laid over the left edge so numbers stay put while lines scroll under them.
+final class SourceContainer: UIView {
+    let text = UITextView(usingTextLayoutManager: true)
+    let gutter = SourceGutter()
+    private let sideways = UIScrollView()
     private let highlight = UIView()
-    private(set) var wrap = false
     /// Where each line starts, in UTF-16 units, for the gutter's numbers.
     private(set) var lineStarts: [Int] = [0]
     private var longest = 0
     var marks: [Int: String] = [:]
     var targetLine: Int?
+    var wrap = false {
+        didSet { if wrap != oldValue { setNeedsLayout() } }
+    }
 
-    override init(frame: CGRect, textContainer: NSTextContainer?) {
-        super.init(frame: frame, textContainer: textContainer)
-        configure()
-    }
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        configure()
-    }
-    private func configure() {
-        backgroundColor = UIColor(AceTheme.Colours.background)
-        isEditable = false
-        isFindInteractionEnabled = true
-        alwaysBounceVertical = true
-        autocorrectionType = .no
-        autocapitalizationType = .none
-        smartQuotesType = .no
-        smartDashesType = .no
-        smartInsertDeleteType = .no
-        spellCheckingType = .no
-        keyboardDismissMode = .interactive
-        textContainer.lineFragmentPadding = 0
-        gutter.host = self
-        gutter.isUserInteractionEnabled = false
-        highlight.backgroundColor = UIColor(AceTheme.Colours.foreground).withAlphaComponent(0.06)
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        sideways.showsVerticalScrollIndicator = false
+        sideways.alwaysBounceHorizontal = false
+        sideways.contentInsetAdjustmentBehavior = .never
+        addSubview(sideways)
+        sideways.addSubview(text)
+        text.accessibilityIdentifier = "preview.text"
+        text.isEditable = false
+        text.isFindInteractionEnabled = true
+        text.alwaysBounceVertical = true
+        text.autocorrectionType = .no
+        text.autocapitalizationType = .none
+        text.smartQuotesType = .no
+        text.smartDashesType = .no
+        text.smartInsertDeleteType = .no
+        text.spellCheckingType = .no
+        text.keyboardDismissMode = .interactive
+        text.textContainer.lineFragmentPadding = 0
         highlight.isHidden = true
         highlight.isUserInteractionEnabled = false
-        addSubview(highlight)
+        text.insertSubview(highlight, at: 0)
+        gutter.host = self
+        gutter.isUserInteractionEnabled = false
         addSubview(gutter)
-        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: CodeTextView, _: UITraitCollection) in view.refreshColours() }
+        refreshColours()
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: SourceContainer, _: UITraitCollection) in view.refreshColours() }
     }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    var font13: UIFont {
+    var font: UIFont {
         UIFont.monospacedSystemFont(ofSize: UIFontMetrics(forTextStyle: .footnote).scaledValue(for: AceTheme.Typography.code.size, compatibleWith: traitCollection), weight: .regular)
     }
     private var lineHeight: CGFloat { UIFontMetrics(forTextStyle: .footnote).scaledValue(for: AceTheme.Typography.code.lineHeight, compatibleWith: traitCollection) }
-    var charWidth: CGFloat { ("M" as NSString).size(withAttributes: [.font: font13]).width }
+    private var charWidth: CGFloat { ("M" as NSString).size(withAttributes: [.font: font]).width }
     var gutterWidth: CGFloat { max(40, CGFloat(String(lineStarts.count).count) * charWidth + AceTheme.Spacing.xl) }
 
     private func attributes() -> [NSAttributedString.Key: Any] {
@@ -126,10 +133,10 @@ final class CodeTextView: UITextView {
         paragraph.lineBreakMode = .byCharWrapping
         paragraph.defaultTabInterval = charWidth * 4
         paragraph.tabStops = []
-        return [.font: font13, .foregroundColor: UIColor(AceTheme.Colours.foreground), .paragraphStyle: paragraph]
+        return [.font: font, .foregroundColor: UIColor(AceTheme.Colours.foreground), .paragraphStyle: paragraph]
     }
 
-    func load(_ document: SourceDocument, wrap: Bool) {
+    func load(_ document: SourceDocument) {
         let base = attributes()
         let attributed = NSMutableAttributedString(string: document.text, attributes: base)
         let length = attributed.length
@@ -148,42 +155,23 @@ final class CodeTextView: UITextView {
             at += run
         }
         attributed.endEditing()
-        typingAttributes = base
-        attributedText = attributed
+        text.typingAttributes = base
+        text.attributedText = attributed
         marks = document.marks
         countLines()
-        self.wrap = wrap
-        applyWrap()
         highlight.isHidden = true
         targetLine = nil
-        setContentOffset(CGPoint(x: -adjustedContentInset.left, y: -adjustedContentInset.top), animated: false)
-    }
-
-    func setWrap(_ value: Bool) {
-        wrap = value
-        applyWrap()
-    }
-
-    private func applyWrap() {
-        textContainerInset = UIEdgeInsets(top: AceTheme.Spacing.sm, left: gutterWidth + AceTheme.Spacing.md, bottom: AceTheme.Spacing.xxxl, right: AceTheme.Spacing.xl)
-        if wrap {
-            textContainer.widthTracksTextView = true
-        } else {
-            textContainer.widthTracksTextView = false
-            // Lines never wrap: the container is as wide as the longest line (bounded, so one
-            // minified line can't make a layout millions of points wide).
-            let columns = CGFloat(min(longest, 20_000) + 4)
-            textContainer.size = CGSize(width: columns * charWidth, height: .greatestFiniteMagnitude)
-        }
         setNeedsLayout()
-        gutter.setNeedsDisplay()
+        layoutIfNeeded()
+        sideways.contentOffset = .zero
+        text.setContentOffset(CGPoint(x: 0, y: -text.adjustedContentInset.top), animated: false)
     }
 
     /// Line starts and the widest line (wide characters count twice), in one pass.
     private func countLines() {
         var starts = [0]
         var widest = 0, column = 0, offset = 0
-        for unit in text.utf16 {
+        for unit in text.text.utf16 {
             offset += 1
             if unit == 10 {
                 starts.append(offset)
@@ -197,12 +185,32 @@ final class CodeTextView: UITextView {
         longest = max(widest, column)
     }
 
-    /// After typing: numbers and the editor's width follow the new text.
+    /// After typing: numbers and widths follow the new text.
     func textChanged() {
         let lines = lineStarts.count
         countLines()
-        if lines != lineStarts.count || !wrap { applyWrap() }
+        if lines != lineStarts.count { setNeedsLayout() }
         gutter.setNeedsDisplay()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        sideways.frame = bounds
+        let left = gutterWidth + AceTheme.Spacing.md
+        text.textContainerInset = UIEdgeInsets(top: AceTheme.Spacing.sm, left: left, bottom: AceTheme.Spacing.xxxl, right: AceTheme.Spacing.xl)
+        // Lines never wrap unless asked: the text is as wide as its longest line, bounded so one
+        // minified line can't make a layout too wide to draw (past that it wraps).
+        let columns = CGFloat(min(longest, 1000) + 2)
+        let width = wrap ? bounds.width : max(bounds.width, left + columns * charWidth + AceTheme.Spacing.xl)
+        if text.frame.size != CGSize(width: width, height: bounds.height) {
+            text.frame = CGRect(x: 0, y: 0, width: width, height: bounds.height)
+        }
+        sideways.contentSize = CGSize(width: width, height: bounds.height)
+        gutter.frame = CGRect(x: 0, y: 0, width: gutterWidth, height: bounds.height)
+        gutter.setNeedsDisplay()
+        if let line = pendingLine, bounds.height > 0 {
+            DispatchQueue.main.async { [weak self] in self?.reveal(line: line) }
+        }
     }
 
     /// The 0-based line holding UTF-16 offset `offset`.
@@ -215,61 +223,64 @@ final class CodeTextView: UITextView {
         return low
     }
 
+    /// A line to reveal once the view has its size.
+    private var pendingLine: Int?
+
     /// Scroll `line` (1-based) to the middle of the screen and tint it.
     func reveal(line: Int) {
-        guard line > 0, line <= lineStarts.count, let layout = textLayoutManager, let content = layout.textContentManager,
+        guard bounds.height > 0 else { pendingLine = line; setNeedsLayout(); return }
+        pendingLine = nil
+        guard line > 0, line <= lineStarts.count, let layout = text.textLayoutManager, let content = layout.textContentManager,
               let location = content.location(content.documentRange.location, offsetBy: lineStarts[line - 1]) else { return }
         targetLine = line
         layout.ensureLayout(for: NSTextRange(location: content.documentRange.location, end: location) ?? NSTextRange(location: location))
         layout.enumerateTextLayoutFragments(from: location, options: [.ensuresLayout]) { fragment in
-            let frame = fragment.layoutFragmentFrame.offsetBy(dx: 0, dy: self.textContainerInset.top)
-            self.highlight.frame = CGRect(x: 0, y: frame.minY, width: max(self.contentSize.width, self.bounds.width) + 4000, height: frame.height)
+            let frame = fragment.layoutFragmentFrame.offsetBy(dx: 0, dy: self.text.textContainerInset.top)
+            self.highlight.frame = CGRect(x: 0, y: frame.minY, width: self.text.bounds.width, height: frame.height)
             self.highlight.isHidden = false
-            let maxY = max(-self.adjustedContentInset.top, self.contentSize.height - self.bounds.height + self.adjustedContentInset.bottom)
-            let y = min(max(-self.adjustedContentInset.top, frame.midY - self.bounds.height / 2), maxY)
-            self.setContentOffset(CGPoint(x: -self.adjustedContentInset.left, y: y), animated: false)
+            let inset = self.text.adjustedContentInset
+            let maxY = max(-inset.top, self.text.contentSize.height - self.text.bounds.height + inset.bottom)
+            let y = min(max(-inset.top, frame.midY - self.text.bounds.height / 2), maxY)
+            self.text.setContentOffset(CGPoint(x: 0, y: y), animated: false)
             return false
         }
         gutter.setNeedsDisplay()
     }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        gutter.frame = CGRect(x: contentOffset.x, y: contentOffset.y, width: gutterWidth, height: bounds.height)
-        sendSubviewToBack(highlight)
-        bringSubviewToFront(gutter)
-        gutter.setNeedsDisplay()
-    }
-
     private func refreshColours() {
         backgroundColor = UIColor(AceTheme.Colours.background)
-        highlight.backgroundColor = UIColor(AceTheme.Colours.foreground).withAlphaComponent(0.06)
+        text.backgroundColor = UIColor(AceTheme.Colours.background)
+        highlight.backgroundColor = UIColor(AceTheme.Colours.foreground).withAlphaComponent(0.07)
         gutter.setNeedsDisplay()
     }
 }
 
 /// The line numbers and change bars, drawn for the lines on screen only.
 final class SourceGutter: UIView {
-    weak var host: CodeTextView?
+    weak var host: SourceContainer?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         isOpaque = true
         contentMode = .redraw
     }
-    required init?(coder: NSCoder) { super.init(coder: coder) }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     override func draw(_ rect: CGRect) {
-        guard let host, let layout = host.textLayoutManager, let content = layout.textContentManager else { return }
         UIColor(AceTheme.Colours.background).setFill()
         UIRectFill(bounds)
-        let inset = host.textContainerInset.top
-        let top = host.contentOffset.y - inset
+        guard let host, let layout = host.text.textLayoutManager, let content = layout.textContentManager else { return }
+        let text = host.text
+        let inset = text.textContainerInset.top
+        // Container coordinates of the gutter's top and bottom edges.
+        let top = text.contentOffset.y - inset
         let bottom = top + bounds.height
-        let numberFont = UIFont.monospacedDigitSystemFont(ofSize: host.font13.pointSize - 1, weight: .regular)
-        let strongFont = UIFont.monospacedDigitSystemFont(ofSize: host.font13.pointSize - 1, weight: .semibold)
+        let size = host.font.pointSize - 1
+        let numberFont = UIFont.monospacedDigitSystemFont(ofSize: size, weight: .regular)
+        let strongFont = UIFont.monospacedDigitSystemFont(ofSize: size, weight: .semibold)
         let start = layout.textLayoutFragment(for: CGPoint(x: 0, y: max(0, top)))?.rangeInElement.location ?? layout.documentRange.location
         let width = bounds.width
+        let muted = UIColor(AceTheme.Colours.subtleForeground), ink = UIColor(AceTheme.Colours.foreground)
         layout.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { fragment in
             let frame = fragment.layoutFragmentFrame
             if frame.minY > bottom { return false }
@@ -278,12 +289,9 @@ final class SourceGutter: UIView {
             let firstLine = fragment.textLineFragments.first?.typographicBounds.height ?? frame.height
             let target = host.targetLine == line
             let label = String(line) as NSString
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: target ? strongFont : numberFont,
-                .foregroundColor: UIColor(target ? AceTheme.Colours.foreground : AceTheme.Colours.subtleForeground),
-            ]
-            let size = label.size(withAttributes: attributes)
-            label.draw(at: CGPoint(x: width - AceTheme.Spacing.md - size.width, y: y + (firstLine - size.height) / 2), withAttributes: attributes)
+            let attributes: [NSAttributedString.Key: Any] = [.font: target ? strongFont : numberFont, .foregroundColor: target ? ink : muted]
+            let measured = label.size(withAttributes: attributes)
+            label.draw(at: CGPoint(x: width - AceTheme.Spacing.md - measured.width, y: y + (firstLine - measured.height) / 2), withAttributes: attributes)
             switch host.marks[line] {
             case "added", "modified":
                 UIColor(AceTheme.StatusText.done).setFill()
