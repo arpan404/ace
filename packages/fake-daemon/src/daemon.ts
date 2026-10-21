@@ -327,6 +327,7 @@ export class FakeDaemon implements Host {
     | "seedPullRequests"
     | "setDraftGenerator"
     | "setIssueOutcome"
+    | "checkReruns"
     | "git"
     | "failMoves"
     | "setDetails"

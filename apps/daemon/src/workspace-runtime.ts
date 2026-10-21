@@ -403,6 +403,7 @@ export class WorkspaceRuntime {
       op.op === "forge.pr.detail" ||
       op.op === "forge.pr.commits" ||
       op.op === "forge.pr.files" ||
+      op.op === "forge.pr.check" ||
       op.op === "forge.file.content"
     ) {
       if (
@@ -590,6 +591,11 @@ export class WorkspaceRuntime {
         const cwd = this.store.getWorkspacePath(p.workspaceId);
         if (!cwd) return { ok: false, error: "workspace_not_found" };
         return this.forge.hostedReview({ ...command, payload: p }, cwd, allowed);
+      }
+      if (p.type === "forge.hosted.checks") {
+        const cwd = this.store.getWorkspacePath(p.workspaceId);
+        if (!cwd) return { ok: false, error: "workspace_not_found" };
+        return this.forge.hostedChecks({ ...command, payload: p }, cwd, allowed);
       }
       const id = "threadId" in p ? p.threadId : "link" in p ? p.link.threadId : undefined;
       if (!id) throw new Error("invalid_command");

@@ -11,6 +11,7 @@ import { LocalStacks } from "./local-stacks.ts";
 import type { StackPublisher } from "./stack-publish.ts";
 import { ForgeStackExpected } from "@ace/protocol/forge-stacks";
 import { GitHubReviews } from "./github-reviews.ts";
+import { GitHubChecks } from "./github-checks.ts";
 import { GitHubBrowser } from "./github-browser.ts";
 import { GitHubFileContent } from "./github-file-content.ts";
 import { ForgePrSearch } from "@ace/protocol/forge-browser";
@@ -42,6 +43,8 @@ export class GitHubForge implements Forge, ForgeBrowser {
   readonly repository: ForgeRepository;
   readonly lifecycle: GitHubLifecycle;
   readonly reviews: GitHubReviews;
+  /** Check runs opened in the PR panel, and their re-runs. */
+  readonly checks: GitHubChecks;
   readonly #api: GhApi;
   readonly revisions = new StatusRevisions();
   readonly #status = new GitHubStatusReader(this.revisions);
@@ -86,6 +89,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
     this.#content = new GitHubFileContent(this.#api, this.#root);
     this.lifecycle = new GitHubLifecycle(this.#api, this.repository);
     this.reviews = new GitHubReviews(this.#api, (number) => this.#ref(number));
+    this.checks = new GitHubChecks(this.#api, this.repository);
     this.#issues = new GitHubIssues(this.#api, this.repository);
   }
   listIssues(query: ForgeIssueSearch, signal: AbortSignal) {
@@ -242,8 +246,8 @@ export class GitHubForge implements Forge, ForgeBrowser {
     this.#ref(number);
     return this.#browser.detail(number, (scope) => this.status(number, scope), signal);
   }
-  prCommits(number: number, page: number, headSha: string, signal: AbortSignal) {
-    return this.#browser.commits(number, page, headSha, signal);
+  prCommits(number: number, before: string | undefined, headSha: string, signal: AbortSignal) {
+    return this.#browser.commits(number, before, headSha, signal);
   }
   prFiles(
     input: {

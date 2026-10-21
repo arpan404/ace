@@ -117,6 +117,6 @@ export function codeCaveats(facts: {
   if (facts.viewed === "all-commits-only")
     notes.push("Viewed marks apply to All commits, not to a single commit.");
   if (facts.truncated) notes.push("Some changed files couldn't be listed.");
-  if (facts.commitsTruncated) notes.push("GitHub lists only the first 250 commits.");
+  if (facts.commitsTruncated) notes.push("Only the newest 10,000 commits are listed.");
   return notes;
 }

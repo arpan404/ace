@@ -9,6 +9,7 @@
     "./stack-publish": "./src/stack-publish.ts",
     "./review-anchor": "./src/review-anchor.ts",
     "./review-comment-body": "./src/review-comment-body.ts",
+    "./suggestions": "./src/suggestions.ts",
     "./pr-reference": "./src/pr-reference.ts",
     "./testing": "./src/testing/fixtures.ts"
   },

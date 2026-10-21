@@ -22,6 +22,7 @@ import * as forgeLifecycle from "@ace/protocol/forge-lifecycle";
 import * as forgeIssues from "@ace/protocol/forge-issues";
 import * as forgeMergeState from "@ace/protocol/forge-merge-state";
 import * as forgeReview from "@ace/protocol/forge-review";
+import * as forgeChecks from "@ace/protocol/forge-checks";
 import * as forgeBrowser from "@ace/protocol/forge-browser";
 import * as forgeFileContent from "@ace/protocol/forge-file-content";
 import * as forgeStacks from "@ace/protocol/forge-stacks";
@@ -63,6 +64,7 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   ["./forge-merge-state", forgeMergeState],
   ["./forge-stacks", forgeStacks],
   ["./forge-review", forgeReview],
+  ["./forge-checks", forgeChecks],
   ["./plugins", plugins],
   ["./preview", preview],
   ["./history", history],

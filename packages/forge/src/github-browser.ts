@@ -4,21 +4,16 @@ import { ForgePrRef, type ForgeRepository, type ForgePrStatus } from "@ace/proto
 import {
   ForgePrSearch,
   ForgePageInput,
+  ForgeActivityPageInput,
   ForgeFilePageInput,
   ForgePrFiles,
   type ForgePrList,
   type ForgePrDetail,
-  type ForgeCommit,
 } from "@ace/protocol/forge-browser";
-import {
-  BrowserPr,
-  SearchPage,
-  CommitRecord,
-  FileRecord,
-  CommitFiles,
-} from "./github-browser-schemas.ts";
+import { BrowserPr, SearchPage, FileRecord, CommitFiles } from "./github-browser-schemas.ts";
 import { ForgeError } from "./errors.ts";
 import { TimelinePage, timelineActivity } from "./github-activity.ts";
+import { prHasCommit, readCommitPage, type CommitPage } from "./github-commits.ts";
 import { GitHubFileOverflow, listedPages } from "./github-file-overflow.ts";
 import type { GhApi } from "./http.ts";
 
@@ -66,20 +61,10 @@ const Decision = z.object({
     }),
   }),
 });
-const CommitStatistics = z.object({
-  data: z.object({
-    repository: z.record(
-      z.string(),
-      z
-        .looseObject({
-          oid: z.string(),
-          additions: z.number().int().nonnegative(),
-          deletions: z.number().int().nonnegative(),
-        })
-        .nullable(),
-    ),
-  }),
-});
+/** The highest timeline page the protocol can ask for (`ForgeActivityPageInput`). */
+const maxActivityPage = 10_000;
+/** A timeline page's source bytes; its reply must fit the daemon's 2 MiB reply frame. */
+const activityPageBytes = 1_536 * 1024;
 function decode<T>(schema: z.ZodType<T>, body: unknown): T {
   const parsed = schema.safeParse(body);
   if (!parsed.success) throw new ForgeError("invalid_data");
@@ -97,17 +82,25 @@ export class GitHubBrowser {
     this.#root = `repos/${repository.owner}/${repository.name}`;
     this.#overflow = new GitHubFileOverflow(api, this.#root);
   }
+  /**
+   * One page of a PR's timeline, oldest page first. It names the last page too, so a caller
+   * can read the newest page next and the ones between side by side.
+   */
   async activity(number: number, page: number, signal: AbortSignal) {
     ForgePrRef.parse({ repository: this.#repository, number });
-    ForgePageInput.parse({ page });
-    const path = `${this.#root}/issues/${number}/timeline?per_page=25&page=${page}`;
+    ForgeActivityPageInput.parse({ page });
+    const path = `${this.#root}/issues/${number}/timeline?per_page=100&page=${page}`;
     const response = await this.#api.request(path, signal);
+    // One page is one reply: a page of huge records fails plainly rather than overrunning it.
+    if (response.bytes > activityPageBytes) throw new ForgeError("limit");
     const records = decode(TimelinePage, response.body);
     const next = this.#api.next(response, path);
+    const last = this.#api.lastPage(response, path);
     return {
       events: records.map((record, index) => timelineActivity(record, page, index)),
-      ...(next && page < 120 ? { nextPage: page + 1 } : {}),
-      truncated: Boolean(next && page === 120),
+      ...(next && page < maxActivityPage ? { nextPage: page + 1 } : {}),
+      ...(last === undefined ? {} : { lastPage: Math.min(last, maxActivityPage) }),
+      truncated: Boolean(next && page === maxActivityPage) || (last ?? 0) > maxActivityPage,
     };
   }
   async list(input: ForgePrSearch, signal: AbortSignal): Promise<ForgePrList> {
@@ -244,42 +237,21 @@ export class GitHubBrowser {
       throw new ForgeError("conflict");
     return raw;
   }
-  async commits(number: number, page: number, headSha: string, signal: AbortSignal) {
-    ForgePageInput.parse({ page });
+  /** One page of commits, newest page first, each page proven to belong to `headSha`. */
+  async commits(
+    number: number,
+    before: string | undefined,
+    headSha: string,
+    signal: AbortSignal,
+  ): Promise<CommitPage & { truncated: boolean }> {
     ForgePrRef.parse({ repository: this.#repository, number });
-    const path = `${this.#root}/pulls/${number}/commits?per_page=25&page=${page}`;
-    const response = await this.#api.request(path, signal);
-    const items = decode(z.array(CommitRecord).max(25), response.body);
-    const commits: ForgeCommit[] = items.map((item) => ({
-      raw: item,
-      sha: item.sha,
-      message: item.commit.message,
-      author: item.author?.login ?? item.commit.author?.name ?? "deleted user",
-      authorAvatarUrl: item.author?.avatar_url,
-      date: item.commit.author?.date ?? null,
-      url: item.html_url,
-    }));
-    // Statistics are per commit, so they never depend on the head: they are read beside the
-    // revalidation that proves the list still belongs to the head the caller asked for.
-    const reads = [
-      this.#head(number, headSha, undefined, signal),
-      this.#commitStatistics(commits, signal),
-    ] as const;
-    await Promise.allSettled(reads);
-    const [raw, stats] = await Promise.all(reads);
-    commits.forEach((commit, i) => {
-      const stat = stats?.[`c${i}`];
-      if (stat) commit.raw = { commit: commit.raw, statistics: stat };
-      if (stat?.oid === commit.sha) {
-        commit.additions = stat.additions;
-        commit.deletions = stat.deletions;
-      }
-    });
-    return {
-      commits,
-      ...(this.#api.next(response, path) && page < 10 ? { nextPage: page + 1 } : {}),
-      truncated: raw.commits > 250,
-    };
+    const page = await readCommitPage(
+      this.#api,
+      this.#repository,
+      { number, before, headSha },
+      signal,
+    );
+    return { ...page, truncated: false };
   }
   /** Where two commits' histories meet: fixed for the pair, so a pair is asked for once. */
   async #mergeBase(base: string, head: string, signal: AbortSignal): Promise<string> {
@@ -299,22 +271,6 @@ export class GitHubBrowser {
       if (oldest !== undefined) this.#mergeBases.delete(oldest);
     }
     return sha;
-  }
-  /** One bounded GraphQL batch supplies statistics absent from REST's commit list. */
-  async #commitStatistics(commits: readonly ForgeCommit[], signal: AbortSignal) {
-    if (!commits.length) return undefined;
-    const fields = commits.map(
-      (c, i) =>
-        `c${i}: object(oid: ${JSON.stringify(c.sha)}) { ... on Commit { oid additions deletions } }`,
-    );
-    return decode(
-      CommitStatistics,
-      (
-        await this.#api.request("graphql", signal, {
-          query: `query { repository(owner:${JSON.stringify(this.#repository.owner)}, name:${JSON.stringify(this.#repository.name)}) { ${fields.join(" ")} } }`,
-        })
-      ).body,
-    ).data.repository;
   }
   async files(
     input: {
@@ -357,16 +313,9 @@ export class GitHubBrowser {
     let headSha = parsed.headSha;
     if (parsed.commit) {
       // A URL cannot select an unrelated repository commit as a PR commit.
-      let found = false;
-      for (let page = 1; page <= 3 && !found; page++) {
-        const commitsPath = `${this.#root}/pulls/${input.number}/commits?per_page=100&page=${page}`;
-        const response = await this.#api.request(commitsPath, signal);
-        found = decode(z.array(CommitRecord).max(100), response.body).some(
-          (c) => c.sha === parsed.commit,
-        );
-        if (!this.#api.next(response, commitsPath)) break;
-      }
-      if (!found) throw new ForgeError("not_found");
+      const member = { number: input.number, headSha: parsed.headSha, sha: parsed.commit };
+      if (!(await prHasCommit(this.#api, this.#repository, member, signal)))
+        throw new ForgeError("not_found");
       path = `${this.#root}/commits/${parsed.commit}?per_page=25&page=${input.page}`;
       headSha = parsed.commit;
     }
