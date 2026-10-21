@@ -38,6 +38,9 @@
           "lastPollError": {
             "$ref": "https://ace.local/protocol/v1/AutomationPollError.json"
           },
+          "lastRun": {
+            "$ref": "https://ace.local/protocol/v1/AutomationRun.json"
+          },
           "nextRunAt": {
             "anyOf": [
               {
@@ -49,6 +52,12 @@
                 "type": "null"
               }
             ]
+          },
+          "revision": {
+            "$ref": "https://ace.local/protocol/v1/AutomationRevision.json"
+          },
+          "triggerError": {
+            "$ref": "https://ace.local/protocol/v1/AutomationTriggerError.json"
           }
         },
         "required": [

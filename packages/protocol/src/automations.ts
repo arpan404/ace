@@ -91,13 +91,13 @@ export const AutomationRequest = z.discriminatedUnion("type", [
     type: z.literal("automation.put"),
     requestId: text,
     automation: Automation,
-    expectedRevision: AutomationRevision.nullish(),
+    expectedRevision: AutomationRevision.nullable().optional(),
   }),
   z.object({
     type: z.literal("automation.remove"),
     requestId: text,
     id: text,
-    expectedRevision: AutomationRevision.nullish(),
+    expectedRevision: AutomationRevision.nullable().optional(),
   }),
   z.object({
     type: z.literal("automation.run"),

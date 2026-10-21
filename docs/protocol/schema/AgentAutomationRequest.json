@@ -7,6 +7,16 @@
         "automation": {
           "$ref": "https://ace.local/protocol/v1/AgentAutomation.json"
         },
+        "expectedRevision": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/AutomationRevision.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "requestId": {
           "maxLength": 256,
           "minLength": 1,
@@ -26,6 +36,16 @@
     },
     {
       "properties": {
+        "expectedRevision": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/AutomationRevision.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "id": {
           "maxLength": 256,
           "minLength": 1,
@@ -125,6 +145,64 @@
         "type",
         "requestId",
         "limit"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "expectedRevision": {
+          "$ref": "https://ace.local/protocol/v1/AutomationRevision.json"
+        },
+        "id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "automation.setEnabled",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "id",
+        "enabled"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "expectedRevision": {
+          "$ref": "https://ace.local/protocol/v1/AutomationRevision.json"
+        },
+        "id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "automation.retry",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "id"
       ],
       "type": "object"
     }
