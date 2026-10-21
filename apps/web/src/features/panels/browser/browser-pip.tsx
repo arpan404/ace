@@ -1,15 +1,11 @@
 import { ArrowsOutSimpleIcon, GlobeSimpleIcon, XIcon } from "@phosphor-icons/react";
 import { readJson, writeJson } from "@ace/ui-core";
 import * as z from "zod/mini";
-import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useState, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { desktopBrowserViews } from "@/boot/desktop-browser.ts";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useLayout } from "@/lib/layout.tsx";
-import { cn } from "@/lib/cn.ts";
-import type { BrowserView, PreviewSource } from "../sources.ts";
-import { useNativeView } from "./native-view.ts";
-import { CoverPicture, useCoverStill } from "./cover-picture.tsx";
+import type { PreviewSource, ScreenFrame } from "../sources.ts";
 import { FramePicture } from "./frame-picture.tsx";
 import { pageSize } from "./page-size.ts";
 import { clampPip, defaultPipGeometry, type PipGeometry, type PipPage } from "./pip-rules.ts";
@@ -22,15 +18,22 @@ const windowSize = () => ({ width: innerWidth, height: innerHeight });
 /**
  * The page in a small floating window inside the ace window, while the Browser is out of sight
  * and an agent browses or the page plays sound. Drag it by its bar, resize it from its top-left
- * corner; it remembers where it was. Its title (and, in a browser, the page) brings the Browser
- * back in the panel; × puts it away. In the desktop app the page's own native view moves into
- * it, laid out at its panel size and scaled down, so it never reloads or reflows; elsewhere it
- * draws the live video.
+ * corner; it remembers where it was. A click on its title or its page brings the Browser back
+ * in the panel; only × puts it away.
+ *
+ * It always draws the page's live video, in the desktop app too: a native view paints above
+ * the whole window, so it can't be clipped to this box's rounded corners and it takes clicks
+ * for itself. Meanwhile the desktop's page keeps running out of sight at its panel size, so
+ * it never reloads or reflows.
  */
 export function BrowserPip(props: {
   source: PreviewSource;
   threadId: string;
-  view: BrowserView;
+  /**
+   * The page's newest picture. The caller reads it on each change of the source: read here, the
+   * compiler would keep the first answer, as the source object itself never changes.
+   */
+  frame: ScreenFrame | undefined;
   page: PipPage;
   onRestore(): void;
   onDismiss(): void;
@@ -48,17 +51,9 @@ export function BrowserPip(props: {
     return () => removeEventListener("resize", fit);
   }, [aspect]);
 
-  const body = useRef<HTMLDivElement>(null);
-  const native = !!desktopBrowserViews() && props.view.backend === "embedded";
-  const placed = useNativeView(props.threadId, body, native, { device: size, padding: 0 });
-  // Drawn from the live video in a browser, and in the desktop app while the native view is
-  // out of the way (a menu or toast over the window): first its still, then the live pictures.
-  const frame = props.source.frame(props.threadId);
-  const still = useCoverStill(placed.frozen, frame);
-  const { source, threadId } = props;
-  // The daemon's video is drawn here whenever the native view isn't.
-  const drawnNatively = native && placed.shown;
-  useEffect(() => source.nativeShown?.(threadId, drawnNatively), [source, threadId, drawnNatively]);
+  const { source, threadId, frame } = props;
+  // No native view shows the page while it floats: the daemon sends its video for this.
+  useEffect(() => source.nativeShown?.(threadId, false), [source, threadId]);
 
   /** Dragging the bar moves it; dragging the corner resizes it (the right edge stays). */
   const gesture = (kind: "move" | "resize") => (event: PointerEvent<HTMLElement>) => {
@@ -141,20 +136,18 @@ export function BrowserPip(props: {
       {/* A click on the picture is a mouse shortcut; "Show in the panel" is the keyboard path. */}
       {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- see above */}
       <div
-        ref={body}
         data-pip-page=""
         style={{ height }}
-        className={cn("relative bg-background", !native && "cursor-pointer")}
-        onClick={native ? undefined : props.onRestore}
+        className="relative cursor-pointer bg-background"
+        onClick={props.onRestore}
       >
-        {frame && !placed.shown && (!native || placed.frozen) && (
+        {frame && (
           <FramePicture
             frame={frame}
             alt={`Live view of ${props.page.url}`}
             className="absolute inset-0 size-full object-contain"
           />
         )}
-        {still && <CoverPicture still={still} />}
       </div>
       <div
         role="separator"

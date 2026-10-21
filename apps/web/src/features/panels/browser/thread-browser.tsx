@@ -118,7 +118,7 @@ function ThreadBrowser(props: { threadId: string }) {
         <BrowserPip
           source={source}
           threadId={threadId}
-          view={view}
+          frame={source.frame(threadId)}
           page={floating}
           onRestore={() => showBrowser(floating.tabId)}
           onDismiss={() => dismissedPip.set((threads) => new Set(threads).add(threadId))}
