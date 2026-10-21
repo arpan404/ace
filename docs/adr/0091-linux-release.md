@@ -50,10 +50,10 @@ session is available.
 
 ### Browser use
 
-ace's Chrome stays the headless engine. Linux x64 uses the pinned Chrome for Testing build.
-Linux arm64, which Chrome for Testing does not publish, uses a checksum-pinned Chromium from
-a fixed upstream build of the same major version; a person may point `ACE_CHROMIUM_PATH` (or
-the matching setting) at any Chromium on every platform.
+ace's Chrome stays the headless engine, pinned to Chrome for Testing on both Linux x64 and
+arm64 (Chrome for Testing publishes linux-arm64 for the pinned version). A person may point
+`ACE_CHROMIUM_PATH` at any Chromium on every platform; ace never picks a personal install
+silently (ADR 0055).
 
 Launch failures are reported with their cause: missing shared libraries (with the install
 command for the detected distro), a blocked sandbox (with the one-time fix), running as root,
