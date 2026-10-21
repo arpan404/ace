@@ -11,20 +11,25 @@ struct InboxRowActions {
     let archive: (ThreadRow, InboxKey) -> Void
 }
 
+/// The sections folded into shelves at the end of the list, in order.
+private let inboxShelved = ["snoozed", "settled"]
+
 /// Which folded groups at the end of the list are open.
 struct InboxShelves: Equatable { var snoozed = false; var settled = false }
 
-/// One tab's flat list: the shared sections merged by rank with no headings, rows separated by
-/// inset hairlines, then the Snoozed and Settled shelves. `includes` applies the tab and the
-/// filter chips; grouping and wording come from each machine's runtime.
-struct InboxList: View {
+/// One tab's flat list: the filter chips, the shared sections merged by rank with no headings,
+/// rows separated by inset hairlines, then the Snoozed and Settled shelves. `includes` applies
+/// the tab and the filter chips; grouping and wording come from each machine's runtime.
+struct InboxList<Filters: View>: View {
     @Bindable var inbox: MachineInbox
     let includes: (InboxKey) -> Bool
     let pulls: Bool
     @Binding var shelves: InboxShelves
     let actions: InboxRowActions
+    /// A chip is narrowing the list, so the chips stay even when nothing matches.
+    let filtered: Bool
+    @ViewBuilder let filters: () -> Filters
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private static let shelved = ["snoozed", "settled"]
 
     private var sections: [MergedInbox.Section] {
         inbox.merged.sections.compactMap { section in
@@ -36,16 +41,17 @@ struct InboxList: View {
     var body: some View {
         let sections = sections
         List {
+            if filtered || !sections.isEmpty { filters() }
             if !inbox.sessions.isEmpty && inbox.sessions.allSatisfy({ !$0.client.canOperate }) {
                 ViewOnlyNote(message: "View only")
                     .accessibilityHint("Pair with View and act to send, archive or snooze.")
                     .listRowSeparator(.hidden)
                     .listRowBackground(AceTheme.Colours.background)
             }
-            ForEach(sections.filter { !Self.shelved.contains($0.key) }) { section in
+            ForEach(sections.filter { !inboxShelved.contains($0.key) }) { section in
                 rows(section)
             }
-            ForEach(Self.shelved, id: \.self) { key in
+            ForEach(inboxShelved, id: \.self) { key in
                 if let section = sections.first(where: { $0.key == key }) {
                     let open = key == "snoozed" ? shelves.snoozed : shelves.settled
                     InboxShelf(label: section.label, count: section.rows.count, expanded: open) {
@@ -66,8 +72,9 @@ struct InboxList: View {
                     .inboxRowChrome()
                     .listRowSeparator(.hidden)
             }
-            if sections.isEmpty { emptyState.listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background) }
         }
+        // Centred on the page like the system's own empty lists, under the chips' row.
+        .overlay { if sections.isEmpty { emptyState } }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(AceTheme.Colours.background)
