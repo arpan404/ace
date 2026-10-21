@@ -51,9 +51,13 @@ async function fixture(runner: CommandRunner, seed: (store: Store) => void = () 
 }
 
 test("state refresh batches all PRs per repo across threads, retains missing links as closed and publishes live details", async () => {
-  const calls: string[] = [];
+  const calls: { path: string; threads: boolean }[] = [];
   const f = await fixture(async (request) => {
-    calls.push(request.args[1] ?? "");
+    calls.push({
+      path: request.args[1] ?? "",
+      // Link-time status reads fetch review threads beside the offline PR reads.
+      threads: (request.input ?? "").includes("reviewThreads"),
+    });
     if (request.args[1] !== "graphql") return { code: 1, stdout: "offline", truncated: false };
     return {
       code: 0,
@@ -102,7 +106,8 @@ test("state refresh batches all PRs per repo across threads, retains missing lin
       { id: first, cwd: "/fake" },
       { id: second, cwd: "/fake" },
     ]);
-    expect(calls.filter((path) => path === "graphql")).toHaveLength(1);
+    // The refresh batches every linked PR into one query; link-time thread reads are separate.
+    expect(calls.filter((call) => call.path === "graphql" && !call.threads)).toHaveLength(1);
     expect(f.store.getThread(first)?.details?.linkedPrs).toMatchObject([
       { number: 285, state: "closed", deleted: true },
       { number: 284, state: "draft", title: "Draft follow-up" },

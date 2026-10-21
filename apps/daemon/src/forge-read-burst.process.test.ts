@@ -66,8 +66,10 @@ test("a PR panel's burst of reads all get answered with their own code instead o
     expect(replies.map((reply) => reply.type === "workspace.result" && reply.result)).toEqual(
       Array.from({ length: 12 }, () => ({ kind: "error", code: "forge_offline" })),
     );
-    // The burst waited its turn: GitHub never saw more than eight reads from one socket at once.
-    expect(peak).toBe(8);
+    // The burst waited its turn: at most eight reads run from one socket at once, and each
+    // read fans out to at most two concurrent calls here (review-state reads its host beside
+    // its viewed marks; merge-state reads once), so GitHub never sees more than sixteen.
+    expect(peak).toBeLessThanOrEqual(16);
     const logged = warnings.filter((warning) => warning.message === "Forge read failed");
     expect(logged.map((warning) => warning.fields)).toEqual(
       ops.map(() => expect.objectContaining({ code: "forge_offline" })),

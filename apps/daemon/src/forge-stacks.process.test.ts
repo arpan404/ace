@@ -32,6 +32,21 @@ async function fixture(
   const root = await mkdtemp(join(tmpdir(), "ace-stacks-"));
   const gh = await fakeGh({
     ...stackChecksFixture,
+    // Link-time status reads fetch review threads beside the offline PR reads. Answer them
+    // from their own recorded queue so they never shift the positional stack snapshots below.
+    "graphql:reviewThreads(first:": [
+      {
+        body: {
+          data: {
+            repository: {
+              pullRequest: {
+                reviewThreads: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] },
+              },
+            },
+          },
+        },
+      },
+    ],
     ...fixtures,
     "repos/octo/ace/pulls/7": [{ offline: true }],
     "repos/octo/ace/pulls/8": [{ offline: true }],
@@ -308,7 +323,18 @@ test("a pre-queue host snapshot cannot downgrade a concurrently accepted queue r
     await f.command("merge");
     oldRefresh = f.read();
     await vi.waitFor(async () =>
-      expect((await f.gh.requests()).filter((r) => r.path === "graphql")).toHaveLength(3),
+      // Link-time review-thread reads share the "graphql" path; only stack snapshots matter here.
+      expect(
+        (await f.gh.requests()).filter(
+          (r) =>
+            r.path === "graphql" &&
+            typeof r.body === "object" &&
+            r.body !== null &&
+            "query" in r.body &&
+            typeof r.body.query === "string" &&
+            r.body.query.includes("){number stack{"),
+        ),
+      ).toHaveLength(3),
     );
     expect(await f.read()).toMatchObject({
       result: { kind: "forge", data: { value: { operation: { state: "enqueued" } } } },

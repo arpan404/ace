@@ -35,7 +35,10 @@ const viewed = {
 test("unsent hosted drafts survive daemon restart and remain isolated from another repository", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-hosted-drafts-"));
   const gh = await fakeGh({
-    graphql: [{ body: host }, { body: viewed }, { body: host }, { body: viewed }],
+    // Review-state reads its host beside its viewed marks; route each by query content so
+    // concurrent reads can never consume each other's positional snapshot.
+    "graphql:viewer { login }": [{ body: host }, { body: host }],
+    "graphql:viewerViewedState": [{ body: viewed }, { body: viewed }],
   });
   let store = new Store(join(root, "store.sqlite"));
   const workspaceId = store.createWorkspace(root, "Project");
@@ -105,7 +108,10 @@ test("a lost GitHub review response is reconciled once and clears only accepted 
   const root = await mkdtemp(join(tmpdir(), "ace-hosted-receipt-"));
   const { reviewWriteMarker } = await import("@ace/forge");
   const gh = await fakeGh({
-    graphql: [{ body: host }, { body: host }, { body: host }, { body: host }, { body: viewed }],
+    // Review-state reads its host beside its viewed marks; route each by query content so
+    // concurrent reads can never consume each other's positional snapshot.
+    "graphql:viewer { login }": [{ body: host }, { body: host }, { body: host }, { body: host }],
+    "graphql:viewerViewedState": [{ body: viewed }],
     "repos/octo/ace/pulls/7/files?per_page=100": [
       { body: [{ filename: "src/main.ts", patch: "@@ -1 +1 @@\n-old\n+new" }] },
     ],
