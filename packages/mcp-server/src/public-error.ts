@@ -58,6 +58,8 @@ export const PublicToolCode = z.enum([
   "page_unreachable",
   "browser_restarted",
   "browser_unavailable",
+  "browser_missing_libraries",
+  "browser_sandbox_blocked",
   "recording_active",
   "recording_inactive",
   "recording_failed",
@@ -327,7 +329,15 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   browser_unavailable: {
     message: "ace's browser could not start",
-    hint: "Its first start downloads Chrome for Testing, which needs the network. Retry once; if it still fails, tell the person to check ace's browser in Settings.",
+    hint: "Retry once. If it still fails, tell the person; `ace doctor` on the daemon's machine checks ace's browser and says how to fix it.",
+  },
+  browser_missing_libraries: {
+    message: "ace's browser is missing system libraries",
+    hint: "Chrome cannot start until the person installs them; the detail names them and the install command. Do not retry: tell the person to run it on the daemon's machine.",
+  },
+  browser_sandbox_blocked: {
+    message: "ace's browser could not start its sandbox",
+    hint: "This needs a one-time fix by the person on the daemon's machine; the detail says which. Do not retry: tell the person (`ace doctor` shows the exact steps).",
   },
   recording_active: {
     message: "This browser is already recording",
