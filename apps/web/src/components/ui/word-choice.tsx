@@ -3,9 +3,9 @@ import { ToggleGroup } from "@base-ui/react/toggle-group";
 import { cn } from "@/lib/cn.ts";
 
 /**
- * One-of-n choice as plain words in a page toolbar ("Open 7 · Merged · Closed"): no track and no
- * thumb. The chosen word reads in the foreground at 500 with its count; the rest stay muted, and
- * hover is a wash. Pressing the current word keeps it chosen.
+ * One-of-n choice as words in a page toolbar ("Open 7 · Merged · Closed"): no track, no shadow.
+ * The chosen word sits on the flat selected fill (`--active`, as the sidebar's open thread) in the
+ * foreground at 500 with its count; the rest stay muted, and hover is a lighter wash. Pressing the current word keeps it chosen.
  */
 export function WordChoice<T extends string>(props: {
   label: string;
@@ -35,7 +35,7 @@ export function WordChoice<T extends string>(props: {
           }
           className={cn(
             "group/word inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-ui whitespace-nowrap text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit hover:bg-hover hover:text-foreground",
-            "data-pressed:font-medium data-pressed:text-foreground",
+            "data-pressed:bg-active data-pressed:font-medium data-pressed:text-foreground",
           )}
         >
           {option.label}
