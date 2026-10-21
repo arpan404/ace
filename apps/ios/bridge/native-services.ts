@@ -114,7 +114,7 @@ export class NativeServices {
       const device = NativeDeviceRequest.safeParse(raw);
       if (device.success && this.devices) {
         try {
-          const data = await this.devices.request(device.data.operation, controller.signal);
+          const data = await this.devices.request(device.data, controller.signal);
           this.#reply(id, true, { ok: true, data }, "");
         } catch (error) {
           this.#reply(
