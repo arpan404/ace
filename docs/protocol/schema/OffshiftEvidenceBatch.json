@@ -1,0 +1,10 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftEvidenceBatch.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceInput.json"
+  },
+  "maxItems": 32,
+  "minItems": 1,
+  "type": "array"
+}

@@ -3,6 +3,7 @@ import { ThreadId } from "@ace/protocol";
 import {
   OffshiftCriteria,
   OffshiftCriterion,
+  OffshiftEvidenceBatch,
   OffshiftEvidenceInput,
   OffshiftPhase,
   OffshiftPlaybookId,
@@ -35,7 +36,7 @@ const Input = z
     action: z
       .enum(actions)
       .describe(
-        "start: open a run with its outcome, endpoint, criteria, and optional playbook and steps. get: the run, revision, pending evidence and next. list: this thread's runs. playbooks: the built-in playbooks and their steps. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record one check's result. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked. step: mark stepId done or skipped (note: what you saw, or why).",
+        "start: open a run with its outcome, endpoint, criteria, and optional playbook and steps. get: the run, revision, pending evidence and next. list: this thread's runs. playbooks: the built-in playbooks and their steps. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record the result of one check or several. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked. step: mark stepId done or skipped (note: what you saw, or why).",
       ),
     runId: z
       .string()
@@ -83,9 +84,12 @@ const Input = z
       .optional()
       .describe("step: the step to mark."),
     state: z.enum(["done", "skipped"]).optional().describe("step: done or skipped."),
-    evidence: OffshiftEvidenceInput.optional().describe(
-      "evidence: one check, at the revision get returned before it ran.",
-    ),
+    evidence: z
+      .union([OffshiftEvidenceInput, OffshiftEvidenceBatch])
+      .optional()
+      .describe(
+        "evidence: the checks you ran, one or a list of up to 32, each at the revision get returned before it ran. A list is one write: all are recorded or none.",
+      ),
     runOwner: ThreadId.optional().describe(
       "get and evidence only: the ancestor thread whose run you check, as its brief named it.",
     ),
@@ -139,7 +143,11 @@ function request(input: Input): OffshiftRequest {
     case "evidence": {
       const evidence = input.evidence;
       if (!evidence) throw new Error("evidence needs evidence.");
-      return { action: "evidence", ...change, evidence };
+      return {
+        action: "evidence",
+        ...change,
+        evidence: Array.isArray(evidence) ? evidence : [evidence],
+      };
     }
     case "revise": {
       const criterion = input.criterion;

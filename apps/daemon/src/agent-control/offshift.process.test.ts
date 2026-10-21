@@ -26,21 +26,25 @@ test("native Offshift rejects stale source evidence, isolates callers and observ
     });
     expect(started.ok).toBe(true);
     const before = OffshiftView.parse(started.data);
+    // Agents copy the revision into every evidence call, so it stays short.
+    expect(before.revision).toMatch(/^[0-9a-f]{12}$/);
     await writeFile(join(f.h.home, "work.txt"), "after");
     const stale = await call({
       action: "evidence",
       runId: "native",
       requestId: "check",
       version: 0,
-      evidence: {
-        criterionId: "behavior",
-        kind: "source",
-        result: "pass",
-        revision: before.revision,
-        action: "Read diff",
-        artifact: "report",
-        note: "Inspected change",
-      },
+      evidence: [
+        {
+          criterionId: "behavior",
+          kind: "source",
+          result: "pass",
+          revision: before.revision,
+          action: "Read diff",
+          artifact: "report",
+          note: "Inspected change",
+        },
+      ],
     });
     expect(stale).toMatchObject({ ok: false, code: "invalid" });
     const current = OffshiftView.parse((await call({ action: "get", runId: "native" })).data);

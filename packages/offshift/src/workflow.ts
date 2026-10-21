@@ -4,6 +4,7 @@ import {
   type OffshiftAuthor,
   type OffshiftCriterion,
   type OffshiftEvidence,
+  type OffshiftEvidenceInput,
   type OffshiftRequest,
   type OffshiftStep,
 } from "@ace/protocol/offshift";
@@ -164,27 +165,7 @@ export function transition(
     );
   if (request.action === "revise") return revise(current, next, request.criterion, request.note);
   if (request.action === "step") return markStep(current, next, request);
-  if (request.action === "evidence") {
-    const evidence = request.evidence;
-    const criterion = current.criteria.find((item) => item.id === evidence.criterionId);
-    if (!criterion || !criterion.requiredKinds.includes(evidence.kind))
-      throw new OffshiftError(
-        `Evidence does not match a required criterion/kind; call get with runId "${current.id}" and use a criterion id with one of its requiredKinds`,
-      );
-    if (evidence.revision !== context.revision)
-      throw new OffshiftError(
-        `Source changed since verification; call get with runId "${current.id}", repeat the check, then record evidence with the revision get returns`,
-      );
-    return OffshiftRun.parse({
-      ...next,
-      evidence: [
-        ...current.evidence.filter(
-          (item) => item.criterionId !== evidence.criterionId || item.kind !== evidence.kind,
-        ),
-        { ...evidence, recordedAt: context.now, by: context.caller },
-      ],
-    });
-  }
+  if (request.action === "evidence") return record(current, next, request.evidence, context);
   const from = phases.indexOf(current.phase),
     to = phases.indexOf(request.phase);
   // Returning to implementation/verification is necessary after review findings or source edits.
@@ -266,5 +247,42 @@ function revise(
       : [...current.criteria, criterion],
     evidence: current.evidence.filter((item) => item.criterionId !== criterion.id),
     note,
+  });
+}
+
+/**
+ * Records a batch of checks as one write: each names a required criterion and kind once, at the
+ * current revision, or nothing is recorded. A check replaces the earlier one of its kind.
+ */
+function record(
+  current: OffshiftRun,
+  next: OffshiftRun,
+  batch: readonly OffshiftEvidenceInput[],
+  context: Context,
+): OffshiftRun {
+  const seen = new Set<string>();
+  for (const evidence of batch) {
+    const key = `${evidence.criterionId}:${evidence.kind}`;
+    const criterion = current.criteria.find((item) => item.id === evidence.criterionId);
+    if (!criterion || !criterion.requiredKinds.includes(evidence.kind))
+      throw new OffshiftError(
+        `Evidence ${key} does not match a required criterion/kind; nothing was recorded. Call get with runId "${current.id}" and use a criterion id with one of its requiredKinds`,
+      );
+    if (seen.has(key))
+      throw new OffshiftError(
+        `Evidence ${key} appears twice; send one result per criterion and kind. Nothing was recorded`,
+      );
+    seen.add(key);
+    if (evidence.revision !== context.revision)
+      throw new OffshiftError(
+        `Source changed since verification; nothing was recorded. Call get with runId "${current.id}", repeat the checks, then record evidence with the revision get returns`,
+      );
+  }
+  return OffshiftRun.parse({
+    ...next,
+    evidence: [
+      ...current.evidence.filter((item) => !seen.has(`${item.criterionId}:${item.kind}`)),
+      ...batch.map((evidence) => ({ ...evidence, recordedAt: context.now, by: context.caller })),
+    ],
   });
 }

@@ -33,15 +33,17 @@ const mark = (run: OffshiftRun, stepId: string, state: "done" | "skipped", note?
 const pass = (run: OffshiftRun) =>
   change(run, {
     action: "evidence",
-    evidence: {
-      criterionId: "error",
-      kind: "automated",
-      result: "pass",
-      revision: "r1",
-      action: "Ran the login test",
-      artifact: "test log",
-      note: "Passes",
-    },
+    evidence: [
+      {
+        criterionId: "error",
+        kind: "automated",
+        result: "pass",
+        revision: "r1",
+        action: "Ran the login test",
+        artifact: "test log",
+        note: "Passes",
+      },
+    ],
   });
 
 test("a run started from a playbook carries its steps, all to do, and next names the first", () => {

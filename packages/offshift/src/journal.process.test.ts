@@ -76,15 +76,17 @@ function fixture() {
       runId: "feature",
       requestId: `evidence-${get().run.version}`,
       version: get().run.version,
-      evidence: {
-        criterionId: "restore",
-        kind,
-        result,
-        revision: context.revision,
-        action: "Restore item and reload",
-        artifact: "artifact://report",
-        note: "Item remains visible",
-      },
+      evidence: [
+        {
+          criterionId: "restore",
+          kind,
+          result,
+          revision: context.revision,
+          action: "Restore item and reload",
+          artifact: "artifact://report",
+          note: "Item remains visible",
+        },
+      ],
     });
   return {
     context,
@@ -191,6 +193,16 @@ test("lost-response retries survive restart and cannot overwrite newer edits or 
   expect(f.get().run.phase).toBe("implement");
 });
 
+const check = (kind: "automated" | "ui", revision: string, criterionId = "restore") => ({
+  criterionId,
+  kind,
+  result: "pass" as const,
+  revision,
+  action: "Run check",
+  artifact: "report",
+  note: "passed",
+});
+
 test("stale verification and unrelated criteria are rejected without consuming the mutation identity", () => {
   const f = fixture();
   f.call(f.start);
@@ -199,26 +211,32 @@ test("stale verification and unrelated criteria are rejected without consuming t
     runId: "feature",
     requestId: "check",
     version: 0,
-    evidence: {
-      criterionId: "restore",
-      kind: "automated",
-      result: "pass",
-      revision: "old-revision",
-      action: "Run check",
-      artifact: "report",
-      note: "passed",
-    },
+    evidence: [check("automated", "old-revision")],
   } satisfies OffshiftRequest;
   expect(() => f.call(request)).toThrow("Source changed");
   expect(() =>
-    f.call({
-      ...request,
-      evidence: { ...request.evidence, revision: f.context.revision, criterionId: "other" },
-    }),
+    f.call({ ...request, evidence: [check("automated", f.context.revision, "other")] }),
   ).toThrow("does not match");
   expect(
-    f.call({ ...request, evidence: { ...request.evidence, revision: f.context.revision } }).pending,
+    f.call({ ...request, evidence: [check("automated", f.context.revision)] }).pending,
   ).toEqual([{ criterionId: "restore", kind: "ui" }]);
+});
+
+test("a list of checks is one write: all land at one version, or none when one is wrong", () => {
+  const f = fixture();
+  f.call(f.start);
+  const batch = (evidence: ReturnType<typeof check>[]) =>
+    f.call({ action: "evidence", runId: "feature", version: 0, evidence });
+  expect(() =>
+    batch([check("automated", f.context.revision), check("ui", f.context.revision, "other")]),
+  ).toThrow("nothing was recorded");
+  expect(() =>
+    batch([check("automated", f.context.revision), check("automated", f.context.revision)]),
+  ).toThrow("appears twice");
+  expect(f.get()).toMatchObject({ run: { version: 0, evidence: [] } });
+  const recorded = batch([check("automated", f.context.revision), check("ui", f.context.revision)]);
+  expect(recorded.run.version).toBe(1);
+  expect(recorded.pending).toEqual([]);
 });
 
 test("blockers survive restart and keep delivery closed until explicitly resolved", () => {
@@ -397,15 +415,17 @@ test("an independent criterion stays pending on the owner's own pass until anoth
           action: "evidence",
           runId: "feature",
           version: f.get().run.version,
-          evidence: {
-            criterionId: "restore",
-            kind: "ui",
-            result: "pass",
-            revision: f.context.revision,
-            action: "Restore and reload",
-            artifact: "screenshot://restore",
-            note: "Item stays",
-          },
+          evidence: [
+            {
+              criterionId: "restore",
+              kind: "ui",
+              result: "pass",
+              revision: f.context.revision,
+              action: "Restore and reload",
+              artifact: "screenshot://restore",
+              note: "Item stays",
+            },
+          ],
         },
         { ...f.context, caller },
       ).result,
@@ -457,15 +477,17 @@ test("a run stored without its owner or evidence authors still loads, and nothin
       action: "evidence",
       runId: "feature",
       version: f.get().run.version,
-      evidence: {
-        criterionId: "restore",
-        kind: "ui",
-        result: "pass",
-        revision: f.context.revision,
-        action: "Restore and reload",
-        artifact: "screenshot://restore",
-        note: "Item stays",
-      },
+      evidence: [
+        {
+          criterionId: "restore",
+          kind: "ui",
+          result: "pass",
+          revision: f.context.revision,
+          action: "Restore and reload",
+          artifact: "screenshot://restore",
+          note: "Item stays",
+        },
+      ],
     },
     {
       ...f.context,

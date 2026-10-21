@@ -28,10 +28,10 @@ description: Own a multi-step coding outcome through verified delivery, keeping 
 
    If none fits, write `steps` yourself (`{id, title, phase}`, up to 24 in all). They can also extend a playbook.
 
-3. **Start.** `start` with a `runId`, the observable `outcome`, the authorized `endpoint` (local changes, an open PR, ...), `playbook` and/or `steps`, and `criteria`. Each criterion names the evidence kinds it needs (`automated`, `source`, `ui`, `human`, `manual`). Set `independent: true` when your own check is not enough.
+3. **Start.** `start` with a `runId`, the observable `outcome`, the authorized `endpoint` (local changes, an open PR, ...), `playbook` and/or `steps`, and `criteria`. Each criterion names the evidence kinds it needs (`automated`, `source`, `ui`, `human`, `manual`): only the kinds that prove that criterion, usually one. Every kind is a check to run and record, so don't pair `ui` with `automated` by habit. Set `independent: true` when your own check is not enough.
 4. **Work the steps.** After each one, call `step` with its `stepId` and `state`: `done` with a `note` of what you observed, or `skipped` with the reason in `note`. ace refuses to leave a phase while its steps are still to do.
 5. **Advance one phase at a time:** `plan`, `implement`, `verify`, `review`, `delivery`, each with a concrete `note`. Go back to repair; done steps stay done. If a requirement changes, `revise` its criterion: the old evidence is dropped.
-6. **Record evidence.** `get` and keep its `revision`, run the real check, then send `evidence` with that revision, the `action` you performed, an `artifact` reference and a short `note`. A failed check replaces an earlier pass. If the source changed, repeat the check.
+6. **Record evidence as you check.** `get` and keep its `revision`, run the real check, then send `evidence` right away with that revision, the `action` you performed, an `artifact` reference and a short `note`. Checks run together (one test run covering several criteria) go in one call as a list. A failed check replaces an earlier pass. If the source changed, repeat the check; never record an earlier check at a later revision.
 7. **Deliver** only when nothing is pending. `waiting_on_tree` means a child or this turn still works or waits on the person: `wait` for children; when only your turn is left, report and end it.
 
 Every change after `start` takes the run's current `version`, which `next` names; on a conflict, `get` and reconcile. `requestId` is optional: an identical retry applies once either way.

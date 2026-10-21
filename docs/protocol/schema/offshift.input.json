@@ -4,7 +4,7 @@
   "additionalProperties": false,
   "properties": {
     "action": {
-      "description": "start: open a run with its outcome, endpoint, criteria, and optional playbook and steps. get: the run, revision, pending evidence and next. list: this thread's runs. playbooks: the built-in playbooks and their steps. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record one check's result. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked. step: mark stepId done or skipped (note: what you saw, or why).",
+      "description": "start: open a run with its outcome, endpoint, criteria, and optional playbook and steps. get: the run, revision, pending evidence and next. list: this thread's runs. playbooks: the built-in playbooks and their steps. advance: move to phase (one step forward, or back to repair). block: record a blocker in note. resume: clear it, with the decision in note. evidence: record the result of one check or several. revise: add a criterion, or replace the one with its id and drop its evidence; not while blocked. step: mark stepId done or skipped (note: what you saw, or why).",
       "enum": [
         "start",
         "get",
@@ -34,8 +34,15 @@
       "type": "string"
     },
     "evidence": {
-      "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceInput.json",
-      "description": "evidence: one check, at the revision get returned before it ran."
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceInput.json"
+        },
+        {
+          "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceBatch.json"
+        }
+      ],
+      "description": "evidence: the checks you ran, one or a list of up to 32, each at the revision get returned before it ran. A list is one write: all are recorded or none."
     },
     "note": {
       "description": "advance, block, resume, revise and step: why, in a sentence. Required to skip.",
