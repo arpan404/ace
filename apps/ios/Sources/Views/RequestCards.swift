@@ -8,9 +8,13 @@ struct RequestCardFrame: ViewModifier {
     func body(content: Content) -> some View {
         content
             .padding(.horizontal, AceTheme.Spacing.lg).padding(.top, AceTheme.Spacing.lg + AceTheme.Spacing.xxs).padding(.bottom, AceTheme.Spacing.lg)
-            .background(AceTheme.Colours.card, in: RoundedRectangle(cornerRadius: AceTheme.Radii.approval, style: .continuous))
+            // The lift belongs to the card's surface alone: on the whole card it would blur the
+            // edge of every pill, inset and line of text inside it.
+            .background {
+                RoundedRectangle(cornerRadius: AceTheme.Radii.approval, style: .continuous).fill(AceTheme.Colours.card)
+                    .shadow(color: AceTheme.Colours.shadow.opacity(AceTheme.Opacity.shadow(colourScheme)), radius: AceTheme.Elevation.floating, y: AceTheme.Elevation.card)
+            }
             .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.approval, style: .continuous).stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
-            .shadow(color: AceTheme.Colours.shadow.opacity(AceTheme.Opacity.shadow(colourScheme)), radius: AceTheme.Elevation.floating, y: AceTheme.Elevation.card)
             .padding(.horizontal, AceTheme.Spacing.md).padding(.bottom, AceTheme.Spacing.sm)
             .sensoryFeedback(.selection, trigger: submission?.requestId)
     }
@@ -177,10 +181,28 @@ struct FormRequestCard: View {
                     .padding(AceTheme.Spacing.md).frame(minHeight: AceTheme.Dimensions.touchTarget)
                     .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.button))
             } else {
-                Picker(field.title, selection: value) {
-                    Text("Choose…").tag("")
-                    ForEach(field.choices) { choice in Text(choice.label).tag(choice.value) }
-                }.pickerStyle(.menu).frame(minHeight: AceTheme.Dimensions.touchTarget)
+                // Drawn like the text fields beside it, so the card reads as one form.
+                let chosen = field.choices.first { $0.value == value.wrappedValue }
+                Menu {
+                    Picker(field.title, selection: value) {
+                        ForEach(field.choices) { choice in Text(choice.label).tag(choice.value) }
+                    }
+                } label: {
+                    HStack(spacing: AceTheme.Spacing.sm) {
+                        Text(chosen?.label ?? "Choose…")
+                            .foregroundStyle(chosen == nil ? AceTheme.Colours.subtleForeground : AceTheme.Colours.foreground)
+                            .lineLimit(1)
+                        Spacer(minLength: AceTheme.Spacing.sm)
+                        Image(systemName: "chevron.up.chevron.down").font(.footnote.weight(.semibold))
+                            .foregroundStyle(AceTheme.Colours.subtleForeground)
+                    }
+                    .aceFont(AceTheme.Typography.body, relativeTo: .body)
+                    .padding(.horizontal, AceTheme.Spacing.md).frame(minHeight: AceTheme.Dimensions.touchTarget)
+                    .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.button))
+                    .contentShape(Rectangle())
+                }
+                .accessibilityLabel(field.title)
+                .accessibilityValue(chosen?.label ?? "Not chosen")
             }
             if !field.detail.isEmpty { Text(field.detail).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
         }

@@ -42,6 +42,7 @@ private struct TranscriptReadingReply: Decodable {
                 guard reply.active else { thread = nil; revision += 1; return }
                 let next = ThreadModel(id: live.id)
                 next.epoch = live.epoch
+                next.disclosures = live.disclosures
                 next.metadata = live.metadata
                 next.interactions = live.interactions
                 for row in reply.items {

@@ -43,7 +43,8 @@ struct ComposerModelButton: View {
             HStack(spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
                 if let provider = screen.controls?.provider, !provider.isEmpty { ProviderMark(provider: provider) }
                 Text(name).lineLimit(1).truncationMode(.tail)
-                    .frame(maxWidth: AceTheme.Dimensions.touchTarget * 3, alignment: .leading)
+                    // A long model name gives way before the message's placeholder does.
+                    .frame(maxWidth: AceTheme.Dimensions.touchTarget * 2.5, alignment: .leading)
                 Image(systemName: screen.controls?.switching == "queued" ? "clock" : "chevron.down")
                     .font(.caption2.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
             }
