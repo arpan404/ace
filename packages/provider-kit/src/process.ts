@@ -289,6 +289,9 @@ export async function probeOutput(
     name: "cli-probe",
     maxOutputBytes: maxBytes,
   });
+  // Read-only probes never write: EOF stdin so a CLI waiting on stdin exits
+  // instead of hanging until the probe timeout.
+  proc.stdin.end();
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
   let failure: Error | undefined;
