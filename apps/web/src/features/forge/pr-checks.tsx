@@ -14,6 +14,9 @@ import { cn } from "@/lib/cn.ts";
 import type { PrWorkspaceContext } from "./pr-extensions.ts";
 import { PrSection } from "./pr-section.tsx";
 import { PrCheckDetail } from "./pr-check-detail.tsx";
+import { LocalCheckRow } from "./pr-local-check-row.tsx";
+import { usePrLocalCheck } from "./pr-local-check.ts";
+import { useProjectDialogsIfHosted } from "@/features/projects/index.ts";
 
 const checkLook: Record<
   ForgeCheck["status"],
@@ -42,6 +45,12 @@ export function PrChecks(props: {
 }) {
   const { status } = props.context.detail;
   const stale = status.ci === "unknown";
+  const local = usePrLocalCheck(props.context.workspaceId, status);
+  const dialogs = useProjectDialogsIfHosted();
+  const workspaceId = props.context.workspaceId;
+  // Open PRs always show their local check; finished ones only one that ran.
+  const unfinished = status.state === "open" || status.state === "draft";
+  const showLocal = local.run !== undefined || (unfinished && local.command !== undefined);
   const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
   const toggle = (id: string) =>
     setOpened((current) => {
@@ -65,6 +74,19 @@ export function PrChecks(props: {
             Refresh
           </Button>
         </p>
+      )}
+      {showLocal && (
+        <ul aria-label="Local check">
+          <LocalCheckRow
+            workspaceId={workspaceId}
+            detail={props.context.detail}
+            run={local.run}
+            command={local.command}
+            onSetCommand={
+              dialogs ? () => dialogs.open({ kind: "edit", projectId: workspaceId }) : undefined
+            }
+          />
+        </ul>
       )}
       {status.checks.length ? (
         <ul>

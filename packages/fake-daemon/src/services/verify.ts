@@ -46,14 +46,14 @@ function failsAt(failure: FakeVerifyFailure, step: VerifyStep): boolean {
   }
 }
 
+const pending = (kind: VerifyStep["kind"], pr?: number): VerifyStep => ({
+  kind,
+  state: "pending",
+  ...(pr === undefined ? {} : { pr }),
+});
+
 function plannedSteps(target: VerifyTarget): VerifyStep[] {
-  const pending = (kind: VerifyStep["kind"], pr?: number): VerifyStep => ({
-    kind,
-    state: "pending",
-    ...(pr === undefined ? {} : { pr }),
-  });
-  if (target.kind === "check")
-    return [pending("fetch"), pending("setup"), pending("check")];
+  if (target.kind === "check") return [pending("fetch"), pending("setup"), pending("check")];
   return [
     pending("fetch"),
     ...target.prs.map((pr) => pending("combine", pr.pr.number)),
@@ -103,13 +103,19 @@ export class FakeVerify {
     const set = this.commands.get(workspaceId);
     return set === undefined ? "bun run check" : set;
   }
-  /** Stage a run as the daemon would list it (a past local check, a live merge run). */
+  /** Stage a run as the daemon would list and push it (a past local check, a live merge run). */
   seed(run: VerifyRun): void {
-    this.runs.set(run.id, VerifyRun.parse(run));
+    const parsed = VerifyRun.parse(run);
+    this.runs.set(parsed.id, parsed);
+    this.broadcast({ type: "verify.changed", run: parsed });
   }
   /** Move every live run on by one step. */
   advance(): void {
-    for (const run of [...this.runs.values()]) if (run.state === "running" || run.state === "merging") this.step(run.id);
+    // Only the runs moving now: one a settled run lets begin waits for the next advance.
+    const moving: string[] = [];
+    for (const run of this.runs.values())
+      if (run.state === "running" || run.state === "merging") moving.push(run.id);
+    for (const id of moving) this.step(id);
   }
   handle(message: VerifyRequest): VerifyResult {
     const { op, requestId } = message;

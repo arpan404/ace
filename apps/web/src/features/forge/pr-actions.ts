@@ -10,6 +10,7 @@ import { useStackMemberships } from "./pr-stack-groups.tsx";
 import { prPrimaryAction } from "./pr-primary-action.ts";
 import { mergeBlockers, prGates } from "./pr-gates.ts";
 import { reviewerOutcomes } from "./pr-summary-model.ts";
+import { usePrLocalCheck } from "./pr-local-check.ts";
 
 const newCommandId = () => crypto.randomUUID();
 
@@ -59,6 +60,7 @@ export function usePrActions(props: {
   const worktree = usePrWorktree({ workspaceId, detail, newId: newCommandId, onRefresh });
   const membership = useStackMemberships(workspaceId, status.ref.repository, [status.ref.number]);
   const stack = membership.isError ? undefined : (membership.data?.[0]?.stack ?? undefined);
+  const local = usePrLocalCheck(workspaceId, status);
   // The same gates the header shows decide whether a merge is blocked.
   const blockers = mergeBlockers(
     prGates({
@@ -67,6 +69,7 @@ export function usePrActions(props: {
       mergeState: mergeState.state,
       baseBranch: detail.baseBranch,
       outcomes: reviewerOutcomes(status.comments),
+      local: local.result,
     }),
   );
   const primary = prPrimaryAction({
@@ -121,6 +124,8 @@ export function usePrActions(props: {
     writes,
     worktree,
     stack,
+    /** The latest local check of the head, counted in the checks gate. */
+    local,
     primary,
     mergeBlocked,
     autoMergeBlocked,

@@ -1,4 +1,5 @@
 import type { ForgeMergeState, ForgePrStatus } from "@ace/protocol";
+import type { LocalCheckResult } from "@ace/ui-core";
 import type { ReviewOutcome } from "./pr-summary-model.ts";
 
 /*
@@ -31,13 +32,19 @@ export interface GateFacts {
   ended?: { by?: string | undefined; ago?: string | undefined } | undefined;
   /** Whether the head branch was deleted after it ended, when known. */
   branchDeleted?: boolean | undefined;
+  /** The latest local check of the head (ADR 0094), counted with GitHub's checks. */
+  local?: LocalCheckResult;
 }
 
-function checksGate(status: GateFacts["status"]): Gate {
+/** The local check counts as one more check beside GitHub's. */
+function checksGate(status: GateFacts["status"], local: LocalCheckResult): Gate {
   const label = "Checks";
-  const failed = status.checks.filter((c) => c.status === "failure").length;
-  const running = status.checks.filter((c) => c.status === "pending").length;
-  const ok = status.checks.filter((c) => c.status === "success").length;
+  const failed =
+    status.checks.filter((c) => c.status === "failure").length + Number(local === "failed");
+  const running =
+    status.checks.filter((c) => c.status === "pending").length + Number(local === "running");
+  const ok =
+    status.checks.filter((c) => c.status === "success").length + Number(local === "passed");
   if (failed || status.ci === "failure")
     return {
       key: "checks",
@@ -101,7 +108,7 @@ export function prGates(facts: GateFacts): Gate[] {
         tone: merged ? "waiting" : "failed",
       },
       { key: "into", label: "Into", value: facts.baseBranch, tone: "idle" },
-      checksGate(status),
+      checksGate(status, facts.local),
       {
         key: "branch",
         label: "Branch",
@@ -111,7 +118,7 @@ export function prGates(facts: GateFacts): Gate[] {
     ];
   }
   return [
-    checksGate(status),
+    checksGate(status, facts.local),
     reviewsGate(facts),
     conflictsGate(status),
     branchGate(facts.mergeState),
