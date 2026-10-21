@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,7 +18,10 @@ async function parsed(profile: string): Promise<string> {
   onTestFinished(() => rm(dir, { recursive: true, force: true }));
   const path = join(dir, "ace-chromium");
   await writeFile(path, profile);
-  return execFileSync("apparmor_parser", ["-QK", "-d", path], { encoding: "utf8" });
+  const result = spawnSync("apparmor_parser", ["-QK", "-d", path], { encoding: "utf8" });
+  if (result.status !== 0) throw new Error(`apparmor_parser failed: ${result.stderr}`);
+  // The parser prints the profile mode on stderr.
+  return `${result.stdout}\n${result.stderr}`;
 }
 
 it.skipIf(!parser)(
