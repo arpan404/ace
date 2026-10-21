@@ -2,6 +2,12 @@
 
 Date: 2026-10-20. Status: accepted.
 
+## Context
+
+Triage is what a person reaches for when ace is broken: the app crashes or won't open,
+the daemon is down or stuck, settings are wrong. A triage screen inside the app, or one
+served by the daemon, would be unavailable exactly when it is needed.
+
 ## Decision
 
 `ace triage` is a CLI-only wizard. Portable prompt templates live in
@@ -22,7 +28,20 @@ environment values, ids and emails; home paths are shown as `~` because the agen
 on the same computer and needs them. Only the installation-repair template runs doctor
 checks; it lists findings and summarizes successful checks without raw JSON. No
 conversation or credential files are attached.
-There is no app triage route or provider-launch operation in diagnostics.
+There is no app triage route or provider-launch operation in diagnostics, and none
+may be added: triage depends on nothing that is broken when it is needed.
+
+- `cli.ts` routes `ace triage` and `ace doctor` to a small entry point before the rest
+  of the command table loads, so a module that fails to load elsewhere can't block them.
+- Triage never connects to the daemon. It reads files directly: the log tail and the
+  daemon's run state.
+- Invalid `ACE_*` settings don't stop it. It drops them, keeps a valid `ACE_HOME` (or
+  falls back to the default folder) and says so in the prompt.
+- Every probe is best-effort. A failed read, CLI probe or doctor run becomes a line
+  under "Couldn't check" in the prompt instead of an error, since in a broken install
+  those failures are often the best evidence.
+- `TriageKind` and `TriageProvider` live in `@ace/diagnostics/triage`, not the wire
+  protocol, because no client or daemon request carries them.
 
 The wizard works without a daemon. JSON, jq, print and piped input never launch a
 provider. Interactive launch passes an argument vector directly to the installed

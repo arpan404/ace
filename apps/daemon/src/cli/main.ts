@@ -1,5 +1,3 @@
-import { triageCommand, triageHelp } from "./triage.ts";
-import { doctorCommand } from "./doctor.ts";
 import { remoteCommand, redeemCommand } from "./remote.ts";
 import { logsCommand } from "./logs.ts";
 import { cloudCommand } from "./cloud.ts";
@@ -11,7 +9,8 @@ import { ClientError } from "@ace/client";
 import { NewerDataError, prepareDaemonHome } from "@ace/service";
 import { readConfig } from "../config.ts";
 import { option, parseArgs, type Args } from "./args.ts";
-import { CliFailure, exitCodes } from "./output.ts";
+import { CliFailure } from "./output.ts";
+import { reportFailure } from "./failure.ts";
 import { print, validateOutput } from "./io.ts";
 import { runtimeCommand } from "./runtime.ts";
 import { accessCommand } from "./access.ts";
@@ -71,12 +70,7 @@ export async function main(input: string[]): Promise<void> {
     args = parseArgs(input);
     await validateOutput(args);
     if (args.flags.help) {
-      const text =
-        args.words[0] === "sim"
-          ? simHelp
-          : ["triage", "doctor"].includes(args.words[0] ?? "")
-            ? triageHelp
-            : help.trimEnd();
+      const text = args.words[0] === "sim" ? simHelp : help.trimEnd();
       await print(args, args.flags.json || args.flags.jq ? { help: text } : text);
       return;
     }
@@ -110,8 +104,6 @@ export async function main(input: string[]): Promise<void> {
       } else process.stdout.write(lines.join(""));
       return;
     }
-    if (command === "triage") return await triageCommand(args, config);
-    if (command === "doctor") return await doctorCommand(args, config);
     if (command === "support-bundle") {
       const { diagnosticsCli } = await import("../diagnostics-cli.ts");
       const output: string[] = [];
@@ -205,23 +197,7 @@ export async function main(input: string[]): Promise<void> {
               ? "refused"
               : "uncertain"
           : "refused";
-    const message = error instanceof Error ? error.message : "Command failed";
-    const evidence = error instanceof CliFailure ? error.evidence : undefined;
-    const failure = {
-      ok: false,
-      status: outcome,
-      error: message,
-      ...(evidence !== undefined ? { admission: evidence } : {}),
-    };
-    process.exitCode = exitCodes[outcome];
-    if (args.flags.json || args.flags.jq || args.flags.stream === "jsonl")
-      await print({ ...args, flags: { ...args.flags, jq: "", json: true } }, failure).catch(() => {
-        process.stderr.write(`${JSON.stringify(failure)}\n`);
-      });
-    else
-      process.stderr.write(
-        `${message}\n${evidence === undefined ? "" : `${JSON.stringify(evidence)}\n`}`,
-      );
+    await reportFailure(args, error, outcome);
   }
 }
 

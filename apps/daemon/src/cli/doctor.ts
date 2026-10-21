@@ -1,5 +1,5 @@
 import { formatDoctor } from "@ace/diagnostics";
-import { TriageProvider } from "@ace/protocol";
+import { TriageProvider } from "@ace/diagnostics/triage";
 import { fixDoctorReport } from "../diagnostics-report.ts";
 import type { Config } from "../config.ts";
 import { option, validateArgs, type Args } from "./args.ts";

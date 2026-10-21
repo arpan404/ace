@@ -60,11 +60,20 @@ export async function collectTriageContext(input: {
   now: number;
   environment: string;
   clis: readonly InstalledCli[];
+  /** Earlier failures; this function adds its own and never throws for a bad read. */
+  problems?: readonly string[];
 }): Promise<TriageContext> {
   const logFile = join(input.dataDir, "logs", "ace.jsonl");
+  const problems = [...(input.problems ?? [])];
   const [lines, daemon] = await Promise.all([
-    readLogTail(logFile),
-    localDaemonState(input.dataDir),
+    readLogTail(logFile).catch((error: unknown) => {
+      problems.push(`Reading ${logFile} failed: ${message(error)}`);
+      return [];
+    }),
+    localDaemonState(input.dataDir).catch((error: unknown) => {
+      problems.push(`Reading the daemon's run state failed: ${message(error)}`);
+      return undefined;
+    }),
   ]);
   // Scrub secrets, ids and emails, but keep paths usable: the agent runs on this computer.
   const scrub = createTextRedactor({
@@ -83,7 +92,7 @@ export async function collectTriageContext(input: {
   }
   return {
     environment: input.environment,
-    daemon,
+    ...(daemon ? { daemon } : {}),
     clis: input.clis.map((cli) => ({
       label: cli.label,
       ...(cli.version ? { version: cli.version } : {}),
@@ -92,5 +101,10 @@ export async function collectTriageContext(input: {
     logFile: tilde(logFile),
     logs,
     now: input.now,
+    ...(problems.length ? { problems: problems.map(redact) } : {}),
   };
+}
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message.slice(0, 200) : "failed";
 }

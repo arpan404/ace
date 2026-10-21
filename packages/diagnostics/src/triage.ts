@@ -1,8 +1,15 @@
-import type { DiagnosticReport, TriageKind, TriageProvider } from "@ace/protocol";
+import type { DiagnosticReport } from "@ace/protocol";
+import { z } from "zod";
 import type { LogDigest } from "./triage-logs.ts";
 
 export type { LogDigest } from "./triage-logs.ts";
 export { digestLogLines } from "./triage-logs.ts";
+
+/** CLI-only: triage never crosses the wire, so these live here, not in @ace/protocol. */
+export const TriageKind = z.enum(["bug", "feature", "performance", "doctor"]);
+export type TriageKind = z.infer<typeof TriageKind>;
+export const TriageProvider = z.enum(["claude", "codex", "cursor", "opencode"]);
+export type TriageProvider = z.infer<typeof TriageProvider>;
 
 type Question = { message: string; placeholder: string; heading: string };
 export type TriageTemplate = {
@@ -133,6 +140,8 @@ export type TriageContext = {
   logs?: readonly LogDigest[];
   /** Milliseconds since epoch, used to age log entries. */
   now?: number;
+  /** Probes that failed. In a broken install these are often the best evidence. */
+  problems?: readonly string[];
 };
 
 export function triageTemplate(kind: TriageKind): TriageTemplate {
@@ -163,6 +172,11 @@ export function buildTriagePrompt(input: {
   if (context.logs?.length) sections.push(logSection(context.logs, context.now));
   const environment = environmentSection(context);
   if (environment) sections.push(environment);
+  if (context.problems?.length)
+    sections.push(
+      "## Couldn't check\nThese failed while collecting this prompt. Treat them as clues.\n" +
+        context.problems.map((problem) => `- ${problem}`).join("\n"),
+    );
   sections.push(lookSection(context));
   sections.push(
     "## How to work\n" +

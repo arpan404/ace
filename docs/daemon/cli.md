@@ -283,7 +283,9 @@ and is never part of a cleanup plan. A run that hits its chunk limit returns
 ## Triage and doctor repairs
 
 Run `ace triage` in a terminal to turn a problem or idea into a prompt a coding agent
-can act on. Pick a template, answer its question (press Enter twice to continue) and
+can act on. It is built for when ace is broken: it needs neither the app nor the
+daemon, ignores invalid `ACE_*` settings, and lists anything it couldn't read under
+"Couldn't check" in the prompt. Pick a template, answer its question (press Enter twice to continue) and
 an optional follow-up, then review the prompt. Besides your answers it includes ace's
 warnings and errors from the last 24 hours, grouped with counts; whether the daemon is
 running; installed agent CLIs and versions; and where ace keeps its logs and data.

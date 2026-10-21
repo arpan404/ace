@@ -30272,30 +30272,6 @@ Example:
 }
 ```
 
-## TriageKind
-
-[JSON Schema](schema/TriageKind.json), input validation.
-
-Type: ["bug","feature","performance","doctor"]. See JSON Schema for constraints.
-
-Example:
-
-```json
-"feature"
-```
-
-## TriageProvider
-
-[JSON Schema](schema/TriageProvider.json), input validation.
-
-Type: ["claude","codex","cursor","opencode"]. See JSON Schema for constraints.
-
-Example:
-
-```json
-"cursor"
-```
-
 ## TurnDigest
 
 [JSON Schema](schema/TurnDigest.json), input validation.
@@ -30322,21 +30298,21 @@ Example:
 
 ```json
 {
-  "approvalsAnswered": 5,
-  "approvalsAsked": 1,
-  "approvalsAutoReviewed": 3,
-  "approvalsPending": 2,
+  "approvalsAnswered": 2,
+  "approvalsAsked": 9,
+  "approvalsAutoReviewed": 1,
+  "approvalsPending": 5,
   "commands": [],
-  "commandsFailed": 2,
-  "commandsRun": 9,
-  "errors": 0,
+  "commandsFailed": 7,
+  "commandsRun": 4,
+  "errors": 9,
   "files": [],
-  "inputTokens": null,
+  "inputTokens": 5,
   "outputTokens": null,
-  "subagentsFinished": 5,
-  "subagentsStarted": 2,
+  "subagentsFinished": 2,
+  "subagentsStarted": 3,
   "toolCounts": {},
-  "truncated": false
+  "truncated": true
 }
 ```
 
@@ -30400,11 +30376,11 @@ Example:
 ```json
 {
   "after": null,
-  "before": 7,
-  "indexedSeq": 5,
-  "ready": true,
+  "before": 4,
+  "indexedSeq": 6,
+  "ready": false,
   "requestId": "example",
-  "seq": 6,
+  "seq": 7,
   "threadId": "example",
   "turns": [],
   "type": "turns.page"
@@ -30427,23 +30403,24 @@ Example:
 {
   "item": {
     "agentId": "example",
-    "complete": true,
-    "createdAt": 9,
+    "complete": false,
+    "createdAt": 5,
     "id": "example",
-    "image": {
-      "alt": "example",
-      "attachment": {
-        "bytes": 3,
+    "runId": "example",
+    "type": "html",
+    "visualization": {
+      "document": {
+        "bytes": 8,
+        "height": 3,
         "mimeType": "example",
         "name": "example",
-        "sha256": "bd71e20a58cd0a0635475988efcfe76c2a1044c65fc85221023511cf56adeb47",
-        "thumbnailAvailable": false,
-        "width": 3
-      }
-    },
-    "type": "image"
+        "sha256": "9bd71e20a58cd0a0635475988efcfe76c2a1044c65fc85221023511cf56adeb4"
+      },
+      "height": 85,
+      "title": "example"
+    }
   },
-  "seq": 1,
+  "seq": 7,
   "surface": {
     "iconRef": "99a42ad115bff7a5630904757e90318c8dfbdfe45fccc492ff773145a1d895f4",
     "kind": "example"

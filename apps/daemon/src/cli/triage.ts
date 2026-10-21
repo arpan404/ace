@@ -1,13 +1,14 @@
 import { homedir } from "node:os";
-import { TriageKind, TriageProvider, type DiagnosticReport } from "@ace/protocol";
+import type { DiagnosticReport } from "@ace/protocol";
 import {
+  TriageKind,
+  TriageProvider,
   buildTriagePrompt,
   triageProviders,
   triageTemplate,
   triageTemplates,
   type TriageContext,
 } from "@ace/diagnostics/triage";
-import { collectDoctorReport } from "../diagnostics-report.ts";
 import { collectTriageContext, localDaemonState } from "../triage-context.ts";
 import { installedClis, runTriageHandoff, type InstalledCli } from "../triage-launch.ts";
 import type { Config } from "../config.ts";
@@ -30,7 +31,11 @@ Legacy databases and corrupt files are not rebuilt.`;
 
 type Gathered = { clis: InstalledCli[]; context: TriageContext; report?: DiagnosticReport };
 
-export async function triageCommand(args: Args, config: Config): Promise<void> {
+export async function triageCommand(
+  args: Args,
+  config: Config,
+  problems: readonly string[] = [],
+): Promise<void> {
   validateArgs(args, ["kind", "provider", "print"], 1, 2);
   if (args.flags.remote)
     throw new CliFailure(
@@ -54,7 +59,7 @@ export async function triageCommand(args: Args, config: Config): Promise<void> {
         : "bug");
     const template = triageTemplate(kind);
     // Look around while the person types; it's ready by the time they finish.
-    const gathering = gather(config, kind);
+    const gathering = gather(config, kind, problems);
     gathering.catch(() => {});
     let description: string;
     let followUp = "";
@@ -169,10 +174,29 @@ async function cancelled(error: unknown): Promise<boolean> {
   return error instanceof TriageCancelled;
 }
 
-async function gather(config: Config, kind: TriageKind): Promise<Gathered> {
+/**
+ * Triage runs when ace is broken, so no single probe may sink it: each failure becomes
+ * a line in the prompt's "Couldn't check" section instead.
+ */
+async function gather(
+  config: Config,
+  kind: TriageKind,
+  problems: readonly string[],
+): Promise<Gathered> {
+  const notes = [...problems];
+  const attempt = async <T>(what: string, run: () => Promise<T>, fallback: T): Promise<T> => {
+    try {
+      return await run();
+    } catch (error) {
+      notes.push(`${what}: ${error instanceof Error ? error.message.slice(0, 200) : "failed"}`);
+      return fallback;
+    }
+  };
   const [clis, report] = await Promise.all([
-    installedClis(process.env),
-    kind === "doctor" ? collectCliDoctorReport(config) : undefined,
+    attempt("Listing agent CLIs failed", () => installedClis(process.env), []),
+    kind === "doctor"
+      ? attempt("ace doctor didn't finish", () => collectCliDoctorReport(config), undefined)
+      : undefined,
   ]);
   const context = await collectTriageContext({
     dataDir: config.dataDir,
@@ -181,6 +205,7 @@ async function gather(config: Config, kind: TriageKind): Promise<Gathered> {
     now: Date.now(),
     environment: environment(),
     clis,
+    problems: notes,
   });
   return { clis, context, ...(report ? { report } : {}) };
 }
@@ -190,6 +215,7 @@ async function gather(config: Config, kind: TriageKind): Promise<Gathered> {
  * "port in use" warning is expected and would only mislead the agent.
  */
 export async function collectCliDoctorReport(config: Config): Promise<DiagnosticReport> {
+  const { collectDoctorReport } = await import("../diagnostics-report.ts");
   const [report, daemon] = await Promise.all([
     collectDoctorReport(config, process.env, Date.now),
     localDaemonState(config.dataDir),
@@ -261,7 +287,7 @@ export async function offerDoctorHandoff(
 ): Promise<void> {
   if (!interactive(args)) return;
   const supplied = option(args, "provider");
-  const { clis, context } = await gather(config, "bug");
+  const { clis, context } = await gather(config, "bug", []);
   const prompt = doctorPrompt(report, context);
   if (supplied) {
     process.exitCode = await runTriageHandoff(TriageProvider.parse(supplied), prompt, process.env);

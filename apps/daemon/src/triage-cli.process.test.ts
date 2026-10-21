@@ -70,6 +70,23 @@ it("a bug prompt carries this computer's recent ace errors, grouped, without the
   expect(result.stdout).toContain("Agent CLIs: none found");
   expect(await readFile(join(home, "logs", "ace.jsonl"), "utf8")).toBe(log + "\n");
 });
+it("triage still writes a prompt when ace's settings are invalid and its log can't be read, and says so", async () => {
+  const { home } = await setup();
+  // A directory where the log file should be makes every read of it fail.
+  await mkdir(join(home, "logs", "ace.jsonl"), { recursive: true, mode: 0o700 });
+  const result = await invoke(
+    home,
+    ["triage", "-", "--kind", "bug", "--print"],
+    "The app won't open after an update",
+    { PATH: "", ACE_PORT: "not-a-port" },
+  );
+  expect(result.code).toBe(0);
+  expect(result.stdout).toContain("The app won't open after an update");
+  expect(result.stdout).toContain("## Couldn't check");
+  expect(result.stdout).toContain("ACE_* environment settings are invalid");
+  expect(result.stdout).toMatch(/Reading \S*logs\/ace\.jsonl failed/);
+  expect(result.stdout).toMatch(/Logs: \S*data\/logs\/ace\.jsonl/);
+});
 it("doctor fix restores private folder access, creates logs, preserves data and exports unresolved findings", async () => {
   const { home } = await setup();
   await writeFile(join(home, "precious-data"), "keep me");

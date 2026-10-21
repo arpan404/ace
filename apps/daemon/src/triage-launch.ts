@@ -4,9 +4,9 @@ import { probeOutput } from "@ace/provider-kit/process";
 import {
   triageInvocation,
   triageProviders,
+  type TriageProvider,
   type TriageProviderEntry,
 } from "@ace/diagnostics/triage";
-import type { TriageProvider } from "@ace/protocol";
 
 export type InstalledCli = TriageProviderEntry & { path: string; version?: string };
 
