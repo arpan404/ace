@@ -114,7 +114,7 @@ function anchors(a: readonly string[], b: readonly string[]): [number, number][]
     const pair = pairs[index];
     if (pair) run.push(pair);
   }
-  return run.reverse();
+  return run.toReversed();
 }
 
 function middle(a: string[], b: string[], oldBase: number, newBase: number, out: DiffLine[]) {

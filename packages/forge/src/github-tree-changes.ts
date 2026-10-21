@@ -18,6 +18,9 @@ const Tree = z.looseObject({
     .max(100_000),
 });
 type Entry = z.infer<typeof Tree>["tree"][number];
+/** A file, link or submodule: anything but a folder. */
+const blob = (entry: Entry | undefined) => entry && entry.type !== "tree";
+const treeOf = (entry: Entry | undefined) => (entry?.type === "tree" ? entry.sha : undefined);
 
 export interface TreeChange {
   path: string;
@@ -87,13 +90,11 @@ export async function treeChanges(
     const [before, after] = await both(tree(pair.base, false), tree(pair.head, false));
     const old = new Map(before.map((entry) => [entry.path, entry]));
     const seen = new Set<string>();
-    const blob = (entry: Entry | undefined) => entry && entry.type !== "tree";
     for (const entry of after) {
       seen.add(entry.path);
       const previous = old.get(entry.path);
       if (previous?.sha === entry.sha && previous.type === entry.type) continue;
       const path = `${pair.prefix}${entry.path}`;
-      const treeOf = (side: Entry | undefined) => (side?.type === "tree" ? side.sha : undefined);
       if (treeOf(previous) || treeOf(entry))
         queue.push({ prefix: `${path}/`, base: treeOf(previous), head: treeOf(entry) });
       if (blob(previous) && blob(entry)) add(path, "modified");
@@ -111,7 +112,7 @@ export async function treeChanges(
   // The first failure stops new reads; the ones in flight finish before it is thrown.
   let failure: { error: unknown } | undefined;
   while (queue.length || running.size) {
-    while (queue.length && running.size < parallel && !failure) {
+    while (queue.length && running.size < parallel) {
       if (reads >= maxReads) {
         complete = false;
         queue.length = 0;

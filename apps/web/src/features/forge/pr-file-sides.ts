@@ -30,6 +30,7 @@ interface SideRead {
 function sideReads(file: ForgeFile, range: { baseSha: string; headSha: string }) {
   const image = hostedImageType(file.path);
   return {
+    path: file.path,
     base:
       file.status === "added"
         ? undefined
@@ -88,9 +89,7 @@ export function usePrFileSides(props: {
   const reads = useMemo(
     () =>
       range
-        ? files
-            .filter((file) => wanted.has(file.path))
-            .map((file) => ({ path: file.path, ...sideReads(file, range) }))
+        ? files.filter((file) => wanted.has(file.path)).map((file) => sideReads(file, range))
         : [],
     [files, wanted, range],
   );

@@ -70,6 +70,15 @@ const text = (value: string, nextPage?: number): ForgeFileContent => ({
   ...(nextPage ? { nextPage } : {}),
 });
 
+const image = (data: string, size: number): ForgeFileContent => ({
+  kind: "image",
+  type: "image/png",
+  data,
+  size,
+});
+const notebook = (cells: unknown[]) =>
+  JSON.stringify({ metadata: { language_info: { name: "python" } }, cells });
+
 async function mount(app: ReturnType<typeof harness>) {
   await app.client.start();
   render(
@@ -131,12 +140,6 @@ test("a withheld diff with very many changed lines reads only when asked", async
 test("a changed image shows before and after, side by side or swiped", async () => {
   const app = harness();
   serveFiles(app, [withheld("assets/logo.png", "modified", 0)]);
-  const image = (data: string, size: number): ForgeFileContent => ({
-    kind: "image",
-    type: "image/png",
-    data,
-    size,
-  });
   serveSide(app, { sha: base, path: "assets/logo.png", image: "image/png" }, image("AAAA", 1200));
   serveSide(app, { sha: head, path: "assets/logo.png", image: "image/png" }, image("BBBB", 2400));
   const diff = await mount(app);
@@ -189,8 +192,6 @@ test("markdown reads rendered with its changed blocks marked, and switches to it
 
 test("a notebook reads as cells, with an added cell and its output marked", async () => {
   const app = harness();
-  const notebook = (cells: unknown[]) =>
-    JSON.stringify({ metadata: { language_info: { name: "python" } }, cells });
   const first = { cell_type: "markdown", source: ["# Analysis"] };
   const added = {
     cell_type: "code",
