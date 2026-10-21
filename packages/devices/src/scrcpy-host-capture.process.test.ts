@@ -30,6 +30,10 @@ async function fakeControl() {
   let control = Buffer.alloc(0);
   const server: Server = createServer((socket) => {
     sockets.push(socket);
+    socket.on("error", (error) => {
+      // Capture teardown can reset this synthetic control connection before its writes drain.
+      if (!("code" in error) || error.code !== "ECONNRESET") throw error;
+    });
     const name = Buffer.alloc(64);
     name.write("sdk_gphone64_arm64");
     socket.write(Buffer.concat([Buffer.from([0]), name]));

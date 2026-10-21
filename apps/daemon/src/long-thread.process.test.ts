@@ -484,9 +484,9 @@ test("item windows resolve deleted targets and both thread boundaries without pa
 
 // Mutations: dropping the target to fit older items, treating an oversized neighbor as a
 // fatal target error or returning a noncontiguous interval. Not executed (tests run at merge).
-test("byte-limited item windows retain the target and stop at an oversized neighbor", () => {
+test("byte-limited item windows retain the target and stop before a neighbor that only fits alone", () => {
   const f = storeFixture();
-  const huge = "x".repeat(1100 * 1024);
+  const huge = "x".repeat(900 * 1024);
   const events = f.store.appendEvents(
     f.thread.id,
     [
@@ -494,7 +494,10 @@ test("byte-limited item windows retain the target and stop at an oversized neigh
         type: "item.created",
         item: tool("oversized-before", "succeeded", { kind: "shell", command: huge }),
       },
-      { type: "item.created", item: agentMessage("target", "The jump target") },
+      {
+        type: "item.created",
+        item: tool("target", "succeeded", { kind: "shell", command: "t".repeat(256 * 1024) }),
+      },
       { type: "item.created", item: agentMessage("after", "A newer message") },
     ],
     20,

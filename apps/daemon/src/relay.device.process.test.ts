@@ -17,6 +17,7 @@ import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { connectClientViaRelay, startRelay, type ClientChannel } from "@ace/relay";
 import { fingerprint, keyPair } from "@ace/secure-channel";
 import { framePacket, type Frame } from "@ace/screen";
+import { videoWindow } from "@ace/browser/video-fanout";
 import {
   decodeStreamMessage,
   isStreamPiece,
@@ -77,7 +78,7 @@ class DeviceClient {
   private async next(): Promise<DeviceServerMessage | undefined> {
     const frame = await this.channel.receiveFrame();
     if (frame instanceof Uint8Array) {
-      if (this.chunks.length >= 128) throw new Error("Unexpected fragment flood");
+      if (this.chunks.length >= 512) throw new Error("Unexpected fragment flood");
       this.chunks.push(frame.length);
       // Every binary message on the devices channel is a stream piece.
       if (!isStreamPiece(frame)) throw new Error("Binary message is not a stream piece");
@@ -294,17 +295,19 @@ it("a relay viewer on the shared media stream gets an emulator's pictures at the
   // Each 128 KiB picture crossed the relay in pieces no larger than a relay message.
   expect(client.chunks.every((length) => length <= 64 * 1024)).toBe(true);
   const shown = [first];
-  for (let sequence = 1; sequence <= 7; sequence++) {
+  for (let sequence = 1; sequence < videoWindow.frames; sequence++) {
     f.publish("android:Tablet", sequence, 40 + sequence);
     shown.push(await client.picture());
   }
-  expect(shown.map((picture) => picture.frame.sequence)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
-  // Eight pictures unacked fill the window: the next ones wait, each replacing the one before.
-  f.publish("android:Tablet", 8, 48);
-  f.publish("android:Tablet", 9, 49);
-  await client.ack("android:Tablet", first.frame.streamId, 7);
+  expect(shown.map((picture) => picture.frame.sequence)).toEqual(
+    Array.from({ length: videoWindow.frames }, (_, sequence) => sequence),
+  );
+  // Unacked pictures fill the window: the next ones wait, each replacing the one before.
+  f.publish("android:Tablet", videoWindow.frames, 48);
+  f.publish("android:Tablet", videoWindow.frames + 1, 49);
+  await client.ack("android:Tablet", first.frame.streamId, videoWindow.frames - 1);
   const newest = await client.picture();
-  expect(newest.frame.sequence).toBe(9);
+  expect(newest.frame.sequence).toBe(videoWindow.frames + 1);
   expect(Buffer.from(newest.frame.bytes)).toEqual(Buffer.alloc(128 * 1024, 49));
 });
 
