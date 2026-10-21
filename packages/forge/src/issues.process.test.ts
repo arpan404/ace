@@ -56,6 +56,32 @@ test("issue search applies repository, literal search, labels and assignment fil
   }
 });
 
+test("issues you opened or that are assigned to you are found through @me", async () => {
+  const params = new URLSearchParams({
+    q: "repo:octo/ace is:issue is:open author:@me assignee:@me",
+    sort: "updated",
+    order: "desc",
+    per_page: "25",
+    page: "1",
+  });
+  const gh = await fakeGh({
+    [`search/issues?${params}`]: [
+      { body: { total_count: 1, incomplete_results: false, items: [issueRecord] } },
+    ],
+    graphql: [{ body: { data: { open: { issueCount: 1 }, closed: { issueCount: 0 } } } }],
+    "repos/octo/ace": [{ body: { archived: false, has_issues: true } }],
+  });
+  try {
+    const result = await gh.forge.listIssues(
+      ForgeIssueSearch.parse({ author: "@me", assignee: "@me" }),
+      signal(),
+    );
+    expect(result.items.map((item) => item.ref.number)).toEqual([7]);
+  } finally {
+    await gh.cleanup();
+  }
+});
+
 test("issue detail keeps Markdown and unknown fields and reports viewer permissions", async () => {
   const gh = await fakeGh({
     "repos/octo/ace/issues/7": [{ body: issueRecord }],

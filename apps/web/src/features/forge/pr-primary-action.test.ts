@@ -72,7 +72,7 @@ test("a draft asks to be marked ready", () => {
 test("running checks offer auto-merge only when the host allows enabling it", () => {
   const running = status({ ci: "pending" });
   expect(label({ status: running, mergeState: mergeState(), method: "squash" })).toBe(
-    "Auto-merge (squash)",
+    "Enable auto-merge · squash",
   );
   expect(
     prPrimaryAction({
@@ -137,7 +137,7 @@ test("where the host allows auto-merge, blocking gates offer auto-merge when rea
       linked: true,
       blockers: ["Reviews: Changes requested"],
     }),
-  ).toBe("Auto-merge when ready");
+  ).toBe("Enable auto-merge · squash");
 });
 
 test("armed auto-merge and a queued PR show what GitHub will do", () => {
@@ -147,7 +147,7 @@ test("armed auto-merge and a queued PR show what GitHub will do", () => {
       mergeState: mergeState({ autoMerge: { method: "REBASE", actor: "octo", enabledAt: "x" } }),
       method: "squash",
     }),
-  ).toEqual({ kind: "auto-merge-armed", method: "rebase" });
+  ).toMatchObject({ kind: "auto-merge-armed", method: "rebase" });
   expect(
     label({
       status: status(),

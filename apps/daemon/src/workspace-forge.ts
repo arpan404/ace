@@ -6,6 +6,7 @@ import type { Command } from "@ace/protocol";
 import { ForgeResourceOwner } from "./forge-resource-owner.ts";
 import { WorkspaceForgeLifecycle } from "./workspace-forge-lifecycle.ts";
 import { WorkspaceForgeReviews } from "./workspace-forge-reviews.ts";
+import { WorkspaceForgeChecks } from "./workspace-forge-checks.ts";
 import { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
 import { ForgeError, repositoryKey, type GitHubForge, type CommandRunner } from "@ace/forge";
 import {
@@ -38,6 +39,7 @@ export class WorkspaceForge {
   private issueLinks: WorkspaceIssueLinks;
   private issueActions: IssueActions;
   private reviews: WorkspaceForgeReviews;
+  private checks = new WorkspaceForgeChecks();
   private now: () => number;
   private projection: WorkspacePrLinks;
   private links: WorkspacePrLinks["links"];
@@ -313,6 +315,42 @@ export class WorkspaceForge {
       allowed,
     );
     return { ok: true };
+  }
+  async hostedChecks(
+    command: Command & { payload: import("@ace/protocol").ForgeHostedChecksCommand },
+    cwd: string,
+    allowed: () => boolean,
+  ) {
+    const p = command.payload;
+    const backend = await this.backends.backend(cwd, p.pr.repository);
+    await this.checks.execute(p, backend, this.lifetime.signal, allowed);
+    return { ok: true };
+  }
+  /**
+   * A merge, or auto-merge on or off, from the project's Pull requests page, linked to a thread or not. It goes through
+   * the same journal and fence as a thread's merge; every thread linked to the PR sees the result.
+   */
+  async hostedMerge(
+    command: Command & {
+      payload:
+        | import("@ace/protocol").ForgeHostedMergeCommand
+        | import("@ace/protocol").ForgeHostedMergeStateCommand;
+    },
+    cwd: string,
+    allowed: () => boolean,
+  ): Promise<Omit<CommandResult, "commandId">> {
+    const p = command.payload;
+    this.lifetime.signal.throwIfAborted();
+    if (!allowed()) return commandNotDispatched(command, "forbidden");
+    let backend: GitHubForge;
+    try {
+      backend = await this.backends.backend(cwd, p.pr.repository);
+    } catch (error) {
+      return commandNotDispatched(command, actionErrorCode(error));
+    }
+    return this.actions.execute(p, backend, this.lifetime.signal, allowed, (status) =>
+      this.browser.publishStatus(status),
+    );
   }
 
   async hostedLifecycle(

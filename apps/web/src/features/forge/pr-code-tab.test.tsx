@@ -117,21 +117,17 @@ test("a page that fails to load offers an inline retry that resumes the scroll",
   expect(screen.queryByRole("alert")).toBeNull();
 });
 
-test("missing viewed state and withheld patches are one toolbar warning, never per-file text", async () => {
+test("missing viewed state is a toolbar warning, never per-file text", async () => {
   const app = harness();
-  app.daemon.workspace.setForgeRead(
-    page(1),
-    filesPage([changed("src/first.ts", "one"), changed("assets/logo.png", "", null)]),
-  );
-  await mount(app, codeTab({ ...detail, changedFiles: 2 }));
+  app.daemon.workspace.setForgeRead(page(1), filesPage([changed("src/first.ts", "one")]));
+  await mount(app, codeTab());
   await screen.findByText("one");
   const toolbar = screen.getByRole("toolbar", { name: "Diff controls" });
-  const warnings = within(toolbar).getAllByRole("button", { name: /unavailable|withheld/ });
+  const warnings = within(toolbar).getAllByRole("button", { name: /unavailable/ });
   expect(warnings).toHaveLength(1);
   expect(warnings[0]?.getAttribute("aria-label")).toMatch(/viewed state is unavailable/);
-  expect(warnings[0]?.getAttribute("aria-label")).toMatch(/withheld/);
   const files = screen.getByRole("region", { name: "Hosted PR diff" });
-  expect(within(files).queryByText(/unavailable|withheld|Binary/)).toBeNull();
+  expect(within(files).queryByText(/unavailable/)).toBeNull();
   expect(screen.queryByRole("checkbox", { name: /^Viewed / })).toBeNull();
 });
 
@@ -168,7 +164,7 @@ test("a file GitHub dismissed after a push reads Changed and stays open", async 
   expect(screen.getByText("1 file · 0 / 1 viewed")).toBeTruthy();
   expect(
     within(screen.getByRole("toolbar", { name: "Diff controls" })).queryByRole("button", {
-      name: /unavailable|withheld/,
+      name: /unavailable/,
     }),
   ).toBeNull();
 });

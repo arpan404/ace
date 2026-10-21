@@ -2,7 +2,7 @@ import type { ThreadListEntry } from "@ace/protocol";
 import type { PendingSend } from "@ace/client";
 import { threadAttention } from "@ace/projection";
 import { isDraft, isRemoved } from "./arrange.ts";
-import { activityOf, isSnoozed } from "./thread-state.ts";
+import { activityOf, isSettled, isSnoozed } from "./thread-state.ts";
 import { mobileStatus, syncingStatus, toneToken, type StatusDisplay } from "./mobile-status.ts";
 import { recoveryAttention } from "./recovery-attention.ts";
 
@@ -13,9 +13,19 @@ import { recoveryAttention } from "./recovery-attention.ts";
  * merged inbox keeps two machines' threads with the same id apart.
  */
 
-export type InboxGroupKey = "needs-you" | "working" | "syncing" | "unsent" | "done" | "snoozed";
+export type InboxGroupKey =
+  | "needs-you"
+  | "working"
+  | "syncing"
+  | "unsent"
+  | "done"
+  | "snoozed"
+  | "settled";
 
-/** Top to bottom. Snoozed sits last: it is out of the way until it wakes. */
+/**
+ * Top to bottom. Snoozed and Settled sit last: out of the way until a snooze wakes or the
+ * person unsettles a thread.
+ */
 const groupOrder: readonly InboxGroupKey[] = [
   "needs-you",
   "working",
@@ -23,6 +33,7 @@ const groupOrder: readonly InboxGroupKey[] = [
   "unsent",
   "done",
   "snoozed",
+  "settled",
 ];
 
 export const inboxGroupLabels: Record<InboxGroupKey, string> = {
@@ -32,6 +43,7 @@ export const inboxGroupLabels: Record<InboxGroupKey, string> = {
   unsent: "Unsent",
   done: "Done",
   snoozed: "Snoozed",
+  settled: "Settled",
 };
 
 export interface InboxThread {
@@ -61,7 +73,9 @@ export interface InboxSection {
  * Where a thread sits, or undefined when the inbox leaves it out (archived, deleted, a draft
  * nobody sent). Only the daemon's whole-tree status says done: a finished root whose child still
  * works reads Working. A request is never hidden by a snooze, and a failure asks the person to
- * look. An unconfirmed copy claims no state beyond a request, which it keeps exposed.
+ * look. An unconfirmed copy claims no state beyond a request, which it keeps exposed. A settled
+ * thread (by hand or by itself, as the web's Settled section reads it) leaves Done for Settled;
+ * a working tree or a request is never settled away.
  */
 export function inboxGroup(thread: InboxThread, now: number): InboxGroupKey | undefined {
   const { entry } = thread;
@@ -70,6 +84,7 @@ export function inboxGroup(thread: InboxThread, now: number): InboxGroupKey | un
   if (state === "needs_you" || threadAttention(entry) !== undefined) return "needs-you";
   if (isSnoozed(entry, now)) return "snoozed";
   if (thread.unconfirmed) return "syncing";
+  if (isSettled(entry)) return "settled";
   if (state === "failed") return "needs-you";
   if (state === "done") return "done";
   return "working";

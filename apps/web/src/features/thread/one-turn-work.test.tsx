@@ -42,8 +42,12 @@ test("one turn that talks between steps, finishes a background task and starts a
   expect(
     follows(interim, within(steps).getByRole("button", { name: /^Read src\/replay.ts/ })),
   ).toBe(true);
+  // The finished background task folds into the log as its step, under the
+  // background task's title (the same group the feed leaves out above).
   expect(
-    within(steps).getByRole("group", { name: "Background task OpenCode background work" }),
+    await within(steps).findByRole("group", {
+      name: "Background task OpenCode background work",
+    }),
   ).toBeTruthy();
 });
 

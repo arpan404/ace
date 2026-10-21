@@ -13,6 +13,9 @@ import { seedSheets } from "./sheet-scenario.ts";
 import { seedArchive } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
 import { seedNativeMedia } from "./media-scenario.ts";
+import { answerScreenshot, browserControl, realVideo, seedBrowser } from "./spike-browser.ts";
+import { featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
+import { seedFiles } from "./files-scenario.ts";
 
 /** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
 const port = z.coerce
@@ -137,7 +140,10 @@ threadScenarios(daemon, details);
 seedArchive(daemon, Date.now(), Number(process.env.ACE_IOS_SPIKE_NAP_MS ?? 90_000));
 seedProjects(daemon);
 seedNativeMedia(daemon);
+seedBrowser(daemon, details);
+seedFiles(daemon, details);
 requestScenarios(daemon, details);
+spikeDevices(daemon, details);
 let fresh = 0;
 
 const connections = new Map<ServerWebSocket<undefined>, ReturnType<FakeDaemon["connect"]>>();
@@ -234,6 +240,8 @@ const server = Bun.serve<undefined>({
       );
       return Response.json({ ok: true });
     }
+    const browserReply = await browserControl(daemon, request);
+    if (browserReply) return browserReply;
     if (path === "/health")
       return Response.json({
         head: daemon.head,
@@ -284,17 +292,21 @@ const server = Bun.serve<undefined>({
             }
           },
           close: (code) => socket.close(code),
+          binary: realVideo(daemon, (bytes) => socket.send(bytes)),
         }),
       );
     },
     message(socket, data) {
       if (typeof data === "string") {
+        if (featureMessage(daemon, socket, data, connections)) return;
         if (data.includes('"type":"command"')) commands++;
         lostReceipt.observe(data);
+        if (answerScreenshot(data, (text) => socket.send(text), daemon)) return;
         connections.get(socket)?.receive(data);
       }
     },
     close(socket) {
+      featureClosed(socket);
       connections.get(socket)?.close();
       connections.delete(socket);
     },

@@ -13,11 +13,21 @@ import { Input } from "@/components/ui/input.tsx";
 import type { PrActions } from "./pr-actions.ts";
 import { PrMetadataEditor } from "./pr-metadata-editor.tsx";
 import { PrRevertForm } from "./pr-revert-form.tsx";
+import { usePrReview } from "./pr-review-context.tsx";
+import { PrConflictsDialog } from "./pr-conflicts-view.tsx";
 
-export type PrDialog = "edit" | "revert" | "review" | undefined;
+export type PrDialog = "edit" | "revert" | "review" | "conflicts" | undefined;
 
-/** The forms the ⋯ menu and the Summary's pencils open: edit details, revert, request review. */
-export function PrDialogs(props: { actions: PrActions; open: PrDialog; onClose(): void }) {
+/**
+ * The forms the ⋯ menu, the Summary's pencils and Resolve conflicts open: edit details, revert,
+ * request review, resolve conflicts.
+ */
+export function PrDialogs(props: {
+  actions: PrActions;
+  hostThreadId?: string | undefined;
+  open: PrDialog;
+  onClose(): void;
+}) {
   const { lifecycle, context } = props.actions;
   const snapshot = lifecycle.snapshot;
   const disabled = lifecycle.blocked;
@@ -55,6 +65,12 @@ export function PrDialogs(props: { actions: PrActions; open: PrDialog; onClose()
         open={props.open === "review"}
         onClose={props.onClose}
       />
+      <PrConflictsDialog
+        actions={props.actions}
+        hostThreadId={props.hostThreadId}
+        open={props.open === "conflicts"}
+        onClose={props.onClose}
+      />
     </>
   );
 }
@@ -63,6 +79,7 @@ function RequestReviewDialog(props: { actions: PrActions; open: boolean; onClose
   const [text, setText] = useState("");
   const parsed = parseReviewers(text);
   const { writes, context } = props.actions;
+  const review = usePrReview();
   const reviewers = "reviewers" in parsed ? parsed.reviewers : [];
   return (
     <Dialog open={props.open} onOpenChange={(open) => !open && props.onClose()}>
@@ -71,9 +88,12 @@ function RequestReviewDialog(props: { actions: PrActions; open: boolean; onClose
           className="flex flex-col gap-4"
           onSubmit={(e) => {
             e.preventDefault();
-            if (!reviewers.length) return;
+            if (!reviewers.length || !review) return;
             props.onClose();
-            void writes.requestReview(reviewers).then(() => setText(""));
+            // Asked of the PR itself: no linked task is needed.
+            void review.run({ kind: "reviewers.request", reviewers }).then((ok) => {
+              if (ok) setText("");
+            });
           }}
         >
           <DialogHeader>
@@ -97,7 +117,13 @@ function RequestReviewDialog(props: { actions: PrActions; open: boolean; onClose
             <Button
               type="submit"
               variant="primary"
-              disabled={!reviewers.length || writes.fenced || writes.pending || context.disabled}
+              disabled={
+                !reviewers.length ||
+                !review?.ready ||
+                review.pending ||
+                writes.fenced ||
+                context.disabled
+              }
             >
               Request review
             </Button>

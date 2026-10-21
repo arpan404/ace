@@ -75,7 +75,9 @@ test("tree folds and Summary scroll position survive a remount", async () => {
     this: HTMLElement,
   ) {
     if (!this.hasAttribute("data-work-scroll")) return 0;
-    return this.querySelectorAll('[role="treeitem"]').length * 40 + 200;
+    // The scroll region's own rows: the mock grows with the rendered tree, as the
+    // Summary's Working and Done sections do, so a lost restoration still fails.
+    return (this.querySelectorAll('[role="treeitem"]').length ?? 0) * 40 + 200;
   });
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (
     this: HTMLElement,

@@ -133,15 +133,13 @@ test("subagents open inline as the agents started, and the agent tree is one cli
   expect(within(panel).getByRole("tab", { selected: true }).textContent).toBe("Summary");
 });
 
-test("waiting for subagents is shown once and never claims all agents are working", async () => {
-  const { app } = await openReplay("finding");
-  act(() =>
-    app.daemon.apply("thread-replay-cursor", [
-      { type: "subagents.waiting", agent: "root", item: "spawn-test", targets: ["audit", "test"] },
-    ]),
-  );
+test("the transcript live line waits for the working subagents without a composer pill", async () => {
+  await openReplay("finding");
   // The main agent only waits on them: never "Working", and the count is said once.
-  const line = await screen.findByRole("status", { name: /^Waiting for 2 subagents/ });
+  // The strip also says what runs beside them, so the name carries the command detail.
+  const line = screen.getByRole("status", {
+    name: /^Waiting for 2 subagents · \d+ commands? running$/,
+  });
   expect(line.textContent).not.toContain("subagents working");
   expect(screen.queryByText("3 agents working")).toBeNull();
 });

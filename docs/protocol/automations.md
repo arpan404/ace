@@ -30,24 +30,21 @@ Example:
 
 ```json
 {
-  "access": "read-only",
-  "concurrency": 3,
-  "enabled": false,
+  "access": "ask",
+  "concurrency": 7,
+  "enabled": true,
   "id": "example",
-  "jitterMs": 8,
+  "jitterMs": 7,
   "missedRun": "skip",
+  "model": "example",
   "prompt": "example",
-  "provider": "opencode",
+  "provider": "antigravity",
   "title": "example",
   "trigger": {
-    "event": "ci_failed",
-    "kind": "github",
-    "pollIntervalMs": 60005,
-    "pullRequest": 6,
-    "repository": "6XM1/W"
+    "kind": "manual"
   },
   "workspace": "example",
-  "worktree": false
+  "worktree": true
 }
 ```
 
@@ -82,7 +79,7 @@ Example:
 
 ```json
 {
-  "before": 8,
+  "before": 10,
   "runs": []
 }
 ```
@@ -100,7 +97,7 @@ Example:
 
 ```json
 {
-  "at": 1,
+  "at": 8,
   "message": "example"
 }
 ```
@@ -123,20 +120,24 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 8,
-    "enabled": true,
+    "concurrency": 1,
+    "enabled": false,
     "id": "example",
-    "jitterMs": 3,
-    "missedRun": "skip",
+    "jitterMs": 2,
+    "missedRun": "run_once",
     "model": "example",
     "prompt": "example",
     "provider": "acp",
     "title": "example",
     "trigger": {
-      "kind": "manual"
+      "event": "ci_failed",
+      "kind": "github",
+      "label": "example",
+      "pollIntervalMs": 60009,
+      "repository": "9/9nn"
     },
     "workspace": "example",
-    "worktree": true
+    "worktree": false
   },
   "requestId": "example",
   "type": "automation.put"
@@ -156,7 +157,6 @@ Example:
 
 ```json
 {
-  "expectedRevision": 1,
   "id": "example",
   "requestId": "example",
   "type": "automation.remove"
@@ -213,8 +213,8 @@ Example:
 
 ```json
 {
-  "before": 1,
-  "limit": 2,
+  "before": 8,
+  "limit": 9,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -234,7 +234,8 @@ Example:
 
 ```json
 {
-  "enabled": false,
+  "enabled": true,
+  "expectedRevision": 5,
   "id": "example",
   "requestId": "example",
   "type": "automation.setEnabled"
@@ -281,6 +282,7 @@ Example:
 {
   "ok": true,
   "requestId": "example",
+  "schedules": [],
   "type": "automation.result"
 }
 ```
@@ -294,7 +296,7 @@ Type: integer. See JSON Schema for constraints.
 Example:
 
 ```json
-10
+5
 ```
 
 ## AutomationRun
@@ -320,13 +322,13 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
-  "finishedAt": 6,
+  "finishedAt": 4,
   "id": "example",
-  "startedAt": 7,
-  "status": "failed",
-  "threadId": "example",
+  "result": "example",
+  "startedAt": 2,
+  "status": "succeeded",
   "title": "example",
-  "trigger": "file"
+  "trigger": "github"
 }
 ```
 
@@ -410,7 +412,7 @@ Example:
   "kind": "github",
   "label": "example",
   "pollIntervalMs": 60001,
-  "repository": "wZjKyZOh/uYv"
+  "repository": "N37JVL./rkAaGKf"
 }
 ```
 
@@ -445,7 +447,7 @@ Example:
 
 ```json
 {
-  "at": 5,
+  "at": 3,
   "message": "example"
 }
 ```

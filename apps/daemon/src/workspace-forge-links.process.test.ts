@@ -102,6 +102,9 @@ test("state refresh batches all PRs per repo across threads, retains missing lin
     for (const number of [283, 284, 285])
       await f.forge.link(first, "/fake", { repository: repo, number });
     await f.forge.link(second, "/fake", { repository: repo, number: 283 });
+    // Link-time status reads are not batched; only the refresh below is.
+    // Measure the refresh on its own so link reads cannot shift the count.
+    calls.length = 0;
     await f.forge.refresh([
       { id: first, cwd: "/fake" },
       { id: second, cwd: "/fake" },

@@ -13,11 +13,11 @@ import {
   DeviceState,
 } from "@ace/protocol/devices";
 import { DeviceId } from "@ace/protocol";
+import { videoWindow } from "@ace/browser/video-fanout";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { connectClientViaRelay, startRelay, type ClientChannel } from "@ace/relay";
 import { fingerprint, keyPair } from "@ace/secure-channel";
 import { framePacket, type Frame } from "@ace/screen";
-import { videoWindow } from "@ace/browser/video-fanout";
 import {
   decodeStreamMessage,
   isStreamPiece,
@@ -78,7 +78,7 @@ class DeviceClient {
   private async next(): Promise<DeviceServerMessage | undefined> {
     const frame = await this.channel.receiveFrame();
     if (frame instanceof Uint8Array) {
-      if (this.chunks.length >= 512) throw new Error("Unexpected fragment flood");
+      if (this.chunks.length >= 128) throw new Error("Unexpected fragment flood");
       this.chunks.push(frame.length);
       // Every binary message on the devices channel is a stream piece.
       if (!isStreamPiece(frame)) throw new Error("Binary message is not a stream piece");
@@ -294,21 +294,30 @@ it("a relay viewer on the shared media stream gets an emulator's pictures at the
   expect(Buffer.from(first.frame.bytes)).toEqual(Buffer.alloc(128 * 1024, 22));
   // Each 128 KiB picture crossed the relay in pieces no larger than a relay message.
   expect(client.chunks.every((length) => length <= 64 * 1024)).toBe(true);
+  client.chunks.length = 0;
+  // The shared window is the browser video's public bound, not a per-test
+  // constant: fill all of videoWindow.frames with unacked pictures, so the
+  // next ones wait, each replacing the one before, until the ack releases
+  // the newest waiting picture.
+  const capacity = videoWindow.frames;
   const shown = [first];
-  for (let sequence = 1; sequence < videoWindow.frames; sequence++) {
+  for (let sequence = 1; sequence <= capacity - 1; sequence++) {
     f.publish("android:Tablet", sequence, 40 + sequence);
     shown.push(await client.picture());
+    // Same piece-size bound for every picture; reset the test client's flood
+    // guard so a full window does not trip a counter sized for eight.
+    expect(client.chunks.every((length) => length <= 64 * 1024)).toBe(true);
+    client.chunks.length = 0;
   }
   expect(shown.map((picture) => picture.frame.sequence)).toEqual(
-    Array.from({ length: videoWindow.frames }, (_, sequence) => sequence),
+    Array.from({ length: capacity }, (_, index) => index),
   );
-  // Unacked pictures fill the window: the next ones wait, each replacing the one before.
-  f.publish("android:Tablet", videoWindow.frames, 48);
-  f.publish("android:Tablet", videoWindow.frames + 1, 49);
-  await client.ack("android:Tablet", first.frame.streamId, videoWindow.frames - 1);
+  f.publish("android:Tablet", capacity, 100);
+  f.publish("android:Tablet", capacity + 1, 101);
+  await client.ack("android:Tablet", first.frame.streamId, capacity - 1);
   const newest = await client.picture();
-  expect(newest.frame.sequence).toBe(videoWindow.frames + 1);
-  expect(Buffer.from(newest.frame.bytes)).toEqual(Buffer.alloc(128 * 1024, 49));
+  expect(newest.frame.sequence).toBe(capacity + 1);
+  expect(Buffer.from(newest.frame.bytes)).toEqual(Buffer.alloc(128 * 1024, 101));
 });
 
 it("a paired phone boots and controls an emulator and reassembles large encrypted device frames", async () => {

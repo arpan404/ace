@@ -30,9 +30,12 @@ async function fakeControl() {
   let control = Buffer.alloc(0);
   const server: Server = createServer((socket) => {
     sockets.push(socket);
-    socket.on("error", (error) => {
-      // Capture teardown can reset this synthetic control connection before its writes drain.
-      if (!("code" in error) || error.code !== "ECONNRESET") throw error;
+    // A teardown RST is expected, not a product bug: the capture destroys its
+    // side while the greeting is still unread (notably the refused-token
+    // fallback, which ends mid-handshake). Anything else still crashes loud.
+    socket.on("error", (error: unknown) => {
+      if (typeof error !== "object" || error === null) throw error;
+      if (Reflect.get(error, "code") !== "ECONNRESET") throw error;
     });
     const name = Buffer.alloc(64);
     name.write("sdk_gphone64_arm64");

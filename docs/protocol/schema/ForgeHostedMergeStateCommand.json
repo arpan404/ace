@@ -1,0 +1,44 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeHostedMergeStateCommand.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "action": {
+      "enum": [
+        "enable",
+        "disable"
+      ],
+      "type": "string"
+    },
+    "headSha": {
+      "pattern": "^[a-fA-F0-9]{40,64}$",
+      "type": "string"
+    },
+    "method": {
+      "enum": [
+        "merge",
+        "squash",
+        "rebase"
+      ],
+      "type": "string"
+    },
+    "pr": {
+      "$ref": "https://ace.local/protocol/v1/ForgePrRef.json"
+    },
+    "type": {
+      "const": "forge.hosted.merge-state",
+      "type": "string"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "type",
+    "workspaceId",
+    "pr",
+    "headSha",
+    "action",
+    "method"
+  ],
+  "type": "object"
+}

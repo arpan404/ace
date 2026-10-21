@@ -1,6 +1,9 @@
 import { StringDecoder } from "node:string_decoder";
 import { redact } from "./redact.ts";
 
+/** The largest tail kept: a full job log for the PR panel. */
+export const maxTailBytes = 2_097_152;
+
 /** Fixed byte ring. No history scans or repeated copying of accumulated logs. */
 export class LogTail {
   readonly #ring: Buffer;
@@ -12,7 +15,8 @@ export class LogTail {
   #discard = false;
   #truncated = false;
   constructor(cap = 16_384) {
-    if (!Number.isInteger(cap) || cap < 1 || cap > 65_536) throw new RangeError("Invalid tail cap");
+    if (!Number.isInteger(cap) || cap < 1 || cap > maxTailBytes)
+      throw new RangeError("Invalid tail cap");
     this.#ring = Buffer.alloc(cap);
   }
   write(chunk: Uint8Array): void {

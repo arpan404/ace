@@ -159,7 +159,9 @@ test.each(["thread.resume", "queue.resume", "thread.limit"] as const)(
       await entered.promise;
       expect(sends(replacement)).toEqual([]);
       const copy = await crashCopy(h);
-      expect(sends(replacement).map((command) => command.input)).toEqual([text("continue")]);
+      expect(sends(replacement).map((command) => command.input)).toEqual([
+        text("Continue where you left off."),
+      ]);
       expect(copy.engine.queue(id)).toMatchObject({ paused: false, pendingCount: 0, messages: [] });
       expect(copy.store.getThread(id)?.status.state).toBe("done");
       expect(

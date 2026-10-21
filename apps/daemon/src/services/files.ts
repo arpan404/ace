@@ -138,10 +138,13 @@ export function createFilesSession(context: SocketContext): SocketService {
       async send(message) {
         context.send(message);
       },
+      // Credits already bound this: each stream holds one 64 KiB frame, at most four streams.
+      // Other output queued on a slow link (a phone's transcript, other images) is no reason to
+      // fail the image; the write waits its turn like every reliable message.
       binary(bytes) {
         return new Promise<void>((resolve, reject) => {
-          if (!context.connected() || context.socket.bufferedAmount > 256 * 1024) {
-            reject(new Error("Attachment channel disconnected or full"));
+          if (!context.connected()) {
+            reject(new Error("Attachment channel disconnected"));
             return;
           }
           context.socket.send(bytes, { binary: true, compress: false }, (error) =>

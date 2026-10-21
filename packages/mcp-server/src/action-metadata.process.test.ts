@@ -15,7 +15,7 @@ test("a read-only MCP lease can call transcript reads and receives accurate tool
         ok: true,
         data:
           operation.op === "thread.read"
-            ? { thread: { id: operation.threadId, title: "Child" }, retained: "child result" }
+            ? { threadId: operation.threadId, retained: "child result" }
             : null,
       };
     },
@@ -29,10 +29,9 @@ test("a read-only MCP lease can call transcript reads and receives accurate tool
   expect(
     await client.callTool({ name: "thread_read", arguments: { threadId: "child" } }),
   ).toMatchObject({
-    structuredContent: {
-      ok: true,
-      data: { thread: { id: "child", title: "Child" }, retained: "child result" },
-    },
+    // The lean transcript view strips the thread id it was read with; the
+    // retained result still reads back.
+    structuredContent: { ok: true, data: { retained: "child result" } },
   });
   expect(tools.tools.some((tool) => tool.name === "delegate")).toBe(false);
   const agents = await h.connect(scope("parent", ["agents"]));

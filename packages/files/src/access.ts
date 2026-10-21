@@ -3,6 +3,7 @@ import type { FileOperation } from "@ace/protocol";
 const reads = new Set<FileOperation["op"]>([
   "list",
   "stat",
+  "read",
   "download",
   "link.download",
   "artifact.download",

@@ -3,11 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
-test("Advanced shows each environment's worktree preparation timeout and saves it", async () => {
+test("Advanced shows the machine's worktree preparation timeout and saves it", async () => {
   const app = harness();
   await app.open("/settings/advanced");
   const field = await screen.findByRole("spinbutton", {
-    name: /Preparation timeout in minutes on /,
+    name: "Preparation timeout in minutes",
   });
   await waitFor(() => expect(field).toHaveProperty("value", "10"));
 

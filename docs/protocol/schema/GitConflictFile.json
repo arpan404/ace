@@ -1,0 +1,88 @@
+{
+  "$id": "https://ace.local/protocol/v1/GitConflictFile.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "content": {
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "text",
+              "type": "string"
+            },
+            "revision": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "segments": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/GitConflictSegment.json"
+              },
+              "maxItems": 20000,
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "revision",
+            "segments"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "unavailable",
+              "type": "string"
+            },
+            "reason": {
+              "enum": [
+                "binary",
+                "too_large",
+                "missing",
+                "unsupported"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "path": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string",
+      "x-ace-constraint": "Repository-relative path without NUL bytes."
+    },
+    "stages": {
+      "properties": {
+        "base": {
+          "type": "boolean"
+        },
+        "ours": {
+          "type": "boolean"
+        },
+        "theirs": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "base",
+        "ours",
+        "theirs"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "path",
+    "stages",
+    "content"
+  ],
+  "type": "object"
+}

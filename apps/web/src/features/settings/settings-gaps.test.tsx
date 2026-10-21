@@ -11,7 +11,7 @@ const configuration = (app: ReturnType<typeof harness>) =>
 test("the Settings access default starts new threads in that mode", async () => {
   const app = harness();
   app.daemon.projects.seedFolders("/fake", [{ path: "/fake/settings-project", git: true }]);
-  await app.open("/settings/general");
+  await app.open("/settings/agents");
   const group = await screen.findByRole("group", { name: "Access for new threads" });
   await userEvent.click(within(group).getByRole("button", { name: "Ask" }));
   await waitFor(() => expect(app.daemon.services.settings.get("access.defaultMode")).toBe("ask"));
@@ -133,7 +133,7 @@ test("provider configuration changes visibility, stars and custom model choices 
     disabled.result.models.every((model) => model.hidden && model.providerEnabled === false),
   ).toBe(true);
   cleanup();
-  await app.open("/settings/general");
+  await app.open("/settings/agents");
   cleanup();
   await app.open("/settings/providers/claude");
   await userEvent.click(await screen.findByText("Advanced", { selector: "summary" }));
@@ -155,7 +155,7 @@ test("allowed project folders round-trip and removing one stops browsing it", as
   });
   // Seed an actual outside directory, then restrict access as a real host does.
   app.daemon.services.settings.seed({ "projects.roots": ["/fake"] });
-  await app.open("/settings/general");
+  await app.open("/settings/agents");
   await screen.findByRole("textbox", { name: "Folder path" });
   const denied = await app.client.request({
     type: "projects.request",
@@ -242,7 +242,7 @@ test("settle-on-close moves finished threads but keeps work in progress active",
       })
       .runUntilBlocked();
   }
-  await app.open("/settings/general");
+  await app.open("/settings/agents");
   await userEvent.click(await screen.findByRole("switch", { name: "Settle when the PR closes" }));
   await waitFor(() => expect(app.daemon.services.settings.get("threads.settleOnClose")).toBe(true));
   app.daemon.sweep();
@@ -256,7 +256,7 @@ test("settle-on-close moves finished threads but keeps work in progress active",
   if (after?.kind !== "threads") throw new Error("Threads unavailable");
   expect(after.threads["working-pr"]?.settledReason).toBe("pr_closed");
   cleanup();
-  await app.open("/settings/general");
+  await app.open("/settings/agents");
   expect(
     (await screen.findByRole("switch", { name: "Settle when the PR closes" })).getAttribute(
       "aria-checked",

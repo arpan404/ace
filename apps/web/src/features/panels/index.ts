@@ -30,6 +30,8 @@ export const loadCreateFile = () => import("./files/create-file.tsx");
 export const loadAuthTerminal = () => import("./terminal/auth-terminal.tsx");
 
 export const loadThreadBrowser = () => import("./browser/thread-browser.tsx");
+/** Every thread's page floating in picture-in-picture, over whatever screen shows. */
+export const loadFloatingBrowsers = () => import("./browser/floating-browsers.tsx");
 /**
  * Bring one of the thread's browser tabs to the person (a help request's Open tab), or the
  * Browser the daemon shows them (an agent's page, from its transcript row).

@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
 import { killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
+import { killWindowsTree, type WindowsKillTree } from "./windows-tree.ts";
+import { toWindowsCommand } from "./windows-command.ts";
+import { createKillOnCloseJob, type WindowsJob, type WindowsJobFactory } from "./windows-job.ts";
 import type { ProcessExit } from "./process.ts";
 export type InteractiveProcess = {
   exited: Promise<ProcessExit>;
@@ -11,25 +14,53 @@ export function spawnInteractive(options: {
   args: readonly string[];
   env: NodeJS.ProcessEnv;
   stdout?: "stdout" | "stderr";
+  /** Platform override for the Windows branch; tests inject "win32" without a Windows host. */
+  platform?: NodeJS.Platform;
+  /** Whole-tree stop used on Windows instead of process-group signals. */
+  windowsKillTree?: WindowsKillTree;
+  /** Kernel containment for the Windows tree; an unavailable job keeps the tree stop. */
+  windowsJobFactory?: WindowsJobFactory;
 }): InteractiveProcess {
-  if (process.platform === "win32") throw new Error("Interactive process ownership requires POSIX");
-  const child = spawn(options.command, [...options.args], {
+  // Process groups do not exist on Windows; contain the tree with a Job Object and taskkill.
+  const windows = (options.platform ?? process.platform) === "win32";
+  const killTree = options.windowsKillTree ?? killWindowsTree;
+  const terminate = (pid: number) => {
+    if (windows) killTree(pid, false);
+    else killGroup(pid, "SIGTERM");
+  };
+  const destroy = (pid: number) => {
+    if (windows) killTree(pid, true);
+    else killGroup(pid, "SIGKILL");
+  };
+  const target = windows
+    ? toWindowsCommand(options.command, options.args)
+    : { command: options.command, args: [...options.args], verbatim: false };
+  const child = spawn(target.command, target.args, {
     env: options.env,
     stdio: ["inherit", options.stdout === "stderr" ? 2 : "inherit", "inherit"],
-    detached: true,
+    // The console stays visible: login owns credential entry and browser handoff.
+    ...(windows ? { detached: false, windowsHide: false } : { detached: true }),
+    windowsVerbatimArguments: target.verbatim,
   });
   const pid = child.pid;
+  const factory = options.windowsJobFactory ?? createKillOnCloseJob;
+  const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
+  if (pid !== undefined) job?.assign(pid);
   let stopped = false;
   let failed = false;
   let closed = false;
+  let ended = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let killAt: number | undefined;
   const release = () => {
+    if (ended) return;
+    ended = true;
     if (timer) clearTimeout(timer);
     if (pid !== undefined) {
-      killGroup(pid, "SIGKILL");
+      destroy(pid);
       unregisterGroup(pid);
     }
+    job?.dispose();
   };
   child.once("error", () => {
     failed = true;
@@ -54,15 +85,21 @@ export function spawnInteractive(options: {
       const at = performance.now() + graceMs;
       // A later, shorter stop brings the SIGKILL forward; it never pushes one back.
       if (!closed && pid !== undefined && (!stopped || (killAt !== undefined && at < killAt))) {
-        if (!stopped) killGroup(pid, "SIGTERM");
+        if (!stopped) terminate(pid);
         stopped = true;
         killAt = at;
         if (timer) clearTimeout(timer);
-        timer = setTimeout(() => killGroup(pid, "SIGKILL"), graceMs);
+        timer = setTimeout(() => destroy(pid), graceMs);
       }
       return exited;
     },
   };
-  if (pid !== undefined) registerGroup(pid, (graceMs) => handle.stop({ graceMs }));
+  if (pid !== undefined)
+    registerGroup(
+      pid,
+      (graceMs) => handle.stop({ graceMs }),
+      undefined,
+      () => destroy(pid),
+    );
   return handle;
 }

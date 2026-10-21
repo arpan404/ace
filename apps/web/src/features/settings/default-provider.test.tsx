@@ -3,8 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
-// General's lazy body must be transformed before the first interaction's deadline starts.
-await import("./general-page.tsx");
+// Agents' lazy body must be transformed before the first interaction's deadline starts.
+await import("./agents-page.tsx");
 
 const select = () => screen.findByRole("combobox", { name: "Default provider for new threads" });
 
@@ -20,7 +20,7 @@ test("Settings offers an installed Codex CLI with unverified login as sign-in un
   services.models = services.models.filter((model) => model.provider !== "codex");
   const codex = services.providerStatuses.find((status) => status.provider === "codex");
   if (codex) codex.auth = "unknown";
-  await app.open("/settings/general");
+  await app.open("/settings/agents");
 
   expect(await offered()).toContain("Codex (sign-in not reported)");
   await userEvent.click(screen.getByRole("option", { name: "Codex (sign-in not reported)" }));
@@ -62,7 +62,7 @@ test("a CLI whose ace accounts are all signed out is offered as not signed in", 
   // The CLI's own login doesn't say otherwise.
   const claude = services.providerStatuses.find((status) => status.provider === "claude");
   if (claude) claude.auth = "unknown";
-  await app.open("/settings/general");
+  await app.open("/settings/agents");
 
   expect(await offered()).toContain("Claude Code (signed out)");
   expect(screen.queryByRole("option", { name: "Antigravity" })).toBeNull();
@@ -76,7 +76,7 @@ test("a CLI discovery didn't find isn't offered, but the stored choice of it sta
   if (!claude) throw new Error("Missing Claude discovery");
   claude.installed = false;
   services.accounts = services.accounts.filter((account) => account.provider !== "claude");
-  await app.open("/settings/general");
+  await app.open("/settings/agents");
 
   await waitFor(async () => expect((await select()).textContent).toContain("(not installed)"));
   expect(await offered()).toContain("Claude Code (not installed)");
@@ -91,7 +91,7 @@ test("with no default picked, Settings shows the installed provider new threads 
   const claude = services.providerStatuses.find((status) => status.provider === "claude");
   if (!claude) throw new Error("Missing Claude discovery");
   claude.installed = false;
-  await app.open("/settings/general");
+  await app.open("/settings/agents");
 
   await waitFor(async () => expect((await select()).textContent).toBe("Codex"));
   const reply = await app.client.request({

@@ -1,5 +1,6 @@
 import type { Item, ItemsWindowResponse } from "@ace/protocol";
 import { laneBefore } from "@ace/projection";
+import { isPersonMessage } from "./person-message.ts";
 
 /*
  * The history window (ADR 0062): besides the live tail it leases, a thread view holds at most
@@ -103,8 +104,7 @@ export function itemWeight(item: Item): number {
 }
 
 /** Whether a person's message starts a turn here: where older history may be cut. */
-const startsTurn = (item: Item | undefined) =>
-  item?.type === "message" && item.role === "user" && !item.synthetic;
+const startsTurn = (item: Item | undefined) => isPersonMessage(item);
 
 function merged(window: JumpWindow, reply: WindowReply) {
   const seqs = new Map(window.seqs);

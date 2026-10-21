@@ -12,15 +12,15 @@ const disclosureOf = (title: string) => {
 };
 
 test("a settings disclosure stays folded until opened, shows its rows, and folds again", async () => {
-  await harness().open("/settings/advanced");
-  await screen.findByText("Development connection", { selector: "summary" });
-  expect(disclosureOf("Development connection").open).toBe(false);
+  await harness().open("/settings/providers/claude");
+  await screen.findByText("Advanced", { selector: "summary" });
+  expect(disclosureOf("Advanced").open).toBe(false);
 
-  await userEvent.click(screen.getByText("Development connection", { selector: "summary" }));
-  expect(disclosureOf("Development connection").open).toBe(true);
+  await userEvent.click(screen.getByText("Advanced", { selector: "summary" }));
+  expect(disclosureOf("Advanced").open).toBe(true);
 
-  await userEvent.click(screen.getByText("Development connection", { selector: "summary" }));
-  expect(disclosureOf("Development connection").open).toBe(false);
+  await userEvent.click(screen.getByText("Advanced", { selector: "summary" }));
+  expect(disclosureOf("Advanced").open).toBe(false);
 });
 
 test("a group's explanation reads before its rows, inside the same titled section", async () => {

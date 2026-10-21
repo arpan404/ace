@@ -1,0 +1,54 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeReactionSubject.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "kind": {
+          "const": "pr",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "commentId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "issue",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "commentId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "commentId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "inline",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "commentId"
+      ],
+      "type": "object"
+    }
+  ]
+}

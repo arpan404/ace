@@ -58,6 +58,10 @@
     },
     "truncated": {
       "type": "boolean"
+    },
+    "viewer": {
+      "maxLength": 65536,
+      "type": "string"
     }
   },
   "required": [

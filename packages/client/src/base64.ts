@@ -6,7 +6,7 @@ function digit(code: number): number {
   return code === 43 ? 62 : code === 47 ? 63 : -1;
 }
 /** Decode bounded wire chunks without Buffer or platform-specific globals. */
-export function decodeBase64(text: string, limit: number): Uint8Array {
+export function decodeBase64(text: string, limit: number): Uint8Array<ArrayBuffer> {
   const padding = text.endsWith("==") ? 2 : text.endsWith("=") ? 1 : 0;
   const length = (text.length / 4) * 3 - padding;
   if (text.length % 4 || length > limit || length < 0) throw new ClientError("protocol");

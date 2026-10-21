@@ -95,11 +95,12 @@ import Foundation
         let frame = try JSONSerialization.data(withJSONObject: [
             ["type": "compose.projects", "state": "ready", "projects": [["id": "ace", "name": "ace-next", "path": "/ace", "recent": true]]],
             ["type": "compose.start", "id": "command-1", "ok": true, "threadId": "thread-9", "message": ""],
-            ["type": "files.listing", "threadId": "t", "folder": "", "state": "ready", "rows": [["path": "src/", "name": "src", "folder": true]], "hidden": 3, "truncated": false],
+            ["type": "files.changed", "seq": 3],
         ])
         #expect(model.receive(frame))
         #expect(model.compose.projects.map(\.name) == ["ace-next"])
         #expect(model.compose.started["command-1"]?.id == "thread-9")
-        #expect(model.files.listings[""]?.hidden == 3)
+        // Files screens read again once the computer says files changed.
+        #expect(model.files.revision == 3)
     }
 }

@@ -139,7 +139,11 @@ export class FakeIssueWire {
       const maximum = Math.max(
         0,
         ...[...this.reads.values()].flatMap((value) =>
-          value.resource === "issueList" ? value.value.items.map((issue) => issue.ref.number) : [],
+          value.resource === "issueList"
+            ? value.value.items.map((issue) => issue.ref.number)
+            : value.resource === "issueDetail"
+              ? [value.value.ref.number]
+              : [],
         ),
       );
       detail = ForgeIssueDetail.parse({

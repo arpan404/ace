@@ -1,317 +1,183 @@
 import SwiftUI
 
-/// The single inbox (issue #560) across every paired machine: the shared sections merged by rank,
-/// Done and Snoozed folded away below. Grouping and
-/// wording come from each machine's runtime. A row and its thread belong to their machine.
+/// The tabs of the home screen. `compose` is the detached New thread button, never a page.
+enum InboxTab: Hashable { case threads, pulls, compose }
+
+/// A settle or archive the person can take back from the toast.
+struct InboxUndo: Equatable {
+    enum Kind { case settled, archived }
+    let key: InboxKey
+    let kind: Kind
+}
+
+/// The single inbox (issue #560) across every paired machine, in a system tab bar: Threads,
+/// Pulls (threads whose pull request is in review) and the detached New thread button. Grouping
+/// and wording come from each machine's runtime. A row and its thread belong to their machine.
 struct InboxView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @Bindable var inbox: MachineInbox
-    /// Rename, remove and pairing for the Machines sheet; nil for the debug fixture.
+    /// Rename, remove and pairing for Settings › Machines; nil for the debug fixture.
     var machines: MachinesModel?
-    var addMachine: () -> Void = {}
-    /// Settings › App lock; nil where the app has no lock (the debug fixture).
+    /// Settings › Face ID; nil where the app has no lock (the debug fixture).
     var lock: AppLock?
-    @State private var path: [String] = []
-    /// The machine whose thread is open: the whole navigation stack routes to its runtime.
+    @State private var tab = InboxTab.threads
+    @State private var threadsPath: [String] = []
+    @State private var pullsPath: [String] = []
+    /// The machine whose thread is open, and the tab it is open in: one open thread at a time.
     @State private var openMachine: String?
+    @State private var openTab: InboxTab?
+    @State private var machineFilter = ""
     @State private var projectFilter = ""
-    @State private var showingSearch = false
-    @State private var showingLibrary = false
-    @State private var libraryDestination: String?
-    @State private var showingMachines = false
+    @State private var shelves = InboxShelves()
+    @State private var composing = false
     @State private var showingSettings = false
-    @State private var archiveMachine: String?
-    @State private var showSettled = false
+    /// Where Settings opens: its root, or Machines from the connection title.
+    @State private var settingsStart: [SettingsRoute] = []
     @State private var snoozing: InboxKey?
-    @State private var archived: (key: InboxKey, title: String)?
-    private static let settledKeys: Set<String> = ["done", "snoozed"]
+    @State private var undo: InboxUndo?
+    @State private var settles = 0
 
-    private var merged: MergedInbox { inbox.merged }
-    private var sections: [MergedInbox.Section] {
-        guard !projectFilter.isEmpty else { return merged.sections }
-        return merged.sections.compactMap { section in
-            let keys = section.rows.filter { inbox.row($0)?.workspaceId == projectFilter }
-            return keys.isEmpty ? nil : MergedInbox.Section(key: section.key, label: section.label, rows: keys)
-        }
-    }
-    private var open: [MergedInbox.Section] { sections.filter { !Self.settledKeys.contains($0.key) } }
-    private var settled: [MergedInbox.Section] { sections.filter { Self.settledKeys.contains($0.key) } }
     private var current: ClientModel? { openMachine.flatMap(inbox.client) }
 
     var body: some View {
-        NavigationStack(path: $path) {
-            List {
-                ForEach(inbox.sessions.filter { $0.client.connection != "ready" }) { session in
-                    InboxConnectionBanner(connection: session.client.connection,
-                                          machine: inbox.showsMachineNames ? inbox.name(session.hostId) : nil) { session.client.retry() }
-                        .listRowSeparator(.hidden)
-                }
-                if !inbox.sessions.isEmpty && inbox.sessions.allSatisfy({ !$0.client.canOperate }) {
-                    ViewOnlyNote(message: "View only")
-                        .accessibilityHint("Pair with View and act to send, archive or snooze.")
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AceTheme.Colours.background)
-                }
-                ForEach(open) { section in
-                    rows(section)
-                }
-                if !settled.isEmpty {
-                    Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { showSettled.toggle() } } label: {
-                        HStack(spacing: AceTheme.Spacing.md) {
-                            Text(settled.map { "\($0.label) (\($0.rows.count))" }.joined(separator: " · "))
-                                .foregroundStyle(AceTheme.Colours.mutedForeground)
-                            Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border)
-                            Image(systemName: "chevron.down").rotationEffect(.degrees(showSettled ? 180 : 0))
-                                .foregroundStyle(AceTheme.Colours.decoration)
-                        }
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .listRowSeparator(.hidden)
-                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
-                    .accessibilityIdentifier("inbox.settled")
-                    .accessibilityValue(showSettled ? "Expanded" : "Collapsed")
-                    if showSettled {
-                        ForEach(settled) { section in
-                            rows(section)
-                        }
-                    }
-                }
-                if !merged.more.isEmpty {
-                    Button("Show older threads") { for id in merged.more { inbox.client(id)?.loadOlderThreads() } }
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-                        .frame(minHeight: AceTheme.Dimensions.touchTarget)
-                        .listRowSeparator(.hidden).accessibilityIdentifier("inbox.more")
-                }
-                emptyState.listRowSeparator(.hidden)
-                if inbox.anyLoaded {
-                    Button("Archived threads") { archiveMachine = inbox.sessions.first?.hostId }
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-                        .frame(minHeight: AceTheme.Dimensions.touchTarget)
-                        .listRowSeparator(.hidden).accessibilityIdentifier("inbox.archive")
-                }
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(AceTheme.Colours.background)
-            .refreshable { await refresh() }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { toolbar }
-            .navigationDestination(for: String.self) { id in
-                if let client = current, let thread = client.thread, thread.id == id {
-                    // Child threads open on the same machine's client as their parent.
-                    ThreadView(model: client, thread: thread) { child in client.open(child); path.append(child) }
-                }
-            }
-            .sheet(isPresented: $showingSearch) { ConversationSearchSheet(inbox: inbox) }
-            .sheet(isPresented: $showingLibrary, onDismiss: {
-                switch libraryDestination {
-                case "settings": showingSettings = true
-                case "machines": showingMachines = true
-                case "archive": archiveMachine = inbox.sessions.first?.hostId
-                default: break
-                }
-                libraryDestination = nil
-            }) {
-                LibrarySheet(inbox: inbox, openSettings: { libraryDestination = "settings"; showingLibrary = false },
-                             openMachines: { libraryDestination = "machines"; showingLibrary = false },
-                             openArchive: { libraryDestination = "archive"; showingLibrary = false })
-            }
-            .sheet(isPresented: $showingMachines) {
-                MachinesSheet(inbox: inbox, machines: machines) { showingMachines = false; addMachine() }
-            }
-            .sheet(isPresented: $showingSettings) {
-                SettingsSheet(inbox: inbox, machines: machines, lock: lock,
-                              openMachines: { showingMachines = true },
-                              openArchive: { archiveMachine = inbox.sessions.first?.hostId })
-            }
-            .sheet(item: Binding(get: { archiveMachine.map(ArchiveTarget.init) }, set: { archiveMachine = $0?.id })) { target in
-                ArchiveSheet(inbox: inbox, machineId: target.id)
-            }
+        sheets
             .confirmationDialog("Snooze until", isPresented: Binding(get: { snoozing != nil }, set: { if !$0 { snoozing = nil } }), presenting: snoozing) { key in
-                ForEach(merged.snooze) { option in
+                ForEach(inbox.merged.snooze) { option in
                     Button(option.label) { Task { _ = await inbox.client(key.machineId)?.snooze(key.id, preset: option.id) } }
                 }
             }
-            .overlay(alignment: .bottom) { undoArchive }
-            .newThreadEntry(inbox: inbox, projectFilter: $projectFilter) { key in openThread(key) }
-            .aceNotifications(inbox: inbox) { key in openThread(key) }
-            .onChange(of: path) { old, new in
-                if !old.isEmpty && new.isEmpty { current?.back(); openMachine = nil }
-                // Back from a child thread reopens its parent on that machine, under a new generation.
-                else if new.count < old.count, let parent = new.last { current?.open(parent) }
+            .newThreadEntry(inbox: inbox, composing: $composing, project: projectFilter) { key in openThread(key, in: .threads) }
+            .aceNotifications(inbox: inbox) { key in openThread(key, in: .threads) }
+            .task(id: scenePhase) {
+                // Foreground reconciliation: renew every live activity's `staleDate` while
+                // the inbox is mounted, including its thread destinations. Cancelled on
+                // background or unmount; rows stay truthful and nothing ends here — `update`
+                // only finishes a canonical done row while online.
+                guard scenePhase == .active else { return }
+                while !Task.isCancelled {
+                    for session in inbox.sessions {
+                        session.client.liveActivity.update(rows: session.client.inbox, hostId: session.hostId, online: session.client.connection == "ready")
+                    }
+                    try? await Task.sleep(for: .seconds(30))
+                }
+            }
+            .alert("Request needs attention", isPresented: Binding(get: { failing != nil }, set: { if !$0 { failing?.client.error = nil } })) {
+                Button("OK") { failing?.client.error = nil }
+            } message: {
+                if let failing { Text(inbox.showsMachineNames ? "\(inbox.name(failing.hostId)): \(failing.client.error ?? "")" : failing.client.error ?? "") }
+            }
+    }
+
+    private var tabs: some View {
+        TabView(selection: $tab) {
+            Tab("Threads", systemImage: "text.bubble", value: InboxTab.threads) { stack(.threads, path: $threadsPath) }
+            Tab("Pulls", image: "tab-pulls", value: InboxTab.pulls) { stack(.pulls, path: $pullsPath) }
+            if inbox.canStartThreads {
+                Tab("New thread", systemImage: "square.and.pencil", value: InboxTab.compose, role: .search) { Color.clear }
             }
         }
         .tint(AceTheme.Colours.foreground)
-        .task(id: scenePhase) {
-            // Foreground reconciliation: renew every live activity's `staleDate` while
-            // the navigation stack is mounted, including its thread destinations. Cancelled on
-            // background or unmount; rows stay truthful and nothing ends here — `update`
-            // only finishes a canonical done row while online.
-            guard scenePhase == .active else { return }
-            while !Task.isCancelled {
-                for session in inbox.sessions {
-                    session.client.liveActivity.update(rows: session.client.inbox, hostId: session.hostId, online: session.client.connection == "ready")
-                }
-                try? await Task.sleep(for: .seconds(30))
-            }
+        .onChange(of: tab) { old, new in
+            // The compose button opens the New thread sheet and leaves the tab where it was.
+            guard new == .compose else { return }
+            tab = old == .compose ? .threads : old
+            if !inbox.sessions.isEmpty { composing = true }
         }
-        .alert("Request needs attention", isPresented: Binding(get: { failing != nil }, set: { if !$0 { failing?.client.error = nil } })) {
-            Button("OK") { failing?.client.error = nil }
-        } message: {
-            if let failing { Text(inbox.showsMachineNames ? "\(inbox.name(failing.hostId)): \(failing.client.error ?? "")" : failing.client.error ?? "") }
+        .onChange(of: threadsPath) { old, new in pathChanged(.threads, old: old, new: new) }
+        .onChange(of: pullsPath) { old, new in pathChanged(.pulls, old: old, new: new) }
+        .sensoryFeedback(.success, trigger: settles)
+        .overlay(alignment: .bottom) { toast }
+    }
+
+    private var sheets: some View {
+        tabs
+        .sheet(isPresented: $showingSettings) {
+            SettingsSheet(inbox: inbox, machines: machines, lock: lock, start: settingsStart)
         }
     }
 
     /// The first machine with an error to show; each machine's error is its own.
     private var failing: MachineSession? { inbox.sessions.first { $0.client.error != nil } }
 
-    @ViewBuilder private func rows(_ section: MergedInbox.Section) -> some View {
-        if section.key == "unsent" {
-            ForEach(section.rows, id: \.self) { key in
-                if let entry = inbox.pending(key) {
-                    let thread = InboxKey(machineId: key.machineId, id: entry.threadId)
-                    Button { openThread(thread) } label: { InboxUnsentRow(entry: entry, thread: inbox.row(thread)) }
-                        .buttonStyle(.plain).accessibilityIdentifier("unsent.\(key.id)")
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: AceTheme.Spacing.xxs, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.xxs, trailing: AceTheme.Spacing.lg))
-                }
-            }
-        } else {
-            ForEach(section.rows, id: \.self) { key in
-                if let row = inbox.row(key) { threadRow(row, key: key, section: section.key) }
+    private func stack(_ tab: InboxTab, path: Binding<[String]>) -> some View {
+        InboxStack(inbox: inbox, path: path, pulls: tab == .pulls, machine: $machineFilter, project: $projectFilter,
+                   shelves: $shelves, actions: actions(in: tab),
+                   header: InboxHeaderActions(settings: { settingsStart = []; showingSettings = true },
+                                              machines: { settingsStart = [.machines]; showingSettings = true })) { id in
+            if let client = current, openTab == tab, let thread = client.thread, thread.id == id {
+                // Child threads open on the same machine's client as their parent.
+                ThreadView(model: client, thread: thread) { child in client.open(child); path.wrappedValue.append(child) }
             }
         }
     }
-    private func threadRow(_ row: ThreadRow, key: InboxKey, section: String) -> some View {
-        let snoozed = section == "snoozed"
-        let client = inbox.client(key.machineId)
-        // A view-only grant is per machine: only that machine's rows lose their actions.
-        let canOperate = client?.canOperate ?? false
-        return Button { openThread(key) } label: {
-            InboxThreadRow(row: row, snoozed: snoozed, machine: inbox.showsMachineNames ? inbox.name(key.machineId) : nil)
-        }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier(inbox.showsMachineNames ? "thread.\(key.machineId).\(row.id)" : "thread.\(row.id)")
-            // Colour means status only: the status word and dot carry it, never a broad
-            // row wash (a Waiting row in Needs you must not read brown).
-            .listRowBackground(AceTheme.Colours.background)
-            .listRowInsets(EdgeInsets(top: AceTheme.Spacing.xxs, leading: AceTheme.Spacing.lg, bottom: AceTheme.Spacing.xxs, trailing: AceTheme.Spacing.lg))
-            // No rules between rows: quiet spacing from the row's own padding carries it.
-            .listRowSeparator(.hidden)
-            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                if canOperate { Button("Archive", systemImage: "archivebox") { archive(row, key: key) }.tint(AceTheme.Colours.mutedForeground) }
-            }
-            .swipeActions(edge: .leading, allowsFullSwipe: snoozed) {
-                if !canOperate { EmptyView() }
-                else if snoozed { Button("Wake", systemImage: "sun.max") { Task { _ = await client?.wake(row.id) } }.tint(AceTheme.Status.waiting) }
-                else { Button("Snooze", systemImage: "moon.zzz") { snoozing = key }.tint(AceTheme.Status.waiting) }
-            }
-            .contextMenu {
-                if !canOperate { EmptyView() }
-                else if snoozed { Button("Wake", systemImage: "sun.max") { Task { _ = await client?.wake(row.id) } } }
-                else {
-                    Menu("Snooze", systemImage: "moon.zzz") {
-                        ForEach(merged.snooze) { option in
-                            Button(option.label) { Task { _ = await client?.snooze(row.id, preset: option.id) } }
-                        }
-                    }
-                }
-                if canOperate { Button("Archive", systemImage: "archivebox") { archive(row, key: key) } }
-            }
+
+    private func actions(in tab: InboxTab) -> InboxRowActions {
+        InboxRowActions(
+            open: { openThread($0, in: tab) },
+            settle: { row, key in
+                settles += 1
+                command(key, .settled) { await $0.settle(row.id) }
+            },
+            unsettle: { row, key in Task { _ = await inbox.client(key.machineId)?.unsettle(row.id) } },
+            snooze: { snoozing = $0 },
+            snoozeUntil: { row, key, preset in Task { _ = await inbox.client(key.machineId)?.snooze(row.id, preset: preset) } },
+            wake: { row, key in Task { _ = await inbox.client(key.machineId)?.wake(row.id) } },
+            archive: { row, key in command(key, .archived) { await $0.archive(row.id) } })
     }
-    @ViewBuilder private var emptyState: some View {
-        if sections.isEmpty {
-            if !inbox.anyLoaded || !inbox.allReady {
-                if inbox.sessions.contains(where: { ["fatal", "offline", "reconnecting"].contains($0.client.connection) }) {
-                    ContentUnavailableView {
-                        Label(inbox.showsMachineNames ? "Can't reach your machines" : "Can't reach your machine", systemImage: "wifi.slash")
-                    } description: { Text("Your threads appear once it's back.") } actions: {
-                        Button("Retry") { for session in inbox.sessions { session.client.retry() } }
-                    }
-                } else {
-                    ContentUnavailableView { Label { Text("Connecting to your machine…") } icon: { ProgressView() } }
-                }
-            } else {
-                ContentUnavailableView("Your inbox is clear", systemImage: "tray", description: Text("Tasks from your machines appear here."))
-            }
+    /// Runs an undoable inbox command; once this device admits it, the toast offers Undo.
+    private func command(_ key: InboxKey, _ kind: InboxUndo.Kind, _ run: @escaping (ClientModel) async -> Bool) {
+        Task {
+            guard let client = inbox.client(key.machineId), await run(client) else { return }
+            withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { undo = InboxUndo(key: key, kind: kind) }
         }
     }
-    @ViewBuilder private var undoArchive: some View {
-        if let archived {
+
+    @ViewBuilder private var toast: some View {
+        if let undo, openTab == nil {
             HStack(spacing: AceTheme.Spacing.md) {
-                Text("Archived “\(archived.title)”").lineLimit(1)
-                Spacer(minLength: AceTheme.Spacing.sm)
+                Text(undo.kind == .settled ? "Settled thread" : "Archived thread").lineLimit(1)
                 Button("Undo") {
-                    self.archived = nil
-                    Task { _ = await inbox.client(archived.key.machineId)?.unarchive(archived.key.id) }
-                }.bold().frame(minHeight: AceTheme.Dimensions.touchTarget).accessibilityIdentifier("inbox.undoArchive")
+                    self.undo = nil
+                    Task {
+                        guard let client = inbox.client(undo.key.machineId) else { return }
+                        _ = undo.kind == .settled ? await client.unsettle(undo.key.id) : await client.unarchive(undo.key.id)
+                    }
+                }
+                .fontWeight(.semibold)
+                .frame(minHeight: AceTheme.Dimensions.touchTarget)
+                .accessibilityIdentifier(undo.kind == .settled ? "inbox.undoSettle" : "inbox.undoArchive")
             }
-            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-            .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.md)
-            .floatingGlass()
-            .padding(.horizontal, AceTheme.Spacing.lg).padding(.bottom, AceTheme.Spacing.md)
+            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+            .foregroundStyle(AceTheme.Colours.foreground)
+            .padding(.leading, AceTheme.Spacing.xl).padding(.trailing, AceTheme.Spacing.lg)
+            .aceGlass(in: Capsule())
+            // Clear of the tab bar.
+            .padding(.bottom, 76)
             .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
-            .task(id: archived.key) {
+            .task(id: undo) {
                 try? await Task.sleep(for: .seconds(5))
-                if self.archived?.key == archived.key { withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { self.archived = nil } }
+                if self.undo == undo { withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { self.undo = nil } }
             }
         }
     }
-    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        // The wordmark is decorative branding: hidden from VoiceOver, and with no shared
-        // glass behind it where the OS supports it, so the machines control and the
-        // trailing icons keep the emphasis.
-        wordmarkItem
-        ToolbarItem(placement: .topBarTrailing) {
-            Button { showingLibrary = true } label: { Image(systemName: "sidebar.left") }
-                .accessibilityLabel("Browse ace").accessibilityIdentifier("inbox.library")
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button { showingSearch = true } label: { Image(systemName: "magnifyingglass") }
-                .accessibilityLabel("Search conversations").accessibilityIdentifier("inbox.search")
-        }
-    }
 
-    /// Decorative branding only. The glass hiding applies to the toolbar item itself
-    /// (`sharedBackgroundVisibility` lives on `ToolbarContent`, not `View`) on iOS 26+;
-    /// older systems render the same item without it.
-    @ToolbarContentBuilder private var wordmarkItem: some ToolbarContent {
-        if #available(iOS 26, *) {
-            ToolbarItem(placement: .topBarLeading) { wordmarkText }
-                .sharedBackgroundVisibility(.hidden)
-        } else {
-            ToolbarItem(placement: .topBarLeading) { wordmarkText }
-        }
-    }
-    private var wordmarkText: some View {
-        Text("ace.").aceFont(AceTheme.Typography.wordmark, relativeTo: .title3).fixedSize(horizontal: true, vertical: false).foregroundStyle(AceTheme.Colours.foreground)
-            .accessibilityHidden(true)
-    }
-
-    /// Opening routes to the row's machine; a thread already open elsewhere is closed first.
-    private func openThread(_ key: InboxKey) {
+    /// Opening routes to the row's machine and shows the thread in `tab`; a thread open on
+    /// another machine, or in the other tab, is closed first.
+    private func openThread(_ key: InboxKey, in tab: InboxTab) {
         guard let client = inbox.client(key.machineId), client.inbox[key.id] != nil else { return }
         if let openMachine, openMachine != key.machineId { inbox.client(openMachine)?.back() }
         openMachine = key.machineId
-        client.open(key.id); path = [key.id]
+        openTab = tab
+        self.tab = tab
+        client.open(key.id)
+        if tab == .pulls { threadsPath = []; pullsPath = [key.id] } else { pullsPath = []; threadsPath = [key.id] }
     }
-    private func archive(_ row: ThreadRow, key: InboxKey) {
-        Task {
-            guard await inbox.client(key.machineId)?.archive(row.id) == true else { return }
-            withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { archived = (key, row.title) }
-        }
-    }
-    /// The list is live; a pull asks every machine that isn't ready to reconnect now.
-    private func refresh() async {
-        let waiting = inbox.sessions.filter { $0.client.connection != "ready" }
-        guard !waiting.isEmpty else { return }
-        for session in waiting { session.client.retry() }
-        for _ in 0..<20 where waiting.contains(where: { $0.client.connection != "ready" }) { try? await Task.sleep(for: .milliseconds(100)) }
+    private func pathChanged(_ tab: InboxTab, old: [String], new: [String]) {
+        // Only the tab holding the open thread drives it; clearing the other tab is silent.
+        guard openTab == tab else { return }
+        if !old.isEmpty && new.isEmpty { current?.back(); openMachine = nil; openTab = nil }
+        // Back from a child thread reopens its parent on that machine, under a new generation.
+        else if new.count < old.count, let parent = new.last { current?.open(parent) }
     }
 }
-
-/// The machine the archive sheet opens on.
-private struct ArchiveTarget: Identifiable { let id: String }

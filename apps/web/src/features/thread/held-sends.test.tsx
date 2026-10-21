@@ -65,43 +65,39 @@ async function sendWhileUploading(app: ReturnType<typeof harness>, message: HTML
 async function sendWhileReading(message: HTMLDivElement) {
   const file = png();
   const gate = Promise.withResolvers<void>();
-  let failed = false;
   const slice = file.slice.bind(file);
   file.slice = (start, end, type) => {
     const part = slice(start, end, type);
     const read = part.arrayBuffer.bind(part);
     part.arrayBuffer = async () => {
-      if (!failed) await gate.promise;
+      await gate.promise;
       return read();
     };
     return part;
   };
   await userEvent.upload(screen.getByLabelText("Files to attach"), file);
   await userEvent.type(message, "Why is this banner orange?{Enter}");
-  return {
-    finish: () => gate.resolve(),
-    fail() {
-      failed = true;
-      gate.reject(new Error("File read failed"));
-    },
-  };
+  return { finish: () => gate.resolve() };
 }
 
 test("an upload that fails after Enter leaves the message as not sent in the composer's strip, and Retry delivers it", async () => {
   const { app, feed, message } = await open();
-  const upload = await sendWhileReading(message);
+  await sendWhileUploading(app, message);
   expect(await within(await strip()).findByText("Uploading an image…")).toBeTruthy();
   // The person moves on: the next draft is already in the composer.
   await userEvent.type(message, "And the footer colour");
 
-  // Reading the file fails after Enter; a reconnect alone can retry a pending upload.
-  act(() => upload.fail());
+  // The connection drops mid-upload; the resumed upload is refused, so the
+  // message fails instead of hanging on a dead request.
+  app.daemon.failRequests("context.request");
+  act(() => app.daemon.disconnectAll());
   const alert = await within(await strip()).findByRole("alert");
   expect(within(alert).getByText(/screen\.png didn't upload/)).toBeTruthy();
   expect(within(await strip()).getByText("Why is this banner orange?")).toBeTruthy();
   expect(within(feed).queryByText("Why is this banner orange?")).toBeNull();
   expect(message.textContent).toBe("And the footer colour");
 
+  app.daemon.restoreRequests();
   await waitFor(() => expect(app.client.state).toBe("ready"));
   await userEvent.click(within(alert).getByRole("button", { name: "Retry" }));
   // Delivered: the daemon has the message with its image, and it shows once.
@@ -115,10 +111,15 @@ test("an upload that fails after Enter leaves the message as not sent in the com
 });
 
 test("Edit on a failed held message gives back its text, beside what the composer holds", async () => {
-  const { feed, message } = await open();
-  const upload = await sendWhileReading(message);
+  const { app, feed, message } = await open();
+  await sendWhileUploading(app, message);
   await userEvent.type(message, "And the footer colour");
-  act(() => upload.fail());
+  // The resumed upload is refused, so the message fails instead of hanging.
+  app.daemon.failRequests("context.request");
+  act(() => app.daemon.disconnectAll());
+  // The refusal lands on reconnect: wait for the client to be ready again, then
+  // the failed upload must read as failed.
+  await waitFor(() => expect(app.client.state).toBe("ready"));
   const alert = await within(await strip()).findByRole("alert");
 
   await userEvent.click(within(alert).getByRole("button", { name: "Edit" }));
@@ -129,6 +130,29 @@ test("Edit on a failed held message gives back its text, beside what the compose
   );
   expect(stripShown()).toBeNull();
   expect(within(feed).queryByText("Why is this banner orange?")).toBeNull();
+});
+
+test("a transient disconnect keeps the upload pending without failing it, and it delivers on reconnect", async () => {
+  const { app, feed, message } = await open();
+  await sendWhileUploading(app, message);
+  expect(await within(await strip()).findByText("Uploading an image…")).toBeTruthy();
+
+  // The connection drops and comes back while the daemon still holds the upload:
+  // never a red error, the message waits and goes on its own once ready again.
+  // Restore in the same tick as the drop, so no resend can park on the held fault.
+  act(() => app.daemon.disconnectAll());
+  app.daemon.restoreRequests();
+  // Still on its way, and never a red error: the pending message stays put
+  // whether it reads as uploading or already sending again.
+  const pending = await strip();
+  expect(within(pending).getByText("Why is this banner orange?")).toBeTruthy();
+  expect(within(pending).queryByRole("alert")).toBeNull();
+  await waitFor(() => expect(app.client.state).toBe("ready"));
+  await waitFor(() =>
+    expect(delivered(app)).toMatchObject({ attachments: [{ name: "screen.png" }] }),
+  );
+  await waitFor(() => expect(stripShown()).toBeNull());
+  expect(await within(feed).findAllByText("Why is this banner orange?")).toHaveLength(1);
 });
 
 test("a message held for its uploads survives a reload as interrupted, and Edit takes its text back", async () => {

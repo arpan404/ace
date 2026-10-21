@@ -25,6 +25,7 @@ import { SocketInput } from "./socket-input.ts";
 import { CommandLanes } from "./command-lanes.ts";
 import { readCore } from "./socket-reads.ts";
 import { admitUpgrades } from "./socket-upgrade.ts";
+import { createSocketCloser } from "./server-socket-close.ts";
 import { enrollNotifications, helloActor } from "./socket-hello.ts";
 import { admitCommand } from "./socket-commands.ts";
 import { isPing, closeRecord, clientAgent, type ClosePeer } from "./socket-liveness.ts";
@@ -148,6 +149,8 @@ export async function startServer(options: ServerOptions): Promise<{
   attach(local, true);
   if (remote) attach(remote, false);
   const authenticated = new Map<WebSocket, Device & { revocable: boolean }>();
+  /** One owner for every deliberate close frame; state lives here, not in a module global. */
+  const closer = createSocketCloser(runtime.delay);
   const stopRevocation = auth.onRevoke((id) => {
     preview?.revokeDevice(id);
     void options.notifications
@@ -156,8 +159,7 @@ export async function startServer(options: ServerOptions): Promise<{
     for (const [socket, device] of authenticated)
       if (device.revocable && device.id === id) {
         cleanups.get(socket)?.();
-        socket.close(4003, "Device revoked");
-        socket.terminate();
+        closer.gracefulClose(socket, 4003, "Device revoked");
       }
   });
   const createServiceSessions = createSocketRegistry();
@@ -182,10 +184,7 @@ export async function startServer(options: ServerOptions): Promise<{
       options.log?.(error);
       // A protocol error (an oversized frame is 1009) already started a close with its code;
       // give that frame a moment to reach the peer so it can tell why, then drop the socket.
-      if (socket.readyState === WebSocket.CLOSING) {
-        const stop = runtime.delay(() => socket.terminate(), 1000);
-        socket.once("close", stop);
-      } else socket.terminate();
+      closer.boundClosingSocket(socket);
     });
     if (cleanups.size >= 256) {
       socket.terminate();
@@ -476,7 +475,14 @@ export async function startServer(options: ServerOptions): Promise<{
         remoteHttp(),
         (listener) => attach(listener, false),
         () => {
-          for (const socket of remoteSockets) socket.terminate();
+          // A full shutdown already sent 1001 with a bounded terminate above; a
+          // settings-only retire still drops remote sockets at once.
+          if (closing) {
+            for (const socket of remoteSockets)
+              closer.gracefulClose(socket, 1001, "Daemon shutdown");
+          } else {
+            for (const socket of remoteSockets) socket.terminate();
+          }
         },
       );
       options.applyRemoteSetting = dynamicRemote.set;
@@ -537,23 +543,11 @@ export async function startServer(options: ServerOptions): Promise<{
         stopTimer();
         stopRevocation();
         for (const cleanup of cleanups.values()) cleanup();
-        const peers = servers.flatMap((server) =>
-          [...server.clients].map(
-            (socket) =>
-              new Promise<void>((closed) => {
-                if (socket.readyState === WebSocket.CLOSED) return closed();
-                // Let the peer receive the shutdown reason before forcing a stalled socket shut.
-                const stop = runtime.delay(() => socket.terminate(), 1000);
-                socket.once("close", () => {
-                  stop();
-                  closed();
-                });
-                socket.close(1001, "Daemon shutdown");
-              }),
-          ),
-        );
+        for (const server of servers)
+          for (const socket of server.clients) {
+            closer.gracefulClose(socket, 1001, "Daemon shutdown");
+          }
         void Promise.all([
-          stage("socket peers", Promise.all(peers)),
           stage("local listener", closeListener(local)),
           ...(remote ? [stage("remote listener", closeListener(remote))] : []),
           stage("preview", preview?.close()),
@@ -561,7 +555,11 @@ export async function startServer(options: ServerOptions): Promise<{
           stage("dynamic remote", dynamicRemote?.close()),
         ]).then(() => {
           // An upgrade can finish while listeners close; ws waits for every client to go.
-          for (const server of servers) for (const socket of server.clients) socket.terminate();
+          // Sockets already closing keep their code and bounded terminate; late
+          // upgrades get the shutdown close with the same bound.
+          for (const server of servers)
+            for (const socket of server.clients)
+              closer.gracefulClose(socket, 1001, "Daemon shutdown");
           return stage("socket servers", closeServers()).then((error) => {
             void shutdownDeadline(
               "Socket tasks",

@@ -70,7 +70,7 @@ private struct ProjectDetailView: View {
     var body: some View {
         List {
             Section { Text(project.path).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).textSelection(.enabled) }
-            NavigationLink { ThreadFilesSheet(model: model, scope: .project(project.id), mention: nil) } label: { Label("Files", systemImage: "folder") }
+            NavigationLink { FilesScreen(model: model, scope: .project(project.id), subtitle: project.name, mention: nil) } label: { Label("Files", systemImage: "folder") }
             NavigationLink { PastSessionsView(model: model, project: project) } label: { Label("Past CLI sessions", systemImage: "clock.arrow.circlepath") }
         }
         .navigationTitle(project.name).navigationBarTitleDisplayMode(.inline)

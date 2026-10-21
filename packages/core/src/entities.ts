@@ -24,9 +24,13 @@ export function openInteraction(
   ctx: ApplyContext,
   events: EventPayload[],
 ): void {
-  const request = redactAceApproval(fact.request);
-  if (request !== fact.request)
+  const redacted = redactAceApproval(fact.request);
+  // Canonicalize schema defaults (e.g. Question secret/multiSelect/allowOther) after
+  // preflight validation so stored and emitted requests stay EventPayload round-trip stable.
+  const request = InteractionRequest.parse(redacted);
+  if (redacted !== fact.request)
     fact = { ...fact, request, raw: [{ type: "ace.private-input", data: { redacted: true } }] };
+  else fact = { ...fact, request };
   const previous = get(state.interactions, fact.interaction);
   if (previous?.state === "pending") return;
   if (previous) put(state.interactionHistory, previous.id, structuredClone(previous));
@@ -56,7 +60,7 @@ export function openInteraction(
     threadId: state.threadId,
     agentId: record.agent.id,
     blocking: fact.blocking,
-    request: InteractionRequest.parse(fact.request),
+    request: structuredClone(fact.request),
     state: "pending",
     createdAt: ctx.now,
     raw: structuredClone(fact.raw ?? []),

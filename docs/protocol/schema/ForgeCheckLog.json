@@ -1,0 +1,41 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeCheckLog.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "errors": {
+      "items": {
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "maxItems": 1000,
+      "type": "array"
+    },
+    "focus": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "text": {
+      "maxLength": 2097152,
+      "type": "string"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "text",
+    "truncated",
+    "errors",
+    "focus"
+  ],
+  "type": "object"
+}

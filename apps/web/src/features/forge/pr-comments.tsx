@@ -9,6 +9,8 @@ import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import { PrOwnComment, PrThreadControls } from "./pr-review-forms.tsx";
 import { PrSection } from "./pr-section.tsx";
 import { PrClampedText } from "./pr-clamped.tsx";
+import { PrReactions } from "./pr-reactions.tsx";
+import { PrSuggestionActions } from "./pr-suggestions.tsx";
 import { conversation, reviewOutcomeLabels, type ReviewOutcome } from "./pr-summary-model.ts";
 
 const page = 10;
@@ -55,6 +57,10 @@ function CommentCard(props: { comment: ForgeComment; open: boolean; onToggle(): 
       {comment.body.trim() && (
         <div className="space-y-2 px-2.5 py-2">
           <PrClampedText text={comment.body} open={props.open} onToggle={props.onToggle} />
+          <PrSuggestionActions comment={comment} outdated={comment.line === null} />
+          {comment.kind !== "review" && (
+            <PrReactions subject={{ kind: comment.kind, commentId: comment.id }} />
+          )}
           <PrOwnComment comment={comment} />
         </div>
       )}
@@ -109,6 +115,8 @@ function ThreadCard(props: {
                 open={props.isOpen(`${thread.id}:${comment.id}`)}
                 onToggle={() => props.onToggle(`${thread.id}:${comment.id}`)}
               />
+              <PrSuggestionActions comment={comment} outdated={thread.outdated} />
+              <PrReactions subject={{ kind: "inline", commentId: comment.id }} />
               <PrOwnComment comment={comment} />
             </div>
           ))}

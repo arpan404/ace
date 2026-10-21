@@ -1,10 +1,9 @@
 import Foundation
 
-/// New thread, Add project and the Files sheet (`bridge/compose-actions.ts`). Swift sends the
-/// person's choices; the bridge decides what can start and what `thread.create` carries.
+/// New thread and Add project (`bridge/compose-actions.ts`). Swift sends the person's choices;
+/// the bridge decides what can start and what `thread.create` carries.
 extension ClientModel {
     @discardableResult func composeAction(_ value: [String: Any]) -> Bool { action(["type": "compose", "action": value]) }
-    @discardableResult func filesAction(_ value: [String: Any]) -> Bool { action(["type": "files", "action": value]) }
 
     /// Save the start in the SDK's outbox under `commandId`: true once it is on this phone.
     /// A view-only machine submits nothing.

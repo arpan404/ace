@@ -58,7 +58,7 @@ try {
   expect(JSON.parse(result.stdout)).toMatchObject({
     output: {
       tools: [
-        { name: "ace_context", description: expect.stringContaining("Recent threads") },
+        { name: "ace_context", description: expect.stringContaining("session status in one read") },
         { name: "ace_tools_find", description: expect.stringContaining("Find the ace tools") },
         { name: "ace_tools_call", description: expect.stringContaining("Run any ace tool") },
       ],

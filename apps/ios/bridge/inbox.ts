@@ -216,6 +216,8 @@ function pendingRow(send: PendingSend, connection: string) {
 const InboxAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("archive"), threadId: ThreadId }),
   z.object({ kind: z.literal("unarchive"), threadId: ThreadId }),
+  z.object({ kind: z.literal("settle"), threadId: ThreadId }),
+  z.object({ kind: z.literal("unsettle"), threadId: ThreadId }),
   z.object({
     kind: z.literal("snooze"),
     threadId: ThreadId,
@@ -231,6 +233,10 @@ function payloadOf(action: z.infer<typeof InboxAction>, now: number): CommandPay
       return { type: "thread.archive", threadId: action.threadId };
     case "unarchive":
       return { type: "thread.unarchive", threadId: action.threadId };
+    case "settle":
+      return { type: "thread.settle", threadId: action.threadId };
+    case "unsettle":
+      return { type: "thread.unsettle", threadId: action.threadId };
     case "snooze": {
       const until = snoozePresets(now).find((preset) => preset.id === action.preset)?.until;
       return until === undefined

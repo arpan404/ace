@@ -31,7 +31,12 @@ test("one turn's work reads as one Worked line and one subagent card, though sub
   await within(feed).findByRole("button", { name: "2 subagents" });
 
   // The main agent waits on them: the composer's strip says so, not a live line.
-  expect(await screen.findByRole("status", { name: /^Waiting for \d subagents?/ })).toBeTruthy();
+  // The strip names the subagent count and what runs beside them.
+  expect(
+    await screen.findByRole("status", {
+      name: /^Waiting for 2 subagents · \d+ commands? running$/,
+    }),
+  ).toBeTruthy();
   expect(within(feed).getAllByRole("button", { name: /^\d subagents?$/ })).toHaveLength(1);
   expect(within(feed).queryByRole("button", { name: "1 subagent" })).toBeNull();
   expect(second).toBeTruthy();

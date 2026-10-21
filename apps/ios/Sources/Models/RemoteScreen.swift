@@ -21,6 +21,24 @@ struct RemoteScreenState: Decodable, Identifiable {
     var id: String { sessionId }
     var title: String { target.bundleId ?? "Display \(target.displayId ?? 0)" }
 }
+/// One app as computer use lists it, in the web's words (`bridge/screen-view.ts`).
+struct ScreenSessionInfo: Decodable, Identifiable, Hashable {
+    let sessionId: String
+    let app: String
+    let detail: String
+    /// "Claude is in control", "You're in control", "Starting".
+    let status: String
+    let mode: String
+    let foreground: Bool
+    let capturing: Bool
+    let controller: String
+    let lifecycle: String
+    let error: String
+    let stoppable: Bool
+    let secureInputAllowed: Bool
+    var id: String { sessionId }
+}
+private struct ScreenSessionsReply: Decodable { let sessions: [ScreenSessionInfo] }
 struct RemoteScreenPermissions: Decodable { let screenRecording: Bool; let accessibility: Bool }
 struct RemoteScreenStatus: Decodable { let enabled: Bool; let permissions: RemoteScreenPermissions; let sessions: Int }
 struct RemoteScreenInventory: Decodable {
@@ -35,6 +53,7 @@ struct RemoteScreenInventory: Decodable {
 @MainActor @Observable final class RemoteScreen {
     private(set) var status: RemoteScreenStatus?
     private(set) var states: [RemoteScreenState] = []
+    private(set) var sessions: [ScreenSessionInfo] = []
     private(set) var windows: [RemoteScreenInventory.Window] = []
     private(set) var problem: String?
     private(set) var busy = false
@@ -42,12 +61,14 @@ struct RemoteScreenInventory: Decodable {
     private var previous: [String: RemoteScreenState.Holder] = [:]
     let live = ScreenLiveModel()
     func state(_ id: String) -> RemoteScreenState? { states.first { $0.id == id } }
+    func session(_ id: String) -> ScreenSessionInfo? { sessions.first { $0.id == id } }
     func controls(_ id: String) -> Bool { owned.contains(id) && state(id)?.controller == "human" }
     func previousHolder(_ id: String) -> RemoteScreenState.Holder? { previous[id] }
     func refresh(_ model: ClientModel) async {
         do {
             status = try await request(model, ["op": "status"])
             states = try await request(model, ["op": "sessions"])
+            sessions = try await shaped(model)
             owned = owned.filter { state($0)?.controller == "human" }
             problem = nil
         } catch { if !Task.isCancelled { problem = error.localizedDescription } }
@@ -102,6 +123,11 @@ struct RemoteScreenInventory: Decodable {
         if owned.remove(id) != nil { model.action(["type": "native.screen.release", "sessionId": id]) }
     }
     func disconnected() { live.close(); owned.removeAll() }
+    private func shaped(_ model: ClientModel) async throws -> [ScreenSessionInfo] {
+        let reply = try await model.service(["type": "screen.sessions"], as: DeviceServiceReply<ScreenSessionsReply>.self)
+        guard reply.ok, let data = reply.data else { throw ServiceFailure(message: reply.error?.message ?? "Screen request failed") }
+        return data.sessions
+    }
     private func request<T: Decodable>(_ model: ClientModel, _ operation: [String: Any]) async throws -> T {
         let reply = try await model.service(["type": "screen.request", "operation": operation], as: DeviceServiceReply<T>.self)
         guard reply.ok else { throw ServiceFailure(message: reply.error?.message ?? "Screen request failed") }

@@ -1,5 +1,11 @@
-import type { ForgeBrowserResult, WorkspaceActionRequest } from "@ace/protocol";
+import type {
+  CommandPayload,
+  CommandResult,
+  ForgeBrowserResult,
+  WorkspaceActionRequest,
+} from "@ace/protocol";
 import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
+import { catalogGroupCounts, catalogPrList } from "./forge-list-wire.ts";
 
 /**
  * Whole pull requests the fake app can open in its PR panel: detail, merge state, lifecycle,
@@ -19,7 +25,75 @@ export class FakePrCatalog {
           JSON.stringify(op.repository) === JSON.stringify(fixture.detail.status.ref.repository)),
     );
   }
+  /**
+   * `forge.hosted.merge` on a catalog PR, as GitHub answers it: the head must be the one the
+   * person saw, and a closed, conflicting or failing PR is refused. A merge marks it merged in
+   * every read, the list included.
+   */
+  merge(payload: CommandPayload): Omit<CommandResult, "commandId"> | undefined {
+    if (payload.type !== "forge.hosted.merge") return undefined;
+    const fixture = this.find(payload.pr);
+    if (!fixture) return { ok: false, error: "forge_not_found" };
+    const { status } = fixture.detail;
+    if (status.headSha !== payload.headSha || status.state !== "open")
+      return { ok: false, error: "forge_conflict" };
+    if (status.mergeability === "conflicting" || status.ci === "failure")
+      return { ok: false, error: "forge_write_refused" };
+    const merged: PullRequestFixture = {
+      ...fixture,
+      detail: { ...fixture.detail, status: { ...status, state: "merged" } },
+      ...(fixture.mergeState
+        ? { mergeState: { ...fixture.mergeState, state: "MERGED", mergeState: "UNKNOWN" } }
+        : {}),
+      lifecycle: {
+        ...fixture.lifecycle,
+        snapshot: { ...fixture.lifecycle.snapshot, state: "merged", actions: ["revert"] },
+      },
+    };
+    this.fixtures = this.fixtures.map((entry) => (entry === fixture ? merged : entry));
+    return { ok: true, pr: payload.pr, prStatus: merged.detail.status };
+  }
+  /**
+   * `forge.hosted.merge-state` on a catalog PR: auto-merge on where GitHub allows it (as "you",
+   * the signed-in account) and off again, pinned to the head the person saw.
+   */
+  mergeState(payload: CommandPayload): Omit<CommandResult, "commandId"> | undefined {
+    if (payload.type !== "forge.hosted.merge-state") return undefined;
+    const fixture = this.find(payload.pr);
+    const state = fixture?.mergeState;
+    if (!fixture || !state) return { ok: false, error: "forge_not_found" };
+    if (state.headSha !== payload.headSha) return { ok: false, error: "forge_conflict" };
+    if (payload.action === "enable" ? !state.canEnable : !state.canDisable)
+      return { ok: false, error: "forge_forbidden" };
+    const next = {
+      ...state,
+      autoMerge:
+        payload.action === "enable"
+          ? {
+              method: payload.method.toUpperCase(),
+              actor: "you",
+              enabledAt: new Date(0).toISOString(),
+            }
+          : null,
+      canEnable: payload.action === "disable",
+      canDisable: payload.action === "enable",
+    };
+    this.fixtures = this.fixtures.map((entry) =>
+      entry === fixture ? { ...fixture, mergeState: next } : entry,
+    );
+    return { ok: true, pr: payload.pr, prStatus: { ...fixture.detail.status, mergeState: next } };
+  }
+  /** Each list group's total, from these pull requests and the issues in `reads`. */
+  groupCounts(
+    op: WorkspaceActionRequest["operation"],
+    reads: ReadonlyMap<string, ForgeBrowserResult>,
+  ): ForgeBrowserResult | undefined {
+    return op.op === "forge.group-counts"
+      ? catalogGroupCounts(op, this.fixtures, reads)
+      : undefined;
+  }
   read(op: WorkspaceActionRequest["operation"]): ForgeBrowserResult | undefined {
+    if (op.op === "forge.pr.list") return catalogPrList(op, this.fixtures);
     if (op.op === "forge.pr.stack-memberships") {
       const known = op.numbers.filter((number) => this.find({ ...op, number }));
       return known.length === op.numbers.length

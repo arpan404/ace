@@ -2,7 +2,7 @@
  * The composer's one strip slot. Several things want the room above the composer; it shows one,
  * the rest as small indicators inside it. By default the most urgent shows: a Stop waiting for
  * its second Esc (it answers the key just pressed, and lasts only a moment), a request needing
- * the person, then the person's messages on their way (or that didn't go), then trouble with
+ * the person, then a usage or rate limit, then the person's messages on their way (or that didn't go), then trouble with
  * the connection, then background commands a stopped turn left running, then the queue, then
  * what the main agent waits on while it does nothing itself (with its Stop), then the goal the
  * agent is pursuing, then its task list. The person can switch the slot to any present item; a
@@ -11,6 +11,7 @@
 export const stripPriority = [
   "confirm-stop",
   "request",
+  "held",
   "sending",
   "connection",
   "stopped",
@@ -32,6 +33,8 @@ export interface StripFacts {
   /** Messages on their way that the transcript doesn't have yet, or that didn't go. */
   sending: boolean;
   connection: boolean;
+  /** A usage or rate limit holds the turn, waiting for its reset or Continue. */
+  held: boolean;
   /** The turn was stopped and background commands it started still run. */
   stopped: boolean;
   /** The main agent does nothing itself: it waits on its subagents or its background commands. */

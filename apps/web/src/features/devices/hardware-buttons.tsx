@@ -2,8 +2,7 @@ import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import type { CSSProperties } from "react";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
-import type { Edge, HardwareButton, HardwareKey, Turn } from "./device-buttons.ts";
-import type { Size } from "./device-frame-geometry.ts";
+import type { Edge, HardwareButton, HardwareKey, Turn, Size } from "@ace/ui-core/devices";
 
 /** Pressing the drawn hardware: whether a press reaches the device now, and where it goes. */
 export interface HardwarePress {

@@ -280,34 +280,6 @@ const agents: Record<string, Wording> = {
 
 /** Failures any of ace's tools can report, whichever family it is. */
 const shared: Record<string, Wording> = {
-  approval_timeout: () => ({
-    title: "Site access wasn't approved in time",
-    hint: "Allow the site in ace, then try again.",
-  }),
-  page_timeout: (site) => ({
-    title: `${site} took too long to load`,
-    hint: "Check the page and reload if needed.",
-  }),
-  tool_timeout: () => ({
-    title: "The action took too long",
-    hint: "Check its result before trying again.",
-  }),
-  cancelled: () => ({
-    title: "The action was cancelled",
-    hint: "It may have partly completed.",
-  }),
-  result_too_large: () => ({
-    title: "The result is too large to show",
-    hint: "The agent can request a smaller part.",
-  }),
-  calls_limit: () => ({
-    title: "Too many actions are running at once",
-    hint: "Wait for a running action to finish.",
-  }),
-  session_ended: () => ({
-    title: "This session ended",
-    hint: "Start a new turn to continue.",
-  }),
   invalid_arguments: () => ({ title: "The agent's request was malformed" }),
   invalid_data: () => ({ title: "The tool answered with something unexpected" }),
   timeout: () => ({ title: "No answer in time", hint: "Nothing changed. Try again." }),
@@ -329,6 +301,34 @@ const shared: Record<string, Wording> = {
   user_browser_unavailable: () => ({
     title: "Your Chrome isn't connected to ace",
     hint: "Turn on Use my Chrome in Settings › Computer use and keep Chrome open.",
+  }),
+  approval_timeout: () => ({
+    title: "The site still needs your approval",
+    hint: "Allow it for agents, then ask the agent to try again.",
+  }),
+  page_timeout: () => ({
+    title: "The page took too long to load",
+    hint: "Check that it opens, then try again.",
+  }),
+  tool_timeout: () => ({
+    title: "That took too long and was stopped",
+    hint: "It may be partly done. Check what changed before retrying with less.",
+  }),
+  cancelled: () => ({
+    title: "That was stopped before it finished",
+    hint: "It may be partly done. Check what changed before running it again.",
+  }),
+  result_too_large: () => ({
+    title: "That result was too big to show",
+    hint: "Ask for a smaller part of it.",
+  }),
+  calls_limit: () => ({
+    title: "Too many steps are running at once",
+    hint: "Wait for one to finish, then try again.",
+  }),
+  session_ended: () => ({
+    title: "That session has ended",
+    hint: "Start again in a new turn.",
   }),
 };
 

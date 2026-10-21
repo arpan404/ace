@@ -92,6 +92,11 @@ export class WorkspaceForgeBrowse {
         resource: "prActivity",
         ...(await backend.prActivity(operation.number, operation.page, signal)),
       };
+    if (operation.op === "forge.group-counts")
+      return {
+        resource: "groupCounts",
+        counts: await backend.groupCounts(operation.grouping, signal),
+      };
     if (operation.op === "forge.open-work")
       return { resource: "openWork", value: await backend.openWork(signal) };
     if (operation.op === "forge.pr.list")
@@ -99,10 +104,17 @@ export class WorkspaceForgeBrowse {
     if (operation.op === "forge.pr.commits")
       return {
         resource: "prCommits",
-        ...(await backend.prCommits(operation.number, operation.page, operation.headSha, signal)),
+        ...(await backend.prCommits(operation.number, operation.before, operation.headSha, signal)),
       };
     if (operation.op === "forge.pr.files")
       return { resource: "prFiles", value: await backend.prFiles(operation, signal) };
+    if (operation.op === "forge.pr.check")
+      return {
+        resource: "prCheck",
+        value: await backend.checks.run(operation.checkRunId, operation.jobId, signal),
+      };
+    if (operation.op === "forge.file.content")
+      return { resource: "fileContent", value: await backend.fileContent(operation, signal) };
     const ref = { repository, number: operation.number };
     const revision = this.ctx.owner.capture(ref);
     const { value, writeState } = await this.parts.actions.readDetail(

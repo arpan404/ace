@@ -20,6 +20,7 @@ import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import type { PrWorkspaceExtensions } from "./pr-extensions.ts";
 import type { PrActions } from "./pr-actions.ts";
 import { PrPrimaryButton } from "./pr-primary-button.tsx";
+import { PrMergeLines } from "./pr-merge-lines.tsx";
 import { PrAgentChip } from "./pr-agent-chip.tsx";
 
 /** The title, editable in place where GitHub lets this account change it. */
@@ -220,6 +221,13 @@ export function PrHeader(props: {
             blocked={actions.primaryBlocked}
             working={working}
             onRun={() => void actions.runPrimary()}
+            onDisable={() => void actions.mergeState.run("disable", actions.method)}
+            disableBlocked={
+              actions.mergeState.blocked ??
+              (actions.mergeState.state?.canDisable
+                ? undefined
+                : "GitHub doesn't let this account turn auto-merge off")
+            }
           />
           {props.menu}
         </div>
@@ -275,6 +283,7 @@ export function PrHeader(props: {
             </div>
           </div>
           {props.gates}
+          <PrMergeLines actions={actions} />
         </div>
       </div>
       {props.condensed && (

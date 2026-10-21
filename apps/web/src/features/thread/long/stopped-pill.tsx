@@ -1,7 +1,9 @@
 import type { ThreadReader } from "@ace/client";
 import { useClient, useThread } from "@ace/client-react";
 import { ThreadId, type CommandPayload } from "@ace/protocol";
-import { ArrowClockwiseIcon, PauseIcon } from "@phosphor-icons/react";
+import { continueMessage } from "@ace/ui-core";
+import { ArrowClockwiseIcon } from "@phosphor-icons/react";
+import { PauseBarsIcon, ResumeIcon } from "@/components/ace-icons.tsx";
 import { useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -29,20 +31,21 @@ export function StoppedPill(props: { threadId: string; raised: boolean }) {
   const [sending, setSending] = useState(false);
   if (!reason || running) return null;
   const label = reason === "restart" ? "Stopped by a restart" : "Agent stopped";
-  const Glyph = reason === "restart" ? ArrowClockwiseIcon : PauseIcon;
+  const Glyph = reason === "restart" ? ArrowClockwiseIcon : PauseBarsIcon;
   const go = () => {
     setSending(true);
     void (async () => {
       const threadId = ThreadId.parse(props.threadId);
       const { queue } = await client.request({ type: "queue.get", threadId, limit: 1 });
-      // A restart left a native continuation to resume; a Stop left none, so Continue says so.
+      // A restart left a native continuation to resume (the daemon sends it in the person's
+      // words); a Stop left none, so Continue is simply their next message.
       const payload: CommandPayload =
         reason === "restart"
           ? { type: "thread.resume", threadId, expectedRevision: queue.revision }
           : {
               type: "thread.send",
               threadId,
-              input: [{ type: "text", text: "continue" }],
+              input: [{ type: "text", text: continueMessage }],
               delivery: "queue",
             };
       await runCommand(client, payload, crypto.randomUUID());
@@ -73,9 +76,10 @@ export function StoppedPill(props: { threadId: string; raised: boolean }) {
         onClick={go}
         className={cn(
           floatingHover,
-          "h-6 rounded-full px-2.5 font-medium text-foreground transition-colors duration-(--motion-fast) focus-ring disabled:opacity-60 touch-hit",
+          "inline-flex h-6 items-center gap-1 rounded-full px-2.5 font-medium text-foreground transition-colors duration-(--motion-fast) focus-ring disabled:opacity-60 touch-hit",
         )}
       >
+        <ResumeIcon aria-hidden size={12} />
         Continue
       </button>
     </div>

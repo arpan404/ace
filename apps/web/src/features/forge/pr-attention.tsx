@@ -7,6 +7,8 @@ import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import { PrSection } from "./pr-section.tsx";
 import { attentionItems, type AttentionItem } from "./pr-summary-model.ts";
 import { useFixWithAgent } from "./pr-fix-with-agent.ts";
+import { useFetchCheckRun } from "./pr-check-run.ts";
+import { checkFixRequest, checkRunId } from "./pr-check-model.ts";
 
 function Lead(props: { item: AttentionItem; avatar: string | undefined }) {
   if (props.item.kind === "check")
@@ -37,6 +39,15 @@ export function PrAttention(props: {
   const { detail } = props;
   const items = attentionItems(detail.status);
   const agent = useFixWithAgent(props);
+  const fetchRun = useFetchCheckRun(props.workspaceId, detail.status.ref);
+  // A failing check's request carries its log excerpt and annotations, read as the panel would.
+  const fix = async (item: AttentionItem) => {
+    const check = detail.status.checks.find((candidate) => `check:${candidate.id}` === item.key);
+    if (item.kind !== "check" || !check || checkRunId(check) === undefined) return agent.fix(item);
+    const pr = { number: detail.status.ref.number, url: detail.status.url };
+    const run = await fetchRun(check).catch(() => undefined);
+    agent.ask(checkFixRequest(check, pr, run));
+  };
   if (!items.length) return null;
   const open = detail.status.state === "open" || detail.status.state === "draft";
   return (
@@ -73,7 +84,7 @@ export function PrAttention(props: {
                 className="shrink-0"
                 disabled={props.disabled}
                 aria-label={`Fix with agent: ${item.title}`}
-                onClick={() => agent.fix(item)}
+                onClick={() => void fix(item)}
               >
                 <SparkleIcon aria-hidden size={12} />
                 <span className="@max-[30rem]/pr:sr-only">Fix with agent</span>

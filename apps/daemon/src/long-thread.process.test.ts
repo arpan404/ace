@@ -482,11 +482,72 @@ test("item windows resolve deleted targets and both thread boundaries without pa
   expect(last.itemsBefore).toBeGreaterThan(0);
 });
 
-// Mutations: dropping the target to fit older items, treating an oversized neighbor as a
-// fatal target error or returning a noncontiguous interval. Not executed (tests run at merge).
-test("byte-limited item windows retain the target and stop before a neighbor that only fits alone", () => {
+// Mutations: dropping the target to fit older items, treating a neighbor that
+// fits alone as fatal or returning a noncontiguous interval. Reduced neighbors
+// (larger than any window) are covered by the next test, not this one.
+test("byte-limited item windows retain the target and stop at a neighbor that fits alone", () => {
   const f = storeFixture();
-  const huge = "x".repeat(900 * 1024);
+  // Both sizes are exact on the wire: tool items page whole, unlike text
+  // previews. The neighbor fits a 1MiB window alone (~922K) but not alongside
+  // the ~205K target (~840K left), so the window stops instead of dropping
+  // the target or failing.
+  const neighbor = "x".repeat(900 * 1024);
+  const targetCommand = "y".repeat(200 * 1024);
+  const events = f.store.appendEvents(
+    f.thread.id,
+    [
+      {
+        type: "item.created",
+        item: tool("large-before", "succeeded", { kind: "shell", command: neighbor }),
+      },
+      {
+        type: "item.created",
+        item: tool("target", "succeeded", { kind: "shell", command: targetCommand }),
+      },
+      { type: "item.created", item: agentMessage("after", "A newer message") },
+    ],
+    20,
+  );
+  const target = events.find(
+    (event) => event.payload.type === "item.created" && event.payload.item.id === "target",
+  );
+  if (!target) throw new Error("Missing target");
+  const neighborEvent = events.find(
+    (event) => event.payload.type === "item.created" && event.payload.item.id === "large-before",
+  );
+  if (!neighborEvent) throw new Error("Missing neighbor");
+  // Standalone windows prove the accounting inputs, not just the verdict:
+  // the neighbor pages whole at its original size (no reduction marker) and
+  // so does the target. Only their combination exceeds the budget.
+  const neighborAlone = window(f.store, f.thread, { aroundSeq: neighborEvent.seq });
+  expect(neighborAlone.items.map((item) => item.id)).toEqual(["large-before"]);
+  const neighborBody = neighborAlone.items[0];
+  if (neighborBody?.type !== "tool_call" || neighborBody.call.detail.kind !== "shell")
+    throw new Error("Missing neighbor body");
+  expect(neighborBody.call.detail.command).toHaveLength(900 * 1024);
+  expect(neighborAlone.omitted ?? []).toEqual([]);
+  const targetAlone = window(f.store, f.thread, { aroundSeq: target.seq });
+  expect(targetAlone.items.map((item) => item.id)).toEqual(["target"]);
+  const targetBody = targetAlone.items[0];
+  if (targetBody?.type !== "tool_call" || targetBody.call.detail.kind !== "shell")
+    throw new Error("Missing target body");
+  expect(targetBody.call.detail.command).toHaveLength(200 * 1024);
+  expect(targetAlone.omitted ?? []).toEqual([]);
+  const result = window(f.store, f.thread, { aroundSeq: target.seq }, 1, 1);
+  expect(result.items.some((item) => item.id === "target")).toBe(true);
+  expect(result.items.some((item) => item.id === "large-before")).toBe(false);
+  expect(result.targetSeq).toBe(target.seq);
+  expect(result.itemsBefore).toBeGreaterThan(0);
+  expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(1024 * 1024);
+});
+
+// A neighbor larger than any window is reduced (raw payloads stripped, long
+// strings cut, listed in omitted) instead of failing the window or dropping
+// the target. Reduction is intentional (bounded pages never fail on one
+// oversized item); only the stop path above excludes a neighbor.
+test("byte-limited item windows reduce a neighbor larger than any window", () => {
+  const f = storeFixture();
+  const huge = "x".repeat(1100 * 1024);
   const events = f.store.appendEvents(
     f.thread.id,
     [
@@ -494,10 +555,7 @@ test("byte-limited item windows retain the target and stop before a neighbor tha
         type: "item.created",
         item: tool("oversized-before", "succeeded", { kind: "shell", command: huge }),
       },
-      {
-        type: "item.created",
-        item: tool("target", "succeeded", { kind: "shell", command: "t".repeat(256 * 1024) }),
-      },
+      { type: "item.created", item: agentMessage("target", "The jump target") },
       { type: "item.created", item: agentMessage("after", "A newer message") },
     ],
     20,
@@ -508,9 +566,14 @@ test("byte-limited item windows retain the target and stop before a neighbor tha
   if (!target) throw new Error("Missing target");
   const result = window(f.store, f.thread, { aroundSeq: target.seq }, 1, 1);
   expect(result.items.some((item) => item.id === "target")).toBe(true);
-  expect(result.items.some((item) => item.id === "oversized-before")).toBe(false);
+  expect(result.items.some((item) => item.id === "oversized-before")).toBe(true);
   expect(result.targetSeq).toBe(target.seq);
-  expect(result.itemsBefore).toBeGreaterThan(0);
+  // The omission marker identifies this neighbor specifically, and the window
+  // stays one contiguous interval with nothing outside it on either side.
+  expect(result.omitted?.map((entry) => entry.itemId)).toEqual(["oversized-before"]);
+  expect(result.items.map((item) => item.id)).toEqual(["oversized-before", "target", "after"]);
+  expect(result.itemsBefore).toBeNull();
+  expect(result.itemsAfter).toBeNull();
   expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(1024 * 1024);
 });
 
