@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "vitest";
-import { mkdtemp, readFile, rm, writeFile, chmod } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, mkdtemp, readFile, rm, writeFile, chmod } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { parse } from "plist";
 import { z } from "zod";
@@ -134,6 +134,50 @@ test("a broken service manager is reported instead of silently treated as stoppe
       "status",
     ),
   ).rejects.toThrow();
+});
+test("systemd 259, which omits empty properties, reads as a missing or running ace unit", async () => {
+  const home = await temp();
+  const p = planService({
+    platform: "linux",
+    home,
+    dataDir: join(home, ".ace"),
+    executable: join(home, ".ace/bin/ace"),
+    path: "/bin",
+    uid: 1000,
+  });
+  const show = (stdout: string) =>
+    new UserService(p, async () => ({ code: 0, stdout, stderr: "" }));
+  // Exactly what Ubuntu 26.04's systemd prints for a unit that does not exist.
+  const missing = "LoadState=not-found\nActiveState=inactive\nFragmentPath=\nDropInPaths=\n";
+  expect(await show(missing).active()).toBe(false);
+  const running = `LoadState=loaded\nActiveState=active\nFragmentPath=${p.file}\nExecStart={ path=${p.command[0]} ; argv[]=${p.command.join(" ")} ; ignore_errors=no ; }\nDropInPaths=\n`;
+  await mkdir(dirname(p.file), { recursive: true });
+  await writeFile(p.file, p.content);
+  expect(await show(running).active()).toBe(true);
+  // A hook is still refused when it is present.
+  await expect(
+    show(`${missing}ExecStartPre={ path=/bin/sh ; argv[]=/bin/sh -c evil ; }\n`).active(),
+  ).rejects.toThrow(/Incompatible/);
+  await expect(show(`${missing}Unknown=1\n`).active()).rejects.toThrow(/Incompatible/);
+});
+test("Linux without a systemd user session says so and how to run the daemon instead", async () => {
+  const p = planService({
+    platform: "linux",
+    home: "/home/a",
+    dataDir: "/home/a/.ace",
+    executable: "/home/a/.ace/bin/ace",
+    path: "/bin",
+    uid: 1000,
+  });
+  const noSession = new UserService(p, async () => ({
+    code: 1,
+    stdout: "",
+    stderr: "Failed to connect to bus: No medium found\n",
+  }));
+  for (const action of ["status", "install", "start"] as const)
+    await expect(noSession.perform(action)).rejects.toThrow(
+      /needs a systemd user session .* `ace start`/,
+    );
 });
 test("service environment preserves daemon network settings while excluding provider secrets", () => {
   const environment = ServiceEnvironment.parse({

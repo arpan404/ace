@@ -28,6 +28,7 @@ import {
   durableJson,
   renderLauncher,
   prepareDaemonHome,
+  planUpdateLaunch,
 } from "@ace/service";
 import { fileURLToPath } from "node:url";
 import { finished } from "node:stream/promises";
@@ -241,25 +242,17 @@ export async function supervise() {
           },
         }),
       launchUpdate(command) {
-        const args = [fileURLToPath(new URL("./ace.mjs", import.meta.url)), "update", command];
-        return process.platform === "linux"
-          ? spawn(
-              "systemd-run",
-              [
-                "--user",
-                "--wait",
-                "--unit=ace-update",
-                "--collect",
-                "--property=RuntimeMaxSec=1800",
-                `--setenv=ACE_HOME=${root}`,
-                `--setenv=PATH=${process.env.PATH ?? "/usr/bin:/bin"}`,
-                "--",
-                process.execPath,
-                ...args,
-              ],
-              { stdio: "ignore" },
-            )
-          : spawn(process.execPath, args, { stdio: "ignore", detached: true });
+        const launch = planUpdateLaunch({
+          platform: process.platform,
+          env: process.env,
+          node: process.execPath,
+          args: [fileURLToPath(new URL("./ace.mjs", import.meta.url)), "update", command],
+          root,
+        });
+        return spawn(launch.command, launch.args, {
+          stdio: "ignore",
+          detached: launch.detached,
+        });
       },
       report,
     });

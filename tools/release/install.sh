@@ -14,6 +14,7 @@ case "$target" in
   linux-arm64) pinned='__ACE_LINUX_ARM64_SHA256__';;
   linux-x64) pinned='__ACE_LINUX_X64_SHA256__';;
 esac
+[ -n "$pinned" ] || { echo "This ace release has no $target build" >&2; exit 1; }
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/ace-install.XXXXXXXX")
 trap 'rm -rf "$scratch"' EXIT HUP INT TERM
 printf '%s\n' "$PUBLIC_KEY" > "$scratch/key.pem"
