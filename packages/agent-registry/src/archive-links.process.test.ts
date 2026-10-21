@@ -167,6 +167,66 @@ test("a zip symlink entry is created as a link", async () => {
   }
 });
 
+test("a mkdir through an earlier link cannot create a directory outside the root", async () => {
+  const work = await temporary();
+  try {
+    const bytes = await makeTgz([
+      { name: "d", type: "symlink", linkname: "s/.." },
+      { name: "s", type: "symlink", linkname: "." },
+      { name: "d/x/l", type: "symlink", linkname: "." },
+    ]);
+    const archive = join(work.root, "mkdir-escape.tgz");
+    await writeFile(archive, bytes);
+    const root = join(work.root, "installed");
+    await mkdir(root);
+    await expect(extractTar(archive, root, new AbortController().signal)).rejects.toThrow();
+    await expect(access(join(work.root, "x"))).rejects.toThrow();
+  } finally {
+    await work.close();
+  }
+});
+
+test("a tar with an absolute venv interpreter link installs and keeps its target", async () => {
+  const work = await temporary();
+  try {
+    const bytes = await makeTgz([
+      { name: "agent", type: "file", content: "synthetic executable" },
+      { name: "bin/python3.12", type: "symlink", linkname: "/usr/bin/python3.12" },
+    ]);
+    const archive = join(work.root, "absolute.tgz");
+    await writeFile(archive, bytes);
+    const root = join(work.root, "installed");
+    await mkdir(root);
+    await extractTar(archive, root, new AbortController().signal);
+    expect(await readlink(join(root, "bin", "python3.12"))).toBe("/usr/bin/python3.12");
+    expect(await readFile(join(root, "agent"), "utf8")).toBe("synthetic executable");
+  } finally {
+    await work.close();
+  }
+});
+
+test("the Windows EPERM fallback skips absolute and still-missing targets", async () => {
+  const work = await temporary();
+  try {
+    const root = join(work.root, "installed");
+    await mkdir(root);
+    await writeFile(join(root, "real.txt"), "file data");
+    await createArchiveLinks(
+      root,
+      [
+        { linkPath: join(root, "abs"), target: "/usr/bin/python3.12" },
+        { linkPath: join(root, "missing"), target: "nope/missing" },
+        { linkPath: join(root, "ok"), target: "real.txt" },
+      ],
+      failingSymlink,
+    );
+    await expect(access(join(root, "abs"))).rejects.toThrow();
+    await expect(access(join(root, "missing"))).rejects.toThrow();
+    expect(await readFile(join(root, "ok"), "utf8")).toBe("file data");
+  } finally {
+    await work.close();
+  }
+});
 async function failingSymlink(target: string, path: string, type?: "junction"): Promise<void> {
   if (type !== "junction") throw Object.assign(new Error("symlink EPERM"), { code: "EPERM" });
   await symlink(target, path, "junction");
@@ -183,9 +243,9 @@ test("the Windows EPERM fallback produces a junction or copy", async () => {
     await createArchiveLinks(
       root,
       [
-        { linkPath: join(root, "middle"), target: "real.txt", normalizeBackslash: false },
-        { linkPath: join(root, "outer"), target: "middle", normalizeBackslash: false },
-        { linkPath: join(root, "linkdir"), target: "realdir", normalizeBackslash: false },
+        { linkPath: join(root, "middle"), target: "real.txt" },
+        { linkPath: join(root, "outer"), target: "middle" },
+        { linkPath: join(root, "linkdir"), target: "realdir" },
       ],
       failingSymlink,
     );
