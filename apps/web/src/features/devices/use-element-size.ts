@@ -1,5 +1,5 @@
 import { useLayoutEffect, useState, type RefObject } from "react";
-import type { Size } from "./device-frame-geometry.ts";
+import type { Size } from "@ace/ui-core/devices";
 
 /** An element's content size, kept current as it resizes; zero until it is laid out. */
 export function useElementSize(element: RefObject<HTMLElement | null>): Size {
