@@ -2,7 +2,7 @@ import { createContext, use } from "react";
 import { PullRequestGlyph, pullRequestTone } from "@/components/pull-request-state.tsx";
 import { type RowAttention, type ThreadCard } from "@ace/ui-core";
 import { StatusGlyph } from "@/components/status-glyph.tsx";
-import { threadGlyph } from "@/components/status-glyph-state.ts";
+import { threadGlyph } from "@ace/ui-core";
 import { formatSpan } from "@ace/ui-core";
 import { useSeconds } from "@/lib/time.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";

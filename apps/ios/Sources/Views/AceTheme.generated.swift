@@ -14,22 +14,22 @@ import UIKit
     /// Token defaults for the editable palette keys, which a saved palette overrides.
     /// Widget extensions never register a model and keep these shared defaults.
     static let paletteDefaults: [String: NativePalette.Pair] = [
-        "background": .init(light: 0xFFFFFF, dark: 0x0A0A0B),
+        "background": .init(light: 0xFFFFFF, dark: 0x0C0C0C),
         "secondaryBackground": .init(light: 0xF5F5F7, dark: 0x141416),
         "card": .init(light: 0xFFFFFF, dark: 0x1A1A1D),
-        "foreground": .init(light: 0x222224, dark: 0xDEDEE0),
-        "mutedForeground": .init(light: 0x626268, dark: 0x9A9AA1),
-        "subtleForeground": .init(light: 0x69696F, dark: 0x8B8B93),
-        "separator": .init(light: 0xE9E9EC, dark: 0x26262A),
-        "fill": .init(light: 0xF2F2F4, dark: 0x1F1F23),
-        "accent": .init(light: 0x1F1F22, dark: 0xECECEE),
-        "onAccent": .init(light: 0xFFFFFF, dark: 0x0A0A0B),
+        "foreground": .init(light: 0x222222, dark: 0xDEDEDE),
+        "mutedForeground": .init(light: 0x545454, dark: 0xA3A3A3),
+        "subtleForeground": .init(light: 0x676767, dark: 0x898989),
+        "separator": .init(light: 0xE2E2E2, dark: 0x1E1E1E),
+        "fill": .init(light: 0xF0F0F0, dark: 0x191919),
+        "accent": .init(light: 0x222222, dark: 0xDEDEDE),
+        "onAccent": .init(light: 0xFFFFFF, dark: 0x0C0C0C),
     ]
     /// Editable colours resolve through the injected model so saves and resets
     /// invalidate every active view. Semantic colours below stay fixed.
     @MainActor enum Colours {
         static var background: Color {
-            let pair = NativePaletteBridge.pair(for: "background", light: 0xFFFFFF, dark: 0x0A0A0B)
+            let pair = NativePaletteBridge.pair(for: "background", light: 0xFFFFFF, dark: 0x0C0C0C)
             return adaptive(pair.light, pair.dark)
         }
         static var secondaryBackground: Color {
@@ -41,37 +41,37 @@ import UIKit
             return adaptive(pair.light, pair.dark)
         }
         static var foreground: Color {
-            let pair = NativePaletteBridge.pair(for: "foreground", light: 0x222224, dark: 0xDEDEE0)
+            let pair = NativePaletteBridge.pair(for: "foreground", light: 0x222222, dark: 0xDEDEDE)
             return adaptive(pair.light, pair.dark)
         }
         static var mutedForeground: Color {
-            let pair = NativePaletteBridge.pair(for: "mutedForeground", light: 0x626268, dark: 0x9A9AA1)
+            let pair = NativePaletteBridge.pair(for: "mutedForeground", light: 0x545454, dark: 0xA3A3A3)
             return adaptive(pair.light, pair.dark)
         }
         static var subtleForeground: Color {
-            let pair = NativePaletteBridge.pair(for: "subtleForeground", light: 0x69696F, dark: 0x8B8B93)
+            let pair = NativePaletteBridge.pair(for: "subtleForeground", light: 0x676767, dark: 0x898989)
             return adaptive(pair.light, pair.dark)
         }
         static let decoration = adaptive(0x87878D, 0x76767E)
         static var separator: Color {
-            let pair = NativePaletteBridge.pair(for: "separator", light: 0xE9E9EC, dark: 0x26262A)
+            let pair = NativePaletteBridge.pair(for: "separator", light: 0xE2E2E2, dark: 0x1E1E1E)
             return adaptive(pair.light, pair.dark)
         }
         static var fill: Color {
-            let pair = NativePaletteBridge.pair(for: "fill", light: 0xF2F2F4, dark: 0x1F1F23)
+            let pair = NativePaletteBridge.pair(for: "fill", light: 0xF0F0F0, dark: 0x191919)
             return adaptive(pair.light, pair.dark)
         }
         static let glass = adaptive(0xFFFFFF, 0x1C1C1F)
         static var accent: Color {
-            let pair = NativePaletteBridge.pair(for: "accent", light: 0x1F1F22, dark: 0xECECEE)
+            let pair = NativePaletteBridge.pair(for: "accent", light: 0x222222, dark: 0xDEDEDE)
             return adaptive(pair.light, pair.dark)
         }
         static var onAccent: Color {
-            let pair = NativePaletteBridge.pair(for: "onAccent", light: 0xFFFFFF, dark: 0x0A0A0B)
+            let pair = NativePaletteBridge.pair(for: "onAccent", light: 0xFFFFFF, dark: 0x0C0C0C)
             return adaptive(pair.light, pair.dark)
         }
         static let needsYouSurface = adaptive(0xFFF4E8, 0x2A1F12)
-        static let diffAdd = adaptive(0xE8F7EE, 0x11281A)
+        static let diffAdd = adaptive(0xE8F7EE, 0x0F2418)
         static let diffDelete = adaptive(0xFDECEC, 0x2D1515)
         static let scrim = adaptive(0x000000, 0x000000)
         static let shadow = adaptive(0x000000, 0x000000)
@@ -85,12 +85,12 @@ import UIKit
         static let failed = adaptive(0xA3233A, 0xCF5468)
     }
     @MainActor enum StatusText {
-        static let needsYou = adaptive(0xA35513, 0xF0A35E)
-        static let working = adaptive(0x2D63C8, 0x7AA2F7)
-        static let waiting = adaptive(0x6945BD, 0xB49CF5)
-        static let unresponsive = adaptive(0xAD3E75, 0xE88BB3)
-        static let done = adaptive(0x247548, 0x6CC48F)
-        static let failed = adaptive(0xBA2E2E, 0xF07171)
+        static let needsYou = adaptive(0x9A5900, 0xEDC070)
+        static let working = adaptive(0x2A55B0, 0x6B90D9)
+        static let waiting = adaptive(0x7456CB, 0xB49CF5)
+        static let unresponsive = adaptive(0xAA4679, 0xE88BB3)
+        static let done = adaptive(0x007856, 0x57BD9B)
+        static let failed = adaptive(0xA3233A, 0xE4697D)
     }
     enum Spacing {
         static let none: CGFloat = 0
@@ -115,6 +115,11 @@ import UIKit
         static let composer: CGFloat = 26
         static let sheet: CGFloat = 28
         static let pill: CGFloat = 999
+        static let xs: CGFloat = 4
+        static let sm: CGFloat = 6
+        static let md: CGFloat = 8
+        static let lg: CGFloat = 12
+        static let xl: CGFloat = 18
     }
     enum Dimensions {
         static let touchTarget: CGFloat = 48
