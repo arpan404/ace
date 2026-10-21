@@ -83,9 +83,18 @@ export function platformTarget(platform: string, arch: string): string | undefin
   const cpu = arch === "arm64" ? "aarch64" : arch === "x64" ? "x86_64" : undefined;
   return cpu ? `${os}-${cpu}` : undefined;
 }
-/** Archives ace can unpack: raw files, ZIP and gzip tar; never bzip2 or platform installers. */
+/**
+ * Archives ace can unpack: ZIP, gzip tar and raw executables ("agent-linux-amd64", "agent.exe").
+ * Any other compressed file or installer is refused, never installed as if it were the binary.
+ */
 export function supportedArchive(archive: string): boolean {
-  return !/\.(dmg|pkg|deb|rpm|msi|appimage|tbz2|bz2)$/i.test(new URL(archive).pathname);
+  const path = new URL(archive).pathname;
+  return (
+    /\.(tar\.gz|tgz|zip)$/i.test(path) ||
+    !/\.(dmg|pkg|deb|rpm|msi|msix|appimage|tar|gz|bz2|tbz2?|xz|txz|zst|tzst|7z|rar|lzma?|lz4)$/i.test(
+      path,
+    )
+  );
 }
 export function availability(
   agent: AgentEntry,

@@ -2,7 +2,7 @@ import { matchProfile } from "./profiles.ts";
 import { readBoundedJson } from "./files.ts";
 import { createHash } from "node:crypto";
 import { mkdir, rename, rm, open, stat, chmod, readdir, realpath } from "node:fs/promises";
-import { join, dirname, relative, sep } from "node:path";
+import { join, dirname, posix, relative, sep } from "node:path";
 import { z } from "zod";
 import {
   spawnSupervised,
@@ -93,12 +93,13 @@ async function runManager(
     await proc.stop({ graceMs: 0 });
   }
 }
+// Entrypoints are relative paths joined with "/" on every platform: `contained` rejects "\".
 async function packageEntrypoint(plan: InstallPlan, stage: string): Promise<string> {
   if (plan.preview.runtime === "uv") {
     const names = await readdir(join(stage, "bin"));
     if (names.length !== 1 || !names[0])
       throw new Error("Ambiguous Python entrypoint; explicit local binding required");
-    return join("bin", names[0]);
+    return posix.join("bin", names[0]);
   }
   const spec = plan.agent.distribution.npx?.package ?? "";
   const name = spec.slice(0, spec.lastIndexOf("@"));
@@ -118,7 +119,7 @@ async function packageEntrypoint(plan: InstallPlan, stage: string): Promise<stri
       : [...new Set(Object.values(manifest.bin))];
   if (bins.length !== 1 || !bins[0])
     throw new Error("Ambiguous package entrypoint; explicit local binding required");
-  return relative(stage, contained(root, bins[0]));
+  return relative(stage, contained(root, bins[0])).split(sep).join("/");
 }
 async function packageEvidence(plan: InstallPlan, root: string) {
   if (plan.preview.runtime === "binary") return undefined;
@@ -170,7 +171,7 @@ export async function executeInstall(
       const pathname = new URL(plan.archive ?? "").pathname.toLowerCase();
       const files = join(stage, "files");
       await mkdir(files, { mode: 0o700 });
-      entrypoint = join("files", plan.entrypoint ?? "");
+      entrypoint = posix.join("files", plan.entrypoint ?? "");
       if (/\.(tar\.gz|tgz)$/.test(pathname)) await extractTar(artifact, files, signal);
       else if (pathname.endsWith(".zip")) await extractZip(artifact, files, signal);
       else {
