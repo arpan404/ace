@@ -13,6 +13,7 @@ import { ThreadId, type CommandPayload } from "@ace/protocol";
 import { z } from "zod";
 import { host } from "./host.ts";
 import { preview, threadRow } from "./presentation.ts";
+import { inboxLook } from "./inbox-look.ts";
 import { dispatchCommand } from "./commands.ts";
 import type { PatchSink } from "./agents.ts";
 
@@ -77,6 +78,8 @@ export function followInbox(
   const sends = owner.pendingSends();
   const connection = owner.connectionState();
   const online = () => connection.getSnapshot() === "ready";
+  // Results that finished before this phone started following count as seen.
+  const baseline = clock.now();
   const row = (id: string) =>
     pump.put(`inbox:${id}`, () => {
       const thread = inboxThread(store, machineId, id);
@@ -88,6 +91,7 @@ export function followInbox(
               ...threadRow(thread.entry),
               machineId,
               status: inboxStatus(thread, clock.now()),
+              look: inboxLook(thread, baseline, clock.now()),
               activityAt: thread.entry.activityAt ?? thread.entry.updatedAt,
               archivedAt: thread.entry.archivedAt ?? null,
               confirmed: isConfirmed(store, online()),
