@@ -2,15 +2,15 @@ import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { TriageProvider } from "@ace/diagnostics/triage";
 import type { DiagnosticRepair, DiagnosticReport } from "@ace/protocol";
-import { collectDoctorReport } from "../diagnostics-report.ts";
 import { repairDoctor } from "../doctor-repairs.ts";
+import { recommendedRepairs, type DoctorRepairId, type PlannedRepair } from "../doctor-plan.ts";
+import type { DoctorContext } from "../doctor/feature.ts";
 import {
-  planDoctorRepairs,
-  recommendedRepairs,
-  type DoctorRepairId,
-  type PlannedRepair,
-} from "../doctor-plan.ts";
-import { localDaemonState } from "../triage-context.ts";
+  applyFeatureRepairs,
+  cliDoctorContext,
+  collectFullReport,
+  planAllRepairs,
+} from "../doctor/run.ts";
 import type { Config } from "../config.ts";
 import { option, validateArgs, type Args } from "./args.ts";
 import { print } from "./io.ts";
@@ -18,7 +18,7 @@ import { CliFailure } from "./output.ts";
 import { runTriage, triageInteractive } from "./triage.ts";
 
 export async function doctorCommand(args: Args, config: Config): Promise<void> {
-  validateArgs(args, ["fix", "dry-run", "provider"], 1);
+  validateArgs(args, ["fix", "dry-run", "provider", "all"], 1);
   if (args.flags.remote)
     throw new CliFailure(
       "refused",
@@ -30,12 +30,13 @@ export async function doctorCommand(args: Args, config: Config): Promise<void> {
   const json = !!(args.flags.json || args.flags.jq);
   const interactive = triageInteractive(args);
 
-  const daemon = await localDaemonState(config.dataDir);
-  const runChecks = () => cliDoctorReport(config, daemon);
+  const context = await cliDoctorContext(config, args);
+  const runChecks = () => collectFullReport(context);
   const watched = interactive && !json;
   const before = watched ? await withSpinner(config, runChecks) : await runChecks();
-  const plan = planDoctorRepairs(before, daemon);
-  if (!json) await print(args, formatChecks(before) + "\n\n" + describePlan(plan));
+  const plan = planAllRepairs(before, context);
+  const format = args.flags.all ? formatAllChecks : formatChecks;
+  if (!json) await print(args, format(before) + "\n\n" + describePlan(plan));
 
   let chosen: DoctorRepairId[] = [];
   if (!dryRun && plan.length) {
@@ -48,7 +49,7 @@ export async function doctorCommand(args: Args, config: Config): Promise<void> {
       );
   } else if (dryRun && plan.length && !json) await print(args, "Dry run: nothing changed.");
 
-  const repairs = await applyRepairs(chosen, config, args, before);
+  const repairs = await applyRepairs(chosen, args, before, context);
   // --fix reports what it couldn't run instead of silently skipping it.
   if (args.flags.fix && !dryRun)
     for (const repair of plan)
@@ -93,10 +94,6 @@ export async function doctorCommand(args: Args, config: Config): Promise<void> {
   if (exit) process.exitCode = exit;
 }
 
-/**
- * Doctor from the CLI. While ace's own daemon is running it holds the port, so the
- * "port in use" warning is expected and would only mislead.
- */
 /** Checks can take minutes on a big database; say so instead of sitting silent. */
 async function withSpinner<T>(config: Config, run: () => Promise<T>): Promise<T> {
   const bytes = await stat(join(config.dataDir, "events.sqlite")).then(
@@ -109,16 +106,6 @@ async function withSpinner<T>(config: Config, run: () => Promise<T>): Promise<T>
       ? `Running checks. The integrity check reads all ${(bytes / 1024 ** 3).toFixed(1)} GB of the database, so this can take a few minutes`
       : "Running checks";
   return wizardSession().progress(message, "Checks finished", run);
-}
-
-async function cliDoctorReport(
-  config: Config,
-  daemon: "running" | "stopped",
-): Promise<DiagnosticReport> {
-  const report = await collectDoctorReport(config, process.env, Date.now);
-  return daemon === "running"
-    ? { ...report, checks: report.checks.filter((check) => check.id !== "port") }
-    : report;
 }
 
 function describePlan(plan: readonly PlannedRepair[]): string {
@@ -135,6 +122,17 @@ function describePlan(plan: readonly PlannedRepair[]): string {
   );
 }
 
+/** Every check, passing ones included (`--all`). */
+export function formatAllChecks(report: DiagnosticReport): string {
+  return report.checks
+    .map(
+      (check) =>
+        `${check.status.toUpperCase().padEnd(4)} ${check.id}: ${check.message}` +
+        (check.status !== "ok" && check.fix ? `\n     ${check.fix}` : ""),
+    )
+    .join("\n");
+}
+
 /** Problems first, with their fixes; passing checks are counted, not listed. */
 export function formatChecks(report: DiagnosticReport): string {
   const open = report.checks.filter((check) => check.status !== "ok");
@@ -146,7 +144,7 @@ export function formatChecks(report: DiagnosticReport): string {
         (check.fix ? `\n     ${check.fix}` : ""),
     ),
     open.length
-      ? `${passed} other ${passed === 1 ? "check" : "checks"} passed.`
+      ? `${passed} other ${passed === 1 ? "check" : "checks"} passed (ace doctor --all lists them).`
       : `All ${passed} checks passed.`,
   ].join("\n");
 }
@@ -196,10 +194,11 @@ async function wantsAgent(): Promise<boolean> {
 
 async function applyRepairs(
   chosen: readonly DoctorRepairId[],
-  config: Config,
   args: Args,
   report: DiagnosticReport,
+  context: DoctorContext,
 ): Promise<DiagnosticRepair[]> {
+  const { config } = context;
   const repairs: DiagnosticRepair[] = [];
   if (chosen.includes("folders"))
     repairs.push(...(await repairDoctor(config.dataDir, report, process.getuid?.())));
@@ -208,5 +207,6 @@ async function applyRepairs(
     const { repairDoctorDatabase } = await import("./doctor-database.ts");
     repairs.push(...(await repairDoctorDatabase(config.dataDir, args, report)));
   }
+  repairs.push(...(await applyFeatureRepairs(chosen, report, context)));
   return repairs;
 }

@@ -1,4 +1,4 @@
-import { createDoctorChecks, createSystemProbes, runDoctor } from "@ace/diagnostics";
+import { createDoctorChecks, createSystemProbes, runDoctor, type Check } from "@ace/diagnostics";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import { DiagnosticReport, type DiagnosticRepair } from "@ace/protocol";
 import { homedir } from "node:os";
@@ -11,6 +11,8 @@ export async function collectDoctorReport(
   config: Config,
   env: NodeJS.ProcessEnv,
   now: () => number,
+  /** The CLI adds its doctor features' checks here; the app runs the base set. */
+  extra: readonly Check[] = [],
 ) {
   const report = await runDoctor(
     [
@@ -24,6 +26,7 @@ export async function collectDoctorReport(
       ),
       ...remoteDoctorChecks(config, env),
       ...localDoctorChecks(config.dataDir, process.getuid?.()),
+      ...extra,
     ],
     { now },
   );

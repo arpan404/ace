@@ -1,6 +1,7 @@
 import type { DiagnosticReport } from "@ace/protocol";
 
-export type DoctorRepairId = "folders" | "database";
+/** Built-ins are "folders" and "database"; feature repairs are "<feature id>.<name>". */
+export type DoctorRepairId = string;
 export type PlannedRepair = {
   id: DoctorRepairId;
   title: string;
