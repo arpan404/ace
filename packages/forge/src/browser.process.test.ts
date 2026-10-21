@@ -393,7 +393,7 @@ test("a PR with more than 250 commits lists every one, newest page first, with s
       {
         body: {
           total_commits: 260,
-          commits: shas.slice(0, 100).map((oid) => ({ ...commit, sha: oid })),
+          commits: shas.slice(0, 100).map((oid) => Object.assign({}, commit, { sha: oid })),
           files: [file],
         },
       },

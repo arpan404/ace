@@ -148,6 +148,7 @@ test("a commit page, its statistics and the head that proves it current come in 
             repository: {
               pullRequest: {
                 headRefOid: sha,
+                baseRefOid: nextSha,
                 commits: {
                   totalCount: 1,
                   pageInfo: { hasPreviousPage: false, startCursor: null },
