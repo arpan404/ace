@@ -68,26 +68,23 @@ struct SettingsTools: View {
         if !inbox.sessions.isEmpty {
             Section {
                 if inbox.sessions.count > 1 {
-                    InsetRow(systemImage: "desktopcomputer", title: "Machine") {
+                    HStack {
+                        SettingsLinkLabel(title: "Machine", symbol: "desktopcomputer")
                         Picker("Machine", selection: Binding(get: { hostId }, set: { machine = $0 })) {
                             ForEach(inbox.sessions) { Text(inbox.name($0.hostId)).tag($0.hostId) }
                         }
-                        .labelsHidden().pickerStyle(.menu)
+                        .labelsHidden().pickerStyle(.menu).tint(AceTheme.Colours.mutedForeground)
                     }
                     .accessibilityIdentifier("settings.tools.machine")
                 }
                 ForEach(SettingsTool.allCases, id: \.self) { tool in
-                    NavigationLink(value: SettingsRoute.tool(tool, machine: hostId)) { InsetRow(tool.title, systemImage: tool.symbol) }
+                    NavigationLink(value: SettingsRoute.tool(tool, machine: hostId)) { SettingsLinkLabel(title: tool.title, symbol: tool.symbol) }
                         .accessibilityIdentifier(tool.identifier)
                 }
             } header: {
-                HStack {
-                    InsetHeader("Tools")
-                    Spacer()
-                    if inbox.client(hostId)?.connection != "ready" { InsetHeader("Offline") }
-                }
+                SettingsHeader("Tools", note: inbox.client(hostId)?.connection != "ready" ? "Offline. These open once this phone reaches it." : nil)
             }
-            .insetRowBackground()
+            .settingsRow()
         }
     }
 }

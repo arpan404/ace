@@ -9,7 +9,6 @@ struct RemoteSetting: Identifiable {
 }
 struct RemoteSettingsCategory: Identifiable {
     let title: String
-    var symbol = "slider.horizontal.3"
     let settings: [RemoteSetting]
     var id: String { title }
     static let computer = RemoteSettingsCategory(title: "App access and devices", settings: [
@@ -17,7 +16,7 @@ struct RemoteSettingsCategory: Identifiable {
         .init(key: "devices.emulatorWindow", title: "Show emulator window", control: .toggle),
     ])
     static let all: [RemoteSettingsCategory] = [
-        .init(title: "Threads", symbol: "bubble.left.and.bubble.right", settings: [
+        .init(title: "Threads", settings: [
             .init(key: "threads.followUpBehavior", title: "Follow-up delivery", control: .choices(["steer", "queue"])),
             .init(key: "threads.forkOnSwitch", title: "Fork when switching agents", control: .toggle),
             .init(key: "threads.useWorktree", title: "Use worktrees", control: .toggle),
@@ -28,19 +27,19 @@ struct RemoteSettingsCategory: Identifiable {
             .init(key: "threads.sortBy", title: "Sort threads", control: .choices(["activity", "created", "manual"])),
             .init(key: "access.defaultMode", title: "Default access", control: .choices(["read-only", "ask", "auto-review", "full-access"])),
         ]),
-        .init(title: "Remote access", symbol: "antenna.radiowaves.left.and.right", settings: [
+        .init(title: "Remote access", settings: [
             .init(key: "host.displayName", title: "Machine name", control: .text),
             .init(key: "remote.enabled", title: "Remote connections", control: .toggle),
             .init(key: "remote.transport", title: "Transport", control: .choices(["local", "lan", "tailscale", "relay"])),
             .init(key: "remote.agentAccess", title: "Other machines' agents", control: .choices(["off", "read", "operate"])),
             .init(key: "remote.relayUrl", title: "Relay address", control: .text),
         ]),
-        .init(title: "Storage", symbol: "internaldrive", settings: [
+        .init(title: "Storage", settings: [
             .init(key: "storage.scheduledCleanup", title: "Scheduled cleanup", control: .toggle),
             .init(key: "storage.retentionDays", title: "Keep inactive data (days)", control: .number),
             .init(key: "logs.maxBytes", title: "Log limit (bytes)", control: .number),
         ]),
-        .init(title: "Browser and computer", symbol: "safari", settings: [
+        .init(title: "Browser and computer", settings: [
             .init(key: "browser.backend", title: "Browser", control: .choices(["auto", "embedded", "headless"])),
             .init(key: "browser.backendLoss", title: "When browser disconnects", control: .choices(["pause", "headless"])),
             .init(key: "browser.profile", title: "Browser data", control: .choices(["persistent", "ephemeral"])),
@@ -48,7 +47,7 @@ struct RemoteSettingsCategory: Identifiable {
             .init(key: "browser.downloadDir", title: "Download folder on machine", control: .text),
             .init(key: "browser.userChrome.storageReads", title: "Agents can read Chrome storage", control: .toggle),
         ]),
-        .init(title: "Generation", symbol: "sparkles", settings: [
+        .init(title: "Generation", settings: [
             .init(key: "generation.autoDraftCommits", title: "Draft commit messages automatically", control: .toggle),
             .init(key: "automations.enabled", title: "Run automations", control: .toggle),
         ]),
@@ -65,11 +64,13 @@ struct RemoteSettingsView: View {
     let model: ClientModel
     let category: RemoteSettingsCategory
     var body: some View {
-        Form {
+        List {
             Section {
                 ForEach(category.settings) { setting in RemoteSettingRow(model: model, setting: setting) }
-            } footer: { Text("Saved on this machine. A thread or project can override these defaults.") }
+            } header: { SettingsHeader(category.title, note: "Saved on this machine. A thread or project can override these defaults.") }
+            .settingsRow()
         }
+        .settingsList()
         .navigationTitle(category.title).navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -86,10 +87,15 @@ private struct RemoteSettingRow: View {
             if let value {
                 switch setting.control {
                 case .toggle:
-                    Toggle(setting.title, isOn: Binding(get: { if case .bool(let on) = value { on } else { false } }, set: { save(.bool($0)) }))
+                    Toggle(isOn: Binding(get: { if case .bool(let on) = value { on } else { false } }, set: { save(.bool($0)) })) {
+                        SettingsRow(title: setting.title) { EmptyView() }
+                    }
                 case .choices(let choices):
-                    Picker(setting.title, selection: Binding(get: { words }, set: { save(.string($0)) })) {
-                        ForEach(choices, id: \.self) { Text($0.replacingOccurrences(of: "_", with: " ").capitalized).tag($0) }
+                    SettingsRow(title: setting.title) {
+                        Picker(setting.title, selection: Binding(get: { words }, set: { save(.string($0)) })) {
+                            ForEach(choices, id: \.self) { Text($0.replacingOccurrences(of: "_", with: " ").capitalized).tag($0) }
+                        }
+                        .labelsHidden().pickerStyle(.menu).tint(AceTheme.Colours.mutedForeground)
                     }
                 case .stringList:
                     Text(setting.title).foregroundStyle(AceTheme.Colours.mutedForeground)

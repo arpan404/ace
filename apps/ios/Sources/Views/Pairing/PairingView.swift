@@ -12,14 +12,16 @@ struct PairingView: View {
     @State private var scanAttempt = 0
 
     var body: some View {
-        Form {
+        List {
             Section {
-                Button { scanning = true } label: { Label("Scan pairing QR code", systemImage: "qrcode.viewfinder") }
+                Button { scanning = true } label: { SettingsRow(title: "Scan the pairing code") { Image(systemName: "qrcode.viewfinder").foregroundStyle(AceTheme.Colours.subtleForeground) } }
+                    .buttonStyle(.plain)
                     .accessibilityIdentifier("pairing.scan")
-            } footer: {
-                Text("On your computer, run `ace pair` or open Settings › Machines and devices and create a pairing link.")
+            } header: {
+                SettingsHeader("Scan", note: "On your computer, run ace pair, or open Settings › Machines and devices and create a pairing link.")
             }
-            Section("Or paste the link") {
+            .settingsRow()
+            Section {
                 TextField("https://…/pair#…", text: $pasted, axis: .vertical)
                     .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                     .privacySensitive().lineLimit(1...4)
@@ -29,13 +31,17 @@ struct PairingView: View {
                     Task { @MainActor in if let value = values.first { pasted = value; accept(value) } }
                 }
                 Button("Continue") { accept(pasted) }
+                    .aceFont(SettingsStyle.label, relativeTo: .body)
                     .disabled(pasted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityIdentifier("pairing.continue")
-            }
-            if let entryError {
-                Section { Text(entryError).foregroundStyle(AceTheme.StatusText.failed).accessibilityIdentifier("pairing.entryError") }
-            }
+                if let entryError {
+                    Text(entryError).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .foregroundStyle(AceTheme.StatusText.failed).accessibilityIdentifier("pairing.entryError")
+                }
+            } header: { SettingsHeader("Or paste the link") }
+            .settingsRow()
         }
+        .settingsList()
         .navigationTitle("Pair a computer")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $link) { link in
@@ -78,35 +84,41 @@ struct ConfirmPairingView: View {
     @State private var failure: ProblemNotice?
 
     var body: some View {
-        Form {
+        List {
             Section {
-                LabeledContent("Address", value: link.displayHost)
-                LabeledContent("Access", value: link.accessSummary)
+                SettingsRow("Address", value: link.displayHost).accessibilityElement(children: .combine)
+                SettingsRow("Access", value: link.accessSummary).accessibilityElement(children: .combine)
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
                     Text("Fingerprint").aceFont(AceTheme.Typography.label, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
                     Text(link.fingerprintGroups).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
                         .foregroundStyle(AceTheme.Colours.foreground).textSelection(.enabled)
                         .accessibilityIdentifier("pairing.fingerprint")
                 }
-            } header: { Text("Computer") } footer: {
-                Text("Check that the fingerprint matches the link on your computer. ace only talks to the computer holding this key.")
+            } header: {
+                SettingsHeader("Computer", note: "Check that the fingerprint matches the link on your computer. ace only talks to the computer holding this key.")
             }
-            Section("This phone's name") {
-                TextField("My phone", text: $name).textInputAutocapitalization(.words).accessibilityIdentifier("pairing.name")
-            }
-            if let failure {
-                Section { Text(failure.message).foregroundStyle(AceTheme.StatusText.failed).accessibilityIdentifier("pairing.error") }
-            }
+            .settingsRow()
             Section {
+                TextField("My phone", text: $name).textInputAutocapitalization(.words).accessibilityIdentifier("pairing.name")
+            } header: { SettingsHeader("This phone's name") }
+            .settingsRow()
+            Section {
+                if let failure {
+                    Text(failure.message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .foregroundStyle(AceTheme.StatusText.failed).accessibilityIdentifier("pairing.error")
+                }
                 Button {
                     Task { await pair() }
                 } label: {
                     HStack { Text(pairing ? "Pairing…" : "Pair this phone"); if pairing { Spacer(); ProgressView() } }
                 }
+                .aceFont(SettingsStyle.label, relativeTo: .body).fontWeight(.medium)
                 .disabled(pairing || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .accessibilityIdentifier("pairing.confirm")
             }
+            .settingsRow()
         }
+        .settingsList()
         .navigationTitle("Confirm computer")
         .navigationBarTitleDisplayMode(.inline)
         .interactiveDismissDisabled(pairing)

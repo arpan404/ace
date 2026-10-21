@@ -21,18 +21,24 @@ struct MachineDetailView: View {
         let facts = MachineFacts(inbox: inbox, machines: machines, hostId: hostId)
         List {
             Section {
-                LabeledContent("Connection") { StateLabel(status: facts.connection) }
+                SettingsRow(title: "Connection") { StateLabel(status: facts.connection) }
+                    .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("machine.connection")
                 if !facts.connected {
-                    LabeledContent("Last seen", value: facts.lastSeen.map { $0.formatted(.relative(presentation: .named)) } ?? "Not yet")
+                    SettingsRow("Last seen", value: facts.lastSeen.map { $0.formatted(.relative(presentation: .named)) } ?? "Not yet")
+                        .accessibilityElement(children: .combine)
                 }
                 if let readOnly = facts.readOnly {
-                    LabeledContent("Access", value: readOnly ? "View only" : "Full access").accessibilityIdentifier("machine.access")
+                    SettingsRow("Access", value: readOnly ? "View only" : "Full access")
+                        .accessibilityElement(children: .combine).accessibilityIdentifier("machine.access")
                 }
                 if let address = facts.address {
-                    LabeledContent("Address") { Text(address).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote) }
+                    SettingsRow(title: "Address") {
+                        Text(address).aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                    }
+                    .accessibilityElement(children: .combine)
                 }
-                if let version = client?.providers?.version { LabeledContent("ace", value: version) }
+                if let version = client?.providers?.version { SettingsRow("ace", value: version).accessibilityElement(children: .combine) }
                 if let problem = facts.needsPairing ? nil : client?.problem {
                     // At accessibility sizes Retry goes under the message instead of squeezing it.
                     let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: AceTheme.Spacing.xs)) : AnyLayout(HStackLayout())
@@ -42,26 +48,30 @@ struct MachineDetailView: View {
                         retry(problem.code)
                     }
                 }
-            }
-            .insetRowBackground()
+            } header: { SettingsHeader("Machine") }
+            .settingsRow()
             providers
             if let client {
                 Section {
                     ForEach(RemoteSettingsCategory.all) { category in
                         NavigationLink { RemoteSettingsView(model: client, category: category) } label: {
-                            InsetRow(category.title, systemImage: category.symbol)
+                            SettingsRow(category.title)
                         }
                     }
-                } header: { InsetHeader("On this machine") }
-                .insetRowBackground()
+                } header: { SettingsHeader("Settings on this machine") }
+                .settingsRow()
             }
             if let machines {
                 Section {
-                    Button("Rename") { newName = facts.name; renaming = true }.accessibilityIdentifier("machine.rename")
-                        .foregroundStyle(AceTheme.Colours.foreground)
-                    Button("Remove from this phone", role: .destructive) { removing = true }.accessibilityIdentifier("machine.remove")
-                } footer: {
-                    Text("Removing forgets this phone's access and unsent work for \(facts.name). Revoke the device on the computer too.")
+                    Button { newName = facts.name; renaming = true } label: { SettingsRow(title: "Rename") { EmptyView() } }
+                        .buttonStyle(.plain).accessibilityIdentifier("machine.rename")
+                    Button(role: .destructive) { removing = true } label: {
+                        Text("Remove from this phone").aceFont(SettingsStyle.label, relativeTo: .body)
+                            .foregroundStyle(AceTheme.StatusText.failed).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .accessibilityIdentifier("machine.remove")
+                } header: {
+                    SettingsHeader("This phone", note: "Removing forgets this phone's access and unsent work for \(facts.name). Revoke the device on the computer too.")
                 }
                 .alert("Rename machine", isPresented: $renaming) {
                     TextField("Name", text: $newName).accessibilityIdentifier("machine.rename.field")
@@ -73,15 +83,15 @@ struct MachineDetailView: View {
                         Task { await machines.remove(hostId); dismiss() }
                     }.accessibilityIdentifier("machine.remove.confirm")
                 } message: { Text("This phone forgets its access and unsent work for that computer.") }
-                .insetRowBackground()
+                .settingsRow()
             }
         }
-        .insetGroupedList()
+        .settingsList()
         .navigationTitle(facts.name).navigationBarTitleDisplayMode(.inline)
         .task(id: hostId) { client?.refreshMachine() }
         .refreshable { client?.refreshMachine() }
         .alert("Couldn't rename", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
-            Button("OK") { notice = nil }
+            Button("Dismiss") { notice = nil }
         } message: { Text(notice?.message ?? "") }
     }
 
@@ -97,8 +107,8 @@ struct MachineDetailView: View {
     @ViewBuilder private var providers: some View {
         Section {
             providerRows
-        } header: { InsetHeader("Coding tools") }
-        .insetRowBackground()
+        } header: { SettingsHeader("Coding tools") }
+        .settingsRow()
     }
     @ViewBuilder private var providerRows: some View {
         Group {
@@ -134,7 +144,8 @@ struct ProviderRow: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             line {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                    Label { Text(provider.name) } icon: { ProviderMark(provider: provider.provider, size: 18) }.aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+                    Label { Text(provider.name) } icon: { ProviderMark(provider: provider.provider, size: 16) }
+                        .aceFont(SettingsStyle.label, relativeTo: .body).fontWeight(.medium).foregroundStyle(AceTheme.Colours.foreground)
                     Text([provider.summary, provider.version].compactMap { $0 }.joined(separator: " · "))
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
                         .fixedSize(horizontal: false, vertical: true)

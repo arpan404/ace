@@ -40,38 +40,34 @@ struct SettingsSheet: View {
                     if notifications != nil {
                         link(.notifications, "Notifications", "bell", value: notifications?.delivering == true ? "On" : "Off", id: "settings.notifications")
                     }
-                    if let lock { link(.lock, "Face ID", "lock", value: lock.enabled ? "On" : "Off", id: "settings.lock") }
-                } header: { InsetHeader("Connections") }
-                .insetRowBackground()
+                    if let lock { link(.lock, "Face ID", "faceid", value: lock.enabled ? "On" : "Off", id: "settings.lock") }
+                } header: { SettingsHeader("Connections") }
+                .settingsRow()
                 Section {
                     link(.appearance, "Appearance", "paintpalette", value: PhoneAppearance.label(appearance), id: "settings.appearance")
-                    InsetRow(systemImage: "keyboard", title: "Send with Return") {
-                        Toggle("Send with Return", isOn: $returnSends).labelsHidden()
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("settings.returnSends")
-                } header: { InsetHeader("Interface") }
-                .insetRowBackground()
+                    Toggle(isOn: $returnSends) { SettingsLinkLabel(title: "Send with Return", symbol: "keyboard") }
+                        .accessibilityIdentifier("settings.returnSends")
+                } header: { SettingsHeader("This phone") }
+                .settingsRow()
                 Section {
                     link(.archive, "Archived", "archivebox", id: "settings.archive")
                     link(.profiles, "Task profiles", "person.text.rectangle", id: "settings.profiles")
-                } header: { InsetHeader("Threads") }
-                .insetRowBackground()
+                } header: { SettingsHeader("Threads") }
+                .settingsRow()
                 SettingsTools(inbox: inbox, machine: $toolsMachine)
                 Section {
-                    InsetRow("About", systemImage: "info.circle", value: "\(app.version) (\(app.build))")
+                    SettingsLinkLabel(title: "About", symbol: "info.circle", value: "\(app.version) (\(app.build))")
                         .accessibilityElement(children: .combine)
                     link(.licences, "Licences", "doc.text", id: "settings.licences")
                     ShareLink(item: report.json, preview: SharePreview("ace diagnostics")) {
-                        InsetRow("Send diagnostics", systemImage: "square.and.arrow.up")
+                        SettingsLinkLabel(title: "Send diagnostics", symbol: "square.and.arrow.up")
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("settings.diagnostics")
-                } header: { InsetHeader("App") }
-                .insetRowBackground()
+                } header: { SettingsHeader("App") }
+                .settingsRow()
             }
-            .insetGroupedList()
-            .sensoryFeedback(.selection, trigger: returnSends)
+            .settingsList()
             .navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -88,7 +84,7 @@ struct SettingsSheet: View {
     }
 
     private func link(_ route: SettingsRoute, _ title: String, _ symbol: String, value: String? = nil, id: String) -> some View {
-        NavigationLink(value: route) { InsetRow(title, systemImage: symbol, value: value) }
+        NavigationLink(value: route) { SettingsLinkLabel(title: title, symbol: symbol, value: value) }
             .accessibilityIdentifier(id)
     }
 
