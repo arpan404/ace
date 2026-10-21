@@ -30,7 +30,13 @@ struct ComposerAccessories: View {
 struct ComposerModelButton: View {
     let screen: ThreadScreenModel
     let open: () -> Void
-    private var name: String { screen.controls?.model.isEmpty == false ? screen.controls?.model ?? "Model" : "Choose model" }
+    /// The model's name; until the agent reports one, the provider's name stands in.
+    private var name: String {
+        guard let controls = screen.controls else { return "Choose model" }
+        if !controls.model.isEmpty { return controls.model }
+        if let provider = controls.providerName, !provider.isEmpty { return provider }
+        return "Choose model"
+    }
     private var effort: String? { screen.tune.flatMap { tune in tune.efforts.first { $0.id == tune.effort }?.label } }
     var body: some View {
         Button(action: open) {
