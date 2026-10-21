@@ -22,7 +22,8 @@ export function sidebarNeedsAttention(health: TriggerHealth): boolean {
   return health.lastRun?.status === "failed";
 }
 
-function githubHint(message: string): string {
+/** A GitHub check's stored failure as the fix, in words. */
+export function githubHint(message: string): string {
   if (/auth|login|credential|401|403/i.test(message))
     return "Sign in to GitHub on this machine, then check that you can access the repository.";
   if (/404|not found|repository/i.test(message))

@@ -9,6 +9,7 @@
 import type { ClientApi } from "@ace/client";
 import {
   Automation,
+  type AutomationSource,
   type AutomationResponse,
   type AutomationRun,
   type AutomationInbox,
@@ -25,6 +26,18 @@ export interface AutomationEntry {
   triggerError: AutomationTriggerError | undefined;
   /** This automation's own latest run, authoritatively from the daemon. */
   lastRun: AutomationRun | undefined;
+  /** The thread an agent made it from; undefined for the person's own automations. */
+  owner: string | undefined;
+}
+
+/** Which store an entry lives in, for the writes that address it. */
+export const entrySource = (entry: { owner: string | undefined }): AutomationSource =>
+  entry.owner === undefined ? "person" : "thread";
+
+/** The person's automations, and the ones agents made from threads. */
+export interface AutomationLists {
+  person: AutomationEntry[];
+  threads: AutomationEntry[];
 }
 
 export class AutomationError extends Error {
@@ -69,10 +82,12 @@ function checked(reply: AutomationResponse): AutomationResponse {
 export async function listAutomations(
   client: ClientApi,
   signal: AbortSignal,
-): Promise<AutomationEntry[]> {
-  const reply = checked(await client.request({ type: "automation.list" }, { signal }));
+): Promise<AutomationLists> {
+  const reply = checked(
+    await client.request({ type: "automation.list", includeThreads: true }, { signal }),
+  );
   const next = new Map((reply.schedules ?? []).map((schedule) => [schedule.id, schedule]));
-  return (reply.automations ?? []).map((automation) => {
+  const person = (reply.automations ?? []).map((automation) => {
     const schedule = next.get(automation.id);
     return {
       automation,
@@ -81,8 +96,19 @@ export async function listAutomations(
       lastPollError: schedule?.lastPollError,
       triggerError: schedule?.triggerError,
       lastRun: schedule?.lastRun,
+      owner: undefined,
     };
   });
+  const threads = (reply.threadAutomations ?? []).map((entry) => ({
+    automation: entry.automation,
+    nextRunAt: entry.nextRunAt ?? undefined,
+    revision: entry.revision,
+    lastPollError: undefined,
+    triggerError: entry.triggerError,
+    lastRun: entry.lastRun,
+    owner: entry.threadId,
+  }));
+  return { person, threads };
 }
 
 /** Recent runs across every automation, newest first. */
@@ -99,6 +125,7 @@ export async function automationInbox(
 export async function automationHistory(
   client: ClientApi,
   automationId: string,
+  source: AutomationSource,
   before: number | undefined,
   signal: AbortSignal,
 ): Promise<AutomationInbox> {
@@ -108,6 +135,7 @@ export async function automationHistory(
         type: "automation.inbox",
         automationId,
         limit: 50,
+        ...(source === "thread" ? { source } : {}),
         ...(before === undefined ? {} : { before }),
       },
       { signal },
@@ -138,12 +166,14 @@ export async function removeAutomation(
   client: ClientApi,
   id: string,
   expectedRevision?: number | null | undefined,
+  source: AutomationSource = "person",
 ): Promise<void> {
   checked(
     await client.request({
       type: "automation.remove",
       id,
       ...(expectedRevision === undefined ? {} : { expectedRevision }),
+      ...(source === "thread" ? { source } : {}),
     }),
   );
 }
@@ -154,6 +184,7 @@ export async function setEnabledAutomation(
   id: string,
   enabled: boolean,
   expectedRevision?: number | undefined,
+  source: AutomationSource = "person",
 ): Promise<void> {
   checked(
     await client.request({
@@ -161,6 +192,7 @@ export async function setEnabledAutomation(
       id,
       enabled,
       ...(expectedRevision === undefined ? {} : { expectedRevision }),
+      ...(source === "thread" ? { source } : {}),
     }),
   );
 }
@@ -180,19 +212,33 @@ export async function retryAutomation(
   );
 }
 
+/** How a run is asked for: its idempotency key, a note for this run only, and its store. */
+export interface RunRequest {
+  requestId?: string | undefined;
+  message?: string | undefined;
+  source?: AutomationSource | undefined;
+}
+
 /**
- * Start a run now, whatever the trigger. A caller-supplied requestId makes the intent
- * idempotent across uncertain sends and reloads. Resolves with the run as admitted.
+ * Start a run now, whatever the trigger, with an optional note added after the saved prompt. A
+ * caller-supplied requestId makes the intent idempotent across uncertain sends and reloads.
+ * Resolves with the run as admitted.
  */
 export async function runAutomation(
   client: ClientApi,
   id: string,
-  requestId?: string | undefined,
+  request: RunRequest = {},
 ): Promise<AutomationRun> {
   const reply = checked(
     await client.request(
-      { type: "automation.run", id, variables: {} },
-      requestId === undefined ? {} : { requestId },
+      {
+        type: "automation.run",
+        id,
+        variables: {},
+        ...(request.message ? { message: request.message } : {}),
+        ...(request.source === "thread" ? { source: request.source } : {}),
+      },
+      request.requestId === undefined ? {} : { requestId: request.requestId },
     ),
   );
   if (!reply.run) throw new AutomationError(undefined);

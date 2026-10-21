@@ -6,7 +6,12 @@ import {
   type AutomationSchedule,
 } from "@ace/protocol";
 import { z } from "zod";
-import { presetToSchedule, scheduleToPreset, weekdays, type SchedulePreset } from "./schedule.ts";
+import {
+  presetToSchedule,
+  scheduleToPreset,
+  weekdays,
+  type SchedulePreset,
+} from "@/features/automation-schedule/index.ts";
 import { customScheduleError } from "./schedule-validate.ts";
 
 /** An IANA zone this browser can format in ("Europe/London"). */
@@ -19,7 +24,7 @@ function isTimeZone(zone: string): boolean {
   }
 }
 
-/** Everything the create/edit form holds. Flat, so each control binds to one field. */
+/** Everything the create/edit screen holds. Flat, so each control binds to one field. */
 export const AutomationForm = z
   .object({
     title: z.string().trim().min(1, "Give the automation a name.").max(256),
@@ -28,6 +33,10 @@ export const AutomationForm = z
     provider: ProviderKind,
     access: AccessMode.optional(),
     model: z.string().trim().max(256),
+    /** The model chip's effort; omitted runs at the model's default. */
+    effort: z.string().max(64).optional(),
+    /** The provider account the chip picked. */
+    instance: z.string().max(256).optional(),
     trigger: z.enum(["schedule", "github", "file", "manual"]),
     cadence: z.enum(["daily", "weekdays", "weekly", "hourly", "custom"]),
     time: z.string(),
@@ -153,6 +162,8 @@ export function formFromAutomation(automation: Automation, localZone: string): A
     prompt: automation.prompt,
     provider: automation.provider,
     model: automation.model ?? "",
+    effort: automation.effort,
+    instance: automation.instance,
     access: automation.access,
     worktree: automation.worktree,
     missedRun: automation.missedRun,
@@ -258,6 +269,8 @@ export function automationFromForm(
     provider: form.provider,
     ...(form.access ? { access: form.access } : {}),
     ...(form.model ? { model: form.model } : {}),
+    ...(form.effort ? { effort: form.effort } : {}),
+    ...(form.instance ? { instance: form.instance } : {}),
     prompt: form.prompt,
     worktree: form.worktree,
     trigger,
@@ -265,4 +278,24 @@ export function automationFromForm(
     concurrency: previous?.concurrency ?? 1,
     jitterMs: previous?.jitterMs ?? 0,
   };
+}
+
+const titleLength = 60;
+
+/**
+ * An automation's name from its prompt, the way a thread is titled: the first sentence (or
+ * line), cut at a word near 60 characters. It can be renamed later.
+ */
+export function titleFromPrompt(prompt: string): string {
+  const first =
+    prompt
+      .trim()
+      .split(/\n|(?<=[.!?])\s/)[0]
+      ?.trim() ?? "";
+  const sentence = first.replace(/[.!?]+$/, "");
+  if (!sentence) return "Automation";
+  if (sentence.length <= titleLength) return sentence;
+  const cut = sentence.slice(0, titleLength);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > titleLength / 2 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }

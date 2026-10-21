@@ -52,11 +52,12 @@ test("an automation created in the app is stored by the daemon and listed back",
   page,
 }) => {
   await connect(page, "/automations/new");
-  await page.getByRole("textbox", { name: "Name" }).fill("Nightly e2e audit");
-  await page
-    .getByRole("textbox", { name: "What should the agent do?" })
-    .fill("List the files in this project and report anything unexpected.");
-  await page.getByRole("button", { name: "Create automation" }).click();
+  // The name comes from the prompt's first sentence, like a thread title.
+  const prompt = page.getByRole("combobox", { name: "What the agent does each time" });
+  await prompt.fill(
+    "Nightly e2e audit. List the files in this project and report anything unexpected.",
+  );
+  await prompt.press("Enter");
 
   await expect(
     page.getByRole("heading", { level: 2, name: "Nightly e2e audit", exact: true }),
@@ -66,16 +67,15 @@ test("an automation created in the app is stored by the daemon and listed back",
   const aside = page.getByRole("complementary", { name: "Automations" });
   await expect(aside.getByRole("link", { name: /Nightly e2e audit/ })).toBeVisible();
 
-  // Turned on in Settings, the daemon runs it by hand: a real run on the scripted provider.
+  // Turned on in Settings, the daemon runs it now with a note: a real run on the scripted provider.
   await page.getByRole("link", { name: "Settings" }).click();
   const enabled = page.getByRole("switch", { name: "Run automations" });
   await enabled.click();
   await expect(enabled).toHaveAttribute("aria-checked", "true");
   await page.getByRole("link", { name: "Automations" }).click();
   await aside.getByRole("link", { name: /Nightly e2e audit/ }).click();
-  await page.getByRole("button", { name: "Run now" }).click();
-  await expect(page.getByText("Started · Nightly e2e audit")).toBeVisible();
-  await expect(
-    page.getByRole("main").getByRole("list", { name: "Recent runs" }).getByRole("listitem"),
-  ).not.toHaveCount(0);
+  const note = page.getByRole("combobox", { name: "Note for this run" });
+  await note.fill("Only the top-level files");
+  await note.press("Enter");
+  await expect(page.getByRole("main").getByRole("article", { name: /^Run, / })).not.toHaveCount(0);
 });

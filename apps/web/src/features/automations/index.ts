@@ -1,11 +1,5 @@
-/** Automations: scheduled and event-driven prompts, their editor and run history. */
-export { AutomationScreen } from "./automation-detail.tsx";
-export { EditAutomationScreen, NewAutomationScreen } from "./automation-editor-screen.tsx";
+/** Automations: scheduled and event-driven prompts, each a conversation of its runs. */
+export { AutomationScreen } from "./automation-conversation.tsx";
+export { EditAutomationScreen, NewAutomationScreen } from "./automation-compose.tsx";
 export { AutomationsEmptyScreen } from "./automations-empty-screen.tsx";
 export { AutomationsSidebar } from "./automations-sidebar.tsx";
-export { runSummary as automationRunSummary, runTone as automationRunTone } from "./labels.ts";
-export { useAutomationRuns, useAutomations } from "./use-automations.ts";
-
-export { AutomationRunDetail } from "./run-detail.tsx";
-export { RunOutput } from "./run-output.tsx";
-export { useProjectAutomations, WorkAutomations } from "./work-automations.tsx";

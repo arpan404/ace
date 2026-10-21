@@ -34,7 +34,11 @@ export type SchedulePreset =
   | { kind: "custom"; syntax: "rrule" | "cron"; expression: string };
 
 const pad = (value: number) => String(value).padStart(2, "0");
+/** "02:00": the form's and the RRULE's own time value. Data, never shown as prose. */
 const clock = (hour: number, minute: number) => `${pad(hour)}:${pad(minute)}`;
+/** A time of day as the reader's clock shows it ("2:00 AM" or "02:00"), for sentences. */
+const spokenClock = (hour: number, minute: number) =>
+  formatClock(Date.UTC(2000, 0, 1, hour, minute), undefined, "UTC");
 const parseTime = (time: string): [number, number] => {
   const [hour = 0, minute = 0] = time.split(":").map(Number);
   return [hour, minute];
@@ -152,7 +156,7 @@ const dayList = (days: readonly Weekday[]) =>
 function timeOfDay(rule: Rule, schedule: AutomationSchedule): string | undefined {
   if ((rule.hours?.length ?? 1) > 1 || (rule.minutes?.length ?? 1) > 1) return undefined;
   const local = wallClock(schedule.startAt, schedule.timezone);
-  return clock(rule.hours?.[0] ?? local.hour, rule.minutes?.[0] ?? local.minute);
+  return spokenClock(rule.hours?.[0] ?? local.hour, rule.minutes?.[0] ?? local.minute);
 }
 
 function wallClock(instant: number, timezone: string): { hour: number; minute: number } {
@@ -220,14 +224,14 @@ function describeCron(expression: string): string | undefined {
   if (dom !== "*" || month !== "*") {
     if (!numeric.test(minute) || !numeric.test(hour)) return undefined;
     const date = describeCronDate(dom, month, dow);
-    return date && `${date} at ${clock(Number(hour), Number(minute))}`;
+    return date && `${date} at ${spokenClock(Number(hour), Number(minute))}`;
   }
   if (step(minute) && hour === "*" && dow === "*")
     return capital(plural(Number(step(minute)), "minute"));
   if (numeric.test(minute) && step(hour) && dow === "*")
     return capital(plural(Number(step(hour)), "hour"));
   if (!numeric.test(minute) || !numeric.test(hour)) return undefined;
-  const time = ` at ${clock(Number(hour), Number(minute))}`;
+  const time = ` at ${spokenClock(Number(hour), Number(minute))}`;
   if (dow === "*") return `Every day${time}`;
   const days = cronWeekdays(dow);
   return days ? `${capital(dayList(days))}${time}` : undefined;
@@ -252,6 +256,11 @@ export function describeSchedule(schedule: AutomationSchedule): string {
   const text =
     schedule.kind === "rrule" ? describeRule(schedule) : describeCron(schedule.expression);
   return text ?? `${schedule.kind === "cron" ? "Cron" : "RRULE"} ${schedule.expression}`;
+}
+
+/** How it repeats without the time of day ("Every day", "Weekdays"), beside a next-run time. */
+export function describeRepeat(schedule: AutomationSchedule): string {
+  return describeSchedule(schedule).replace(/ at \d{1,2}[:.]\d{2}(?:\s?[AP]M)?$/i, "");
 }
 
 const githubEvents: Record<Extract<AutomationTrigger, { kind: "github" }>["event"], string> = {
@@ -286,22 +295,29 @@ export function describeWhen(trigger: AutomationTrigger, localZone: string): str
 const day = 86_400_000;
 const hour = 3_600_000;
 
-/** "Today 14:00", "Tonight 02:00", "Tomorrow 09:30", "Friday 16:00", "Oct 12 09:00"; in the requested zone. */
-export function formatWhen(instant: number, now: number, timezone = localTimeZone()): string {
+/**
+ * The day of an instant as a person says it: "Today", "Tonight", "Tomorrow", "Yesterday",
+ * "Friday", "Oct 12" (in the requested zone). A small-hours run after an evening `now` is
+ * still "Tonight".
+ */
+export function dayOf(instant: number, now: number, timezone = localTimeZone()): string {
   const calendar = zonedCalendar(timezone);
   const target = calendar.local(instant);
   const today = calendar.local(now);
-  const time = formatClock(instant, undefined, timezone);
   const midnight = (civil: typeof target) => civilStamp({ ...civil, hour: 0, minute: 0 });
   const days = (midnight(target) - midnight(today)) / day;
-  if (days === 0) return `${target.hour >= 18 ? "Tonight" : "Today"} ${time}`;
-  if (days === 1)
-    return target.hour < 6 && today.hour >= 18 ? `Tonight ${time}` : `Tomorrow ${time}`;
-  if (days === -1) return `Yesterday ${time}`;
+  if (days === 0) return target.hour >= 18 ? "Tonight" : "Today";
+  if (days === 1) return target.hour < 6 && today.hour >= 18 ? "Tonight" : "Tomorrow";
+  if (days === -1) return "Yesterday";
   const date = new Date(instant);
   if (days > 0 && days < 7)
-    return `${date.toLocaleDateString("en-US", { timeZone: timezone, weekday: "long" })} ${time}`;
-  return `${date.toLocaleDateString("en-US", { timeZone: timezone, month: "short", day: "numeric" })} ${time}`;
+    return date.toLocaleDateString("en-US", { timeZone: timezone, weekday: "long" });
+  return date.toLocaleDateString("en-US", { timeZone: timezone, month: "short", day: "numeric" });
+}
+
+/** "Today 2:00 PM", "Tonight 2:00 AM", "Friday 4:00 PM", "Oct 12 9:00 AM"; in the requested zone. */
+export function formatWhen(instant: number, now: number, timezone = localTimeZone()): string {
+  return `${dayOf(instant, now, timezone)} ${formatClock(instant, undefined, timezone)}`;
 }
 
 /** "Tomorrow 02:00 · in 3h": the wall clock, and how far off it is within a day. */

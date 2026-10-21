@@ -1,6 +1,6 @@
 import type { Automation } from "@ace/protocol";
 import { Link } from "@tanstack/react-router";
-import { formatNextRun, localTimeZone } from "./schedule.ts";
+import { formatNextRun, localTimeZone } from "@/features/automation-schedule/index.ts";
 import { scheduleState, scheduleStateCopy } from "./trigger-health.ts";
 
 /**

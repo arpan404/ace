@@ -1,4 +1,4 @@
-import type { Automation, AutomationRun } from "@ace/protocol";
+import type { Automation, AutomationRun, AutomationSource } from "@ace/protocol";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
@@ -12,6 +12,8 @@ import {
   retryAutomation,
   runAutomation,
   setEnabledAutomation,
+  type AutomationEntry,
+  type RunRequest,
 } from "./automations-source.ts";
 
 /*
@@ -30,7 +32,8 @@ export const inboxLimit = 50;
 const runningPollMs = 5_000;
 const idlePollMs = 60_000;
 
-export function useAutomations() {
+/** Both lists in one read: the person's automations and the ones agents made from threads. */
+export function useAutomationLists() {
   return useDaemonQuery({
     queryKey: keys.list,
     read: (client, signal) => listAutomations(client, signal),
@@ -38,15 +41,24 @@ export function useAutomations() {
   });
 }
 
+/** The person's own automations. */
+export function useAutomations() {
+  const query = useAutomationLists();
+  return { ...query, data: query.data?.person };
+}
+
+/** One automation by id, the person's first, else one an agent made from a thread. */
 export function useAutomation(id: string): {
-  entry: import("./automations-source.ts").AutomationEntry | undefined;
+  entry: AutomationEntry | undefined;
   pending: boolean;
   error: unknown;
   retry(): void;
 } {
-  const query = useAutomations();
+  const query = useAutomationLists();
   const entry = useMemo(
-    () => query.data?.find((candidate) => candidate.automation.id === id),
+    () =>
+      query.data?.person.find((candidate) => candidate.automation.id === id) ??
+      query.data?.threads.find((candidate) => candidate.automation.id === id),
     [query.data, id],
   );
   const { refetch } = query;
@@ -65,14 +77,14 @@ export function useAutomationRuns() {
   });
 }
 
-export function useAutomationHistory(id: string) {
+export function useAutomationHistory(id: string, source: AutomationSource = "person") {
   const client = useClient();
   const ready = useConnectionState() === "ready";
   const query = useInfiniteQuery({
-    queryKey: [...keys.inbox, id],
+    queryKey: [...keys.inbox, id, source],
     enabled: ready,
     initialPageParam: undefined as number | undefined,
-    queryFn: ({ pageParam, signal }) => automationHistory(client, id, pageParam, signal),
+    queryFn: ({ pageParam, signal }) => automationHistory(client, id, source, pageParam, signal),
     getNextPageParam: (page) => page.before ?? undefined,
     refetchInterval: (state) =>
       state.state.data?.pages.some((page) => running(page.runs)) ? runningPollMs : idlePollMs,
@@ -94,14 +106,20 @@ export function useAutomationActions() {
     return {
       save: (automation: Automation, expectedRevision?: number | null | undefined) =>
         refreshed(putAutomation(client, automation, expectedRevision)),
-      setEnabled: (id: string, enabled: boolean, expectedRevision?: number | undefined) =>
-        refreshed(setEnabledAutomation(client, id, enabled, expectedRevision)),
-      remove: (id: string, expectedRevision?: number | null | undefined) =>
-        refreshed(removeAutomation(client, id, expectedRevision)),
+      setEnabled: (
+        id: string,
+        enabled: boolean,
+        expectedRevision?: number | undefined,
+        source?: AutomationSource,
+      ) => refreshed(setEnabledAutomation(client, id, enabled, expectedRevision, source)),
+      remove: (
+        id: string,
+        expectedRevision?: number | null | undefined,
+        source?: AutomationSource,
+      ) => refreshed(removeAutomation(client, id, expectedRevision, source)),
       retry: (id: string, expectedRevision?: number | undefined) =>
         refreshed(retryAutomation(client, id, expectedRevision)),
-      runNow: (id: string, requestId?: string | undefined) =>
-        refreshed(runAutomation(client, id, requestId)),
+      runNow: (id: string, request?: RunRequest) => refreshed(runAutomation(client, id, request)),
     };
   }, [client, queries]);
 }

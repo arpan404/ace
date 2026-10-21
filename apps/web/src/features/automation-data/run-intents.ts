@@ -1,11 +1,12 @@
+import { MessageText } from "@ace/protocol";
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 import { z } from "zod";
 
 /*
  * One user-intended Run now per daemon per automation, kept across reloads until the
- * daemon answers for certain. A failed or uncertain send keeps its requestId so an
- * explicit Retry reuses it; a definitive answer clears it. Only the idempotency key
- * is stored, never credentials or tokens. At capacity a new intent is refused rather
+ * daemon answers for certain. A failed or uncertain send keeps its requestId (and the
+ * note the person sent with it) so an explicit Retry reuses both; a definitive answer
+ * clears it. Never credentials or tokens. At capacity a new intent is refused rather
  * than evicting an unresolved one (which would duplicate the run).
  */
 
@@ -14,6 +15,8 @@ export const RunIntent = z.object({
   automationId: z.string().min(1).max(256),
   requestId: z.string().min(1).max(256),
   createdAt: z.number().int().min(0),
+  /** The note sent with this run, so a retry asks for the same run. */
+  message: MessageText.optional(),
 });
 export type RunIntent = z.infer<typeof RunIntent>;
 
@@ -64,6 +67,7 @@ export function ensureRunIntent(
   automationId: string,
   now: () => number,
   newId: () => string,
+  message?: string | undefined,
 ): RunIntent | undefined {
   if (storage === undefined || storage.durable === false) return undefined;
   const existing = getRunIntent(storage, daemonKey, automationId);
@@ -74,6 +78,7 @@ export function ensureRunIntent(
     automationId,
     requestId: newId(),
     createdAt: now(),
+    ...(message ? { message } : {}),
   };
   saveRunIntents(storage, [intent, ...loadRunIntents(storage)]);
   const verified = getRunIntent(storage, daemonKey, automationId);

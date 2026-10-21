@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 /** Automations in fake mode, over the same automation.* messages a daemon answers. */
-test("a new automation is created, listed, and runs by hand once automations are on", async ({
+test("a new automation is created from its prompt, listed, and runs now with a note", async ({
   page,
 }) => {
   await page.goto("/settings/agents");
@@ -17,11 +17,11 @@ test("a new automation is created, listed, and runs by hand once automations are
   await page.getByRole("button", { name: /, account/ }).click();
   await page.getByRole("menuitem", { name: "Automations", exact: true }).click();
   await page.getByRole("link", { name: "New automation" }).click();
-  await page.getByRole("textbox", { name: "Name" }).fill("Weekly flaky-test sweep");
-  await page
-    .getByRole("textbox", { name: "What should the agent do?" })
-    .fill("Find tests that failed then passed this week and open a thread for each.");
-  await page.getByRole("button", { name: "Create automation" }).click();
+  const prompt = page.getByRole("combobox", { name: "What the agent does each time" });
+  await prompt.fill(
+    "Weekly flaky-test sweep. Open a thread for each test that failed then passed.",
+  );
+  await prompt.press("Enter");
 
   await expect(
     page.getByRole("heading", { level: 2, name: "Weekly flaky-test sweep", exact: true }),
@@ -29,8 +29,8 @@ test("a new automation is created, listed, and runs by hand once automations are
   const aside = page.getByRole("complementary", { name: "Automations" });
   await expect(aside.getByRole("link", { name: /Weekly flaky-test sweep/ })).toBeVisible();
 
-  await page.getByRole("button", { name: "Run now" }).click();
-  await expect(
-    page.getByRole("main").getByRole("list", { name: "Recent runs" }).getByText("Running…"),
-  ).toBeVisible();
+  const note = page.getByRole("combobox", { name: "Note for this run" });
+  await note.fill("Only the web app this time");
+  await note.press("Enter");
+  await expect(page.getByRole("main").getByText(/^Working for /)).toBeVisible();
 });

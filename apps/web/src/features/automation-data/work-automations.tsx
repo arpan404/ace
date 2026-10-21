@@ -18,7 +18,7 @@ import { useNow } from "@/lib/time.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import type { AutomationEntry } from "./automations-source.ts";
 import { NextRun } from "./automation-next-run.tsx";
-import { describeWhen, localTimeZone } from "./schedule.ts";
+import { describeWhen, localTimeZone } from "@/features/automation-schedule/index.ts";
 import { useAutomationActions, useAutomations } from "./use-automations.ts";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { clearRunIntent, ensureRunIntent, normalizeDaemonKey } from "./run-intents.ts";
@@ -134,7 +134,7 @@ function AutomationLine(props: { entry: AutomationEntry; onClose(): void }) {
       return;
     }
     try {
-      await actions.runNow(automation.id, intent.requestId);
+      await actions.runNow(automation.id, { requestId: intent.requestId });
       clearRunIntent(storage, daemonKey, automation.id);
     } catch (error) {
       toast.error({
