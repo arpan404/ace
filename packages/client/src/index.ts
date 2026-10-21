@@ -99,3 +99,5 @@ export { fitsUtf8 } from "./bounds.ts";
 export { attachmentReadScope } from "./attachment-scope.ts";
 
 export type { ReadSnapshotStorage } from "./read-snapshot-storage.ts";
+
+export { windowSource, type ThreadWindow } from "./window-source.ts";

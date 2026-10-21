@@ -192,7 +192,8 @@ it("a delegated child on another provider records the independent check on its p
     runId: "restore",
     runOwner: ownerId,
     version: read.run.version,
-    evidence: sourceCheck(read.revision),
+    // The tool takes one check or a list; the child sends a list.
+    evidence: [sourceCheck(read.revision)],
   });
   expect(recorded.failed, recorded.text).toBe(false);
   const after = view((await owner.call("offshift", { action: "get", runId: "restore" })).data);

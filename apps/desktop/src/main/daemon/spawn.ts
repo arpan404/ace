@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { delimiter, dirname } from "node:path";
 import { DaemonHealth } from "@ace/protocol";
+import type { Launch } from "./launch-priority.ts";
 import type { DaemonProcess } from "./supervisor.ts";
 
 /** Files the packaged app ships next to the daemon. */
@@ -46,6 +47,8 @@ export interface SpawnOptions {
   env: NodeJS.ProcessEnv;
   /** One line of the daemon's output, without its newline. */
   onOutput(line: string, stream: "stdout" | "stderr"): void;
+  /** The launch to spawn for the plain one (`daemonLaunchPolicy`); unset spawns it as is. */
+  prioritize?: ((launch: Launch) => Launch) | undefined;
 }
 
 /**
@@ -86,7 +89,9 @@ export function daemonEnvironment(
 
 export function spawnDaemon(options: SpawnOptions): DaemonProcess {
   const program = daemonProgram(options.resources, process.execPath);
-  const child = spawn(program.command, [options.resources.entry, "start"], {
+  const plain = { command: program.command, args: [options.resources.entry, "start"] };
+  const launch = options.prioritize ? options.prioritize(plain) : plain;
+  const child = spawn(launch.command, launch.args, {
     cwd: dirname(options.resources.entry),
     env: daemonEnvironment(options, program.env),
     stdio: ["ignore", "pipe", "pipe"],

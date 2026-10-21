@@ -143,6 +143,7 @@ export function attachRelayService(
     if (!options.screen || !authorize("admin"))
       throw new Error("Screen relay requires admin access");
     const endpoint = screenConnection(options.screen, new Simulators(process.platform), sessionId, {
+      pictureEncoder: () => options.browser?.videoEncoder(),
       send(message) {
         void send(message).catch(() => channel.close());
       },

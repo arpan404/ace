@@ -8,6 +8,7 @@ import {
   type ScreenOperation,
   type ScreenAgentScope,
   type ScreenError,
+  type ScreenStreamSettings,
 } from "@ace/protocol";
 import type { ScreenTransport } from "@ace/client/screen-stream";
 import type { FakeServiceContext } from "./service-context.ts";
@@ -21,6 +22,8 @@ type Channel = {
 };
 type Session = {
   state: ScreenState;
+  /** What the helper streams: stills until a watching view asks for video. */
+  codec?: "jpeg" | "h264";
   scope?: ScreenAgentScope | undefined;
   owner?: Channel | undefined;
 };
@@ -49,6 +52,8 @@ export class FakeScreen {
   readonly requested: ("screenRecording" | "accessibility")[] = [];
   /** Every `screen.ack` a viewer sent, in order. */
   readonly acks: ScreenAck[] = [];
+  /** Every stream a view asked a session for, in order. */
+  readonly streamRequests: { sessionId: string; settings: ScreenStreamSettings }[] = [];
   private messageIds = 0;
   /** The person's computer use switch. */
   enabled = false;
@@ -150,6 +155,8 @@ export class FakeScreen {
       timestamp: this.options.host.now(),
       screen: "app",
       id: this.messageIds,
+      codec: session.codec ?? "jpeg",
+      keyframe: true,
     });
     for (const channel of viewers)
       if (this.channels.has(channel)) for (const piece of pieces) channel.send(piece);
@@ -319,6 +326,11 @@ export class FakeScreen {
       case "secure.input":
         session.state = { ...session.state, secureInputAllowed: op.allowed };
         return this.publish(session);
+      case "stream.configure":
+        this.streamRequests.push({ sessionId: op.sessionId, settings: op.settings });
+        session.codec = op.settings.codec;
+        this.paint(session);
+        return { codec: op.settings.codec };
       case "subscribe":
         channel.subscriptions.add(op.sessionId);
         channel.send({ type: "screen.state", state: ScreenState.parse(session.state) });

@@ -37,9 +37,9 @@ export const agentRowStyles = {
   first: "flex min-w-0 items-baseline gap-2",
   name: "min-w-0 truncate text-foreground",
   meta: "shrink-0 truncate text-xs text-subtle-foreground",
-  state: "text-right text-[12.5px] whitespace-nowrap text-(--tone-text)",
+  state: "text-right text-xs whitespace-nowrap text-(--tone-text)",
   time: "ml-1.5 text-subtle-foreground tabular-nums",
-  detail: "col-span-2 min-w-0 truncate text-[12.5px] text-muted-foreground",
+  detail: "col-span-2 min-w-0 truncate text-xs text-muted-foreground",
 } as const;
 
 export type AgentDetailKind = "live" | "result" | "human" | "failed";

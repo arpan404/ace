@@ -11,6 +11,7 @@ struct MachineFeaturesView: View {
                 NavigationLink("Usage") { UsageView(model: client) }
                 NavigationLink("Automations") { AutomationsView(model: client) }
                 NavigationLink("Prompts") { PromptsView(model: client) }
+                NavigationLink("Source control") { SourceControlView(model: client) }
                 ForEach(RemoteSettingsCategory.all) { category in
                     NavigationLink(category.title) { RemoteSettingsView(model: client, category: category) }
                 }

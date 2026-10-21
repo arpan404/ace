@@ -68,6 +68,7 @@ export function threadRow(thread: Thread | ThreadListEntry) {
     model: preview(thread.live?.model ?? thread.execution?.model ?? ""),
     agents: (thread.live?.subagentCount ?? 0) + 1,
     snoozedUntil: thread.snoozedUntil ?? null,
+    archivedAt: thread.archivedAt ?? null,
     updatedAt: thread.updatedAt,
     canSteer: thread.capabilities?.steer ?? false,
   };
@@ -91,6 +92,7 @@ export function itemRow(item: Item, index?: number, sourceTruncated = false) {
         ? "Delegated results available"
         : (settledMessageText(input.text) ?? "Delegated results available");
   else if (line) text = line.text;
+  else if (item.type === "compaction") text = "Context compacted";
   else if (
     item.type !== "message" &&
     item.type !== "html" &&

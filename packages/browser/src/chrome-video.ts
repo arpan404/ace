@@ -105,7 +105,7 @@ export class ChromeVideo implements VideoHost {
    * in flight to the document; a newer one replaces a waiting one.
    */
   async openPictures(
-    _page: BrowserCdp,
+    _page: BrowserCdp | undefined,
     width: number,
     height: number,
     events: CaptureEvents,

@@ -191,7 +191,16 @@ const offshiftWords: Record<string, (args: Args) => ToolWords> = {
   block: (args) => say(["Recorded", "Recording", "Record"], " a blocker", named(args, ["note"])),
   resume: (args) => say(["Cleared", "Clearing", "Clear"], " a blocker", named(args, ["note"])),
   evidence: (args) => {
-    const evidence = record(args.evidence);
+    // One check, or a list of them recorded together.
+    const list = Array.isArray(args.evidence) ? args.evidence.map(record) : [];
+    if (list.length > 1) {
+      const failing = list.filter((item) => str(item, "result") === "fail").length;
+      return say(
+        ["Recorded", "Recording", "Record"],
+        ` ${plural(list.length, "check")}${failing ? `, ${failing} failing` : ""}`,
+      );
+    }
+    const evidence = list[0] ?? record(args.evidence);
     const result = str(evidence, "result");
     const check =
       result === "fail" ? " a failing check" : result === "pass" ? " a passing check" : " a check";

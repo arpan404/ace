@@ -10,7 +10,8 @@ import QuartzCore
     var body: some Scene {
         WindowGroup {
             Group {
-                if SpikeConfiguration.enabled { spike }
+                if SpikeConfiguration.renderFixtureEnabled { renderFixture }
+                else if SpikeConfiguration.enabled { spike }
                 else if let production {
                     production.root(notifications: notificationDelegate.coordinator)
                         .environment(notificationDelegate.coordinator)
@@ -18,6 +19,13 @@ import QuartzCore
                 } else { storageUnavailable }
             }.modifier(PhoneAppearance())
         }
+    }
+    @ViewBuilder private var renderFixture: some View {
+        #if DEBUG
+        ChatRenderFixture()
+        #else
+        EmptyView()
+        #endif
     }
     private var storageUnavailable: some View {
         ContentUnavailableView("Storage unavailable", systemImage: "externaldrive.badge.exclamationmark",

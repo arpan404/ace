@@ -90,7 +90,7 @@ test("a blocked run shows what blocks it", async () => {
   expect(within(section).getByLabelText("Blocker").textContent).toBe("Need a test account");
 });
 
-test("a run that lacks evidence lists each missing check, and its criteria open on demand", async () => {
+test("each criterion shows once with the checks it still needs, and the outcome opens on demand", async () => {
   const section = await openRun(
     card({
       phase: "verify",
@@ -99,23 +99,35 @@ test("a run that lacks evidence lists each missing check, and its criteria open 
           id: "error",
           description: criterion,
           independent: false,
-          evidence: [{ kind: "ui", state: "stale", recordedAt: 1, by: null }],
+          evidence: [
+            { kind: "ui", state: "stale", recordedAt: 1, by: null },
+            { kind: "automated", state: "missing", recordedAt: null, by: null },
+          ],
         },
       ],
-      pending: [{ criterionId: "error", kind: "ui" }],
-      pendingCount: 1,
+      pending: [
+        { criterionId: "error", kind: "ui" },
+        { criterionId: "error", kind: "automated" },
+      ],
+      pendingCount: 2,
     }),
   );
-  const missing = within(section).getByRole("list", { name: "Missing evidence" });
-  expect(within(missing).getByRole("listitem").textContent).toBe(`${criterion}UI check`);
-  expect(within(section).getByRole("status").textContent).not.toContain("Done");
-  await userEvent.click(within(section).getByText("Outcome and criteria"));
   const criteria = within(section).getByRole("list", { name: "Criteria" });
-  expect(within(criteria).getByText(/^UI check ·/).textContent).toBe("UI check · Out of date");
-  expect(within(section).getByText("The login page shows a helpful error")).toBeTruthy();
+  const [row, ...rest] = within(criteria).getAllByRole("listitem");
+  expect(rest).toEqual([]);
+  expect(within(row!).getByRole("img").getAttribute("aria-label")).toBe("Open");
+  expect(within(row!).getByLabelText("Needs").textContent).toBe("UI · Automated");
+  expect(within(section).getAllByText(criterion)).toHaveLength(1);
+  expect(within(section).getByRole("status").textContent).not.toContain("Done");
+  const outcome = within(section)
+    .getByText("The login page shows a helpful error")
+    .closest("details");
+  expect(outcome?.open).toBe(false);
+  await userEvent.click(within(section).getByText("Outcome"));
+  expect(outcome?.open).toBe(true);
 });
 
-test("an independent criterion shows who checked it", async () => {
+test("an independent criterion asks for an independent check", async () => {
   const section = await openRun(
     card({
       phase: "verify",
@@ -138,15 +150,10 @@ test("an independent criterion shows who checked it", async () => {
       pendingCount: 1,
     }),
   );
-  const missing = within(section).getByRole("list", { name: "Missing evidence" });
-  expect(within(missing).getByRole("listitem").textContent).toBe(
-    `${criterion}Independent manual check`,
-  );
-  await userEvent.click(within(section).getByText("Outcome and criteria"));
   const criteria = within(section).getByRole("list", { name: "Criteria" });
-  expect(within(criteria).getByText("Independent")).toBeTruthy();
-  expect(within(criteria).getByText(/^Manual check ·/).textContent).toBe(
-    "Manual check · Not independent · Claude Code",
+  expect(within(criteria).getByLabelText("Needs").textContent).toBe("Independent Manual");
+  expect(within(criteria).getByRole("listitem").getAttribute("title")).toBe(
+    `${criterion}\nManual check · Not independent · Claude Code`,
   );
 });
 
@@ -170,11 +177,11 @@ test("the current phase's steps show their state, and a skipped step shows its r
   expect(
     within(steps)
       .getAllByRole("listitem")
-      .map((item) => item.textContent),
+      .map((item) => [within(item).getByRole("img").getAttribute("aria-label"), item.textContent]),
   ).toEqual([
-    "Reproduce the defectDone",
-    "Find the root causeSkippedThe stack trace names it",
-    "Bisect the historyTo do",
+    ["Done", "Reproduce the defect"],
+    ["Skipped", "Find the root causeThe stack trace names it"],
+    ["To do", "Bisect the history"],
   ]);
 });
 

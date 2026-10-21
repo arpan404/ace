@@ -166,8 +166,21 @@ it("a subscribed session's pictures arrive as stream kind screenFrame, named by 
     requestId: "watch",
     operation: { op: "subscribe", sessionId: state.sessionId },
   });
+  // Live views are video only: the session's stills never reach the viewer until it asks.
+  await connection.request({
+    type: "screen.request",
+    requestId: "video",
+    operation: {
+      op: "stream.configure",
+      sessionId: state.sessionId,
+      settings: { codec: "h264", maxWidth: 1280, maxHeight: 800, fps: 60, bitrate: 8_000_000 },
+    },
+  });
   await first.promise;
   const [picture] = pictures;
+  expect(
+    pictures.every((message) => message.kind !== "screen.frame" || message.frame.codec !== "jpeg"),
+  ).toBe(true);
   expect(picture?.kind).toBe("screen.frame");
   if (picture?.kind !== "screen.frame") return;
   expect(picture.sourceId).toBe(state.sessionId);

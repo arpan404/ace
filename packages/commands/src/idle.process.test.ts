@@ -52,10 +52,33 @@ test("eight quiet workspaces share one sleeping recovery timer and emit no catal
     }
     expect(changes).toEqual([]);
     expect(delays.at(-1)).toBeGreaterThan((delays[0] ?? 0) * 8);
-    // Normal edits still wake through native watchers while recovery is sleeping.
+    // Native watchers usually wake normal edits, but recovery keeps running in
+    // production; drive it here too, so a missed native event heals on the next
+    // tick instead of hanging the suite. The native path normally wins first.
     const edited = Promise.withResolvers<void>();
-    library.subscribeCatalog(() => edited.resolve());
+    let notified = false;
+    library.subscribeCatalog(() => {
+      notified = true;
+      edited.resolve();
+    });
     await writeFile(join(home, "7/.ace/prompts/review.md"), "Changed review");
+    // Bounded: each pass drives one recovery tick, and the loop also ends when
+    // the subscriber fires. Exhaustion falls through to `edited.promise`,
+    // which fails the test on timeout instead of spinning forever.
+    for (let guard = 0; guard < 32; guard++) {
+      if (notified) break;
+      const tick = pending;
+      if (!tick) {
+        await edited.promise;
+        break;
+      }
+      pending = undefined;
+      const next = Promise.withResolvers<void>();
+      rearmed = next.resolve;
+      tick.run();
+      await next.promise;
+      rearmed = undefined;
+    }
     await edited.promise;
     const command = (await library.list("7", "review", 10)).commands.find(
       (c) => c.name === "review" && c.namespace === "prompt",

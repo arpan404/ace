@@ -21,8 +21,8 @@
       "sha256": "7dfb0943cad922a4233af0551b29e2ec59abda54811337fd7abbb6dc16e4a337"
     },
     "mcp.md": {
-      "bytes": 71014,
-      "sha256": "46e599a27d41d35204c172e64be9b9fe578ceb4b3e9d34ca2f97403c303446ce"
+      "bytes": 71587,
+      "sha256": "9402643fc694aa663e5b5f30b0823282af6037adee2d0ac7996d174db20db089"
     },
     "models.md": {
       "bytes": 15140,
@@ -941,8 +941,8 @@
       "sha256": "eb3369375a7c6d42ed271320f8655fc342085f3e9ea8d9222ec5ee41630667d1"
     },
     "schema/DeviceOperation.json": {
-      "bytes": 12938,
-      "sha256": "5c94a5c3e81526b92d8cfea4a3ce9c0372b014502c538e8110c9154d8441c76d"
+      "bytes": 13136,
+      "sha256": "6709327d49827d14e5faf7566dc2d2b829f47175e9eee3959ae7d622de4e1a0c"
     },
     "schema/DevicePermission.json": {
       "bytes": 208,
@@ -1980,6 +1980,10 @@
       "bytes": 1901,
       "sha256": "17ce5e74812d326cea8e9a68ac74800dcf89e4931f1211cc58f6b0e7880486fd"
     },
+    "schema/OffshiftEvidenceBatch.json": {
+      "bytes": 276,
+      "sha256": "8735d12b9add0ada48b6d371bdefaaacad8079ccee4f7d85f1d040b058f33da5"
+    },
     "schema/OffshiftEvidenceInput.json": {
       "bytes": 1597,
       "sha256": "e476ba02125e5ff9336fcc596c452d0d410db00b5435d2ca504076d5d825e768"
@@ -2018,7 +2022,7 @@
     },
     "schema/OffshiftRequest.json": {
       "bytes": 7730,
-      "sha256": "6debdbefd212c1bfcdea43108a3dd5ea27a4ffb930a20d4b56b462c86a2a49ba"
+      "sha256": "3aca3adaa1a1b80046c859e144b6b4c73868b7e54fff10bd6c1c75518a4089d7"
     },
     "schema/OffshiftResult.json": {
       "bytes": 457,
@@ -2909,8 +2913,8 @@
       "sha256": "f6bc45f3e07014d9777f054825b014de9df2b52244abcc291034b3accbc0deb3"
     },
     "schema/ScreenOperation.json": {
-      "bytes": 10395,
-      "sha256": "b7d869dbd1777e791a7dc6ef355a70942636d53978e9469dcc08ae1fc1c0dc53"
+      "bytes": 10844,
+      "sha256": "4c491bb856940bb27e8ea5ff77b277e0291560056b035dfa11c12241cc7fb3e4"
     },
     "schema/ScreenPermissions.json": {
       "bytes": 345,
@@ -3889,8 +3893,8 @@
       "sha256": "80052ed0fa925aba35ad1c1ff0842366a1068fcfe97701e8d6f97a64d318620e"
     },
     "schema/offshift.input.json": {
-      "bytes": 4229,
-      "sha256": "e46b1a6ce6ccc29bedbffb7afffa1a5ed58642d7341717ce6c4df78e27a14f09"
+      "bytes": 4526,
+      "sha256": "2789d4a7dcdbc3b70a012bfec13105a1ee6c1422eb3729817131870d80ee5c60"
     },
     "schema/offshift.output.json": {
       "bytes": 20268,
@@ -4001,10 +4005,10 @@
       "sha256": "3c00a18ea5c34e708a57c9d0f5d0cdba097745d6b5fc80bd543053d4c1079efc"
     },
     "types.md": {
-      "bytes": 855067,
-      "sha256": "19f000294671a72bcbf43cc1b8f9f380c84f6bf9ee9a478b794d004b89d7c2d3"
+      "bytes": 854630,
+      "sha256": "2addf3f092e5718cf20aff7279ae8df85c58947c8f191135c4ab5cbdec7dcd15"
     }
   },
-  "input": "1104f4d33ee33ce52db99c2341c764a839fb0524fe3ed6b908ac18980e3ace18",
+  "input": "587546d4416029e5e37963c4aa78029f78b4b7e09b92cabaab62b612ebbca633",
   "version": 1
 }

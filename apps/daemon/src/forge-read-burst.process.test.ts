@@ -13,7 +13,14 @@ import { startServer } from "./server.ts";
 import { Client, token } from "./socket-test-support.ts";
 
 // Real socket, SQLite and runtime; only the `gh` CLI is replaced, held until the test lets go.
-test("a PR panel's burst of reads all get answered with their own code instead of a refusal, and each failure is logged", async () => {
+// The fake counts spawned `gh` commands. A merge-state read is one command;
+// a review-state read fetches host and viewed marks concurrently, so spawned
+// commands are not a read count. The queue owner (WorkspaceReadQueue) bounds
+// logical reads; this helper asserts replies and logs for any burst shape.
+async function runBurst(
+  ops: ("forge.pr.merge-state" | "forge.pr.review-state")[],
+  expectedPeak?: number,
+) {
   const root = await mkdtemp(join(tmpdir(), "ace-forge-burst-"));
   const store = new Store(join(root, "events.sqlite"));
   const workspaceId = store.createWorkspace(root, "Project");
@@ -49,10 +56,6 @@ test("a PR panel's burst of reads all get answered with their own code instead o
     await once(client.socket, "open");
     client.send({ type: "hello", protocolVersion: 1, deviceId: DeviceId.parse("device"), token });
     expect(await client.next()).toMatchObject({ type: "welcome" });
-    // Each of these asks GitHub one thing at a time, so running commands count running reads.
-    const ops = Array.from({ length: 12 }, (_, index) =>
-      index % 2 === 0 ? ("forge.pr.merge-state" as const) : ("forge.pr.review-state" as const),
-    );
     for (const [index, op] of ops.entries())
       client.send({
         type: "workspace.request",
@@ -62,12 +65,18 @@ test("a PR panel's burst of reads all get answered with their own code instead o
     await full;
     release();
     const replies: ServerMessage[] = [];
-    for (let index = 0; index < 12; index++) replies.push(await client.next());
+    for (let index = 0; index < ops.length; index++) replies.push(await client.next());
+    if (expectedPeak !== undefined) expect(peak).toBe(expectedPeak);
     expect(replies.map((reply) => reply.type === "workspace.result" && reply.result)).toEqual(
-      Array.from({ length: 12 }, () => ({ kind: "error", code: "forge_offline" })),
+      ops.map(() => ({ kind: "error", code: "forge_offline" })),
     );
-    // The burst waited its turn: GitHub never saw more than eight reads from one socket at once.
-    expect(peak).toBe(8);
+    // Every request is answered exactly once, in any order: duplicate replies
+    // cannot masquerade as a complete burst.
+    expect(
+      replies
+        .map((reply) => (reply.type === "workspace.result" ? reply.requestId : undefined))
+        .toSorted(),
+    ).toEqual(ops.map((_, index) => `read-${index}`).toSorted());
     const logged = warnings.filter((warning) => warning.message === "Forge read failed");
     expect(logged.map((warning) => warning.fields)).toEqual(
       ops.map(() => expect.objectContaining({ code: "forge_offline" })),
@@ -82,4 +91,24 @@ test("a PR panel's burst of reads all get answered with their own code instead o
     await store.close();
     await rm(root, { recursive: true, force: true });
   }
+}
+
+test("a PR panel's burst of single-command reads waits its turn at eight", async () => {
+  // Each merge-state read is one `gh` command, so twelve of them may hold
+  // eight command slots, never more, and every one still answers.
+  await runBurst(
+    Array.from({ length: 12 }, () => "forge.pr.merge-state" as const),
+    8,
+  );
+});
+
+test("a mixed merge/review burst answers every request with its own code", async () => {
+  // Review-state reads fetch host and viewed marks concurrently, so spawned
+  // commands outnumber logical reads by design. Assert every request is
+  // answered and logged under its own op instead of equating the two counts.
+  await runBurst(
+    Array.from({ length: 12 }, (_, index) =>
+      index % 2 === 0 ? ("forge.pr.merge-state" as const) : ("forge.pr.review-state" as const),
+    ),
+  );
 });
