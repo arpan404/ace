@@ -67,7 +67,8 @@ test("a batch of suggestions lands as one commit on the head branch the reviewer
   try {
     await f.forge.reviews.write(7, batch, [], "apply", signal(), allowed);
     const commit = (await f.requests()).find(
-      (r) => r.path === "graphql" && JSON.stringify(r.body ?? null).includes("createCommitOnBranch"),
+      (r) =>
+        r.path === "graphql" && JSON.stringify(r.body ?? null).includes("createCommitOnBranch"),
     );
     expect(commit?.body).toMatchObject({
       variables: {
@@ -95,9 +96,9 @@ test("a head that moved since the review refuses before any commit is sent", asy
     await expect(
       f.forge.reviews.write(7, batch, [], "apply", signal(), allowed, dispatch),
     ).rejects.toMatchObject({ kind: "head_moved" });
-    expect((await f.requests()).some((r) => JSON.stringify(r.body ?? null).includes("mutation"))).toBe(
-      false,
-    );
+    expect(
+      (await f.requests()).some((r) => JSON.stringify(r.body ?? null).includes("mutation")),
+    ).toBe(false);
   } finally {
     await f.cleanup();
   }
@@ -109,9 +110,9 @@ test("a suggestion on an outdated line is refused rather than applied to the wro
     await expect(
       f.forge.reviews.write(7, { ...batch, commentIds: [23] }, [], "apply", signal(), allowed),
     ).rejects.toMatchObject({ kind: "conflict" });
-    expect((await f.requests()).some((r) => JSON.stringify(r.body ?? null).includes("mutation"))).toBe(
-      false,
-    );
+    expect(
+      (await f.requests()).some((r) => JSON.stringify(r.body ?? null).includes("mutation")),
+    ).toBe(false);
   } finally {
     await f.cleanup();
   }

@@ -40,12 +40,15 @@ export type SuggestionEdit = {
  * The file's text with every edit applied, keeping its line endings and final newline, or
  * undefined when an edit falls outside the file or two edits overlap.
  */
-export function applySuggestions(text: string, edits: readonly SuggestionEdit[]): string | undefined {
+export function applySuggestions(
+  text: string,
+  edits: readonly SuggestionEdit[],
+): string | undefined {
   const eol = text.includes("\r\n") ? "\r\n" : "\n";
   const final = text.endsWith(eol);
   const body = final ? text.slice(0, -eol.length) : text;
   const lines = text === "" ? [] : body.split(eol);
-  const sorted = [...edits].sort((a, b) => a.startLine - b.startLine);
+  const sorted = edits.toSorted((a, b) => a.startLine - b.startLine);
   for (let index = 0; index < sorted.length; index++) {
     const edit = sorted[index];
     const previous = sorted[index - 1];

@@ -126,7 +126,11 @@ test("removing a reaction deletes only the viewer's own, and reconciles once it'
     { body: [{ id: 41, content: "+1", user: { login: "author" } }] },
   ];
   fixtures["repos/octo/ace/issues/7/reactions/42"] = [{ status: 204 }];
-  const action = { kind: "reaction.remove" as const, subject: { kind: "pr" as const }, content: "+1" as const };
+  const action = {
+    kind: "reaction.remove" as const,
+    subject: { kind: "pr" as const },
+    content: "+1" as const,
+  };
   const f = await fakeGh(fixtures);
   try {
     await f.forge.reviews.write(7, action, [], "unreact", signal(), allowed);

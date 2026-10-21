@@ -115,7 +115,10 @@ export class GitHubSuggestions {
         variables: {
           input: {
             clientMutationId: operationId,
-            branch: { repositoryNameWithOwner: pull.head.repo.full_name, branchName: pull.head.ref },
+            branch: {
+              repositoryNameWithOwner: pull.head.repo.full_name,
+              branchName: pull.head.ref,
+            },
             // GitHub refuses the commit unless the branch still points here.
             expectedHeadOid: action.headSha,
             message: { headline, ...(body ? { body } : {}) },

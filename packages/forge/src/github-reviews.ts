@@ -235,11 +235,13 @@ export class GitHubReviews {
     if (action.kind === "suggestions.apply")
       return this.#suggestions.reconcile(number, action, signal);
     if (action.kind === "reviewers.request") {
-      const requested = decode(
-        Requested,
-        (await this.#request(`${this.#root}/pulls/${number}/requested_reviewers`, signal)).body,
-      ).users.map((u) => u.login.toLowerCase());
-      return action.reviewers.every((name) => requested.includes(name.toLowerCase()));
+      const requested = new Set(
+        decode(
+          Requested,
+          (await this.#request(`${this.#root}/pulls/${number}/requested_reviewers`, signal)).body,
+        ).users.map((u) => u.login.toLowerCase()),
+      );
+      return action.reviewers.every((name) => requested.has(name.toLowerCase()));
     }
     return false;
   }
