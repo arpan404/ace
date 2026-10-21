@@ -131,7 +131,12 @@ function middle(a: string[], b: string[], oldBase: number, newBase: number, out:
     let j = 0;
     for (const [ai, bj] of run) {
       span(a.slice(i, ai), b.slice(j, bj), oldBase + i, newBase + j, out);
-      out.push({ kind: "context", old: oldBase + ai + 1, new: newBase + bj + 1, text: a[ai] ?? "" });
+      out.push({
+        kind: "context",
+        old: oldBase + ai + 1,
+        new: newBase + bj + 1,
+        text: a[ai] ?? "",
+      });
       i = ai + 1;
       j = bj + 1;
     }
