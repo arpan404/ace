@@ -10,6 +10,7 @@ import { FileRequestLifetime } from "./request-lifetime.ts";
 import { openDownload, openBorrowedDownload } from "./download.ts";
 import { newId, observed } from "./filesystem.ts";
 import { Mutations } from "./mutations.ts";
+import { readPart } from "./read.ts";
 import { Uploads } from "./uploads.ts";
 import { FileError, type FilesOptions, type Download } from "./types.ts";
 
@@ -187,6 +188,7 @@ export class FilesService {
         truncated: page.truncated,
       };
     }
+    if (operation.op === "read") return readPart(this.safe, operation);
     if (operation.op === "stat") {
       const current = await this.lifetime.walk((signal) =>
         observed(this.safe, operation.path, signal),

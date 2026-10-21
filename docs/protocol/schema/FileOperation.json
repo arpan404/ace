@@ -44,6 +44,52 @@
     },
     {
       "properties": {
+        "encodings": {
+          "default": [],
+          "items": {
+            "const": "gzip",
+            "type": "string"
+          },
+          "maxItems": 4,
+          "type": "array"
+        },
+        "length": {
+          "default": 262144,
+          "maximum": 262144,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "maxSize": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "op": {
+          "const": "read",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "validator": {
+          "$ref": "https://ace.local/protocol/v1/FileVersion.json"
+        }
+      },
+      "required": [
+        "op",
+        "path"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "offset": {
           "default": 0,
           "maximum": 9007199254740991,

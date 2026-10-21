@@ -1,4 +1,4 @@
-import type { ClientApi } from "@ace/client";
+import { readFile, type ClientApi } from "@ace/client";
 import { ThreadId } from "@ace/protocol";
 import { imageType, isCheckoutPath, isText } from "@ace/ui-core";
 
@@ -137,16 +137,6 @@ export function daemonCheckout(client: ClientApi): CheckoutSource {
     const type = "type" in record && typeof record.type === "string" ? record.type : "file";
     return { version, size, folder: type === "directory" };
   };
-  const bytesOf = async function* (threadId: string, path: string, signal?: AbortSignal) {
-    try {
-      yield* client.downloadFile(
-        { threadId: ThreadId.parse(threadId), op: "download", path, offset: 0 },
-        options(signal),
-      );
-    } catch (error) {
-      throw checkoutError(error);
-    }
-  };
   return {
     async search(threadId, query, signal) {
       const reply = await client
@@ -172,26 +162,21 @@ export function daemonCheckout(client: ClientApi): CheckoutSource {
     },
     stat,
     async read(threadId, path, signal) {
-      const info = await stat(threadId, path, signal);
-      if (info.version === null) return { kind: "missing" };
-      if (info.folder) throw new CheckoutError("folder", "That's a folder; pick a file inside it.");
-      const version = info.version;
-      if (info.size !== undefined && info.size > viewLimit)
-        return { kind: "large", size: info.size, version };
-      const chunks: Uint8Array[] = [];
-      let size = 0;
-      for await (const chunk of bytesOf(threadId, path, signal)) {
-        chunks.push(chunk);
-        size += chunk.length;
-        // The size grew past the limit since the stat: stop reading.
-        if (size > viewLimit) return { kind: "large", size, version };
-      }
-      const bytes = new Uint8Array(size);
-      let offset = 0;
-      for (const chunk of chunks) {
-        bytes.set(chunk, offset);
-        offset += chunk.length;
-      }
+      guard(path);
+      const read = await readFile(
+        client,
+        { threadId: ThreadId.parse(threadId), path, maxSize: viewLimit },
+        options(signal),
+      ).catch((error: unknown) => {
+        throw checkoutError(error);
+      });
+      if (read.kind === "missing") return { kind: "missing" };
+      if (read.kind === "folder")
+        throw new CheckoutError("folder", "That's a folder; pick a file inside it.");
+      const { version } = read;
+      if (read.kind === "large") return { kind: "large", size: read.size, version };
+      const bytes = read.bytes;
+      const size = bytes.length;
       const image = imageType(path);
       if (image) return { kind: "image", blob: new Blob([bytes], { type: image }), size, version };
       if (!isText(bytes)) return { kind: "binary", size, version };
