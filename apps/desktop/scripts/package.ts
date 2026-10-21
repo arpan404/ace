@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { cp } from "node:fs/promises";
+import { cp, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build, Platform, type Configuration } from "electron-builder";
+import { assertLinuxRuntimeFloor } from "@ace/release/glibc";
+import { chromiumAppArmorProfile } from "../src/packaging/apparmor.ts";
 import { desktop, dist, electronVersion, installedElectronDist, targetArch } from "./common.ts";
 import { verifyNatives } from "./verify-natives.ts";
 
 /**
  * `bun run desktop:build`: an unsigned app for this machine (macOS: `.app` and dmg).
  * `bun run desktop:package`: the full platform package for one architecture (macOS dmg+zip,
- * Windows NSIS, Linux AppImage and deb), signed and notarized when the release credentials
+ * Windows NSIS, Linux AppImage, deb and tar.gz), signed and notarized when the release credentials
  * are present (CSC_LINK / CSC_NAME, APPLE_API_KEY, APPLE_API_KEY_ID, APPLE_API_ISSUER).
  * On macOS the Developer ID identity must already be in a keychain on the search list: the
  * screen helper is signed during the build, before electron-builder imports CSC_LINK.
@@ -33,6 +35,19 @@ if (!process.argv.includes("--skip-build"))
 
 // Also after --skip-build: dist/ may hold another architecture's build.
 await verifyNatives(arch);
+// Linux release packages run on Ubuntu 20.04+ and Debian 11+: what ace builds itself (the
+// daemon's natives, its Node runtime, ripgrep, the screen helper) must not need a newer
+// glibc. Electron's own floor is Chromium's. Local packages may use the host's toolchain.
+if (full && process.platform === "linux")
+  for (const known of await assertLinuxRuntimeFloor(
+    ["daemon", "bin", "helpers", "runtime"].map((d) => join(dist, d)),
+  ))
+    console.warn(`[package] above the glibc floor (reviewed): ${known.path}: ${known.reason}`);
+const linuxResources = join(dist, "linux");
+if (process.platform === "linux") {
+  await mkdir(linuxResources, { recursive: true });
+  await writeFile(join(linuxResources, "apparmor-chromium"), chromiumAppArmorProfile());
+}
 
 const notarize = Boolean(process.env.APPLE_API_KEY && process.env.APPLE_API_ISSUER);
 const helper = join(dist, "helpers/AceScreenHelper.app");
@@ -66,6 +81,10 @@ const config: Configuration = {
         ? [{ from: join(dist, "helpers/manifest.json"), to: "screen-helper-manifest.json" }]
         : []
       : [{ from: join(dist, "helpers"), to: "helpers" }]),
+    // The AppArmor profile for ace's headless Chromium (the deb installs it; see after-install).
+    ...(process.platform === "linux"
+      ? [{ from: join(linuxResources, "apparmor-chromium"), to: "apparmor-chromium" }]
+      : []),
   ],
   // The daemon runs as a separate Node process, so it ships as plain files. It is copied here
   // rather than through extraResources, which always drops node_modules, and the daemon needs
@@ -138,13 +157,26 @@ const config: Configuration = {
   win: { target: [{ target: "nsis", arch: [arch] }], icon: join(desktop, "build/icon.png") },
   nsis: { oneClick: false, perMachine: false, include: join(desktop, "build/installer.nsh") },
   linux: {
+    // `ace` is the daemon CLI (`~/.ace/bin/ace`); the GUI must never install /usr/bin/ace.
+    executableName: "ace-desktop",
     target: [
       { target: "AppImage", arch: [arch] },
       { target: "deb", arch: [arch] },
+      { target: "tar.gz", arch: [arch] },
     ],
+    // Debian requires a maintainer with an email address; the project has no mailbox.
+    maintainer: "ace <arpan404@users.noreply.github.com>",
+    vendor: "ace",
+    synopsis: "Desktop app for ace, the local multi-agent coding environment",
     category: "Development",
     icon: join(desktop, "build/icon.png"),
     mimeTypes: ["x-scheme-handler/ace", "inode/directory"],
+  },
+  deb: {
+    packageName: "ace-desktop",
+    // Ours, not electron-builder's: they also install and remove ace's Chromium profile.
+    afterInstall: join(desktop, "build/linux/after-install.tpl"),
+    afterRemove: join(desktop, "build/linux/after-remove.tpl"),
   },
   publish: null,
 };

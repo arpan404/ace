@@ -29,7 +29,7 @@ import { appearance, createHandlers } from "./handlers.ts";
 import { emit, registerHandlers } from "./ipc.ts";
 import { claimKeychainName } from "./keychain.ts";
 import { applicationMenu } from "./menu.ts";
-import { cliShimCheck, cliShimLog, type CliShimResult } from "./os/cli-shim.ts";
+import { cliShimCheck, cliShimLog, runningAppImage, type CliShimResult } from "./os/cli-shim.ts";
 import { installCliShim } from "./os/cli-shim-install.ts";
 import { backgroundArgument, startHidden } from "./os/login.ts";
 import { settingsEffects } from "./os/settings-effects.ts";
@@ -469,6 +469,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
         node: paths.node,
         entry: paths.daemonEntry,
         loginPath: () => runtime.loginPath(),
+        appImage: process.platform === "linux" ? runningAppImage(process.env) : undefined,
       }).then((result) => {
         cliShim = result;
         const line = cliShimLog(result);
