@@ -110,6 +110,7 @@
         "@ace/service": "workspace:*",
         "@ace/settings": "workspace:*",
         "@ace/terminal": "workspace:*",
+        "@ace/ui-core": "workspace:*",
         "@ace/usage": "workspace:*",
         "@ace/workspace": "workspace:*",
         "marked": "^18.0.14",
@@ -557,6 +558,7 @@
     "packages/diagnostics": {
       "name": "@ace/diagnostics",
       "dependencies": {
+        "@ace/devices": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "@ace/redaction": "workspace:*",

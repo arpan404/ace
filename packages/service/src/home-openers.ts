@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, readlinkSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 
 /** Which processes have any of these files open; empty when none do or nobody can tell. */
@@ -56,11 +56,54 @@ export function recordedPids(files: readonly string[]): number[] {
   return pids;
 }
 
+const maxProcesses = 16_384;
+const maxDescriptors = 65_536;
+
+/**
+ * Which processes under `procRoot` (a Linux `/proc`) hold any of `files` open, read from each
+ * process's `fd` links. Another user's descriptors are unreadable and skipped: those processes
+ * can't be this user's ace. Bounded so a crowded host answers promptly.
+ */
+export function procOpeners(files: readonly string[], procRoot = "/proc"): number[] {
+  if (files.length === 0) return [];
+  const wanted = new Set<string>();
+  for (const file of files) {
+    wanted.add(file);
+    try {
+      wanted.add(realpathSync(file));
+    } catch {
+      // Gone already: only the path as given can match.
+    }
+  }
+  const pids: number[] = [];
+  let descriptors = 0;
+  const processes = entries(procRoot)
+    .filter((entry) => /^\d+$/.test(entry.name))
+    .slice(0, maxProcesses);
+  for (const entry of processes) {
+    const directory = join(procRoot, entry.name, "fd");
+    for (const fd of entries(directory)) {
+      if (++descriptors > maxDescriptors) return pids;
+      let target: string;
+      try {
+        target = readlinkSync(join(directory, fd.name));
+      } catch {
+        continue;
+      }
+      if (wanted.has(target)) {
+        pids.push(Number(entry.name));
+        break;
+      }
+    }
+  }
+  return pids;
+}
+
 /**
  * `lsof -t` over the files, bounded to five seconds. A host without lsof, or one that times
  * out, reports nobody: the pid and lock checks still apply, and a fresh start never sticks.
  */
-export const systemOpeners: OpenersOf = (files) => {
+function lsofOpeners(files: readonly string[]): number[] {
   if (files.length === 0) return [];
   const result = spawnSync("lsof", ["-t", "--", ...files], {
     encoding: "utf8",
@@ -72,4 +115,8 @@ export const systemOpeners: OpenersOf = (files) => {
     .split("\n")
     .map((line) => Number(line.trim()))
     .filter((pid) => Number.isSafeInteger(pid) && pid > 0);
-};
+}
+
+/** Linux reads `/proc` (lsof is often not installed there); other hosts ask lsof. */
+export const systemOpeners: OpenersOf = (files) =>
+  process.platform === "linux" ? procOpeners(files) : lsofOpeners(files);
