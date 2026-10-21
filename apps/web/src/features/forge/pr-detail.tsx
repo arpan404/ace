@@ -122,12 +122,13 @@ function PrDetailLoaded(props: {
 }) {
   const { context } = props;
   const { detail } = context;
+  const [dialog, setDialog] = useState<PrDialog>();
   const actions = usePrActions({
     context,
     extensions: props.extensions,
     hostThreadId: props.hostThreadId,
+    openConflicts: () => setDialog("conflicts"),
   });
-  const [dialog, setDialog] = useState<PrDialog>();
   const [behindOpen, setBehindOpen] = useState(false);
   const [revealChecks, setRevealChecks] = useState(0);
   const [codeFocus, setCodeFocus] = useState<{ path: string; seq: number }>();
@@ -302,7 +303,12 @@ function PrDetailLoaded(props: {
           }}
         />
         <PrComposer context={context} extensions={props.extensions} />
-        <PrDialogs actions={actions} open={dialog} onClose={() => setDialog(undefined)} />
+        <PrDialogs
+          actions={actions}
+          hostThreadId={props.hostThreadId}
+          open={dialog}
+          onClose={() => setDialog(undefined)}
+        />
       </PrReviewWorkspace>
     </div>
   );
