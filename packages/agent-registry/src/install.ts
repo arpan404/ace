@@ -189,7 +189,9 @@ export async function executeInstall(
       const files = join(stage, "files");
       await mkdir(files, { mode: 0o700 });
       entrypoint = posix.join("files", plan.entrypoint ?? "");
-      if (/\.(tar\.gz|tgz)$/.test(pathname)) await extractTar(artifact, files, signal);
+      if (/\.(tar\.gz|tgz)$/.test(pathname)) await extractTar(artifact, files, signal, "gzip");
+      else if (/\.(tar\.bz2|tbz2?)$/.test(pathname))
+        await extractTar(artifact, files, signal, "bzip2");
       else if (pathname.endsWith(".zip")) await extractZip(artifact, files, signal);
       else {
         const target = contained(files, plan.entrypoint ?? "");
