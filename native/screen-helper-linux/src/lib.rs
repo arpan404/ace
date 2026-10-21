@@ -1,4 +1,5 @@
 pub mod accessibility;
+pub mod computer;
 mod accessibility_actions;
 mod accessibility_lifecycle;
 pub mod endpoint;
