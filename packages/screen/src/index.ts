@@ -24,6 +24,12 @@ export { uiReadShape, uiReadRequest, perAction } from "./tool-schemas.ts";
 export type { Scheduler } from "./runtime.ts";
 
 export { linuxBackend, installedLinuxHelper, type LinuxBackend } from "./linux.ts";
+export {
+  graphicalSessionEnvironment,
+  parseManagerEnvironment,
+  type CommandRunner,
+} from "./linux-session.ts";
+export { linuxComputerEnvironment } from "./computer/session.ts";
 
 export { ScreenStopError } from "./stop-error.ts";
 

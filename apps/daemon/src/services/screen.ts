@@ -1,6 +1,8 @@
 import {
   ComputerClient,
+  graphicalSessionEnvironment,
   installScreenHelper,
+  linuxComputerEnvironment,
   localScreenManager,
   screenConnection,
   type Simulators,
@@ -22,12 +24,16 @@ export async function startScreen({ config, options, resources, services, store 
     bundleDirectory: import.meta.dirname,
     exists: existsSync,
   });
+  // Linux: the desktop session is read from the user manager each time a helper starts.
+  const session =
+    process.platform === "linux" ? graphicalSessionEnvironment({ env: process.env }) : undefined;
   const manager =
     options.screen ??
     (helper
       ? localScreenManager(helper, join(config.dataDir, "screen-artifacts"), {
           manifest: config.screenHelperManifest,
           inheritResponsibility: config.screenHelperInheritsResponsibility,
+          session,
         })
       : undefined);
   if (!manager) return;
@@ -48,9 +54,13 @@ export async function startScreen({ config, options, resources, services, store 
           helper: () => installScreenHelper(helper, config.dataDir, config.screenHelperManifest),
           nextId: randomUUID,
         })
-      : process.platform === "linux"
+      : session
         ? // The live-view helper binary; `--computer` selects the background engine.
-          new ComputerClient({ helper: async () => helper, nextId: randomUUID })
+          new ComputerClient({
+            helper: async () => helper,
+            nextId: randomUUID,
+            environment: linuxComputerEnvironment(session),
+          })
         : undefined;
   if (!computer) return;
   resources.own(() => computer.close());
