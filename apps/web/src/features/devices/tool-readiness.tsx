@@ -11,16 +11,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 
-/** One tool as the readiness line names it: "Xcode 26.0", "serve-sim fallback", "Android SDK". */
+/** One tool as the readiness line names it: "Xcode 26.0", "serve-sim 0.1.48", "Android SDK". */
 function toolWords(tool: Toolchain): string | undefined {
   switch (tool.id) {
     case "xcode":
       return tool.available ? `Xcode${tool.version ? ` ${tool.version}` : ""}` : "Xcode missing";
     case "serve-sim":
-      // Without a supported serve-sim, iOS still shows through the screen helper.
+      // ace downloads its own serve-sim with the device tools.
       return tool.available
         ? `serve-sim${tool.version ? ` ${tool.version}` : ""}`
-        : "serve-sim fallback";
+        : "serve-sim not downloaded";
     case "android":
       return tool.available
         ? `Android SDK${tool.version ? ` ${tool.version}` : ""}`

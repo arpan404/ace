@@ -60,21 +60,21 @@ when the owner permits them.
    still appears alongside a typed install hint. With both absent, confirm a
    typed SDK error. Restore SDKs. Check offline and unauthorized adb transports
    never become input targets; close duplicate processes for the same AVD.
-4. Enable devices, select a shut down device, take control, boot it and refresh.
+4. Enable devices, select a shut down device, boot it and refresh.
    Open its Simulator window on iOS. Start live view and confirm the first frame
    arrives before state becomes live. Install a Simulator-built `.app` or an
    emulator-compatible `.apk`, launch its app ID and open a URL and a deep link.
    Confirm `.ipa` and unsupported locale requests show their fix hints.
    A locale request combined with appearance/location must leave both unchanged.
-5. Approve the device for a real thread and delegate to an agent. Use only the
+5. Approve the device for a real thread and let an agent claim it with `sim_start`. Use only the
    ace MCP HTTP client to call tools with that agent's credential; do not send a
    prompt to a provider CLI. Verify tree/find/act, screenshot, tap, long press,
    swipe, text, home and rotation. Android semantic actions must report fallback
    and reject refs after the target changes. Check portrait and landscape
    coordinates against the displayed frame scale, including scaled frames.
-6. Take control from the agent during a queued action. Confirm later queued
-   input fails and human input controls the device. Let the lease expire and
-   confirm input needs renewed control. Revoke thread approval and confirm the
+6. Press or tap the live screen while the agent has a queued action: the press takes control
+   with no separate step. Confirm later queued agent input fails and the person's input
+   controls the device. Let the lease expire and confirm the next press renews it. Revoke thread approval and confirm the
    agent cannot inspect or act. Revoke the paired phone credential during frame
    transfer; its channel closes and control is released.
 7. View two devices from independent relay channels. Stall one viewer, then

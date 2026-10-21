@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { activityCaption, screenFraction } from "./agent-activity.ts";
 import { fitFrame, frameGeometry } from "./device-frame-geometry.ts";
 import { filterLines, logLevel } from "./device-log-lines.ts";
-import { StreamMeter, streamSummary } from "./stream-stats.ts";
+import { StreamMeter, streamDetails, streamSummary } from "./stream-stats.ts";
 import { shortRefs } from "./ui-tree-refs.ts";
 
 test("the frame fits the room it is given and keeps the screen's aspect", () => {
@@ -89,6 +89,39 @@ test("the subtitle leaves out what it can't know: the rate in the first second, 
   expect(streamSummary(remote.read(200))).toEqual(["H.264"]);
   expect(streamSummary(remote.read(5000))).toEqual(["H.264"]);
   expect(streamSummary(new StreamMeter({ sameClock: true }).read(0))).toEqual([]);
+});
+
+test("a still Simulator's five re-sends a second read as a still screen, not a 5 fps stream", () => {
+  const meter = new StreamMeter({ sameClock: false });
+  for (let at = 0; at <= 2000; at += 200) {
+    meter.receive(at, 600);
+    meter.add({ capturedAt: at, shownAt: at });
+  }
+  expect(streamSummary(meter.read(2000))).toEqual(["H.264", "still"]);
+  // The same rate of full pictures is a struggling stream, and says its rate.
+  const struggling = new StreamMeter({ sameClock: false });
+  for (let at = 0; at <= 2000; at += 200) {
+    struggling.receive(at, 40_000);
+    struggling.add({ capturedAt: at, shownAt: at });
+  }
+  expect(streamSummary(struggling.read(2000))).toEqual(["H.264", "5 fps"]);
+});
+
+test("the stream stats show pictures that arrived but weren't drawn, the longest stall and keyframes asked", () => {
+  const meter = new StreamMeter({ sameClock: false });
+  // 60 pictures arrive in the last second; a stall left 400 ms without a drawn frame.
+  for (let index = 0; index < 60; index++) meter.receive(1001 + index * 16, 12_500);
+  for (let at = 0; at <= 1000; at += 20) meter.add({ capturedAt: at, shownAt: at });
+  for (let at = 1400; at <= 2000; at += 50) meter.add({ capturedAt: at, shownAt: at });
+  meter.keyframeAsked(1100);
+  meter.decoder("default", "EncodingError");
+  expect(streamDetails(meter.read(2000))).toEqual([
+    "Received 60/s · drawn 13/s",
+    "6.0 Mbit/s",
+    "Longest stall 400 ms (5 s)",
+    "Keyframes asked 1 (5 s)",
+    "Decoder: browser default (hardware failed: EncodingError)",
+  ]);
 });
 
 const refsOf = (nodes: ReturnType<typeof shortRefs>): unknown[] =>

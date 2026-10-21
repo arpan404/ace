@@ -6,7 +6,7 @@ import type { AppDevice as Device } from "@ace/protocol/devices";
 import { DeviceError } from "./sdk.ts";
 import { screenrecordCapture } from "./android-screenrecord.ts";
 import { scrcpyCapture } from "./scrcpy-capture.ts";
-import { scrcpyServerJar } from "./scrcpy-jar.ts";
+import { installedScrcpyJar } from "./scrcpy-jar.ts";
 import type { DevicePlatform } from "./platform.ts";
 import type { Capture, DeviceRuntime } from "./runtime.ts";
 import { permissionDenied } from "./screen-failure.ts";
@@ -47,19 +47,39 @@ export async function startCapture(options: {
   };
   checkAbort();
   if (options.device.platform === "ios") {
-    const { command, version, supported } = await serveSimStatus(options.env, options.runtime);
+    let status = await serveSimStatus(
+      options.env,
+      options.runtime,
+      await options.platform.managedServeSim(),
+    );
     checkAbort();
+    // ace's own serve-sim is downloaded on first use, as the scrcpy server is.
+    if (!status.supported && !options.env["ACE_SERVE_SIM"]) {
+      const tools = await options.platform.downloadTools(options.runtime).catch(() => undefined);
+      checkAbort();
+      if (tools?.serveSim)
+        status = await serveSimStatus(options.env, options.runtime, tools.serveSim);
+      checkAbort();
+    }
+    const { command, version, supported } = status;
     if (command && supported) {
       const device = await options.platform.simulatorDevice(options.device);
       checkAbort();
-      return simulatorCapture({ ...options, device, command });
+      const transcoder = options.platform.frameEncoder;
+      return simulatorCapture({
+        ...options,
+        device,
+        command,
+        commandArgs: status.args,
+        ...(transcoder ? { transcoder } : {}),
+      });
     }
     // serve-sim is preferred; an unpinned version falls back to the public-API screen helper.
     const unpinned = command
       ? new DeviceError(
           "tool_missing",
           `serve-sim ${version ?? "(unknown version)"} isn't a version ace supports`,
-          `Install the pinned version: npm install -g serve-sim@${pinnedServeSim}`,
+          `Download device tools in Devices for ace's serve-sim ${pinnedServeSim}, or unset ACE_SERVE_SIM.`,
         )
       : undefined;
     if (options.env["ACE_SERVE_SIM"])
@@ -68,7 +88,7 @@ export async function startCapture(options: {
         new DeviceError(
           "tool_missing",
           "serve-sim was not found",
-          "Install serve-sim on the device's Mac, or correct ACE_SERVE_SIM.",
+          "Correct ACE_SERVE_SIM, or unset it to use ace's own serve-sim.",
         )
       );
     const screen = options.screen;
@@ -161,7 +181,7 @@ export async function startCapture(options: {
             throw new DeviceError(
               "tool_missing",
               "This Mac's screen helper can't stream video for the Simulator live view",
-              `Install serve-sim ${pinnedServeSim} for the live view: npm install -g serve-sim@${pinnedServeSim}`,
+              `Download device tools in Devices for ace's serve-sim ${pinnedServeSim}.`,
             );
           return result;
         },
@@ -184,18 +204,25 @@ export async function startCapture(options: {
     );
   let why = "ACE_ANDROID_SCRCPY is off";
   if (options.env["ACE_ANDROID_SCRCPY"] !== "off") {
-    const jar = await scrcpyServerJar({
-      directory: options.platform.toolsDirectory,
-      env: options.env,
-      fetch: options.runtime.fetch ?? fetch,
-      id: options.runtime.id,
-      ...(options.signal ? { signal: options.signal } : {}),
-    }).catch(() => undefined);
+    // A missing server downloads in the device tools process, off the daemon's event loop.
+    const jar =
+      (await installedScrcpyJar({
+        directory: options.platform.toolsDirectory,
+        env: options.env,
+      }).catch(() => undefined)) ??
+      (await options.platform
+        .downloadTools(options.runtime)
+        .then((tools) => tools.scrcpy)
+        .catch(() => undefined));
     checkAbort();
     why = "scrcpy-server couldn't be downloaded";
     if (jar) {
       try {
-        return await scrcpyCapture({ ...options, jar });
+        const host = await options.platform
+          .hostEncoding(options.device.serial)
+          .catch(() => undefined);
+        checkAbort();
+        return await scrcpyCapture({ ...options, jar, ...(host ? { host } : {}) });
       } catch (error) {
         // scrcpy could not start on this image: agents still get stills from screenrecord.
         checkAbort();

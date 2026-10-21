@@ -73,29 +73,73 @@ export const webCodecsSupport: VideoSupport = async () => {
   return videoCandidates.filter((_, index) => answers[index]);
 };
 
-/** The platform's `VideoDecoder`, or undefined where there is none. */
-export function webCodecsDecoder(): VideoDecoderFactory | undefined {
+/**
+ * Which decoder a stream runs on, as far as this page can tell: `hardware` asked WebCodecs to
+ * prefer hardware and it took the configuration; `default` is the browser's own choice after
+ * that failed. WebCodecs never says whether a decode actually ran in hardware.
+ */
+export type DecoderPreference = "hardware" | "default";
+
+/**
+ * The platform's `VideoDecoder`, or undefined where there is none (issue #1187). Each decoder
+ * asks for hardware first. A configuration the hint breaks (refused at once, or failing before
+ * its first picture) falls back to the browser's default once for this factory, never back and
+ * forth; only a failure without the hint counts as a codec this platform can't decode.
+ */
+export function webCodecsDecoder(
+  onPreference?: (preference: DecoderPreference, reason?: string) => void,
+): VideoDecoderFactory | undefined {
   const Decoder = decoderClass();
   if (!Decoder) return undefined;
+  let hardware = true;
+  const fallBack = (reason: string) => {
+    if (!hardware) return;
+    hardware = false;
+    onPreference?.("default", reason);
+  };
   return (handlers) => {
+    let preferred = false;
+    let pictured = false;
     const decoder = new Decoder({
-      output: (frame) =>
+      output: (frame) => {
+        pictured = true;
         handlers.output({
           sequence: frame.timestamp,
           draw: (context, width, height) => context.drawImage(frame, 0, 0, width, height),
           close: () => frame.close(),
-        }),
-      error: (failure) => handlers.error(failure.name === "NotSupportedError"),
+        });
+      },
+      error: (failure) => {
+        // The hint broke this stream: the next keyframe starts a decoder without it.
+        if (preferred && !pictured) {
+          fallBack(failure.name);
+          return handlers.error(false);
+        }
+        handlers.error(failure.name === "NotSupportedError");
+      },
     });
     return {
-      configure: (config) =>
-        decoder.configure({
+      configure: (config) => {
+        const base = {
           codec: config.codec,
           codedWidth: config.codedWidth,
           codedHeight: config.codedHeight,
           optimizeForLatency: true,
           ...(config.description ? { description: config.description } : {}),
-        }),
+        };
+        if (hardware) {
+          try {
+            decoder.configure({ ...base, hardwareAcceleration: "prefer-hardware" });
+            preferred = true;
+            onPreference?.("hardware");
+            return;
+          } catch (error) {
+            fallBack(error instanceof Error ? error.name : "TypeError");
+          }
+        }
+        preferred = false;
+        decoder.configure(base);
+      },
       decode: (chunk) =>
         decoder.decode(
           new EncodedVideoChunk({

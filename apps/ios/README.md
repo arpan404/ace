@@ -2,11 +2,12 @@
 
 Issue #560. SwiftUI runs the shared `@ace/client` SDK in JavaScriptCore on a dedicated
 thread, one runtime per paired machine. The Phase 0 spike merged on 2026-10-12 and Phase 1
-is built on `ace/ios-mvp`; see [ADR 0074](../../docs/adr/0074-native-ios-client.md). All
-verification so far is in the simulator: real-device performance measurement is still owed.
+is built on `ace/ios-mvp`; see [ADR 0074](../../docs/adr/0074-native-ios-client.md). Physical iPhone connection and UI checks now run against a paired daemon over Tailscale;
+real-device GPU/frame-rate measurement is still owed. See the
+[phone verification record](../../docs/verification/ios-phone-parity/README.md).
 
 The [Tailscale roadmap](../../docs/mobile/tailscale-roadmap.md) maps shared features
-and the future native pairing flow for iOS and Android.
+and native pairing flows for iOS and Android.
 
 ## Run
 
@@ -343,7 +344,8 @@ expire in five minutes. These tests skip when the config is absent.
 ## Connection lifecycle
 
 `--spike` (Debug only) keeps the unpinned loopback fixture. Release builds require WSS
-and an exact pin. A real device over Tailscale is still to be verified.
+and an exact pin. Pinned pairing, authenticated inbox/service reads and changed-pin refusal have been verified
+on a physical iPhone over Tailscale.
 
 Connection replacement now awaits old-runtime shutdown, clears host-specific views
 and rejects its late updates/errors. Concurrent replacements select the newest
@@ -426,7 +428,13 @@ tracks verification and the remaining device work.
   the gap. Colour and alternate-screen emulation remain future work.
 - The live browser from `main` owns H.264 video, input and tab controls.
   View-only phones can watch while navigation and input remain disabled. The old
-  screenshot-only browser has been removed. Screen/device control remains future work.
+  screenshot-only browser has been removed. The native Devices view now uses the shared authenticated devices channel for H.264
+  streaming, gestures, controller leases, boot, apps, URLs, appearance and recording.
+  Mac app sessions use the separate authenticated screen channel with native H.264/JPEG
+  decoding, bounded frame acknowledgement, take/release/return control, touch/keyboard input,
+  foreground/background mode and recording. Browse > Computer use exposes the host enable
+  switch, OS permissions and blocked-app preferences. Live capture still requires the Mac
+  Screen Recording and Accessibility grants. Input is never replayed on reconnect.
 - Published images decode into native image views. Published HTML uses `@ace/html`
   inside a nonpersistent WKWebView, without native message handlers or network access.
 - A thread's menu can start a local Live Activity. Foreground updates use canonical
@@ -441,3 +449,42 @@ folder. For a signed archive, set `ACE_IOS_TEAM_ID` and omit `--unsigned`. Optio
 `ACE_IOS_BUILD_NUMBER` and `ACE_IOS_ARCHIVE` select the build number and output path.
 Distribution still requires the appropriate Apple team, signing and App Store
 Connect access. An unsigned archive cannot be uploaded to TestFlight.
+
+## Browser parity and physical-phone checks
+
+The inbox keeps task creation beside the project filter. Browse exposes projects, past CLI
+sessions, automations, usage, CLI skill discovery, plugin installation/review/source/availability,
+provider accounts, source control, device inventory and machine settings. Projects and account
+administration require their explicit pairing scopes; administrator access alone does not grant
+either. Pairing confirmation names these grants. Read-only grants retain their existing limits.
+
+Transcript work uses the same `stepFact`/`groupSteps` rules as the browser. Active work shows
+reasoning disclosures and grouped tools with the agent's narration between them; completed
+work folds behind its work header. File-summary blocks open Changes instead of repeating
+raw edit rows. Tables render natively, and long message/thought text can be read from the
+SDK's authenticated text source on demand, bounded to 8 MiB of UTF-16 text. The virtualized
+outer list and observed item identities stay in place.
+
+Chat gives the message its own line above attachment, model/reasoning and send/stop
+controls. User messages are inset on the right; assistant responses are plain text. Copy,
+Share and timestamps are in the message menu, and code blocks have a language/Copy header.
+The paired app opens the latest 200 items instead of eagerly hydrating a 2,200-item
+benchmark window. The initial items and block layout complete before the transcript appears;
+a compact message skeleton fills the loading interval. Live work groups are independent
+list rows, and reopening a parent holds its last readable snapshot until the replacement
+is ready. Reading older content pauses tail following; Jump to latest resumes it. Conversation history
+uses separate bounded SDK windows and keeps page controls reachable below the content, so
+long conversations remain readable after the live cache is full. Historical full messages
+and media resolve their authenticated item without replacing the live tail.
+
+Projects > Add project also has New project and Clone repository. Their protected local
+drafts retain form fields and command IDs across relaunch. A retry of an uncertain result
+reuses that command; clone progress and cancellation use the shared daemon operations.
+
+Connected-phone checks are opt-in with `TEST_RUNNER_ACE_IOS_CONNECTED_PHONE=1` and a physical
+`platform=iOS` destination. `ConnectedPhoneConnectionTests` uses the saved pairing and a
+separate temporary database; it performs read-only checks against the real daemon. The
+`ConnectedPhoneUITests` tour reads real screens, opens the keyboard and checks control
+placement without starting providers or remote devices. Its screenshots may contain private
+conversations, so xcresult artifacts stay local. The one-time pairing repair test is separately
+opt-in and never exports Keychain credentials; its old database is retained.

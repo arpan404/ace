@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { AvccRecords, annexB, avcConfig, type AvccRecord } from "./simulator-avcc.ts";
-import { spsDimensions } from "./h264-sps.ts";
+import { spsDimensions } from "@ace/browser/h264";
 
 // The decoder configuration serve-sim 0.1.48 sent for an iPhone 16 Pro (High 5.1, 1206×2622).
 const description = Buffer.from(
