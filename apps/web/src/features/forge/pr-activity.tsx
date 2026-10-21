@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { ForgePrDetail } from "@ace/protocol";
 import { GitPullRequestIcon } from "@phosphor-icons/react";
 import { LongRows } from "@/components/virtual-rows.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { QueryState } from "./query-state.tsx";
 import { usePrActivityEvents } from "./pr-activity-events.ts";
 import { composerClearance } from "./pr-composer.tsx";
@@ -45,6 +46,11 @@ export function PrActivity(props: {
     [open],
   );
   const settled = !commits.isPending && !activity.isPending;
+  // Older pages are still on their way; a failed read says so through its own state.
+  const arriving =
+    (commits.data?.complete === false && !commits.error) ||
+    (activity.data?.complete === false && !activity.error);
+  const older = arriving && <ListSkeleton label="older history" shape="row" rows={2} />;
   return (
     <section
       aria-label="Pull request timeline"
@@ -54,10 +60,10 @@ export function PrActivity(props: {
       <QueryState query={activity} />
       {(activity.data?.truncated || commits.data?.truncated) && (
         <p role="status" className="mb-4 text-sm text-muted-foreground">
-          GitHub limits this history to 250 commits and 3,000 timeline events. Open GitHub for the
-          complete history.
+          This history is longer than ace reads at once, so some older entries are left out.
         </p>
       )}
+      {props.order === "oldest" && older}
       {!rows.length ? (
         settled && (
           <div className="flex flex-col items-center gap-2 py-16 text-sm text-muted-foreground">
@@ -78,6 +84,7 @@ export function PrActivity(props: {
           />
         </div>
       )}
+      {props.order === "newest" && older}
     </section>
   );
 }

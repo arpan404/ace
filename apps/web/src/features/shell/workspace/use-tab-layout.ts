@@ -68,14 +68,20 @@ export function useTabFit(
 }
 
 /**
- * Keeps the showing tab inside the strip: when it changes, once a new tab's entrance has played
- * (it is narrower until then), and whenever the strip resizes. Scrolls the list itself, so no
- * outer scroller moves, and clears the edge fade.
+ * Keeps the showing tab inside the strip: when it changes or moves, once a new tab's entrance
+ * has played (it is narrower until then), and whenever the strip resizes. Nothing else moves
+ * the strip, so a wheel or trackpad scroll stays where the person left it. Scrolls the list
+ * itself, so no outer scroller moves, and clears the edge fade.
  */
-export function useRevealShown(list: RefObject<HTMLElement | null>, shown: string | undefined) {
+export function useRevealShown(
+  list: RefObject<HTMLElement | null>,
+  shown: string | undefined,
+  /** The showing tab's index among the tabs, -1 when it isn't one of them. */
+  position: number,
+) {
   useEffect(() => {
     const element = list.current;
-    if (!element || !shown) return;
+    if (!element || !shown || position < 0) return;
     const reveal = () => {
       const tab = tabElements(element).find((each) => each.dataset.tabKey === shown);
       if (!tab) return;
@@ -86,20 +92,26 @@ export function useRevealShown(list: RefObject<HTMLElement | null>, shown: strin
       else if (rect.right > box.right - fade && element.scrollWidth > element.clientWidth)
         element.scrollBy({ left: rect.right - box.right + fade });
     };
-    reveal();
-    element.addEventListener("animationend", reveal);
-    element.addEventListener("transitionend", reveal);
-    if (typeof ResizeObserver === "undefined")
-      return () => {
-        element.removeEventListener("animationend", reveal);
-        element.removeEventListener("transitionend", reveal);
-      };
-    const observer = new ResizeObserver(reveal);
-    observer.observe(element);
-    return () => {
-      observer.disconnect();
-      element.removeEventListener("animationend", reveal);
-      element.removeEventListener("transitionend", reveal);
+    // Only the showing tab's own entrance changes its width; hover transitions and other
+    // tabs' animations bubble here too and must not pull the strip back.
+    const onAnimationEnd = (event: AnimationEvent) => {
+      if (event.target instanceof HTMLElement && event.target.dataset.tabKey === shown) reveal();
     };
-  });
+    reveal();
+    element.addEventListener("animationend", onAnimationEnd);
+    // The observer's first callback lands right after observe(), which reveal() already did.
+    let first = true;
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? undefined
+        : new ResizeObserver(() => {
+            if (first) first = false;
+            else reveal();
+          });
+    observer?.observe(element);
+    return () => {
+      observer?.disconnect();
+      element.removeEventListener("animationend", onAnimationEnd);
+    };
+  }, [list, shown, position]);
 }

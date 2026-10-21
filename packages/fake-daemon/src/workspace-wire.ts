@@ -10,6 +10,7 @@ import {
   type WorkspaceActionRequest,
   type CommandPayload,
   type CommandResult,
+  type ForgeCheckAction,
   type ThreadDetails,
   type ThreadId,
 } from "@ace/protocol";
@@ -30,6 +31,8 @@ export class FakeWorkspaceWire {
   readonly drafts = new FakeSourceControlDrafts();
   /** The projects' repositories as Git finds them: not one, empty, locked, failing setup. */
   readonly git = new FakeGitStates();
+  /** Workflow re-runs the PR panel asked GitHub for (`forge.hosted.checks`), in order. */
+  readonly checkReruns: ForgeCheckAction[] = [];
   /** Merge conflicts in PR checkouts (`git.conflicts`). */
   readonly conflicts = new FakeConflicts();
   private moveFailure: string | undefined;
@@ -296,6 +299,10 @@ export class FakeWorkspaceWire {
       if (!this.projects.get(payload.workspaceId))
         return { ok: false, error: "workspace_not_found" };
       return { ok: true, locksCleared: this.git.clearLock(payload.workspaceId) ? 1 : 0 };
+    }
+    if (payload.type === "forge.hosted.checks") {
+      this.checkReruns.push(payload.action);
+      return { ok: true };
     }
     const project = this.projects.command(payload);
     if (project) return project;

@@ -26,9 +26,9 @@ const groupTones: Record<SubagentGroupStatus, string> = {
 export const groupStyles = {
   head: "-mx-2 grid w-[calc(100%+--spacing(4))] grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 rounded-lg px-2 py-[7px] text-left text-ui transition-colors duration-(--motion-fast) hover:bg-hover focus-ring-inset",
   title: "font-medium text-foreground",
-  counts: "ml-2 text-[12.5px] text-muted-foreground",
+  counts: "ml-2 text-xs text-muted-foreground",
   separator: "text-subtle-foreground",
-  time: "text-[12.5px] text-subtle-foreground tabular-nums",
+  time: "text-xs text-subtle-foreground tabular-nums",
   chevron: "text-subtle-foreground transition-transform duration-(--motion-fast)",
   list: "mt-1 ml-[9px] flex flex-col border-l border-border pl-4",
 } as const;
