@@ -1,17 +1,18 @@
-import { formatCount, type OffshiftSummary } from "@ace/ui-core";
+import type { OffshiftCriterionRow, OffshiftStepRow, OffshiftSummary } from "@ace/ui-core";
+import { formatCount } from "@ace/ui-core";
 import { StatusGlyph } from "@/components/status-glyph.tsx";
-import { threadGlyph } from "@/components/status-glyph-state.ts";
+import { threadGlyph, type GlyphState } from "@/components/status-glyph-state.ts";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { cn } from "@/lib/cn.ts";
 
 /**
- * The thread's Offshift run: its state and phase, what blocks it, the evidence it still needs,
- * the current phase's steps, and its outcome and criteria behind a disclosure.
+ * The thread's Offshift run: its state and phase, what blocks it, the current phase's steps,
+ * one row per criterion with the checks it still needs, and the outcome behind a disclosure.
  */
 export function OffshiftRun(props: { run: OffshiftSummary }) {
   const { run } = props;
   return (
-    <div className="flex min-w-0 flex-col gap-1.5 px-2 text-ui">
+    <div className="flex min-w-0 flex-col gap-1 px-2 text-ui">
       <p
         role="status"
         aria-label={`Offshift run: ${run.word} · ${run.phase}`}
@@ -24,84 +25,125 @@ export function OffshiftRun(props: { run: OffshiftSummary }) {
         <span className="min-w-0 truncate text-muted-foreground tabular-nums">{run.phase}</span>
       </p>
       {run.blocker && (
-        <p aria-label="Blocker" className="min-w-0 break-words text-foreground">
+        <p aria-label="Blocker" className="min-w-0 pl-5.5 break-words text-foreground">
           {run.blocker}
         </p>
-      )}
-      {run.missing.length > 0 && (
-        <ul aria-label="Missing evidence" className="flex min-w-0 flex-col">
-          {run.missing.map((item) => (
-            <li key={item.key} className="flex h-7 min-w-0 items-center gap-2">
-              <span className="min-w-0 truncate" title={item.description}>
-                {item.description}
-              </span>
-              <span className="shrink-0 text-xs text-subtle-foreground">{item.kind}</span>
-            </li>
-          ))}
-          {run.moreMissing > 0 && (
-            <li className="flex h-7 items-center text-xs text-subtle-foreground tabular-nums">
-              +{formatCount(run.moreMissing)}
-            </li>
-          )}
-        </ul>
       )}
       {run.steps.length > 0 && (
         <ul aria-label="Steps" className="flex min-w-0 flex-col">
           {run.steps.map((step) => (
-            <li key={step.id} className="flex min-w-0 flex-col">
-              <span className="flex h-7 min-w-0 items-center gap-2">
-                <span className="min-w-0 truncate" title={step.title}>
-                  {step.title}
-                </span>
-                <span className="ml-auto shrink-0 text-xs text-subtle-foreground">
-                  {step.state}
-                </span>
-              </span>
-              {step.reason && (
-                <span className="min-w-0 pb-1 text-xs break-words text-muted-foreground">
-                  {step.reason}
-                </span>
-              )}
-            </li>
+            <StepRow key={step.id} step={step} />
           ))}
         </ul>
       )}
-      <Disclosure summary="Outcome and criteria" summaryClassName="h-7">
-        <div className="flex min-w-0 flex-col gap-1.5 pt-1 pl-4.5">
-          <p className="min-w-0 break-words text-foreground">{run.outcome}</p>
+      {run.criteria.length > 0 && (
+        <Disclosure
+          open
+          summary={
+            <>
+              Criteria
+              <span className="text-xs text-subtle-foreground tabular-nums">
+                {formatCount(run.criteria.length + run.moreCriteria)}
+              </span>
+            </>
+          }
+          summaryClassName="h-7"
+        >
           <ul aria-label="Criteria" className="flex min-w-0 flex-col">
             {run.criteria.map((criterion) => (
-              <li key={criterion.id} className="flex min-w-0 flex-col py-1">
-                <span className="min-w-0 break-words">
-                  {criterion.description}
-                  {criterion.independent && (
-                    <span className="ml-2 text-xs text-subtle-foreground">Independent</span>
-                  )}
-                </span>
-                <span className="flex min-w-0 flex-col text-xs text-muted-foreground">
-                  {criterion.evidence.map((evidence) => (
-                    <span key={evidence.kind} className="min-w-0 truncate">
-                      {evidence.kind} ·{" "}
-                      <span
-                        data-tone={evidence.tone}
-                        className={cn(evidence.tone && "text-(--tone-text)")}
-                      >
-                        {evidence.state}
-                      </span>
-                      {evidence.by && ` · ${evidence.by}`}
-                    </span>
-                  ))}
-                </span>
-              </li>
+              <CriterionRow key={criterion.id} criterion={criterion} />
             ))}
             {run.moreCriteria > 0 && (
-              <li className="py-1 text-xs text-subtle-foreground tabular-nums">
+              <li className="flex h-7 items-center pl-5.5 text-xs text-subtle-foreground tabular-nums">
                 +{formatCount(run.moreCriteria)}
               </li>
             )}
           </ul>
-        </div>
+        </Disclosure>
+      )}
+      <Disclosure summary="Outcome" summaryClassName="h-7">
+        <p className="min-w-0 pb-1 pl-4.5 break-words text-muted-foreground">{run.outcome}</p>
       </Disclosure>
     </div>
+  );
+}
+
+const stepGlyphs: Record<OffshiftStepRow["state"], GlyphState> = {
+  Done: "done",
+  Skipped: "idle",
+  "To do": "idle",
+};
+
+/** A step: done and skipped steps step back a tier; a skipped one says why underneath. */
+function StepRow(props: { step: OffshiftStepRow }) {
+  const { step } = props;
+  const todo = step.state === "To do";
+  return (
+    <li className="flex min-w-0 flex-col">
+      <span className="flex h-7 min-w-0 items-center gap-2">
+        <StatusGlyph
+          state={stepGlyphs[step.state]}
+          tone={step.state === "Done" ? "done" : "idle"}
+          label={step.state}
+        />
+        <span
+          className={cn("min-w-0 truncate", !todo && "text-muted-foreground")}
+          title={step.title}
+        >
+          {step.title}
+        </span>
+      </span>
+      {step.reason && (
+        <span className="min-w-0 pb-1 pl-5.5 text-xs break-words text-subtle-foreground">
+          {step.reason}
+        </span>
+      )}
+    </li>
+  );
+}
+
+const criterionGlyphs: Record<OffshiftCriterionRow["state"], GlyphState> = {
+  Met: "done",
+  Failed: "failed",
+  Open: "idle",
+};
+
+/** A criterion and, at the right, the checks it still needs; hovering lists each check. */
+function CriterionRow(props: { criterion: OffshiftCriterionRow }) {
+  const { criterion } = props;
+  return (
+    <li
+      className="flex h-7 min-w-0 items-center gap-2"
+      title={`${criterion.description}\n${criterion.detail}`}
+    >
+      <StatusGlyph
+        state={criterionGlyphs[criterion.state]}
+        tone={criterion.state === "Open" ? "idle" : undefined}
+        label={criterion.state}
+      />
+      <span
+        className={cn(
+          "min-w-0 flex-1 truncate",
+          criterion.state === "Met" && "text-muted-foreground",
+        )}
+      >
+        {criterion.description}
+      </span>
+      {criterion.needs.length > 0 && (
+        <span aria-label="Needs" className="shrink-0 text-xs text-subtle-foreground">
+          {criterion.needs.map((need, index) => (
+            <span key={need.kind}>
+              {index > 0 && " · "}
+              <span
+                data-tone={need.failed ? "failed" : undefined}
+                className={cn(need.failed && "text-(--tone-text)")}
+              >
+                {need.kind}
+              </span>
+            </span>
+          ))}
+        </span>
+      )}
+    </li>
   );
 }

@@ -111,6 +111,9 @@ export const OffshiftEvidence = z.strictObject({
 });
 export type OffshiftEvidence = z.infer<typeof OffshiftEvidence>;
 export const OffshiftEvidenceInput = OffshiftEvidence.omit({ recordedAt: true, by: true });
+export type OffshiftEvidenceInput = z.infer<typeof OffshiftEvidenceInput>;
+/** The checks one evidence call records together: one write, one version. */
+export const OffshiftEvidenceBatch = z.array(OffshiftEvidenceInput).min(1).max(32);
 /**
  * An omitted requestId keys the receipt by a hash of the normalized request, version
  * included, so a lost-response retry still applies once.
@@ -138,7 +141,7 @@ export const OffshiftRequest = z.discriminatedUnion("action", [
   z.strictObject({ action: z.literal("advance"), ...mutation, phase: OffshiftPhase, note: text }),
   z.strictObject({ action: z.literal("block"), ...mutation, note: text }),
   z.strictObject({ action: z.literal("resume"), ...mutation, note: text }),
-  z.strictObject({ action: z.literal("evidence"), ...mutation, evidence: OffshiftEvidenceInput }),
+  z.strictObject({ action: z.literal("evidence"), ...mutation, evidence: OffshiftEvidenceBatch }),
   /** Adds a criterion, or replaces the one with its id and drops that criterion's evidence. */
   z.strictObject({
     action: z.literal("revise"),

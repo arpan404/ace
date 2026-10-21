@@ -20,21 +20,33 @@ function stepToDo(run: OffshiftView["run"]): string | undefined {
  * none, a working tree is the caller's own turn, which ends by reporting.
  *
  * Order: a blocker; then, from verify on, a failed check; the current phase's next step to do;
- * other pending evidence; advancing; and finally the tree.
+ * other pending evidence; advancing; and finally the tree. A step that writes to the run names
+ * the version to send, so the agent never has to dig it out of the run or count its calls.
  */
 export function nextStep(view: Omit<OffshiftView, "next">, children?: number): string {
+  return runStep(view) ?? treeStep(view, children);
+}
+
+/** What the run itself asks for next, or undefined when only the tree is left to settle. */
+function runStep(view: Omit<OffshiftView, "next">): string | undefined {
   const { run, pending, revision } = view;
+  // The caller's own next write; a delegated check is the child's, which reads the run first.
+  const write = (sentence: string) => `${sentence} Use version ${run.version}.`;
   if (run.blocker)
-    return `Resolve the blocker: ${run.blocker}. Ask the person if needed, then resume with the decision in note.`;
+    return write(
+      `Resolve the blocker: ${run.blocker}. Ask the person if needed, then resume with the decision in note.`,
+    );
   const step = stepToDo(run);
   // A run with steps names its work in them, so a phase without steps left just advances.
   const stepped = run.steps.length > 0;
   if (run.phase === "plan")
-    return (
-      step ?? (stepped ? "Advance to implement." : "Plan the work, then advance to implement.")
+    return write(
+      step ?? (stepped ? "Advance to implement." : "Plan the work, then advance to implement."),
     );
   if (run.phase === "implement")
-    return step ?? (stepped ? "Advance to verify." : "Make the change, then advance to verify.");
+    return write(
+      step ?? (stepped ? "Advance to verify." : "Make the change, then advance to verify."),
+    );
   const latest = (item: OffshiftView["pending"][number]) =>
     run.evidence.find(
       (found) => found.criterionId === item.criterionId && found.kind === item.kind,
@@ -45,8 +57,10 @@ export function nextStep(view: Omit<OffshiftView, "next">, children?: number): s
     return found?.result === "fail" && found.revision === revision;
   });
   if (failing)
-    return `Fix \`${failing.criterionId}\`: its ${failing.kind} check failed. Then repeat the check and record the result${more(pending.length)}.`;
-  if (step) return step;
+    return write(
+      `Fix \`${failing.criterionId}\`: its ${failing.kind} check failed. Then repeat the check and record the result${more(pending.length)}.`,
+    );
+  if (step) return write(step);
   // The agent's own checks come first; asking another model to verify follows them.
   const first = pending.find((item) => !item.needs) ?? pending[0];
   if (first) {
@@ -54,12 +68,21 @@ export function nextStep(view: Omit<OffshiftView, "next">, children?: number): s
     if (first.needs === "independent")
       return `Ask a different provider or model to verify \`${first.criterionId}\` (${first.kind}): delegate with runRole "verify" and tell the child runOwner "${run.threadId}"${more(pending.length)}.`;
     if (found && found.revision !== revision)
-      return `Repeat the ${first.kind} check for \`${first.criterionId}\`: the source changed since it was recorded${more(pending.length)}.`;
-    return `Record ${first.kind} evidence for \`${first.criterionId}\` at revision ${revision}${more(pending.length)}.`;
+      return write(
+        `Repeat the ${first.kind} check for \`${first.criterionId}\`: the source changed since it was recorded${more(pending.length)}.`,
+      );
+    return write(
+      `Record ${first.kind} evidence for \`${first.criterionId}\` at revision ${revision}${more(pending.length)}.`,
+    );
   }
   if (run.phase === "review")
-    return stepped ? "Advance to delivery." : "Review the change, then advance to delivery.";
-  if (run.phase === "verify") return "Advance to review.";
+    return write(stepped ? "Advance to delivery." : "Review the change, then advance to delivery.");
+  if (run.phase === "verify") return write("Advance to review.");
+  return undefined;
+}
+
+/** What is left once the run needs no more writes: report, or wait on the tree. */
+function treeStep(view: Omit<OffshiftView, "next">, children?: number): string {
   switch (view.treeState) {
     case "done":
       return "Done. Report the outcome and the checks behind it.";
