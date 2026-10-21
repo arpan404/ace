@@ -17,6 +17,7 @@ import {
 } from "../src/packaging/release-plan.ts";
 import { notaryCredentials } from "../src/packaging/release-signing.ts";
 import { appVersion, desktop, dist, repo } from "./common.ts";
+import { checkPackagedLaunch } from "./launch-check.ts";
 import {
   capture,
   githubReady,
@@ -134,7 +135,12 @@ async function build(version: string): Promise<void> {
     { ...process.env, ACE_VERSION: version },
   );
   const output = join(dist, "release");
-  if (process.platform === "darwin") verifyMac(output, signed);
+  if (process.platform === "darwin") {
+    const app = verifyMac(output, signed);
+    say("launching the packaged app with an empty data home");
+    await checkPackagedLaunch(app);
+    say("packaged app started its daemon and checked for updates");
+  }
 
   if (withDaemon && publicKey && privateKey)
     for (const target of daemonTargets) {
@@ -184,18 +190,19 @@ async function build(version: string): Promise<void> {
   say(`next: bun run release:publish ${version}`);
 }
 
-/** The packaged app's signature, Gatekeeper's verdict and the stapled ticket. */
-function verifyMac(output: string, signed: boolean): void {
+/** The packaged app's signature, Gatekeeper's verdict and the stapled ticket; returns the app. */
+function verifyMac(output: string, signed: boolean): string {
   const folder = ["mac-arm64", "mac", "mac-universal"].find((name) =>
     existsSync(join(output, name, "ace.app")),
   );
   if (!folder) throw new Error(`No ace.app in ${output}`);
   const app = join(output, folder, "ace.app");
   run("codesign", ["--verify", "--deep", "--strict", "--verbose=2", app]);
-  if (!signed) return;
+  if (!signed) return app;
   run("spctl", ["--assess", "--type", "execute", "--verbose=2", app]);
   run("xcrun", ["stapler", "validate", app]);
   say("signature, Gatekeeper and notarization ticket verified");
+  return app;
 }
 
 async function publish(version: string): Promise<void> {
