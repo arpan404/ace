@@ -2,11 +2,35 @@
  * The shared libraries Chromium links against on Linux, and the package that provides each on
  * the distribution families ace supports. Pure: the caller reads `/etc/os-release` and runs the
  * loader. Package names follow each distribution's own repositories (Debian/Ubuntu `apt`,
- * Fedora/RHEL `dnf`, Arch `pacman`, openSUSE `zypper`). On Ubuntu 24.04+ several Debian names
- * (libasound2, libglib2.0-0, ...) are virtual packages with one `t64` provider, which `apt-get`
- * selects by itself.
+ * Fedora/RHEL `dnf`, Arch `pacman`, openSUSE `zypper`). Ubuntu 24.04+ and Debian 13+ renamed
+ * several libraries for 64-bit time (`libasound2t64`, ...); the old names have no installation
+ * candidate there, so those releases are their own family.
  */
-export type LinuxFamily = "debian" | "fedora" | "arch" | "suse";
+export type LinuxFamily = "debian" | "debian-t64" | "fedora" | "arch" | "suse";
+/** Debian and Ubuntu releases from before the 64-bit time rename. */
+const preT64 = new Set([
+  "stretch",
+  "buster",
+  "bullseye",
+  "bookworm",
+  "bionic",
+  "focal",
+  "jammy",
+  "kinetic",
+  "lunar",
+  "mantic",
+]);
+/** Sonames whose Debian package gained a `t64` suffix. */
+const renamedT64 = new Set([
+  "libasound.so.2",
+  "libglib-2.0.so.0",
+  "libgobject-2.0.so.0",
+  "libgio-2.0.so.0",
+  "libatk-1.0.so.0",
+  "libatk-bridge-2.0.so.0",
+  "libatspi.so.0",
+  "libcups.so.2",
+]);
 
 // soname: [debian, fedora, arch, suse]
 const packages: Record<string, readonly [string, string, string, string]> = {
@@ -46,9 +70,16 @@ const packages: Record<string, readonly [string, string, string, string]> = {
   "libdbus-1.so.3": ["libdbus-1-3", "dbus-libs", "dbus", "libdbus-1-3"],
   "libudev.so.1": ["libudev1", "systemd-libs", "systemd-libs", "libudev1"],
 };
-const column: Record<LinuxFamily, 0 | 1 | 2 | 3> = { debian: 0, fedora: 1, arch: 2, suse: 3 };
+const column: Record<LinuxFamily, 0 | 1 | 2 | 3> = {
+  debian: 0,
+  "debian-t64": 0,
+  fedora: 1,
+  arch: 2,
+  suse: 3,
+};
 const installer: Record<LinuxFamily, string> = {
   debian: "sudo apt-get install -y",
+  "debian-t64": "sudo apt-get install -y",
   fedora: "sudo dnf install -y",
   arch: "sudo pacman -S --needed",
   suse: "sudo zypper install -y",
@@ -59,7 +90,15 @@ export function linuxFamily(osRelease: string): LinuxFamily | undefined {
   const field = (name: string) =>
     new RegExp(`^${name}=("?)([^"\\n]*)\\1\\s*$`, "m").exec(osRelease)?.[2]?.toLowerCase() ?? "";
   for (const id of [field("ID"), ...field("ID_LIKE").split(/\s+/)]) {
-    if (["debian", "ubuntu"].includes(id)) return "debian";
+    if (["debian", "ubuntu"].includes(id)) {
+      // Derivatives (Mint, Pop!_OS, LMDE) name the Ubuntu or Debian release they build on.
+      const codename =
+        field("UBUNTU_CODENAME") || field("DEBIAN_CODENAME") || field("VERSION_CODENAME");
+      if (codename) return preT64.has(codename) ? "debian" : "debian-t64";
+      const version = Number.parseFloat(field("VERSION_ID"));
+      const old = field("ID") === "ubuntu" ? version < 24.04 : version < 13;
+      return Number.isFinite(version) && old ? "debian" : "debian-t64";
+    }
     if (["fedora", "rhel", "centos"].includes(id)) return "fedora";
     if (["arch", "archlinux"].includes(id)) return "arch";
     if (id === "suse" || id.startsWith("opensuse") || id === "sles") return "suse";
@@ -86,7 +125,7 @@ export function libraryInstallCommand(
   const names = new Set<string>();
   for (const library of libraries) {
     const name = packages[library]?.[column[family]];
-    if (name) names.add(name);
+    if (name) names.add(family === "debian-t64" && renamedT64.has(library) ? `${name}t64` : name);
   }
   return names.size ? `${installer[family]} ${[...names].join(" ")}` : undefined;
 }

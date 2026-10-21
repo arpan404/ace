@@ -56,7 +56,11 @@ export function launchProblemDetail(problem: ChromeLaunchProblem): string | unde
       if (full.length <= 256) return full;
       if (problem.install && install.length <= 256) return install;
       const count = problem.libraries.length;
-      return `Missing ${count} system ${count === 1 ? "library" : "libraries"} Chrome needs (${names.slice(0, 80)}${names.length > 80 ? ", ..." : ""}). Run ace doctor on this machine for the install command.`;
+      const shown: string[] = [];
+      for (const library of problem.libraries)
+        if ([...shown, library].join(", ").length <= 80) shown.push(library);
+      const more = shown.length < count ? ", ..." : "";
+      return `Missing ${count} system ${count === 1 ? "library" : "libraries"} Chrome needs (${shown.join(", ")}${more}). Run ace doctor on this machine for the install command.`;
     }
     case "sandbox_blocked":
       return problem.cause === "apparmor"

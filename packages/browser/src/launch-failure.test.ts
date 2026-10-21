@@ -45,12 +45,33 @@ async function agentSees(stderr: string, host: LinuxMachine) {
 const detail = async (osRelease: string) =>
   (await agentSees(loaderError, machine({ "/etc/os-release": osRelease }))).detail;
 
+const release = (fields: string) => detail(`ID_LIKE=debian\n${fields}`);
+
 describe("Chrome start failures on Linux", () => {
   it("names every missing library and the apt command on Ubuntu", async () => {
     const seen = await agentSees(loaderError, machine({ "/etc/os-release": ubuntu }));
     expect(seen.code).toBe("browser_missing_libraries");
     expect(seen.detail).toBe(
-      "Missing libnss3.so, libasound.so.2. Run: sudo apt-get install -y libnss3 libasound2",
+      "Missing libnss3.so, libasound.so.2. Run: sudo apt-get install -y libnss3 libasound2t64",
+    );
+  });
+
+  it("uses the 64-bit time package names only on the releases that renamed them", async () => {
+    expect(await release('ID=ubuntu\nVERSION_ID="22.04"\nVERSION_CODENAME=jammy')).toMatch(
+      / libasound2$/,
+    );
+    expect(await release('ID=ubuntu\nVERSION_ID="24.04"\nVERSION_CODENAME=noble')).toMatch(
+      / libasound2t64$/,
+    );
+    expect(await release('ID=debian\nVERSION_ID="12"\nVERSION_CODENAME=bookworm')).toMatch(
+      / libasound2$/,
+    );
+    expect(await release('ID=debian\nVERSION_ID="13"\nVERSION_CODENAME=trixie')).toMatch(
+      / libasound2t64$/,
+    );
+    // Linux Mint 21 builds on Ubuntu 22.04 and says so.
+    expect(await release("ID=linuxmint\nVERSION_CODENAME=vanessa\nUBUNTU_CODENAME=jammy")).toMatch(
+      / libasound2$/,
     );
   });
 
