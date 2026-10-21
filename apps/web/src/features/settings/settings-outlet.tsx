@@ -32,8 +32,9 @@ export function SettingsOutlet() {
     );
   return (
     <MachineScope
-      // A new machine starts the page fresh: no half-typed field carries over.
-      key={machine.id}
+      // Another machine starts the page fresh: no half-typed field carries over. This window's
+      // own machine keeps one key while its host id loads, so the page isn't torn down.
+      key={machine.primary ? "primary" : machine.id}
       machine={machine}
       unavailable={
         <SettingsBody page={page.title}>

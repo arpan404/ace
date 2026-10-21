@@ -4,12 +4,13 @@ import { BlockedAppsRow } from "./blocked-apps.tsx";
 import { EmulatorWindowRow } from "./emulator-window.tsx";
 import { EnableRow, LiveSessions, Permissions } from "./sections.tsx";
 import { useComputerUse } from "./use-computer-use.ts";
+import { ToolchainSection } from "./toolchain-section.tsx";
 import { UseMyChromeSettings } from "./use-my-chrome.tsx";
 
 /**
  * Settings › Computer use: on or off, the apps agents can't use, every live session,
- * macOS's grants to Ace Screen Helper and how Android emulators open. The daemon decides;
- * this page shows and asks.
+ * macOS's grants to Ace Screen Helper, how Android emulators open, Use my Chrome and the
+ * machine's device tools. The daemon decides; this page shows and asks.
  */
 export function ComputerUseSettings() {
   const use = useComputerUse();
@@ -33,6 +34,7 @@ export function ComputerUseSettings() {
         <EmulatorWindowRow />
       </SettingSection>
       <UseMyChromeSettings />
+      <ToolchainSection />
     </>
   );
 }

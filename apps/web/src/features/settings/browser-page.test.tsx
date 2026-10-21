@@ -44,16 +44,11 @@ const section = (name: RegExp) => {
 
 test("ace's Chrome saves to the daemon machine's Downloads folder unless the person names another", async () => {
   const app = harness();
-  app.daemon.services.settings.seed({
-    "host.displayName": "Studio",
-    "browser.downloadDefault": "/Users/dev/Downloads",
-  });
+  app.daemon.services.settings.seed({ "browser.downloadDefault": "/Users/dev/Downloads" });
   await app.open("/settings/browser");
   const field = await screen.findByRole("textbox", { name: "Downloads folder for ace's Chrome" });
-  // The scope says whose setting this is: the daemon on its own machine.
-  expect(screen.getByText(/Daemon on Studio/)).toBeTruthy();
   expect(field.getAttribute("placeholder")).toBe("/Users/dev/Downloads");
-  expect(screen.getByText(/Empty uses its Downloads folder/)).toBeTruthy();
+  expect(screen.getByText("Empty uses this machine's Downloads folder.")).toBeTruthy();
 
   await userEvent.type(field, "/Volumes/Work/downloads{Enter}");
   await waitFor(() =>
@@ -67,16 +62,16 @@ test("when the daemon's Downloads folder can't be used, Settings says downloads 
   await app.open("/settings/browser");
   const field = await screen.findByRole("textbox", { name: "Downloads folder for ace's Chrome" });
   expect(field.getAttribute("placeholder")).toBe("With each thread");
-  expect(screen.getByText(/Downloads folder is missing or read-only/)).toBeTruthy();
+  expect(screen.getByText(/empty keeps them with each thread/)).toBeTruthy();
 });
 
 test("the desktop app's own browser keeps its downloads folder in the app, chosen with its picker", async () => {
   const machine = desktop("/Users/me/Desktop/From ace");
   const app = harness();
   await app.open("/settings/browser");
-  await screen.findByText("This computer's ace app");
-  const card = section(/This computer's ace app/);
-  expect(card.getByText("Your Downloads folder (default)")).toBeTruthy();
+  await screen.findByText("Desktop app");
+  const card = section(/^Desktop app$/);
+  expect(card.getByText("Your Downloads folder")).toBeTruthy();
 
   await userEvent.click(card.getByRole("button", { name: "Choose folder…" }));
   await waitFor(() => expect(machine.stored().browserDownloads).toBe("/Users/me/Desktop/From ace"));
@@ -106,6 +101,6 @@ test("in a browser there is no app folder to choose, and the person's Chrome dec
   const app = harness();
   await app.open("/settings/browser");
   await screen.findByRole("textbox", { name: "Downloads folder for ace's Chrome" });
-  expect(screen.queryByText("This computer's ace app")).toBeNull();
+  expect(screen.queryByText("Desktop app")).toBeNull();
   expect(screen.getByText("Your Chrome saves them where it always does.")).toBeTruthy();
 });

@@ -18,7 +18,12 @@ import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
-import { SettingAddRow, SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import {
+  SettingAddRow,
+  SettingNote,
+  SettingRow,
+  SettingSection,
+} from "@/components/setting-row.tsx";
 import {
   Dialog,
   DialogContent,
@@ -36,71 +41,104 @@ const colors: readonly { value: NonNullable<MachineIcon["color"]>; label: string
   { value: "orange", label: "Orange" },
 ];
 
-/** The directory owns connected machines; paired phones and browsers below are access grants. */
-export function Machines() {
+/** This window's own daemon: its name and icon, shown wherever the machine appears. */
+export function ThisMachineRow() {
   const machines = useMachines();
+  const machine = machines.find((entry) => entry.primary);
+  const [editing, setEditing] = useState(false);
+  if (!machine) return null;
+  return (
+    <>
+      <SettingRow
+        id="host.displayName"
+        title={<MachineLabel name={machine.name} icon={machine.icon} primary />}
+        inline
+      >
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={!machine.client}
+          onClick={() => setEditing(true)}
+        >
+          Edit
+        </Button>
+      </SettingRow>
+      {editing && (
+        <MachineEditor
+          machine={machine}
+          onClose={() => setEditing(false)}
+          // The identity follows its name and icon settings by itself.
+          onSaved={() => Promise.resolve()}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * The other machines in this window's directory: each with its live connection, one compact
+ * row apiece so a long list stays readable, and Add machine at the end.
+ */
+export function Machines() {
+  const machines = useMachines().filter((machine) => !machine.primary);
   const pool = useMachinePool();
   const [adding, setAdding] = useState(false);
   const toast = useToast();
   const [editing, setEditing] = useState<Machine>();
   return (
     <SettingSection label="Machines">
-      <SettingAddRow onClick={() => setAdding(true)}>Add machine</SettingAddRow>
-      {adding && <AddMachine onClose={() => setAdding(false)} />}
+      {machines.length === 0 && <SettingNote>No other machines.</SettingNote>}
       {machines.map((machine) => (
         <SettingRow
-          key={machine.primary ? "primary" : machine.id}
-          {...(machine.primary ? { id: "host.displayName" } : {})}
-          compact
+          key={machine.id}
           inline
-          title={<MachineLabel name={machine.name} icon={machine.icon} primary={machine.primary} />}
+          title={<MachineLabel name={machine.name} icon={machine.icon} primary={false} />}
           description={
-            machine.primary ? "This machine" : machineProblem(machine.status, !!machine.failed)
+            machine.status === "auth_failed" || (machine.failed && machine.status === "offline")
+              ? machineProblem(machine.status, !!machine.failed)
+              : undefined
           }
         >
-          {machine.status !== "online" && (
-            <StatusLabel
-              tone={machineStatus[machine.status].tone}
-              label={machineStatus[machine.status].label}
-            />
-          )}
+          <StatusLabel
+            tone={machineStatus[machine.status].tone}
+            label={machineStatus[machine.status].label}
+          />
           <RowMenu label={`Actions for ${machine.name}`}>
-            {!machine.primary && (
-              <>
-                <MenuItem
-                  disabled={machine.status === "online" || machine.status === "connecting"}
-                  onClick={() => pool?.reconnect(machine.id)}
-                >
-                  Reconnect
-                </MenuItem>
-                <MenuItem
-                  onClick={() =>
-                    void pool?.remove(machine.id).then(
-                      () => toast.add({ title: `${machine.name} forgotten` }),
-                      () => toast.error({ title: "Couldn't forget this machine. Try again." }),
-                    )
-                  }
-                >
-                  Forget
-                </MenuItem>
-              </>
-            )}
             <MenuItem
               disabled={!machine.client}
-              reason={!machine.client ? "Connect to this machine to rename it" : undefined}
+              reason={!machine.client ? "Connect to this machine to edit it" : undefined}
               onClick={() => setEditing(machine)}
             >
-              Rename
+              Edit name and icon
+            </MenuItem>
+            <MenuItem
+              disabled={machine.status === "online" || machine.status === "connecting"}
+              onClick={() => pool?.reconnect(machine.id)}
+            >
+              Reconnect
+            </MenuItem>
+            <MenuItem
+              danger
+              onClick={() =>
+                void pool?.remove(machine.id).then(
+                  () => toast.add({ title: `${machine.name} forgotten` }),
+                  () => toast.error({ title: "Couldn't forget this machine. Try again." }),
+                )
+              }
+            >
+              Forget
             </MenuItem>
           </RowMenu>
         </SettingRow>
       ))}
+      <SettingAddRow onClick={() => setAdding(true)}>Add machine</SettingAddRow>
+      {adding && <AddMachine onClose={() => setAdding(false)} />}
       {editing && (
         <MachineEditor
           machine={editing}
           onClose={() => setEditing(undefined)}
           onSaved={async (name, icon) => {
-            if (!editing.primary) await pool?.rename(editing.id, name, icon);
+            await pool?.rename(editing.id, name, icon);
           }}
         />
       )}
@@ -159,9 +197,7 @@ function MachineEditor(props: {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{props.machine.primary ? "This machine" : "Edit machine"}</DialogTitle>
-          <DialogDescription>
-            Choose the name and icon shown wherever this machine appears.
-          </DialogDescription>
+          <DialogDescription>Every device shows this name and icon.</DialogDescription>
         </DialogHeader>
         {/* A form, so Enter in the name saves. */}
         <form

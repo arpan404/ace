@@ -4,8 +4,8 @@ import { beforeEach, expect, test } from "vitest";
 import { chooseSource } from "@/test/model-control.ts";
 import { harness } from "@/test/harness.tsx";
 
-// General's lazy body must be transformed before the first interaction's deadline starts.
-await import("./general-page.tsx");
+// Agents' lazy body must be transformed before the first interaction's deadline starts.
+await import("./agents-page.tsx");
 configure({ asyncUtilTimeout: 10000 });
 beforeEach(() => localStorage.clear());
 
@@ -17,7 +17,7 @@ test(
   async () => {
     const app = harness();
     const { settings } = app.daemon.services;
-    await app.open("/settings/general");
+    await app.open("/settings/agents");
     // Codex is signed in through its accounts, so Auto is GPT-6 Luna.
     await waitFor(async () =>
       expect((await trigger()).getAttribute("aria-label")).toMatch(/Auto · GPT-6 Luna$/),
@@ -57,7 +57,7 @@ test(
 
 test("turning off auto-draft is saved on the daemon", async () => {
   const app = harness();
-  await app.open("/settings/general");
+  await app.open("/settings/agents");
   const toggle = await screen.findByRole("switch", { name: "Auto-draft commit messages" });
   expect(toggle.getAttribute("aria-checked")).toBe("true");
   await userEvent.click(toggle);

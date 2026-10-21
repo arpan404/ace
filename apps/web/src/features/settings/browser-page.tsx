@@ -19,7 +19,7 @@ import { DaemonSlot, useNotConnectedNote } from "./setting-control.tsx";
 import { settingRow } from "./settings-index.ts";
 
 const engines = [
-  { value: "auto", label: "Desktop app, else ace's Chrome" },
+  { value: "auto", label: "App, then ace's Chrome" },
   { value: "embedded", label: "Desktop app only" },
   { value: "headless", label: "ace's Chrome only" },
 ] as const;
@@ -70,14 +70,14 @@ function FolderField(props: {
 }
 
 /**
- * Settings › Browser. Each part says where it applies: ace's Chrome runs in the daemon (its
- * settings live there, a remote daemon's on its own machine); the desktop app's own browser
- * keeps its downloads folder in this app; the person's Chrome decides for itself.
+ * Settings › Browser, for the machine picked in Settings. Each section says where it applies:
+ * ace's Chrome runs on that machine and keeps its settings there; the desktop app's own browser
+ * keeps its downloads folder in this app; the person's Chrome decides for itself; the last
+ * section is how this device shows pages.
  */
 export function BrowserSettings() {
   const navigate = useNavigate();
   const note = useNotConnectedNote();
-  const [machine] = useSetting(settingKeys.hostName);
   const engine = useSettingControl(settingKeys.browserEngine, settingRow("browser.engine").title);
   const profile = useSettingControl(
     settingKeys.browserProfile,
@@ -102,15 +102,10 @@ export function BrowserSettings() {
   const appFolder = desktop.value?.browserDownloads ?? null;
   return (
     <>
-      <SettingSection
-        label={machine ? `ace's Chrome · Daemon on ${machine}` : "ace's Chrome · This daemon"}
-        card
-        scope="daemon"
-        note={note}
-      >
+      <SettingSection label="ace's Chrome" card scope="daemon" note={note}>
         <SettingRow
           {...settingRow("browser.engine")}
-          description="Where a thread's browser opens. ace's Chrome keeps agents working without the app."
+          description="ace's Chrome keeps agents browsing without the app."
         >
           <DaemonSlot control={engine}>
             <Select
@@ -135,7 +130,7 @@ export function BrowserSettings() {
         </SettingRow>
         <SettingRow
           {...settingRow("browser.profileScope")}
-          description="Which sign-ins browsers opened from now on use. A project can choose its own in Edit project."
+          description="A project can choose its own in Edit project."
         >
           <DaemonSlot control={scope}>
             <Select
@@ -162,8 +157,8 @@ export function BrowserSettings() {
           {...settingRow("browser.downloadDir")}
           description={
             machineDownloads
-              ? "A folder on the daemon's machine. Empty uses its Downloads folder."
-              : "A folder on the daemon's machine. Its Downloads folder is missing or read-only, so with none chosen, downloads stay with each thread's browser data."
+              ? "Empty uses this machine's Downloads folder."
+              : "No usable Downloads folder here; empty keeps them with each thread."
           }
         >
           <DaemonSlot control={downloads}>
@@ -178,11 +173,11 @@ export function BrowserSettings() {
         </SettingRow>
       </SettingSection>
       {desktop.available && (
-        <SettingSection label="This computer's ace app" card scope="computer">
+        <SettingSection label="Desktop app" card scope="computer">
           <SettingRow
             id="browser.appDownloads"
             title="Downloads folder"
-            description={appFolder ?? "Your Downloads folder (default)"}
+            description={appFolder ?? "Your Downloads folder"}
           >
             <span className="flex items-center gap-2">
               {appFolder && (
@@ -236,7 +231,7 @@ export function BrowserSettings() {
         </SettingRow>
         <SettingRow
           {...settingRow("browser.pip")}
-          description="Float the page in a small window when you leave the Browser while an agent browses or the page plays sound."
+          description="While an agent browses or the page plays sound."
           htmlFor="browser-pip"
           inline
         >

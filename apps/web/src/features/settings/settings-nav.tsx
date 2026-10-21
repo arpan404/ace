@@ -9,7 +9,7 @@ import { Select } from "@/components/ui/select.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
 import { useSettingsMachine } from "./machine-scope.tsx";
-import { machineStatusWord } from "./machine-status.ts";
+import { machineStatus } from "@/lib/machine-status.ts";
 import { pageTitle, searchSettings } from "./settings-index.ts";
 import {
   settingsGroupTitles,
@@ -95,7 +95,9 @@ function MachinePicker() {
         options={machines.map((entry) => ({
           value: entry.id,
           label:
-            entry.status === "online" ? entry.name : `${entry.name} · ${machineStatusWord(entry)}`,
+            entry.status === "online"
+              ? entry.name
+              : `${entry.name} · ${machineStatus[entry.status].label}`,
           icon: <MachineMark icon={entry.icon} primary={entry.primary} />,
         }))}
         onValueChange={(id) => {

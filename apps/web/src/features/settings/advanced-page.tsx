@@ -2,7 +2,7 @@ import { useProviderEntries, entryStatus } from "./provider-entries.ts";
 import { RunChecks } from "@/features/diagnostics/index.ts";
 import { SupportExport } from "@/features/diagnostics/index.ts";
 import { useState } from "react";
-import { SettingDisclosure, SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Dialog,
@@ -16,12 +16,14 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { useConnectionState } from "@ace/client-react";
 import { useSettingsBackend } from "./data/use-settings.ts";
 import { DaemonHealth } from "./daemon-health.tsx";
-import { DaemonSettings } from "./daemon-settings.tsx";
 import { WorktreePreparationSettings } from "./worktree-preparation.tsx";
 import { DisabledReason, offlineReason } from "./setting-control.tsx";
 import { settingRow } from "./settings-index.ts";
 
-/** Daemon diagnostics and a full reset. Thresholds live on General; the theme editor under Appearance. */
+/**
+ * The machine Settings edits: its health checks and support bundle, its worktree deadline, and a
+ * reset of its settings. The window's own connection lives on General.
+ */
 export function AdvancedSettings() {
   const { entries } = useProviderEntries();
   const providers = (entries ?? []).map((entry) => {
@@ -45,16 +47,12 @@ export function AdvancedSettings() {
       <SettingSection label="Reset" scope="daemon">
         <SettingRow
           {...settingRow("advanced.reset")}
-          description="Settings go back to their defaults on every device. Appearance, themes and this computer's notifications stay."
+          description="This machine's settings go back to their defaults. Appearance and notifications stay."
           inline
         >
           <ResetAll />
         </SettingRow>
       </SettingSection>
-      {/* The in-page development daemon: a developer detail, so not on General. */}
-      <SettingDisclosure title="Development connection" className="mt-7">
-        <DaemonSettings />
-      </SettingDisclosure>
     </>
   );
 }
@@ -78,7 +76,7 @@ function ResetAll() {
       setOpen(false);
       toast.add({ title: "Settings reset" });
     } catch {
-      const message = "This computer couldn't save the reset. Try again.";
+      const message = "This machine couldn't save the reset. Try again.";
       setError(message);
       toast.error({
         title: "Couldn't reset settings",
@@ -107,8 +105,8 @@ function ResetAll() {
         <DialogHeader>
           <DialogTitle>Reset all settings?</DialogTitle>
           <DialogDescription>
-            Defaults for new threads, shortcuts and thresholds are restored for every device using
-            this computer. Appearance, themes and this computer's notifications stay.
+            Defaults for new threads, shortcuts and thresholds are restored on this machine, for
+            every device that uses it. Appearance, themes and notifications stay.
           </DialogDescription>
         </DialogHeader>
         {error && (

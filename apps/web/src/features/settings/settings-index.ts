@@ -279,7 +279,7 @@ const entries = [
   {
     id: "notifications.system",
     page: "/settings/notifications",
-    title: "Notifications on this computer",
+    title: "Desktop notifications",
     keywords: ["os", "system", "alerts"],
   },
   {
@@ -373,14 +373,14 @@ const entries = [
     id: "remote.pair",
     page: "/settings/remote",
     title: "Pair a device",
-    keywords: ["phone", "qr", "remote", "mobile"],
+    keywords: ["phone", "qr", "remote", "mobile", "devices", "pair", "ipad", "tablet"],
   },
   // Advanced
   {
     id: "advanced.worktreeTimeout",
     page: "/settings/advanced",
     title: "Worktree preparation timeout",
-    keywords: ["worktree", "timeout", "preparation", "git", "environment"],
+    keywords: ["worktree", "timeout", "preparation", "git"],
   },
   {
     id: "advanced.diagnostics",

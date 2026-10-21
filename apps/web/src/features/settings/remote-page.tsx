@@ -1,5 +1,6 @@
-import { Machines } from "./machine-editor.tsx";
-import { RemoteAccess } from "./remote-access.tsx";
+import { formatAgo } from "@ace/ui-core";
+import { Machines, ThisMachineRow } from "./machine-editor.tsx";
+import { RemoteAccessRows } from "./remote-access.tsx";
 import { deviceScopeLabels } from "./device-scopes.ts";
 import type { Device } from "@ace/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -20,12 +21,20 @@ import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
 import { PairDevice } from "./pair-device.tsx";
 import { RowMenu } from "@/components/ui/row-menu.tsx";
 import { MenuItem } from "@/components/ui/menu.tsx";
+import { useNow } from "@/lib/time.ts";
 
-/** Machines running the daemon, paired phones and browsers, pairing and revoking. */
+/**
+ * Settings › Machines and devices: this machine (its name, how others reach it and whether
+ * their agents may use it), the other machines this window runs agents on, and the phones,
+ * tablets and browsers paired to this machine, with pairing and revoking.
+ */
 export function RemoteDevices() {
   return (
     <>
-      <RemoteAccess />
+      <SettingSection label="This machine">
+        <ThisMachineRow />
+        <RemoteAccessRows />
+      </SettingSection>
       <Machines />
       <PairedDevices />
     </>
@@ -44,6 +53,7 @@ function PairedDevices() {
   const backend = useSettingsBackend();
   const devices = useQuery(settingsQueries.devices(backend));
   const [revoking, setRevoking] = useState<Device | undefined>();
+  const now = useNow();
   return (
     <SettingSection label="Paired devices">
       {devices.isPending && <ListSkeleton label="paired devices" shape="row" rows={2} />}
@@ -53,11 +63,13 @@ function PairedDevices() {
         <SettingRow
           key={device.id}
           title={device.name}
-          description={[deviceScopeLabels(device.scopes)].join(" · ")}
+          description={`${deviceScopeLabels(device.scopes)} · Seen ${formatAgo(device.lastSeenAt, now)}`}
           inline
         >
           <RowMenu label={`Actions for ${device.name}`}>
-            <MenuItem onClick={() => setRevoking(device)}>Revoke</MenuItem>
+            <MenuItem danger onClick={() => setRevoking(device)}>
+              Revoke
+            </MenuItem>
           </RowMenu>
         </SettingRow>
       ))}

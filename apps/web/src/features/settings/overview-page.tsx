@@ -8,7 +8,7 @@ import { ProviderSetupRow } from "@/features/provider-setup/index.ts";
 import type { Machine } from "@/lib/machines.ts";
 import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
 import { MachineScope, machineUnavailableText, useSettingsMachine } from "./machine-scope.tsx";
-import { machineStatusWord } from "./machine-status.ts";
+import { machineStatus } from "@/lib/machine-status.ts";
 import {
   isMissing,
   needsAttention,
@@ -71,12 +71,9 @@ function MachineHeader(props: { machine: Machine; summary?: string | undefined }
         <span className="inline-flex items-center gap-2">
           <MachineMark icon={machine.icon} primary={machine.primary} />
           {machine.name}
-          <span className="text-xs font-normal text-subtle-foreground">
-            {machineStatusWord(machine)}
-          </span>
         </span>
       }
-      description={props.summary}
+      description={[machineStatus[machine.status].label, props.summary].filter(Boolean).join(" · ")}
       inline
     >
       {machine.status === "auth_failed" ? (
@@ -143,6 +140,7 @@ function AttentionRow(props: { machine: Machine; entry: ProviderEntry }) {
             <Button
               size="sm"
               variant="ghost"
+              aria-label={`Open ${install.name} on ${props.machine.name}`}
               onClick={() => open(props.machine, "/settings/providers", props.entry.id)}
             >
               Open

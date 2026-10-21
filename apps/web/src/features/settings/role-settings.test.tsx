@@ -4,8 +4,8 @@ import { beforeEach, expect, test } from "vitest";
 import { chooseSource } from "@/test/model-control.ts";
 import { harness } from "@/test/harness.tsx";
 
-// General's lazy body must be transformed before the first interaction's deadline starts.
-await import("./general-page.tsx");
+// Agents' lazy body must be transformed before the first interaction's deadline starts.
+await import("./agents-page.tsx");
 configure({ asyncUtilTimeout: 10000 });
 beforeEach(() => localStorage.clear());
 
@@ -17,7 +17,7 @@ test(
   async () => {
     const app = harness();
     const { settings } = app.daemon.services;
-    await app.open("/settings/general");
+    await app.open("/settings/agents");
     expect((await review()).getAttribute("aria-label")).toBe("Review: Not set");
     expect(screen.queryByRole("combobox", { name: "Review effort" })).toBeNull();
 

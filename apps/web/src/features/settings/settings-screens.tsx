@@ -1,7 +1,6 @@
 import { Navigate } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 import { loadComputerUseSettings } from "@/features/computer-use/index.ts";
-import { ToolchainHints } from "@/features/diagnostics/index.ts";
 import { PastSessionsSettings } from "@/features/history/index.ts";
 const AdvancedSettings = lazy(() =>
   import("./advanced-page.tsx").then((module) => ({ default: module.AdvancedSettings })),
@@ -130,7 +129,7 @@ export function ProviderDetailScreen(props: { id: string }) {
 
 export function RemoteSettingsScreen() {
   return (
-    <SettingsBody page="Remote devices">
+    <SettingsBody page="Machines and devices">
       <Suspense fallback={<ListSkeleton label="remote settings" shape="row" rows={4} />}>
         <RemoteDevices />
       </Suspense>
@@ -172,10 +171,6 @@ export function ComputerUseSettingsScreen() {
       <Suspense fallback={null}>
         <ComputerUseSettings />
       </Suspense>
-      {/* The tools this computer has (Git, device toolchains), with how to get a missing one. */}
-      <div className="mt-8">
-        <ToolchainHints />
-      </div>
     </SettingsBody>
   );
 }
@@ -225,7 +220,7 @@ export function SourceControlSettingsScreen() {
   return (
     <SettingsBody
       page="Source control"
-      lede="GitHub access through this computer’s installed CLI. Credentials stay with gh and Git."
+      lede="GitHub through this machine's gh CLI. Credentials stay with gh and Git."
     >
       <Suspense fallback={null}>
         <SourceControlSettings />
@@ -253,7 +248,7 @@ export function BrowserSettingsScreen() {
 
 export function StorageSettingsScreen() {
   return (
-    <SettingsBody page="Storage" lede="Review old data and recover space on this computer.">
+    <SettingsBody page="Storage" lede="What this machine stores, and how long it keeps it.">
       <Suspense fallback={<ListSkeleton label="storage" shape="row" rows={6} />}>
         <StorageSettings />
       </Suspense>
