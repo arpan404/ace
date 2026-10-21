@@ -8,14 +8,12 @@
  * `ACE_LINUX_DESKTOP_E2E` (x11 or wayland) and `ACE_SCREEN_HELPER`. Needs ffmpeg.
  */
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
-import { z } from "zod";
 import { ScreenInventory, ScreenState, type ScreenTarget } from "@ace/protocol";
 import { evalWorld, type EvalWorld } from "./evals/world.ts";
+import { at, changed, decodeH264 } from "./testing/decode-h264.ts";
 import { LiveViewer, type ViewerFrame } from "./testing/live-viewer.ts";
 
 const session = process.env.ACE_LINUX_DESKTOP_E2E;
@@ -30,69 +28,13 @@ afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
 });
 
-/** One decoded picture: its size, whether it was a keyframe, and its RGB pixels. */
-type Decoded = { width: number; height: number; key: boolean; pixels: Buffer };
-
-const Probe = z.object({
-  frames: z
-    .array(z.object({ width: z.number(), height: z.number(), key_frame: z.number() }))
-    .default([]),
-});
-
-let decodes = 0;
-
-/** The viewer's H.264 as ffmpeg decodes it, frame by frame, in arrival order. */
-async function decode(frames: readonly ViewerFrame[]): Promise<Decoded[]> {
-  const directory = await mkdtemp(join(tmpdir(), "ace-live-view-"));
-  try {
-    const stream = join(directory, "view.h264");
-    await writeFile(stream, Buffer.concat(frames.map((frame) => frame.bytes)));
-    // Kept for a person to look at when a picture assertion fails.
-    const artifacts = process.env.ACE_E2E_ARTIFACTS;
-    const name = `live-view-${session}-${++decodes}.h264`;
-    if (artifacts) await writeFile(join(artifacts, name), await readFile(stream));
-    const probe = await exec(
-      "ffprobe",
-      ["-v", "error", "-f", "h264", "-show_frames", "-of", "json", stream],
-      { maxBuffer: 64 * 1024 * 1024 },
-    );
-    const raw = join(directory, "view.rgb");
-    const toRgb = ["-f", "rawvideo", "-pix_fmt", "rgb24", "-y", raw];
-    await exec("ffmpeg", ["-v", "error", "-f", "h264", "-i", stream, ...toRgb]);
-    const pixels = await readFile(raw);
-    let offset = 0;
-    return Probe.parse(JSON.parse(probe.stdout)).frames.map((frame) => {
-      const size = frame.width * frame.height * 3;
-      const picture = pixels.subarray(offset, offset + size);
-      offset += size;
-      return {
-        width: frame.width,
-        height: frame.height,
-        key: frame.key_frame === 1,
-        pixels: picture,
-      };
-    });
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-}
-
-/** The share of pixels that differ by more than a little between two decoded pictures. */
-function changed(a: Decoded, b: Decoded): number {
-  let differing = 0;
-  for (let index = 0; index < a.pixels.length; index += 3) {
-    let distance = 0;
-    for (let channel = 0; channel < 3; channel++)
-      distance += Math.abs((a.pixels[index + channel] ?? 0) - (b.pixels[index + channel] ?? 0));
-    if (distance > 72) differing++;
-  }
-  return differing / (a.pixels.length / 3);
-}
-
-function at<T>(items: readonly T[], index: number): T {
-  const item = items.at(index);
-  if (item === undefined) throw new Error(`Nothing at ${index} of ${items.length}`);
-  return item;
+/** The viewer's H.264, decoded; kept in ACE_E2E_ARTIFACTS for a person to look at. */
+function decode(frames: readonly ViewerFrame[]) {
+  const directory = process.env.ACE_E2E_ARTIFACTS;
+  return decodeH264(
+    frames.map((frame) => frame.bytes),
+    directory ? { directory, name: `live-view-${session}` } : undefined,
+  );
 }
 
 async function world(): Promise<EvalWorld> {

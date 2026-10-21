@@ -39,3 +39,16 @@ test("the Linux desktop run reaches the desktop its runner started, with writabl
     HOME: home,
   });
 });
+
+test("the Android run reaches the SDK its runner points at, with homes still isolated", () => {
+  const env = isolatedTestEnvironment(
+    {
+      ...desktop,
+      ACE_ANDROID_E2E_SDK: "/tmp/ace-android-sdk.abc",
+    },
+    home,
+    "/home/person",
+  );
+  expect(env.ACE_ANDROID_E2E_SDK).toBe("/tmp/ace-android-sdk.abc");
+  expect(env.XDG_RUNTIME_DIR).toBe(join(home, ".runtime"));
+});

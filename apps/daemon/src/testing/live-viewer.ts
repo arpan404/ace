@@ -1,16 +1,18 @@
 /*
- * A person's live view over the daemon WebSocket, as the web and iOS clients hold one: screen
- * requests on the main channel, pictures as `screenFrame` stream pieces, each one acknowledged
- * so the daemon's pacing window keeps sending. For end-to-end tests of real capture paths.
+ * A person's live view over the daemon WebSocket, as the web and iOS clients hold one: requests
+ * on the main channel (screen sessions) or the devices channel (simulators and emulators),
+ * pictures as stream pieces, each one acknowledged so the daemon's pacing window keeps
+ * sending. For end-to-end tests of real capture paths.
  */
 import { once } from "node:events";
 import { readFile } from "node:fs/promises";
 import { WebSocket } from "ws";
-import { ServerMessage } from "@ace/protocol";
+import { z } from "zod";
 import { decodeStreamMessage, isStreamPiece, StreamAssembler } from "@ace/browser/stream";
 
 /** One picture as the viewer received it. */
 export type ViewerFrame = {
+  /** The screen session or device it shows. */
   sessionId: string;
   streamId: string;
   sequence: number;
@@ -23,30 +25,51 @@ export type ViewerFrame = {
   bytes: Buffer;
 };
 
+/** What a viewer watches: computer-use screen sessions, or app devices. */
+export type Surface = "screen" | "devices";
+
+const words = {
+  screen: { request: "screen.request", result: "screen.result", frame: "screen.frame" },
+  devices: { request: "devices.request", result: "devices.result", frame: "device.frame" },
+} as const;
+
+const Result = z.object({
+  type: z.string(),
+  requestId: z.string().optional(),
+  ok: z.boolean().optional(),
+  data: z.unknown().optional(),
+  /** A screen failure is its message; a device failure an object with a code and hint. */
+  error: z.unknown().optional(),
+});
+type Result = z.infer<typeof Result>;
+
 export class LiveViewer {
   readonly #socket: WebSocket;
-  readonly #waiting = new Map<string, (message: ServerMessage) => void>();
+  readonly #surface: Surface;
+  readonly #waiting = new Map<string, (message: Result) => void>();
   readonly #frames: ViewerFrame[] = [];
   #arrived: () => void = () => {};
   #requests = 0;
   #foreign = 0;
   readonly #heartbeat: ReturnType<typeof setInterval>;
-  private constructor(socket: WebSocket) {
+  private constructor(socket: WebSocket, surface: Surface) {
     this.#socket = socket;
+    this.#surface = surface;
     // The daemon closes a socket quiet for a minute; clients ping, so a long wait stays open.
     this.#heartbeat = setInterval(() => socket.send(JSON.stringify({ type: "ping" })), 20_000);
     socket.on("close", () => clearInterval(this.#heartbeat));
     const assembler = new StreamAssembler();
     socket.on("message", (data, binary) => {
       if (!binary) {
-        const message = ServerMessage.parse(JSON.parse(String(data)));
-        if (message.type === "screen.result") this.#waiting.get(message.requestId)?.(message);
+        const message = Result.parse(JSON.parse(String(data)));
+        if (message.type === words[surface].result && message.requestId)
+          this.#waiting.get(message.requestId)?.(message);
         return;
       }
       if (!Buffer.isBuffer(data) || !isStreamPiece(data)) return void this.#foreign++;
       const envelope = assembler.push(data);
       const message = envelope && decodeStreamMessage(envelope);
-      if (message?.kind !== "screen.frame" || message.frame.still) return;
+      if (message?.kind !== words[surface].frame || message.frame.still) return;
       const { frame } = message;
       this.#frames.push({
         sessionId: message.sourceId,
@@ -60,22 +83,26 @@ export class LiveViewer {
         bytes: Buffer.from(frame.bytes),
       });
       // Acknowledged on arrival, as a client does once its decoder has taken the picture.
+      const ack = { streamId: frame.streamId, sequence: frame.sequence };
       socket.send(
-        JSON.stringify({
-          type: "screen.ack",
-          sessionId: message.sourceId,
-          streamId: frame.streamId,
-          sequence: frame.sequence,
-        }),
+        JSON.stringify(
+          surface === "screen"
+            ? { type: "screen.ack", sessionId: message.sourceId, ...ack }
+            : { type: "devices.ack", deviceId: message.sourceId, ...ack },
+        ),
       );
       this.#arrived();
     });
   }
 
-  static async connect(url: string, tokenPath: string): Promise<LiveViewer> {
+  static async connect(
+    url: string,
+    tokenPath: string,
+    surface: Surface = "screen",
+  ): Promise<LiveViewer> {
     const socket = new WebSocket(url);
     await once(socket, "open");
-    const viewer = new LiveViewer(socket);
+    const viewer = new LiveViewer(socket, surface);
     const token = (await readFile(tokenPath, "utf8")).trim();
     const welcomed = new Promise<void>((resolve) => {
       const listener = (data: unknown, binary: boolean) => {
@@ -85,15 +112,18 @@ export class LiveViewer {
       };
       socket.on("message", listener);
     });
-    socket.send(JSON.stringify({ type: "hello", protocolVersion: 1, token, deviceId: "viewer" }));
+    const channel = surface === "devices" ? { channel: "devices" } : {};
+    socket.send(
+      JSON.stringify({ type: "hello", protocolVersion: 1, token, deviceId: "viewer", ...channel }),
+    );
     await welcomed;
     return viewer;
   }
 
-  /** A screen request's data; throws with the daemon's error when it fails. */
+  /** A request's data; throws with the daemon's error when it fails. */
   async request(operation: Record<string, unknown>, timeoutMs = 30_000): Promise<unknown> {
     const requestId = `viewer-${++this.#requests}`;
-    const reply = await new Promise<ServerMessage>((resolve, reject) => {
+    const reply = await new Promise<Result>((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error(`No reply to ${String(operation.op)} in ${timeoutMs} ms`)),
         timeoutMs,
@@ -102,11 +132,15 @@ export class LiveViewer {
         clearTimeout(timer);
         resolve(message);
       });
-      this.#socket.send(JSON.stringify({ type: "screen.request", requestId, operation }));
+      this.#socket.send(
+        JSON.stringify({ type: words[this.#surface].request, requestId, operation }),
+      );
     });
     this.#waiting.delete(requestId);
-    if (reply.type !== "screen.result") throw new Error("Expected a screen result");
-    if (!reply.ok) throw new Error(`${String(operation.op)} failed: ${reply.error ?? "unknown"}`);
+    if (!reply.ok) {
+      const error = typeof reply.error === "string" ? reply.error : JSON.stringify(reply.error);
+      throw new Error(`${String(operation.op)} failed: ${error ?? "unknown"}`);
+    }
     return reply.data;
   }
 

@@ -70,6 +70,7 @@ export function isolatedTestEnvironment(
     ...(ambient.ACE_COMPUTER_LIVE === "1" ? { ACE_COMPUTER_LIVE: "1" } : {}),
     ...(ambient.ACE_DEVICE_LIVE === "1" ? { ACE_DEVICE_LIVE: "1" } : {}),
     ...linuxDesktopSession(ambient),
+    ...androidDevice(ambient),
     // `bun run eval:mcp` names where the MCP eval harness writes its report.
     ...(ambient.ACE_EVAL_REPORT !== undefined ? { ACE_EVAL_REPORT: ambient.ACE_EVAL_REPORT } : {}),
     ...(ambient.ACE_EVAL_LABEL !== undefined ? { ACE_EVAL_LABEL: ambient.ACE_EVAL_LABEL } : {}),
@@ -117,6 +118,19 @@ function linuxDesktopSession(ambient: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     if (value !== undefined) kept[key] = value;
   }
   return kept;
+}
+
+/**
+ * The Android end-to-end suite (`ACE_ANDROID_E2E_SDK`) drives a device its runner booted, through
+ * that SDK's adb. Only the SDK folder is kept; homes stay isolated.
+ */
+function androidDevice(ambient: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const sdk = ambient.ACE_ANDROID_E2E_SDK;
+  if (!sdk) return {};
+  return {
+    ACE_ANDROID_E2E_SDK: sdk,
+    ...(ambient.ACE_E2E_ARTIFACTS ? { ACE_E2E_ARTIFACTS: ambient.ACE_E2E_ARTIFACTS } : {}),
+  };
 }
 
 /** Where Playwright installs its browsers for the real user (its documented default). */
