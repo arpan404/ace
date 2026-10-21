@@ -29,10 +29,17 @@ final class VideoEncoder {
     private let completed: () -> Void
     /// Rate control dropped a frame of this quality (no sample, no error).
     private let dropped: (StreamQuality) -> Void
-    init(sessionId: String, version: Int, publish: @escaping (Data) -> Void, completed: @escaping () -> Void, dropped: @escaping (StreamQuality) -> Void = { _ in }) {
+    /// Longest stretch between keyframes, in seconds. A capture's refine keyframes want 1 s; a
+    /// pass-through stream (an emulator's, a transcoded Simulator's) leaves keyframes to viewers
+    /// that ask, as a keyframe is many deltas big on the thin links these run on.
+    private let keyframeInterval: Double
+    init(sessionId: String, version: Int, publish: @escaping (Data) -> Void, completed: @escaping () -> Void, dropped: @escaping (StreamQuality) -> Void = { _ in }, keyframeInterval: Double = 1) {
         self.sessionId = sessionId; self.version = version; self.publish = publish; self.completed = completed; self.dropped = dropped
+        self.keyframeInterval = keyframeInterval
     }
     func requestKeyframe() { lock.lock(); keyframe = true; lock.unlock() }
+    /// A sample is being encoded: the next one would be refused as busy.
+    var busyNow: Bool { lock.lock(); defer { lock.unlock() }; return busy }
     /// A new bit rate for the running session from its next frame: no new session and no
     /// keyframe, so a live view can follow its link. A capped refine frame keeps its own rate.
     func retune(bitrate: Int) {
@@ -80,7 +87,7 @@ final class VideoEncoder {
         // High (8x8 transforms, CABAC) keeps text edges at a given bitrate better than Baseline.
         // Level 5.1 covers every capture size (up to 4096×2304) and every client decoder.
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ProfileLevel, value: kVTProfileLevel_H264_High_5_1)
-        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: 1 as CFNumber)
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: keyframeInterval as CFNumber)
         configure(bitrate: bitrate, fps: fps)
         return VTCompressionSessionPrepareToEncodeFrames(session) == noErr
     }

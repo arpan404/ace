@@ -34,6 +34,12 @@ import { simulatorCopy, simulatorPaste } from "./simulator-clipboard.ts";
 import { downloadDeviceTools, type DeviceTools } from "./device-tools.ts";
 import type { DeviceRuntime } from "./runtime.ts";
 import { managedServeSim, type ServeSimCommand } from "./serve-sim-install.ts";
+import {
+  emulatorConsolePort,
+  emulatorGrpc,
+  emulatorRunningDirectory,
+  type EmulatorGrpc,
+} from "./emulator-discovery.ts";
 
 export type PlatformOptions = SDKOptions & {
   spawn?: typeof spawnSupervised;
@@ -44,6 +50,11 @@ export type PlatformOptions = SDKOptions & {
   toolsDirectory?: string;
   /** The daemon's Node, which runs the tools download and ace's serve-sim. */
   node?: string;
+  /**
+   * The screen helper, whose `--encode-frames` mode encodes an emulator's picture on the Mac's
+   * hardware (macOS only; absent elsewhere, where scrcpy's video stays).
+   */
+  frameEncoder?: string;
   emulatorWindow?: NonNullable<AndroidOptions["emulatorWindow"]>;
 };
 export type ScreenBinding = { sessionId: string; actor: "human" | "agent"; owner: string };
@@ -134,6 +145,31 @@ export class DevicePlatform {
   }
   get toolsDirectory(): string | undefined {
     return this.options.toolsDirectory;
+  }
+  /** The screen helper that encodes on the Mac's hardware (macOS only). */
+  get frameEncoder(): string | undefined {
+    return this.options.platform === "darwin" ? this.options.frameEncoder : undefined;
+  }
+  /**
+   * How to encode an emulator's picture on the host, when it can be: a helper to encode with, a
+   * place for the shared picture file, and the emulator's gRPC endpoint (one ace booted).
+   */
+  async hostEncoding(
+    serial: string,
+  ): Promise<{ grpc: EmulatorGrpc; encoder: string; directory: string } | undefined> {
+    const { frameEncoder: encoder, toolsDirectory: directory } = this.options;
+    const consolePort = emulatorConsolePort(serial);
+    if (this.options.platform !== "darwin" || !encoder || !directory || consolePort === undefined)
+      return undefined;
+    const grpc = await emulatorGrpc(
+      emulatorRunningDirectory({
+        platform: this.options.platform,
+        home: this.options.home,
+        env: this.options.env,
+      }),
+      consolePort,
+    );
+    return grpc && { grpc, encoder, directory };
   }
   /** ace's own serve-sim, once the device tools are downloaded (Macs only). */
   async managedServeSim(): Promise<ServeSimCommand | undefined> {

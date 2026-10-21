@@ -65,7 +65,14 @@ export async function startCapture(options: {
     if (command && supported) {
       const device = await options.platform.simulatorDevice(options.device);
       checkAbort();
-      return simulatorCapture({ ...options, device, command, commandArgs: status.args });
+      const transcoder = options.platform.frameEncoder;
+      return simulatorCapture({
+        ...options,
+        device,
+        command,
+        commandArgs: status.args,
+        ...(transcoder ? { transcoder } : {}),
+      });
     }
     // serve-sim is preferred; an unpinned version falls back to the public-API screen helper.
     const unpinned = command
@@ -211,7 +218,11 @@ export async function startCapture(options: {
     why = "scrcpy-server couldn't be downloaded";
     if (jar) {
       try {
-        return await scrcpyCapture({ ...options, jar });
+        const host = await options.platform
+          .hostEncoding(options.device.serial)
+          .catch(() => undefined);
+        checkAbort();
+        return await scrcpyCapture({ ...options, jar, ...(host ? { host } : {}) });
       } catch (error) {
         // scrcpy could not start on this image: agents still get stills from screenrecord.
         checkAbort();
