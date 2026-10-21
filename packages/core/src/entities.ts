@@ -2,6 +2,7 @@ import { redactAceApproval } from "./ace-tools.ts";
 import {
   BackgroundTaskId,
   InteractionId,
+  InteractionRequest,
   type BackgroundTask,
   type EventPayload,
   type Interaction,
@@ -55,7 +56,7 @@ export function openInteraction(
     threadId: state.threadId,
     agentId: record.agent.id,
     blocking: fact.blocking,
-    request: structuredClone(fact.request),
+    request: InteractionRequest.parse(fact.request),
     state: "pending",
     createdAt: ctx.now,
     raw: structuredClone(fact.raw ?? []),

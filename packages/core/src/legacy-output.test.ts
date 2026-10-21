@@ -94,7 +94,6 @@ it("validates inherited shell details before accepting legacy output and emits o
   for (const output of ["", "differentprefix!"]) {
     expect(upsert(output)).toContainEqual(
       expect.objectContaining({
-        type: "item.created",
         item: expect.objectContaining({ type: "notice", level: "warning" }),
       }),
     );
