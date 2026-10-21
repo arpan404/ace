@@ -3380,6 +3380,7 @@ Example:
 | title | yes | string |  |
 | status | yes | ["running","completed","failed","stopped","unknown"] |  |
 | ambient | no | boolean | {"default":false} |
+| internal | no | `true` |  |
 | outputPath | no | string |  |
 | toolCallId | no | [ItemId.json](schema/ItemId.json) |  |
 | childAgentId | no | [AgentId.json](schema/AgentId.json) |  |
@@ -3393,11 +3394,11 @@ Example:
 ```json
 {
   "agentId": "example",
-  "endedAt": 6,
+  "childAgentId": "example",
   "id": "example",
   "kind": "shell",
   "raw": [],
-  "startedAt": 1,
+  "startedAt": 2,
   "status": "unknown",
   "stoppable": true,
   "title": "example"

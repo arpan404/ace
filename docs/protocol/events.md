@@ -606,12 +606,14 @@ Example:
   "task": {
     "agentId": "example",
     "ambient": true,
+    "childAgentId": "example",
+    "endedAt": 2,
     "id": "example",
     "kind": "monitor",
     "raw": [],
-    "startedAt": 8,
+    "startedAt": 7,
     "status": "completed",
-    "stoppable": true,
+    "stoppable": false,
     "title": "example"
   },
   "type": "background_task.started"
@@ -631,8 +633,7 @@ Example:
 
 ```json
 {
-  "endedAt": 4,
-  "status": "completed",
+  "status": "failed",
   "taskId": "example",
   "type": "background_task.updated"
 }
@@ -654,11 +655,10 @@ Example:
 
 ```json
 {
-  "lastFailure": null,
   "paused": true,
   "reason": null,
   "resumeAt": null,
-  "revision": 3,
+  "revision": 0,
   "type": "queue.updated"
 }
 ```

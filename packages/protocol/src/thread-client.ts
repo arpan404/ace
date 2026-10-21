@@ -147,10 +147,12 @@ export const ThreadRunMetadata = z.object({
   subagentCount: z.number().int().nonnegative().optional(),
   /** Subagents currently starting, working or waiting on their own subagents. */
   runningSubagentCount: z.number().int().nonnegative().optional(),
+  /** Background work running of its own: ace's bookkeeping and stand-ins for subagents left out. */
   backgroundTaskCount: z.number().int().nonnegative().optional(),
   /**
-   * Background work still running that holds the thread open (ambient helpers left out),
-   * oldest first, at most the newest 8: what "Watching bun run dev:relay" names.
+   * Background shells still running that hold the thread open (ambient helpers and ace's own
+   * bookkeeping left out), oldest first, at most the newest 8: what "Running in background
+   * bun run dev:relay" names. Other background work is only counted, in `backgroundTaskCount`.
    */
   watching: z
     .array(z.object({ id: BackgroundTaskId, title: z.string().max(256) }))
