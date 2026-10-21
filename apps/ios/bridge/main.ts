@@ -249,6 +249,7 @@ function action(json: string): void {
     }
     switch (value.type) {
       case "open":
+        services?.transcript.close();
         historyAbort?.abort();
         historyAbort = new AbortController();
         stopThread?.();
@@ -278,6 +279,7 @@ function action(json: string): void {
         }
         break;
       case "back":
+        services?.transcript.close();
         epoch++;
         historyAbort?.abort();
         session?.dispose();

@@ -5,6 +5,9 @@ import { itemRow, threadRow } from "../bridge/presentation.ts";
 import { Item, ThreadListEntry } from "@ace/protocol";
 import { itemDetail } from "../bridge/thread-rows.ts";
 import { workGroups } from "../bridge/work-groups.ts";
+import { installHistoryScenarios } from "./transcript-history.ts";
+
+installHistoryScenarios();
 
 const pump = new PatchPump();
 const largeId = "large-" + "x".repeat(100 * 1024);

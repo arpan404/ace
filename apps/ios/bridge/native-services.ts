@@ -1,3 +1,4 @@
+import { NativeTranscript, NativeTranscriptRequest } from "./native-transcript.ts";
 import type { ClientCore } from "@ace/client";
 import {
   AutomationRequest,
@@ -64,12 +65,14 @@ export const NativeServiceAction = z.discriminatedUnion("type", [
 
 export class NativeServices {
   #pending = new Map<string, AbortController>();
+  readonly transcript: NativeTranscript;
   readonly owner: ClientCore;
   readonly sink: PatchSink;
   readonly devices: NativeDevices | undefined;
   readonly screen: NativeScreen | undefined;
   constructor(owner: ClientCore, sink: PatchSink, devices?: NativeDevices, screen?: NativeScreen) {
     this.owner = owner;
+    this.transcript = new NativeTranscript(owner);
     this.sink = sink;
     this.devices = devices;
     this.screen = screen;
@@ -134,6 +137,11 @@ export class NativeServices {
           await readNativeMessage(this.owner, message.data, controller.signal),
           "",
         );
+        return;
+      }
+      const transcript = NativeTranscriptRequest.safeParse(raw);
+      if (transcript.success) {
+        this.#reply(id, true, await this.transcript.read(transcript.data, controller.signal), "");
         return;
       }
       const window = NativeHistoryWindow.safeParse(raw);

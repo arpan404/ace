@@ -1,21 +1,14 @@
 import SwiftUI
 
-/// Each live group is a list row. A long turn must not become one eagerly laid-out cell.
+/// Other transcript lists use the same work disclosure as the conversation feed.
 struct TranscriptBlockRows: View {
     @Bindable var block: BlockModel
     let thread: ThreadModel
     let links: TranscriptLinks
 
     var body: some View {
-        if block.row.work?.ongoing == true, let groups = block.row.groups {
-            ForEach(groups) { group in
-                WorkProgressGroup(group: group, thread: thread, openMedia: links.openMedia, openMessage: links.openMessage)
-                    .transcriptControlRow()
-            }
-        } else {
-            BlockView(block: block, thread: thread, links: links)
-                .id(block.id).transcriptRow()
-        }
+        BlockView(block: block, thread: thread, links: links)
+            .id(block.id).transcriptRow()
     }
 }
 

@@ -56,6 +56,41 @@ import Testing
         #expect(!groups.isEmpty)
         #expect(missing.isEmpty, "Ready conversation contains \(missing.count) empty work rows out of \(groups.count)")
     }
+    @Test func inlineHistoryPagesStayOrderedAndLeaveTheLiveTailSubscribed() async throws {
+        struct Directory: Decodable { let machines: [MachineEntry] }
+        struct Reading: Decodable {
+            struct Row: Decodable { let id: String; let seq: Int }
+            let active: Bool; let items: [Row]
+        }
+        let directory = try ProductionApp.storageDirectory()
+        let saved = try JSONDecoder().decode(Directory.self, from: Data(contentsOf: ProductionApp.machineDirectory(in: directory)))
+        let target = try #require(saved.machines.first?.connectionTarget)
+        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let model = ClientModel(now: { Date().timeIntervalSince1970 * 1000 })
+        await model.connect(target: target, directory: temporary)
+        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: temporary) } }
+        for _ in 0..<200 where model.connection != "ready" { try await Task.sleep(for: .milliseconds(100)) }
+        let id = "01a15b0e-7eef-705b-a011-fde54ae8afd1"
+        model.open(id)
+        for _ in 0..<200 where model.thread?.loaded != true { try await Task.sleep(for: .milliseconds(100)) }
+        try #require(model.thread?.loaded == true)
+        let hold = try await model.service(["type": "native.transcript", "threadId": id, "operation": "hold"], as: Reading.self)
+        let first = try #require(hold.items.first?.seq)
+        var oldest = first
+        for _ in 0..<2 {
+            let page = try await model.service(["type": "native.transcript", "threadId": id, "operation": "older"], as: Reading.self)
+            #expect(page.active)
+            #expect(page.items.count <= 2200)
+            #expect(Set(page.items.map(\.id)).count == page.items.count)
+            #expect(zip(page.items, page.items.dropFirst()).allSatisfy { $0.seq < $1.seq })
+            let next = try #require(page.items.first?.seq)
+            #expect(next < oldest, "Each upward page must reach earlier creation sequences")
+            oldest = next
+            #expect(model.thread?.loaded == true && (model.thread?.items.count ?? 0) <= 200)
+        }
+        let live = try await model.service(["type": "native.transcript", "threadId": id, "operation": "live"], as: Reading.self)
+        #expect(!live.active)
+    }
     @Test func anEarlierMessageCanBeReadWithoutReplacingTheLiveConversation() async throws {
         struct Directory: Decodable { let machines: [MachineEntry] }
         struct Window: Decodable {

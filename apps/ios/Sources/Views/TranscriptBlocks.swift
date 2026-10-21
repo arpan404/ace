@@ -180,9 +180,7 @@ struct WorkBlockView: View {
     var openMessage: ((TranscriptRow) -> Void)? = nil
     @State private var expanded = false
     var body: some View {
-        if row.work?.ongoing == true, let groups = row.groups {
-            WorkProgressView(groups: groups, thread: thread, openMessage: openMessage)
-        } else { settled }
+        settled
     }
     private var settled: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
@@ -210,12 +208,11 @@ struct WorkBlockView: View {
             .accessibilityValue(expanded ? "Expanded" : "Collapsed")
             .accessibilityHint(expanded ? "Hides the steps" : "Shows the steps")
             .accessibilityIdentifier("work.toggle")
-            if let work = row.work, work.ongoing, !work.current.isEmpty, !expanded {
-                Text(work.current).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.StatusText.working).lineLimit(1)
-            }
             if expanded {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
-                    if let ordinal = row.ordinal, let steps {
+                    if row.work?.ongoing == true, let groups = row.groups {
+                        WorkProgressView(groups: groups, thread: thread, openMessage: openMessage)
+                    } else if let ordinal = row.ordinal, let steps {
                         DaemonSteps(ordinal: ordinal, blockId: blockId, links: steps)
                     } else {
                         ForEach(row.items, id: \.self) { id in

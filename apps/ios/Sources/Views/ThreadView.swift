@@ -8,14 +8,12 @@ struct ThreadView: View {
     @Bindable var thread: ThreadModel
     /// Push another thread (a delegated child or a conversation this one started).
     let openThread: (String) -> Void
+    @State private var acceptedSend = 0
     @State private var attachProblem: String?
     @State private var showWork = false
     @State private var showDetails = false
     @State private var showModels = false
     @State private var lane: BlockRow.Agents.Entry?
-    @State private var scrolledToTail = false
-    @State private var followsTail = true
-    @State private var readingByTouch = false
     @State private var showFiles = false
     @State private var media: TranscriptRow?
     @State private var fullMessage: TranscriptRow?
@@ -26,7 +24,6 @@ struct ThreadView: View {
     @State private var showTerminal = false
     @State private var showBrowser = false
     @State private var showSearch = false
-    @State private var showHistory = false
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
     private var metadata: ThreadRow? { thread.metadata ?? thread.placeholder?.metadata ?? model.inbox[thread.id] }
@@ -43,88 +40,8 @@ struct ThreadView: View {
     /// An archived thread opens read-only (from the archive browser) until it's unarchived.
     private var archived: Bool { (model.inbox[thread.id] ?? metadata)?.archivedAt != nil }
     var body: some View {
-        ScrollViewReader { proxy in
-            List {
-                let shown = thread.placeholder ?? thread
-                if thread.loaded || thread.placeholder != nil {
-                    if shown.screen.hasOlder, !shown.order.isEmpty {
-                        Button("Earlier messages", systemImage: "clock.arrow.circlepath") { showHistory = true }
-                            .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                            .frame(minHeight: AceTheme.Dimensions.touchTarget)
-                            .transcriptControlRow()
-                            .accessibilityIdentifier("transcript.history")
-                    }
-                    let links = TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: screen, epoch: thread.epoch), openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { fullMessage = $0 })
-                    ForEach(shown.screen.blockOrder, id: \.self) { id in
-                        if let block = shown.screen.blocks[id] {
-                            TranscriptBlockRows(block: block, thread: shown, links: links)
-                        }
-                    }
-                } else {
-                    ConversationSkeleton()
-                        .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
-                        .listRowInsets(EdgeInsets(top: AceTheme.Spacing.lg, leading: AceTheme.Spacing.xl, bottom: AceTheme.Spacing.lg, trailing: AceTheme.Spacing.xl))
-                }
-                ForEach(model.pending.values.filter { $0.threadId == thread.id && $0.state != "delivered" && thread.items["input:\($0.id)"] == nil }.sorted { $0.id < $1.id }) { row in
-                    PendingSendRow(row: row, canRetry: model.canOperate) { await model.retrySend(row) }.listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
-                }
-                if thread.loaded || thread.placeholder != nil {
-                    ThreadTailChips(metadata: metadata) { showChanges = true }.transcriptControlRow()
-                }
-                TranscriptTail(thread: thread, following: followsTail) { proxy.scrollTo("tail", anchor: .bottom) }
-                    .listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
-                    .listRowInsets(EdgeInsets())
-            }
-            .listStyle(.plain).listRowSpacing(AceTheme.Spacing.none).scrollContentBackground(.hidden)
-            .environment(\.defaultMinListRowHeight, AceTheme.Spacing.none)
-            .contentMargins(.vertical, AceTheme.Spacing.lg, for: .scrollContent)
-            .onScrollPhaseChange { _, phase, context in
-                switch phase {
-                case .tracking, .interacting:
-                    readingByTouch = true
-                    followsTail = false
-                case .decelerating:
-                    readingByTouch = true
-                case .idle:
-                    readingByTouch = false
-                    let geometry = context.geometry
-                    followsTail = geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height + geometry.contentInsets.bottom - AceTheme.Spacing.xxl
-                case .animating: break
-                @unknown default: break
-                }
-            }
-            .onScrollGeometryChange(for: Bool.self) { geometry in
-                geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height + geometry.contentInsets.bottom - AceTheme.Spacing.xxl
-            } action: { _, atBottom in
-                if readingByTouch { followsTail = atBottom }
-            }
-            .accessibilityIdentifier("transcript")
-            .accessibilityValue(thread.loaded ? "Ready" : "Loading")
-            .overlay(alignment: .bottomTrailing) {
-                if !followsTail {
-                    Button {
-                        followsTail = true
-                        proxy.scrollTo("tail", anchor: .bottom)
-                    } label: {
-                        Image(systemName: "arrow.down")
-                            .frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)
-                            .background(AceTheme.Colours.secondaryBackground, in: Circle())
-                            .overlay(Circle().stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
-                    }
-                    .buttonStyle(.plain).accessibilityLabel("Jump to latest").accessibilityIdentifier("transcript.latest")
-                    .padding(AceTheme.Spacing.lg)
-                }
-            }
-            .background(AceTheme.Colours.background)
-            .scrollDismissesKeyboard(.interactively)
-            .onChange(of: thread.loaded) { _, loaded in
-                if loaded && !scrolledToTail { proxy.scrollTo("tail", anchor: .bottom); scrolledToTail = true }
-            }
-            .onChange(of: ObjectIdentifier(thread)) { scrolledToTail = false; followsTail = true }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-                followsTail = true
-                proxy.scrollTo("tail", anchor: .bottom)
-            }
+        ConversationFeed(model: model, thread: thread, metadata: metadata, acceptedSend: acceptedSend,
+                         links: TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: screen, epoch: thread.epoch), openMedia: { media = $0 }, openChanges: { showChanges = true }, openMessage: { fullMessage = $0 }))
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
                 VStack(spacing: AceTheme.Spacing.none) {
                     // One card at a time above the composer: the oldest open request.
@@ -161,7 +78,11 @@ struct ThreadView: View {
                         ServiceProblem(message: attachProblem)
                         ComposerView(controls: screen.controls, stopping: screen.stopping,
                                      placeholder: thread.approvals.isEmpty ? "Ask a follow-up" : "Reply instead…",
-                                     send: { await model.sendMessage($0, alternate: $1) }, stop: { model.stopTree() },
+                                     send: { text, alternate in
+                                         let saved = await model.sendMessage(text, alternate: alternate)
+                                         if saved { acceptedSend += 1 }
+                                         return saved
+                                     }, stop: { model.stopTree() },
                                      inputBegan: { model.metrics?.inputBegan() }, mention: mention,
                                      files: screen.attachments.count) {
                             AttachMenu(stage: { model.attach($0) }, problem: $attachProblem)
@@ -177,6 +98,7 @@ struct ThreadView: View {
                             }
                     }
                 }
+                .background(AceTheme.Colours.background.ignoresSafeArea(edges: .bottom))
             }
             .toolbar { chatToolbar }
             .toolbarBackground(AceTheme.Colours.background, for: .navigationBar)
@@ -202,9 +124,6 @@ struct ThreadView: View {
             .sheet(item: $fullMessage) { item in FullMessageView(model: model, threadId: thread.id, item: item) }
             .sheet(item: $media) { item in
                 NavigationStack { NativeMediaView(model: model, threadId: thread.id, item: item) }.presentationDetents([.large]).presentationDragIndicator(.visible)
-            }
-            .sheet(isPresented: $showHistory) {
-                NavigationStack { ConversationHistoryView(model: model, threadId: thread.id, title: metadata?.title ?? "History", itemId: thread.order.first) }
             }
             .sheet(isPresented: $showSearch) {
                 NavigationStack { ConversationSearchView(model: model, threadId: thread.id, openThread: { id in showSearch = false; openThread(id) }) }
@@ -238,7 +157,6 @@ struct ThreadView: View {
                 }
             }
             #endif
-        }
     }
     /// Restarts the browser follow on a new visit, a new turn or a return to the foreground.
     private var browserFollow: Int? {
@@ -281,8 +199,6 @@ struct ThreadView: View {
     private var menu: some View {
         Menu {
             Button("Search conversation", systemImage: "magnifyingglass") { showSearch = true }
-            Button("Conversation history", systemImage: "clock.arrow.circlepath") { showHistory = true }
-                .accessibilityIdentifier("thread.history")
             Button("Changes", systemImage: "plusminus") { showChanges = true }.accessibilityIdentifier("thread.changes")
             Button("Terminal", systemImage: "terminal") { showTerminal = true }.accessibilityIdentifier("thread.terminal")
             Button("Files", systemImage: "folder") { showFiles = true }.accessibilityIdentifier("thread.files")
@@ -332,7 +248,7 @@ struct ThreadView: View {
 }
 
 /// A message saved on the phone that hasn't reached the transcript yet, from the SDK's state.
-private struct PendingSendRow: View {
+struct PendingSendRow: View {
     let row: PendingRow
     let canRetry: Bool
     let retry: () async -> Bool

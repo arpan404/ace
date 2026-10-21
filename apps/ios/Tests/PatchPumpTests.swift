@@ -174,6 +174,11 @@ import Testing
         context.setObject(tail, forKeyedSubscript: "nativeTail" as NSString)
         context.setObject(emit, forKeyedSubscript: "nativeEmit" as NSString)
         context.setObject(encode, forKeyedSubscript: "nativeEncode" as NSString)
+        let parseURL: @convention(block) (String) -> String = { text in
+            guard let parsed = ParsedURL.parse(text), let data = try? JSONEncoder().encode(parsed) else { return "" }
+            return String(decoding: data, as: UTF8.self)
+        }
+        context.setObject(parseURL, forKeyedSubscript: "nativeParseURL" as NSString)
         context.evaluateScript("""
           let time = 0, nextID = 0;
           const timers = new Map();
@@ -181,7 +186,7 @@ import Testing
             now: () => time, uuid: () => String(++nextID),
             timer: (id, delay, run) => timers.set(id, {at: time + delay, run}),
             cancelTimer: id => timers.delete(id), emit: nativeEmit, utf8Base64: nativeEncode, encode: nativeBytes,
-            previewHead: nativeHead, previewTail: nativeTail
+            previewHead: nativeHead, previewTail: nativeTail, parseURL: nativeParseURL
           };
           function advance() {
             const pending = [...timers].sort((a,b) => a[1].at-b[1].at)[0];
