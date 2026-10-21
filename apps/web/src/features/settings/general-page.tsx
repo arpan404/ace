@@ -6,6 +6,7 @@ import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { useEditors } from "@/lib/editors.ts";
 import { useProfileName } from "@/lib/profile.ts";
 import { usePreferredPlace, type PanelPlace } from "@/lib/workspace/index.ts";
+import { BrowserDeviceSettings } from "./browser-device-settings.tsx";
 import { DaemonSettings } from "./daemon-settings.tsx";
 import { DesktopAppPreferences } from "./desktop-app.tsx";
 import { settingRow } from "./settings-index.ts";
@@ -17,7 +18,8 @@ const places: { value: PanelPlace; label: string }[] = [
 
 /**
  * What only this device keeps: the desktop app's login item and background behaviour, your
- * name, where terminals and files open, and which computer this window talks to. Agent
+ * name, where terminals and files open, how browser pages show, and which computer this window
+ * talks to. Agent
  * defaults belong to a machine (Settings › Agents).
  */
 export function GeneralSettings() {
@@ -31,6 +33,7 @@ export function GeneralSettings() {
         <TerminalPlaceRow />
         <EditorRow />
       </SettingSection>
+      <BrowserDeviceSettings />
       <DaemonSettings />
     </>
   );

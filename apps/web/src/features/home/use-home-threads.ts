@@ -14,7 +14,7 @@ import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useOrganizeOverlay, useOrganizerState } from "@/features/organize/index.ts";
 import { usePendingActions } from "@/lib/pending-actions.ts";
 
-/** How Home orders the threads below Pinned (Settings › General › Sort threads). */
+/** How Home orders the threads below Pinned (Settings › Agents › Sort threads). */
 export function useHomeSort(): HomeSort {
   const [sortBy] = useDaemonSetting("threads.sortBy");
   return sortBy ?? "activity";

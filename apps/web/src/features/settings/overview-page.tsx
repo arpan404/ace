@@ -29,7 +29,7 @@ export function OverviewSettings() {
     <>
       <SettingSection label={machines.length > 1 ? "Machines" : "This machine"}>
         {machines.map((machine) => (
-          <MachineOverview key={machine.id} machine={machine} />
+          <MachineOverview key={machine.primary ? "primary" : machine.id} machine={machine} />
         ))}
       </SettingSection>
       <DevicesOverview machineCount={machines.length} />

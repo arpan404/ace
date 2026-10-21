@@ -18,6 +18,7 @@ import { settingRow } from "./settings-index.ts";
 import { Skeleton, ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { RediscoverButton } from "./rediscover-button.tsx";
 import { SettingsBody } from "./settings-body.tsx";
+import { useSettingsMachine } from "./machine-scope.tsx";
 import { SettingsPageLinks } from "./settings-nav.tsx";
 
 /* One screen per Settings page: its title, lede and actions around the page body. */
@@ -100,7 +101,7 @@ export function ProviderSettingsScreen() {
     <SettingsBody
       page="Providers"
       titleActions={<RediscoverButton />}
-      lede="The coding agents on this computer. ace runs each one with its own sign-in."
+      lede="The coding agents on this machine. ace runs each one with its own sign-in."
     >
       <Suspense
         fallback={<ListSkeleton label="provider CLIs" shape="row" rows={5} className="mt-7" />}
@@ -166,10 +167,13 @@ export function AdvancedSettingsScreen() {
 const ComputerUseSettings = lazy(loadComputerUseSettings);
 
 export function ComputerUseSettingsScreen() {
+  const { machine } = useSettingsMachine();
   return (
     <SettingsBody page="Computer use">
       <Suspense fallback={null}>
-        <ComputerUseSettings />
+        <ComputerUseSettings
+          remoteMachine={machine && !machine.primary ? machine.name : undefined}
+        />
       </Suspense>
     </SettingsBody>
   );

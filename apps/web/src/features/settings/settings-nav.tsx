@@ -50,7 +50,7 @@ export function SettingsPageLinks(props: { pages?: readonly SettingsPath[] }) {
                 {title}
               </h3>
             )}
-            {group === "machine" && !props.pages && <MachinePicker />}
+            {group === "machine" && <MachinePicker />}
             <PageList pages={inGroup} current={current} />
           </section>
         );

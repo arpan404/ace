@@ -68,9 +68,9 @@ test("when the daemon's Downloads folder can't be used, Settings says downloads 
 test("the desktop app's own browser keeps its downloads folder in the app, chosen with its picker", async () => {
   const machine = desktop("/Users/me/Desktop/From ace");
   const app = harness();
-  await app.open("/settings/browser");
-  await screen.findByText("Desktop app");
-  const card = section(/^Desktop app$/);
+  await app.open("/settings/general");
+  await screen.findByText("Desktop app downloads");
+  const card = section(/^Desktop app downloads$/);
   expect(card.getByText("Your Downloads folder")).toBeTruthy();
 
   await userEvent.click(card.getByRole("button", { name: "Choose folder…" }));
@@ -101,6 +101,12 @@ test("in a browser there is no app folder to choose, and the person's Chrome dec
   const app = harness();
   await app.open("/settings/browser");
   await screen.findByRole("textbox", { name: "Downloads folder for ace's Chrome" });
-  expect(screen.queryByText("Desktop app")).toBeNull();
   expect(screen.getByText("Your Chrome saves them where it always does.")).toBeTruthy();
+  await userEvent.click(
+    within(screen.getByRole("navigation", { name: "Settings pages" })).getByRole("link", {
+      name: "General",
+    }),
+  );
+  await screen.findByRole("switch", { name: "Picture in picture" });
+  expect(screen.queryByText("Desktop app downloads")).toBeNull();
 });

@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { z } from "zod";
 import { useDaemonConnection } from "@/boot/connection.tsx";
+import { useHostIdentity } from "@/lib/host-name.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { refreshProviders } from "@/lib/provider-readiness.ts";
 import { CliInstallController } from "./cli-install-controller.ts";
@@ -14,7 +15,10 @@ export function useInstall(provider: ProviderKind, acpAgentId?: string) {
   const queries = useQueryClient();
   const { storage } = useLayout();
   const { url } = useDaemonConnection();
-  const origin = new URL(url).origin;
+  // The machine the install runs on: Settings may point this client at another machine than the
+  // window's own, so its host id names it; the window's address only until that is known.
+  const hostId = useHostIdentity()?.hostId;
+  const origin = hostId ?? new URL(url).origin;
   const controller = useMemo(() => {
     const key = `ace.provider.install.${encodeURIComponent(origin)}.${provider}.${acpAgentId ?? "default"}`;
     return new CliInstallController(

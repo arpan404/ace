@@ -347,19 +347,19 @@ const entries = [
   },
   {
     id: "browser.deviceToolbar",
-    page: "/settings/browser",
+    page: "/settings/general",
     title: "Device toolbar in new tabs",
     keywords: ["responsive", "mobile", "emulation", "viewport"],
   },
   {
     id: "browser.pip",
-    page: "/settings/browser",
+    page: "/settings/general",
     title: "Picture in picture",
     keywords: ["pip", "floating", "mini player", "video", "float"],
   },
   {
     id: "browser.revealAgentPages",
-    page: "/settings/browser",
+    page: "/settings/general",
     title: "Open the browser panel when an agent opens a page",
     keywords: ["side panel", "auto open", "reveal", "browser_open", "sheet"],
   },

@@ -26,7 +26,7 @@ const slot = { "data-setting-slot": "" } as const;
 /**
  * Settings-style row: title and description on the left, the control on the right. Hairlines
  * separate rows. Labels and controls keep the same edges at narrow widths. `id` makes the row
- * a deep link: `/settings/general#threads.useWorktree` scrolls to it and flashes it.
+ * a deep link: `/settings/agents#threads.useWorktree` scrolls to it and flashes it.
  */
 export function SettingRow(props: {
   title: ReactNode;

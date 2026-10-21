@@ -8,7 +8,6 @@ import { DataTable, type DataColumns } from "@/components/data-table.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { useDaemonConnection } from "@/boot/connection.tsx";
 
 /**
  * Request/response daemon reads go through TanStack Query, wrapping @ace/client request APIs.
@@ -51,7 +50,6 @@ export function DaemonHealth() {
   const client = useClient();
   const identity = useHostIdentity();
   const host = identity?.displayName ?? "This machine";
-  const connection = useDaemonConnection();
   const toast = useToast();
   const ready = useConnectionState() === "ready";
   const health = useQuery({
@@ -80,7 +78,12 @@ export function DaemonHealth() {
     );
   const data = health.data;
   const copy = () => {
-    const report = JSON.stringify({ url: connection.url, health: data }, null, 2);
+    // The machine this page reads, not this window's own: Settings may be editing another.
+    const report = JSON.stringify(
+      { machine: host, hostId: identity?.hostId, health: data },
+      null,
+      2,
+    );
     const copied = navigator.clipboard?.writeText(report) ?? Promise.reject(new Error());
     void copied.then(
       () => toast.add({ title: "Diagnostics copied" }),

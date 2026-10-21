@@ -100,3 +100,17 @@ test("what a thread does at a usage limit is stored on the daemon and said under
     await screen.findByText("At the limit it moves to another account if one is available."),
   ).toBeTruthy();
 });
+
+test("with another machine picked, Computer use leaves screen access to that machine and keeps its own settings", async () => {
+  const { app } = withBuildServer();
+  await app.open("/settings/computer-use");
+  await screen.findByRole("switch", { name: "Let agents use apps" });
+  await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
+  await pickMachine("Build server");
+  expect(
+    await screen.findByText("Turned on in ace on Build server, where macOS asks for access."),
+  ).toBeTruthy();
+  expect(screen.queryByRole("switch", { name: "Let agents use apps" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "macOS permissions" })).toBeNull();
+  expect(screen.getByRole("switch", { name: "Show emulator window" })).toBeTruthy();
+}, 30_000);

@@ -14,10 +14,6 @@ const stateLabels = {
   fatal: "Disconnected",
 } as const;
 
-/**
- * Which computer this window talks to, and a way to point it elsewhere. It belongs to this
- * device: another window may use another computer. Diagnostics live under Advanced.
- */
 /** The address without its scheme or path: what the person typed when they connected. */
 function hostOf(url: string): string {
   try {
@@ -27,6 +23,10 @@ function hostOf(url: string): string {
   }
 }
 
+/**
+ * Which computer this window talks to, and a way to point it elsewhere. It belongs to this
+ * device: another window may use another computer. Diagnostics live under Advanced.
+ */
 export function DaemonSettings() {
   const connection = useDaemonConnection();
   const state = useConnectionState();

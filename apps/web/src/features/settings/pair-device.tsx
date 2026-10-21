@@ -159,7 +159,7 @@ function PairingFlow(props: { close(): void }) {
   );
 }
 
-/** Remote devices' add row opens the same flow as /pair. */
+/** Machines and devices' add row opens the same flow as /pair. */
 export function PairDevice() {
   const [open, setOpen] = useState(false);
   return (
