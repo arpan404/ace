@@ -1,5 +1,14 @@
 import { useState } from "react";
-import { EyeIcon, GitPullRequestIcon, UserIcon, UsersIcon } from "@phosphor-icons/react";
+import {
+  CheckCircleIcon,
+  CircleDashedIcon,
+  ClockIcon,
+  EyeIcon,
+  GitPullRequestIcon,
+  UserIcon,
+  UsersIcon,
+  XCircleIcon,
+} from "@phosphor-icons/react";
 import type { ForgePrRow } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
@@ -16,6 +25,8 @@ import { ListFrame } from "./list-frame.tsx";
 import { usePrPages } from "./lists.ts";
 import { PrPanel } from "./pr-panel.tsx";
 import { PrRow } from "./pr-row.tsx";
+import { useReadyPages } from "./ready-pages.ts";
+import { rankByReadiness } from "./ready-ranking.ts";
 import { useProjectChoice } from "./project-choice.ts";
 import {
   groupPrs,
@@ -32,6 +43,12 @@ const groupIcons = {
   reviewing: EyeIcon,
   others: UsersIcon,
   all: GitPullRequestIcon,
+  ready: CheckCircleIcon,
+  checks: ClockIcon,
+  review: EyeIcon,
+  changes: XCircleIcon,
+  other: CircleDashedIcon,
+  drafts: GitPullRequestIcon,
 } as const;
 const unique = (values: readonly string[]) =>
   [...new Set(values)].toSorted((a, b) => a.localeCompare(b));
@@ -130,11 +147,17 @@ export function PullRequestsPage(props: {
   const listKey = JSON.stringify([project, query]);
   const [paging, setPaging] = useState({ key: listKey, pages: 1 });
   const pages = paging.key === listKey ? paging.pages : 1;
-  const list = usePrPages(project, query, pages);
+  const sort: PullsSort = search.sort ?? "ready";
+  const listed = usePrPages(project, query, pages);
+  // "Ready to merge" ranks the whole repository, so it reads its own pages, readiest first.
+  const ranked = useReadyPages(project, search, sort === "ready");
+  const list = sort === "ready" ? ranked : listed;
   const linked = useLinkedThreads().pulls;
   const keys = useViewListKeys<HTMLElement>();
-  const sort: PullsSort = search.sort ?? "ready";
-  const groups = groupPrs(sortPrs(list.rows, sort), list.first?.viewer);
+  const groups =
+    sort === "ready"
+      ? rankByReadiness(list.rows)
+      : groupPrs(sortPrs(list.rows, sort), list.first?.viewer);
   const counts = list.first?.counts;
   const stateOptions = [
     { value: "open" as const, label: counts ? `Open ${counts.open + counts.draft}` : "Open" },
@@ -266,7 +289,11 @@ export function PullRequestsPage(props: {
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => setPaging({ key: listKey, pages: pages + 1 })}
+                onClick={() =>
+                  sort === "ready"
+                    ? ranked.loadMore()
+                    : setPaging({ key: listKey, pages: pages + 1 })
+                }
               >
                 Show more
               </Button>

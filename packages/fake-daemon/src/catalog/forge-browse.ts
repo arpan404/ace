@@ -30,7 +30,8 @@ const repository: ForgeRepository = {
   name: "ace",
 };
 
-interface PrSketch {
+/** A pull request of `acme/ace` in a few facts, made whole by `sketchPullRequests`. */
+export interface PrSketch {
   number: number;
   title: string;
   state: "open" | "draft" | "merged" | "closed";
@@ -214,6 +215,14 @@ export function browsePullRequests(now: number): PullRequestFixture[] {
       files: [["packages/history-import/src/worker.ts", 88, 12]],
     },
   ];
+  return sketches.map((pr) => sketched(now, pr));
+}
+
+/** Whole pull requests of `acme/ace` from sketches, for a scenario's own catalog. */
+export function sketchPullRequests(
+  now: number,
+  sketches: readonly PrSketch[],
+): PullRequestFixture[] {
   return sketches.map((pr) => sketched(now, pr));
 }
 

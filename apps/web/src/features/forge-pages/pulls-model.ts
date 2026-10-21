@@ -57,27 +57,20 @@ export function prQuery(search: PullsSearch, page: number): ForgePrSearch {
   });
 }
 
-/** Mergeable now as far as the list can tell: open, not a draft, approved or needing no review, checks green, no conflicts. */
-export function readyToMerge(row: ForgePrRow): boolean {
-  return (
-    row.state === "open" &&
-    !row.conflicting &&
-    (row.ci === "success" || row.ci === "none") &&
-    (row.reviewDecision === "APPROVED" || row.reviewDecision === null)
-  );
-}
-
 const size = (row: ForgePrRow) => (row.additions ?? 0) + (row.deletions ?? 0);
 const updated = (a: ForgePrRow, b: ForgePrRow) => b.updatedAt.localeCompare(a.updatedAt);
 
-/** The loaded rows in the chosen order; ties keep the newest activity first. */
-export function sortPrs(rows: readonly ForgePrRow[], sort: PullsSort): ForgePrRow[] {
-  if (sort === "updated") return rows.toSorted(updated);
+/**
+ * The loaded rows by size or newest activity; ties keep the newest first. "Ready to merge"
+ * ranks the whole repository instead (`rankByReadiness`).
+ */
+export function sortPrs(
+  rows: readonly ForgePrRow[],
+  sort: Exclude<PullsSort, "ready">,
+): ForgePrRow[] {
   if (sort === "largest") return rows.toSorted((a, b) => size(b) - size(a) || updated(a, b));
   if (sort === "smallest") return rows.toSorted((a, b) => size(a) - size(b) || updated(a, b));
-  return rows.toSorted(
-    (a, b) => Number(readyToMerge(b)) - Number(readyToMerge(a)) || updated(a, b),
-  );
+  return rows.toSorted(updated);
 }
 
 export interface RowGroup<T> {

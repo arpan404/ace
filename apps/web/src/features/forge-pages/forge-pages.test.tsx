@@ -33,9 +33,22 @@ async function pick(menu: RegExp, option: RegExp) {
   await userEvent.click(await screen.findByRole("menuitemradio", { name: option }));
 }
 
-test("open pull requests are grouped as yours, waiting on your review, and the rest", async () => {
+test("by default open pull requests are ranked by how close they are to merging", async () => {
   const app = withRepository();
   await app.open("/pulls?project=ace");
+  await waitFor(async () =>
+    expect(await groups("Pull requests")).toEqual({
+      Ready: ["224"],
+      "Waiting on review": ["231"],
+      "Needs changes": ["229", "226"],
+      Drafts: ["227"],
+    }),
+  );
+});
+
+test("sorted by activity, open pull requests are grouped as yours, waiting on your review, and the rest", async () => {
+  const app = withRepository();
+  await app.open("/pulls?project=ace&sort=updated");
   await waitFor(async () =>
     expect(await groups("Pull requests")).toEqual({
       "Authored by you": ["231", "227"],

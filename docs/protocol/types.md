@@ -32235,7 +32235,7 @@ Example:
   "operation": {
     "op": "forge.pr.list",
     "query": {
-      "ci": "success",
+      "ci": "pending",
       "page": 8,
       "search": "example",
       "state": "merged"

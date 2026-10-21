@@ -63,21 +63,34 @@ function useListPages<L extends ForgePrList | ForgeIssueList>(
 
 const withoutPage = <T extends { page: number }>(query: T) => ({ ...query, page: 0 });
 
+/** The cache key of one page of a PR search: every reader of that page shares it. */
+export const prPageKey = (project: string | undefined, query: ForgePrSearch, page: number) =>
+  ["forge", project, "browse", "prList", withoutPage(query), page] as const;
+
+/** One page of 25 of a project's pull requests matching `query`. */
+export async function readPrPage(
+  client: ClientApi,
+  project: string,
+  query: ForgePrSearch,
+  page: number,
+  signal: AbortSignal,
+): Promise<ForgePrList> {
+  const value = await readForge(
+    client,
+    { op: "forge.pr.list", workspaceId: project, query: { ...query, page } },
+    signal,
+  );
+  if (value.resource !== "prList") throw new Error("No pull request list.");
+  return value.value;
+}
+
 /** A project's pull requests matching `query`, `pages` pages of 25. */
 export function usePrPages(project: string | undefined, query: ForgePrSearch, pages: number) {
   return useListPages<ForgePrList>(
     ["prList", withoutPage(query)],
     project,
     pages,
-    async (client, page, signal) => {
-      const value = await readForge(
-        client,
-        { op: "forge.pr.list", workspaceId: project ?? "", query: { ...query, page } },
-        signal,
-      );
-      if (value.resource !== "prList") throw new Error("No pull request list.");
-      return value.value;
-    },
+    (client, page, signal) => readPrPage(client, project ?? "", query, page, signal),
   );
 }
 

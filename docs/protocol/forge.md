@@ -2746,7 +2746,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | state | no | ["open","draft","closed","merged","active","all"] | {"default":"open"} |
-| ci | no | ["any","failure","success"] | {"default":"any"} |
+| ci | no | ["any","failure","success","pending"] | {"default":"any"} |
 | search | no | string | {"default":"","maxLength":256} |
 | author | no | [ForgeSearchLogin.json](schema/ForgeSearchLogin.json) |  |
 | reviewer | no | [ForgeSearchLogin.json](schema/ForgeSearchLogin.json) |  |

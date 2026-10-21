@@ -13,7 +13,8 @@
       "enum": [
         "any",
         "failure",
-        "success"
+        "success",
+        "pending"
       ],
       "type": "string"
     },

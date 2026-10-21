@@ -35,8 +35,8 @@ export const ForgeFilePageInput = z.object({
 export const ForgePrSearch = z.object({
   /** `open` leaves drafts out; `active` is every open PR, drafts included; `all` is every state. */
   state: z.enum(["open", "draft", "closed", "merged", "active", "all"]).default("open"),
-  /** `failure`: only PRs whose head commit's checks failed. */
-  ci: z.enum(["any", "failure", "success"]).default("any"),
+  /** GitHub's combined status of the head commit: failing, passing or still running. */
+  ci: z.enum(["any", "failure", "success", "pending"]).default("any"),
   search: z.string().max(256).default(""),
   author: ForgeSearchLogin,
   /** Review requested from this login. */

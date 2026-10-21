@@ -17,18 +17,6 @@ const row = (number: number, patch: Partial<ForgePrRow>): ForgePrRow =>
     ...patch,
   });
 
-test("pull requests ready to merge lead the list, the rest by newest activity", () => {
-  const rows = [
-    row(1, {}),
-    row(2, { ci: "failure" }),
-    row(3, { conflicting: true }),
-    row(4, { reviewDecision: "REVIEW_REQUIRED" }),
-    row(5, { reviewDecision: null }),
-    row(6, { state: "draft" }),
-  ];
-  expect(sortPrs(rows, "ready").map((pr) => pr.ref.number)).toEqual([5, 1, 6, 4, 3, 2]);
-});
-
 test("largest and smallest order by lines changed", () => {
   const rows = [
     row(1, { additions: 5, deletions: 5 }),
