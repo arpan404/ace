@@ -135,6 +135,25 @@ test("a broken service manager is reported instead of silently treated as stoppe
     ),
   ).rejects.toThrow();
 });
+test("Linux without a systemd user session says so and how to run the daemon instead", async () => {
+  const p = planService({
+    platform: "linux",
+    home: "/home/a",
+    dataDir: "/home/a/.ace",
+    executable: "/home/a/.ace/bin/ace",
+    path: "/bin",
+    uid: 1000,
+  });
+  const noSession = new UserService(p, async () => ({
+    code: 1,
+    stdout: "",
+    stderr: "Failed to connect to bus: No medium found\n",
+  }));
+  for (const action of ["status", "install", "start"] as const)
+    await expect(noSession.perform(action)).rejects.toThrow(
+      /needs a systemd user session .* `ace start`/,
+    );
+});
 test("service environment preserves daemon network settings while excluding provider secrets", () => {
   const environment = ServiceEnvironment.parse({
     ACE_PORT: "4545",
