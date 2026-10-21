@@ -37,7 +37,7 @@ import { PrDialogs, type PrDialog } from "./pr-dialogs.tsx";
 import { PrWriteStatus } from "./pr-write-status.tsx";
 import { PrFailure } from "./pr-detail-states.tsx";
 import { PrPageSkeleton, type PrSeed } from "./pr-page-skeleton.tsx";
-import { PrGatesRow } from "./pr-gates-row.tsx";
+import { PrGatesLine, PrGatesRow } from "./pr-gates-row.tsx";
 import { prShortcut } from "./pr-shortcuts.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { openExternal } from "@/boot/open-external.ts";
@@ -317,7 +317,7 @@ function PrDetailLoaded(props: {
                   extensions={props.extensions}
                   behindOpen={behindOpen}
                   onBehindOpen={setBehindOpen}
-                  gates={<PrGatesRow actions={actions} onSelect={onGate} />}
+                  gates={<PrGatesLine actions={actions} onSelect={onGate} />}
                   onBack={props.onBack}
                   menu={menu}
                 />
@@ -359,7 +359,8 @@ function PrDetailLoaded(props: {
           onScroll={onScroll}
           readable={readable}
           context={{
-            summary: <SummaryContext detail={detail} />,
+            // On a page the Summary needs no counter; how many files are viewed is Code's.
+            summary: props.page ? null : <SummaryContext detail={detail} />,
             timeline: (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <span

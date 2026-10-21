@@ -49,6 +49,8 @@ export function PrPeople(props: {
         onClick={props.onEdit}
       />
     ));
+  // Nobody asked and no labels: nothing to show. Request review and Edit live in the ⋯ menu.
+  if (!detail.reviewers.length && !detail.labels.length) return null;
   return (
     <div
       id="pr-reviewers"
@@ -80,7 +82,7 @@ export function PrPeople(props: {
             })}
           </span>
         ) : (
-          <span className="text-xs text-muted-foreground">No reviewers</span>
+          <span className="text-xs text-muted-foreground">No reviewers yet</span>
         )}
         {reviewerPicker}
       </div>

@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn.ts";
 import { PrMarkdown } from "./pr-markdown.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrSection } from "./pr-section.tsx";
-import { PrReactions } from "./pr-reactions.tsx";
+import { PrReactionPicker, PrReactions } from "./pr-reactions.tsx";
 
 /**
  * The PR's description as markdown, clamped to four whole lines with Show more when it runs
@@ -38,16 +38,20 @@ export function PrDescription(props: {
   return (
     <PrSection
       title="Description"
+      fixed
       action={
-        edit && (
-          <IconButton
-            icon={PencilSimpleIcon}
-            label="Edit description"
-            size="sm"
-            disabled={props.context.disabled}
-            onClick={edit}
-          />
-        )
+        <>
+          <PrReactionPicker subject={{ kind: "pr" }} />
+          {edit && (
+            <IconButton
+              icon={PencilSimpleIcon}
+              label="Edit description"
+              size="sm"
+              disabled={props.context.disabled}
+              onClick={edit}
+            />
+          )}
+        </>
       }
     >
       {body.trim() ? (
@@ -80,7 +84,7 @@ export function PrDescription(props: {
       ) : (
         <p className="text-ui text-muted-foreground italic">No description provided.</p>
       )}
-      <PrReactions subject={{ kind: "pr" }} className="mt-1.5" />
+      <PrReactions subject={{ kind: "pr" }} className="mt-1.5" onlyWhenAny />
     </PrSection>
   );
 }

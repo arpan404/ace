@@ -1,11 +1,16 @@
-import { ArrowSquareOutIcon, ChatsCircleIcon, CopyIcon } from "@phosphor-icons/react";
+import {
+  ArrowSquareOutIcon,
+  ChatsCircleIcon,
+  CopyIcon,
+  DotsThreeIcon,
+} from "@phosphor-icons/react";
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ForgeIssueDetail } from "@ace/protocol";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { openExternal } from "@/boot/open-external.ts";
 import { RelativeTime as PrTime } from "@/components/person-avatar.tsx";
@@ -25,91 +30,97 @@ import { useProjectChoice } from "./project-choice.ts";
 /** A page's reading width, as a pull request's page has. */
 export const readable = "mx-auto w-full max-w-[64rem] px-4 sm:px-8";
 
-/** The threads working on this issue, and a way to start one from it. */
-function Threads(props: { project: string; issue: ForgeIssueDetail }) {
-  const navigate = useNavigate();
-  const threads = props.issue.relatedThreads.filter((thread) => !thread.archived);
-  return (
-    <div className="mt-4 flex flex-wrap items-center gap-2">
-      {threads.map((thread) => (
-        <Link
-          key={thread.id}
-          to="/t/$threadId"
-          params={{ threadId: thread.id }}
-          className="inline-flex h-7 max-w-72 items-center gap-1.5 rounded-md px-2 text-ui text-muted-foreground focus-ring hover:bg-hover hover:text-foreground"
-        >
-          <ChatsCircleIcon aria-hidden size={14} className="shrink-0" />
-          <span className="truncate">{thread.title}</span>
-        </Link>
-      ))}
-      <Button
-        size="sm"
-        onClick={() =>
-          void navigate({ to: "/new", search: { project: props.project, issue: props.issue.url } })
-        }
-      >
-        New thread
-      </Button>
-    </div>
-  );
-}
-
-function Header(props: { issue: ForgeIssueDetail; onBack(): void }) {
+function Header(props: { project: string; issue: ForgeIssueDetail; onBack(): void }) {
   const { issue } = props;
   const toast = useToast();
+  const navigate = useNavigate();
+  const threads = issue.relatedThreads.filter((thread) => !thread.archived);
   return (
-    <>
-      <WorkHeading
-        back={{ label: "Issues", onBack: props.onBack }}
-        title={<WorkTitle text={issue.title} number={issue.ref.number} />}
-        actions={
-          <>
-            <IconButton
-              size="sm"
-              icon={CopyIcon}
-              label="Copy link"
-              onClick={() =>
-                void navigator.clipboard
-                  ?.writeText(issue.url)
-                  .catch(() => toast.error({ title: "Couldn't copy the link" }))
+    <WorkHeading
+      back={{ label: "Issues", onBack: props.onBack }}
+      title={<WorkTitle text={issue.title} number={issue.ref.number} />}
+      actions={
+        <>
+          {threads.map((thread) => (
+            <Link
+              key={thread.id}
+              to="/t/$threadId"
+              params={{ threadId: thread.id }}
+              className="inline-flex h-7 max-w-56 items-center gap-1.5 rounded-md px-2 text-ui text-muted-foreground focus-ring hover:bg-hover hover:text-foreground"
+            >
+              <ChatsCircleIcon aria-hidden size={14} className="shrink-0" />
+              <span className="truncate">{thread.title}</span>
+            </Link>
+          ))}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() =>
+              void navigate({ to: "/new", search: { project: props.project, issue: issue.url } })
+            }
+          >
+            New thread
+          </Button>
+          <Menu>
+            <MenuTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  aria-label="Issue actions"
+                  className="size-6 px-0"
+                />
               }
-            />
-            <IconButton
-              size="sm"
-              icon={ArrowSquareOutIcon}
-              label="Open on GitHub"
-              onClick={() =>
-                void openExternal(issue.url).catch(() =>
-                  toast.error({ title: "Couldn't open GitHub" }),
-                )
-              }
-            />
-          </>
-        }
-        badge={<StateBadge kind="issue" state={issue.state} />}
-        byline={
-          <>
-            <span className="font-medium text-foreground/85">{issue.author}</span>
-            <span>opened</span>
-            <PrTime at={issue.createdAt} />
-          </>
-        }
-      />
-      {(issue.labels.length > 0 || issue.assignees.length > 0 || issue.milestone) && (
-        <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+            >
+              <DotsThreeIcon aria-hidden size={16} />
+            </MenuTrigger>
+            <MenuContent align="end">
+              <MenuItem
+                icon={<ArrowSquareOutIcon aria-hidden size={16} />}
+                onClick={() =>
+                  void openExternal(issue.url).catch(() =>
+                    toast.error({ title: "Couldn't open GitHub" }),
+                  )
+                }
+              >
+                Open on GitHub
+              </MenuItem>
+              <MenuItem
+                icon={<CopyIcon aria-hidden size={16} />}
+                onClick={() =>
+                  void navigator.clipboard
+                    ?.writeText(issue.url)
+                    .catch(() => toast.error({ title: "Couldn't copy the link" }))
+                }
+              >
+                Copy link
+              </MenuItem>
+            </MenuContent>
+          </Menu>
+        </>
+      }
+      badge={<StateBadge kind="issue" state={issue.state} />}
+      byline={
+        <>
+          <span className="font-medium text-foreground/85">{issue.author}</span>
+          <span>opened</span>
+          <PrTime at={issue.createdAt} />
           {issue.labels.map((label) => (
             <LabelPill key={label} name={label} color={issue.labelColors?.[label]} />
           ))}
           {issue.assignees.length > 0 && (
-            <span className="ml-1 inline-flex items-center gap-1.5">
+            <span className="inline-flex items-center gap-1.5">
+              <span aria-hidden className="text-subtle-foreground">
+                ·
+              </span>
               <Avatars people={issue.assignees} avatars={issue.avatars} label="Assignees" />
               <span>{issue.assignees.join(", ")}</span>
             </span>
           )}
-          {issue.milestone && <span className="ml-1">{issue.milestone}</span>}
-        </div>
-      )}
-    </>
+          {issue.milestone && <span>· {issue.milestone}</span>}
+        </>
+      }
+    />
   );
 }
 
@@ -118,8 +129,7 @@ function IssueBody(props: { project: string; issue: ForgeIssueDetail; onBack(): 
   const writes = useIssueWrites(props.project, issue.ref.repository);
   return (
     <div className={`${readable} pt-6 pb-16`}>
-      <Header issue={issue} onBack={props.onBack} />
-      <Threads project={props.project} issue={issue} />
+      <Header project={props.project} issue={issue} onBack={props.onBack} />
       <IssueActionsStrip project={props.project} issue={issue} writes={writes} />
       <div className="mt-6 border-t border-border pt-5">
         {issue.body.trim() ? (
