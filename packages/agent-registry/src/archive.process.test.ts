@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { pack } from "tar-stream";
 import { gzipSync } from "node:zlib";
-import { readFile, access, mkdir, stat, truncate, writeFile } from "node:fs/promises";
+import { readFile, access, mkdir, stat, truncate, writeFile, chmod } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { extractZip } from "./archives.ts";
@@ -196,3 +196,29 @@ test("a zip with an entry over 256 MiB, as Antigravity's ACP server ships, unpac
     await work.close();
   }
 }, 60_000);
+
+test("a zip helper marked executable can still run after unpacking, while plain files cannot", async () => {
+  const work = await temporary();
+  try {
+    const source = join(work.root, "source");
+    await mkdir(source);
+    // Antigravity's ACP server spawns this helper from beside its entrypoint.
+    const helper = join(source, "localharness_external");
+    await writeFile(helper, "#!/bin/sh\necho helper ran\n");
+    await chmod(helper, 0o755);
+    await writeFile(join(source, "notes.txt"), "plain data");
+    const zip = join(work.root, "server.zip");
+    await promisify(execFile)("/usr/bin/zip", ["-q", zip, "localharness_external", "notes.txt"], {
+      cwd: source,
+    });
+    const root = join(work.root, "installed");
+    await mkdir(root);
+    await extractZip(zip, root, new AbortController().signal);
+    const { stdout } = await promisify(execFile)(join(root, "localharness_external"));
+    expect(stdout).toBe("helper ran\n");
+    expect((await stat(join(root, "localharness_external"))).mode & 0o077).toBe(0);
+    expect((await stat(join(root, "notes.txt"))).mode & 0o777).toBe(0o600);
+  } finally {
+    await work.close();
+  }
+});

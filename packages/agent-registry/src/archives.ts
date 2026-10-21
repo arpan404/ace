@@ -8,6 +8,11 @@ import type { ZipFile, Entry } from "yauzl";
 import { contained } from "./plans.ts";
 // Bounds a hostile archive, yet fits real agents: Antigravity's ACP server alone unpacks to 281 MB.
 const maximum = 1024 * 1024 * 1024;
+// Files stay private to the user. An entry the archive marks executable stays executable, since
+// agents ship helpers beside their entrypoint (Antigravity's server spawns `localharness_external`).
+function fileMode(archiveMode: number | undefined): number {
+  return archiveMode !== undefined && archiveMode & 0o111 ? 0o700 : 0o600;
+}
 class ExpansionBudget {
   bytes = 0;
   entries = 0;
@@ -47,7 +52,7 @@ export async function extractTar(path: string, root: string, signal: AbortSignal
         await pipeline(
           stream,
           budget.stream(),
-          createWriteStream(destination, { flags: "wx", mode: 0o600 }),
+          createWriteStream(destination, { flags: "wx", mode: fileMode(header.mode) }),
           { signal },
         );
       } else throw new Error("Archive links and special files are unsupported");
@@ -103,7 +108,8 @@ export async function extractZip(path: string, root: string, signal: AbortSignal
         const task = (async () => {
           extractionSignal.throwIfAborted();
           budget.entry(entry.uncompressedSize);
-          const type = (entry.externalFileAttributes >>> 16) & 0o170000;
+          const unixMode = entry.externalFileAttributes >>> 16;
+          const type = unixMode & 0o170000;
           if (type && type !== 0o100000 && type !== 0o040000)
             throw new Error("ZIP links and special files unsupported");
           if (entry.generalPurposeBitFlag & 1) throw new Error("Encrypted ZIP unsupported");
@@ -123,7 +129,7 @@ export async function extractZip(path: string, root: string, signal: AbortSignal
             await pipeline(
               stream,
               budget.stream(),
-              createWriteStream(destination, { flags: "wx", mode: 0o600 }),
+              createWriteStream(destination, { flags: "wx", mode: fileMode(unixMode) }),
               { signal: extractionSignal },
             );
           }
