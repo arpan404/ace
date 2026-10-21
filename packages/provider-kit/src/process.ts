@@ -109,11 +109,12 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
   options.lease?.preparing();
   const target = windows
     ? toWindowsCommand(options.command, options.args ?? [])
-    : { command: options.command, args: [...(options.args ?? [])] };
+    : { command: options.command, args: [...(options.args ?? [])], verbatim: false };
   const child = spawn(target.command, target.args, {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     env: { ...process.env, ...options.env },
     ...(windows ? { detached: false, windowsHide: true } : { detached: true }),
+    windowsVerbatimArguments: target.verbatim,
     stdio: ["pipe", "pipe", "pipe"],
   });
   const controller = new AbortController();

@@ -37,11 +37,12 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
   };
   const target = windows
     ? toWindowsCommand(options.command, options.args)
-    : { command: options.command, args: [...options.args] };
+    : { command: options.command, args: [...options.args], verbatim: false };
   const child = spawn(target.command, target.args, {
     cwd: options.cwd,
     env: options.env,
     ...(windows ? { detached: false, windowsHide: true } : { detached: true }),
+    windowsVerbatimArguments: target.verbatim,
     stdio: ["ignore", "pipe", "pipe"],
   });
   const pid = child.pid;
