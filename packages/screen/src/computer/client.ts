@@ -22,6 +22,8 @@ export interface ComputerClientOptions {
    * message for the model.
    */
   environment?: () => Promise<NodeJS.ProcessEnv>;
+  /** Arguments after `--computer`, such as Linux's `--data-dir` for screen-sharing approvals. */
+  helperArgs?: readonly string[];
   /** Starts a helper. Tests substitute a fake process. */
   spawnHelper?: (
     command: string,
@@ -112,7 +114,11 @@ export class ComputerClient {
         start: async () => {
           const env = (await this.options.environment?.()) ?? process.env;
           const command = await this.options.helper();
-          return (this.options.spawnHelper ?? defaultSpawn)(command, ["--computer"], env);
+          return (this.options.spawnHelper ?? defaultSpawn)(
+            command,
+            ["--computer", ...(this.options.helperArgs ?? [])],
+            env,
+          );
         },
         nextId: this.options.nextId,
         scheduler: this.scheduler,

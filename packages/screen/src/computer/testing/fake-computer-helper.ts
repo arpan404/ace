@@ -5,6 +5,7 @@
  *   FAKE_CRASH_ONCE=<file>  exit on the first state request, then answer normally
  *   FAKE_HANG_ONCE=<file>   never answer the first act request (cancel is ignored)
  *   FAKE_LOG_SESSION=1      log the DISPLAY it was started with, before any op
+ *   FAKE_LOG_ARGS=1         log the arguments it was started with, before any op
  * Apps with scripted trouble: Stuck (never answers state or act, ignores cancel), Frozen (its
  * outline comes back partial, not responding), Huge (its outline is enormous).
  */
@@ -168,6 +169,7 @@ async function answer(request: Request): Promise<unknown> {
   }
 }
 
+if (env["FAKE_LOG_ARGS"]) log(`args ${process.argv.slice(2).join(" ")}`);
 if (env["FAKE_LOG_SESSION"]) log(`session DISPLAY=${env["DISPLAY"] ?? ""}`);
 let queue = Promise.resolve();
 createInterface({ input: process.stdin }).on("line", (line) => {

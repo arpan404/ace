@@ -43,6 +43,18 @@ it("the computer helper starts inside the desktop session the user manager repor
   expect((await ops())[0]).toBe("session DISPLAY=:7");
 });
 
+it("the helper keeps screen-sharing approvals in the data directory it is given", async () => {
+  const { call, ops } = await world({
+    env: { FAKE_LOG_ARGS: "1" },
+    client: {
+      environment: manager("WAYLAND_DISPLAY=wayland-0\n"),
+      helperArgs: ["--data-dir", "/home/me/.ace/screen"],
+    },
+  });
+  await call("screen_apps", {});
+  expect((await ops())[0]).toBe("args --computer --data-dir /home/me/.ace/screen");
+});
+
 it("without a desktop session the tools say so and no helper starts", async () => {
   const { call, ops, children } = await world({
     client: { environment: manager("XDG_RUNTIME_DIR=/run/user/1000\n") },

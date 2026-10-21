@@ -60,6 +60,8 @@ export async function startScreen({ config, options, resources, services, store 
             helper: async () => helper,
             nextId: randomUUID,
             environment: linuxComputerEnvironment(session),
+            // Wayland screen-sharing approvals (portal restore tokens) outlive the helper.
+            helperArgs: ["--data-dir", join(config.dataDir, "screen")],
           })
         : undefined;
   if (!computer) return;
