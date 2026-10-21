@@ -88,6 +88,18 @@
     },
     {
       "properties": {
+        "op": {
+          "const": "tools.install",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "deviceId": {
           "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
         },

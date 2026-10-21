@@ -31,3 +31,19 @@ export function useThreadBrowsing(threadId: string): boolean {
   const read = () => watches.get(client)?.value.has(threadId) ?? false;
   return useSyncExternalStore(subscribe, read, read);
 }
+
+/** Every thread with an agent working in its browser now. */
+export function useBrowsingThreads(): ReadonlySet<string> {
+  const client = useClient();
+  const subscribe = useCallback(
+    (changed: () => void) => {
+      const current = watch(client);
+      current.listeners.add(changed);
+      return () => void current.listeners.delete(changed);
+    },
+    [client],
+  );
+  const read = () => watches.get(client)?.value ?? none;
+  return useSyncExternalStore(subscribe, read, read);
+}
+const none: ReadonlySet<string> = new Set();

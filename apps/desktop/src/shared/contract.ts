@@ -353,13 +353,52 @@ export const BrowserContextAction = BrowserThread.extend({
 });
 export type BrowserContextAction = z.infer<typeof BrowserContextAction>;
 
-export const UpdateStatus = z.discriminatedUnion("state", [
-  z.object({ state: z.literal("idle") }),
-  z.object({ state: z.literal("checking") }),
-  z.object({ state: z.literal("current"), version: z.string() }),
-  z.object({ state: z.literal("available"), version: z.string(), url: z.string() }),
-  z.object({ state: z.literal("error"), message: z.string() }),
-]);
+/** One release's changes, as short plain-text lines (`items`, the newest few of `total`). */
+export const UpdateReleaseNote = z.object({
+  version: z.string().max(80),
+  items: z.array(z.string().max(240)).max(8),
+  total: z.number().int().min(0),
+});
+export type UpdateReleaseNote = z.infer<typeof UpdateReleaseNote>;
+
+/**
+ * The app's own update (ADR 0091), one object whatever its state:
+ * - `disabled`: a build without the release feed; `idle`: not checked yet; `checking`;
+ *   `current`: up to date; `error`: the check failed and nothing is on offer.
+ * - `available`: `version` is on offer; the person downloads it (or, when `inPlace` is false,
+ *   an unsigned macOS build or a deb, opens `releaseUrl`). `downloading`: `percent` done.
+ * - `downloaded`: ready; the person's Restart drains running agents first. `installing`: it
+ *   waits for `waiting` agents, then restarts.
+ * `notes` covers every release newer than this one (newest first; `olderReleases` more on
+ * GitHub). `error` says what failed and when; an update on offer stays on offer.
+ */
+export const UpdateStatus = z.object({
+  state: z.enum([
+    "disabled",
+    "idle",
+    "checking",
+    "current",
+    "available",
+    "downloading",
+    "downloaded",
+    "installing",
+    "error",
+  ]),
+  currentVersion: z.string().max(80),
+  version: z.string().max(80).nullable(),
+  releaseUrl: z.string().max(400).nullable(),
+  inPlace: z.boolean(),
+  percent: z.number().min(0).max(100).nullable(),
+  waiting: z.number().int().min(0),
+  notes: z.array(UpdateReleaseNote).max(6),
+  olderReleases: z.number().int().min(0),
+  error: z
+    .object({
+      during: z.enum(["check", "download", "install"]),
+      message: z.string().max(2000),
+    })
+    .nullable(),
+});
 export type UpdateStatus = z.infer<typeof UpdateStatus>;
 
 export const BrowserPlacementReceipt = z.enum(["shown", "hidden", "unavailable", "superseded"]);
