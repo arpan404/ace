@@ -13,7 +13,7 @@ import { usePageActions } from "./use-page-actions.ts";
 import { usePageTarget } from "./use-page-target.ts";
 import type { PageTools } from "./use-page-tools.ts";
 import { reason } from "./use-browser-features.ts";
-import { zoomIn, zoomOut } from "./zoom.ts";
+import { zoomIn, zoomOut } from "@ace/ui-core";
 
 /** The page's history controls, as `useBrowserTab` gives them. */
 interface PageNavigation {

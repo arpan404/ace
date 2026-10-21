@@ -4,7 +4,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { PageTools } from "./use-page-tools.ts";
-import { zoomIn, zoomLabel, zoomOut } from "./zoom.ts";
+import { zoomIn, zoomLabel, zoomOut } from "@ace/ui-core";
 
 /**
  * Zoom in the ⋯ menu: − and + step through a browser's zoom levels and the percentage between

@@ -1,6 +1,55 @@
-import type { BrowserLogEntry } from "../sources.ts";
+import { z } from "zod";
 
-/** The console drawer's level filter: errors, warnings, the rest, or everything. */
+/*
+ * A tab's console and network log as people read it (the log agents read with `browser_logs`):
+ * read leniently from a `logs` result, filtered by level or failure, with column formats. Pure.
+ */
+
+export interface BrowserLogEntry {
+  kind: "console" | "network";
+  /** The console level (`log`, `warning`, `error`, `pageerror`…) or `response` / `failed`. */
+  type: string;
+  text: string;
+  at: number;
+  tabId?: string | undefined;
+  requestId?: string | undefined;
+  url?: string | undefined;
+  status?: number | undefined;
+  method?: string | undefined;
+  bytes?: number | undefined;
+  durationMs?: number | undefined;
+}
+
+const Entry = z.object({
+  kind: z.enum(["console", "network"]),
+  type: z.string().max(64),
+  text: z.string().max(8192),
+  at: z.number().finite(),
+  tabId: z.string().optional(),
+  requestId: z.string().optional(),
+  url: z.string().max(8192).optional(),
+  status: z.number().int().optional(),
+  method: z.string().max(32).optional(),
+  bytes: z.number().nonnegative().optional(),
+  durationMs: z.number().nonnegative().optional(),
+});
+
+/**
+ * A `logs` result as a log view reads it. Lenient: an entry this client can't read is skipped,
+ * never the whole log.
+ */
+export function readBrowserLogs(result: unknown): readonly BrowserLogEntry[] {
+  const parsed = z.object({ entries: z.array(z.unknown()).max(1000) }).safeParse(result);
+  if (!parsed.success) return [];
+  const entries: BrowserLogEntry[] = [];
+  for (const raw of parsed.data.entries) {
+    const entry = Entry.safeParse(raw);
+    if (entry.success) entries.push(entry.data);
+  }
+  return entries;
+}
+
+/** The console's level filter: errors, warnings, the rest, or everything. */
 export type ConsoleLevel = "all" | "error" | "warning" | "info";
 /** The network list's filter: every request, or only the failed ones. */
 export type NetworkFilter = "all" | "failed";
@@ -37,7 +86,7 @@ export function visibleEntries(
 }
 
 /** `1.2 kB`, `340 B`, `2.4 MB`: a response's size in a column. */
-export function formatBytes(bytes: number | undefined): string {
+export function formatRequestBytes(bytes: number | undefined): string {
   if (bytes === undefined) return "";
   if (bytes < 1000) return `${bytes} B`;
   if (bytes < 1_000_000) return `${(bytes / 1000).toFixed(1)} kB`;
@@ -45,7 +94,7 @@ export function formatBytes(bytes: number | undefined): string {
 }
 
 /** `84 ms`, `1.3 s`: how long a request took. */
-export function formatDuration(ms: number | undefined): string {
+export function formatRequestDuration(ms: number | undefined): string {
   if (ms === undefined) return "";
   return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`;
 }
