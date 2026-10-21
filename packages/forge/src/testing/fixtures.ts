@@ -129,13 +129,19 @@ export async function fakeGh(
       await writeFile(join(dir, barrier), "released");
     },
     async waitForRequest(path: string) {
+      await this.waitForRequests((requests) => requests.some((request) => request.path === path));
+    },
+    /** Resolves once the requests made so far satisfy `done`. */
+    async waitForRequests(done: (requests: { path: string; body?: unknown }[]) => boolean) {
       const ready = Promise.withResolvers<void>();
       const present = async () => {
         try {
           const value = z
-            .object({ requests: z.array(z.object({ path: z.string() })) })
+            .object({
+              requests: z.array(z.object({ path: z.string(), body: z.unknown().optional() })),
+            })
             .parse(JSON.parse(await readFile(state, "utf8")));
-          return value.requests.some((request) => request.path === path);
+          return done(value.requests);
         } catch {
           return false;
         }
@@ -221,34 +227,28 @@ const lifecycleBase = {
 export function lifecycleRecord(overrides: Partial<typeof lifecycleBase> = {}) {
   return { ...lifecycleBase, ...overrides };
 }
-export function lifecycleFixtures(records = [lifecycleRecord()]): Fixtures {
+export function lifecycleFixtures(
+  records = [lifecycleRecord()],
+  /** The mutations the host says it has, answered beside each PR snapshot. */
+  mutations = [
+    "updatePullRequest",
+    "markPullRequestReadyForReview",
+    "convertPullRequestToDraft",
+    "closePullRequest",
+    "reopenPullRequest",
+    "updatePullRequestBranch",
+    "revertPullRequest",
+  ],
+): Fixtures {
   return {
     "graphql:query AceLifecycleSnapshot": records.map((pullRequest) => ({
       body: {
         data: {
           repository: { isArchived: false, viewerPermission: "WRITE", pullRequest },
+          mutationType: { fields: mutations.map((name) => ({ name })) },
         },
       },
     })),
-    "graphql:mutationType:__type": [
-      {
-        body: {
-          data: {
-            mutationType: {
-              fields: [
-                "updatePullRequest",
-                "markPullRequestReadyForReview",
-                "convertPullRequestToDraft",
-                "closePullRequest",
-                "reopenPullRequest",
-                "updatePullRequestBranch",
-                "revertPullRequest",
-              ].map((name) => ({ name })),
-            },
-          },
-        },
-      },
-    ],
   };
 }
 

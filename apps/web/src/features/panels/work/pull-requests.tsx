@@ -5,6 +5,7 @@ import { capsule } from "../agents/task-capsule.tsx";
 import { PrDot } from "../agents/pr-chip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { pullRequestTab, useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { usePrPrefetch } from "@/lib/forge-pr-detail.ts";
 
 /** Rows shown before the rest fold into "N more". */
 const shown = 4;
@@ -35,6 +36,8 @@ export function PullRequests(props: {
 }) {
   const workspace = useScopeWorkspace(props.threadId);
   const actions = useWorkspaceActions(props.threadId);
+  // Pointing at a row starts reading the PR, so its panel opens on it.
+  const prefetch = usePrPrefetch(props.workspaceId);
   const sections = workspace.tabs.find((tab) => tab.key === "work")?.ui?.sections;
   const all = sections?.[foldKey] === true;
   // Never fold away a PR still in review.
@@ -52,6 +55,8 @@ export function PullRequests(props: {
             type="button"
             title={pr.title}
             aria-label={`Pull request #${pr.number}${pr.title ? `: ${pr.title}` : ""}, ${stateLine(pr)}`}
+            onPointerEnter={() => prefetch(pr.repo, pr.number)}
+            onFocus={() => prefetch(pr.repo, pr.number)}
             onClick={() =>
               actions.open(
                 pullRequestTab({

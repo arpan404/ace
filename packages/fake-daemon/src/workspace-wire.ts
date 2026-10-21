@@ -73,6 +73,20 @@ export class FakeWorkspaceWire {
   setForgeRead(operation: ForgeBrowserOperation, result: ForgeBrowserResult): void {
     this.forgeReads.set(JSON.stringify(operation), ForgeBrowserResult.parse(result));
   }
+  private held = new Map<string, Promise<void>>();
+  /**
+   * Answer `operation` only once the returned release runs, as a slow GitHub would: every read
+   * of it until then waits, and later ones are answered at once.
+   */
+  holdForgeRead(operation: ForgeBrowserOperation): () => void {
+    const key = JSON.stringify(operation);
+    const gate = Promise.withResolvers<void>();
+    this.held.set(key, gate.promise);
+    return () => {
+      if (this.held.get(key) === gate.promise) this.held.delete(key);
+      gate.resolve();
+    };
+  }
   private forgeReadCounts = new Map<string, number>();
   /** How many times clients asked for this forge read, as GitHub would see them. */
   forgeReadCount(operation: ForgeBrowserOperation): number {
@@ -128,6 +142,8 @@ export class FakeWorkspaceWire {
       const key = JSON.stringify(op);
       this.forgeReadCounts.set(key, (this.forgeReadCounts.get(key) ?? 0) + 1);
     }
+    const held = this.held.size ? this.held.get(JSON.stringify(op)) : undefined;
+    if (held) await held;
     if (op.op === "git.draft.cancel") {
       this.drafts.cancel(op.generationId);
       return ServerMessage.parse({

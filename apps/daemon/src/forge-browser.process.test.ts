@@ -28,11 +28,16 @@ test("repository detail discovers archived and active links without replacing a 
       },
     },
   ];
+  // Review threads and the review decision are read at once: one answer serves both.
+  const thread = threads().data.repository.pullRequest;
   fixtures.graphql = [
-    { body: threads() },
-    { body: threads() },
-    { body: threads() },
-    { body: { data: { repository: { pullRequest: { reviewDecision: null, headRefOid: sha } } } } },
+    {
+      body: {
+        data: {
+          repository: { pullRequest: { ...thread, reviewDecision: null, headRefOid: sha } },
+        },
+      },
+    },
   ];
   const gh = await fakeGh(fixtures);
   const store = new Store(join(root, "events.sqlite"));
