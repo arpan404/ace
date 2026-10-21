@@ -14,7 +14,8 @@ import { GitHubReviews } from "./github-reviews.ts";
 import { GitHubChecks } from "./github-checks.ts";
 import { GitHubBrowser } from "./github-browser.ts";
 import { GitHubFileContent } from "./github-file-content.ts";
-import { ForgePrSearch } from "@ace/protocol/forge-browser";
+import { ForgeGroupCounting, ForgePrSearch } from "@ace/protocol/forge-browser";
+import { readGroupCounts } from "./github-group-counts.ts";
 import { ForgeListCaches } from "./list-cache.ts";
 import { githubOpenWork } from "./github-open-work.ts";
 import { ForgeMutationOutcome, MutationDispatch, uncertainWriteExpired } from "./mutation.ts";
@@ -236,6 +237,10 @@ export class GitHubForge implements Forge, ForgeBrowser {
     return this.#lists.prs.read(JSON.stringify(parsed), signal, (shared) =>
       this.#browser.list(parsed, shared),
     );
+  }
+  /** Each group's total for a list's filters, in one GitHub request. */
+  groupCounts(grouping: ForgeGroupCounting, signal: AbortSignal) {
+    return readGroupCounts(this.#api, this.repository, ForgeGroupCounting.parse(grouping), signal);
   }
   openWork(signal: AbortSignal) {
     return this.#lists.openWork.read("open", signal, (shared) =>

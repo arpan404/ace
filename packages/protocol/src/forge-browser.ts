@@ -3,6 +3,7 @@ import {
   ForgeIssueOperations,
   ForgeIssueResults,
   ForgeIssueRow,
+  ForgeIssueSearch,
   ForgeSearchLogin,
   ForgeLabelColors,
   ForgeAvatars,
@@ -51,6 +52,17 @@ export const ForgePrSearch = z.object({
   page: z.number().int().min(1).max(40).default(1),
 });
 export type ForgePrSearch = z.infer<typeof ForgePrSearch>;
+/**
+ * The groups a list is shown in, to count on GitHub: readiness tiers of the open PRs matching a
+ * search (changes, review, checks, ready, other, drafts), or by who it concerns (PRs: authored,
+ * reviewing, others; issues: assigned, created, others).
+ */
+export const ForgeGroupCounting = z.discriminatedUnion("by", [
+  z.object({ by: z.literal("readiness"), query: ForgePrSearch }),
+  z.object({ by: z.literal("pr-people"), query: ForgePrSearch }),
+  z.object({ by: z.literal("issue-people"), query: ForgeIssueSearch }),
+]);
+export type ForgeGroupCounting = z.infer<typeof ForgeGroupCounting>;
 export const ForgePrRow = z.object({
   raw: z.unknown().optional(),
   ref: ForgePrRef,
@@ -225,6 +237,7 @@ export const ForgeBrowserOperations = [
   }),
   z.object({ op: z.literal("forge.pr.list"), ...scope, query: ForgePrSearch }),
   z.object({ op: z.literal("forge.open-work"), ...scope }),
+  z.object({ op: z.literal("forge.group-counts"), ...scope, grouping: ForgeGroupCounting }),
   z.object({ op: z.literal("forge.pr.detail"), ...scope, number: z.number().int().positive() }),
   z.object({
     op: z.literal("forge.pr.commits"),
@@ -266,6 +279,11 @@ export const ForgeBrowserResult = z.discriminatedUnion("resource", [
   }),
   z.object({ resource: z.literal("prList"), value: ForgePrList }),
   z.object({ resource: z.literal("openWork"), value: ForgeOpenWork }),
+  z.object({
+    resource: z.literal("groupCounts"),
+    /** Each group's total by id: every item counted once, in its first group. */
+    counts: z.record(z.string().max(64), z.number().int().nonnegative()),
+  }),
   z.object({ resource: z.literal("prDetail"), value: ForgePrDetail }),
   z.object({
     resource: z.literal("prCommits"),

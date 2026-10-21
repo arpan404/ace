@@ -92,6 +92,11 @@ export class WorkspaceForgeBrowse {
         resource: "prActivity",
         ...(await backend.prActivity(operation.number, operation.page, signal)),
       };
+    if (operation.op === "forge.group-counts")
+      return {
+        resource: "groupCounts",
+        counts: await backend.groupCounts(operation.grouping, signal),
+      };
     if (operation.op === "forge.open-work")
       return { resource: "openWork", value: await backend.openWork(signal) };
     if (operation.op === "forge.pr.list")
