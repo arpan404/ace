@@ -153,11 +153,12 @@ describe.skipIf(!enabled)(`Linux desktop end to end (${session ?? "off"})`, () =
         "screen_state",
       );
       const outline = words(look);
-      // X11 captures the window; on Wayland the engine either captures or says why it can't.
+      // X11 captures the window. On Wayland the first look opens the screen-sharing dialog
+      // and asks the person to approve it; a remembered approval captures directly.
       if (session === "x11") expect(look.images, outline).toBe(1);
       else
         expect(
-          look.images === 1 || /No screenshot: .*(portal|permission)/i.test(outline),
+          look.images === 1 || /No screenshot: .*approve screen sharing/i.test(outline),
           outline,
         ).toBe(true);
       const area = elementId(outline, "text area");
