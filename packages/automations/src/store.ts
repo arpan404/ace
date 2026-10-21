@@ -16,6 +16,7 @@ const JobMetadata = z.object({
   automation: z.unknown().transform(normalizeAutomation),
   nominal: z.number().nullable(),
   due: z.number().nullable(),
+  revision: z.number().int().positive(),
   lastPollError: AutomationPollError.optional(),
 });
 export type JobMetadata = z.infer<typeof JobMetadata>;
@@ -52,13 +53,16 @@ export class AutomationStore {
       CREATE INDEX IF NOT EXISTS automation_schedule_due ON automation_jobs(due,id) WHERE due IS NOT NULL AND json_extract(body,'$.trigger.kind')='schedule';
       CREATE TABLE IF NOT EXISTS automation_runs(seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, automation_id TEXT NOT NULL, event_key TEXT NOT NULL, status TEXT NOT NULL, body TEXT NOT NULL, input TEXT, UNIQUE(automation_id,event_key));
       CREATE TABLE IF NOT EXISTS automation_poll_errors(id TEXT PRIMARY KEY, body TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS automation_revisions(id TEXT PRIMARY KEY, revision INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS automation_history ON automation_runs(automation_id,seq);
       CREATE INDEX IF NOT EXISTS automation_active ON automation_runs(automation_id) WHERE status='running';
       CREATE INDEX IF NOT EXISTS automation_status ON automation_runs(status,seq);`);
     // Migrate inline snapshots once; leave the legacy column empty for compatibility.
+    // Backfill durable CAS revisions for definitions stored before revisions existed.
     this.transaction(() => {
       this.db.exec(`INSERT OR IGNORE INTO automation_state SELECT id,state FROM automation_jobs;
-        UPDATE automation_jobs SET state='{}' WHERE state<>'{}';`);
+        UPDATE automation_jobs SET state='{}' WHERE state<>'{}';
+        INSERT OR IGNORE INTO automation_revisions SELECT id,1 FROM automation_jobs;`);
     });
   }
   close(): void {
@@ -85,20 +89,33 @@ export class AutomationStore {
       throw error;
     }
   }
+  revision(id: string): number | undefined {
+    const row = this.sql("SELECT revision FROM automation_revisions WHERE id=?").get(id);
+    return row ? Number(row.revision) : undefined;
+  }
   put(
     automation: Automation,
     nominal: number | undefined,
     due: number | undefined,
     state: unknown = {},
-  ): void {
-    if (
-      !this.definition(automation.id) &&
-      Number(this.sql("SELECT COUNT(*) AS n FROM automation_jobs").get()?.n) >= 1000
-    )
-      throw new Error("Automation limit reached");
+    expectedRevision?: number | null,
+  ): number {
     const body = JSON.stringify(normalizeAutomation(automation));
     const snapshot = JSON.stringify(state);
-    this.transaction(() => {
+    const revision = this.transaction(() => {
+      const stored = this.sql("SELECT revision FROM automation_revisions WHERE id=?").get(
+        automation.id,
+      );
+      const storedRevision = stored ? Number(stored.revision) : undefined;
+      const live = this.sql("SELECT 1 AS found FROM automation_jobs WHERE id=?").get(automation.id);
+      if (expectedRevision === null) {
+        if (live) throw new Error("Automation already exists");
+      } else if (typeof expectedRevision === "number") {
+        if (storedRevision !== expectedRevision) throw new Error("Automation revision conflict");
+      }
+      if (!live && Number(this.sql("SELECT COUNT(*) AS n FROM automation_jobs").get()?.n) >= 1000)
+        throw new Error("Automation limit reached");
+      const next = (storedRevision ?? 0) + 1;
       this.sql(
         "INSERT INTO automation_jobs VALUES(?,?,?,?, ?) ON CONFLICT(id) DO UPDATE SET body=excluded.body, nominal=excluded.nominal, due=excluded.due, state=excluded.state",
       ).run(automation.id, body, nominal ?? null, due ?? null, "{}");
@@ -106,16 +123,34 @@ export class AutomationStore {
       this.sql(
         "INSERT INTO automation_state VALUES(?,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state",
       ).run(automation.id, snapshot);
+      this.sql(
+        "INSERT INTO automation_revisions VALUES(?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision",
+      ).run(automation.id, next);
+      return next;
     });
     this.catalogCache = undefined;
+    return revision;
   }
-  remove(id: string): void {
-    this.transaction(() => {
+  remove(id: string, expectedRevision?: number | null): void {
+    // Null on remove stays idempotent (same as omitted); a number enforces CAS,
+    // including against the tombstone so stale edits cannot resurrect deleted ids.
+    const changed = this.transaction(() => {
+      const stored = this.sql("SELECT revision FROM automation_revisions WHERE id=?").get(id);
+      const storedRevision = stored ? Number(stored.revision) : undefined;
+      const live = this.sql("SELECT 1 AS found FROM automation_jobs WHERE id=?").get(id);
+      if (typeof expectedRevision === "number") {
+        if (storedRevision !== expectedRevision) throw new Error("Automation revision conflict");
+        if (!live) return false;
+      } else if (!live) return false;
       this.clearPollError(id);
       this.sql("DELETE FROM automation_state WHERE id=?").run(id);
       this.sql("DELETE FROM automation_jobs WHERE id=?").run(id);
+      this.sql(
+        "INSERT INTO automation_revisions VALUES(?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision",
+      ).run(id, (storedRevision ?? 0) + 1);
+      return true;
     });
-    this.catalogCache = undefined;
+    if (changed) this.catalogCache = undefined;
   }
   get(id: string): Job | undefined {
     const row = this.sql("SELECT * FROM automation_jobs WHERE id=?").get(id);
@@ -124,6 +159,7 @@ export class AutomationStore {
           automation: JSON.parse(String(row.body)),
           nominal: row.nominal,
           due: row.due,
+          revision: this.revision(id) ?? 1,
           state: this.readState(id),
         })
       : undefined;
@@ -134,13 +170,14 @@ export class AutomationStore {
   }
   metadata(id: string): JobMetadata | undefined {
     const row = this.sql(
-      "SELECT j.body,j.nominal,j.due,e.body AS pollError FROM automation_jobs j LEFT JOIN automation_poll_errors e ON e.id=j.id WHERE j.id=?",
+      "SELECT j.body,j.nominal,j.due,r.revision,e.body AS pollError FROM automation_jobs j LEFT JOIN automation_revisions r ON r.id=j.id LEFT JOIN automation_poll_errors e ON e.id=j.id WHERE j.id=?",
     ).get(id);
     return row
       ? JobMetadata.parse({
           automation: JSON.parse(String(row.body)),
           nominal: row.nominal,
           due: row.due,
+          revision: Number(row.revision ?? 1),
           lastPollError: row.pollError
             ? AutomationPollError.parse(JSON.parse(String(row.pollError)))
             : undefined,
@@ -156,13 +193,14 @@ export class AutomationStore {
   *jobs(): Iterable<JobMetadata> {
     let count = 0;
     for (const row of this.sql(
-      "SELECT j.body,j.nominal,j.due,e.body AS pollError FROM automation_jobs j LEFT JOIN automation_poll_errors e ON e.id=j.id ORDER BY j.id LIMIT 1001",
+      "SELECT j.body,j.nominal,j.due,r.revision,e.body AS pollError FROM automation_jobs j LEFT JOIN automation_revisions r ON r.id=j.id LEFT JOIN automation_poll_errors e ON e.id=j.id ORDER BY j.id LIMIT 1001",
     ).iterate()) {
       if (++count > 1000) throw new Error("Automation limit exceeded");
       yield JobMetadata.parse({
         automation: JSON.parse(String(row.body)),
         nominal: row.nominal,
         due: row.due,
+        revision: Number(row.revision ?? 1),
         lastPollError: row.pollError
           ? AutomationPollError.parse(JSON.parse(String(row.pollError)))
           : undefined,

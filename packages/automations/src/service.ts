@@ -147,9 +147,14 @@ export class AutomationService {
       this.report(error);
     }
   }
-  put(input: unknown): Automation {
+  put(input: unknown, expectedRevision?: number | null): Automation {
     const automation = normalizeAutomation(input);
     const existing = this.store.definition(automation.id);
+    if (expectedRevision === null && existing) throw new Error("Automation already exists");
+    if (typeof expectedRevision === "number") {
+      const current = this.store.revision(automation.id);
+      if (current !== expectedRevision) throw new Error("Automation revision conflict");
+    }
     if (existing && JSON.stringify(existing) === JSON.stringify(automation)) {
       if (this.runtime.needsWatch(automation))
         this.runtime.install(this.runtime.prepare(automation));
@@ -168,7 +173,7 @@ export class AutomationService {
           ? scheduledDeadline(occurrence, recurrence, automation.jitterMs, this.deps.random())
           : undefined;
     try {
-      this.store.put(automation, nominal, due, occurrence ?? {});
+      this.store.put(automation, nominal, due, occurrence ?? {}, expectedRevision ?? undefined);
     } catch (error) {
       this.runtime.discard(prepared);
       throw error;
@@ -177,10 +182,15 @@ export class AutomationService {
     this.arm();
     return automation;
   }
-  remove(id: string): void {
-    this.store.remove(id);
+  remove(id: string, expectedRevision?: number | null): void {
+    this.store.remove(id, expectedRevision ?? undefined);
     this.runtime.remove(id);
     this.arm();
+  }
+  setEnabled(id: string, enabled: boolean, expectedRevision?: number): void {
+    const current = this.store.definition(id);
+    if (!current) throw new Error("Automation is missing");
+    this.put({ ...current, enabled }, expectedRevision);
   }
   list(): Automation[] {
     return this.store.list().map((job) => job.automation);
@@ -374,10 +384,13 @@ export class AutomationService {
       const base = { type: "automation.result" as const, requestId: request.requestId, ok: true };
       switch (request.type) {
         case "automation.put":
-          this.put(request.automation);
+          this.put(request.automation, request.expectedRevision);
           return base;
         case "automation.remove":
-          this.remove(request.id);
+          this.remove(request.id, request.expectedRevision);
+          return base;
+        case "automation.setEnabled":
+          this.setEnabled(request.id, request.enabled, request.expectedRevision);
           return base;
         case "automation.run":
           return {
@@ -394,6 +407,7 @@ export class AutomationService {
             schedules: this.store.list().map((job) => ({
               id: job.automation.id,
               nextRunAt: this.live ? job.due : null,
+              revision: job.revision,
               lastPollError: job.lastPollError,
             })),
           };

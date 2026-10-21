@@ -79,14 +79,26 @@ export const AutomationRun = z.object({
   result: z.string().max(8192).optional(),
 });
 export type AutomationRun = z.infer<typeof AutomationRun>;
+export const AutomationRevision = z.number().int().positive();
+export type AutomationRevision = z.infer<typeof AutomationRevision>;
 export const AutomationInbox = z.object({
   runs: z.array(AutomationRun).max(100),
   before: z.number().int().positive().nullable(),
 });
 export type AutomationInbox = z.infer<typeof AutomationInbox>;
 export const AutomationRequest = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("automation.put"), requestId: text, automation: Automation }),
-  z.object({ type: z.literal("automation.remove"), requestId: text, id: text }),
+  z.object({
+    type: z.literal("automation.put"),
+    requestId: text,
+    automation: Automation,
+    expectedRevision: AutomationRevision.nullish(),
+  }),
+  z.object({
+    type: z.literal("automation.remove"),
+    requestId: text,
+    id: text,
+    expectedRevision: AutomationRevision.nullish(),
+  }),
   z.object({
     type: z.literal("automation.run"),
     requestId: text,
@@ -100,6 +112,13 @@ export const AutomationRequest = z.discriminatedUnion("type", [
     before: z.number().int().positive().optional(),
     automationId: text.optional(),
     limit: z.number().int().min(1).max(100),
+  }),
+  z.object({
+    type: z.literal("automation.setEnabled"),
+    requestId: text,
+    id: text,
+    enabled: z.boolean(),
+    expectedRevision: AutomationRevision.optional(),
   }),
 ]);
 export type AutomationRequest = z.infer<typeof AutomationRequest>;
@@ -119,6 +138,7 @@ export const AutomationResponse = z.object({
       z.object({
         id: text,
         nextRunAt: instant.nullable(),
+        revision: AutomationRevision.optional(),
         lastPollError: AutomationPollError.optional(),
       }),
     )

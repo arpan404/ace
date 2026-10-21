@@ -13,6 +13,7 @@ export interface AutomationSeed {
   automations?: Automation[];
   runs?: AutomationRun[];
   pollErrors?: Record<string, AutomationPollError>;
+  revisions?: Record<string, number>;
 }
 export class FakeAutomationWire {
   private host: FakeServiceContext | undefined;
@@ -20,6 +21,7 @@ export class FakeAutomationWire {
   private runs = new Map<string, AutomationRun>();
   private automations = new Map<string, Automation>();
   private pollErrors = new Map<string, AutomationPollError>();
+  private revisions = new Map<string, number>();
   private enabled: () => boolean;
   constructor(now: () => number, enabled: () => boolean, host?: FakeServiceContext) {
     this.host = host;
@@ -28,34 +30,77 @@ export class FakeAutomationWire {
   }
   /** Seed automations and their past runs, as a daemon that has been running a while. */
   seed(seed: AutomationSeed): void {
-    for (const automation of seed.automations ?? [])
+    for (const automation of seed.automations ?? []) {
       this.automations.set(automation.id, Automation.parse(automation));
+      if (!this.revisions.has(automation.id)) this.revisions.set(automation.id, 1);
+    }
     for (const run of (seed.runs ?? []).toSorted((a, b) => a.startedAt - b.startedAt))
       this.runs.set(run.id, run);
     for (const [id, error] of Object.entries(seed.pollErrors ?? {}))
       this.pollErrors.set(id, AutomationPollError.parse(error));
+    for (const [id, revision] of Object.entries(seed.revisions ?? {}))
+      if (Number.isInteger(revision) && (revision as number) > 0)
+        this.revisions.set(id, revision as number);
   }
   handle(message: ClientMessage): Message | undefined {
     if (!("requestId" in message)) return undefined;
     const base = { type: "automation.result", requestId: message.requestId, ok: true };
     switch (message.type) {
-      case "automation.put":
-        if (!this.automations.has(message.automation.id) && this.automations.size >= 64)
-          throw new Error("automation_limit");
-        this.automations.set(message.automation.id, message.automation);
-        if (message.automation.trigger.kind !== "github")
-          this.pollErrors.delete(message.automation.id);
+      case "automation.put": {
+        const id = message.automation.id;
+        const stored = this.revisions.get(id);
+        const live = this.automations.has(id);
+        if (message.expectedRevision === null && live)
+          return ServerMessage.parse({ ...base, ok: false, error: "Automation already exists" });
+        if (typeof message.expectedRevision === "number" && stored !== message.expectedRevision)
+          return ServerMessage.parse({
+            ...base,
+            ok: false,
+            error: "Automation revision conflict",
+          });
+        if (!live && this.automations.size >= 64) throw new Error("automation_limit");
+        this.automations.set(id, message.automation);
+        this.revisions.set(id, (stored ?? 0) + 1);
+        if (message.automation.trigger.kind !== "github") this.pollErrors.delete(id);
         return ServerMessage.parse(base);
-      case "automation.remove":
-        this.automations.delete(message.id);
-        this.pollErrors.delete(message.id);
+      }
+      case "automation.remove": {
+        const stored = this.revisions.get(message.id);
+        if (typeof message.expectedRevision === "number" && stored !== message.expectedRevision)
+          return ServerMessage.parse({
+            ...base,
+            ok: false,
+            error: "Automation revision conflict",
+          });
+        if (this.automations.has(message.id)) {
+          this.automations.delete(message.id);
+          this.pollErrors.delete(message.id);
+          this.revisions.set(message.id, (stored ?? 0) + 1);
+        }
         return ServerMessage.parse(base);
+      }
+      case "automation.setEnabled": {
+        const automation = this.automations.get(message.id);
+        if (!automation)
+          return ServerMessage.parse({ ...base, ok: false, error: "Automation is missing" });
+        const stored = this.revisions.get(message.id);
+        if (typeof message.expectedRevision === "number" && stored !== message.expectedRevision)
+          return ServerMessage.parse({
+            ...base,
+            ok: false,
+            error: "Automation revision conflict",
+          });
+        this.automations.set(message.id, { ...automation, enabled: message.enabled });
+        this.revisions.set(message.id, (stored ?? 0) + 1);
+        return ServerMessage.parse(base);
+      }
       case "automation.list":
         return ServerMessage.parse({
           ...base,
           automations: [...this.automations.values()],
           schedules: [...this.automations.values()].map((automation) => ({
             id: automation.id,
+            revision: this.revisions.get(automation.id) ?? 1,
             lastPollError: this.pollErrors.get(automation.id),
             nextRunAt:
               this.enabled() && automation.enabled && automation.trigger.kind === "schedule"
