@@ -65,7 +65,8 @@ export function useLeavesLimit(threadId: string): boolean {
 
 /**
  * The limit as the composer's top strip: one sentence and the ways on, as words. "Codex is out
- * of usage until 1:14 AM · Switch account or provider · Resume at reset · Continue". Continue
+ * of usage until 1:14 AM · Switch · Resume at reset · Continue". Switch opens the picker for
+ * another account, model or provider. Continue
  * sends "Continue where you left off." as the person's message.
  */
 export function HeldTurnStrip(props: {
@@ -96,7 +97,7 @@ export function HeldTurnStrip(props: {
         onClick={props.onSwitch}
         className="h-7 shrink-0 rounded-md px-2 font-medium text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-ring"
       >
-        Switch account or provider
+        Switch
       </button>
       {turn.atReset && (
         <button

@@ -75,7 +75,7 @@ test("at its limit, the thread says when its account resets; after switching acc
   expect(await screen.findByRole("button", { name: "Queue message" })).toBeTruthy();
 
   // Switch opens the composer's picker; choosing another account takes the limit away at once.
-  await userEvent.click(within(notice).getByRole("button", { name: "Switch account or provider" }));
+  await userEvent.click(within(notice).getByRole("button", { name: "Switch" }));
   const popover = await screen.findByRole("dialog", { name: "Model and effort" });
   const models = await openModelPicker(popover);
   await selectAccount(popover, "Personal");
