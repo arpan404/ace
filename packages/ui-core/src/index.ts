@@ -101,6 +101,10 @@ export { isToolSearch, toolSearchRow, type ToolSearchRow } from "./tool-search.t
 export * from "./step-groups.ts";
 export * from "./explore-command.ts";
 export * from "./browser-address.ts";
+export * from "./browser-logs.ts";
+export * from "./browser-zoom.ts";
+export * from "./browsing-history.ts";
+export * from "./browser-words.ts";
 export * from "./browser-help.ts";
 export * from "./checkout-files.ts";
 export * from "./projects.ts";

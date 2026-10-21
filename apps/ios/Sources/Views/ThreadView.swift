@@ -115,10 +115,11 @@ struct ThreadView: View {
             // thread is on screen, working and the app is active. Leaving cancels the follow.
             .task(id: browserFollow) { if browserFollow != nil { await model.followBrowser() } }
             .onChange(of: queued) { _, count in if count == 0 { showQueue = false } }
-            .fullScreenCover(isPresented: $showBrowser) {
+            .navigationDestination(isPresented: $showBrowser) {
                 let help = thread.approvals.first { $0.kind == "browser_help" }
-                BrowserLiveView(model: model, help: help) { answer in if let help { model.resolve(help, answer: answer) } }
+                BrowserScreen(model: model, help: help) { answer in if let help { model.resolve(help, answer: answer) } }
             }
+            .environment(\.openBrowser, { showBrowser = true })
             #if DEBUG
             .overlay(alignment: .topLeading) {
                 if SpikeConfiguration.enabled && ProcessInfo.processInfo.arguments.contains("--spike-metrics") {

@@ -122,6 +122,43 @@ import Testing
         #expect(session.acks.map { $0["sequence"] as? Int } == [21])
     }
 
+    @Test func whoHasTheShownPageAndWhatItAsksArriveWithTheView() async throws {
+        let (model, _) = try await connected()
+        model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
+        let view: [String: Any] = [
+            "type": "browser.view", "threadId": "thread", "generation": 0, "error": NSNull(),
+            "state": [
+                "url": "https://shop.example/checkout", "closed": false, "status": "ready", "reason": NSNull(), "loading": false,
+                "loadError": NSNull(), "activeTabId": "t1", "moreTabs": 0, "address": "shop.example/checkout", "addressHost": "shop.example",
+                "tabs": [["id": "t1", "title": "Checkout", "url": "https://shop.example/checkout", "host": "shop.example", "loading": false, "agent": "Claude", "private": false]],
+                "shown": ["canGoBack": true, "canGoForward": false, "zoom": NSNull(), "agent": "Claude", "private": false,
+                          "pointer": ["x": 10, "y": 20, "sequence": 1]],
+                "dialog": ["dialogId": "d1", "tabId": "t1", "type": "confirm", "message": "Remove it?", "defaultPrompt": "", "site": "shop.example", "otherTab": false],
+            ],
+        ]
+        model.receive(try frame([view]))
+        let state = try #require(model.browser.view?.state)
+        #expect(state.shown?.agent == "Claude")
+        #expect(state.shown?.pointer?.x == 10)
+        #expect(state.dialog?.type == "confirm")
+    }
+
+    @Test func theToolsAnswersBelongToTheOpenViewAndGoWithIt() async throws {
+        let (model, _) = try await connected()
+        let problem: [String: Any] = ["type": "browser.problem", "at": 1, "message": "Couldn't close the tab."]
+        model.receive(try frame([problem]))
+        #expect(model.browser.problem == nil)
+        model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
+        model.receive(try frame([problem, ["type": "browser.find", "text": "pay", "message": "1 of 3"],
+                                 ["type": "browser.visits", "threadId": "thread", "total": 2,
+                                  "visits": [["url": "https://shop.example/", "title": "Shop", "at": 5]]]]))
+        #expect(model.browser.problem?.message == "Couldn't close the tab.")
+        #expect(model.browser.find?.message == "1 of 3")
+        #expect(model.browser.visits.count == 1 && model.browser.visitCount == 2)
+        model.closeBrowser()
+        #expect(model.browser.problem == nil && model.browser.find == nil && model.browser.visits.isEmpty)
+    }
+
     @Test func pageStateFollowsTheOpenViewOnly() async throws {
         let (model, _) = try await connected()
         let page: [String: Any] = ["type": "browser.page", "threadId": "thread", "tabId": "t",

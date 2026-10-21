@@ -54,10 +54,8 @@ struct ThreadMenu: View {
             Section {
                 Button("Find in thread", systemImage: "magnifyingglass") { open(.search) }.accessibilityIdentifier("thread.search")
                 Button("Files", systemImage: "folder") { open(.files) }.accessibilityIdentifier("thread.files")
+                Button("Browser", systemImage: "safari") { open(.browser) }.accessibilityIdentifier("thread.browser")
                 Button("Terminal", systemImage: "apple.terminal") { open(.terminal) }.accessibilityIdentifier("thread.terminal")
-                if model.threadHasBrowser {
-                    Button("Browser", systemImage: "safari") { open(.browser) }.accessibilityIdentifier("thread.browser")
-                }
                 Button("Computer use", systemImage: "macwindow") { open(.computer) }
                 Button("Skills and tools", systemImage: "wrench.and.screwdriver") { open(.tools) }.accessibilityIdentifier("thread.tools")
             }
