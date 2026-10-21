@@ -87,6 +87,7 @@ struct SettingsTools: View {
                     if inbox.client(hostId)?.connection != "ready" { InsetHeader("Offline") }
                 }
             }
+            .insetRowBackground()
         }
     }
 }

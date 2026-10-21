@@ -35,6 +35,7 @@ struct SettingsSheet: View {
                     }
                     if let lock { link(.lock, "Face ID", "lock", value: lock.enabled ? "On" : "Off", id: "settings.lock") }
                 } header: { InsetHeader("Connections") }
+                .insetRowBackground()
                 Section {
                     link(.appearance, "Appearance", "paintpalette", value: PhoneAppearance.label(appearance), id: "settings.appearance")
                     InsetRow(systemImage: "keyboard", title: "Send with Return") {
@@ -43,10 +44,12 @@ struct SettingsSheet: View {
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("settings.returnSends")
                 } header: { InsetHeader("Interface") }
+                .insetRowBackground()
                 Section {
                     link(.archive, "Archived", "archivebox", id: "settings.archive")
                     link(.profiles, "Task profiles", "person.text.rectangle", id: "settings.profiles")
                 } header: { InsetHeader("Threads") }
+                .insetRowBackground()
                 SettingsTools(inbox: inbox, machine: $toolsMachine)
                 Section {
                     InsetRow("About", systemImage: "info.circle", value: "\(app.version) (\(app.build))")
@@ -58,8 +61,8 @@ struct SettingsSheet: View {
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("settings.diagnostics")
                 } header: { InsetHeader("App") }
+                .insetRowBackground()
             }
-            .insetRowBackground()
             .insetGroupedList()
             .sensoryFeedback(.selection, trigger: returnSends)
             .navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)

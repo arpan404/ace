@@ -1,103 +1,77 @@
 import { brandArt, providerBrands, type Brand, type BrandPath } from "@ace/ui-core/provider-icons";
-import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { normalisePath } from "./svg-path.ts";
 
 /*
- * The built-in providers' marks as vector image sets, so SwiftUI draws the same path data the web
- * and desktop draw (`@ace/ui-core/provider-icons`). A mark with brand colours keeps them; a mono
- * mark is a template image that takes the text colour. The provider → mark table is generated
- * beside it, so Swift never keeps its own copy of `providerBrands`.
+ * The built-in providers' marks as Swift path data, so SwiftUI draws the same outlines the web
+ * and desktop draw (`@ace/ui-core/provider-icons`). A mark whose brand colours are all solid
+ * keeps them; any other mark is drawn in its mono variant with the text colour. The provider →
+ * mark table comes from `providerBrands`, so Swift never keeps its own copy.
  */
 
-const root = new URL("..", import.meta.url).pathname;
-const catalog = join(root, "Resources/Assets.xcassets/ProviderMarks");
-const swiftFile = join(root, "Sources/Views/ProviderMarks.generated.swift");
+const swiftFile = join(
+  new URL("..", import.meta.url).pathname,
+  "Sources/Views/ProviderMarks.generated.swift",
+);
 
-const escape = (value: string) => value.replaceAll("&", "&amp;").replaceAll('"', "&quot;");
-
-function svg(viewBox: string, paths: readonly BrandPath[]): string {
-  const defs: string[] = [];
-  const shapes = paths.map((path, index) => {
-    let fill = path.fill ?? "#000000";
-    if (path.gradient) {
-      const id = `g${index}`;
-      const attributes = Object.entries(path.gradient.attributes)
-        .map(([key, value]) => ` ${key}="${escape(value)}"`)
-        .join("");
-      const stops = path.gradient.stops
-        .map(
-          (stop) =>
-            `<stop offset="${escape(stop.offset)}" stop-color="${escape(stop.color)}"${stop.opacity === undefined ? "" : ` stop-opacity="${stop.opacity}"`}/>`,
-        )
-        .join("");
-      const tag = path.gradient.type === "linear" ? "linearGradient" : "radialGradient";
-      defs.push(`<${tag} id="${id}"${attributes}>${stops}</${tag}>`);
-      fill = `url(#${id})`;
-    }
-    const extra = [
-      path.fillRule ? ` fill-rule="${path.fillRule}"` : "",
-      path.clipRule ? ` clip-rule="${path.clipRule}"` : "",
-      path.opacity === undefined ? "" : ` opacity="${path.opacity}"`,
-    ].join("");
-    return `<path d="${escape(path.d)}" fill="${escape(fill)}"${extra}/>`;
-  });
-  const [, , width, height] = viewBox.split(/\s+/);
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" width="${width}" height="${height}">${defs.length ? `<defs>${defs.join("")}</defs>` : ""}${shapes.join("")}</svg>\n`;
-}
+const hex = (fill: string | undefined): string => {
+  if (fill === undefined) return "nil";
+  const match = /^#([0-9a-f]{6}|[0-9a-f]{3})$/i.exec(fill);
+  if (!match?.[1]) throw new Error(`Unsupported mark fill ${fill}`);
+  const digits =
+    match[1].length === 3 ? [...match[1]].map((digit) => digit + digit).join("") : match[1];
+  return `0x${digits.toUpperCase()}`;
+};
+const pathLine = (path: BrandPath) =>
+  `            .init(d: ${JSON.stringify(normalisePath(path.d))}, fill: ${hex(path.fill)}, evenOdd: ${path.fillRule === "evenodd"}, opacity: ${path.opacity ?? 1}),`;
 
 const brands = [
   ...new Set(Object.values(providerBrands).filter((brand): brand is Brand => !!brand)),
 ].toSorted();
-await rm(catalog, { recursive: true, force: true });
-await mkdir(catalog, { recursive: true });
-await writeFile(
-  join(catalog, "Contents.json"),
-  `${JSON.stringify({ info: { author: "xcode", version: 1 }, properties: { "provides-namespace": true } }, null, 2)}\n`,
-);
+const arts: string[] = [];
 for (const brand of brands) {
   const art = await brandArt[brand]();
-  const colour = art.color?.length ? art.color : undefined;
-  const coloured = colour !== undefined;
-  const folder = join(catalog, `${brand}.imageset`);
-  await mkdir(folder, { recursive: true });
-  await writeFile(join(folder, `${brand}.svg`), svg(art.viewBox, colour ?? art.mono));
-  await writeFile(
-    join(folder, "Contents.json"),
-    `${JSON.stringify(
-      {
-        images: [{ filename: `${brand}.svg`, idiom: "universal" }],
-        info: { author: "xcode", version: 1 },
-        properties: {
-          "preserves-vector-representation": true,
-          "template-rendering-intent": coloured ? "original" : "template",
-        },
-      },
-      null,
-      2,
-    )}\n`,
+  const solid =
+    art.color?.length && art.color.every((path) => !path.gradient && path.fill !== undefined);
+  const paths = solid && art.color ? art.color : art.mono;
+  const [x = 0, y = 0, width = 24, height = 24] = art.viewBox.split(/\s+/).map(Number);
+  arts.push(
+    `    static let ${brand} = Art(x: ${x}, y: ${y}, width: ${width}, height: ${height}, paths: [`,
+    ...paths.map(pathLine),
+    "    ])",
   );
 }
-// Leave no stale image set behind when a brand leaves the table.
-for (const entry of await readdir(catalog))
-  if (entry.endsWith(".imageset") && !brands.includes(entry.replace(".imageset", "") as Brand))
-    await rm(join(catalog, entry), { recursive: true });
-
 const cases = Object.entries(providerBrands)
   .filter(([, brand]) => brand)
-  .map(([provider, brand]) => `        case "${provider}": "ProviderMarks/${brand}"`);
+  .map(([provider, brand]) => `        case "${provider}": ${brand}`);
 await writeFile(
   swiftFile,
   [
     "// Generated by scripts/generate-provider-marks.ts from @ace/ui-core/provider-icons. Do not edit.",
+    "// LobeHub Icons (MIT) and OpenAI's Blossom; see NOTICE and Settings › Licences.",
     "",
-    "/// The asset each built-in provider's mark lives in; nil draws ace's neutral agent glyph.",
+    "/// Each built-in provider's mark as absolute M, L, C, Q and Z path data in its view box.",
     "enum ProviderMarks {",
-    "    static func asset(_ provider: String) -> String? {",
+    "    struct Path: Sendable {",
+    "        let d: String",
+    "        /// The brand colour; nil fills with the text colour.",
+    "        let fill: UInt32?",
+    "        let evenOdd: Bool",
+    "        let opacity: Double",
+    "    }",
+    "    struct Art: Sendable {",
+    "        let x: Double, y: Double, width: Double, height: Double",
+    "        let paths: [Path]",
+    "    }",
+    "    /// The provider's mark; nil draws ace's neutral agent glyph.",
+    "    static func art(_ provider: String) -> Art? {",
     "        switch provider {",
     ...cases,
     "        default: nil",
     "        }",
     "    }",
+    ...arts,
     "}",
     "",
   ].join("\n"),

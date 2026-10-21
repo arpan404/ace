@@ -6,6 +6,8 @@ import SwiftUI
 struct ModelSheet<Content: View>: View {
     @Binding var query: String
     var confirming = false
+    /// Puts back what the sheet changed as it went, when X closes it.
+    var cancel: () -> Void = {}
     let confirm: () -> Void
     @ViewBuilder var content: () -> Content
     @Environment(\.dismiss) private var dismiss
@@ -18,7 +20,7 @@ struct ModelSheet<Content: View>: View {
                 .navigationTitle("Model").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button { dismiss() } label: { Image(systemName: "xmark") }
+                        Button { cancel(); dismiss() } label: { Image(systemName: "xmark") }
                             .accessibilityLabel("Close").accessibilityIdentifier("modelSheet.close")
                     }
                     ToolbarItem(placement: .confirmationAction) { confirmButton }
@@ -30,7 +32,8 @@ struct ModelSheet<Content: View>: View {
     @ViewBuilder private var confirmButton: some View {
         if confirming { ProgressView() }
         else if #available(iOS 26, *) {
-            Button(role: .confirm, action: confirm) { Image(systemName: "checkmark") }
+            Button(role: .confirm, action: confirm) { Image(systemName: "checkmark").foregroundStyle(AceTheme.Colours.onAccent) }
+                .buttonStyle(.glassProminent).tint(AceTheme.Colours.accent)
                 .accessibilityLabel("Done").accessibilityIdentifier("modelSheet.done")
         } else {
             Button(action: confirm) { Image(systemName: "checkmark").fontWeight(.semibold) }
