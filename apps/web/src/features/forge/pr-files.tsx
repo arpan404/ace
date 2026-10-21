@@ -4,7 +4,7 @@ import { useFileChanges } from "@/lib/diffs/use-file-diffs.ts";
 import { useScopeWorkspace } from "@/lib/workspace/index.ts";
 import { VirtualRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
+import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import {
   DeferredFileDiffBlock,
   DeferredFileTree,
@@ -224,7 +224,13 @@ function PrCodeRange(
           </Button>
         </div>
       )}
-      {pages.pending && <Spinner label="Reading GitHub" className="m-3.5" />}
+      {pages.pending && (
+        <LoadingRegion label="changed files" className="flex flex-col gap-3 p-3.5">
+          {[0, 1, 2].map((index) => (
+            <Skeleton key={index} className="h-8 w-full rounded-md" />
+          ))}
+        </LoadingRegion>
+      )}
       {range && context && (
         <>
           <PrOffDiffThreads threads={threads} onFile={jump} />

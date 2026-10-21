@@ -108,7 +108,8 @@ function Tile(props: TileProps & { url: ImageState }) {
           style={props.fit === "contain" ? { objectFit: "scale-down" } : undefined}
           draggable={false}
           onLoad={() => setPainted(image.url)}
-          onError={() => setFailed(image.url)}
+          // Kept bytes the browser can't show are fetched again once before the tile gives up.
+          onError={() => (image.reload ? image.reload() : setFailed(image.url))}
           className={cn(
             "size-full transition-opacity duration-(--motion-fast)",
             props.fit !== "contain" && "object-cover",

@@ -56,8 +56,8 @@ export function PrActivity(props: {
       aria-label="Pull request timeline"
       className={cn("mx-auto w-full max-w-3xl px-4 pt-5", composerClearance)}
     >
-      <QueryState query={commits} />
-      <QueryState query={activity} />
+      <QueryState label="commits" query={commits} />
+      <QueryState label="timeline" query={activity} />
       {(activity.data?.truncated || commits.data?.truncated) && (
         <p role="status" className="mb-4 text-sm text-muted-foreground">
           This history is longer than ace reads at once, so some older entries are left out.

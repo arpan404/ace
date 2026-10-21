@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
 import {
+  checkoutLinkPath,
   codeFileReference,
   fileTextSpans,
+  localLinkLine,
+  localLinkPath,
   resolveFileReference,
   workspaceRelative,
 } from "./file-references.ts";
@@ -105,5 +108,26 @@ describe("resolution", () => {
     expect(workspaceRelative("/Users/dev/acme/src/a.ts", "/Users/dev/acme/")).toBe("src/a.ts");
     expect(workspaceRelative("/etc/hosts.conf", "/Users/dev/acme")).toBeUndefined();
     expect(workspaceRelative("./src/a.ts", undefined)).toBe("src/a.ts");
+  });
+});
+
+describe("message links", () => {
+  const root = "/work/relay";
+  test("a link inside the checkout lands on its checkout path, from the agent's folder when relative", () => {
+    expect(checkoutLinkPath("/work/relay/apps/web/a.ts", root, undefined)).toBe("apps/web/a.ts");
+    expect(checkoutLinkPath("src/a.ts", root, "/work/relay/apps/web")).toBe("apps/web/src/a.ts");
+    expect(checkoutLinkPath("./src/../lib/b.ts", root, undefined)).toBe("lib/b.ts");
+  });
+  test("a link outside the checkout has no checkout path", () => {
+    expect(checkoutLinkPath("/Users/me/Downloads/report.pdf", root, undefined)).toBeUndefined();
+    expect(checkoutLinkPath("../other/a.ts", root, undefined)).toBeUndefined();
+  });
+  test("file URLs, line suffixes and web links read as local paths or none", () => {
+    expect(localLinkPath("file:///Users/me/with%20space.pdf")).toBe("/Users/me/with space.pdf");
+    expect(localLinkPath("src/a.ts:12:3")).toBe("src/a.ts");
+    expect(localLinkLine("src/a.ts:12:3")).toBe(12);
+    expect(localLinkLine("src/a.ts")).toBeUndefined();
+    expect(localLinkPath("https://example.com/a.ts")).toBeUndefined();
+    expect(localLinkPath("file://server/share/a.ts")).toBeUndefined();
   });
 });

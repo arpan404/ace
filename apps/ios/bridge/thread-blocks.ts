@@ -47,7 +47,11 @@ const tokens: Record<SubagentState, StatusToken> = {
   cancelled: "neutral",
   done: "done",
 };
-const endings = { failed: "Turn failed", interrupted: "Stopped", paused: "Paused · Usage limit" };
+const endings = {
+  failed: "Turn failed",
+  interrupted: "Interrupted by you",
+  paused: "Paused · Usage limit",
+};
 
 /** A folded head's steps, without the answer shown under it. */
 function workItems(block: WorkBlock): string[] {

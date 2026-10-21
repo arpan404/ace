@@ -1,28 +1,32 @@
 import { CaretRightIcon } from "@phosphor-icons/react";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { AccountBadge } from "@/components/ui/provider-account-icon.tsx";
-import { compareVersions } from "@ace/ui-core/acp-registry";
 import { Link } from "@tanstack/react-router";
 import { ProviderSetupRow } from "@/features/provider-setup/index.ts";
 import { SettingNote, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
-import { AddAcpAgent } from "./add-acp-agent.tsx";
-import { isMissing, useProviderEntries, type ProviderEntry } from "./provider-entries.ts";
+import { AddAcpAgentRow } from "./add-acp-agent.tsx";
+import {
+  isMissing,
+  updateAvailable,
+  useProviderEntries,
+  type ProviderEntry,
+} from "./provider-entries.ts";
 
 /**
- * Settings → Providers: every coding agent on this computer as one calm row (its mark, its name,
- * one status line and at most the one action it needs), each opening its own page. Agents that
- * aren't installed and ACP agents sit in their own groups below.
+ * Settings → Providers: every coding agent on this computer as one calm row in columns (its
+ * mark and name, its state, at most the one action it needs, its accounts), each opening its
+ * own page. Agents that aren't installed sit in a group below, with the way to add an ACP agent.
  */
 export function ProviderSettings() {
   const { entries, query } = useProviderEntries();
   if (query.isPending)
-    return <ListSkeleton label="providers" shape="row" rows={5} className="mt-7" />;
+    return <ListSkeleton label="providers" shape="row" rows={5} className="mt-10" />;
   if (!entries)
     return (
-      <p role="alert" className="mt-7 text-sm text-muted-foreground">
+      <p role="alert" className="mt-10 text-sm text-muted-foreground">
         Couldn't check providers.{" "}
         <Button size="sm" variant="ghost" onClick={() => void query.refetch()}>
           Retry
@@ -42,16 +46,12 @@ export function ProviderSettings() {
           </SettingNote>
         )}
       </SettingSection>
-      {missing.length > 0 && (
-        <SettingSection label="Available to install">
-          {missing.map((entry) => (
-            <ProviderRow key={entry.id} entry={entry} />
-          ))}
-        </SettingSection>
-      )}
-      <div className="mt-2">
-        <AddAcpAgent>Add an ACP agent…</AddAcpAgent>
-      </div>
+      <SettingSection label="Available to install">
+        {missing.map((entry) => (
+          <ProviderRow key={entry.id} entry={entry} />
+        ))}
+        <AddAcpAgentRow>Add an ACP agent…</AddAcpAgentRow>
+      </SettingSection>
     </>
   );
 }
@@ -66,24 +66,22 @@ function ProviderRow(props: { entry: ProviderEntry }) {
       (install.kind !== "acp" || account.acpAgentId === install.acpAgentId),
   );
   return (
-    <div role="group" aria-label={install.name} className="py-2">
+    <div role="group" aria-label={install.name} className="py-1">
       <ProviderSetupRow
+        columns
         provider={install.kind}
         acpAgentId={install.registry?.agent?.acpAgentId ?? install.acpAgentId}
         instance={install.instance}
         name={install.name}
         missing={isMissing(props.entry)}
         view={view}
-        updateAvailable={
-          row?.updateAvailable ??
-          (!!install.registry?.agent &&
-            compareVersions(install.registry.agent.version, install.registry.version) > 0)
-        }
+        updateAvailable={updateAvailable(props.entry)}
         secondary={
           !isMissing(props.entry) && (
             // Right-aligned on whichever line it lands, so the chevron keeps the row's edge.
-            <span className="ml-auto flex items-center gap-2">
-              <span className="flex items-center gap-1">
+            <span className="ml-auto flex items-center gap-3">
+              {/* Accounts only where the row has room for them; the provider's page lists them. */}
+              <span className="hidden items-center gap-1 @[34rem]:flex">
                 {own?.map((account) => (
                   <AccountBadge key={account.id} account={account} focusable />
                 ))}

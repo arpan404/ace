@@ -7,8 +7,8 @@ import XCTest
 
     func testStartingAThreadWithAMentionOpensIt() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.startTask"].waitForExistence(timeout: 25))
-        app.buttons["inbox.startTask"].tap()
+        XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))
+        app.newThreadButton.tap()
         XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
         screenshot("newthread-sheet")
         app.buttons["newThread.project"].tap()
@@ -28,11 +28,14 @@ import XCTest
         let visible = (0..<min(models.count, 40)).map { models.element(boundBy: $0) }.first { $0.isHittable }
         XCTAssertNotNil(visible)
         visible?.tap()
+        app.buttons["modelSheet.done"].tap()
         let worktree = app.buttons["newThread.worktree"]
-        if worktree.waitForExistence(timeout: 10), worktree.isEnabled { worktree.tap() }
+        if worktree.waitForExistence(timeout: 10), worktree.isEnabled {
+            worktree.tap()
+            let newWorktree = app.buttons["New worktree"]
+            if newWorktree.waitForExistence(timeout: 5) { newWorktree.tap() }
+        }
         let message = element(app, "newThread.message")
-        // Speed and access rows can push the message below the fold.
-        for _ in 0..<6 where !message.waitForExistence(timeout: 2) || !message.isHittable { app.swipeUp() }
         XCTAssertTrue(message.waitForExistence(timeout: 5))
         message.tap()
         message.typeText("Tighten the outbox retry ")
@@ -49,16 +52,17 @@ import XCTest
         XCTAssertTrue(app.buttons["newThread.start"].waitForExistence(timeout: 5))
         screenshot("newthread-ready")
         app.buttons["newThread.start"].tap()
-        XCTAssertTrue(app.descendants(matching: .any)["thread.header"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 30))
         screenshot("newthread-started")
     }
 
     func testAProfileCreatedFromTheDraftIsOfferedOnReturnAndSuppliesItsInstructions() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.startTask"].waitForExistence(timeout: 25))
-        app.buttons["inbox.startTask"].tap()
+        XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))
+        app.newThreadButton.tap()
         XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
         app.buttons["newThread.options"].tap()
+        app.buttons["newThread.instructionsPage"].tap()
         let manage = app.buttons["newThread.profiles"]
         for _ in 0..<8 where !manage.isHittable { app.swipeUp() }
         manage.tap()
@@ -90,8 +94,8 @@ import XCTest
 
     func testTheFirstMessageOffersSpeedAccessAndFilesAndLongModelListsCollapse() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.startTask"].waitForExistence(timeout: 25))
-        app.buttons["inbox.startTask"].tap()
+        XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))
+        app.newThreadButton.tap()
         XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
         app.buttons["newThread.project"].tap()
         XCTAssertTrue(app.buttons["project.ace"].waitForExistence(timeout: 15))
@@ -116,7 +120,8 @@ import XCTest
         let tuned = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND identifier CONTAINS[c] %@", "model.codex.", "ultra")).firstMatch
         for _ in 0..<25 where !tuned.isHittable { app.swipeUp() }
         tuned.tap()
-        app.buttons["newThread.options"].tap()
+        // Speed and access follow the agents in the model sheet.
+        for _ in 0..<25 where !element(app, "newThread.access").isHittable { app.swipeUp() }
         XCTAssertTrue(element(app, "newThread.speed").waitForExistence(timeout: 10))
         XCTAssertTrue(element(app, "newThread.access").waitForExistence(timeout: 15))
         screenshot("newthread-tuning")
@@ -126,7 +131,7 @@ import XCTest
         screenshot("newthread-access-menu")
         readOnly.tap()
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Reads and plans")).firstMatch.waitForExistence(timeout: 10))
-        app.navigationBars.buttons["BackButton"].firstMatch.tap()
+        app.buttons["modelSheet.done"].tap()
         // The compact composer keeps attachment next to the input.
         XCTAssertTrue(element(app, "newThread.attach").waitForExistence(timeout: 5))
         XCTAssertTrue(element(app, "newThread.attach").isHittable)
@@ -137,8 +142,8 @@ import XCTest
 
     func testAddingAFolderFromTheComputerSelectsItAsTheProject() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.startTask"].waitForExistence(timeout: 25))
-        app.buttons["inbox.startTask"].tap()
+        XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))
+        app.newThreadButton.tap()
         app.buttons["newThread.project"].tap()
         XCTAssertTrue(app.buttons["projects.add"].waitForExistence(timeout: 15))
         app.buttons["projects.add"].tap()
@@ -154,12 +159,11 @@ import XCTest
         screenshot("addproject-selected")
     }
 
-    func testFilesListsAFolderWithinItsCapAndPreviewsTheStartOfALargeFile() {
+    func testFilesOpensFoldersInPlaceAndMentionsAFileInTheComposer() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.startTask"].waitForExistence(timeout: 25))
-        for _ in 0..<8 where !app.buttons["inbox.settled"].isHittable { app.swipeUp() }
-        if !app.buttons["thread.ios-done"].exists { app.buttons["inbox.settled"].tap() }
-        for _ in 0..<6 where !app.buttons["thread.ios-done"].isHittable { app.swipeUp() }
+        XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))
+        // Done rows stay in the list until they are settled.
+        for _ in 0..<10 where !app.buttons["thread.ios-done"].isHittable { app.swipeUp() }
         XCTAssertTrue(app.buttons["thread.ios-done"].waitForExistence(timeout: 25))
         app.buttons["thread.ios-done"].tap()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 15))
@@ -169,15 +173,18 @@ import XCTest
         screenshot("files-root")
         app.buttons["file.fixtures/"].tap()
         app.buttons["file.fixtures/snapshots/"].tap()
-        XCTAssertTrue(element(app, "files.more").waitForExistence(timeout: 15) || scrollToMore(app))
-        screenshot("files-capped")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(app.buttons["file.logs/"].waitForExistence(timeout: 10))
-        app.buttons["file.logs/"].tap()
+        XCTAssertTrue(app.buttons["file.fixtures/snapshots/case-000.json"].waitForExistence(timeout: 10))
+        screenshot("files-open-folder")
+        // Closing a folder hides everything under it.
+        app.buttons["file.fixtures/"].tap()
+        XCTAssertFalse(app.buttons["file.fixtures/snapshots/case-000.json"].exists)
+        let logs = app.buttons["file.logs/"]
+        for _ in 0..<10 where !logs.isHittable { app.swipeUp() }
+        logs.tap()
         app.buttons["file.logs/relay.log"].tap()
         XCTAssertTrue(element(app, "preview.text").waitForExistence(timeout: 20))
         screenshot("files-preview")
+        app.buttons["file.menu"].tap()
         XCTAssertTrue(app.buttons["preview.mention"].waitForExistence(timeout: 5))
         app.buttons["preview.mention"].tap()
         let input = app.textViews["composer.input"]
@@ -188,8 +195,8 @@ import XCTest
 
     func testNewThreadBrowsesAndPreviewsTheProjectsFolderBeforeAThreadExists() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.startTask"].waitForExistence(timeout: 25))
-        app.buttons["inbox.startTask"].tap()
+        XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))
+        app.newThreadButton.tap()
         XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
         app.buttons["newThread.project"].tap()
         XCTAssertTrue(app.buttons["project.ace"].waitForExistence(timeout: 15))
@@ -206,10 +213,12 @@ import XCTest
         XCTAssertTrue(app.buttons["file.docs/runbook.md"].waitForExistence(timeout: 10))
         screenshot("newthread-files-folder")
         app.buttons["file.docs/runbook.md"].tap()
-        let text = element(app, "preview.text")
-        XCTAssertTrue(text.waitForExistence(timeout: 20))
-        XCTAssertTrue(text.label.contains("Relay runbook"))
+        XCTAssertTrue(element(app, "preview.markdown").waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Relay runbook"].exists)
+        // A project's own folder is read-only before the thread exists.
+        XCTAssertFalse(app.buttons["file.edit"].exists)
         screenshot("newthread-files-preview")
+        app.buttons["file.menu"].tap()
         XCTAssertTrue(app.buttons["preview.mention"].waitForExistence(timeout: 5))
         app.buttons["preview.mention"].tap()
         let message = element(app, "newThread.message")
@@ -218,10 +227,6 @@ import XCTest
         screenshot("newthread-files-mentioned")
     }
 
-    private func scrollToMore(_ app: XCUIApplication) -> Bool {
-        for _ in 0..<30 where !element(app, "files.more").exists { app.swipeUp(velocity: .fast) }
-        return element(app, "files.more").exists
-    }
     private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()

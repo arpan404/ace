@@ -20,6 +20,11 @@ const quarterHours: SelectOption<string>[] = Array.from({ length: 96 }, (_, inde
 });
 
 const BrowserPushSettings = lazy(() => import("./browser-push-settings.tsx"));
+
+/**
+ * Settings › Notifications, all kept on this device: toasts while ace is open, then either the
+ * desktop app's system notifications and quiet hours or, in a browser, push while ace is closed.
+ */
 export function NotificationSettings() {
   const desktop = useDesktopPreferences();
   return (
@@ -111,11 +116,7 @@ function QuietHoursRow() {
     <SettingRow
       {...row}
       htmlFor={id}
-      description={
-        quiet
-          ? `${clock(quiet.start)} to ${clock(quiet.end)}. This computer stays silent; a phone keeps its own quiet hours.`
-          : "Silence notifications on this computer overnight."
-      }
+      description={quiet ? "Phones keep their own quiet hours." : undefined}
     >
       <span className="flex items-center justify-end gap-2">
         {quiet && (

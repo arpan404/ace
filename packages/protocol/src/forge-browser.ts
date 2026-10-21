@@ -135,6 +135,13 @@ export const ForgeOpenWork = z.object({
 });
 export type ForgeOpenWork = z.infer<typeof ForgeOpenWork>;
 export const ForgeRelatedThread = z.object({ id: ThreadId, title: text, archived: z.boolean() });
+export const ForgePrDetailFile = z.object({
+  path: text,
+  additions: z.number().int().nonnegative(),
+  deletions: z.number().int().nonnegative(),
+  status: text,
+});
+export type ForgePrDetailFile = z.infer<typeof ForgePrDetailFile>;
 export const ForgePrDetail = z.object({
   status: ForgePrStatus,
   writeState: z.enum(["pending", "uncertain"]).optional(),
@@ -155,6 +162,7 @@ export const ForgePrDetail = z.object({
   reviewDecision: z.string().max(100).nullable(),
   commits: z.number().int().nonnegative(),
   changedFiles: z.number().int().nonnegative(),
+  files: z.array(ForgePrDetailFile).max(100).optional(),
   relatedThreads: z.array(ForgeRelatedThread).max(100),
   relatedThreadsTruncated: z.boolean(),
 });

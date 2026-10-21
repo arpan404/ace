@@ -122,7 +122,7 @@ test("the sidebar shows a plain ace label and profile connection actions", async
   const daemon = await screen.findByRole("menu", { name: "Connection" });
   expect(within(daemon).getByText(/Connected$/)).toBeTruthy();
   await userEvent.click(within(daemon).getByRole("menuitem", { name: "Pair a device…" }));
-  await screen.findByRole("heading", { level: 2, name: "Remote devices" });
+  await screen.findByRole("heading", { level: 2, name: "Machines and devices" });
   await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
   await title("New thread");
 

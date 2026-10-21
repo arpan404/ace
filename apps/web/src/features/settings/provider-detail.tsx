@@ -1,16 +1,20 @@
-import { compareVersions } from "@ace/ui-core/acp-registry";
 import { CaretLeftIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { Suspense, useRef, useState } from "react";
-import { ProviderTile } from "@/components/provider-tile.tsx";
+import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { SettingDisclosure, SettingSection } from "@/components/setting-row.tsx";
-import { Button, buttonVariants } from "@/components/ui/button.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { ProviderPreferences } from "./provider-configuration.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { ProviderSetupRow, type ProviderSetupActions } from "@/features/provider-setup/index.ts";
-import { isMissing, useProviderEntries, type ProviderEntry } from "./provider-entries.ts";
+import {
+  isMissing,
+  updateAvailable,
+  useProviderEntries,
+  type ProviderEntry,
+} from "./provider-entries.ts";
 import { SettingsBody } from "./settings-body.tsx";
 
 /** The models section loads with the page, apart from the overview. */
@@ -42,9 +46,9 @@ const back = (
   <Link
     to="/settings/providers"
     aria-label="Back to Providers"
-    className={buttonVariants({ size: "sm", variant: "ghost", className: "-mt-2 mb-3 -ml-2" })}
+    className="inline-flex items-center gap-1 rounded-xs text-muted-foreground focus-ring hover:text-foreground"
   >
-    <CaretLeftIcon aria-hidden size={12} weight="bold" />
+    <CaretLeftIcon aria-hidden size={12} />
     Providers
   </Link>
 );
@@ -68,7 +72,7 @@ export function ProviderDetail(props: { id: string }) {
         back={back}
       >
         {query.isPending ? (
-          <ListSkeleton label="provider" shape="row" rows={4} className="mt-7" />
+          <ListSkeleton label="provider" shape="row" rows={4} className="mt-10" />
         ) : (
           <p role="alert" className="mt-4 text-muted-foreground">
             {query.isError ? (
@@ -95,11 +99,7 @@ function ProviderPage(props: { entry: ProviderEntry }) {
   const missing = isMissing(props.entry);
   const upstreams = install.kind === "opencode" || install.kind === "pi";
   const version = row?.version ?? install.version;
-  const updateAvailable =
-    view?.state === "needs_update" ||
-    (row?.updateAvailable ??
-      (!!install.registry?.agent &&
-        compareVersions(install.registry.agent.version, install.registry.version) > 0));
+  const update = updateAvailable(props.entry);
   const setup = (
     <ProviderSetupRow
       ref={setupActions}
@@ -118,7 +118,7 @@ function ProviderPage(props: { entry: ProviderEntry }) {
       heading
       missing={missing}
       view={missing || install.kind === "acp" || install.kind === "antigravity" ? view : undefined}
-      updateAvailable={updateAvailable}
+      updateAvailable={update}
     />
   );
   return (
@@ -126,17 +126,18 @@ function ProviderPage(props: { entry: ProviderEntry }) {
       page={install.name}
       back={back}
       icon={
-        <ProviderTile
+        // A bare mark beside the title, as the sidebar and Usage draw providers.
+        <ProviderIcon
           provider={install.kind}
           acpAgentId={install.acpAgentId}
-          size="lg"
-          muted={missing}
+          size={24}
+          className={missing ? "opacity-60 grayscale" : undefined}
         />
       }
       lede={
         <span className="text-sm">
           {version}
-          {updateAvailable && (
+          {update && (
             <span className="text-status-needs-you">
               {" "}
               ·{" "}
@@ -191,7 +192,7 @@ function ProviderPage(props: { entry: ProviderEntry }) {
             </SettingSection>
           </>
         )}
-        <SettingDisclosure title="Advanced" className="mt-7" onToggle={setAdvanced}>
+        <SettingDisclosure title="Advanced" className="mt-10" onToggle={setAdvanced}>
           {advanced && row && (
             <Suspense fallback={null}>
               <DeferredProviderMcpServers.Component provider={install.kind} name={install.name} />

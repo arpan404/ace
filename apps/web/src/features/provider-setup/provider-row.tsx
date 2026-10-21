@@ -11,6 +11,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { SignInButton } from "@/features/sign-in/index.ts";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { useProviderConfiguration } from "@/lib/provider-configuration.ts";
+import { cn } from "@/lib/cn.ts";
 import { useInstall } from "./use-install.ts";
 
 const progressNames: Record<ProviderInstallProgress["state"], string> = {
@@ -45,6 +46,11 @@ export function ProviderSetupRow({
   menuItems?: React.ReactNode;
   secondary?: ReactNode;
   manage?: boolean;
+  /**
+   * In a list of providers: from 34rem of container width the name takes a fixed column, so
+   * every status starts at one left edge and every action ends at the right edge.
+   */
+  columns?: boolean;
 }) {
   const { provider, name, missing } = props;
   const { controller, view } = useInstall(provider, props.acpAgentId);
@@ -108,7 +114,14 @@ export function ProviderSetupRow({
         {/* On a narrow screen the status and actions wrap under the name, not under the icon. */}
         <div className="flex min-h-9 min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
           {!props.heading && (
-            <span className="min-w-[8rem] flex-1 truncate font-medium">{props.title ?? name}</span>
+            <span
+              className={cn(
+                "min-w-[8rem] flex-1 truncate font-medium",
+                props.columns && "@[34rem]:flex-none @[34rem]:basis-[13rem]",
+              )}
+            >
+              {props.title ?? name}
+            </span>
           )}
           {status ? (
             <span role={failed ? "alert" : "status"}>
@@ -133,6 +146,7 @@ export function ProviderSetupRow({
               text={props.view.primary === "sign_in" ? "Signed out" : props.view.summary}
             />
           ) : null}
+          {props.columns && <span aria-hidden className="hidden flex-1 @[34rem]:block" />}
           {busy ? (
             <IconButton
               size="sm"

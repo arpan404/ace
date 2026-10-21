@@ -13,6 +13,7 @@ import {
   deviceControls,
   deviceProblem,
   deviceRows,
+  holdsControl,
   type DeviceControls,
   type DeviceProblem,
   type DeviceRow,
@@ -169,14 +170,7 @@ export function useDevices(threadId: string, deviceId?: string) {
   const withControl = async (operation: DeviceOperation) => {
     const id = "deviceId" in operation ? operation.deviceId : selected?.id;
     const current = session?.client.getSnapshot().states.find((entry) => entry.device.id === id);
-    if (
-      id &&
-      !(
-        current?.controller === "human" &&
-        current.ownedHere === true &&
-        (current.leaseExpiresAt ?? 0) > Date.now()
-      )
-    ) {
+    if (id && !holdsControl(current, Date.now())) {
       claim.current ??= run({
         op: "controller",
         deviceId: id,

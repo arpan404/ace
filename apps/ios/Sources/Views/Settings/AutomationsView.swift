@@ -37,7 +37,7 @@ func friendlyAutomationError(_ raw: String?, fallback: String) -> String {
     case "automation_unavailable":
         return "Automations aren't available on this machine. Restart ace and try again."
     case "Automation service is stopped":
-        return "Automations are turned off. Turn on Run automations in Settings › General to run one."
+        return "Automations are turned off. Turn on Run automations in Settings › Agents to run one."
     case "disabled_or_missing":
         return "That automation is paused or no longer exists."
     case "forbidden":

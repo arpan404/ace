@@ -8,7 +8,7 @@ const checked = (name: string) =>
 
 test("a setting switched off on the page is what the daemon stores", async () => {
   const app = harness();
-  await app.open("/settings/general");
+  await app.open("/settings/agents");
   await waitFor(async () => expect(await checked("Settle when the PR merges")).toBe("true"));
 
   await userEvent.click(await screen.findByRole("switch", { name: "Settle when the PR merges" }));
@@ -21,7 +21,7 @@ test("a setting switched off on the page is what the daemon stores", async () =>
 
 test("a setting changed from another device shows up without reloading the page", async () => {
   const app = harness();
-  await app.open("/settings/general");
+  await app.open("/settings/agents");
   await waitFor(async () => expect(await checked("Settle when the PR merges")).toBe("true"));
 
   const phone = fakeClient(app.daemon);
@@ -39,7 +39,7 @@ test("a setting changed from another device shows up without reloading the page"
 
 test("settings read again after the daemon restarts, including changes made while away", async () => {
   const app = harness();
-  await app.open("/settings/general");
+  await app.open("/settings/agents");
   await waitFor(async () => expect(await checked("Settle when the PR merges")).toBe("true"));
 
   app.daemon.disconnectAll();
@@ -91,7 +91,7 @@ test("Reset all settings clears provider choices and native modes along with ord
 });
 
 test("Settings does not offer a silence timeout that the engine cannot use", async () => {
-  await harness().open("/settings/general");
+  await harness().open("/settings/agents");
   // The thread settings have loaded, so a silence timeout would show among them by now.
   await screen.findByRole("switch", { name: "Settle when the PR merges" });
   expect(screen.queryByText("Unresponsive after")).toBeNull();

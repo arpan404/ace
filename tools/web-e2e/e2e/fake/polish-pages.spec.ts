@@ -45,7 +45,7 @@ for (const width of [1440, 390]) {
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 });
-    await page.goto("/settings/general");
+    await page.goto("/settings/agents");
     const worktree = page.getByRole("switch", { name: "New threads use a worktree" });
     await expect(worktree).toBeVisible();
     const merged = page.getByRole("switch", { name: "Settle when the PR merges" });
@@ -58,12 +58,15 @@ for (const width of [1440, 390]) {
       }),
     );
     expect(Math.max(...rightEdges) - Math.min(...rightEdges)).toBeLessThanOrEqual(1);
-    await expect(page.getByText("Keeps your checkout clean.", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("The thread you switch from stays as it was.", { exact: true }),
+    ).toBeVisible();
     await worktree.focus();
     await page.keyboard.press("Space");
     await expect(worktree).toHaveAttribute("aria-checked", "false");
     await page.keyboard.press("Tab");
-    await expect(page.getByRole("combobox", { name: "Settle done threads" })).toBeFocused();
+    await expect(page.getByRole("switch", { name: "Fork when switching providers" })).toBeFocused();
+    await page.getByRole("combobox", { name: "Settle done threads" }).focus();
     await page.keyboard.press("Enter");
     await expect(page.getByRole("option", { name: "Never", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");

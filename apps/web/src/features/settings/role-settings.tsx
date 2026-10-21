@@ -96,13 +96,24 @@ function RoleRow(props: { role: RunRole }) {
           )}
           <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger
-              render={<Button type="button" variant="secondary" size="sm" disabled={offline} />}
+              render={
+                // The width and shape of a Select, so the Roles column lines up with the others.
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={offline}
+                  className="h-8 min-w-36 justify-between pr-2 pl-2.5 font-normal"
+                />
+              }
               aria-label={`${row.title}: ${label}`}
             >
-              {provider && (
-                <ProviderAccountIcon provider={provider} size={14} accountLabel={false} />
-              )}
-              <span className="max-w-48 truncate">{label}</span>
+              <span className="inline-flex min-w-0 items-center gap-2">
+                {provider && (
+                  <ProviderAccountIcon provider={provider} size={14} accountLabel={false} />
+                )}
+                <span className="max-w-48 truncate">{label}</span>
+              </span>
               <CaretDownIcon aria-hidden size={12} className="text-subtle-foreground" />
             </PopoverTrigger>
             <PopoverContent aria-label={row.title} className="overflow-hidden p-0">

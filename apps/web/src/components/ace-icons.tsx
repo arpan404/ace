@@ -147,7 +147,7 @@ export const AceToolIcon = forwardRef<SVGSVGElement, IconProps>(function AceTool
 });
 
 /**
- * Pause as two slim rounded bars: Phosphor's filled pause reads heavy at 14px, its outline busy.
+ * Pause as two thin rounded bars: Phosphor's filled pause reads heavy at 14px, its outline busy.
  * Always solid, whatever the weight, so it pairs with `ResumeIcon`.
  */
 export const PauseBarsIcon = forwardRef<SVGSVGElement, IconProps>(function PauseBarsIcon(
@@ -157,8 +157,8 @@ export const PauseBarsIcon = forwardRef<SVGSVGElement, IconProps>(function Pause
   const ink = color ?? "currentColor";
   return (
     <svg ref={ref} {...frame(svg)}>
-      <rect x="7" y="4.5" width="3" height="15" rx="1.5" fill={ink} />
-      <rect x="14" y="4.5" width="3" height="15" rx="1.5" fill={ink} />
+      <rect x="7.5" y="4.5" width="2" height="15" rx="1" fill={ink} />
+      <rect x="14.5" y="4.5" width="2" height="15" rx="1" fill={ink} />
     </svg>
   );
 });

@@ -17,12 +17,12 @@
       "sha256": "4de6fc65fd86986de187875032c67adbc8c0a6c80354015b669aa79a096921ff"
     },
     "forge.md": {
-      "bytes": 98824,
-      "sha256": "f31897f3f3b890c4373e469a398c404800e080241c71d18aea2998daeec592ed"
+      "bytes": 100532,
+      "sha256": "f30a7c0782d1baba735a8f5c55bf2b0bf1b665f9fa80c7022372fd1eb619d9cb"
     },
     "mcp.md": {
-      "bytes": 71380,
-      "sha256": "ce3e29cb9e3fc436a447223c655ed1eabb1a4d2ae35e366642c6a1559e2321ba"
+      "bytes": 71304,
+      "sha256": "f4cccc84a6a75904a778e467235ef173071393005bef339a86653c64b8e65b1b"
     },
     "models.md": {
       "bytes": 15140,
@@ -1057,8 +1057,12 @@
       "sha256": "e3e4953ea57dd2be995269def34ea78641ada262b3bde4ae749386c538caff47"
     },
     "schema/FileOperation.json": {
-      "bytes": 11727,
-      "sha256": "a318d91613624e9751422adb0ca4e3fef4aa30b38a58a043a1a9960687619f42"
+      "bytes": 12730,
+      "sha256": "f5cef640e45e646fc2e54ee3dda4476324f083bb0cc718341e29f90b666913ac"
+    },
+    "schema/FileReadResult.json": {
+      "bytes": 988,
+      "sha256": "ea20cdfe95d8244df3a9944b88d453a85fb68df1fddc7d47df89cb0fb1355d6a"
     },
     "schema/FileVersion.json": {
       "bytes": 181,
@@ -1265,8 +1269,12 @@
       "sha256": "fb1e718884b40fc3187dafdcff9afd44b2db8e3036d602f27551dcebf058df09"
     },
     "schema/ForgePrDetail.json": {
-      "bytes": 2790,
-      "sha256": "8f2b6169bc49037410a6f293e658fa9454c1b06aa43f3e2662999da39bb73364"
+      "bytes": 2954,
+      "sha256": "93d01b58a39a75c12a771ca9adeb93dd587847051997537f38445a93b3ea5976"
+    },
+    "schema/ForgePrDetailFile.json": {
+      "bytes": 603,
+      "sha256": "ff476943c86f175ad92ad7aede6338c5f8d22342c584d05195da2fefd8990874"
     },
     "schema/ForgePrFiles.json": {
       "bytes": 920,
@@ -4113,10 +4121,10 @@
       "sha256": "3c00a18ea5c34e708a57c9d0f5d0cdba097745d6b5fc80bd543053d4c1079efc"
     },
     "types.md": {
-      "bytes": 865802,
-      "sha256": "31eacfc8e4969f2ee2286baf2eb1167db71aac1ad0c03abbb92105953ff97e0a"
+      "bytes": 862489,
+      "sha256": "2a59899392f94fdf1728380dd61c33f588d74136af8be5488c76a3801848fe2d"
     }
   },
-  "input": "ade1de452418a4ac2a6260701bdab6b04e9349a9045b4d36817310deddf9c2b6",
+  "input": "eec92f970cbccd931ae67d9f2d8c941191130696f31ad95a47226c16f8903932",
   "version": 1
 }

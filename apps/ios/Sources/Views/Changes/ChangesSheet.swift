@@ -1,72 +1,100 @@
 import SwiftUI
 
-/// The thread's uncommitted changes with their line counts, each file's diff, and the next git
-/// step the web offers. Steps go through the daemon's guarded git; a view-only phone sees the
-/// diff but not the step's button.
+/// The thread's uncommitted changes for review: each file under a sticky header (open it for its
+/// diff, tick it off once read), and the next git step in the ⋯ menu. Steps go through the
+/// daemon's guarded git; a view-only phone sees the diff but not the steps. The bridge sends one
+/// file's diff at a time, so opening a file closes the one before.
 struct ChangesSheet: View {
     @Bindable var model: ClientModel
     let title: String
+    /// A file whose diff opens first (from Files); otherwise the first file's.
+    var initial: String?
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.dynamicTypeSize) private var typeSize
+    @State private var open: String?
+    @State private var reviewed: Set<String> = []
+    @State private var wrap = true
     private var summary: ChangesSummary? { model.sheets.changes }
 
     var body: some View {
         NavigationStack {
-            List {
-                if let summary {
-                    if summary.state == "error" {
-                        ContentUnavailableView("Couldn't read changes", systemImage: "exclamationmark.triangle",
-                                               description: Text("Check that this thread has a git checkout, then refresh."))
-                    } else if summary.state == "loading" && summary.files.isEmpty {
-                        ProgressView("Reading changes…").frame(maxWidth: .infinity)
-                    } else if summary.files.isEmpty {
-                        ContentUnavailableView("No uncommitted changes", systemImage: "checkmark.circle")
-                    } else {
-                        Section {
-                            ForEach(summary.files) { file in
-                                NavigationLink(value: file.path) { ChangedFileRow(file: file) }.accessibilityIdentifier("changes.file.\(file.path)")
-                            }
-                        }
-                        footer(summary)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: AceTheme.Spacing.none, pinnedViews: [.sectionHeaders]) {
+                        content
                     }
-                    if typeSize.isAccessibilitySize && summary.state == "ready" {
-                        NextStepCard(model: model, summary: summary, title: title)
-                            .listRowInsets(EdgeInsets()).listRowBackground(Color.clear).listRowSeparator(.hidden)
-                    }
-                } else {
-                    ProgressView("Reading changes…").frame(maxWidth: .infinity)
+                }
+                .task(id: summary?.files.contains { $0.path == initial } == true) {
+                    if let initial, summary?.files.contains(where: { $0.path == initial }) == true { proxy.scrollTo(initial, anchor: .top) }
                 }
             }
-            .listStyle(.insetGrouped)
+            .background(AceTheme.Colours.background)
             .refreshable { model.sheet(["kind": "changes.refresh"]) }
-            .navigationTitle("Changes")
             .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(for: String.self) { path in FileDiffView(model: model, path: path) }
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel("Close").accessibilityIdentifier("changes.close")
+                }
                 ToolbarItem(placement: .principal) { header }
             }
-            .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
-                // At accessibility sizes the floating card would cover most of the files, so it
-                // ends the list instead.
-                if let summary, summary.state == "ready", !typeSize.isAccessibilitySize {
-                    NextStepCard(model: model, summary: summary, title: title)
-                }
-            }
+            .changesActions(model: model, summary: summary, title: title, wrap: $wrap)
         }
-        .onAppear { model.sheet(["kind": "changes", "open": true]) }
+        .tint(AceTheme.Colours.foreground)
+        .onAppear {
+            model.sheet(["kind": "changes", "open": true])
+            if let initial { show(initial) }
+        }
         .onDisappear { model.sheet(["kind": "changes", "open": false]) }
+        .onChange(of: summary?.files.first?.path) { _, first in if open == nil, let first { show(first) } }
     }
+
+    @ViewBuilder private var content: some View {
+        if let summary {
+            if summary.state == "error" {
+                ContentUnavailableView("Couldn't read changes", systemImage: "exclamationmark.triangle",
+                                       description: Text("Check that this thread has a git checkout, then refresh."))
+                    .padding(.top, AceTheme.Spacing.xxxl)
+            } else if summary.state == "loading" && summary.files.isEmpty {
+                ProgressView("Reading changes…").frame(maxWidth: .infinity).padding(.top, AceTheme.Spacing.xxxl)
+            } else if summary.files.isEmpty {
+                ContentUnavailableView("No uncommitted changes", systemImage: "checkmark.circle").padding(.top, AceTheme.Spacing.xxxl)
+            } else {
+                ForEach(summary.files) { file in
+                    Section {
+                        if open == file.path { FileDiffRows(model: model, path: file.path, wrap: wrap) }
+                    } header: {
+                        ChangedFileHeader(file: file, open: open == file.path, reviewed: reviewed.contains(file.path),
+                                          toggle: { open == file.path ? show(nil) : show(file.path) },
+                                          review: { if reviewed.contains(file.path) { reviewed.remove(file.path) } else { reviewed.insert(file.path) } })
+                            .id(file.path)
+                    }
+                }
+                footer(summary)
+            }
+        } else {
+            ProgressView("Reading changes…").frame(maxWidth: .infinity).padding(.top, AceTheme.Spacing.xxxl)
+        }
+    }
+    private func show(_ path: String?) {
+        open = path
+        if let path { model.sheet(["kind": "changes.file", "path": path]) }
+        else { model.sheet(["kind": "changes.file", "path": NSNull()]) }
+    }
+
+    /// "Changes on fix/queue" over "+42 · −8 · 4 files".
     private var header: some View {
         VStack(spacing: AceTheme.Spacing.none) {
-            Text("Changes").aceFont(AceTheme.Typography.title, relativeTo: .headline)
+            Text("Changes")
+                .aceFont(AceTheme.Typography.title, relativeTo: .headline).lineLimit(1).truncationMode(.middle)
             if let totals = summary?.totals, totals.files > 0 {
                 HStack(spacing: AceTheme.Spacing.xs) {
-                    Text("\(totals.files) \(totals.files == 1 ? "file" : "files") ·")
                     Text("+\(totals.additions)").foregroundStyle(AceTheme.StatusText.done)
+                    Text("·")
                     Text("−\(totals.deletions)").foregroundStyle(AceTheme.StatusText.failed)
+                    Text("· \(totals.files) \(totals.files == 1 ? "file" : "files")")
                 }
-                .aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+                .aceFont(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit()
+                .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .accessibilityElement(children: .combine).accessibilityIdentifier("changes.totals")
             }
         }
@@ -76,36 +104,104 @@ struct ChangesSheet: View {
             Text(summary.partial ? "More files changed than one read returns. See them all on your computer."
                                  : "\(summary.hidden) more \(summary.hidden == 1 ? "file" : "files") on your computer")
                 .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                .padding(AceTheme.Spacing.lg)
         }
     }
 }
 
-struct ChangedFileRow: View {
+/// A file's sticky 52pt header: disclosure, status mark, the path in mono with its name in bold,
+/// −N +N, and a box to tick once it's been read.
+struct ChangedFileHeader: View {
     let file: ChangesSummary.File
-    @Environment(\.dynamicTypeSize) private var typeSize
+    let open: Bool
+    let reviewed: Bool
+    let toggle: () -> Void
+    let review: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        // At accessibility sizes the counts take their own line so the path keeps the width.
-        let stacked = typeSize.isAccessibilitySize
-        let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: AceTheme.Spacing.xxs))
-                             : AnyLayout(HStackLayout(spacing: AceTheme.Spacing.sm))
-        layout {
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(file.path).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.foreground).lineLimit(stacked ? 4 : 2).truncationMode(.head)
-                if let from = file.from {
-                    Text("from \(from)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
-                        .lineLimit(stacked ? 3 : 1).truncationMode(.head)
+        HStack(spacing: AceTheme.Spacing.sm + AceTheme.Spacing.xxs) {
+            Button(action: toggle) {
+                HStack(spacing: AceTheme.Spacing.sm + AceTheme.Spacing.xxs) {
+                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
+                        .rotationEffect(.degrees(open ? 90 : 0))
+                        .animation(reduceMotion ? nil : .easeOut(duration: AceTheme.Motion.standard), value: open)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    FileStatusMark(status: file.status)
+                    path
+                    Spacer(minLength: AceTheme.Spacing.xs)
+                    counts
                 }
+                .frame(minHeight: 52).contentShape(Rectangle())
             }
-            if !stacked { Spacer(minLength: AceTheme.Spacing.sm) }
-            HStack(spacing: AceTheme.Spacing.sm) {
-                if file.binary { Text("binary").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
-                if file.deletions > 0 { Text("−\(file.deletions)").foregroundStyle(AceTheme.StatusText.failed) }
-                if file.additions > 0 { Text("+\(file.additions)").foregroundStyle(AceTheme.StatusText.done) }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityValue(open ? "Open" : "Closed")
+            .accessibilityIdentifier("changes.file.\(file.path)")
+            Button(action: review) {
+                Image(systemName: reviewed ? "checkmark.square.fill" : "square").font(.title3)
+                    .foregroundStyle(reviewed ? AceTheme.Colours.foreground : AceTheme.Colours.decoration)
+                    .frame(minWidth: 32, minHeight: 44).contentShape(Rectangle())
             }
-            .fixedSize()
+            .buttonStyle(.plain)
+            .sensoryFeedback(.selection, trigger: reviewed)
+            .accessibilityLabel("Reviewed").accessibilityAddTraits(reviewed ? .isSelected : [])
+            .accessibilityIdentifier("changes.reviewed.\(file.path)")
         }
-        .aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
-        .accessibilityElement(children: .combine)
+        .padding(.horizontal, AceTheme.Spacing.lg)
+        .background(AceTheme.Colours.background)
+        .overlay(alignment: .bottom) { Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border) }
+    }
+    private var path: some View {
+        let folder = (file.path as NSString).deletingLastPathComponent
+        let name = (file.path as NSString).lastPathComponent
+        return VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+            (Text(folder.isEmpty ? "" : folder + "/").foregroundStyle(AceTheme.Colours.mutedForeground)
+             + Text(name).foregroundStyle(AceTheme.Colours.foreground).fontWeight(.medium))
+                .aceMonospace(FileDiffStyle.path, relativeTo: .footnote).lineLimit(1).truncationMode(.head)
+            if let from = file.from {
+                Text("from \(from)").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.head)
+            }
+        }
+    }
+    private var counts: some View {
+        HStack(spacing: AceTheme.Spacing.sm) {
+            if file.binary { Text("binary").foregroundStyle(AceTheme.Colours.mutedForeground) }
+            else {
+                Text("−\(file.deletions)").foregroundStyle(AceTheme.StatusText.failed)
+                Text("+\(file.additions)").foregroundStyle(AceTheme.StatusText.done)
+            }
+        }
+        .aceMonospace(FileDiffStyle.path, relativeTo: .footnote).fixedSize()
+    }
+}
+
+/// A file's git status as a small outlined square: a dot for modified, + added, − deleted,
+/// → renamed.
+struct FileStatusMark: View {
+    let status: String
+    var body: some View {
+        RoundedRectangle(cornerRadius: 6).stroke(colour, lineWidth: 1.5)
+            .frame(width: 20, height: 20)
+            .overlay {
+                if status == "modified" { Circle().fill(colour).frame(width: 6, height: 6) }
+                else { Image(systemName: symbol).font(.system(size: 10, weight: .bold)).foregroundStyle(colour) }
+            }
+            .accessibilityLabel(status.capitalized)
+    }
+    private var colour: Color {
+        switch status {
+        case "deleted": AceTheme.StatusText.failed
+        case "renamed": AceTheme.StatusText.working
+        default: AceTheme.StatusText.done
+        }
+    }
+    private var symbol: String {
+        switch status {
+        case "deleted": "minus"
+        case "renamed": "arrow.right"
+        default: "plus"
+        }
     }
 }

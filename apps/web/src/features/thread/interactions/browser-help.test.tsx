@@ -15,7 +15,7 @@ test.each([
 ])(
   "an agent's browser help request waits in the composer strip: Open tab shows its tab, Done answers it (%s)",
   async (_name, revealAgentPages) => {
-    const history = createMemoryHistory({ initialEntries: ["/settings/browser"] });
+    const history = createMemoryHistory({ initialEntries: ["/settings/general"] });
     const app = harness({ history });
     const scenario = coldStartReplay();
     app.play(scenario).step();
@@ -25,7 +25,7 @@ test.each([
       label: "login",
     });
     const own = app.daemon.browser.personOpen(threadId, "https://docs.example.com/");
-    await app.open("/settings/browser");
+    await app.open("/settings/general");
     const setting = await screen.findByRole("switch", {
       name: "Open the browser panel when an agent opens a page",
     });

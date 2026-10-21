@@ -2,6 +2,7 @@ import { host } from "./polyfills.ts";
 import { ClientCore, type Lease, type ThreadSource } from "@ace/client";
 import { z } from "zod";
 import { DeviceId, HostId } from "@ace/protocol";
+import { agentName } from "@ace/ui-core";
 import { call, scheduler } from "./host.ts";
 import { PatchPump, followThread } from "./patches.ts";
 import { followInbox, inboxAction, makeActivityGeneration } from "./inbox.ts";
@@ -17,9 +18,12 @@ import { NotificationAction, NotificationBridge } from "./notifications.ts";
 import { Sheets } from "./sheets.ts";
 import { preview } from "./presentation.ts";
 import { ComposeActions } from "./compose-actions.ts";
+import { CheckoutFiles } from "./checkout-files.ts";
+import { followFileChanges } from "./checkout-request.ts";
 import { NativeServices, NativeServiceAction } from "./native-services.ts";
 import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
 import { BrowserLive } from "./browser-live.ts";
+import { nativeChunks } from "./thread-attachments.ts";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
 
@@ -49,9 +53,8 @@ const Action = z.discriminatedUnion("type", [
   }),
   /** The thread's Agents and Changes sheets (`sheets.ts`). */
   z.object({ type: z.literal("sheet"), action: z.unknown() }),
-  /** New thread, Add project (`compose-actions.ts`) and a thread's Files sheet. */
+  /** New thread and Add project (`compose-actions.ts`). */
   z.object({ type: z.literal("compose"), action: z.unknown() }),
-  z.object({ type: z.literal("files"), action: z.unknown() }),
   z.object({
     type: z.literal("inbox"),
     action: z.unknown(),
@@ -82,6 +85,11 @@ const pump = new PatchPump();
 const trust = new TrustMonitor();
 const sheets = new Sheets(pump, preview);
 let openThreadId: string | undefined;
+/** An agent of the thread open on the phone, named as everywhere else; undefined otherwise. */
+function deviceAgent(threadId: string, agentId: string) {
+  const agent = threadId === openThreadId ? lease?.store.agent(agentId) : undefined;
+  return agent && { name: agentName(agent), provider: agent.native?.provider ?? "" };
+}
 function error(): void {
   pump.put("error", () => ({
     type: "error",
@@ -160,11 +168,30 @@ async function start(json: string): Promise<void> {
     id: () => host.uuid(),
     trust,
   };
-  devices = new NativeDevices(featureConfig);
-  screen = new NativeScreen(featureConfig);
-  services = new NativeServices(client, pump, devices, screen);
+  devices = new NativeDevices(featureConfig, {
+    sink: pump,
+    now: () => host.now(),
+    agent: (holder) => deviceAgent(holder.threadId, holder.agentId),
+  });
+  screen = new NativeScreen(
+    featureConfig,
+    (holder) => deviceAgent(holder.threadId, holder.agentId)?.name,
+  );
+  const search = compose.search;
+  const files = new CheckoutFiles(client, (workspaceId, query, limit) =>
+    search.complete(workspaceId, query, limit),
+  );
+  followFileChanges(client, pump);
+  services = new NativeServices(client, pump, devices, screen, files);
   terminal = new NativeTerminal(client, pump);
-  browser = new BrowserLive(client, pump, preview, scheduler.set);
+  browser = new BrowserLive(client, pump, preview, scheduler.set, {
+    agentName: (threadId, agentId) =>
+      threadId === openThreadId && agentId ? agentName(lease?.store.agent(agentId)) : "An agent",
+    workspaceId: (threadId) =>
+      threadId === openThreadId ? lease?.store.thread?.workspaceId : undefined,
+    now: () => host.now(),
+    read: nativeChunks,
+  });
   await client.start();
 }
 async function hydrate(
@@ -314,9 +341,6 @@ function action(json: string): void {
         break;
       case "compose":
         if (!compose?.compose(value.action)) error();
-        break;
-      case "files":
-        if (!compose?.files(value.action)) error();
         break;
       case "browser":
         if (!browser?.action(value.action)) error();

@@ -109,8 +109,10 @@ export function ModelPickerPanel(props: {
   );
   const tabs = props.only ? entries.filter((entry) => entry.provider === props.only) : entries;
   const [chosen, setChosen] = useState<string>();
+  // It opens on Favorites when the person has any: switching usually means going elsewhere.
   const selected =
     tabs.find((entry) => entry.id === chosen) ??
+    (favorites.length ? tabs.find((entry) => entry.id === "favorites") : undefined) ??
     tabs.find(
       (entry) =>
         entry.provider === props.currentProvider && entry.instance === props.currentInstance,
@@ -397,7 +399,7 @@ export function ModelPickerPanel(props: {
         aria-label={mixed ? "Search results and favorites" : (selected?.name ?? "Models")}
         className="flex min-h-0 min-w-0 flex-1 flex-col"
       >
-        <div className="mx-2 flex h-8 shrink-0 items-center gap-2 border-b border-border text-subtle-foreground focus-within:border-ring">
+        <div className="mx-2 flex h-8 shrink-0 items-center gap-2 border-b border-border text-subtle-foreground focus-within:border-ring/40">
           <MagnifyingGlassIcon aria-hidden size={14} className="shrink-0" />
           <input
             ref={search}

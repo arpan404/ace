@@ -1,7 +1,6 @@
 import type { ThreadKey, ThreadReader } from "@ace/client";
-import { useThreadMeta } from "@ace/client-react";
 import type { Run } from "@ace/protocol";
-import { formatElapsed, pauseLabel, providerNames } from "@ace/ui-core";
+import { formatElapsed } from "@ace/ui-core";
 import { Suspense, useCallback, useMemo } from "react";
 import { StopCircleIcon } from "@phosphor-icons/react";
 import { GroupedSteps } from "../items/step-groups-view.tsx";
@@ -100,10 +99,13 @@ export function TurnEnd(props: { threadId: string; block: EndBlock }) {
   );
   const read = useCallback((reader: ThreadReader) => readEnding(reader, block), [block]);
   const ending = useWatched(props.threadId, keys, read, sameEnding);
-  const provider = useThreadMeta(props.threadId)?.provider;
   if (!ending) return null;
   if (block.ending === "paused") {
-    const text = pauseLabel(provider ? providerNames[provider] : undefined, undefined);
+    // The limit itself is said in the composer's strip; history keeps only the work.
+    const text =
+      ending.ranMs !== undefined && ending.ranMs >= 1000
+        ? `Worked for ${formatElapsed(ending.ranMs)}`
+        : "Worked";
     return (
       <details
         role="note"
@@ -117,13 +119,26 @@ export function TurnEnd(props: { threadId: string; block: EndBlock }) {
       </details>
     );
   }
+  if (block.ending === "interrupted" && !block.automatic)
+    // The person's Stop: a thin break, and their next message starts a new turn below it.
+    return (
+      <div
+        role="note"
+        aria-label="Interrupted by you"
+        className="flex items-center justify-center gap-2 text-[11px] leading-4 text-subtle-foreground"
+      >
+        <span aria-hidden className="h-px w-6 bg-border" />
+        Interrupted by you
+        <span aria-hidden className="h-px w-6 bg-border" />
+      </div>
+    );
   if (block.ending === "interrupted") {
     const after =
       ending.ranMs !== undefined && ending.ranMs >= 1000
         ? ` · after ${formatElapsed(ending.ranMs)}`
         : "";
     // A restart (the app quit, the daemon restarted) is no stop the person made.
-    const text = `${block.automatic ? "Interrupted" : "Stopped"}${after}`;
+    const text = `Interrupted${after}`;
     return <SystemRow text={text} icon={<StopCircleIcon aria-hidden size={14} />} />;
   }
   return (
@@ -134,6 +149,7 @@ export function TurnEnd(props: { threadId: string; block: EndBlock }) {
         errorId={block.errorId}
         error={ending.error}
         latest={block.latest ?? false}
+        limitInStrip
       />
     </Suspense>
   );

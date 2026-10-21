@@ -29,14 +29,14 @@ Run from the main checkout (`~/Code/ace-next`). Every check passes before anythi
 ## 2. Build
 
 ```sh
-bun install --frozen-lockfile
+bun install --frozen-lockfile --os=darwin --cpu='*'
 set -a; source ~/.ace-release/release.env; set +a
 export ACE_RELEASE_PRIVATE_KEY_FILE=~/.ace-release/ace-key.pem
 PATH=<node 24.13.0>/bin:$PATH bun run release:doctor
 PATH=<node 24.13.0>/bin:$PATH bun run release:build <version> --with-daemon
 ```
 
-`release:doctor` lists every check; stop on any ✗. `release:build` packages, signs and notarizes the app, verifies it (`codesign`, `spctl`, `stapler`), builds and signs the daemon manifests for both macOS architectures, and stages everything with checksums under `dist/releases/v<version>`. It passes the version to the packager itself, so an `ACE_VERSION` inherited from a running ace does not leak in.
+The `--os`/`--cpu` flags also install the Intel builds of optional native packages such as sharp, which the `darwin-x64` daemon archive stages; a plain install has only the host's and the build fails with `Missing image runtime dependency`. `release:doctor` lists every check; stop on any ✗. `release:build` packages, signs and notarizes the app, verifies it (`codesign`, `spctl`, `stapler`), launches it with an empty data home and fails unless its daemon starts and the updater begins a check, builds and signs the daemon manifests for both macOS architectures, and stages everything with checksums under `dist/releases/v<version>`. It passes the version to the packager itself, so an `ACE_VERSION` inherited from a running ace does not leak in.
 
 It takes 10–20 minutes (notarization is most of it); run it in the background and wait for it to exit. Done when it exits 0 and `dist/releases/v<version>/` holds `ace-<version>-arm64.dmg`, `ace-<version>-arm64-mac.zip`, their blockmaps, `latest-mac.yml`, `darwin-arm64.json`/`.sig`, `darwin-x64.json`/`.sig` and both daemon archives.
 

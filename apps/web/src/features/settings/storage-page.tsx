@@ -14,6 +14,10 @@ import { DataRetentionSettings } from "./data-retention.tsx";
 import { StorageCompactAction, StoragePlanPreview } from "./storage-plan.tsx";
 import { storageBytes, storageLabels } from "./storage-copy.ts";
 
+/**
+ * Settings › Storage for the machine Settings edits: what its data takes, a reviewed cleanup,
+ * compaction, and how long each kind of data is kept.
+ */
 export function StorageSettings() {
   const client = useClient();
   const ready = useConnectionState() === "ready";
@@ -103,7 +107,7 @@ export function StorageSettings() {
             ))}
             <SettingRow
               title="Transcript database"
-              description={`${storageBytes(usage.data.reclaimableDatabaseBytes)} of unused pages SQLite can reuse.`}
+              description={`${storageBytes(usage.data.reclaimableDatabaseBytes)} can be reclaimed by compacting.`}
               inline
             >
               <span className="text-sm tabular-nums text-muted-foreground">
@@ -120,15 +124,14 @@ export function StorageSettings() {
                 void compact({ op: "cleanup.compactAbandon", compactionId })
               }
             />
-            <SettingNote>
-              Thread sizes count stored payloads. Database disk usage is shown separately.
-              {!usage.data.complete ? " This measurement covers a bounded batch." : ""}
-            </SettingNote>
+            {!usage.data.complete && (
+              <SettingNote>Measured in a bounded batch; refresh for more.</SettingNote>
+            )}
           </>
         ) : (
           <SettingNote role={usage.isError ? "alert" : "status"}>
             {usage.isError
-              ? "Storage usage is unavailable. Refresh to try again."
+              ? "Couldn't measure storage. Refresh to try again."
               : ready
                 ? "Measuring storage…"
                 : "Reconnect to measure storage."}

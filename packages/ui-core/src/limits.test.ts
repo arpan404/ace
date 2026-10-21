@@ -272,7 +272,7 @@ test("a limited thread's notice uses its account's reset and names where Move se
     { id: "resume_at_reset", label: "Resume at reset" },
     { id: "snooze_until_reset", label: "Snooze until reset" },
     { id: "migrate_now", label: "Move to Codex · Personal", instanceId: "codex-personal" },
-    { id: "resume_now", label: "Resume now" },
+    { id: "resume_now", label: "Continue now" },
   ]);
 });
 

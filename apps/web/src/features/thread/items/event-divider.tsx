@@ -2,7 +2,9 @@ import type { ThreadReader } from "@ace/client";
 import { useItem, useThreadMeta, useThread } from "@ace/client-react";
 import type { Item } from "@ace/protocol";
 import {
+  describeProviderError,
   displayNotice,
+  isLimitError,
   sanitizeUserText,
   stripAceOriginMarker,
   echoesEarlierError,
@@ -239,6 +241,8 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
       if (item.level === "error") {
         if (!failures) return null;
         const error = noticeError(item);
+        // A usage or rate limit pauses the turn: the composer's strip says so while it holds.
+        if (isLimitError(describeProviderError(error))) return null;
         return (
           <ErrorRow
             count={failures}

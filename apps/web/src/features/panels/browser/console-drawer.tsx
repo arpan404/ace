@@ -7,17 +7,18 @@ import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { toolbarEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { LocalStore, useLocal } from "../store.ts";
-import type { BrowserLogEntry, PreviewSource } from "../sources.ts";
+import type { PreviewSource } from "../sources.ts";
 import {
   consoleLevel,
   entryKeys,
-  formatBytes,
-  formatDuration,
+  formatRequestBytes as formatBytes,
+  formatRequestDuration as formatDuration,
   requestFailed,
   visibleEntries,
   type ConsoleLevel,
   type NetworkFilter,
-} from "./console-filter.ts";
+  type BrowserLogEntry,
+} from "@ace/ui-core";
 
 export type DrawerSection = "console" | "network";
 

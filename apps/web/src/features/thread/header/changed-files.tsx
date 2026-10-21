@@ -5,15 +5,8 @@ import { Button } from "@/components/ui/button.tsx";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
+import { changeLetters as letters } from "@ace/ui-core";
 import type { ChangedFile } from "../sources/workspace-source.ts";
-
-const letters: Record<ChangedFile["status"], { letter: string; label: string }> = {
-  added: { letter: "A", label: "Added" },
-  modified: { letter: "M", label: "Modified" },
-  deleted: { letter: "D", label: "Deleted" },
-  renamed: { letter: "R", label: "Renamed" },
-  untracked: { letter: "U", label: "Untracked" },
-};
 
 /** Start with the whole change selected; the person can leave individual files out. */
 export const pickedByDefault = (files: readonly ChangedFile[]): ReadonlySet<string> =>
