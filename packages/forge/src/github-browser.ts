@@ -244,6 +244,7 @@ export class GitHubBrowser {
         ? { ...this.#repository, owner: raw.head.repo.owner.login, name: raw.head.repo.name }
         : null,
       labels: raw.labels.map((l) => l.name),
+      labelColors: labelColors(raw.labels),
       reviewers: raw.requested_reviewers.map((u) => u.login),
       reviewDecision: decision.reviewDecision,
       commits: raw.commits,

@@ -158,6 +158,8 @@ export const ForgePrDetail = z.object({
   baseSha: sha,
   headRepository: ForgeRepository.nullable(),
   labels: z.array(text).max(100),
+  /** Each label's GitHub colour, by name. */
+  labelColors: ForgeLabelColors.optional(),
   reviewers: z.array(text).max(100),
   reviewDecision: z.string().max(100).nullable(),
   commits: z.number().int().nonnegative(),

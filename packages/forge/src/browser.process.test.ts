@@ -10,7 +10,7 @@ const richPr = {
   created_at: "2026-10-10T12:00:00Z",
   additions: 62,
   deletions: 9,
-  labels: [{ name: "bug" }],
+  labels: [{ name: "bug", color: "d73a4a" }],
   base: { ref: "main", sha: nextSha },
   head: { ...pr.head, repo: { name: "fork", owner: { login: "contributor" } } },
   requested_reviewers: [{ login: "reviewer" }],
@@ -357,6 +357,8 @@ test("full PR detail includes hosted branch identities, description, reviews and
       headRepository: { owner: "contributor", name: "fork" },
       reviewers: ["reviewer"],
       reviewDecision: "CHANGES_REQUESTED",
+      labels: ["bug"],
+      labelColors: { bug: "d73a4a" },
     });
   } finally {
     await f.cleanup();

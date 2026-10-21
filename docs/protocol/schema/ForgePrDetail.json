@@ -67,6 +67,9 @@
         }
       ]
     },
+    "labelColors": {
+      "$ref": "https://ace.local/protocol/v1/ForgeLabelColors.json"
+    },
     "labels": {
       "items": {
         "maxLength": 65536,
