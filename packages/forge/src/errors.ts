@@ -45,3 +45,15 @@ export class ForgeError extends Error {
     this.dispatched = dispatched;
   }
 }
+
+/**
+ * GitHub refused a GraphQL document itself (a field this host doesn't have): the same document
+ * will be refused again, so a reader may ask a smaller one. Unlike an unreadable answer, which
+ * says nothing about the document and must reach the caller as `invalid_data`.
+ */
+export class ForgeQueryRefused extends ForgeError {
+  constructor() {
+    super("invalid_data", undefined, false);
+    this.name = "ForgeQueryRefused";
+  }
+}

@@ -4,7 +4,7 @@ import { ForgeMergeState } from "@ace/protocol/forge-merge-state";
 import type { ForgeRepository } from "@ace/protocol/forge";
 import type { GhApi, Page } from "./http.ts";
 import { ForgeMutationOutcome } from "./mutation.ts";
-import { ForgeError } from "./errors.ts";
+import { ForgeError, ForgeQueryRefused } from "./errors.ts";
 import { mergeStateChangeObserved } from "./merge-state.ts";
 import type { MergeMethod } from "./api.ts";
 
@@ -205,10 +205,9 @@ export class GitHubMergeState {
     try {
       page = await this.#request(this.#extended ? query : baseQuery, number, signal);
     } catch (error) {
-      // A host without the rule and deployment fields, or a token that can't read them, refuses
-      // the whole query and will again; the base fields still answer.
-      if (!this.#extended || !(error instanceof ForgeError) || error.kind !== "invalid_data")
-        throw error;
+      // A host without the rule and deployment fields refuses the document itself, and will
+      // again: the base fields still answer. An unreadable answer is not that, and fails.
+      if (!this.#extended || !(error instanceof ForgeQueryRefused)) throw error;
       page = await this.#request(baseQuery, number, signal);
       this.#extended = false;
     }
