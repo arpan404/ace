@@ -113,7 +113,10 @@ struct ConversationFeed: View {
             if thread.loaded { position.scrollTo(edge: .bottom); initialScroll = true }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-            if following && reading.thread == nil { position.scrollTo(edge: .bottom) }
+            // A transcript shorter than the space left stays put; scrolling it to the bottom
+            // while the insets animate would leave it above the view.
+            let overflows = intent.metrics.top + intent.metrics.bottom > AceTheme.Dimensions.border
+            if following && reading.thread == nil && overflows { position.scrollTo(edge: .bottom) }
         }
         .onDisappear { reading.cancel() }
         .overlay(alignment: .bottomTrailing) {
