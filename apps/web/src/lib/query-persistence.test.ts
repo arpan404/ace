@@ -151,11 +151,13 @@ test("a PR panel's reads are kept without provider payloads and never crowd out 
   const repository = { forge: "github", host: "github.com", owner: "acme", name: "api" };
   const last = keptForgeLimit + 6;
   await s.queries.fetchQuery({ queryKey: ["projects"], queryFn: async () => ["ace"] });
+  // Read one after another: the higher the number, the newer the answer.
   for (let number = 1; number <= last; number++)
-    await s.queries.fetchQuery({
-      queryKey: ["forge", "api", undefined, "pr", number],
-      queryFn: async () => ({ title: `PR ${number}`, status: { raw: { token: "payload" } } }),
-    });
+    s.queries.setQueryData(
+      ["forge", "api", undefined, "pr", number],
+      { title: `PR ${number}`, status: { raw: { token: "payload" } } },
+      { updatedAt: Date.now() + number },
+    );
   await s.queries.fetchQuery({
     queryKey: ["forge", "api", { repository, number: 1 }, "file-pages", "b", "h", ""],
     queryFn: async () => "diff contents",
