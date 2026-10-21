@@ -2,6 +2,13 @@ import Foundation
 
 /// Explicit debug launch arguments only. A release never silently connects to a sample machine.
 enum SpikeConfiguration {
+    static var renderFixtureEnabled: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("--chat-render-fixture")
+        #else
+        false
+        #endif
+    }
     static var enabled: Bool {
         #if DEBUG
         ProcessInfo.processInfo.arguments.contains("--spike")

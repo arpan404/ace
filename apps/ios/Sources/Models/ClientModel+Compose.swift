@@ -52,4 +52,14 @@ extension ClientModel {
         guard canOperate else { return false }
         return await admissions.wait(id: requestId) { composeAction(["kind": "addProject", "path": path, "requestId": requestId]) }
     }
+    func createProject(_ draft: ProjectCreationDraft, cloning: Bool, requestId: String) async -> Bool {
+        guard canOperate else { return false }
+        var payload: [String: Any] = ["type": cloning ? "workspace.clone" : "workspace.create", "parent": draft.parent, "name": draft.name]
+        if cloning { payload["url"] = draft.url }
+        else if draft.git {
+            payload["git"] = draft.branch.isEmpty ? [:] : ["initialBranch": draft.branch]
+            if !draft.gitignore.isEmpty { payload["gitignore"] = draft.gitignore }
+        }
+        return await admissions.wait(id: requestId) { composeAction(["kind": "createProject", "payload": payload, "requestId": requestId]) }
+    }
 }

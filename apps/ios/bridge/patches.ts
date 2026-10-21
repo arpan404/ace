@@ -11,7 +11,6 @@ export function followThread(
   threadId: string,
   epoch: number,
   pump: PatchPump,
-  itemLimit: number,
 ) {
   const prefix = "thread:";
   const positions = new Map<string, number>();
@@ -82,8 +81,6 @@ export function followThread(
         type: "thread.metadata",
         row: store.thread ? threadRow(store.thread) : null,
       }));
-    if (keys === "all" && itemLimit <= 200 && store.thread)
-      put("ready", () => ({ type: "thread.ready", count: store.order.length }));
     if (keys === "all" || keys.has("cursor"))
       put("cursor", () => ({ type: "thread.cursor", cursor: store.cursor ?? 0 }));
   };

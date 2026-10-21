@@ -43,7 +43,11 @@ targets:
         UIBackgroundModes: [fetch]
         BGTaskSchedulerPermittedIdentifiers: [app.ace.ios.notifications.refresh]
         NSAppTransportSecurity:
-          NSAllowsLocalNetworking: true
+          # Paired daemons use self-signed keys at user-chosen IPs, including Tailscale.
+          # ATS system trust rejects them before our exact SPKI/validity verification.
+          # Do not add NSAllowsLocalNetworking: its presence overrides this key on iOS.
+          # The native transports still require HTTPS/WSS, TLS 1.2+, an exact pin and no redirects.
+          NSAllowsArbitraryLoads: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.ace.ios

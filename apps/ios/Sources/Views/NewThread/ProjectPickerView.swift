@@ -77,6 +77,12 @@ struct AddProjectView: View {
     private var folders: (query: String, state: String, folders: [ComposeFolder])? { client.compose.folders }
     var body: some View {
         List {
+            if client.canOperate {
+                Section {
+                    NavigationLink { CreateProjectView(model: client, cloning: false, added: added) } label: { Label("New project", systemImage: "folder.badge.plus") }
+                    NavigationLink { CreateProjectView(model: client, cloning: true, added: added) } label: { Label("Clone repository", systemImage: "arrow.down.doc") }
+                }
+            }
             if let failure { Text(failure).foregroundStyle(AceTheme.StatusText.failed).aceFont(AceTheme.Typography.caption, relativeTo: .footnote) }
             switch folders?.state {
             case "ready":
