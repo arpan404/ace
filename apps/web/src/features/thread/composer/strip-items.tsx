@@ -18,7 +18,6 @@ import {
   XCircleIcon,
 } from "@phosphor-icons/react";
 import { useId, useState, type ReactNode } from "react";
-import { PauseBarsIcon } from "@/components/ace-icons.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -92,9 +91,9 @@ function Indicator(props: { kind: StripKind; counts: StripCounts; onPick(kind: S
             : [<Spinner key="i" />, "Reconnecting", "Show connection: Reconnecting"]
           : props.kind === "held"
             ? [
-                <Icon key="i" size={12} icon={PauseBarsIcon} />,
-                "Paused",
-                "Show why the turn is paused",
+                <Icon key="i" size={12} icon={HourglassMediumIcon} />,
+                "Limit",
+                "Show the usage limit",
               ]
             : props.kind === "stopped"
               ? [

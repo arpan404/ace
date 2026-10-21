@@ -34,17 +34,18 @@ test("three refused Stops read as one row with ×3 and the reason inline", async
   expect(within(feed).queryByText("Action failed")).toBeNull();
 });
 
-test("a restart reads only in the composer strip with Continue, never in the transcript or queue", async () => {
+test("a restart shows a Stopped pill and no queued item, and nothing runs until Continue", async () => {
   const { feed } = await interrupted();
-  const strip = await screen.findByRole("region", { name: "Interrupted by a restart" });
-  expect(within(strip).getByRole("button", { name: "Continue" })).toBeTruthy();
-  // The transcript keeps no interruption row; nothing pretends to be queued or running.
-  expect(within(feed).queryByText(/Interrupted/)).toBeNull();
-  expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
+  expect(await within(feed).findByRole("note", { name: "Interrupted by a restart" })).toBeTruthy();
+  const pill = await screen.findByRole("status", { name: "Stopped by a restart" });
+  expect(within(pill).getByRole("button", { name: "Continue" })).toBeTruthy();
+  // Nothing pretends to be queued, and nothing is running.
+  expect(screen.queryByRole("region", { name: "Stopped by a restart" })).toBeNull();
+  expect(screen.queryByText("Queued")).toBeNull();
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
 });
 
-test("Continue after a restart resumes once and the strip leaves once a turn runs", async () => {
+test("Continue sends one continuation and the pill leaves once a turn runs", async () => {
   const { app } = await interrupted();
   // What reaches the daemon over the wire.
   const sent: string[] = [];
@@ -53,38 +54,25 @@ test("Continue after a restart resumes once and the strip leaves once a turn run
     if ("threadId" in value.payload && value.payload.threadId === id) sent.push(value.payload.type);
     return command(value);
   };
-  const strip = await screen.findByRole("region", { name: "Interrupted by a restart" });
-  await userEvent.click(within(strip).getByRole("button", { name: "Continue" }));
+  const pill = await screen.findByRole("status", { name: "Stopped by a restart" });
+  await userEvent.click(within(pill).getByRole("button", { name: "Continue" }));
   await waitFor(() =>
-    expect(screen.queryByRole("region", { name: "Interrupted by a restart" })).toBeNull(),
+    expect(screen.queryByRole("status", { name: "Stopped by a restart" })).toBeNull(),
   );
   expect(sent.filter((type) => type === "thread.resume")).toHaveLength(1);
   expect(sent.filter((type) => type === "thread.send")).toHaveLength(0);
 });
 
-test("Continue on a paused turn sends the person's message and starts the next turn", async () => {
+test("a message typed while stopped starts the next turn at once, never queued behind the stop", async () => {
   const app = clocked();
   app.play(interruptedTurn(id)).runUntilBlocked();
   app.daemon.holdQueue(id, "stopped");
   await app.open(`/t/${id}`);
-  const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const strip = await screen.findByRole("region", { name: "Paused" });
-  await userEvent.click(within(strip).getByRole("button", { name: "Continue" }));
-  expect(await within(feed).findByText("Continue where you left off.")).toBeTruthy();
-  expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
-  expect(screen.queryByRole("region", { name: "Paused" })).toBeNull();
-});
-
-test("a message typed while paused starts the next turn at once, never queued behind the stop", async () => {
-  const app = clocked();
-  app.play(interruptedTurn(id)).runUntilBlocked();
-  app.daemon.holdQueue(id, "stopped");
-  await app.open(`/t/${id}`);
-  expect(await screen.findByRole("region", { name: "Paused" })).toBeTruthy();
+  expect(await screen.findByRole("status", { name: "Agent stopped" })).toBeTruthy();
   const box = await screen.findByRole("combobox", { name: "Message" });
   await userEvent.type(box, "try the other file{Enter}");
   expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
-  expect(screen.queryByRole("region", { name: "Paused" })).toBeNull();
+  expect(screen.queryByRole("status", { name: "Agent stopped" })).toBeNull();
   expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
 });
 

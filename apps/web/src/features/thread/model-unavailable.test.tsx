@@ -136,7 +136,7 @@ test("a not-sent message is one item in the transcript, with no active work unti
 test("a restart with queued input offers only continuation until it resumes", async () => {
   const app = await blocked("not_sent");
   act(() => app.daemon.holdQueue(id, "restart"));
-  const pill = await screen.findByRole("region", { name: "Interrupted by a restart" });
+  const pill = await screen.findByRole("status", { name: "Stopped by a restart" });
   expect(screen.queryByText("Working")).toBeNull();
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
   expect(screen.queryByRole("region", { name: "Message not sent" })).toBeNull();

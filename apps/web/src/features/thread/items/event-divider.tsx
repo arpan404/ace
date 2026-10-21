@@ -223,8 +223,15 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
   switch (item.type) {
     case "notice": {
       if (item.code === "input_queued") return null;
-      // A restart or a provider exit is said once, in the composer's held-turn strip.
-      if (interruptionNotice(item)) return null;
+      // One quiet row; Continue lives on the pill over the composer, not here.
+      if (interruptionNotice(item))
+        return (
+          <SystemRow
+            text={item.text}
+            at={item.createdAt}
+            icon={<ArrowClockwiseIcon aria-hidden size={14} />}
+          />
+        );
       const kind = noticeInput(item);
       const line = kind && inputLine({ kind, text: item.text });
       if (line) return <EventRow line={line} at={item.createdAt} received={item.text} />;

@@ -6,7 +6,7 @@ import { useClaimConnectionNotice } from "@/features/shell/index.ts";
 import { useShownPlans } from "@/lib/use-plans.ts";
 import { failedHead, withoutMessage } from "./failed-head.ts";
 import { withoutAgentPending, withoutAgentResults } from "./queued-agent-result.ts";
-import { holdsTurn } from "@ace/ui-core";
+import { holdsTurn, stoppedHold } from "@ace/ui-core";
 import { HeldTurnStrip, useHeldTurn } from "./held-turn-strip.tsx";
 import { useHeldQueue } from "./queue-notice.tsx";
 import { QueueStrip } from "./queue-strip.tsx";
@@ -32,8 +32,8 @@ const noRequests: readonly string[] = [];
 /**
  * The one strip above the thread's composer (`stripSlot` decides what it shows): a Stop waiting
  * for its second Esc, the agent's open requests, the person's messages on their way (or that
- * didn't go: the transcript only ever shows the daemon's items), a held turn in its status hue
- * (a limit, a restart or a Stop, with Continue), trouble with the connection,
+ * didn't go: the transcript only ever shows the daemon's items), a usage or rate limit in its
+ * status hue (with Continue), trouble with the connection,
  * background commands a stopped turn left running, the queue, what the main agent waits on
  * (with its Stop), the goal the agent is pursuing, or the main agent's task list, with the
  * others as indicators inside it. Loads after the thread has painted, unless the thread opens on a request.
@@ -69,10 +69,14 @@ export function ComposerStrip(props: {
   // A message that wasn't sent is in the transcript with its reason; the strip lists the rest.
   const failed = failedHead(allHeld, noAgents);
   const queue = withoutMessage(noAgents, failed?.id);
-  // A failed send is in the transcript; a held turn (a limit, a restart, a Stop) has its own
-  // colored strip, so the queue's strip lists only the messages.
+  // A failed send is in the transcript; a stopped turn is the pill over the composer; a limit
+  // has its own colored strip, so the queue's strip lists only the messages.
   const held =
-    allHeld?.notice.kind === "not_sent" || holdsTurn(allHeld?.notice) ? undefined : allHeld;
+    allHeld?.notice.kind === "not_sent" ||
+    stoppedHold(allHeld?.notice) ||
+    holdsTurn(allHeld?.notice)
+      ? undefined
+      : allHeld;
   const heldTurn = useHeldTurn(props.threadId, allHeld);
   const pending = withoutAgentPending(
     useQueuedPending(props.threadId, noAgents.page, noAgents.retained).filter(
@@ -156,13 +160,12 @@ export function ComposerStrip(props: {
     />
   );
   return (
-    <StripSurface slot={slot.shown} tone={slot.shown === "held" ? heldTurn?.tone : undefined}>
+    <StripSurface slot={slot.shown} tone={slot.shown === "held" ? "waiting" : undefined}>
       {slot.shown === "confirm-stop" ? (
         <ConfirmStopStrip subagents={props.confirmStop?.subagents ?? 0} />
       ) : slot.shown === "held" && heldTurn ? (
         <HeldTurnStrip
           turn={heldTurn}
-          held={allHeld}
           queue={noAgents}
           indicators={indicators}
           onChooseModel={props.onChooseModel}

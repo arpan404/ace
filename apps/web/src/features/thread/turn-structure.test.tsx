@@ -228,13 +228,14 @@ function stopped(withWork: boolean): Scenario {
   };
 }
 
-test("a stopped turn keeps its partial answer and stopped summary", async () => {
+test("a stopped turn keeps its partial answer, its worked time and its Interrupted by you break", async () => {
   const app = harness();
   app.play(stopped(true)).runUntilBlocked();
   await app.open("/t/thread-stopped");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const note = await within(feed).findByRole("button", { name: /^Stopped/ });
-  expect(note.textContent).toMatch(/^Stopped after/);
+  const head = await within(feed).findByRole("button", { name: /^Worked for/ });
+  expect(head.textContent).toMatch(/^Worked for/);
+  expect(within(feed).getByRole("note", { name: "Interrupted by you" })).toBeTruthy();
   expect(within(feed).getByText("Building the web bundle first")).toBeTruthy();
   // What it had written stays, but no longer looks like it is still being written.
   expect(within(feed).queryByRole("status", { name: "Streaming" })).toBeNull();
@@ -245,7 +246,7 @@ test("a turn stopped before any reply keeps saying so under its ask after the ne
   app.play(stopped(false)).runUntilBlocked();
   await app.open("/t/thread-stopped");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const note = await within(feed).findByRole("button", { name: /^Stopped/ });
+  const note = await within(feed).findByRole("note", { name: "Interrupted by you" });
   expect(follows(within(feed).getByText("Build the release bundle."), note)).toBe(true);
 
   act(() =>
@@ -255,9 +256,29 @@ test("a turn stopped before any reply keeps saying so under its ask after the ne
     ]),
   );
   const next = await within(feed).findByText("Build only the web bundle.");
-  const kept = within(feed).getByRole("button", { name: /^Stopped/ });
+  const kept = within(feed).getByRole("note", { name: "Interrupted by you" });
   expect(follows(within(feed).getByText("Build the release bundle."), kept)).toBe(true);
   expect(follows(kept, next)).toBe(true);
+});
+
+test("the person's Stop closes the turn with an Interrupted by you break; the next ask starts below it", async () => {
+  const app = harness();
+  app.play(stopped(true)).runUntilBlocked();
+  await app.open("/t/thread-stopped");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  const partial = await within(feed).findByText("Building the web bundle first");
+  const divider = await within(feed).findByRole("note", { name: "Interrupted by you" });
+  expect(within(feed).getAllByRole("note", { name: "Interrupted by you" })).toHaveLength(1);
+  expect(follows(partial, divider)).toBe(true);
+
+  act(() =>
+    app.daemon.apply("thread-stopped", [
+      { type: "turn.started", agent: "root", nativeTurnId: "turn-2", trigger: "user" },
+      message("root", "ask-2", "user", "Build only the web bundle."),
+    ]),
+  );
+  const next = await within(feed).findByText("Build only the web bundle.");
+  expect(follows(divider, next)).toBe(true);
 });
 
 test("the subagent card deduplicates a launch and its spawn call and opens the child thread", async () => {

@@ -119,14 +119,26 @@ export function TurnEnd(props: { threadId: string; block: EndBlock }) {
       </details>
     );
   }
+  if (block.ending === "interrupted" && !block.automatic)
+    // The person's Stop: a thin break, and their next message starts a new turn below it.
+    return (
+      <div
+        role="note"
+        aria-label="Interrupted by you"
+        className="flex items-center gap-3 py-1 text-xs text-subtle-foreground"
+      >
+        <span aria-hidden className="h-px flex-1 bg-border" />
+        Interrupted by you
+        <span aria-hidden className="h-px flex-1 bg-border" />
+      </div>
+    );
   if (block.ending === "interrupted") {
-    // A restart is no stop the person made: the composer's strip says it, with Continue.
-    if (block.automatic) return null;
     const after =
       ending.ranMs !== undefined && ending.ranMs >= 1000
         ? ` · after ${formatElapsed(ending.ranMs)}`
         : "";
-    const text = `Stopped${after}`;
+    // A restart (the app quit, the daemon restarted) is no stop the person made.
+    const text = `Interrupted${after}`;
     return <SystemRow text={text} icon={<StopCircleIcon aria-hidden size={14} />} />;
   }
   return (

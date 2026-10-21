@@ -39,6 +39,8 @@ export interface QueueNotice {
     | "not_sent";
   title: string;
   detail: string;
+  /** When a limit resets (or a timed resume fires), when known. */
+  resetsAt?: number | undefined;
   /** In order of prominence; the first is the primary action. */
   actions: QueueAction[];
 }
@@ -73,6 +75,7 @@ export function queueNotice(
     return {
       kind: "resuming",
       title: "Resumes when the limit resets",
+      resetsAt: resumeAt,
       detail: `Queued messages send ${describeWake(resumeAt, now, locale)}.`,
       actions: [
         { id: "resume_now", label: "Continue now" },
@@ -83,6 +86,7 @@ export function queueNotice(
     return {
       kind: "snoozed",
       title: "Snoozed until the limit resets",
+      resetsAt: resumeAt ?? undefined,
       detail:
         resumeAt === null
           ? "Nothing sends until you resume."
@@ -102,6 +106,7 @@ export function queueNotice(
     return {
       kind: "limited",
       title: "Usage limit reached",
+      resetsAt: known ? until : undefined,
       // With no reset, nothing says the limit still holds: the next message tries again.
       detail: `${detail}${stuck} ${known ? "Queued messages wait." : "Your next message tries again."}`,
       actions: [
@@ -138,14 +143,14 @@ export function queueNotice(
     case "stopped":
       return {
         kind: "stopped",
-        title: "Paused",
+        title: "Agent stopped",
         detail: "",
         actions: [{ id: "continue", label: "Continue" }],
       };
     case "restart":
       return {
         kind: "restart",
-        title: "Interrupted by a restart",
+        title: "Stopped by a restart",
         detail: "",
         actions: [{ id: "continue", label: "Continue" }],
       };
@@ -172,7 +177,7 @@ export function queueNotice(
 
 /**
  * A stopped turn (the person's Stop, a restart, a provider that died) is not a queue state: it
- * reads in the held-turn strip with Continue, never as an item in the queue's strip.
+ * reads as a pill over the composer with Continue, never as an item in the queue's strip.
  */
 export function stoppedHold(notice: QueueNotice | undefined): boolean {
   return notice?.kind === "restart" || notice?.kind === "stopped";

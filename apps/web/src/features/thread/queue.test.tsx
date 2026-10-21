@@ -189,7 +189,7 @@ test("a usage limit holds the queue, says when it resets and resumes on request"
   await app.open("/t/thread-router");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const notice = await screen.findByRole("region", { name: "Usage limit reached" });
-  expect(within(notice).getByText(/The account resets/)).toBeTruthy();
+  expect(within(notice).getByText(/Resets in 2h/)).toBeTruthy();
   // The strip says it once: the transcript keeps no limit row.
   expect(within(feed).queryByText(/limit reached/)).toBeNull();
 
@@ -203,7 +203,7 @@ test("a usage limit holds the queue, says when it resets and resumes on request"
   const snoozed = await screen.findByRole("region", { name: "Snoozed until the limit resets" });
   expect(within(feed).queryByText("Then add a metric")).toBeNull();
 
-  await userEvent.click(within(snoozed).getByRole("button", { name: "Continue now" }));
+  await userEvent.click(within(snoozed).getByRole("button", { name: "Continue" }));
   expect(await within(feed).findByText("Then add a metric")).toBeTruthy();
   await waitFor(() =>
     expect(screen.queryByRole("region", { name: /Snoozed|Usage limit/ })).toBeNull(),

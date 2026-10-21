@@ -1,3 +1,4 @@
+import { StoppedPill } from "../long/stopped-pill.tsx";
 import type { HistoryPager } from "@ace/client-react";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -432,6 +433,7 @@ export function Feed(props: FeedProps) {
             />
           </Suspense>
         )}
+        <StoppedPill threadId={threadId} raised={livePill.mounted} />
       </div>
     </LiveFramesContext>
   );

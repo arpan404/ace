@@ -3,7 +3,7 @@ import { visibleHistoryOrder } from "@ace/projection";
 import type { BackgroundTask, Item, Run } from "@ace/protocol";
 import { carriesOnStretch, type InlineQuestion } from "./thread-ledger.ts";
 import { isBareErrorCode } from "./error-display.ts";
-import { isPersonMessage } from "./person-message.ts";
+import { isContinueInput, isPersonMessage } from "./person-message.ts";
 import { isThreadStartCall } from "./started-thread.ts";
 import { reportsOn, toolRefusal } from "./tool-refusals.ts";
 
@@ -418,6 +418,8 @@ export function buildBlocks(source: BlockSource): Block[] {
   const groupOf = new Map<string, { itemIds: string[]; at: number }>();
   let turnId: string | undefined;
   let askId: string | undefined;
+  /** Where the person's latest Continue ("Continue where you left off.") was placed. */
+  let continueAt: number | undefined;
   let mark: TurnMark | undefined;
   const keys = new Set<string>();
   const keyFor = (id: string, ask: string | undefined) => {
@@ -431,6 +433,18 @@ export function buildBlocks(source: BlockSource): Block[] {
     if (!isPseudoTurn(id)) source.turnKeys?.set(id, key);
     return key;
   };
+  /**
+   * The turn before a run ace started after it stopped (a restart, a limit resume) says so: the
+   * newest real turn, past the person's Continue still waiting on its run.
+   */
+  const stoppedBefore = (id: string, newer?: TurnMark) => {
+    const trigger = source.run?.(id)?.trigger;
+    if (trigger !== "limit_resume" && trigger !== "restart") return;
+    const before = ordered.findLast((turn) => turn !== newer && !isPseudoTurn(turn.id));
+    if (!before) return;
+    before.automatic = true;
+    if (trigger === "limit_resume") before.paused = true;
+  };
   const markOf = (id: string, ask: string | undefined) => {
     let found = turns.get(id);
     if (!found) {
@@ -443,9 +457,16 @@ export function buildBlocks(source: BlockSource): Block[] {
         admitted.heads = [id];
         source.turnKeys?.set(id, admitted.key);
         turns.set(id, admitted);
+        stoppedBefore(id, admitted);
         return admitted;
       }
-      if (previous && continues(source, previous.id, id)) {
+      // A restart's continuation shares its turn number too, but once it answers the person's
+      // Continue ("Continue where you left off.") it is a turn of its own under that message.
+      const continued =
+        source.run?.(id)?.trigger === "restart" &&
+        continueAt !== undefined &&
+        continueAt >= (previous?.lastBlock ?? -1);
+      if (previous && !continued && continues(source, previous.id, id)) {
         // A run the agent started by itself is already its turn's in the tree; one the daemon
         // numbered into this turn is a turn of its own there, which this one now waits on.
         if (!carriesOnStretch(source.run?.(id)?.trigger) && !isPseudoTurn(previous.id))
@@ -471,12 +492,7 @@ export function buildBlocks(source: BlockSource): Block[] {
         automatic: false,
         failure: undefined,
       };
-      // A turn ace started after the previous one stopped (a restart, a limit resume).
-      const trigger = source.run?.(id)?.trigger;
-      if (previous && (trigger === "limit_resume" || trigger === "restart")) {
-        previous.automatic = true;
-        if (trigger === "limit_resume") previous.paused = true;
-      }
+      stoppedBefore(id);
       turns.set(id, found);
       ordered.push(found);
     }
@@ -638,6 +654,7 @@ export function buildBlocks(source: BlockSource): Block[] {
         case "message":
           if (person) {
             push({ kind: "user", key: id, itemId: id }, item.createdAt);
+            if (isContinueInput(item)) continueAt = blocks.length - 1;
           } else if (item.synthetic) push({ kind: "event", key: id, itemId: id }, false);
           else {
             // Said between steps: it reads inside the log, in order. After the last step: the
@@ -832,7 +849,15 @@ export function buildBlocks(source: BlockSource): Block[] {
       const first = turn.work[0];
       const firstIds = first?.itemIds ?? [];
       const state = ending?.state ?? lastFacts?.state ?? facts.state;
-      const outcome = turn.paused ? "paused" : state === "active" ? "completed" : state;
+      // A turn a restart cut short reads interrupted, even while the continuation the daemon
+      // numbered into the same turn still runs.
+      const outcome = turn.paused
+        ? "paused"
+        : turn.automatic && state !== "failed"
+          ? "interrupted"
+          : state === "active"
+            ? "completed"
+            : state;
       const restarted = outcome === "interrupted" && turn.automatic ? true : undefined;
       let head: WorkBlock | undefined = first;
       if (first) {
@@ -910,7 +935,9 @@ export function buildBlocks(source: BlockSource): Block[] {
     } else if (
       ending?.state === "interrupted" &&
       !turn.paused &&
-      (ending.endedAt === undefined || startedAt === undefined)
+      // The person's Stop always closes the turn with its divider; a restart only says so
+      // where the turn's head can't.
+      (!turn.automatic || ending.endedAt === undefined || startedAt === undefined)
     )
       place(turn.lastBlock, endBlock(turn, "interrupted", newest === turn, ending.runId));
   }
