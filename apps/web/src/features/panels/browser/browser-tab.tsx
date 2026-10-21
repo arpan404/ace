@@ -1,7 +1,11 @@
 import { desktopBrowserViews, type BrowserAccelerator } from "@/boot/desktop-browser.ts";
 import { WarningCircleIcon } from "@phosphor-icons/react";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { displayAddress, describeBrowserFailure } from "@ace/ui-core";
+import {
+  displayAddress,
+  describeBrowserFailure,
+  sitePermissionLabel as permissionLabel,
+} from "@ace/ui-core";
 import { useEffectEvent, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "@/lib/cn.ts";
 import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts";
@@ -51,14 +55,6 @@ import { rememberPageSize } from "./page-size.ts";
 import { WatchButton, useWatchToggle } from "./watch-button.tsx";
 import { SplitBrowser, openSplit, splits, type SplitPane } from "./split-view.tsx";
 import { useSplitDrop } from "./split-drop.tsx";
-
-const permissionLabel = (permission: string) =>
-  ({
-    media: "camera or microphone",
-    geolocation: "location",
-    notifications: "notifications",
-    "clipboard-sanitized-write": "clipboard",
-  })[permission] ?? "a site permission";
 
 /**
  * One of the thread's browser tabs, as a panel tab (each daemon tab is its own panel tab, the
