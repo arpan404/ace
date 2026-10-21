@@ -12,6 +12,9 @@ struct TranscriptLinks {
     var openMessage: ((TranscriptRow) -> Void)? = nil
     /// The whole agent tree, from a subagent rollup.
     var openAgents: (() -> Void)? = nil
+    /// The thread's own transcript: its live turn carries the thread's live line. A subagent's
+    /// lane has none of its own.
+    var live = false
 }
 
 /// One transcript block. Items render through their own observed rows, so streaming text
@@ -25,8 +28,7 @@ struct BlockView: View {
         switch row.kind {
         case "work": WorkBlockView(row: row, blockId: block.id, thread: thread, steps: links.steps, openMessage: links.openMessage)
         case "subagents": if let agents = row.agents { SubagentGroupView(agents: agents, items: row.items, thread: thread, open: open, openAll: links.openAgents) }
-        // The live state floats above the composer; the transcript never narrates it.
-        case "live": EmptyView()
+        case "live": if links.live { LiveLine(activity: thread.screen.activity) }
         case "end": if let ending = row.ending { EndingLine(ending: ending) }
         case "files":
             if let openChanges = links.openChanges {
@@ -87,7 +89,7 @@ struct UserBubble: View {
             Spacer(minLength: AceTheme.Spacing.xxxl * 2)
             Text(text).aceFont(AceTheme.Typography.body, relativeTo: .body).textSelection(.enabled)
                 .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
-                .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.bubble))
+                .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.code, style: .continuous))
         }
     }
 }

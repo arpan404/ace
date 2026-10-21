@@ -6,12 +6,15 @@ import SwiftUI
 struct WorkProgressView: View {
     let groups: [BlockRow.WorkGroup]
     let thread: ThreadModel
+    /// Commands the log's calls left running, each its own line where it started.
+    var background: [BlockRow.Background] = []
     var openMedia: ((TranscriptRow) -> Void)? = nil
     var openMessage: ((TranscriptRow) -> Void)? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
             ForEach(groups) { group in
-                WorkProgressGroup(group: group, thread: thread, openMedia: openMedia, openMessage: openMessage)
+                WorkProgressGroup(group: group, thread: thread, background: background.first { group.single && $0.itemId == group.id },
+                                  openMedia: openMedia, openMessage: openMessage)
             }
         }
     }
@@ -21,11 +24,14 @@ struct WorkProgressGroup: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let group: BlockRow.WorkGroup
     let thread: ThreadModel
+    let background: BlockRow.Background?
     let openMedia: ((TranscriptRow) -> Void)?
     let openMessage: ((TranscriptRow) -> Void)?
     @State private var expanded = false
     var body: some View {
-        if group.single {
+        if let background {
+            BackgroundLine(line: background)
+        } else if group.single {
             if let item = thread.items[group.id] {
                 ItemRowView(item: item, openMedia: openMedia, openMessage: openMessage, workEnded: !group.running)
             }

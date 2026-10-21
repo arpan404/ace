@@ -1,39 +1,66 @@
 import SwiftUI
 
 /// Everything the ⋯ menu opens: each destination is listed once.
-enum ThreadDestination { case search, files, terminal, browser, devices, computer, tools }
+enum ThreadDestination { case changes, search, files, terminal, browser, devices, computer, tools }
 
-/// The thread's header: its title with "project · branch" under it, then Changes, Agents and ⋯
-/// sharing one glass capsule on iOS 26.
+/// The thread's header, quiet like the web's: the native back, the title with its project under
+/// it, then ⋯ and the Work entry (the agent tree, with a small dot in the tree's status colour
+/// while it works or needs the person). Each control stands on its own, with no shared capsule.
 struct ThreadToolbar: ToolbarContent {
     let title: String
-    let subtitle: String
-    let status: String
-    let openChanges: () -> Void
+    let project: String
+    let status: StatusDisplay?
     let openAgents: () -> Void
     let menu: ThreadMenu
 
     var body: some ToolbarContent {
-        if #unavailable(iOS 26) {
-            ToolbarItem(placement: .principal) {
-                VStack(spacing: AceTheme.Spacing.none) {
-                    Text(title).aceFont(AceTheme.Typography.rowTitle, relativeTo: .headline).fontWeight(.bold).lineLimit(1)
-                    if !subtitle.isEmpty {
-                        Text(subtitle).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
-                    }
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityValue(status)
+        if #available(iOS 26, *) {
+            ToolbarItem(placement: .principal) { heading }.sharedBackgroundVisibility(.hidden)
+            ToolbarItem(placement: .topBarTrailing) { menu }.sharedBackgroundVisibility(.hidden)
+            ToolbarItem(placement: .topBarTrailing) { work }.sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .principal) { heading }
+            ToolbarItem(placement: .topBarTrailing) { menu }
+            ToolbarItem(placement: .topBarTrailing) { work }
+        }
+    }
+    private var heading: some View {
+        VStack(spacing: AceTheme.Spacing.none) {
+            Text(title).aceFont(AceTheme.Typography.label, relativeTo: .headline)
+                .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
+            if !project.isEmpty {
+                Text(project).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
             }
         }
-        ToolbarItemGroup(placement: .topBarTrailing) {
-            Button("Changes", systemImage: "plusminus", action: openChanges)
-                .accessibilityIdentifier("thread.changes")
-            Button("Agents", systemImage: "point.3.connected.trianglepath.dotted", action: openAgents)
-                .accessibilityIdentifier("thread.agents")
-            menu
+        .frame(maxWidth: AceTheme.Dimensions.touchTarget * 5)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityValue(status?.label ?? "")
+        .accessibilityIdentifier("thread.title")
+    }
+    private var work: some View {
+        Button(action: openAgents) {
+            Image(systemName: "point.3.connected.trianglepath.dotted")
+                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                .overlay(alignment: .topTrailing) {
+                    if let dot {
+                        Circle().fill(dot).frame(width: AceTheme.Spacing.xs + AceTheme.Spacing.xxs, height: AceTheme.Spacing.xs + AceTheme.Spacing.xxs)
+                            .offset(x: AceTheme.Spacing.xxs, y: -AceTheme.Spacing.xxs)
+                    }
+                }
+                .frame(width: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm, height: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Agents")
+        .accessibilityValue(status?.label ?? "")
+        .accessibilityIdentifier("thread.agents")
+    }
+    /// The tree's status hue, while it works, waits or needs the person; none at rest.
+    private var dot: Color? {
+        guard let token = status?.token, ["needsYou", "working", "waiting", "unresponsive", "failed"].contains(token) else { return nil }
+        return StateStyle.marker(token)
     }
 }
 
@@ -52,6 +79,7 @@ struct ThreadMenu: View {
     var body: some View {
         Menu {
             Section {
+                Button("Changes", systemImage: "plusminus") { open(.changes) }.accessibilityIdentifier("thread.changes")
                 Button("Find in thread", systemImage: "magnifyingglass") { open(.search) }.accessibilityIdentifier("thread.search")
                 Button("Files", systemImage: "folder") { open(.files) }.accessibilityIdentifier("thread.files")
                 Button("Browser", systemImage: "safari") { open(.browser) }.accessibilityIdentifier("thread.browser")
@@ -80,12 +108,17 @@ struct ThreadMenu: View {
             }
             if model.canOperate, thread.screen.controls?.canStop == true {
                 Section {
-                    Button("Stop all agents", systemImage: "stop.circle", role: .destructive) { model.stopTree() }
+                    // Stop isn't destructive: it reads in ink, never red.
+                    Button("Stop all agents", systemImage: "stop.circle") { model.stopTree() }
                         .disabled(thread.screen.stopping)
                 }
             }
         } label: {
-            Label("Thread options", systemImage: "ellipsis")
+            Image(systemName: "ellipsis")
+                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                .frame(width: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm, height: AceTheme.Dimensions.touchTarget - AceTheme.Spacing.sm)
+                .contentShape(Rectangle())
+                .accessibilityLabel("Thread options")
         }
         .accessibilityIdentifier("thread.menu")
     }

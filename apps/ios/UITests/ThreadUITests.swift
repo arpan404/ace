@@ -39,11 +39,8 @@ import XCTest
         input.tap()
         input.typeText("Then update the docs")
         app.buttons["composer.send"].tap()
-        XCTAssertTrue(app.buttons["capsule.queue"].waitForExistence(timeout: 15) || app.staticTexts["Then update the docs"].waitForExistence(timeout: 5))
-        if app.buttons["capsule.queue"].exists {
-            app.buttons["capsule.queue"].tap()
-            XCTAssertTrue(app.otherElements["queue.strip"].waitForExistence(timeout: 5))
-        }
+        // A queued message takes the strip above the composer; one that went in now is in the transcript.
+        XCTAssertTrue(app.descendants(matching: .any)["queue.strip"].waitForExistence(timeout: 15) || app.staticTexts["Then update the docs"].waitForExistence(timeout: 5))
         screenshot("thread-queue")
         app.buttons["thread.menu"].tap()
         XCTAssertTrue(app.buttons["Stop all agents"].waitForExistence(timeout: 10))

@@ -56,8 +56,11 @@ struct BlockRow: Codable, Sendable, Equatable {
             let model: String
             let result: String
         }
+        /// One part of the status line, in its status colour: "2 working".
+        struct Count: Codable, Sendable, Equatable { let text: String; let token: String }
         let status: String
         let entries: [Entry]
+        var counts: [Count]? = nil
     }
     struct Ending: Codable, Sendable, Equatable {
         let label: String
@@ -80,6 +83,20 @@ struct BlockRow: Codable, Sendable, Equatable {
     /// A settled work head's root turn, whose full steps open on demand.
     var ordinal: Int? = nil
     var groups: [WorkGroup]? = nil
+    /// The log's calls that left a command running in the background (`bridge/background-rows.ts`).
+    var background: [Background]? = nil
+    struct Background: Codable, Sendable, Equatable {
+        let itemId: String
+        let taskId: String
+        /// "Running in background", "Finished", "Stopped".
+        let label: String
+        let command: String
+        let running: Bool
+        let stoppable: Bool
+        /// Ms since 1970.
+        let startedAt: Double
+        let endedAt: Double?
+    }
 }
 
 /// The composer's canonical choices: delivery while busy, the alternate, and Stop.

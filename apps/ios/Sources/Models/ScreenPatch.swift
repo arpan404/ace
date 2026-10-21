@@ -37,7 +37,12 @@ struct HelpRequest: Codable, Sendable, Equatable { let title: String; let detail
 
 /// Effort and speed for the next message (`bridge/thread-tune.ts`).
 struct TuneRow: Codable, Sendable, Equatable {
-    struct Effort: Codable, Sendable, Equatable, Identifiable { let id: String; let label: String }
+    struct Effort: Codable, Sendable, Equatable, Identifiable {
+        let id: String
+        let label: String
+        /// The composer chip's name for it: "Med".
+        var short: String? = nil
+    }
     struct SpeedTier: Codable, Sendable, Equatable, Identifiable { let speed: String; let label: String; var id: String { speed } }
     let efforts: [Effort]
     let effort: String
@@ -60,18 +65,37 @@ struct AttachmentFile: Codable, Sendable, Equatable, Identifiable {
     let progress: Double
     let error: String
 }
-/// The thread's one live line for the capsule above the composer (`bridge/thread-activity.ts`):
-/// the shared `turnActivity` words, its tone and its timer's origin. Nil when nothing is live.
+/// The thread's live state (`bridge/thread-activity.ts`), worded from the shared `turnActivity`:
+/// the inline line at the top of the live turn and, while the main agent only waits, the
+/// composer strip's words with what its Stop ends. Nil when nothing is live.
 struct ActivityRow: Codable, Sendable, Equatable {
+    /// What the composer strip says while the main agent does nothing itself.
+    struct Wait: Codable, Sendable, Equatable {
+        /// "Waiting for 2 subagents", "Running", "Running 2 commands".
+        let label: String
+        /// A single shell's command, drawn as code after the label; empty when none.
+        let code: String
+        /// "1 command running", after a dot; empty when none.
+        let detail: String
+        /// The turn's timer follows the words (while subagents work).
+        let timed: Bool
+        /// `tree` stops the whole agent tree; `commands` stops `taskIds`.
+        let stop: String
+        let taskIds: [String]
+    }
+    /// The line's words: "Working", "Waiting for your approval".
     let label: String
     /// `working`, `needs-you`, `held` or `paused`.
     let tone: String
     /// The timer's origin in ms since 1970; nil when the line has no timer.
     let since: Double?
-    /// The root does nothing itself while its subagents work ("Waiting on 2").
-    let waiting: Bool
-    /// "1 command": background commands running beside the work; empty when none.
-    let commands: String
+    /// The words before the timer: "Working for"; empty when the line has no timer.
+    let lead: String
+    /// The inline line shows at the top of the live turn.
+    let inline: Bool
+    /// What else the tree does, after the time: "2 subagents working · 1 command".
+    let context: String
+    let wait: Wait?
 }
 /// A finished turn's steps read from the daemon, page by page.
 struct StepsHeader: Codable, Sendable, Equatable {
