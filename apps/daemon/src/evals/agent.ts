@@ -22,6 +22,8 @@ export interface CallResult {
   readonly text: string;
   /** Parsed `structuredContent`, or the first text block parsed as JSON. */
   readonly data: unknown;
+  /** Image blocks in the result, as a model would see pictures. */
+  readonly images: number;
 }
 
 /**
@@ -100,9 +102,11 @@ export class EvalAgent {
     let failed: boolean;
     let text: string;
     let data: unknown;
+    let images = 0;
     try {
       const result = await this.client.callTool({ name: tool, arguments: args });
       const items = z.array(ContentItem).parse(result.content ?? []);
+      images = items.filter((item) => item.type === "image").length;
       text = items.map((item) => item.text ?? item.data ?? "").join("\n");
       data = result.structuredContent ?? parseJson(items.find((item) => item.text)?.text);
       failed =
@@ -115,7 +119,7 @@ export class EvalAgent {
       failed = true;
     }
     this.calls.push({ turn, tool, args: canonicalJson(args), resultText: text, failed });
-    return { failed, text, data };
+    return { failed, text, data, images };
   }
 
   /** The model uses its own tool (for example `git branch` in its shell); only its output is seen. */
