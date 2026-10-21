@@ -173,6 +173,7 @@
         "@ace/browser": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
+        "@phosphor-icons/react": "^2.1.10",
         "@types/bun": "^1.3.10",
       },
     },
