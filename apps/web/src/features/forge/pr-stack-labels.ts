@@ -134,7 +134,7 @@ export function checkStateLabel(state: string): string {
 }
 
 /** `SOME_STATE` → "Some state", for values GitHub adds later. */
-function humanize(value: string): string {
+export function humanize(value: string): string {
   const words = value.toLowerCase().replaceAll("_", " ");
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
