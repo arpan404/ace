@@ -941,8 +941,8 @@
       "sha256": "eb3369375a7c6d42ed271320f8655fc342085f3e9ea8d9222ec5ee41630667d1"
     },
     "schema/DeviceOperation.json": {
-      "bytes": 12938,
-      "sha256": "5c94a5c3e81526b92d8cfea4a3ce9c0372b014502c538e8110c9154d8441c76d"
+      "bytes": 13136,
+      "sha256": "6709327d49827d14e5faf7566dc2d2b829f47175e9eee3959ae7d622de4e1a0c"
     },
     "schema/DevicePermission.json": {
       "bytes": 208,
@@ -2933,8 +2933,8 @@
       "sha256": "f6bc45f3e07014d9777f054825b014de9df2b52244abcc291034b3accbc0deb3"
     },
     "schema/ScreenOperation.json": {
-      "bytes": 10395,
-      "sha256": "b7d869dbd1777e791a7dc6ef355a70942636d53978e9469dcc08ae1fc1c0dc53"
+      "bytes": 10844,
+      "sha256": "4c491bb856940bb27e8ea5ff77b277e0291560056b035dfa11c12241cc7fb3e4"
     },
     "schema/ScreenPermissions.json": {
       "bytes": 345,
@@ -4025,10 +4025,10 @@
       "sha256": "3c00a18ea5c34e708a57c9d0f5d0cdba097745d6b5fc80bd543053d4c1079efc"
     },
     "types.md": {
-      "bytes": 853544,
-      "sha256": "ea4f53b2ebb2cbf61cb95b34b85d12eaf917bc65d35453714ebe47dccbd71a11"
+      "bytes": 851168,
+      "sha256": "2ed48e0a759e81b0c8a127f6b0ca8347095f471ddc348ca5cd72d7bca04d8653"
     }
   },
-  "input": "8f7cb03fd1325da077cc808c8b3ab8463265966077879ecf43f711a7765b3e81",
+  "input": "e878ebbac046192c47b8fa794f12cfec4b025e357ef39ff3d2b1bfc431b8bf1b",
   "version": 1
 }
