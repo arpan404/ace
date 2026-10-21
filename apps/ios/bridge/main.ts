@@ -18,6 +18,8 @@ import { NotificationAction, NotificationBridge } from "./notifications.ts";
 import { Sheets } from "./sheets.ts";
 import { preview } from "./presentation.ts";
 import { ComposeActions } from "./compose-actions.ts";
+import { CheckoutFiles } from "./checkout-files.ts";
+import { followFileChanges } from "./checkout-request.ts";
 import { NativeServices, NativeServiceAction } from "./native-services.ts";
 import { NativeTerminal, NativeTerminalAction } from "./native-terminal.ts";
 import { BrowserLive } from "./browser-live.ts";
@@ -51,9 +53,8 @@ const Action = z.discriminatedUnion("type", [
   }),
   /** The thread's Agents and Changes sheets (`sheets.ts`). */
   z.object({ type: z.literal("sheet"), action: z.unknown() }),
-  /** New thread, Add project (`compose-actions.ts`) and a thread's Files sheet. */
+  /** New thread and Add project (`compose-actions.ts`). */
   z.object({ type: z.literal("compose"), action: z.unknown() }),
-  z.object({ type: z.literal("files"), action: z.unknown() }),
   z.object({
     type: z.literal("inbox"),
     action: z.unknown(),
@@ -176,7 +177,12 @@ async function start(json: string): Promise<void> {
     featureConfig,
     (holder) => deviceAgent(holder.threadId, holder.agentId)?.name,
   );
-  services = new NativeServices(client, pump, devices, screen);
+  const search = compose.search;
+  const files = new CheckoutFiles(client, (workspaceId, query, limit) =>
+    search.complete(workspaceId, query, limit),
+  );
+  followFileChanges(client, pump);
+  services = new NativeServices(client, pump, devices, screen, files);
   terminal = new NativeTerminal(client, pump);
   browser = new BrowserLive(client, pump, preview, scheduler.set, {
     agentName: (threadId, agentId) =>
@@ -335,9 +341,6 @@ function action(json: string): void {
         break;
       case "compose":
         if (!compose?.compose(value.action)) error();
-        break;
-      case "files":
-        if (!compose?.files(value.action)) error();
         break;
       case "browser":
         if (!browser?.action(value.action)) error();

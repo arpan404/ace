@@ -102,3 +102,54 @@ export function resolveFileReference(path: string, candidates: readonly string[]
   if (matches.length > 1) return { kind: "ambiguous", paths: matches };
   return { kind: "none" };
 }
+
+/**
+ * The local path a message's link names: a `file:` URL's path, or the target itself with any
+ * `:line:col` suffix cut. Undefined for a web or other scheme's link, or a remote `file:` host.
+ */
+export function localLinkPath(target: string): string | undefined {
+  try {
+    if (target.startsWith("file:")) {
+      const url = new URL(target);
+      if (url.host && url.host !== "localhost") return;
+      return decodeURIComponent(url.pathname);
+    }
+    return /^[a-z][a-z\d+.-]*:/i.test(target) ? undefined : target.replace(/:\d+(?::\d+)?$/, "");
+  } catch {
+    return;
+  }
+}
+
+/** The line a link's `:line` or `:line:col` suffix names. */
+export function localLinkLine(target: string): number | undefined {
+  const match = /:(\d{1,7})(?::\d+)?$/.exec(target);
+  return match?.[1] ? Number(match[1]) || undefined : undefined;
+}
+
+/** `path` with `.` and empty segments dropped and each `..` taking its folder away. */
+export function normalizedPath(path: string): string {
+  const parts: string[] = [];
+  for (const part of path.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === ".." && parts.length && parts.at(-1) !== "..") parts.pop();
+    else if (part !== ".." || !path.startsWith("/")) parts.push(part);
+  }
+  return (path.startsWith("/") ? "/" : "") + parts.join("/");
+}
+
+/**
+ * Where a local link lands, relative to the thread's checkout `root`: a relative link resolves
+ * from `cwd` (the answering agent's folder) or else the root. Undefined when it lands outside the
+ * checkout, which only the daemon can serve (`link.download`).
+ */
+export function checkoutLinkPath(
+  path: string,
+  root: string | undefined,
+  cwd: string | undefined,
+): string | undefined {
+  const base = (cwd ?? root)?.replace(/\/+$/, "");
+  const absolute = normalizedPath(path.startsWith("/") || !base ? path : `${base}/${path}`);
+  if (!absolute.startsWith("/")) return absolute;
+  const top = root?.replace(/\/+$/, "");
+  return top && absolute.startsWith(`${top}/`) ? absolute.slice(top.length + 1) : undefined;
+}

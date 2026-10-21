@@ -26,6 +26,8 @@ import {
 } from "@ace/protocol";
 import { z } from "zod";
 import type { PatchSink } from "./agents.ts";
+import type { CheckoutFiles } from "./checkout-files.ts";
+import { NativeFilesRequest } from "./checkout-request.ts";
 import { NativeMediaRequest, readNativeMedia } from "./native-media.ts";
 import { NativeHistoryWindow, readHistoryWindow } from "./native-search.ts";
 import { NativeMessageRequest, readNativeMessage } from "./native-message.ts";
@@ -77,12 +79,20 @@ export class NativeServices {
   readonly sink: PatchSink;
   readonly devices: NativeDevices | undefined;
   readonly screen: NativeScreen | undefined;
-  constructor(owner: ClientCore, sink: PatchSink, devices?: NativeDevices, screen?: NativeScreen) {
+  readonly files: CheckoutFiles | undefined;
+  constructor(
+    owner: ClientCore,
+    sink: PatchSink,
+    devices?: NativeDevices,
+    screen?: NativeScreen,
+    files?: CheckoutFiles,
+  ) {
     this.owner = owner;
     this.transcript = new NativeTranscript(owner);
     this.sink = sink;
     this.devices = devices;
     this.screen = screen;
+    this.files = files;
   }
   handle(action: z.infer<typeof NativeServiceAction>): void {
     if (action.type === "service.cancel") {
@@ -164,6 +174,11 @@ export class NativeServices {
           await readHistoryWindow(this.owner, window.data, controller.signal),
           "",
         );
+        return;
+      }
+      const files = NativeFilesRequest.safeParse(raw);
+      if (files.success && this.files) {
+        this.#reply(id, true, await this.files.request(files.data, controller.signal), "");
         return;
       }
       const media = NativeMediaRequest.safeParse(raw);

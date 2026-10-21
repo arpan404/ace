@@ -1,5 +1,17 @@
 import type { Token, TokenStream } from "prismjs";
-import type { CodeToken } from "./highlight.ts";
+
+/*
+ * Source coloured by grammar (Prism) for the web's file viewer and code fences and the iOS file
+ * screen. Tokens carry text, never HTML, with a light and a dark colour each.
+ */
+
+/** A run of source text with its colour in each appearance; uncoloured text has neither. */
+export interface SourceToken {
+  kind: "plain";
+  text: string;
+  light?: string | undefined;
+  dark?: string | undefined;
+}
 
 // The grammar engine stays off both the first paint and streamed plain fences. Both theme
 // variants travel in the token result, so changing Appearance does not restart tokenization.
@@ -62,7 +74,7 @@ const palette: Record<string, readonly [string, string]> = {
 /** Flatten grammar tokens into text, never HTML. Nested strings inherit their parent's color. */
 function appendTokens(
   value: TokenStream,
-  lines: CodeToken[][],
+  lines: SourceToken[][],
   inherited?: readonly [string, string],
 ) {
   if (Array.isArray(value)) {
@@ -89,7 +101,7 @@ function appendTokens(
 export async function sourceHighlight(
   code: string,
   lang: string,
-): Promise<CodeToken[][] | undefined> {
+): Promise<SourceToken[][] | undefined> {
   const { Prism, grammars } = await loadEngine();
   const name = aliases[lang.toLowerCase()] ?? lang.toLowerCase();
   const load = Object.hasOwn(grammars, name) ? grammars[name] : undefined;
@@ -97,7 +109,7 @@ export async function sourceHighlight(
   await load();
   const grammar = Prism.languages[name];
   if (!grammar || typeof grammar === "function") return undefined;
-  const lines: CodeToken[][] = [[]];
+  const lines: SourceToken[][] = [[]];
   appendTokens(Prism.tokenize(code, grammar), lines);
   return lines;
 }

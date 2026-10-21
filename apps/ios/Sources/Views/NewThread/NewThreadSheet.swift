@@ -168,7 +168,17 @@ struct NewThreadSheet: View {
     /// The chosen project's own folder, read-only, before the thread exists.
     @ViewBuilder private var projectFiles: some View {
         if let client, let project = draft.projectId {
-            ThreadFilesSheet(model: client, scope: .project(project), mention: { file in drafts.edit { $0.text = Mention.insert(file, into: $0.text) }; browsing = false })
+            NavigationStack {
+                FilesScreen(model: client, scope: .project(project), subtitle: self.project?.name ?? "",
+                            mention: { file in drafts.edit { $0.text = Mention.insert(file, into: $0.text) }; browsing = false })
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button { browsing = false } label: { Image(systemName: "xmark") }
+                                .accessibilityLabel("Close").accessibilityIdentifier("files.close")
+                        }
+                    }
+            }
+            .presentationDetents([.large]).presentationDragIndicator(.visible)
         }
     }
     @ViewBuilder private func destination(_ route: NewThreadRoute) -> some View {

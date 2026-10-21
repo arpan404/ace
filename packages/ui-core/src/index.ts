@@ -107,6 +107,7 @@ export * from "./browsing-history.ts";
 export * from "./browser-words.ts";
 export * from "./browser-help.ts";
 export * from "./checkout-files.ts";
+export * from "./checkout-errors.ts";
 export * from "./projects.ts";
 export * from "./folder-search.ts";
 export * from "./path-picker.ts";
