@@ -29,6 +29,19 @@ describe("Windows executable lookup", () => {
     expect(await findExecutable("claude", { PATH: root }, "win32")).toBe(expected);
   });
 
+  it("prefers the PATHEXT match over an extensionless shim", async () => {
+    const root = await directory();
+    await file(root, "claude");
+    const expected = await file(root, "claude.cmd");
+    expect(await findExecutable("claude", { PATH: root }, "win32")).toBe(expected);
+  });
+
+  it("ignores an extensionless file without a PATHEXT match", async () => {
+    const root = await directory();
+    await file(root, "plain");
+    expect(await findExecutable("plain", { PATH: root }, "win32")).toBeUndefined();
+  });
+
   it("treats existence as runnable without the executable bit", async () => {
     const root = await directory();
     const expected = await file(root, "codex.cmd", 0o644);

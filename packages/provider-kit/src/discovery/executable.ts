@@ -22,11 +22,12 @@ function windowsEnv(env: NodeJS.ProcessEnv, name: string): string | undefined {
   return undefined;
 }
 
-/** Bare commands try each PATHEXT extension; commands that already name one stay as-is. */
+/** An extensionless name tries only PATHEXT matches: npm's bin dir pairs an
+ * unrunnable extensionless sh shim with each .cmd, and the shim must not win. */
 function withExtensions(command: string, extensions: readonly string[]): string[] {
   const base = command.split(/[\\/]/).pop() ?? command;
   if (base.includes(".")) return [command];
-  return [command, ...extensions.map((extension) => `${command}${extension.toLowerCase()}`)];
+  return extensions.map((extension) => `${command}${extension.toLowerCase()}`);
 }
 
 /** Windows default search extensions when PATHEXT is unset. */
