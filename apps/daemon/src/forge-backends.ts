@@ -1,4 +1,10 @@
-import { GitHubForge, ForgeError, repositoryKey, type CommandRunner } from "@ace/forge";
+import {
+  GitHubForge,
+  ForgeError,
+  ForgeListCaches,
+  repositoryKey,
+  type CommandRunner,
+} from "@ace/forge";
 import type { ForgeRepository } from "@ace/protocol";
 import type { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
 import type { SourceControl } from "./source-control.ts";
@@ -9,6 +15,8 @@ import { remotePushesTo } from "./workspace-push.ts";
 /** Resolves a checkout's forge repository and keeps one GitHub backend per identity. */
 export class ForgeBackends {
   private backends = new Map<string, GitHubForge>();
+  /** Open PR and issue lists per repository and identity, whichever checkout reads them. */
+  private lists = new Map<string, ForgeListCaches>();
   private git: WorkspaceForgeGit;
   private now: () => number;
   private runner: (cwd: string) => CommandRunner;
@@ -32,6 +40,7 @@ export class ForgeBackends {
   }
   clear(): void {
     this.backends.clear();
+    this.lists.clear();
   }
   async repository(cwd: string): Promise<ForgeRepository> {
     return (await this.checkoutRepository(cwd)).repository;
@@ -55,12 +64,12 @@ export class ForgeBackends {
   }
   async backend(cwd: string, repository: ForgeRepository): Promise<GitHubForge> {
     const identity = await this.sourceControl?.identity(cwd, repository.host, this.signal);
-    const key = JSON.stringify({
+    const listKey = JSON.stringify({
       repository: repositoryKey(repository),
-      cwd,
       account: identity?.account,
       revision: identity?.revision,
     });
+    const key = JSON.stringify({ listKey, cwd });
     let backend = this.backends.get(key);
     const pushLeased = this.git.pushLeased?.bind(this.git);
     if (!backend)
@@ -83,6 +92,7 @@ export class ForgeBackends {
             }
           : {}),
         now: this.now,
+        lists: this.listCaches(listKey),
         replyReceipts: this.replyReceipts.scope(cwd, repository, identity?.account ?? ""),
       });
     this.backends.delete(key);
@@ -92,5 +102,15 @@ export class ForgeBackends {
       if (first !== undefined) this.backends.delete(first);
     }
     return backend;
+  }
+  private listCaches(key: string): ForgeListCaches {
+    const lists = this.lists.get(key) ?? new ForgeListCaches(this.now);
+    this.lists.delete(key);
+    this.lists.set(key, lists);
+    if (this.lists.size > 32) {
+      const first = this.lists.keys().next().value;
+      if (first !== undefined) this.lists.delete(first);
+    }
+    return lists;
   }
 }
