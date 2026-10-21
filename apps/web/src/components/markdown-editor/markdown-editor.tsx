@@ -104,6 +104,7 @@ export function MarkdownEditor(props: {
         placeholder={props.placeholder}
         disabled={props.disabled}
         maxLength={props.maxLength}
+        // oxlint-disable-next-line jsx-a11y/no-autofocus -- Only where the field opens to write in.
         autoFocus={props.autoFocus}
         onChange={(event) => props.onChange(event.currentTarget.value)}
         onKeyDown={onKeyDown}

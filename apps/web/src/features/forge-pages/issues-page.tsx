@@ -22,7 +22,6 @@ import {
 import { useLinkedThreads, workKey } from "./linked-threads.ts";
 import { ListFrame, ToolbarRule } from "./list-frame.tsx";
 import { useGroupCounts, useIssuePages } from "./lists.ts";
-import { NewIssueDialog } from "./new-issue-dialog.tsx";
 import { useProjectChoice } from "./project-choice.ts";
 import { GroupHeader } from "./row-parts.tsx";
 
@@ -87,7 +86,6 @@ export function IssuesPage(props: {
   const totals = useGroupCounts(project, { by: "issue-people", query }).data;
   const linked = useLinkedThreads().issues;
   const keys = useViewListKeys<HTMLElement>();
-  const [creating, setCreating] = useState(false);
   const groups = groupIssues(list.rows, list.first?.viewer);
   const counts = list.first?.counts;
   const navigate = useNavigate();
@@ -101,7 +99,16 @@ export function IssuesPage(props: {
       onSearch={(text) => onSearch({ q: text.trim() || undefined })}
       actions={
         project && list.first?.canCreate ? (
-          <Button size="sm" onClick={() => setCreating(true)}>
+          <Button
+            size="sm"
+            onClick={() =>
+              void navigate({
+                to: "/issues/$project/new",
+                params: { project },
+                search: { back: listAddress },
+              })
+            }
+          >
             New issue
           </Button>
         ) : null
@@ -230,21 +237,6 @@ export function IssuesPage(props: {
   return (
     <Screen title="Issues" crumb={project ? choice.name(project) : undefined}>
       {rows}
-      {project && list.first && (
-        <NewIssueDialog
-          project={project}
-          repository={list.first.repository}
-          open={creating}
-          onOpenChange={setCreating}
-          onCreated={(number) =>
-            void navigate({
-              to: "/issues/$project/$number",
-              params: { project, number: String(number) },
-              search: { back: listAddress },
-            })
-          }
-        />
-      )}
     </Screen>
   );
 }

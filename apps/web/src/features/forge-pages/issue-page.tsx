@@ -22,7 +22,7 @@ import { Avatars } from "./marks.tsx";
 import { useProjectChoice } from "./project-choice.ts";
 
 /** A page's reading width, as a pull request's page has. */
-const readable = "mx-auto w-full max-w-[64rem] px-4 sm:px-8";
+export const readable = "mx-auto w-full max-w-[64rem] px-4 sm:px-8";
 
 /** The threads working on this issue, and a way to start one from it. */
 function Threads(props: { project: string; issue: ForgeIssueDetail }) {

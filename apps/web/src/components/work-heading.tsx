@@ -13,10 +13,10 @@ export function WorkHeading(props: {
   /** The title as text, or an editor in its place. */
   title: ReactNode;
   actions?: ReactNode;
-  /** The state badge (`StateBadge`). */
-  badge: ReactNode;
+  /** The state badge (`StateBadge`); none on a page for something not made yet. */
+  badge?: ReactNode;
   /** Who opened it and what it does: "mira opened 1d ago", "sam wants to merge into main". */
-  byline: ReactNode;
+  byline?: ReactNode;
 }) {
   return (
     <>
@@ -37,10 +37,12 @@ export function WorkHeading(props: {
           <div className="-mr-1 flex shrink-0 items-center gap-1">{props.actions}</div>
         )}
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-ui text-muted-foreground">
-        {props.badge}
-        {props.byline}
-      </div>
+      {(props.badge || props.byline) && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-ui text-muted-foreground">
+          {props.badge}
+          {props.byline}
+        </div>
+      )}
     </>
   );
 }

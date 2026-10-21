@@ -3,5 +3,6 @@ export { PullRequestsPage } from "./pulls-page.tsx";
 export { IssuesPage } from "./issues-page.tsx";
 export { PullRequestPage, type PullRequestTab } from "./pull-request-page.tsx";
 export { IssuePage } from "./issue-page.tsx";
+export { NewIssuePage } from "./new-issue-page.tsx";
 export type { PullsSearch } from "./pulls-model.ts";
 export type { IssuesSearch } from "./issues-model.ts";

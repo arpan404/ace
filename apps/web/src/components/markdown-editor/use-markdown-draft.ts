@@ -88,6 +88,7 @@ export function useMarkdownDraft(key: string | undefined, initial = "") {
 
 /** Draft keys, one per place text is written, so each keeps its own. */
 export const draftKeys = {
+  newIssueTitle: (project: string) => `issue:${project}:new:title`,
   newIssue: (project: string) => `issue:${project}:new`,
   issueComment: (project: string, number: number) => `issue:${project}:${number}:comment`,
   prComment: (project: string, pr: string) => `pr:${project}:${pr}:comment`,

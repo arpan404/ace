@@ -45,6 +45,7 @@ import { Route as AutomationsAutomationIdEditRouteImport } from "./routes/automa
 import { Route as SettingsProvidersIndexRouteImport } from "./routes/settings.providers.index"
 import { Route as SettingsProvidersProviderRouteImport } from "./routes/settings.providers.$provider"
 import { Route as HomeIssuesProjectNumberRouteImport } from "./routes/_home.issues_.$project.$number"
+import { Route as HomeIssuesProjectNewRouteImport } from "./routes/_home.issues_.$project.new"
 import { Route as HomePullsProjectNumberRouteImport } from "./routes/_home.pulls_.$project.$number"
 import { Route as HomeTThreadIdForkRouteImport } from "./routes/_home.t.$threadId_.fork"
 import { Route as HomeTThreadIdAgentsAgentIdRouteImport } from "./routes/_home.t.$threadId_.agents.$agentId"
@@ -231,6 +232,11 @@ const HomeIssuesProjectNumberRoute = HomeIssuesProjectNumberRouteImport.update({
   path: "/issues/$project/$number",
   getParentRoute: () => HomeRoute,
 } as any)
+const HomeIssuesProjectNewRoute = HomeIssuesProjectNewRouteImport.update({
+  id: "/issues_/$project/new",
+  path: "/issues/$project/new",
+  getParentRoute: () => HomeRoute,
+} as any)
 const HomePullsProjectNumberRoute = HomePullsProjectNumberRouteImport.update({
   id: "/pulls_/$project/$number",
   path: "/pulls/$project/$number",
@@ -284,6 +290,7 @@ export interface FileRoutesByFullPath {
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
   "/issues/$project/$number": typeof HomeIssuesProjectNumberRoute
+  "/issues/$project/new": typeof HomeIssuesProjectNewRoute
   "/pulls/$project/$number": typeof HomePullsProjectNumberRoute
   "/t/$threadId/fork": typeof HomeTThreadIdForkRoute
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
@@ -321,6 +328,7 @@ export interface FileRoutesByTo {
   "/automations/$automationId": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers": typeof SettingsProvidersIndexRoute
   "/issues/$project/$number": typeof HomeIssuesProjectNumberRoute
+  "/issues/$project/new": typeof HomeIssuesProjectNewRoute
   "/pulls/$project/$number": typeof HomePullsProjectNumberRoute
   "/t/$threadId/fork": typeof HomeTThreadIdForkRoute
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
@@ -363,6 +371,7 @@ export interface FileRoutesById {
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
   "/_home/issues_/$project/$number": typeof HomeIssuesProjectNumberRoute
+  "/_home/issues_/$project/new": typeof HomeIssuesProjectNewRoute
   "/_home/pulls_/$project/$number": typeof HomePullsProjectNumberRoute
   "/_home/t/$threadId_/fork": typeof HomeTThreadIdForkRoute
   "/_home/t/$threadId_/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
@@ -405,6 +414,7 @@ export interface FileRouteTypes {
     | "/automations/$automationId/"
     | "/settings/providers/"
     | "/issues/$project/$number"
+    | "/issues/$project/new"
     | "/pulls/$project/$number"
     | "/t/$threadId/fork"
     | "/t/$threadId/agents/$agentId"
@@ -442,6 +452,7 @@ export interface FileRouteTypes {
     | "/automations/$automationId"
     | "/settings/providers"
     | "/issues/$project/$number"
+    | "/issues/$project/new"
     | "/pulls/$project/$number"
     | "/t/$threadId/fork"
     | "/t/$threadId/agents/$agentId"
@@ -483,6 +494,7 @@ export interface FileRouteTypes {
     | "/automations/$automationId/"
     | "/settings/providers/"
     | "/_home/issues_/$project/$number"
+    | "/_home/issues_/$project/new"
     | "/_home/pulls_/$project/$number"
     | "/_home/t/$threadId_/fork"
     | "/_home/t/$threadId_/agents/$agentId"
@@ -752,6 +764,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof HomeIssuesProjectNumberRouteImport
       parentRoute: typeof HomeRoute
     }
+    "/_home/issues_/$project/new": {
+      id: "/_home/issues_/$project/new"
+      path: "/issues/$project/new"
+      fullPath: "/issues/$project/new"
+      preLoaderRoute: typeof HomeIssuesProjectNewRouteImport
+      parentRoute: typeof HomeRoute
+    }
     "/_home/pulls_/$project/$number": {
       id: "/_home/pulls_/$project/$number"
       path: "/pulls/$project/$number"
@@ -784,6 +803,7 @@ interface HomeRouteChildren {
   HomeIndexRoute: typeof HomeIndexRoute
   HomeTThreadIdRoute: typeof HomeTThreadIdRoute
   HomeIssuesProjectNumberRoute: typeof HomeIssuesProjectNumberRoute
+  HomeIssuesProjectNewRoute: typeof HomeIssuesProjectNewRoute
   HomePullsProjectNumberRoute: typeof HomePullsProjectNumberRoute
   HomeTThreadIdForkRoute: typeof HomeTThreadIdForkRoute
   HomeTThreadIdAgentsAgentIdRoute: typeof HomeTThreadIdAgentsAgentIdRoute
@@ -797,6 +817,7 @@ const HomeRouteChildren: HomeRouteChildren = {
   HomeIndexRoute: HomeIndexRoute,
   HomeTThreadIdRoute: HomeTThreadIdRoute,
   HomeIssuesProjectNumberRoute: HomeIssuesProjectNumberRoute,
+  HomeIssuesProjectNewRoute: HomeIssuesProjectNewRoute,
   HomePullsProjectNumberRoute: HomePullsProjectNumberRoute,
   HomeTThreadIdForkRoute: HomeTThreadIdForkRoute,
   HomeTThreadIdAgentsAgentIdRoute: HomeTThreadIdAgentsAgentIdRoute,

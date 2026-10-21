@@ -174,18 +174,50 @@ test("an issue closed on its page has left the open list when going back", async
   await waitFor(async () => expect(await numbers("Issues")).toEqual(["235", "238"]));
 });
 
-test("a new issue is created on GitHub and opens as its own page", async () => {
+test("creating an issue from the New issue page opens it, and Back returns to the list", async () => {
   const app = withRepository();
   await app.open("/issues?project=ace");
   await userEvent.click(await screen.findByRole("button", { name: "New issue" }));
-  const dialog = await screen.findByRole("dialog");
+  const form = await screen.findByRole("article", { name: "New issue" });
+  // The list gives way to the page, as an issue's own page does.
+  expect(screen.queryByRole("navigation", { name: "Issues" })).toBeNull();
+  await userEvent.type(within(form).getByRole("textbox", { name: "Title" }), "Keyboard focus lost");
   await userEvent.type(
-    within(dialog).getByRole("textbox", { name: "Title" }),
-    "Keyboard focus lost",
+    within(form).getByRole("textbox", { name: "Description" }),
+    "- after closing a dialog{Enter}in the sidebar",
   );
-  await userEvent.click(within(dialog).getByRole("button", { name: /Create issue/ }));
+  await userEvent.click(within(form).getByRole("button", { name: /Create issue/ }));
   const page = await screen.findByRole("article", { name: "Issue #241" });
   expect(await within(page).findByRole("heading", { name: /Keyboard focus lost/ })).toBeTruthy();
+  // Enter carried the list on, so the description reads as two items.
+  expect((await within(page).findByText("in the sidebar")).closest("li")).not.toBeNull();
   await userEvent.click(within(page).getByRole("button", { name: "Back to issues" }));
   await waitFor(async () => expect(await numbers("Issues")).toContain("241"));
+});
+
+test("a draft survives leaving the New issue page and coming back, and is gone once created", async () => {
+  const app = withRepository();
+  await app.open("/issues?project=ace");
+  await userEvent.click(await screen.findByRole("button", { name: "New issue" }));
+  let form = await screen.findByRole("article", { name: "New issue" });
+  await userEvent.type(within(form).getByRole("textbox", { name: "Title" }), "Half a thought");
+  await userEvent.type(within(form).getByRole("textbox", { name: "Description" }), "More later");
+  await userEvent.click(within(form).getByRole("button", { name: "Back to issues" }));
+  await userEvent.click(await screen.findByRole("button", { name: "New issue" }));
+  form = await screen.findByRole("article", { name: "New issue" });
+  expect(within(form).getByRole<HTMLInputElement>("textbox", { name: "Title" }).value).toBe(
+    "Half a thought",
+  );
+  expect(
+    within(form).getByRole<HTMLTextAreaElement>("textbox", { name: "Description" }).value,
+  ).toBe("More later");
+  await userEvent.click(within(form).getByRole("button", { name: /Create issue/ }));
+  const page = await screen.findByRole("article", { name: "Issue #241" });
+  await userEvent.click(within(page).getByRole("button", { name: "Back to issues" }));
+  await userEvent.click(await screen.findByRole("button", { name: "New issue" }));
+  form = await screen.findByRole("article", { name: "New issue" });
+  expect(within(form).getByRole<HTMLInputElement>("textbox", { name: "Title" }).value).toBe("");
+  expect(
+    within(form).getByRole<HTMLTextAreaElement>("textbox", { name: "Description" }).value,
+  ).toBe("");
 });
