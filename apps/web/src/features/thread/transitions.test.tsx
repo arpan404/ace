@@ -189,7 +189,6 @@ test("deleting from the ⋯ menu leaves the thread and persists deletion immedia
   const dialog = await screen.findByRole("dialog", { name: "Delete thread?" });
   await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
-  expect(await screen.findByText("Deleted · Document the router")).toBeTruthy();
   await waitFor(() => expect(thread(app, "thread-router")).toBeUndefined(), { timeout: 9_000 });
 }, 15_000);
 

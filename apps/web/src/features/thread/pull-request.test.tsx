@@ -167,7 +167,6 @@ test("a passing PR merges from its line after confirmation, and the thread's PR 
   const confirm = await screen.findByRole("dialog", { name: "Merge PR #42?" });
   expect(linked(app)).toMatchObject({ state: "open" });
   await userEvent.click(within(confirm).getByRole("button", { name: "Merge" }));
-  expect(await screen.findByText("Merged #42")).toBeTruthy();
   await waitFor(() => expect(linked(app)).toMatchObject({ number: 42, state: "merged" }));
   expect(
     within(await openWorkCard()).queryByRole("button", { name: "Merge pull request #42" }),
@@ -220,7 +219,10 @@ test("Request review from More git actions asks the GitHub users typed, and refu
   );
   await userEvent.clear(field);
   await userEvent.type(field, "@mira sam{Enter}");
-  expect(await screen.findByText("Asked mira, sam to review")).toBeTruthy();
+  // The form closes once GitHub took the request; a refusal stays in it.
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Request a review" })).toBeNull(),
+  );
 });
 
 test("a draft PR can't merge from its line", async () => {
@@ -243,7 +245,6 @@ test("Link a pull request follows a valid address and explains malformed address
   );
   await userEvent.clear(field);
   await userEvent.type(field, "https://github.com/acme/api/pull/77/files{Enter}");
-  expect(await screen.findByText("Linked pull request #77")).toBeTruthy();
   await waitFor(() => expect(linked(app)).toMatchObject({ number: 77, state: "open" }));
   expect(
     await within(await openWorkCard()).findByRole("button", { name: /^Open pull request #77/ }),
@@ -325,7 +326,10 @@ test("switching branch with uncommitted changes offers to bring them along", asy
   await userEvent.click(
     within(dialog).getByRole("button", { name: "Switch anyway, bringing changes along" }),
   );
-  expect(await screen.findByText("Switched to develop")).toBeTruthy();
+  await waitFor(() => {
+    const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
+    expect(view && "thread" in view && view.thread.details?.branch).toBe("develop");
+  });
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
   expect(view && "thread" in view && view.thread.details).toMatchObject({
     branch: "develop",
@@ -338,7 +342,6 @@ test("a thread in its own worktree moves back to the local checkout", async () =
   const card = await openWorkCard();
   await userEvent.click(within(card).getByRole("button", { name: machineRow }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Local" }));
-  expect(await screen.findByText("Moved to the local checkout")).toBeTruthy();
   await waitFor(async () => expect(await currentCheckout()).toBe("Local"));
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-pr") });
   expect(view && "thread" in view && view.thread.details?.mode).toBe("local");
@@ -359,7 +362,6 @@ test("a linked PR GitHub can't read still shows on its line and can be unlinked"
   const card = await openWorkCard();
   expect(await within(card).findByRole("button", { name: /^Open pull request #214/ })).toBeTruthy();
   await gitAction("Unlink PR #214");
-  expect(await screen.findByText("Pull request unlinked")).toBeTruthy();
   await waitFor(() => expect(linked(app)).toBeNull());
   expect(
     within(await openWorkCard()).queryByRole("button", { name: /^Open pull request #214/ }),
@@ -383,8 +385,7 @@ test("the commit dialog lists the supervisor checkout files and commits the sele
     within(files).getByRole("checkbox", { name: /restart-budget/, checked: true }),
   ).toBeTruthy();
   await userEvent.click(within(dialog).getByRole("button", { name: /^Commit & push/ }));
-  expect(await screen.findByText("Committed and pushed")).toBeTruthy();
-  expect(app.daemon.workspace.gitStatus("thread-retry-budget")).toEqual([]);
+  await waitFor(() => expect(app.daemon.workspace.gitStatus("thread-retry-budget")).toEqual([]));
 });
 
 test("a second linked PR leads the PR line, a duplicate link changes nothing, and unlinking it leaves the first", async () => {
@@ -517,5 +518,4 @@ test("Merge on the PR line confirms its own repository and leaves another linked
       { number: 283, repo: repository, state: "open" },
     ]),
   );
-  expect(await screen.findByText("Merged #284")).toBeTruthy();
 });

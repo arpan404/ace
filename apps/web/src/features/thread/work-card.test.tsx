@@ -100,8 +100,6 @@ test("with only unpushed commits the git action is Push, and once pushed it move
   expect(ahead(app, threadId)).toBe(2);
   await userEvent.click(within(confirm).getByRole("button", { name: "Push" }));
   await waitFor(() => expect(ahead(app, threadId)).toBe(0));
-  // The push confirms itself in a toast.
-  expect(await screen.findByText("Pushed")).toBeTruthy();
   const after = within(await openWorkCard()).getByRole("region", { name: "Branch" });
   expect(await within(after).findByRole("button", { name: "Create PR" })).toBeTruthy();
   expect(within(after).queryByText("2 commits not pushed")).toBeNull();

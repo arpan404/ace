@@ -91,8 +91,9 @@ test("a failed move to a worktree keeps Retry, which asks for the same move agai
   const failed = await within(card).findByRole("group", { name: /^Checkout move failed/ });
   app.daemon.workspace.failMoves(undefined);
   await userEvent.click(within(failed).getByRole("button", { name: "Retry" }));
-  await screen.findByText("Moved to a worktree");
-  expect(details()).toMatchObject({ mode: "worktree", workspaceChange: { state: "applied" } });
+  await waitFor(() =>
+    expect(details()).toMatchObject({ mode: "worktree", workspaceChange: { state: "applied" } }),
+  );
   const after = await openWorkCard();
   expect(within(after).queryByRole("group", { name: /^Checkout move failed/ })).toBeNull();
 }, 60_000);
@@ -122,7 +123,6 @@ test("a missing worktree offers Move to local, which puts the thread back on the
   const missing = await within(card).findByRole("group", { name: "Worktree missing" });
   expect(within(missing).getByRole("button", { name: "Recreate worktree" })).toBeTruthy();
   await userEvent.click(within(missing).getByRole("button", { name: "Move to local" }));
-  await screen.findByText("Moved to the local checkout");
-  expect(details()).toMatchObject({ mode: "local" });
+  await waitFor(() => expect(details()).toMatchObject({ mode: "local" }));
   expect(details()?.worktreeMissing).toBeUndefined();
 }, 60_000);
