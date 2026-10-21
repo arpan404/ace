@@ -47,7 +47,7 @@ test("a large text file reads in pages from its blob, and a second read asks Git
   }
 });
 
-test("images come back as bytes, other binaries and oversized files only by size", async () => {
+test("an image comes back as bytes, other binaries and oversized files only by size", async () => {
   const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 1, 2]);
   const f = await fakeGh({
     [contents("assets/logo.png")]: [inline(png)],
@@ -57,12 +57,19 @@ test("images come back as bytes, other binaries and oversized files only by size
     ],
   });
   try {
-    expect(await f.forge.fileContent({ sha, path: "assets/logo.png", page: 1 }, signal())).toEqual({
+    const image = { sha, path: "assets/logo.png", page: 1, image: "image/png" as const };
+    expect(await f.forge.fileContent(image, signal())).toEqual({
       kind: "image",
       type: "image/png",
       data: png.toString("base64"),
       size: png.length,
     });
+    // The same bytes asked for as text are binary, read from what was kept.
+    expect(await f.forge.fileContent({ ...image, image: undefined }, signal())).toEqual({
+      kind: "binary",
+      size: png.length,
+    });
+    expect((await f.requests()).filter((request) => request.path.includes("logo"))).toHaveLength(1);
     expect(await f.forge.fileContent({ sha, path: "bin/tool", page: 1 }, signal())).toEqual({
       kind: "binary",
       size: 7,

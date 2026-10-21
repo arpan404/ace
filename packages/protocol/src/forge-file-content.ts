@@ -57,6 +57,8 @@ export const ForgeFileContentOperations = [
     sha,
     path: z.string().min(1).max(4_096),
     page: z.number().int().min(1).max(16).default(1),
+    /** Read the bytes as this image type, rather than as text. */
+    image: ForgeImageType.optional(),
   }),
 ] as const;
 

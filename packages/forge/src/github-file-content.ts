@@ -25,33 +25,19 @@ const Blob = z.looseObject({
   content: z.string(),
 });
 
-/** A side read whole: what the pages of a text are cut from. */
+/** A side read whole, kept by commit and path: content at a commit never changes. */
 type Whole =
-  | { kind: "text"; text: string; size: number }
-  | { kind: "image"; type: ForgeImageType; data: string; size: number }
-  | { kind: "binary"; size: number }
+  | {
+      kind: "bytes";
+      bytes: Buffer;
+      /** Decoded once asked for as text; null when the bytes aren't text. */
+      text?: string | null;
+    }
   | { kind: "large"; size: number }
   | { kind: "missing" };
 
-const imageTypes: Record<string, ForgeImageType> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  bmp: "image/bmp",
-  ico: "image/x-icon",
-  avif: "image/avif",
-};
-/** Decoded sides kept, by commit and path: content at a commit never changes. */
 const cacheBytes = 33_554_432;
 const strict = new TextDecoder("utf-8", { fatal: true });
-
-/** The image type a path's extension names, if the page can draw it. */
-export function imageTypeOf(path: string): ForgeImageType | undefined {
-  const dot = path.lastIndexOf(".");
-  return dot < 0 ? undefined : imageTypes[path.slice(dot + 1).toLowerCase()];
-}
 
 /** A repository path as URL segments; `.`, `..` and empty segments could leave the repository. */
 function encodedPath(path: string): string {
@@ -61,21 +47,19 @@ function encodedPath(path: string): string {
   return segments.map(encodeURIComponent).join("/");
 }
 
-function classify(path: string, bytes: Buffer): Whole {
-  const size = bytes.length;
-  const image = imageTypeOf(path);
-  if (image) return { kind: "image", type: image, data: bytes.toString("base64"), size };
-  // Git's own test: a NUL in the first 8,000 bytes. Text that isn't UTF-8 is shown as binary.
-  if (bytes.subarray(0, 8_000).includes(0)) return { kind: "binary", size };
+/** Git's own test (a NUL in the first 8,000 bytes), and text must be UTF-8. Null: binary. */
+function decode(bytes: Buffer): string | null {
+  if (bytes.subarray(0, 8_000).includes(0)) return null;
   try {
-    return { kind: "text", text: redact(strict.decode(bytes)), size };
+    return redact(strict.decode(bytes));
   } catch {
-    return { kind: "binary", size };
+    return null;
   }
 }
 
+// Kept bytes, and their text once decoded (two bytes a unit, as JavaScript holds it).
 const weigh = (whole: Whole) =>
-  whole.kind === "text" ? whole.text.length * 2 : whole.kind === "image" ? whole.data.length : 64;
+  whole.kind === "bytes" ? whole.bytes.length + (whole.text?.length ?? 0) * 2 : 64;
 
 /**
  * One side of a changed file, for the diffs GitHub withholds (large or binary patches, and files
@@ -91,23 +75,34 @@ export class GitHubFileContent {
     this.#api = api;
     this.#root = root;
   }
+  /** `image` asks for the bytes as that image type; otherwise text, or that it is binary. */
   async read(
-    input: { sha: string; path: string; page: number },
+    input: { sha: string; path: string; page: number; image?: ForgeImageType | undefined },
     signal: AbortSignal,
   ): Promise<ForgeFileContent> {
-    const whole = await this.#whole(sha.parse(input.sha), input.path, signal);
-    if (whole.kind !== "text") return whole;
+    const commit = sha.parse(input.sha);
+    const key = `${commit}:${input.path}`;
+    const whole = await this.#whole(key, commit, input.path, signal);
+    if (whole.kind !== "bytes") return whole;
+    const size = whole.bytes.length;
+    if (input.image)
+      return { kind: "image", type: input.image, data: whole.bytes.toString("base64"), size };
+    let text = whole.text;
+    if (text === undefined) {
+      text = decode(whole.bytes);
+      this.#keep(key, { ...whole, text });
+    }
+    if (text === null) return { kind: "binary", size };
     const start = (input.page - 1) * forgeFileTextPage;
     const end = start + forgeFileTextPage;
     return {
       kind: "text",
-      text: whole.text.slice(start, end),
-      size: whole.size,
-      ...(end < whole.text.length ? { nextPage: input.page + 1 } : {}),
+      text: text.slice(start, end),
+      size,
+      ...(end < text.length ? { nextPage: input.page + 1 } : {}),
     };
   }
-  async #whole(commit: string, path: string, signal: AbortSignal): Promise<Whole> {
-    const key = `${commit}:${path}`;
+  async #whole(key: string, commit: string, path: string, signal: AbortSignal): Promise<Whole> {
     const known = this.#cache.get(key);
     if (known) {
       this.#cache.delete(key);
@@ -133,18 +128,19 @@ export class GitHubFileContent {
     const parsed = Entry.safeParse(body);
     if (!parsed.success) throw new ForgeError("invalid_data");
     const entry = parsed.data;
+    // A link's content is the path it names.
     if (entry.type === "symlink" && entry.target !== undefined)
-      return { kind: "text", text: entry.target, size: Buffer.byteLength(entry.target) };
+      return { kind: "bytes", bytes: Buffer.from(entry.target) };
     if (entry.type !== "file") return { kind: "missing" };
     if (entry.size > forgeFileMaxBytes) return { kind: "large", size: entry.size };
     if (entry.encoding === "base64" && entry.content !== undefined)
-      return classify(path, Buffer.from(entry.content, "base64"));
+      return { kind: "bytes", bytes: Buffer.from(entry.content, "base64") };
     // Over 1 MB the contents API leaves the bytes out; the blob carries them.
     const blob = Blob.safeParse(
       (await this.#api.request(`${this.#root}/git/blobs/${entry.sha}`, signal)).body,
     );
     if (!blob.success || blob.data.sha !== entry.sha) throw new ForgeError("invalid_data");
-    return classify(path, Buffer.from(blob.data.content, "base64"));
+    return { kind: "bytes", bytes: Buffer.from(blob.data.content, "base64") };
   }
   #keep(key: string, whole: Whole): void {
     const kept = this.#cache.get(key);

@@ -135,6 +135,9 @@
         },
         {
           "properties": {
+            "image": {
+              "$ref": "https://ace.local/protocol/v1/ForgeImageType.json"
+            },
             "op": {
               "const": "forge.file.content",
               "type": "string"

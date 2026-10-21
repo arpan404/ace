@@ -257,7 +257,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
   ) {
     return this.#browser.files(input, signal);
   }
-  fileContent(input: { sha: string; path: string; page: number }, signal: AbortSignal) {
+  fileContent(input: Parameters<GitHubFileContent["read"]>[0], signal: AbortSignal) {
     return this.#content.read(input, signal);
   }
   async states(numbers: readonly number[], signal: AbortSignal) {
