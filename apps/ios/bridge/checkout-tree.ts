@@ -35,15 +35,18 @@ export function checkoutTree(
   const deleted = changes.filter((change) => change.status === "deleted").map((each) => each.path);
   const tree = buildFileTree([...paths, ...deleted]);
   const rows = checkoutTreeRows(tree, () => true).map(({ node, depth }): TreeRow => {
-    const change = status.get(node.path);
-    const mark = change ? changeLetters[change] : undefined;
-    return {
+    const row: TreeRow = {
       path: node.path,
       name: node.name,
       depth,
       folder: node.kind === "folder",
-      ...(mark ? { mark: mark.letter, markLabel: mark.label } : {}),
     };
+    const change = status.get(node.path);
+    if (change) {
+      row.mark = changeLetters[change].letter;
+      row.markLabel = changeLetters[change].label;
+    }
+    return row;
   });
   const open = new Set<string>();
   for (const change of changes) for (const folder of ancestorFolders(change.path)) open.add(folder);

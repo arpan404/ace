@@ -1,4 +1,6 @@
+// oxlint-disable-next-line typescript/triple-slash-reference -- Prism's grammar modules ship no
 /// <reference path="./prism.d.ts" />
+// types; this pulls their declarations into whichever program (web, iOS bridge) imports it.
 // oxlint-disable import/no-unassigned-import -- Each grammar registers itself on Prism.
 // Imported only after the host disables Prism's automatic DOM/worker handlers.
 import Prism from "prismjs/components/prism-core.js";

@@ -107,24 +107,22 @@ export function resolveFileReference(path: string, candidates: readonly string[]
  * The local path a message's link names: a `file:` URL's path, or the target itself with any
  * `:line:col` suffix cut. Undefined for a web or other scheme's link, or a remote `file:` host.
  */
-export function localLinkPath(reference: string): string | undefined {
+export function localLinkPath(target: string): string | undefined {
   try {
-    if (reference.startsWith("file:")) {
-      const url = new URL(reference);
+    if (target.startsWith("file:")) {
+      const url = new URL(target);
       if (url.host && url.host !== "localhost") return;
       return decodeURIComponent(url.pathname);
     }
-    return /^[a-z][a-z\d+.-]*:/i.test(reference)
-      ? undefined
-      : reference.replace(/:\d+(?::\d+)?$/, "");
+    return /^[a-z][a-z\d+.-]*:/i.test(target) ? undefined : target.replace(/:\d+(?::\d+)?$/, "");
   } catch {
     return;
   }
 }
 
 /** The line a link's `:line` or `:line:col` suffix names. */
-export function localLinkLine(reference: string): number | undefined {
-  const match = /:(\d{1,7})(?::\d+)?$/.exec(reference);
+export function localLinkLine(target: string): number | undefined {
+  const match = /:(\d{1,7})(?::\d+)?$/.exec(target);
   return match?.[1] ? Number(match[1]) || undefined : undefined;
 }
 
