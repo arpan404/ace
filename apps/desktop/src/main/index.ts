@@ -52,6 +52,13 @@ import { windowBackground, WindowBackgroundStore } from "./window/window-backgro
 /** Set at build time; unpackaged runs have no app package.json for `app.getVersion()`. */
 declare const ACE_APP_VERSION: string;
 
+const timers = {
+  set(delayMs: number, callback: () => void) {
+    const timer = setTimeout(callback, delayMs);
+    return () => clearTimeout(timer);
+  },
+};
+
 const paths = appPaths({
   appDirectory: import.meta.dirname,
   packaged: app.isPackaged,
@@ -94,13 +101,6 @@ if (unsafe) {
       crashDumps,
     );
 }
-
-const timers = {
-  set(delayMs: number, callback: () => void) {
-    const timer = setTimeout(callback, delayMs);
-    return () => clearTimeout(timer);
-  },
-};
 
 function isDirectory(path: string): boolean {
   try {
